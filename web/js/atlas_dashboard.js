@@ -69,6 +69,7 @@
     planItemImpactMap: null,
     contextRefreshV2: null,
     plannerPackagingV2: null,
+    verificationRecommendation: null,
     repoContextSubmitting: false,
   };
 
@@ -1416,16 +1417,19 @@ ${preview}`;
     if (!payload.project_path) {
       state.planItemImpactMap = { status: 'error', message: 'project_path is required' };
       renderPlanItemImpactMapPanel();
+    renderVerificationRecommendationPanel();
     renderContextRefreshV2Panel();
       return;
     }
     state.repoContextSubmitting = true;
     renderPlanItemImpactMapPanel();
+    renderVerificationRecommendationPanel();
     const response = await root.AtlasPipelineAPI.getRepoContextPlanItemImpactMap(payload);
     const mapPayload = response?.data || response || {};
     state.planItemImpactMap = mapPayload;
     state.repoContextSubmitting = false;
     renderPlanItemImpactMapPanel();
+    renderVerificationRecommendationPanel();
   }
 
   async function queryRepoContextImpactedTestsFromUI() {
@@ -1435,6 +1439,42 @@ ${preview}`;
     state.repoContextSubmitting = false; renderRepoContextTestsPanel();
   }
 
+
+
+  function renderVerificationRecommendationPanel() {
+    const summary = $('atlas-verification-recommendation-summary');
+    const result = $('atlas-verification-recommendation-result');
+    const payload = state.verificationRecommendation?.data || state.verificationRecommendation || {};
+    const status = payload.status || (state.repoContextSubmitting ? 'submitting' : 'idle');
+    if (summary) summary.textContent = `status: ${status} / confidence: ${payload.confidence || '-'} / impacted_files: ${(payload.impacted_files || []).length} / related_tests: ${(payload.related_tests || []).length} / recommended_commands: ${(payload.recommended_commands || []).length} / executed: false`;
+    if (result) result.textContent = JSON.stringify(state.verificationRecommendation || {}, null, 2);
+  }
+
+  async function queryVerificationRecommendationFromUI() {
+    if (typeof root.AtlasPipelineAPI?.getVerificationRecommendation !== 'function') return;
+    const payload = buildRepoContextPayloadFromUI();
+    payload.plan_pool = currentPlanPoolPayload();
+    payload.planner_packaging_v2 = state.plannerPackagingV2?.data || state.plannerPackagingV2 || {};
+    payload.planner_context_text_v2 = payload.planner_packaging_v2?.planner_context_text || '';
+    payload.pool_id = state.currentPoolId || '';
+    payload.goal = state.goalInput || '';
+    if (!payload.project_path) {
+      state.verificationRecommendation = { status: 'error', message: 'project_path is required' };
+      renderVerificationRecommendationPanel();
+      return;
+    }
+    state.repoContextSubmitting = true;
+    renderVerificationRecommendationPanel();
+    try {
+      const response = await root.AtlasPipelineAPI.getVerificationRecommendation(payload);
+      const data = response?.data || response || {};
+      state.verificationRecommendation = data;
+      renderVerificationRecommendationPanel();
+    } finally {
+      state.repoContextSubmitting = false;
+      renderVerificationRecommendationPanel();
+    }
+  }
 
   function renderPlannerPackagingV2Panel() {
     const summary = $('atlas-planner-packaging-v2-summary');
@@ -1496,17 +1536,20 @@ ${preview}`;
       state.repoContextVerificationPlan = { status: 'error', message: 'project_path is required' };
       renderRepoContextVerificationPlanPanel();
     renderPlanItemImpactMapPanel();
+    renderVerificationRecommendationPanel();
       return;
     }
     state.repoContextSubmitting = true;
     renderRepoContextVerificationPlanPanel();
     renderPlanItemImpactMapPanel();
+    renderVerificationRecommendationPanel();
     const response = await root.AtlasPipelineAPI.getRepoContextVerificationPlan(payload);
     const planPayload = response?.data || response || {};
     state.repoContextVerificationPlan = planPayload;
     state.repoContextSubmitting = false;
     renderRepoContextVerificationPlanPanel();
     renderPlanItemImpactMapPanel();
+    renderVerificationRecommendationPanel();
   }
 
   
@@ -1581,11 +1624,13 @@ function bindOperatorLoop(){ loadOperatorLoopState(); ['pool-id','run-id','revie
     $('atlas-plan-item-impact-map-btn')?.addEventListener('click', queryPlanItemImpactMapFromUI);
     $('atlas-context-refresh-v2-btn')?.addEventListener('click', queryContextRefreshV2FromUI);
     $('atlas-planner-packaging-v2-btn')?.addEventListener('click', queryPlannerPackagingV2FromUI);
+    $('atlas-verification-recommendation-btn')?.addEventListener('click', queryVerificationRecommendationFromUI);
     renderRepoIndexPanel();
     renderRepoContextPanel();
     renderRepoContextTestsPanel();
     renderRepoContextVerificationPlanPanel();
     renderPlanItemImpactMapPanel();
+    renderVerificationRecommendationPanel();
     if (details) {
       details.addEventListener('toggle', () => {
         state.advancedOpen = details.open;

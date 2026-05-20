@@ -157,3 +157,5 @@ Next PR:
 - no execution
 
 - Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
+
+- Next PR pointer updated to PR-ATLAS-SCALE-69 for verification recommendation handoff metadata.

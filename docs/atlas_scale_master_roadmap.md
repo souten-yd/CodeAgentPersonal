@@ -214,3 +214,5 @@ Known Current Code Facts:
 - Planner Packaging v2 remains advisory-only and manual-only.
 - Planner Packaging v2 uses Context Refresh v2 and PlanItem Impact Map.
 - No execution semantics added.
+
+- Next PR pointer updated to PR-ATLAS-SCALE-69 for verification recommendation handoff metadata.

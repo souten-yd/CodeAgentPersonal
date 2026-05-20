@@ -317,6 +317,12 @@
     getPlannerPackagingV2(payload) {
       return atlasFetch('/api/atlas/repo-context/planner-packaging-v2', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    getVerificationRecommendation(payload) {
+      return atlasFetch('/api/atlas/repo-context/verification-recommendation', {
+        method: 'POST',
+        body: JSON.stringify(payload || {})
+      });
+    },
     getRepoContextImpactedTests(payload) {
       return atlasFetch('/api/atlas/repo-context/impacted-tests', {
         method: 'POST',

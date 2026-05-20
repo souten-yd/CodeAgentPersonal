@@ -61,6 +61,8 @@ from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapServi
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
 from agent.atlas_planner_packaging_v2_service import AtlasPlannerPackagingV2Service
 from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Request
+from agent.atlas_verification_recommendation_schema import AtlasVerificationRecommendationRequest
+from agent.atlas_verification_recommendation_service import AtlasVerificationRecommendationService
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
@@ -556,6 +558,41 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
             plan_item_impact_map_payload = AtlasPlanItemImpactMapService(data_root=ca_data_root).build_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=pool.pool_id, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context, plan_pool=_model_dump(pool))).model_dump()
         except Exception:
             plan_item_impact_map_payload = {"status": "missing", "metadata": {"advisory_only": True, "executed": False, "auto_verification_triggered": False, "auto_test_execution_triggered": False}}
+
+    if req.enable_repo_context and (req.project_path or "").strip() and pool:
+        try:
+            verification_recommendation_payload = AtlasVerificationRecommendationService(data_root=ca_data_root).recommend(
+                AtlasVerificationRecommendationRequest(
+                    workspace_id=req.workspace_id,
+                    project_path=req.project_path,
+                    pool_id=pool.pool_id,
+                    goal=root_goal,
+                    changed_files=changed_files_for_context,
+                    target_files=target_files_for_context,
+                    plan_pool=_model_dump(pool),
+                    planner_packaging_v2=planner_packaging_v2_payload or {},
+                    planner_context_text_v2=planner_context_text_v2,
+                    include_planner_packaging_v2=True,
+                    allow_build_if_missing=False,
+                )
+            ).model_dump()
+        except Exception:
+            verification_recommendation_payload = {"status": "failed", "confidence": "unknown", "warnings": ["verification_recommendation_failed"], "metadata": {"advisory_only": True, "executed": False, "auto_verification_triggered": False, "auto_test_execution_triggered": False, "commands_are_suggestions_only": True}}
+        pool.metadata["verification_recommendation"] = {
+            "status": verification_recommendation_payload.get("status", "missing"),
+            "confidence": verification_recommendation_payload.get("confidence", "unknown"),
+            "impacted_files": list(verification_recommendation_payload.get("impacted_files", []))[:30],
+            "related_tests": list(verification_recommendation_payload.get("related_tests", []))[:20],
+            "recommended_commands": list(verification_recommendation_payload.get("recommended_commands", []))[:5],
+            "manual_verification_steps": list(verification_recommendation_payload.get("manual_verification_steps", []))[:10],
+            "ci_selection_hints_count": len(list(verification_recommendation_payload.get("ci_selection_hints", []))),
+            "evidence_count": len(list(verification_recommendation_payload.get("evidence", []))),
+            "advisory_only": True,
+            "executed": False,
+            "auto_verification_triggered": False,
+            "auto_test_execution_triggered": False,
+            "commands_are_suggestions_only": True,
+        }
 
     if planner_packaging_v2_payload:
         pool.metadata["planner_packaging_v2"] = {"status": planner_packaging_v2_payload.get("status", "missing"), "confidence": planner_packaging_v2_payload.get("confidence", "unknown"), "impacted_files": list(planner_packaging_v2_payload.get("impacted_files", []))[:30], "related_tests": list(planner_packaging_v2_payload.get("related_tests", []))[:20], "recommended_commands": list(planner_packaging_v2_payload.get("recommended_commands", []))[:5], "context_sections": len(list(planner_packaging_v2_payload.get("context_sections", []))), "evidence": len(list(planner_packaging_v2_payload.get("evidence", []))), "advisory_only": True, "executed": False, "auto_verification_triggered": False, "auto_test_execution_triggered": False}
