@@ -1310,3 +1310,14 @@ async function runContextRefreshFromUI() {
 
 // Bounded Retry minimal UI marker
 window.__atlasBoundedRetrySafety = ["No auto rollback", "No auto restore", "No patch regeneration", "Verification rerun only"];
+
+(function(){
+  if (!window.AtlasDashboard) return;
+  const state = window.AtlasDashboard.state || (window.AtlasDashboard.state = {});
+  state.latestRepoIndex = null;
+  function gid(id){ return document.getElementById(id); }
+  async function runBuild(){ const api=window.AtlasPipelineAPI; if(!api) return; const payload={project_path:(gid('atlas-repo-index-project-path')||{}).value||'.'}; const res=await api.buildRepoIndex(payload); state.latestRepoIndex=res.data||null; if(gid('atlas-repo-index-result')) gid('atlas-repo-index-result').textContent=JSON.stringify(res.data||res,null,2);} 
+  async function runLatest(){ const api=window.AtlasPipelineAPI; if(!api) return; const payload={project_path:(gid('atlas-repo-index-project-path')||{}).value||'.'}; const res=await api.getLatestRepoIndex(payload); state.latestRepoIndex=res.data||null; if(gid('atlas-repo-index-result')) gid('atlas-repo-index-result').textContent=JSON.stringify(res.data||res,null,2);} 
+  const b=gid('atlas-repo-index-build-btn'); if (b) b.addEventListener('click', runBuild);
+  const l=gid('atlas-repo-index-latest-btn'); if (l) l.addEventListener('click', runLatest);
+})();
