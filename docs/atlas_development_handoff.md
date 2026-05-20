@@ -36,14 +36,14 @@
 ## 3. Current PR Pointer
 
 Current completed PR:
-- PR-ATLAS-SCALE-64B
+- PR-ATLAS-SCALE-65B
 - Historical marker: PR-ATLAS-SCALE-63B
 
 Current docs PR:
 - PR-ATLAS-DOCS-ROADMAP-02
 
 Next implementation PR:
-- PR-ATLAS-SCALE-65: PlanItem Impact Map
+- PR-ATLAS-SCALE-66: Context Refresh v2 using PlanItem Impact Map
 
 Known limitation:
 - PR-64 verification hints are still global-ish; PR-65 will map hints per PlanItem more precisely.
@@ -129,7 +129,7 @@ Known Current Code Facts:
 ## PR-ATLAS-SCALE-64
 - Completed: PR-ATLAS-SCALE-64
 - Current PR: PR-ATLAS-SCALE-64
-- Next PR: PR-ATLAS-SCALE-65: PlanItem Impact Map
+- Next PR: PR-ATLAS-SCALE-66: Context Refresh v2 using PlanItem Impact Map
 - Verification planning is advisory-only.
 - Suggested commands are never executed.
 - CI/test selection hints are local metadata only.
@@ -149,4 +149,4 @@ Current PR:
 - PR-ATLAS-DOCS-QUALITY-GATE-01
 
 Next PR:
-- PR-ATLAS-SCALE-64B: Fix verification-plan UI binding and strengthen PR-64 contracts
+- PR-ATLAS-SCALE-65B: Fix verification-plan UI binding and strengthen PR-64 contracts

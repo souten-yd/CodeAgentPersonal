@@ -69,4 +69,4 @@ def test_quality_gate_checkpoint_handoff_contract() -> None:
         "docs/atlas_scale_master_roadmap.md",
     ]
     for doc in docs:
-        _assert_contains(doc, ["PR-ATLAS-DOCS-QUALITY-GATE-01", "PR-ATLAS-SCALE-64B"])
+        _assert_contains(doc, ["PR-ATLAS-DOCS-QUALITY-GATE-01", "PR-ATLAS-SCALE-65B"])
