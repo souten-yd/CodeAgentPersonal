@@ -202,3 +202,9 @@ Next PR:
 - no PlanPool/patch/Guarded Loop integration yet.
 - Current PR: PR-ATLAS-SCALE-61B
 - Next PR: PR-ATLAS-SCALE-62: Use repo index in PlanPool scope analysis and context refresh
+
+Current PR:
+- PR-ATLAS-SCALE-62B
+
+Next PR:
+- PR-ATLAS-SCALE-63: Use repo context in planner prompt packaging and impacted-test recommendations
