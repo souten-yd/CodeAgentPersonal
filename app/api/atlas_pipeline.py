@@ -55,6 +55,8 @@ from agent.atlas_verification_allowlist import atlas_verification_allowlist
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
 from agent.atlas_repo_context_service import AtlasRepoContextService
 from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
+from agent.atlas_verification_planning_service import AtlasVerificationPlanningService
+from agent.atlas_verification_planning_schema import AtlasVerificationPlanningRequest
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
@@ -381,6 +383,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
     repo_context_package_payload: dict = {}
     planner_context_text: str = ""
     impacted_test_recommendation_payload: dict = {}
+    verification_plan_payload: dict = {}
 
     if req.plan_payload:
         payload = dict(req.plan_payload)
@@ -429,10 +432,12 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
                 repo_context_package_payload = pkg.model_dump()
                 planner_context_text = pkg.planner_context_text
                 impacted_test_recommendation_payload = packager.build_impacted_test_recommendation(repo_req).model_dump()
+                verification_plan_payload = AtlasVerificationPlanningService(data_root=ca_data_root).build_plan(AtlasVerificationPlanningRequest(workspace_id=req.workspace_id, project_path=req.project_path, goal=root_goal, changed_files=changed_files, target_files=target_files)).model_dump()
             except Exception:
                 repo_context_package_payload = {"status": "failed_internal", "confidence": "unknown"}
                 planner_context_text = "Repo Context status: failed_internal. Advisory only."
                 impacted_test_recommendation_payload = {"status": "missing", "executed": False}
+                verification_plan_payload = {"status":"missing","metadata":{"executed":False,"advisory_only":True,"auto_verification_triggered":False,"auto_test_execution_triggered":False}}
 
         bridge_result = bridge.create_plan_pool(
             AtlasPlannerBridgeRequest(
@@ -528,6 +533,17 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
             "related_tests": list(repo_context_package_payload.get("related_tests", []))[:30],
             "confidence": repo_context_package_payload.get("confidence", "unknown"),
         }
+    if verification_plan_payload:
+        pool.metadata["verification_plan"] = {
+            "status": verification_plan_payload.get("status", "missing"),
+            "related_tests": list(verification_plan_payload.get("related_tests", []))[:10],
+            "recommended_commands": list(verification_plan_payload.get("recommended_commands", []))[:5],
+            "manual_steps": list(verification_plan_payload.get("manual_verification_steps", []))[:5],
+            "ci_hints": list(verification_plan_payload.get("ci_selection_hints", []))[:5],
+            "executed": False, "advisory_only": True,
+            "auto_verification_triggered": False, "auto_test_execution_triggered": False,
+        }
+
     if impacted_test_recommendation_payload:
         pool.metadata["impacted_test_recommendation"] = {
             "status": impacted_test_recommendation_payload.get("status", "missing"),
@@ -545,6 +561,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
             }
             md["recommended_tests"] = list(impacted_test_recommendation_payload.get("related_tests", []))[:10]
             md["recommended_test_commands"] = list(impacted_test_recommendation_payload.get("recommended_commands", []))[:5]
+            md["verification_hints"] = {"related_tests": list(verification_plan_payload.get("related_tests", []))[:10], "recommended_commands": list(verification_plan_payload.get("recommended_commands", []))[:5], "manual_steps": list(verification_plan_payload.get("manual_verification_steps", []))[:5], "ci_hints": list(verification_plan_payload.get("ci_selection_hints", []))[:5], "executed": False, "advisory_only": True, "auto_verification_triggered": False, "auto_test_execution_triggered": False}
             item.metadata = md
     pool.metadata.update(
         {

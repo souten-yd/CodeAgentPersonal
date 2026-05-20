@@ -1525,3 +1525,14 @@ async function runContextRefreshFromUI() {
 
 // Bounded Retry minimal UI marker
 window.__atlasBoundedRetrySafety = ["No auto rollback", "No auto restore", "No patch regeneration", "Verification rerun only"];
+
+
+  const vpBtn = $("atlas-repo-context-verification-plan-btn");
+  if (vpBtn) vpBtn.addEventListener("click", async () => {
+    const payload = { project_path: state.projectPath || '', goal: $('atlas-goal-input')?.value || '', changed_files: [], target_files: [] };
+    const res = await window.AtlasPipelineAPI.getRepoContextVerificationPlan(payload);
+    const sum = $("atlas-repo-context-verification-plan-summary");
+    const out = $("atlas-repo-context-verification-plan-result");
+    if (sum) sum.textContent = `status=${res.status} related_tests=${(res.related_tests||[]).length}`;
+    if (out) out.textContent = JSON.stringify(res, null, 2);
+  });

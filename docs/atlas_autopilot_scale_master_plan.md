@@ -189,3 +189,14 @@ Known Current Code Facts:
 - Atlas development must follow constitution/preflight/postflight docs.
 - Future self-development requires snapshot/restore foundation before autonomous modification.
 
+
+
+## PR-ATLAS-SCALE-64
+- Completed: PR-ATLAS-SCALE-64
+- Current PR: PR-ATLAS-SCALE-64
+- Next PR: PR-ATLAS-SCALE-65: PlanItem Impact Map
+- Verification planning is advisory-only.
+- Suggested commands are never executed.
+- CI/test selection hints are local metadata only.
+- Missing Repo Index remains non-blocking.
+- No GitHub CI fetching or GitHub write operations are introduced.
