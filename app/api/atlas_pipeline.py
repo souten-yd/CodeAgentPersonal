@@ -52,6 +52,8 @@ from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_failure_stop_schema import AtlasFailureStopSuggestion
 from agent.atlas_failure_stop_service import AtlasFailureStopService
 from agent.atlas_verification_allowlist import atlas_verification_allowlist
+from agent.atlas_repo_context_schema import AtlasRepoContextRequest
+from agent.atlas_repo_context_service import AtlasRepoContextService
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
@@ -73,6 +75,10 @@ class CreatePlanPoolRequest(BaseModel):
     plan_payload: dict = Field(default_factory=dict)
     metadata: dict = Field(default_factory=dict)
     workspace_id: str = "default"
+    changed_files: list[str] = Field(default_factory=list)
+    target_files: list[str] = Field(default_factory=list)
+    enable_repo_context: bool = True
+    repo_context_mode: str = "scope_summary"
 
 
 class CreatePlanPoolResponse(BaseModel):
@@ -453,6 +459,33 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
         pool = bridge_result.pool
 
     pool.status = "ready"
+    if req.enable_repo_context and (req.project_path or "").strip():
+        try:
+            repo_context = AtlasRepoContextService(data_root=ca_data_root).build_plan_scope_summary(
+                AtlasRepoContextRequest(
+                    workspace_id=req.workspace_id,
+                    project_path=req.project_path,
+                    changed_files=req.changed_files,
+                    target_files=req.target_files,
+                    goal=root_goal,
+                    mode="scope_summary",
+                    allow_build_if_missing=False,
+                )
+            )
+            pool.metadata["repo_context"] = {
+                "status": repo_context.status,
+                "project_hash": (repo_context.repo_index_snapshot or {}).get("project_hash", ""),
+                "index_run_id": (repo_context.repo_index_snapshot or {}).get("index_run_id", ""),
+                "target_files": repo_context.target_files[:30],
+                "changed_files": repo_context.changed_files[:30],
+                "impacted_files": repo_context.impacted_files[:100],
+                "related_tests": repo_context.related_tests[:50],
+                "confidence": repo_context.confidence,
+                "warnings": ((repo_context.repo_index_snapshot or {}).get("warnings", [])[:10]),
+                "errors": ((repo_context.repo_index_snapshot or {}).get("errors", [])[:10]),
+            }
+        except Exception:
+            pool.metadata["repo_context"] = {"status": "failed_internal", "confidence": "unknown"}
     pool.metadata.update(
         {
             "api_created": True,

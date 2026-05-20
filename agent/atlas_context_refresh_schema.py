@@ -39,6 +39,7 @@ class AtlasContextRefreshRequest(BaseModel):
     workspace_id: str = "default"
     project_path: str = ""
     changed_files: list[str] = Field(default_factory=list)
+    target_files: list[str] = Field(default_factory=list)
     query: str = ""
     policy_id: str = "local_first_bounded"
     include_local_tools: bool = True
