@@ -387,6 +387,12 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
     impacted_test_recommendation_payload: dict = {}
     verification_plan_payload: dict = {}
     plan_item_impact_map_payload: dict = {}
+    changed_files_for_context = list(req.changed_files or [])
+    target_files_for_context = list(req.target_files or [])
+    if not changed_files_for_context and isinstance(req.metadata, dict):
+        changed_files_for_context = list(req.metadata.get("changed_files") or [])
+    if not target_files_for_context and isinstance(req.metadata, dict):
+        target_files_for_context = list(req.metadata.get("target_files") or [])
 
     if req.plan_payload:
         payload = dict(req.plan_payload)
@@ -415,17 +421,11 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
         )
         if req.enable_repo_context and (req.project_path or "").strip():
             try:
-                changed_files = list(req.changed_files or [])
-                target_files = list(req.target_files or [])
-                if not changed_files and isinstance(req.metadata, dict):
-                    changed_files = list(req.metadata.get("changed_files") or [])
-                if not target_files and isinstance(req.metadata, dict):
-                    target_files = list(req.metadata.get("target_files") or [])
                 repo_req = AtlasRepoContextRequest(
                     workspace_id=req.workspace_id,
                     project_path=req.project_path,
-                    changed_files=changed_files,
-                    target_files=target_files,
+                    changed_files=changed_files_for_context,
+                    target_files=target_files_for_context,
                     goal=root_goal,
                     allow_build_if_missing=False,
                     mode="scope_summary",
@@ -435,8 +435,8 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
                 repo_context_package_payload = pkg.model_dump()
                 planner_context_text = pkg.planner_context_text
                 impacted_test_recommendation_payload = packager.build_impacted_test_recommendation(repo_req).model_dump()
-                verification_plan_payload = AtlasVerificationPlanningService(data_root=ca_data_root).build_plan(AtlasVerificationPlanningRequest(workspace_id=req.workspace_id, project_path=req.project_path, goal=root_goal, changed_files=changed_files, target_files=target_files)).model_dump()
-                plan_item_impact_map_payload = AtlasPlanItemImpactMapService(data_root=ca_data_root).build_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=req.pool_id, goal=root_goal, changed_files=changed_files, target_files=target_files, plan_pool={})).model_dump()
+                verification_plan_payload = AtlasVerificationPlanningService(data_root=ca_data_root).build_plan(AtlasVerificationPlanningRequest(workspace_id=req.workspace_id, project_path=req.project_path, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context)).model_dump()
+                plan_item_impact_map_payload = AtlasPlanItemImpactMapService(data_root=ca_data_root).build_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=req.pool_id, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context, plan_pool={})).model_dump()
             except Exception:
                 repo_context_package_payload = {"status": "failed_internal", "confidence": "unknown"}
                 planner_context_text = "Repo Context status: failed_internal. Advisory only."
@@ -507,8 +507,8 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
                 AtlasRepoContextRequest(
                     workspace_id=req.workspace_id,
                     project_path=req.project_path,
-                    changed_files=req.changed_files,
-                    target_files=req.target_files,
+                    changed_files=changed_files_for_context,
+                    target_files=target_files_for_context,
                     goal=root_goal,
                     mode="scope_summary",
                     allow_build_if_missing=False,
@@ -539,7 +539,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
         }
     if req.enable_repo_context and (req.project_path or "").strip() and pool:
         try:
-            plan_item_impact_map_payload = AtlasPlanItemImpactMapService(data_root=ca_data_root).build_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=pool.pool_id, goal=root_goal, changed_files=changed_files, target_files=target_files, plan_pool=_model_dump(pool))).model_dump()
+            plan_item_impact_map_payload = AtlasPlanItemImpactMapService(data_root=ca_data_root).build_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=pool.pool_id, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context, plan_pool=_model_dump(pool))).model_dump()
         except Exception:
             plan_item_impact_map_payload = {"status": "missing", "metadata": {"advisory_only": True, "executed": False, "auto_verification_triggered": False, "auto_test_execution_triggered": False}}
 

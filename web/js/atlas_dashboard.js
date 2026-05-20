@@ -1399,10 +1399,16 @@ ${preview}`;
     if (summaryEl) summaryEl.textContent = `status: ${status} / items: ${(payload.impacts || []).length} / confidence: ${payload.confidence || '-'}`;
     if (resultEl) resultEl.textContent = JSON.stringify(state.planItemImpactMap || {}, null, 2);
   }
+
+  function currentPlanPoolPayload() {
+    const pool = state.planPool?.plan_pool || state.planPool || state.lastPlanResponse?.plan_pool || {};
+    return pool && typeof pool === 'object' ? pool : {};
+  }
+
   async function queryPlanItemImpactMapFromUI() {
     if (typeof root.AtlasPipelineAPI?.getRepoContextPlanItemImpactMap !== 'function') return;
     const payload = buildRepoContextPayloadFromUI();
-    payload.plan_pool = state.currentPlanPool || {};
+    payload.plan_pool = currentPlanPoolPayload();
     payload.pool_id = state.currentPoolId || '';
     payload.goal = state.goalInput || '';
     if (!payload.project_path) {
