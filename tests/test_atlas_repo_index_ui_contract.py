@@ -41,7 +41,7 @@ def test_repo_index_copy_is_atlas_only():
 
 def test_repo_index_cache_bust_21():
     text = UI_PATH.read_text(encoding='utf-8')
-    assert 'atlas-dashboard-22' in text
+    assert 'atlas-dashboard-23' in text
 
 
 def test_repo_index_helpers_exist_in_pipeline_api():
