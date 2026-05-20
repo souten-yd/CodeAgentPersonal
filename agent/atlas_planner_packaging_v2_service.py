@@ -8,6 +8,15 @@ from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapReques
 from agent.atlas_context_refresh_v2_service import AtlasContextRefreshV2Service
 from agent.atlas_context_refresh_v2_schema import AtlasContextRefreshV2Request
 
+def _impact_entry_files(item: dict) -> list[str]:
+    files = item.get("impacted_files")
+    if files is None:
+        files = item.get("impacted_paths")
+    return list(files or [])
+
+def _impact_entry_tests(item: dict) -> list[str]:
+    return list(item.get("related_tests") or [])
+
 def _dedup(xs):
     out=[]; seen=set()
     for x in xs or []:
@@ -32,8 +41,8 @@ class AtlasPlannerPackagingV2Service:
         if not refresh and req.include_context_refresh_v2 and req.plan_pool:
             try: refresh=AtlasContextRefreshV2Service(data_root=self.data_root).refresh(AtlasContextRefreshV2Request(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=req.pool_id, goal=req.goal, changed_files=req.changed_files, target_files=req.target_files, plan_pool=req.plan_pool, include_plan_item_impact_map=False)).model_dump()
             except Exception as e: warnings.append('context_refresh_v2_unavailable'); errors.append(str(e))
-        impacted=_dedup((repo.get('impacted_files') or [])+[p for i in impact.get('impacts',[]) for p in i.get('impacted_paths',[])])[:80]
-        related=_dedup((repo.get('related_tests') or [])+(refresh.get('related_tests') or []))[:50]
+        impacted=_dedup((repo.get('impacted_files') or [])+[p for i in impact.get('impacts',[]) for p in _impact_entry_files(i)])[:80]
+        related=_dedup((repo.get('related_tests') or [])+(refresh.get('related_tests') or [])+[t for i in impact.get('impacts',[]) for t in _impact_entry_tests(i)])[:50]
         cmds=_dedup((refresh.get('recommended_commands') or []))[:10]
         manual=_dedup((refresh.get('manual_verification_steps') or []))[:20]
         txt=("ADVISORY REPOSITORY CONTEXT — DO NOT EXECUTE\n"

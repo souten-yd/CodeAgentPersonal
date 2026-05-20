@@ -1445,28 +1445,30 @@ ${preview}`;
   }
 
   async function queryPlannerPackagingV2FromUI() {
-    const project_path = (($('atlas-project-path')?.value) || '').trim();
-    if (!project_path) {
-      const result = $('atlas-planner-packaging-v2-result');
-      if (result) result.textContent = 'project_path is required';
+    if (typeof root.AtlasPipelineAPI?.getPlannerPackagingV2 !== 'function') return;
+    const payload = buildRepoContextPayloadFromUI();
+    payload.plan_pool = currentPlanPoolPayload();
+    payload.plan_item_impact_map = state.planItemImpactMap?.data || state.planItemImpactMap || {};
+    payload.context_refresh_v2 = state.contextRefreshV2?.data || state.contextRefreshV2 || {};
+    payload.pool_id = state.currentPoolId || '';
+    payload.goal = state.goalInput || '';
+    if (!payload.project_path) {
+      state.plannerPackagingV2 = { status: 'error', message: 'project_path is required' };
+      renderPlannerPackagingV2Panel();
       return;
     }
-    const payload = {
-      workspace_id: workspaceId(),
-      project_path,
-      changed_files: currentChangedFiles(),
-      target_files: currentTargetFiles(),
-      plan_pool: currentPlanPoolPayload(),
-      plan_item_impact_map: state.planItemImpactMap?.data || state.planItemImpactMap || {},
-      context_refresh_v2: state.contextRefreshV2?.data || state.contextRefreshV2 || {},
-      pool_id: state.currentPoolId || '',
-      goal: state.goalInput || ''
-    };
-    const response = await root.AtlasPipelineAPI?.getPlannerPackagingV2(payload);
-    const data = response?.data || response || {};
-    state.plannerPackagingV2 = data;
+    state.repoContextSubmitting = true;
     renderPlannerPackagingV2Panel();
+    try {
+      const response = await root.AtlasPipelineAPI.getPlannerPackagingV2(payload);
+      const data = response?.data || response || {};
+      state.plannerPackagingV2 = data;
+    } finally {
+      state.repoContextSubmitting = false;
+      renderPlannerPackagingV2Panel();
+    }
   }
+
 
   function renderRepoContextPanel() {
     const statusEl = $('atlas-repo-context-status'); const summaryEl = $('atlas-repo-context-summary'); const resultEl = $('atlas-repo-context-result');

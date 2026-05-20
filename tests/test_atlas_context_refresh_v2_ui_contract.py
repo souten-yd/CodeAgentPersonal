@@ -18,7 +18,7 @@ def test_ui_chain_contract():
     assert 'atlas-context-refresh-v2-btn' in html
     assert 'atlas-context-refresh-v2-summary' in html
     assert 'atlas-context-refresh-v2-result' in html
-    assert 'atlas-dashboard-32' in html
+    assert 'atlas-dashboard-34' in html
     assert 'type="module"' not in html
 
     assert 'getContextRefreshV2(payload)' in api
