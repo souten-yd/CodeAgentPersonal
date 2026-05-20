@@ -41,7 +41,7 @@ def test_repo_index_copy_is_atlas_only():
 
 def test_repo_index_cache_bust_21():
     text = UI_PATH.read_text(encoding='utf-8')
-    assert 'atlas-dashboard-21' in text
+    assert 'atlas-dashboard-22' in text
 
 
 def test_repo_index_helpers_exist_in_pipeline_api():
@@ -56,6 +56,16 @@ def test_repo_index_helpers_exist_in_pipeline_api():
     ]
     for helper in required:
         assert helper in js
+
+    for endpoint in [
+        '/api/atlas/repo-index/policies',
+        '/api/atlas/repo-index/build',
+        '/api/atlas/repo-index/impacts',
+        '/api/atlas/repo-index/related-tests',
+        '/api/atlas/repo-index/latest',
+        '/api/atlas/repo-index/results/',
+    ]:
+        assert endpoint in js
 
 
 def test_repo_index_dashboard_bindings_exist():
