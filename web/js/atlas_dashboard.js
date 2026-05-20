@@ -65,6 +65,7 @@
     repoIndexSubmitting: false,
     repoContextSnapshot: null,
     repoContextScopeSummary: null,
+    repoContextVerificationPlan: null,
     repoContextSubmitting: false,
   };
 
@@ -1380,6 +1381,14 @@ ${preview}`;
     if (summaryEl) summaryEl.textContent = `tests_status: ${payload.status || (state.repoContextSubmitting ? 'submitting' : 'idle')} / related_tests: ${(payload.related_tests || []).length} / commands: ${(payload.recommended_commands || []).length} / confidence: ${payload.confidence || '-'} / executed: false`;
     if (resultEl) resultEl.textContent = JSON.stringify(state.repoContextImpactedTests || {}, null, 2);
   }
+  function renderRepoContextVerificationPlanPanel() {
+    const summaryEl = $('atlas-repo-context-verification-plan-summary');
+    const resultEl = $('atlas-repo-context-verification-plan-result');
+    const payload = (state.repoContextVerificationPlan?.data || state.repoContextVerificationPlan || {});
+    const status = payload.status || (state.repoContextSubmitting ? 'submitting' : 'idle');
+    if (summaryEl) summaryEl.textContent = `status: ${status} / related_tests: ${(payload.related_tests || []).length} / commands: ${(payload.recommended_commands || []).length} / confidence: ${payload.confidence || '-'}`;
+    if (resultEl) resultEl.textContent = JSON.stringify(state.repoContextVerificationPlan || {}, null, 2);
+  }
   async function queryRepoContextImpactedTestsFromUI() {
     if (typeof root.AtlasPipelineAPI?.getRepoContextImpactedTests !== 'function') return;
     state.repoContextSubmitting = true; renderRepoContextTestsPanel();
@@ -1405,6 +1414,22 @@ ${preview}`;
     state.repoContextSubmitting = true; renderRepoContextPanel();
     state.repoContextScopeSummary = await root.AtlasPipelineAPI.getRepoContextScopeSummary(buildRepoContextPayloadFromUI());
     state.repoContextSubmitting = false; renderRepoContextPanel();
+  }
+  async function queryRepoContextVerificationPlanFromUI() {
+    if (typeof root.AtlasPipelineAPI?.getRepoContextVerificationPlan !== 'function') return;
+    const payload = buildRepoContextPayloadFromUI();
+    if (!payload.project_path) {
+      state.repoContextVerificationPlan = { status: 'error', message: 'project_path is required' };
+      renderRepoContextVerificationPlanPanel();
+      return;
+    }
+    state.repoContextSubmitting = true;
+    renderRepoContextVerificationPlanPanel();
+    const response = await root.AtlasPipelineAPI.getRepoContextVerificationPlan(payload);
+    const planPayload = response?.data || response || {};
+    state.repoContextVerificationPlan = planPayload;
+    state.repoContextSubmitting = false;
+    renderRepoContextVerificationPlanPanel();
   }
 
   function bindOperatorLoop(){ loadOperatorLoopState(); ['pool-id','run-id','reviewer','reason'].forEach((k)=>{ const el=$('atlas-operator-loop-'+k); if(el) el.value=operatorLoopState[k.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]||''; }); const ct=$('atlas-operator-loop-confirmation-text'); if(ct) ct.value='EXECUTE ONE ACTION'; ['confirmation-token','confirmation-text','explicit-decision','pool-id','run-id','reviewer','reason'].forEach((k)=>$('atlas-operator-loop-'+k)?.addEventListener('input',()=>{operatorLoopReadInputs(); operatorLoopRender();})); $('atlas-operator-loop-build-queue-btn')?.addEventListener('click',operatorLoopBuildQueue); $('atlas-operator-loop-prepare-btn')?.addEventListener('click',operatorLoopPrepare); $('atlas-operator-loop-token-btn')?.addEventListener('click',operatorLoopToken); $('atlas-operator-loop-dry-run-btn')?.addEventListener('click',()=>operatorLoopExec(true)); $('atlas-operator-loop-execute-btn')?.addEventListener('click',()=>{ if(!operatorLoopCanExecute()) return; return operatorLoopExec(false);}); $('atlas-operator-loop-refresh-btn')?.addEventListener('click',operatorLoopRefresh); $('atlas-operator-loop-advance-btn')?.addEventListener('click',operatorLoopAdvanceToConfirmation); $('atlas-operator-loop-execute-refresh-btn')?.addEventListener('click',operatorLoopExecuteAndRefresh); $('atlas-operator-loop-copy-payload-btn')?.addEventListener('click',async ()=>{ const p=operatorLoopState.lastContractResult?.action_contract?.payload||{}; try{await navigator.clipboard.writeText(JSON.stringify(p,null,2));}catch(_e){} operatorLoopRender();}); $('atlas-operator-loop-reset-btn')?.addEventListener('click',()=>{ Object.assign(operatorLoopState,{poolId:'',runId:'',reviewer:'manual',reason:'',multiStatusRunId:'',orchestratorRunId:'',actionId:'',selectedItemId:'',selectedNextAction:'',actionKind:'',confirmationToken:'',confirmationText:'EXECUTE ONE ACTION',explicitDecision:'',dryRunExecutorRunId:'',executedExecutorRunId:'',postRefreshRunId:'',lastQueueResult:null,lastContractResult:null,lastDryRunResult:null,lastExecuteResult:null,lastRefreshResult:null}); try{localStorage.removeItem(operatorLoopStorageKey);}catch(_e){} ['queue','contract','executor','refresh','next-step'].forEach((x)=>{ const el=$('atlas-operator-loop-'+x+'-result')||$('atlas-operator-loop-'+x); if(el) el.textContent='';}); const tok=$('atlas-operator-loop-confirmation-token'); if(tok) tok.value=''; operatorLoopRender(); }); operatorLoopRender(); }
@@ -1444,9 +1469,11 @@ ${preview}`;
     $('atlas-repo-context-snapshot-btn')?.addEventListener('click', queryRepoContextSnapshotFromUI);
     $('atlas-repo-context-scope-btn')?.addEventListener('click', queryRepoContextScopeSummaryFromUI);
     $('atlas-repo-context-impacted-tests-btn')?.addEventListener('click', queryRepoContextImpactedTestsFromUI);
+    $('atlas-repo-context-verification-plan-btn')?.addEventListener('click', queryRepoContextVerificationPlanFromUI);
     renderRepoIndexPanel();
     renderRepoContextPanel();
     renderRepoContextTestsPanel();
+    renderRepoContextVerificationPlanPanel();
     if (details) {
       details.addEventListener('toggle', () => {
         state.advancedOpen = details.open;
@@ -1525,14 +1552,3 @@ async function runContextRefreshFromUI() {
 
 // Bounded Retry minimal UI marker
 window.__atlasBoundedRetrySafety = ["No auto rollback", "No auto restore", "No patch regeneration", "Verification rerun only"];
-
-
-  const vpBtn = $("atlas-repo-context-verification-plan-btn");
-  if (vpBtn) vpBtn.addEventListener("click", async () => {
-    const payload = { project_path: state.projectPath || '', goal: $('atlas-goal-input')?.value || '', changed_files: [], target_files: [] };
-    const res = await window.AtlasPipelineAPI.getRepoContextVerificationPlan(payload);
-    const sum = $("atlas-repo-context-verification-plan-summary");
-    const out = $("atlas-repo-context-verification-plan-result");
-    if (sum) sum.textContent = `status=${res.status} related_tests=${(res.related_tests||[]).length}`;
-    if (out) out.textContent = JSON.stringify(res, null, 2);
-  });
