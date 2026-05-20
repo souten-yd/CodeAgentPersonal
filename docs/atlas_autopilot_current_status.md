@@ -126,3 +126,13 @@
 
 - PR-ATLAS-SCALE-61: Persistent repo symbol index and incremental dependency graph (no execution semantics changes).
 - Next PR: PR-ATLAS-SCALE-62 for PlanPool scope/context refresh integration.
+
+
+- PR-ATLAS-SCALE-61B completes Repo Index UI/API helpers.
+- result endpoint returns saved artifact.
+- files.json / manifest.json now contain file nodes/hash records.
+- incremental update metadata added.
+- Repo Intelligence UI remains manual-only.
+- no PlanPool/patch/Guarded Loop integration yet.
+- Current PR: PR-ATLAS-SCALE-61B
+- Next PR: PR-ATLAS-SCALE-62: Use repo index in PlanPool scope analysis and context refresh
