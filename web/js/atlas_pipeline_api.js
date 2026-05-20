@@ -151,6 +151,9 @@
     getLatestContextRefresh(payload) {
       return atlasFetch('/api/atlas/context-refresh/latest', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    getContextRefreshV2(payload) {
+      return atlasFetch('/api/atlas/context-refresh/v2', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     getEvaluatorPolicies() {
       return atlasFetch('/api/atlas/evaluator/policies');
     },
