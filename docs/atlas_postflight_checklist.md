@@ -52,6 +52,33 @@ Every PR must update checkpoint docs:
 - docs/atlas_autopilot_scale_master_plan.md
 - docs/atlas_development_handoff.md if current/next PR changes
 
+
+## Adversarial Self-Review
+
+Required before PR completion:
+
+- List at least 5 ways the PR could be broken while weak tests still pass.
+- Confirm which test catches each broken case.
+- If any broken case is not caught, either add a test or list it as a known limitation.
+- For UI changes, verify:
+  - binding is inside bind/init
+  - binding is before final `})();`
+  - no IIFE-local variables are used outside the IIFE
+  - API response shape is unwrapped correctly
+  - cache bust updated
+- For API changes, verify:
+  - endpoint is registered
+  - request-aware data_root is used
+  - service receives data_root
+  - missing resources are tested
+  - safety flags are tested
+
+Required final report fields:
+- Runtime chain verified
+- Broken cases covered by tests
+- Adversarial self-review findings
+- Remaining untested gaps
+
 ## 6. Required PR Final Report
 
 Every PR report must include:

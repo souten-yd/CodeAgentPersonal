@@ -69,6 +69,33 @@ Confirm:
 - no shell=True
 - no remote git
 
+
+## Runtime Chain Test Design Preflight
+
+Required before implementation:
+
+1. Identify the exact runtime chain that must work.
+2. List at least 3 broken cases that the PR tests must catch.
+3. Write or update tests so those broken cases would fail.
+4. Do not rely on token/string presence alone.
+5. For UI changes, identify:
+   - DOM ID
+   - API helper
+   - dashboard function
+   - bind/init attachment point
+   - endpoint
+   - response unwrap
+   - render target
+   - cache bust
+6. For backend/API changes, identify:
+   - service constructor and injected data_root
+   - API endpoint
+   - router registration
+   - validation path
+   - missing resource behavior
+   - response metadata flags
+7. Stop implementation if the tests cannot distinguish a working runtime chain from a string-only placeholder.
+
 ## 6. Test Design Checklist
 
 Tests must not be placeholder-only.

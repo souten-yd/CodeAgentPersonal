@@ -37,6 +37,7 @@
 
 Current completed PR:
 - PR-ATLAS-SCALE-64B
+- Historical marker: PR-ATLAS-SCALE-63B
 
 Current docs PR:
 - PR-ATLAS-DOCS-ROADMAP-02
@@ -134,3 +135,18 @@ Known Current Code Facts:
 - CI/test selection hints are local metadata only.
 - Missing Repo Index remains non-blocking.
 - No GitHub CI fetching or GitHub write operations are introduced.
+
+
+## Atlas Quality Gate Update
+
+- Future Atlas PRs must follow runtime-chain contract-test rules.
+- String-only tests are insufficient.
+- UI features must verify DOM → API helper → dashboard binding → endpoint → response unwrap → render target.
+- Backend features must verify router → endpoint → request-aware data_root → service injection → response shape.
+- Every PR must include adversarial self-review.
+
+Current PR:
+- PR-ATLAS-DOCS-QUALITY-GATE-01
+
+Next PR:
+- PR-ATLAS-SCALE-64B: Fix verification-plan UI binding and strengthen PR-64 contracts

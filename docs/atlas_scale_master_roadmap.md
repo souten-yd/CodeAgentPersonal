@@ -189,3 +189,13 @@ Known Current Code Facts:
 - CI/test selection hints are local metadata only.
 - Missing Repo Index remains non-blocking.
 - No GitHub CI fetching or GitHub write operations are introduced.
+
+
+## PR-ATLAS-DOCS-QUALITY-GATE-01
+
+- Adds runtime-chain contract-test quality rules.
+- Requires adversarial self-review for all future Atlas PRs.
+- Prohibits string-only tests as sufficient completion evidence.
+- Requires UI runtime-chain checks for DOM/API/binding/endpoint/unwrap/render/cache-bust.
+- Requires backend runtime-chain checks for router/endpoint/data_root/service/response/safety flags.
+- Next PR: PR-ATLAS-SCALE-64B.
