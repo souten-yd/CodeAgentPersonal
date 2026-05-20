@@ -83,7 +83,7 @@ def test_repo_index_card_exists_in_real_ui_html():
 
 def test_repo_index_cache_bust_23():
     html = _text(UI_HTML)
-    assert 'atlas-dashboard-23' in html
+    assert 'atlas-dashboard-24' in html
     assert 'atlas-dashboard-22' not in html
 
 

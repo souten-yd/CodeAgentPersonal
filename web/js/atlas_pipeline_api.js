@@ -177,13 +177,6 @@
       return atlasFetch('/api/atlas/multi-item-autopilot/latest', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
     
-    getRepoIndexPolicies() { return atlasFetch('/api/atlas/repo-index/policies'); },
-    buildRepoIndex(payload) { return atlasFetch('/api/atlas/repo-index/build', { method: 'POST', body: JSON.stringify(payload || {}) }); },
-    getRepoIndexImpacts(payload) { return atlasFetch('/api/atlas/repo-index/impacts', { method: 'POST', body: JSON.stringify(payload || {}) }); },
-    getRepoIndexRelatedTests(payload) { return atlasFetch('/api/atlas/repo-index/related-tests', { method: 'POST', body: JSON.stringify(payload || {}) }); },
-    getLatestRepoIndex(payload) { return atlasFetch('/api/atlas/repo-index/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
-    getRepoIndexResult(projectHash, indexRunId) { return atlasFetch(`/api/atlas/repo-index/results/${encodeURIComponent(projectHash)}/${encodeURIComponent(indexRunId)}`); },
-
     submitClarificationAnswers(payload) {
       return atlasFetch("/api/atlas/clarifications/answer", { method: "POST", body: JSON.stringify(payload || {}) });
     },
@@ -263,6 +256,37 @@
     runGuardedOperatorLoop(payload) { return atlasFetch('/api/atlas/guarded-operator-loop/run', { method: 'POST', body: JSON.stringify(payload || {}) }); },
     getGuardedOperatorLoopResult(poolId, loopRunId) { return atlasFetch(`/api/atlas/guarded-operator-loop/results/${encodeURIComponent(poolId)}/${encodeURIComponent(loopRunId)}`); },
     getLatestGuardedOperatorLoop(payload) { return atlasFetch('/api/atlas/guarded-operator-loop/latest', { method: 'POST', body: JSON.stringify(payload || {}) }); },
+
+    getRepoIndexPolicies() {
+      return atlasFetch('/api/atlas/repo-index/policies');
+    },
+    buildRepoIndex(payload) {
+      return atlasFetch('/api/atlas/repo-index/build', {
+        method: 'POST',
+        body: JSON.stringify(payload || {})
+      });
+    },
+    getRepoIndexImpacts(payload) {
+      return atlasFetch('/api/atlas/repo-index/impacts', {
+        method: 'POST',
+        body: JSON.stringify(payload || {})
+      });
+    },
+    getRepoIndexRelatedTests(payload) {
+      return atlasFetch('/api/atlas/repo-index/related-tests', {
+        method: 'POST',
+        body: JSON.stringify(payload || {})
+      });
+    },
+    getLatestRepoIndex(payload) {
+      return atlasFetch('/api/atlas/repo-index/latest', {
+        method: 'POST',
+        body: JSON.stringify(payload || {})
+      });
+    },
+    getRepoIndexResult(projectHash, indexRunId) {
+      return atlasFetch(`/api/atlas/repo-index/results/${encodeURIComponent(projectHash)}/${encodeURIComponent(indexRunId)}`);
+    },
 
   };
 
