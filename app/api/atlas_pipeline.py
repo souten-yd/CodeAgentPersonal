@@ -57,6 +57,8 @@ from agent.atlas_repo_context_service import AtlasRepoContextService
 from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
 from agent.atlas_verification_planning_service import AtlasVerificationPlanningService
 from agent.atlas_verification_planning_schema import AtlasVerificationPlanningRequest
+from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
+from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
@@ -384,6 +386,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
     planner_context_text: str = ""
     impacted_test_recommendation_payload: dict = {}
     verification_plan_payload: dict = {}
+    plan_item_impact_map_payload: dict = {}
 
     if req.plan_payload:
         payload = dict(req.plan_payload)
@@ -433,6 +436,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
                 planner_context_text = pkg.planner_context_text
                 impacted_test_recommendation_payload = packager.build_impacted_test_recommendation(repo_req).model_dump()
                 verification_plan_payload = AtlasVerificationPlanningService(data_root=ca_data_root).build_plan(AtlasVerificationPlanningRequest(workspace_id=req.workspace_id, project_path=req.project_path, goal=root_goal, changed_files=changed_files, target_files=target_files)).model_dump()
+                plan_item_impact_map_payload = AtlasPlanItemImpactMapService(data_root=ca_data_root).build_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=req.pool_id, goal=root_goal, changed_files=changed_files, target_files=target_files, plan_pool={})).model_dump()
             except Exception:
                 repo_context_package_payload = {"status": "failed_internal", "confidence": "unknown"}
                 planner_context_text = "Repo Context status: failed_internal. Advisory only."
@@ -533,6 +537,21 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
             "related_tests": list(repo_context_package_payload.get("related_tests", []))[:30],
             "confidence": repo_context_package_payload.get("confidence", "unknown"),
         }
+    if req.enable_repo_context and (req.project_path or "").strip() and pool:
+        try:
+            plan_item_impact_map_payload = AtlasPlanItemImpactMapService(data_root=ca_data_root).build_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=pool.pool_id, goal=root_goal, changed_files=changed_files, target_files=target_files, plan_pool=_model_dump(pool))).model_dump()
+        except Exception:
+            plan_item_impact_map_payload = {"status": "missing", "metadata": {"advisory_only": True, "executed": False, "auto_verification_triggered": False, "auto_test_execution_triggered": False}}
+
+    if plan_item_impact_map_payload:
+        pool.metadata["plan_item_impact_map"] = {"status": plan_item_impact_map_payload.get("status", "missing"), "item_count": plan_item_impact_map_payload.get("item_count", 0), "confidence": plan_item_impact_map_payload.get("confidence", "unknown"), "warnings": list(plan_item_impact_map_payload.get("warnings", []))[:10], "executed": False, "advisory_only": True, "auto_verification_triggered": False, "auto_test_execution_triggered": False}
+        item_map = {str(i.get("item_id") or ""): i for i in list(plan_item_impact_map_payload.get("impacts", []))}
+        for item in (pool.items or []):
+            md = item.metadata if isinstance(item.metadata, dict) else {}
+            impact = item_map.get(str(item.item_id), {})
+            md["impact_map"] = {"impacted_files": list(impact.get("impacted_files", []))[:10], "related_tests": list(impact.get("related_tests", []))[:10], "recommended_commands": list(impact.get("recommended_commands", []))[:5], "manual_verification_steps": list(impact.get("manual_verification_steps", []))[:5], "ci_selection_hints": list(impact.get("ci_selection_hints", []))[:5], "confidence": impact.get("confidence", "unknown"), "advisory_only": True, "executed": False, "auto_verification_triggered": False, "auto_test_execution_triggered": False}
+            item.metadata = md
+
     if verification_plan_payload:
         pool.metadata["verification_plan"] = {
             "status": verification_plan_payload.get("status", "missing"),

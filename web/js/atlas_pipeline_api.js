@@ -305,6 +305,9 @@
     getRepoContextVerificationPlan(payload) {
       return atlasFetch('/api/atlas/repo-context/verification-plan', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    getRepoContextPlanItemImpactMap(payload) {
+      return atlasFetch('/api/atlas/repo-context/plan-item-impact-map', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     getRepoContextImpactedTests(payload) {
       return atlasFetch('/api/atlas/repo-context/impacted-tests', {
         method: 'POST',

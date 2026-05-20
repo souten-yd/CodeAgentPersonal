@@ -9,7 +9,7 @@ def test_contract():
     assert 'atlas-repo-context-verification-plan-result' in html
     assert 'getRepoContextVerificationPlan' in api
     assert '/api/atlas/repo-context/verification-plan' in api
-    assert 'atlas-dashboard-28' in html
+    assert 'atlas-dashboard-29' in html
     assert 'type="module"' not in html and 'export ' not in api and 'import ' not in api
     assert 'queryRepoContextVerificationPlanFromUI' in dash
     assert 'renderRepoContextVerificationPlanPanel' in dash
