@@ -170,3 +170,22 @@
   - PR-ATLAS-SCALE-64: Use repo context for verification planning and CI/test selection hints without auto execution
 - Future autonomous milestone:
   - PR-73〜82
+
+## Atlas Constitution / Checklist Reference Update
+
+- docs/atlas_development_constitution.md
+- docs/atlas_preflight_checklist.md
+- docs/atlas_postflight_checklist.md
+- docs/atlas_pr_template.md
+- docs/atlas_self_development_rules.md
+
+Current PR:
+- PR-ATLAS-DOCS-CONSTITUTION-01
+
+Next PR:
+- PR-ATLAS-SCALE-64: Use repo context for verification planning and CI/test selection hints without auto execution
+
+Known Current Code Facts:
+- Atlas development must follow constitution/preflight/postflight docs.
+- Future self-development requires snapshot/restore foundation before autonomous modification.
+
