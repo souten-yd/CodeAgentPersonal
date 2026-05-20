@@ -68,6 +68,7 @@
     repoContextVerificationPlan: null,
     planItemImpactMap: null,
     contextRefreshV2: null,
+    plannerPackagingV2: null,
     repoContextSubmitting: false,
   };
 
@@ -1434,6 +1435,39 @@ ${preview}`;
     state.repoContextSubmitting = false; renderRepoContextTestsPanel();
   }
 
+
+  function renderPlannerPackagingV2Panel() {
+    const summary = $('atlas-planner-packaging-v2-summary');
+    const result = $('atlas-planner-packaging-v2-result');
+    const data = state.plannerPackagingV2?.data || state.plannerPackagingV2 || {};
+    if (summary) summary.textContent = `status: ${data.status || '-'} / confidence: ${data.confidence || '-'}`;
+    if (result) result.textContent = JSON.stringify(data, null, 2);
+  }
+
+  async function queryPlannerPackagingV2FromUI() {
+    const project_path = (($('atlas-project-path')?.value) || '').trim();
+    if (!project_path) {
+      const result = $('atlas-planner-packaging-v2-result');
+      if (result) result.textContent = 'project_path is required';
+      return;
+    }
+    const payload = {
+      workspace_id: workspaceId(),
+      project_path,
+      changed_files: currentChangedFiles(),
+      target_files: currentTargetFiles(),
+      plan_pool: currentPlanPoolPayload(),
+      plan_item_impact_map: state.planItemImpactMap?.data || state.planItemImpactMap || {},
+      context_refresh_v2: state.contextRefreshV2?.data || state.contextRefreshV2 || {},
+      pool_id: state.currentPoolId || '',
+      goal: state.goalInput || ''
+    };
+    const response = await root.AtlasPipelineAPI?.getPlannerPackagingV2(payload);
+    const data = response?.data || response || {};
+    state.plannerPackagingV2 = data;
+    renderPlannerPackagingV2Panel();
+  }
+
   function renderRepoContextPanel() {
     const statusEl = $('atlas-repo-context-status'); const summaryEl = $('atlas-repo-context-summary'); const resultEl = $('atlas-repo-context-result');
     const payload = (state.repoContextScopeSummary?.data || state.repoContextSnapshot?.data || state.repoContextScopeSummary || state.repoContextSnapshot || {});
@@ -1544,6 +1578,7 @@ function bindOperatorLoop(){ loadOperatorLoopState(); ['pool-id','run-id','revie
     $('atlas-repo-context-verification-plan-btn')?.addEventListener('click', queryRepoContextVerificationPlanFromUI);
     $('atlas-plan-item-impact-map-btn')?.addEventListener('click', queryPlanItemImpactMapFromUI);
     $('atlas-context-refresh-v2-btn')?.addEventListener('click', queryContextRefreshV2FromUI);
+    $('atlas-planner-packaging-v2-btn')?.addEventListener('click', queryPlannerPackagingV2FromUI);
     renderRepoIndexPanel();
     renderRepoContextPanel();
     renderRepoContextTestsPanel();

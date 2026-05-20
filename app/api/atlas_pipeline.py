@@ -59,6 +59,8 @@ from agent.atlas_verification_planning_service import AtlasVerificationPlanningS
 from agent.atlas_verification_planning_schema import AtlasVerificationPlanningRequest
 from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
+from agent.atlas_planner_packaging_v2_service import AtlasPlannerPackagingV2Service
+from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Request
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
@@ -384,6 +386,8 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
     bridge_errors: list[str] = []
     repo_context_package_payload: dict = {}
     planner_context_text: str = ""
+    planner_context_text_v2: str = ""
+    planner_packaging_v2_payload: dict = {}
     impacted_test_recommendation_payload: dict = {}
     verification_plan_payload: dict = {}
     plan_item_impact_map_payload: dict = {}
@@ -443,6 +447,15 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
                 impacted_test_recommendation_payload = {"status": "missing", "executed": False}
                 verification_plan_payload = {"status":"missing","metadata":{"executed":False,"advisory_only":True,"auto_verification_triggered":False,"auto_test_execution_triggered":False}}
 
+        
+        try:
+            planner_packaging_v2_payload = AtlasPlannerPackagingV2Service(data_root=ca_data_root).build_package(AtlasPlannerPackagingV2Request(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=req.pool_id, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context, plan_pool={}, repo_context_package=repo_context_package_payload, plan_item_impact_map=plan_item_impact_map_payload, context_refresh_v2={}, include_repo_context=req.enable_repo_context, include_plan_item_impact_map=req.enable_repo_context, include_context_refresh_v2=req.enable_repo_context)).model_dump()
+            planner_context_text_v2 = planner_packaging_v2_payload.get("planner_context_text", "")
+            if planner_context_text_v2:
+                planner_context_text = planner_context_text_v2
+        except Exception:
+            planner_packaging_v2_payload = {"status": "missing", "advisory_only": True, "executed": False}
+
         bridge_result = bridge.create_plan_pool(
             AtlasPlannerBridgeRequest(
                 input=root_goal,
@@ -459,6 +472,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
                 metadata=dict(req.metadata),
                 repo_context_package=repo_context_package_payload,
                 planner_context_text=planner_context_text,
+                planner_context_text_v2=planner_context_text_v2,
             )
         )
         planner_status = bridge_result.status
@@ -542,6 +556,10 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
             plan_item_impact_map_payload = AtlasPlanItemImpactMapService(data_root=ca_data_root).build_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=pool.pool_id, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context, plan_pool=_model_dump(pool))).model_dump()
         except Exception:
             plan_item_impact_map_payload = {"status": "missing", "metadata": {"advisory_only": True, "executed": False, "auto_verification_triggered": False, "auto_test_execution_triggered": False}}
+
+    if planner_packaging_v2_payload:
+        pool.metadata["planner_packaging_v2"] = {"status": planner_packaging_v2_payload.get("status", "missing"), "confidence": planner_packaging_v2_payload.get("confidence", "unknown"), "impacted_files": list(planner_packaging_v2_payload.get("impacted_files", []))[:30], "related_tests": list(planner_packaging_v2_payload.get("related_tests", []))[:20], "recommended_commands": list(planner_packaging_v2_payload.get("recommended_commands", []))[:5], "context_sections": len(list(planner_packaging_v2_payload.get("context_sections", []))), "evidence": len(list(planner_packaging_v2_payload.get("evidence", []))), "advisory_only": True, "executed": False, "auto_verification_triggered": False, "auto_test_execution_triggered": False}
+        pool.metadata["planner_context_text_v2"] = str(planner_packaging_v2_payload.get("planner_context_text", ""))[:6000]
 
     if plan_item_impact_map_payload:
         pool.metadata["plan_item_impact_map"] = {"status": plan_item_impact_map_payload.get("status", "missing"), "item_count": plan_item_impact_map_payload.get("item_count", 0), "confidence": plan_item_impact_map_payload.get("confidence", "unknown"), "warnings": list(plan_item_impact_map_payload.get("warnings", []))[:10], "executed": False, "advisory_only": True, "auto_verification_triggered": False, "auto_test_execution_triggered": False}

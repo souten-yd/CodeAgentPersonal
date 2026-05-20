@@ -203,3 +203,5 @@ Known Current Code Facts:
 - Historical marker: PR-ATLAS-SCALE-65B
 
 - Historical completed item: PR-ATLAS-SCALE-66: Context Refresh v2 using PlanItem Impact Map.
+
+- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2

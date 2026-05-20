@@ -36,7 +36,7 @@
 ## 3. Current PR Pointer
 
 Current completed PR:
-- PR-ATLAS-SCALE-66B
+- PR-ATLAS-SCALE-66C
 - Historical marker: PR-ATLAS-SCALE-63B
 
 Current docs PR:
@@ -155,3 +155,5 @@ Next PR:
 - Context Refresh v2 uses PlanItem Impact Map.
 - advisory-only
 - no execution
+
+- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2

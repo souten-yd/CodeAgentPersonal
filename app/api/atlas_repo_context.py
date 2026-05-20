@@ -11,6 +11,8 @@ from agent.atlas_verification_planning_service import AtlasVerificationPlanningS
 from agent.atlas_verification_planning_schema import AtlasVerificationPlanningRequest
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
 from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
+from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Request
+from agent.atlas_planner_packaging_v2_service import AtlasPlannerPackagingV2Service
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/atlas/repo-context", tags=["atlas-repo-context"])
@@ -63,3 +65,15 @@ def plan_item_impact_map(req: AtlasPlanItemImpactMapRequest, request: Request):
     _validate_project_path(req.project_path)
     svc = AtlasPlanItemImpactMapService(data_root=resolve_atlas_ca_data_root(request))
     return svc.build_map(req).model_dump()
+
+
+@router.post("/planner-packaging-v2")
+def planner_packaging_v2(req: AtlasPlannerPackagingV2Request, request: Request):
+    path = (req.project_path or "").strip()
+    if path:
+        p = Path(path)
+        if p.exists() and p.is_file():
+            raise HTTPException(status_code=400, detail="project_path must be directory")
+    data_root = resolve_atlas_ca_data_root(request)
+    pkg = AtlasPlannerPackagingV2Service(data_root=data_root).build_package(req)
+    return pkg.model_dump()

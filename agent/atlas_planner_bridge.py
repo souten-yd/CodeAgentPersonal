@@ -97,8 +97,12 @@ class AtlasPlannerBridge:
             active_skills_fn=self.active_skills_fn,
             warning_logger=self.warning_logger,
         )
+        advisory = request.planner_context_text_v2 or request.advisory_context_text or request.planner_context_text
+        merged_input = request.input
+        if advisory:
+            merged_input = f"{request.input}\n\nADVISORY REPOSITORY CONTEXT — DO NOT EXECUTE\n{advisory}"
         result = runner.run(
-            user_input=request.input,
+            user_input=merged_input,
             project_path=request.project_path,
             project_name=request.project_name,
             planning_mode=_planning_mode(request.planning_depth),
@@ -201,8 +205,9 @@ class AtlasPlannerBridge:
                 "impacted_files": list(request.repo_context_package.get("impacted_files", []))[:20],
                 "related_tests": list(request.repo_context_package.get("related_tests", []))[:20],
             }
-        if request.planner_context_text:
-            metadata["planner_context_text"] = request.planner_context_text[:6000]
+        if request.planner_context_text or request.planner_context_text_v2:
+            mtxt = request.planner_context_text_v2 or request.planner_context_text
+            metadata["planner_context_text"] = mtxt[:6000]
             metadata["planner_repo_context_caveat"] = "Repo Context is advisory and read-only. Do not execute tests or apply patches."
         return {
             "root_goal": plan.get("user_goal")
