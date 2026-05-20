@@ -133,3 +133,9 @@
 - Repo Context and Context Refresh use same CA_DATA root.
 - Missing Repo Index remains non-blocking.
 - No planner prompt integration yet.
+
+- PR-ATLAS-SCALE-63: Repo Context planner prompt packaging added (advisory/read-only).
+- Impacted-test recommendations are suggestions only (no auto execution).
+- No patch generation/safe_apply/verification/Guarded Loop integration.
+- Repo Index missing remains non-blocking.
+

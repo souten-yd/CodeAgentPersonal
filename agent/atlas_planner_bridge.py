@@ -194,6 +194,16 @@ class AtlasPlannerBridge:
             "architecture_options": plan.get("architecture_options") or [],
             "deep_planning": plan.get("deep_planning") or {},
         }
+        if request.repo_context_package:
+            metadata["repo_context_package"] = {
+                "status": request.repo_context_package.get("status", ""),
+                "confidence": request.repo_context_package.get("confidence", "unknown"),
+                "impacted_files": list(request.repo_context_package.get("impacted_files", []))[:20],
+                "related_tests": list(request.repo_context_package.get("related_tests", []))[:20],
+            }
+        if request.planner_context_text:
+            metadata["planner_context_text"] = request.planner_context_text[:6000]
+            metadata["planner_repo_context_caveat"] = "Repo Context is advisory and read-only. Do not execute tests or apply patches."
         return {
             "root_goal": plan.get("user_goal")
             or plan.get("requirement_summary")

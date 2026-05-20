@@ -1374,11 +1374,24 @@ ${preview}`;
   function buildRepoContextPayloadFromUI() {
     return { project_path: repoIndexProjectPath(), workspace_id: workspaceId(), changed_files: repoIndexChangedFiles(), target_files: repoIndexChangedFiles(), allow_build_if_missing: false, mode: 'scope_summary' };
   }
+  function renderRepoContextTestsPanel() {
+    const summaryEl = $('atlas-repo-context-tests-summary'); const resultEl = $('atlas-repo-context-tests-result');
+    const payload = (state.repoContextImpactedTests?.data || state.repoContextImpactedTests || {});
+    if (summaryEl) summaryEl.textContent = `tests_status: ${payload.status || (state.repoContextSubmitting ? 'submitting' : 'idle')} / related_tests: ${(payload.related_tests || []).length} / commands: ${(payload.recommended_commands || []).length} / confidence: ${payload.confidence || '-'} / executed: false`;
+    if (resultEl) resultEl.textContent = JSON.stringify(state.repoContextImpactedTests || {}, null, 2);
+  }
+  async function queryRepoContextImpactedTestsFromUI() {
+    if (typeof root.AtlasPipelineAPI?.getRepoContextImpactedTests !== 'function') return;
+    state.repoContextSubmitting = true; renderRepoContextTestsPanel();
+    state.repoContextImpactedTests = await root.AtlasPipelineAPI.getRepoContextImpactedTests(buildRepoContextPayloadFromUI());
+    state.repoContextSubmitting = false; renderRepoContextTestsPanel();
+  }
+
   function renderRepoContextPanel() {
     const statusEl = $('atlas-repo-context-status'); const summaryEl = $('atlas-repo-context-summary'); const resultEl = $('atlas-repo-context-result');
     const payload = (state.repoContextScopeSummary?.data || state.repoContextSnapshot?.data || state.repoContextScopeSummary || state.repoContextSnapshot || {});
     if (statusEl) statusEl.textContent = payload.status || (state.repoContextSubmitting ? 'submitting' : 'idle');
-    if (summaryEl) summaryEl.textContent = `project_hash: ${payload.project_hash || payload.repo_index_snapshot?.project_hash || '-'} / index_run_id: ${payload.index_run_id || payload.repo_index_snapshot?.index_run_id || '-'} / impacted_files: ${(payload.impacted_files || []).length} / related_tests: ${(payload.related_tests || []).length} / confidence: ${payload.confidence || '-'}`;
+    if (summaryEl) summaryEl.textContent = `project_hash: ${payload.project_hash || payload.repo_index_snapshot?.project_hash || '-'} / index_run_id: ${payload.index_run_id || payload.repo_index_snapshot?.index_run_id || '-'} / impacted_files: ${(payload.impacted_files || []).length} / related_tests: ${(payload.related_tests || []).length} / recommended_tests: ${((state.repoContextImpactedTests?.data || state.repoContextImpactedTests || {}).related_tests || []).length} / confidence: ${payload.confidence || '-'}`;
     if (resultEl) resultEl.textContent = JSON.stringify({ snapshot: state.repoContextSnapshot, scope_summary: state.repoContextScopeSummary }, null, 2);
   }
   async function queryRepoContextSnapshotFromUI() {
@@ -1430,8 +1443,10 @@ ${preview}`;
     if (repoRelatedTestsBtn) repoRelatedTestsBtn.addEventListener('click', queryRepoIndexRelatedTestsFromUI);
     $('atlas-repo-context-snapshot-btn')?.addEventListener('click', queryRepoContextSnapshotFromUI);
     $('atlas-repo-context-scope-btn')?.addEventListener('click', queryRepoContextScopeSummaryFromUI);
+    $('atlas-repo-context-impacted-tests-btn')?.addEventListener('click', queryRepoContextImpactedTestsFromUI);
     renderRepoIndexPanel();
     renderRepoContextPanel();
+    renderRepoContextTestsPanel();
     if (details) {
       details.addEventListener('toggle', () => {
         state.advancedOpen = details.open;

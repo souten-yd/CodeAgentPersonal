@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
 from agent.atlas_repo_context_service import AtlasRepoContextService
+from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/atlas/repo-context", tags=["atlas-repo-context"])
@@ -36,3 +37,9 @@ def get_scope_summary(payload: AtlasRepoContextRequest, request: Request):
     _validate_project_path(payload.project_path)
     svc = AtlasRepoContextService(data_root=resolve_atlas_ca_data_root(request))
     return svc.build_plan_scope_summary(payload).model_dump()
+
+
+@router.post("/impacted-tests")
+def impacted_tests(req: AtlasRepoContextRequest, request: Request):
+    data_root = resolve_data_root(request, req.workspace_id)
+    return AtlasRepoContextPlannerPackager(data_root=data_root).build_impacted_test_recommendation(req)
