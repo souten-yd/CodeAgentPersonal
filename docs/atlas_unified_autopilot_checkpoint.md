@@ -214,3 +214,16 @@ Next PR:
 - No patch generation/safe_apply/verification/Guarded Loop integration.
 - Repo Index missing remains non-blocking.
 
+
+## PR-ATLAS-SCALE-63B
+- fixes impacted-tests API root resolver.
+- fixes PlanPool preflight packaging to use top-level changed_files/target_files (metadata fallback only when top-level empty).
+- impacted-test recommendations remain suggestions only.
+- no tests are executed.
+- no patch/execution semantics changed.
+
+Current PR:
+- PR-ATLAS-SCALE-63B
+
+Next PR:
+- PR-ATLAS-SCALE-64: Use repo context for verification planning and CI/test selection hints without auto execution
