@@ -9,6 +9,8 @@ from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_context_refresh_policies import list_context_refresh_policies
 from agent.atlas_context_refresh_schema import AtlasContextRefreshRequest
 from agent.atlas_context_refresh_service import AtlasContextRefreshService
+from agent.atlas_context_refresh_v2_schema import AtlasContextRefreshV2Request
+from agent.atlas_context_refresh_v2_service import AtlasContextRefreshV2Service
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/atlas/context-refresh", tags=["atlas-context-refresh"])
@@ -42,6 +44,18 @@ def run_context_refresh(payload: AtlasContextRefreshRequest, request: Request):
         raise HTTPException(status_code=400, detail={"error": "invalid_request", "reason": str(exc)}) from exc
 
 
+
+
+@router.post("/v2")
+def run_context_refresh_v2(payload: AtlasContextRefreshV2Request, request: Request):
+    if payload.project_path:
+        from pathlib import Path as _Path
+        pp = _Path(payload.project_path)
+        if pp.exists() and pp.is_file():
+            raise HTTPException(status_code=400, detail={"error": "invalid_request", "reason": "project_path_must_be_directory"})
+    service = AtlasContextRefreshV2Service(data_root=resolve_atlas_ca_data_root(request))
+    req = payload.model_copy(update={"allow_build_if_missing": False})
+    return service.refresh(req).model_dump()
 @router.get("/bundles/{pool_id}/{bundle_id}")
 def get_bundle(pool_id: str, bundle_id: str, request: Request):
     safe_pool = _validate_id(pool_id, "pool_id")
