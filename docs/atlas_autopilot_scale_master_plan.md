@@ -113,3 +113,7 @@
 - Path("ca_data") direct usage is prohibited in these stacks.
 - This PR does not add execute-all or auto-continue.
 - PR-61 can now focus on persistent repo symbol index and dependency graph.
+
+
+- PR-ATLAS-SCALE-61: Persistent repo symbol index and incremental dependency graph (no execution semantics changes).
+- Next PR: PR-ATLAS-SCALE-62 for PlanPool scope/context refresh integration.

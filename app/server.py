@@ -105,6 +105,7 @@ def include_routers(app: FastAPI) -> None:
     from app.api.atlas_pipeline import router as atlas_pipeline_router
     from app.api.atlas_dev_tools import router as atlas_dev_tools_router
     from app.api.atlas_code_intel import router as atlas_code_intel_router
+    from app.api.atlas_repo_index import router as atlas_repo_index_router
     from app.api.atlas_context_refresh import router as atlas_context_refresh_router
     from app.api.atlas_llm_evaluator import router as atlas_llm_evaluator_router
     from app.api.atlas_multi_item_autopilot import router as atlas_multi_item_autopilot_router
@@ -137,6 +138,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(atlas_pipeline_router)
     app.include_router(atlas_dev_tools_router)
     app.include_router(atlas_code_intel_router)
+    app.include_router(atlas_repo_index_router)
     app.include_router(atlas_context_refresh_router)
     app.include_router(atlas_llm_evaluator_router)
     app.include_router(atlas_multi_item_autopilot_router)

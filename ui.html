@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-18">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-19">
 </head>
 <body>
 
@@ -209,7 +209,10 @@
           </div>
         </section>
 
-        <section class="atlas-status-grid" id="atlas-status-grid" aria-label="Atlas status summary">
+        
+<div id="atlas-repo-index-card" class="atlas-panel-card"><h3>Repo Intelligence</h3><input id="atlas-repo-index-project-path"/><button id="atlas-repo-index-build-btn" type="button">Build</button><button id="atlas-repo-index-latest-btn" type="button">Latest</button><textarea id="atlas-repo-index-changed-files"></textarea><button id="atlas-repo-index-impacts-btn" type="button">Impacts</button><button id="atlas-repo-index-related-tests-btn" type="button">Related Tests</button><div id="atlas-repo-index-status"></div><div id="atlas-repo-index-summary"></div><pre id="atlas-repo-index-result"></pre></div>
+
+<section class="atlas-status-grid" id="atlas-status-grid" aria-label="Atlas status summary">
           <div class="atlas-status-card"><span>PlanPool</span><b id="atlas-status-planpool">not created</b></div>
           <div class="atlas-status-card"><span>Items</span><b id="atlas-status-items">0</b></div>
           <div class="atlas-status-card"><span>Pipeline</span><b id="atlas-status-pipeline">idle</b></div>
@@ -16086,8 +16089,8 @@ function testSkill(skillName) {
 <script src="/static/js/lumen_tools.js"></script>
 <script src="/static/js/lumen.js"></script>
 <script src="/static/js/nexus.js"></script>
-<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-18"></script>
-<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-18"></script>
+<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-19"></script>
+<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-19"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>
