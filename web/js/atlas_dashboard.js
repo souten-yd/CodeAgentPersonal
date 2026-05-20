@@ -1267,7 +1267,16 @@ ${preview}`;
 
   async function buildRepoIndexFromUI() {
     const api = root.AtlasPipelineAPI;
-    if (!api) return;
+    if (!api) {
+      state.repoIndexResult = { status: 'error', message: 'AtlasPipelineAPI unavailable' };
+      renderRepoIndexPanel();
+      return;
+    }
+    if (typeof api.buildRepoIndex !== 'function') {
+      state.repoIndexResult = { status: 'error', message: 'Repo Index API helper unavailable' };
+      renderRepoIndexPanel();
+      return;
+    }
     const payload = repoIndexBasePayload();
     if (!payload.project_path) {
       state.repoIndexResult = { status: 'error', message: 'project_path is required' };
@@ -1284,7 +1293,16 @@ ${preview}`;
 
   async function loadLatestRepoIndexFromUI() {
     const api = root.AtlasPipelineAPI;
-    if (!api) return;
+    if (!api) {
+      state.repoIndexLatest = { status: 'error', message: 'AtlasPipelineAPI unavailable' };
+      renderRepoIndexPanel();
+      return;
+    }
+    if (typeof api.getLatestRepoIndex !== 'function') {
+      state.repoIndexLatest = { status: 'error', message: 'Repo Index API helper unavailable' };
+      renderRepoIndexPanel();
+      return;
+    }
     const payload = repoIndexBasePayload();
     if (!payload.project_path) {
       state.repoIndexLatest = { status: 'error', message: 'project_path is required' };
@@ -1301,7 +1319,16 @@ ${preview}`;
 
   async function queryRepoIndexImpactsFromUI() {
     const api = root.AtlasPipelineAPI;
-    if (!api) return;
+    if (!api) {
+      state.repoIndexImpacts = { status: 'error', message: 'AtlasPipelineAPI unavailable' };
+      renderRepoIndexPanel();
+      return;
+    }
+    if (typeof api.getRepoIndexImpacts !== 'function') {
+      state.repoIndexImpacts = { status: 'error', message: 'Repo Index API helper unavailable' };
+      renderRepoIndexPanel();
+      return;
+    }
     const payload = repoIndexBasePayload();
     if (!payload.project_path) {
       state.repoIndexImpacts = { status: 'error', message: 'project_path is required' };
@@ -1318,7 +1345,16 @@ ${preview}`;
 
   async function queryRepoIndexRelatedTestsFromUI() {
     const api = root.AtlasPipelineAPI;
-    if (!api) return;
+    if (!api) {
+      state.repoIndexRelatedTests = { status: 'error', message: 'AtlasPipelineAPI unavailable' };
+      renderRepoIndexPanel();
+      return;
+    }
+    if (typeof api.getRepoIndexRelatedTests !== 'function') {
+      state.repoIndexRelatedTests = { status: 'error', message: 'Repo Index API helper unavailable' };
+      renderRepoIndexPanel();
+      return;
+    }
     const payload = repoIndexBasePayload();
     if (!payload.project_path) {
       state.repoIndexRelatedTests = { status: 'error', message: 'project_path is required' };
