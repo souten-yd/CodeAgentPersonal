@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-20">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-21">
 </head>
 <body>
 
@@ -210,20 +210,6 @@
         </section>
 
         
-<details id="atlas-repo-index-card" class="atlas-extension-details atlas-automation-extension-card">
-  <summary>Repo Intelligence</summary>
-  <p>Builds a read-only symbol index and dependency graph.</p>
-  <p>This does not modify files.</p>
-  <p>This does not run shell commands or remote git.</p>
-  <input id="atlas-repo-index-project-path" placeholder="project path" />
-  <button id="atlas-repo-index-build-btn" type="button">Build</button>
-  <button id="atlas-repo-index-latest-btn" type="button">Latest</button>
-  <textarea id="atlas-repo-index-changed-files" placeholder="changed files (newline or comma separated)"></textarea>
-  <button id="atlas-repo-index-impacts-btn" type="button">Impacts</button>
-  <button id="atlas-repo-index-related-tests-btn" type="button">Related Tests</button>
-  <div id="atlas-repo-index-status"></div><div id="atlas-repo-index-summary"></div><pre id="atlas-repo-index-result"></pre>
-</details>
-
 <section class="atlas-status-grid" id="atlas-status-grid" aria-label="Atlas status summary">
           <div class="atlas-status-card"><span>PlanPool</span><b id="atlas-status-planpool">not created</b></div>
           <div class="atlas-status-card"><span>Items</span><b id="atlas-status-items">0</b></div>
@@ -366,6 +352,20 @@
             <h3 id="atlas-automation-extensions-title">Automation Extensions</h3>
             <p class="atlas-muted-note">Guarded automation tools. These panels do not run rollback, restore, or unrestricted commands.</p>
             <div class="atlas-automation-extension-grid">
+              <details id="atlas-repo-index-card" class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Repo Intelligence</summary>
+                <p>Builds a read-only symbol index and dependency graph.</p>
+                <p>This does not modify files.</p>
+                <p>This does not run shell commands or remote git.</p>
+                <input id="atlas-repo-index-project-path" placeholder="project path" />
+                <button id="atlas-repo-index-build-btn" type="button">Build</button>
+                <button id="atlas-repo-index-latest-btn" type="button">Latest</button>
+                <textarea id="atlas-repo-index-changed-files" placeholder="changed files (newline or comma separated)"></textarea>
+                <button id="atlas-repo-index-impacts-btn" type="button">Impacts</button>
+                <button id="atlas-repo-index-related-tests-btn" type="button">Related Tests</button>
+                <div id="atlas-repo-index-status"></div><div id="atlas-repo-index-summary"></div><pre id="atlas-repo-index-result"></pre>
+              </details>
+
               <details class="atlas-extension-details atlas-automation-extension-card">
                 <summary>Multi-item Autopilot</summary>
                 <p>Run guarded autopilot for low-risk approved items.</p><p>No auto rollback.</p><p>No auto patch regeneration.</p><p>Stops on failed verification or evaluator stop.</p>
@@ -16101,8 +16101,8 @@ function testSkill(skillName) {
 <script src="/static/js/lumen_tools.js"></script>
 <script src="/static/js/lumen.js"></script>
 <script src="/static/js/nexus.js"></script>
-<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-20"></script>
-<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-20"></script>
+<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-21"></script>
+<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-21"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>
