@@ -9,6 +9,15 @@ def test_contract():
     assert 'atlas-repo-context-verification-plan-result' in html
     assert 'getRepoContextVerificationPlan' in api
     assert '/api/atlas/repo-context/verification-plan' in api
-    assert 'atlas-dashboard-27' in html
+    assert 'atlas-dashboard-28' in html
     assert 'type="module"' not in html and 'export ' not in api and 'import ' not in api
-    assert 'atlas-repo-context-verification-plan-btn' in dash
+    assert 'queryRepoContextVerificationPlanFromUI' in dash
+    assert 'renderRepoContextVerificationPlanPanel' in dash
+    assert "addEventListener('click', queryRepoContextVerificationPlanFromUI)" in dash
+    assert 'response?.data || response || {}' in dash
+    iife_end = dash.rfind('})();')
+    assert iife_end > 0
+    assert 'atlas-repo-context-verification-plan-btn' not in dash[iife_end:]
+    bounded_retry_idx = dash.find('window.__atlasBoundedRetrySafety')
+    assert bounded_retry_idx > 0
+    assert 'atlas-repo-context-verification-plan-btn' not in dash[bounded_retry_idx:]

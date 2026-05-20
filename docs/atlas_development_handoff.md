@@ -36,13 +36,16 @@
 ## 3. Current PR Pointer
 
 Current completed PR:
-- PR-ATLAS-SCALE-63B
+- PR-ATLAS-SCALE-64B
 
 Current docs PR:
 - PR-ATLAS-DOCS-ROADMAP-02
 
 Next implementation PR:
-- PR-ATLAS-SCALE-64: Use repo context for verification planning and CI/test selection hints without auto execution
+- PR-ATLAS-SCALE-65: PlanItem Impact Map
+
+Known limitation:
+- PR-64 verification hints are still global-ish; PR-65 will map hints per PlanItem more precisely.
 
 Future autonomous PR range:
 - PR-73〜82
@@ -62,7 +65,7 @@ Before making changes:
 7. Verify actual files, tests, and runtime wiring
 
 Current next PR:
-PR-ATLAS-SCALE-64: Use repo context for verification planning and CI/test selection hints without auto execution
+PR-ATLAS-SCALE-65: PlanItem Impact Map
 
 Hard safety rules:
 
