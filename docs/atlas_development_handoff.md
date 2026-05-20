@@ -36,14 +36,14 @@
 ## 3. Current PR Pointer
 
 Current completed PR:
-- PR-ATLAS-SCALE-66C
+- PR-ATLAS-SCALE-67B
 - Historical marker: PR-ATLAS-SCALE-63B
 
 Current docs PR:
 - PR-ATLAS-DOCS-ROADMAP-02
 
 Next implementation PR:
-- PR-ATLAS-SCALE-67: Planner Packaging v2 using Context Refresh v2 and PlanItem Impact Map
+- PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
 
 Known limitation:
 - PR-64 verification hints are still global-ish; PR-65 will map hints per PlanItem more precisely.
@@ -66,7 +66,7 @@ Before making changes:
 7. Verify actual files, tests, and runtime wiring
 
 Current next PR:
-PR-ATLAS-SCALE-67: Planner Packaging v2 using Context Refresh v2 and PlanItem Impact Map
+PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
 
 Hard safety rules:
 
@@ -129,7 +129,7 @@ Known Current Code Facts:
 ## PR-ATLAS-SCALE-64
 - Completed: PR-ATLAS-SCALE-64
 - Current PR: PR-ATLAS-SCALE-66B
-- Next PR: PR-ATLAS-SCALE-67: Planner Packaging v2 using Context Refresh v2 and PlanItem Impact Map
+- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
 - Verification planning is advisory-only.
 - Suggested commands are never executed.
 - CI/test selection hints are local metadata only.

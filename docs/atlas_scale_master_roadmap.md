@@ -183,7 +183,7 @@ Known Current Code Facts:
 ## PR-ATLAS-SCALE-64
 - Completed: PR-ATLAS-SCALE-64
 - Current PR: PR-ATLAS-SCALE-66B
-- Next PR: PR-ATLAS-SCALE-67: Planner Packaging v2 using Context Refresh v2 and PlanItem Impact Map
+- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
 - Verification planning is advisory-only.
 - Suggested commands are never executed.
 - CI/test selection hints are local metadata only.
@@ -198,10 +198,19 @@ Known Current Code Facts:
 - Prohibits string-only tests as sufficient completion evidence.
 - Requires UI runtime-chain checks for DOM/API/binding/endpoint/unwrap/render/cache-bust.
 - Requires backend runtime-chain checks for router/endpoint/data_root/service/response/safety flags.
-- Next PR: PR-ATLAS-SCALE-67: Planner Packaging v2 using Context Refresh v2 and PlanItem Impact Map.
+- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2.
 
 - Historical marker: PR-ATLAS-SCALE-65B
 
 - Historical completed item: PR-ATLAS-SCALE-66: Context Refresh v2 using PlanItem Impact Map.
 
 - Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
+
+
+## PR-ATLAS-SCALE-67B
+- Completed PR: PR-ATLAS-SCALE-67B
+- Current PR: PR-ATLAS-SCALE-67B
+- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
+- Planner Packaging v2 remains advisory-only and manual-only.
+- Planner Packaging v2 uses Context Refresh v2 and PlanItem Impact Map.
+- No execution semantics added.
