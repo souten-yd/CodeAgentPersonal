@@ -192,3 +192,13 @@ Next PR:
 - Path("ca_data") direct usage is prohibited in these stacks.
 - This PR does not add execute-all or auto-continue.
 - PR-61 can now focus on persistent repo symbol index and dependency graph.
+
+
+- PR-ATLAS-SCALE-61B completes Repo Index UI/API helpers.
+- result endpoint returns saved artifact.
+- files.json / manifest.json now contain file nodes/hash records.
+- incremental update metadata added.
+- Repo Intelligence UI remains manual-only.
+- no PlanPool/patch/Guarded Loop integration yet.
+- Current PR: PR-ATLAS-SCALE-61B
+- Next PR: PR-ATLAS-SCALE-62: Use repo index in PlanPool scope analysis and context refresh
