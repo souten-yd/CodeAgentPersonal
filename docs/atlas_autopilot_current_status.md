@@ -155,3 +155,15 @@
 - no patch/execution semantics changed.
 - Current PR: PR-ATLAS-SCALE-63B
 - Next PR: PR-ATLAS-SCALE-64: Use repo context for verification planning and CI/test selection hints without auto execution
+
+## Atlas Scale Roadmap Reference Update
+
+- 新しい総合ロードマップ:
+  - docs/atlas_scale_master_roadmap.md
+- Current completed status:
+  - PR-ATLAS-PIPE-0〜60D
+  - PR-ATLAS-SCALE-61〜63B
+- Current PR:
+  - PR-ATLAS-DOCS-ROADMAP-01
+- Next PR:
+  - PR-ATLAS-SCALE-64: Use repo context for verification planning and CI/test selection hints without auto execution
