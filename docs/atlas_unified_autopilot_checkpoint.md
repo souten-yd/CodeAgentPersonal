@@ -239,3 +239,14 @@ Next PR:
   - PR-ATLAS-DOCS-ROADMAP-01
 - Next PR:
   - PR-ATLAS-SCALE-64: Use repo context for verification planning and CI/test selection hints without auto execution
+
+## Atlas Docs Roadmap / Handoff Update
+
+- docs/atlas_scale_master_roadmap.md is the master roadmap
+- docs/atlas_development_handoff.md is the restart handoff document
+- Current PR:
+  - PR-ATLAS-DOCS-ROADMAP-02
+- Next PR:
+  - PR-ATLAS-SCALE-64: Use repo context for verification planning and CI/test selection hints without auto execution
+- Future autonomous milestone:
+  - PR-73〜82

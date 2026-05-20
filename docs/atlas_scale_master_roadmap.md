@@ -80,3 +80,82 @@
 - Evidence traceability for recommendation rationale。
 - Optional policy templates per repository size/team。
 - Risk-tiered verification suggestion presets。
+
+## PR-73〜PR-82 Autonomous Development Roadmap
+
+- **PR-73: Workspace Snapshot & Restore Foundation**
+  - 実行前snapshot
+  - changed files manifest
+  - restore point作成
+  - full rollback API
+  - no auto restore yet
+- **PR-74: Patch Transaction Manager**
+  - patch apply transaction
+  - before/after hash保存
+  - partial failure検出
+  - rollback candidate生成
+- **PR-75: Autonomous Execution Policy v1**
+  - auto-run可能範囲をpolicy化
+  - safe / medium / high risk分類
+  - low-riskのみ連続実行許可
+- **PR-76: Auto Verification Loop**
+  - suggested testsを自動実行
+  - failed test解析
+  - retry plan生成
+  - patch再生成はまだ人間承認
+- **PR-77: Auto Patch Regen Loop**
+  - failed verificationからpatch再生成
+  - dry-run
+  - diff review
+  - policy内なら再適用
+- **PR-78: Full Task Autopilot v1**
+  - goal → plan → implement → test → fix loop
+  - max iteration / max files / max risk制限
+  - restore point必須
+- **PR-79: Self-Improvement Guardrails**
+  - CodeAgentPersonal自身の改修専用policy
+  - core files変更時は厳格gate
+  - launcher / Docker / UI / API変更の安全分類
+- **PR-80: Self-Improving CodeAgent Platform v1**
+  - AtlasでCodeAgentPersonal自身を改修
+  - snapshot → implement → test → rollback/commit candidate
+  - PR生成候補まで
+- **PR-81: GitHub Branch / Draft PR Automation**
+  - branch作成
+  - commit candidate
+  - draft PR作成
+  - CI monitor
+  - 失敗時修正loop
+- **PR-82: Autonomous Development Milestone**
+  - 大規模repo一気通貫評価
+  - recovery / rollback検証
+  - self-improvement検証
+
+## 9. Final Vision: Autonomous Development Platform
+
+- Atlasの最終像
+  - large repo coding agent
+  - goal → research → plan → implement → test → fix → PR
+  - self-improving CodeAgentPersonal/KasaneCore platform
+- 完全自動化の前提条件
+  - workspace snapshot
+  - restore point
+  - patch transaction
+  - before/after hash
+  - test/CI artifact
+  - rollback verified
+  - human policy gates
+- 安全境界
+  - low-riskのみ自動化
+  - medium/high-riskはapproval必須
+  - core/runtime/Docker/launcher変更はstrict gate
+  - self-modificationは専用policy
+
+## Milestones (Extended)
+
+- Milestone G: Transactional Development Foundation
+  - Target: PR-73〜75
+- Milestone H: Autonomous Verification / Fix Loop
+  - Target: PR-76〜78
+- Milestone I: Self-Improving Platform
+  - Target: PR-79〜82
