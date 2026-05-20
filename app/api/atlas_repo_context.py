@@ -13,6 +13,8 @@ from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapReques
 from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
 from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Request
 from agent.atlas_planner_packaging_v2_service import AtlasPlannerPackagingV2Service
+from agent.atlas_verification_recommendation_schema import AtlasVerificationRecommendationRequest
+from agent.atlas_verification_recommendation_service import AtlasVerificationRecommendationService
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/atlas/repo-context", tags=["atlas-repo-context"])
@@ -77,3 +79,11 @@ def planner_packaging_v2(req: AtlasPlannerPackagingV2Request, request: Request):
     data_root = resolve_atlas_ca_data_root(request)
     pkg = AtlasPlannerPackagingV2Service(data_root=data_root).build_package(req)
     return pkg.model_dump()
+
+
+@router.post("/verification-recommendation")
+def verification_recommendation(req: AtlasVerificationRecommendationRequest, request: Request):
+    _validate_project_path(req.project_path)
+    data_root = resolve_atlas_ca_data_root(request)
+    result = AtlasVerificationRecommendationService(data_root=data_root).recommend(req)
+    return result.model_dump()
