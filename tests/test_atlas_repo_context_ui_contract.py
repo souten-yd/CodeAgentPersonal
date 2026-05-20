@@ -14,7 +14,7 @@ def test_repo_context_api_helpers_exist():
 
 def test_repo_context_cache_bust_25():
     html = Path('ui.html').read_text(encoding='utf-8')
-    assert 'atlas-dashboard-28' in html
+    assert 'atlas-dashboard-29' in html
 
 
 def test_impacted_tests_dom_ids_exist():

@@ -9,6 +9,8 @@ from agent.atlas_repo_context_service import AtlasRepoContextService
 from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
 from agent.atlas_verification_planning_service import AtlasVerificationPlanningService
 from agent.atlas_verification_planning_schema import AtlasVerificationPlanningRequest
+from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
+from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/atlas/repo-context", tags=["atlas-repo-context"])
@@ -54,3 +56,10 @@ def verification_plan(req: AtlasVerificationPlanningRequest, request: Request):
     svc = AtlasVerificationPlanningService(data_root=resolve_atlas_ca_data_root(request))
     return svc.build_plan(req).model_dump()
 
+
+
+@router.post("/plan-item-impact-map")
+def plan_item_impact_map(req: AtlasPlanItemImpactMapRequest, request: Request):
+    _validate_project_path(req.project_path)
+    svc = AtlasPlanItemImpactMapService(data_root=resolve_atlas_ca_data_root(request))
+    return svc.build_map(req).model_dump()

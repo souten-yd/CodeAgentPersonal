@@ -66,6 +66,7 @@
     repoContextSnapshot: null,
     repoContextScopeSummary: null,
     repoContextVerificationPlan: null,
+    planItemImpactMap: null,
     repoContextSubmitting: false,
   };
 
@@ -1389,6 +1390,35 @@ ${preview}`;
     if (summaryEl) summaryEl.textContent = `status: ${status} / related_tests: ${(payload.related_tests || []).length} / commands: ${(payload.recommended_commands || []).length} / confidence: ${payload.confidence || '-'}`;
     if (resultEl) resultEl.textContent = JSON.stringify(state.repoContextVerificationPlan || {}, null, 2);
   }
+
+  function renderPlanItemImpactMapPanel() {
+    const summaryEl = $('atlas-plan-item-impact-map-summary');
+    const resultEl = $('atlas-plan-item-impact-map-result');
+    const payload = state.planItemImpactMap?.data || state.planItemImpactMap || {};
+    const status = payload.status || (state.repoContextSubmitting ? 'submitting' : 'idle');
+    if (summaryEl) summaryEl.textContent = `status: ${status} / items: ${(payload.impacts || []).length} / confidence: ${payload.confidence || '-'}`;
+    if (resultEl) resultEl.textContent = JSON.stringify(state.planItemImpactMap || {}, null, 2);
+  }
+  async function queryPlanItemImpactMapFromUI() {
+    if (typeof root.AtlasPipelineAPI?.getRepoContextPlanItemImpactMap !== 'function') return;
+    const payload = buildRepoContextPayloadFromUI();
+    payload.plan_pool = state.currentPlanPool || {};
+    payload.pool_id = state.currentPoolId || '';
+    payload.goal = state.goalInput || '';
+    if (!payload.project_path) {
+      state.planItemImpactMap = { status: 'error', message: 'project_path is required' };
+      renderPlanItemImpactMapPanel();
+      return;
+    }
+    state.repoContextSubmitting = true;
+    renderPlanItemImpactMapPanel();
+    const response = await root.AtlasPipelineAPI.getRepoContextPlanItemImpactMap(payload);
+    const mapPayload = response?.data || response || {};
+    state.planItemImpactMap = mapPayload;
+    state.repoContextSubmitting = false;
+    renderPlanItemImpactMapPanel();
+  }
+
   async function queryRepoContextImpactedTestsFromUI() {
     if (typeof root.AtlasPipelineAPI?.getRepoContextImpactedTests !== 'function') return;
     state.repoContextSubmitting = true; renderRepoContextTestsPanel();
@@ -1421,15 +1451,18 @@ ${preview}`;
     if (!payload.project_path) {
       state.repoContextVerificationPlan = { status: 'error', message: 'project_path is required' };
       renderRepoContextVerificationPlanPanel();
+    renderPlanItemImpactMapPanel();
       return;
     }
     state.repoContextSubmitting = true;
     renderRepoContextVerificationPlanPanel();
+    renderPlanItemImpactMapPanel();
     const response = await root.AtlasPipelineAPI.getRepoContextVerificationPlan(payload);
     const planPayload = response?.data || response || {};
     state.repoContextVerificationPlan = planPayload;
     state.repoContextSubmitting = false;
     renderRepoContextVerificationPlanPanel();
+    renderPlanItemImpactMapPanel();
   }
 
   function bindOperatorLoop(){ loadOperatorLoopState(); ['pool-id','run-id','reviewer','reason'].forEach((k)=>{ const el=$('atlas-operator-loop-'+k); if(el) el.value=operatorLoopState[k.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]||''; }); const ct=$('atlas-operator-loop-confirmation-text'); if(ct) ct.value='EXECUTE ONE ACTION'; ['confirmation-token','confirmation-text','explicit-decision','pool-id','run-id','reviewer','reason'].forEach((k)=>$('atlas-operator-loop-'+k)?.addEventListener('input',()=>{operatorLoopReadInputs(); operatorLoopRender();})); $('atlas-operator-loop-build-queue-btn')?.addEventListener('click',operatorLoopBuildQueue); $('atlas-operator-loop-prepare-btn')?.addEventListener('click',operatorLoopPrepare); $('atlas-operator-loop-token-btn')?.addEventListener('click',operatorLoopToken); $('atlas-operator-loop-dry-run-btn')?.addEventListener('click',()=>operatorLoopExec(true)); $('atlas-operator-loop-execute-btn')?.addEventListener('click',()=>{ if(!operatorLoopCanExecute()) return; return operatorLoopExec(false);}); $('atlas-operator-loop-refresh-btn')?.addEventListener('click',operatorLoopRefresh); $('atlas-operator-loop-advance-btn')?.addEventListener('click',operatorLoopAdvanceToConfirmation); $('atlas-operator-loop-execute-refresh-btn')?.addEventListener('click',operatorLoopExecuteAndRefresh); $('atlas-operator-loop-copy-payload-btn')?.addEventListener('click',async ()=>{ const p=operatorLoopState.lastContractResult?.action_contract?.payload||{}; try{await navigator.clipboard.writeText(JSON.stringify(p,null,2));}catch(_e){} operatorLoopRender();}); $('atlas-operator-loop-reset-btn')?.addEventListener('click',()=>{ Object.assign(operatorLoopState,{poolId:'',runId:'',reviewer:'manual',reason:'',multiStatusRunId:'',orchestratorRunId:'',actionId:'',selectedItemId:'',selectedNextAction:'',actionKind:'',confirmationToken:'',confirmationText:'EXECUTE ONE ACTION',explicitDecision:'',dryRunExecutorRunId:'',executedExecutorRunId:'',postRefreshRunId:'',lastQueueResult:null,lastContractResult:null,lastDryRunResult:null,lastExecuteResult:null,lastRefreshResult:null}); try{localStorage.removeItem(operatorLoopStorageKey);}catch(_e){} ['queue','contract','executor','refresh','next-step'].forEach((x)=>{ const el=$('atlas-operator-loop-'+x+'-result')||$('atlas-operator-loop-'+x); if(el) el.textContent='';}); const tok=$('atlas-operator-loop-confirmation-token'); if(tok) tok.value=''; operatorLoopRender(); }); operatorLoopRender(); }
@@ -1470,10 +1503,12 @@ ${preview}`;
     $('atlas-repo-context-scope-btn')?.addEventListener('click', queryRepoContextScopeSummaryFromUI);
     $('atlas-repo-context-impacted-tests-btn')?.addEventListener('click', queryRepoContextImpactedTestsFromUI);
     $('atlas-repo-context-verification-plan-btn')?.addEventListener('click', queryRepoContextVerificationPlanFromUI);
+    $('atlas-plan-item-impact-map-btn')?.addEventListener('click', queryPlanItemImpactMapFromUI);
     renderRepoIndexPanel();
     renderRepoContextPanel();
     renderRepoContextTestsPanel();
     renderRepoContextVerificationPlanPanel();
+    renderPlanItemImpactMapPanel();
     if (details) {
       details.addEventListener('toggle', () => {
         state.advancedOpen = details.open;
