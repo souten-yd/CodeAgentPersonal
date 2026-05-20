@@ -182,7 +182,7 @@ Known Current Code Facts:
 
 ## PR-ATLAS-SCALE-64
 - Completed: PR-ATLAS-SCALE-64
-- Current PR: PR-ATLAS-SCALE-66
+- Current PR: PR-ATLAS-SCALE-66B
 - Next PR: PR-ATLAS-SCALE-67: Planner Packaging v2 using Context Refresh v2 and PlanItem Impact Map
 - Verification planning is advisory-only.
 - Suggested commands are never executed.
@@ -201,3 +201,5 @@ Known Current Code Facts:
 - Next PR: PR-ATLAS-SCALE-67: Planner Packaging v2 using Context Refresh v2 and PlanItem Impact Map.
 
 - Historical marker: PR-ATLAS-SCALE-65B
+
+- Historical completed item: PR-ATLAS-SCALE-66: Context Refresh v2 using PlanItem Impact Map.

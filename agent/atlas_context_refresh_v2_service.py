@@ -23,18 +23,23 @@ class AtlasContextRefreshV2Service:
 
         impact = dict(req.impact_map or {})
         if not impact and req.include_plan_item_impact_map:
-            built = self.impact_service.build_map(AtlasPlanItemImpactMapRequest(
-                workspace_id=req.workspace_id,
-                project_path=req.project_path,
-                pool_id=req.pool_id,
-                goal=req.goal,
-                changed_files=list(req.changed_files or []),
-                target_files=list(req.target_files or []),
-                plan_pool=plan_pool,
-                allow_build_if_missing=False,
-            )).model_dump()
-            impact = built
-            warnings.append("impact_map_built_advisory")
+            try:
+                built = self.impact_service.build_map(AtlasPlanItemImpactMapRequest(
+                    workspace_id=req.workspace_id,
+                    project_path=req.project_path,
+                    pool_id=req.pool_id,
+                    goal=req.goal,
+                    changed_files=list(req.changed_files or []),
+                    target_files=list(req.target_files or []),
+                    plan_pool=plan_pool,
+                    allow_build_if_missing=False,
+                )).model_dump()
+                impact = built
+                warnings.append("impact_map_built_advisory")
+            except Exception as err:
+                impact = {"status": "missing", "impacts": []}
+                warnings.append("impact_map_build_failed_non_blocking")
+                warnings.append(f"impact_map_build_error:{type(err).__name__}")
 
         impacts = list(impact.get("impacts") or [])
         selected = []
