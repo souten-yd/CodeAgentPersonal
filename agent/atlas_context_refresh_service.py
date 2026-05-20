@@ -19,7 +19,7 @@ class AtlasContextRefreshService:
     def __init__(self, journal: AtlasJournal | None = None, nexus_adapter: AtlasContextNexusAdapter | None = None, data_root: Path | None = None):
         self.journal = journal
         self.nexus_adapter = nexus_adapter or AtlasContextNexusAdapter()
-        self.data_root = data_root or Path.cwd()
+        self.data_root = Path(data_root) if data_root is not None else Path.cwd()
 
     def refresh(self, request: AtlasContextRefreshRequest) -> AtlasContextBundle:
         policy = get_context_refresh_policy(request.policy_id)
@@ -243,10 +243,17 @@ class AtlasContextRefreshService:
         })
 
     def _save_bundle(self, bundle: AtlasContextBundle) -> None:
-        root = Path("ca_data") / "atlas" / "context_bundles" / bundle.pool_id
+        root = self.data_root / "atlas" / "context_bundles" / bundle.pool_id
         root.mkdir(parents=True, exist_ok=True)
-        (root / f"{bundle.bundle_id}.json").write_text(json.dumps(bundle.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
-        (root / f"{bundle.bundle_id}.md").write_text(bundle.context_text, encoding="utf-8")
+        json_path = root / f"{bundle.bundle_id}.json"
+        md_path = root / f"{bundle.bundle_id}.md"
+        bundle.metadata["result_path"] = str(json_path)
+        bundle.metadata["result_path_relative"] = f"atlas/context_bundles/{bundle.pool_id}/{bundle.bundle_id}.json"
+        bundle.metadata["md_path"] = str(md_path)
+        bundle.metadata["md_path_relative"] = f"atlas/context_bundles/{bundle.pool_id}/{bundle.bundle_id}.md"
+        bundle.metadata["data_root"] = str(self.data_root)
+        json_path.write_text(json.dumps(bundle.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
+        md_path.write_text(bundle.context_text, encoding="utf-8")
 
     def _build_context_text(self, request: AtlasContextRefreshRequest, policy_id: str, changed_files: list[str], sources: list[AtlasContextSource], warnings: list[str]) -> str:
         lines = ["# Context Refresh Bundle", "", "## Trigger", f"- trigger: {request.trigger}", f"- policy: {policy_id}", f"- item_id: {request.item_id}", f"- changed_files: {', '.join(changed_files)}", "", "## Sources"]

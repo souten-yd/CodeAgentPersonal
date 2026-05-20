@@ -127,3 +127,9 @@
 - no PlanPool/patch/Guarded Loop integration yet.
 - Current PR: PR-ATLAS-SCALE-61B
 - Next PR: PR-ATLAS-SCALE-62: Use repo index in PlanPool scope analysis and context refresh
+
+- PR-ATLAS-SCALE-62B fixes Context Refresh root persistence.
+- Context Refresh bundles are saved under resolved data_root.
+- Repo Context and Context Refresh use same CA_DATA root.
+- Missing Repo Index remains non-blocking.
+- No planner prompt integration yet.
