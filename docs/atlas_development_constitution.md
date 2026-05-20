@@ -66,6 +66,48 @@ Always:
   - endpoint exists
   - tests read actual main files
 
+
+## Contract Test Quality Rule
+
+- Tests must not only assert that strings exist.
+- For every new feature, tests must prove the runtime chain that must work.
+- A PR is incomplete if a broken implementation could still pass all tests.
+- Every new UI/API feature must define the broken cases its tests catch.
+- Every future Atlas PR must include an adversarial self-review.
+
+For UI changes, tests must verify the full chain:
+
+DOM ID
+→ AtlasPipelineAPI helper
+→ dashboard function
+→ event binding inside bind/init
+→ endpoint string
+→ response unwrap
+→ render target update
+→ cache bust
+
+For classic Atlas UI scripts:
+- New bindings must be inside the existing IIFE / initialized path.
+- New bindings must not be appended after the final `})();`.
+- No top-level code after the IIFE may reference IIFE-local variables such as `$`, `state`, `arr`, or helper functions.
+- `type="module"` remains forbidden for existing Atlas UI scripts.
+- top-level `import` / `export` remains forbidden.
+
+For API/backend changes, tests must verify:
+- router registered
+- endpoint reachable
+- request-aware `resolve_atlas_ca_data_root(request)` used
+- service receives `data_root`
+- missing resources are non-blocking when required
+- response shape is tested
+- safety metadata flags are asserted when relevant
+- no forbidden execution path is introduced
+
+### Definition of Done
+
+A reviewer should be able to intentionally break one obvious part of the new feature and see at least one test fail.
+If no test would fail for a broken binding, missing endpoint, wrong response shape, wrong data_root, or misplaced UI code, the PR is incomplete.
+
 ## 5. Execution Rules
 
 - Recommendations are not executions.

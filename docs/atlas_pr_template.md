@@ -47,6 +47,50 @@ Out of scope:
 
 ...
 
+## Runtime Chain Evidence
+
+(Allow “N/A” only with explanation.)
+
+- DOM ID:
+- API helper:
+- Dashboard binding:
+- Endpoint:
+- Router registration:
+- Service/data_root injection:
+- Response unwrap:
+- Render target:
+- Cache bust:
+- Test that fails if binding is missing:
+- Test that fails if endpoint is missing:
+- Test that fails if response shape is wrong:
+- Test that fails if code is outside the IIFE:
+
+## Broken Cases Covered
+
+| Broken case | Test that catches it |
+| --- | --- |
+| Example: helper missing | test name |
+| Example: endpoint missing | test name |
+| Example: binding outside IIFE | test name |
+| Example: wrong response unwrap | test name |
+| Example: data_root not injected | test name |
+
+## Adversarial Self-Review
+
+- At least 5 possible failure modes.
+- For each failure mode, list the detecting test.
+- If no test catches it, add a test or mark as known limitation.
+
+### UI Example (Recommended)
+
+If adding a button that calls an API, tests must fail when:
+- the DOM ID is missing
+- the API helper is missing
+- the dashboard binding is outside the IIFE
+- the response `.data` is not unwrapped
+- cache bust is not updated
+
+
 ## Postflight Confirmation
 
 - [ ] targeted pytest passed
