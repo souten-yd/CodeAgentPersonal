@@ -409,11 +409,17 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
         )
         if req.enable_repo_context and (req.project_path or "").strip():
             try:
+                changed_files = list(req.changed_files or [])
+                target_files = list(req.target_files or [])
+                if not changed_files and isinstance(req.metadata, dict):
+                    changed_files = list(req.metadata.get("changed_files") or [])
+                if not target_files and isinstance(req.metadata, dict):
+                    target_files = list(req.metadata.get("target_files") or [])
                 repo_req = AtlasRepoContextRequest(
                     workspace_id=req.workspace_id,
                     project_path=req.project_path,
-                    changed_files=list(req.metadata.get("changed_files", [])) if isinstance(req.metadata, dict) else [],
-                    target_files=list(req.metadata.get("target_files", [])) if isinstance(req.metadata, dict) else [],
+                    changed_files=changed_files,
+                    target_files=target_files,
                     goal=root_goal,
                     allow_build_if_missing=False,
                     mode="scope_summary",

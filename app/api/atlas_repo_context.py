@@ -41,5 +41,6 @@ def get_scope_summary(payload: AtlasRepoContextRequest, request: Request):
 
 @router.post("/impacted-tests")
 def impacted_tests(req: AtlasRepoContextRequest, request: Request):
-    data_root = resolve_data_root(request, req.workspace_id)
-    return AtlasRepoContextPlannerPackager(data_root=data_root).build_impacted_test_recommendation(req)
+    _validate_project_path(req.project_path)
+    data_root = resolve_atlas_ca_data_root(request)
+    return AtlasRepoContextPlannerPackager(data_root=data_root).build_impacted_test_recommendation(req).model_dump()
