@@ -294,3 +294,5 @@ Known Current Code Facts:
 
 ## Historical Marker
 - PR-ATLAS-SCALE-65B
+
+- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2

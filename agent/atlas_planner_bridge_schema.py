@@ -32,6 +32,8 @@ class AtlasPlannerBridgeRequest(BaseModel):
     metadata: dict = Field(default_factory=dict)
     repo_context_package: dict = Field(default_factory=dict)
     planner_context_text: str = ""
+    planner_context_text_v2: str = ""
+    advisory_context_text: str = ""
 
 
 class AtlasPlannerBridgeResult(BaseModel):
@@ -50,3 +52,5 @@ class AtlasPlannerBridgeResult(BaseModel):
     metadata: dict = Field(default_factory=dict)
     repo_context_package: dict = Field(default_factory=dict)
     planner_context_text: str = ""
+    planner_context_text_v2: str = ""
+    advisory_context_text: str = ""

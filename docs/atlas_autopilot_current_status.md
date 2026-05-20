@@ -220,3 +220,5 @@ Known Current Code Facts:
 - Next PR: PR-ATLAS-SCALE-67: Planner Packaging v2 using Context Refresh v2 and PlanItem Impact Map.
 
 - Historical marker: PR-ATLAS-SCALE-65B
+
+- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
