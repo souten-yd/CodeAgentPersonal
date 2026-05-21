@@ -777,5 +777,12 @@
   "artifact_capture_requires_data_root": true,
   "artifact_capture_index_policy": "metadata_only_references",
   "automatic_artifact_capture_enabled": false,
-  "artifact_capture_policy": "docs/atlas_autonomous_execution_readiness_policy.md#artifact-capture-gate"
+  "artifact_capture_policy": "docs/atlas_autonomous_execution_readiness_policy.md#artifact-capture-gate",
+  "stop_kill_switch_gate_foundation": true,
+  "stop_kill_switch_runtime_gate": "metadata_only_manual_foundation",
+  "stop_kill_switch_auto_execute_enabled": false,
+  "automatic_stop_execution_enabled": false,
+  "stop_state_visibility_required": true,
+  "kill_switch_required": true,
+  "stop_kill_switch_policy": "docs/atlas_autonomous_execution_readiness_policy.md#stop--kill-switch-gate"
 }

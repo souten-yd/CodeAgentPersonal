@@ -214,3 +214,14 @@ Known Current Code Facts:
 - strict_gate always requires explicit approval
 - confirmation token or future equivalent approval token remains mandatory
 - gate readiness does not execute automatically
+
+
+## Stop / Kill Switch Gate
+- user can stop ongoing autonomous flow before any future autonomous mode.
+- stop state must be visible in ThinUI/CLI.
+- no auto-continue after stop.
+- execute-all remains forbidden.
+- stop / kill switch gate is metadata-only in PR-88.
+- PR-88 does not stop real jobs or kill processes.
+- stop acknowledgement must not be fabricated.
+- Current Atlas state remains Level 0 manual-only.
