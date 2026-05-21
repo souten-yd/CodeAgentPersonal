@@ -89,6 +89,18 @@ def test_pr80_manifest_vue_checkpoint_contract():
     assert m['legacy_ui_policy'] == 'keep_until_vue_parity'
     assert m['ui_cleanup_policy_doc'] == 'docs/atlas_autonomous_first_ui_policy.md'
     assert m['vue_migration_plan_doc'] == 'docs/atlas_vue_migration_plan.md'
+    assert m['workflow_state_machine_ui'] is True
+    assert m['primary_cta_policy'] == 'single_existing_manual_action_only'
+
+
+def test_scale77_workflow_state_machine_surfaces():
+    m = _manifest()
+    by_id = {s['id']: s for s in m['surfaces']}
+    for sid in ['atlas-workflow-primary-action-reason', 'atlas-workflow-safety-summary']:
+        assert sid in by_id
+        assert by_id[sid]['category'] == 'minimal_workflow'
+        assert by_id[sid]['default_visible'] is True
+        assert by_id[sid]['can_hide'] is False
 
 
 def test_pr80_surface_categories_and_safety_constraints():

@@ -660,6 +660,24 @@
       "reason": "PR-76C diagnostics cleanup.",
       "can_hide": true,
       "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-workflow-primary-action-reason",
+      "label": "Workflow primary action reason",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "Workflow state machine summary / safety reason",
+      "can_hide": false,
+      "safety_notes": "Shows phase/action/safety requirements; does not execute by itself."
+    },
+    {
+      "id": "atlas-workflow-safety-summary",
+      "label": "Workflow safety summary",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "Workflow state machine summary / safety reason",
+      "can_hide": false,
+      "safety_notes": "Shows phase/action/safety requirements; does not execute by itself."
     }
   ],
   "self_improvement_scope": "self_improving_codeagentpersonal_kasanecore",
@@ -673,5 +691,7 @@
   "vue_entry_strategy": "parallel_ui_first",
   "legacy_ui_policy": "keep_until_vue_parity",
   "ui_cleanup_policy_doc": "docs/atlas_autonomous_first_ui_policy.md",
-  "vue_migration_plan_doc": "docs/atlas_vue_migration_plan.md"
+  "vue_migration_plan_doc": "docs/atlas_vue_migration_plan.md",
+  "workflow_state_machine_ui": true,
+  "primary_cta_policy": "single_existing_manual_action_only"
 }

@@ -1635,13 +1635,43 @@ ${preview}`;
       events: arr(state.events).length,
       approvals: arr(state.approvalItems).length,
     };
-    state.workflowShell = {
+    const shellState = {
       mode: 'manual_supervised', phase: state.pipelineState?.phase || '-', status: state.pipelineState?.status || 'idle',
       goal: goalInput, project_path: projectPath, pool_id: state.currentPoolId || '', current_action: state.lastAction || '',
       approval_required: true, dry_run_required: true, confirmation_required: true, can_start: false, can_continue: false,
       can_stop: true, last_result: state.pipelineState?.last_result || null, handoff_summary: handoff, artifacts,
     };
+    const derived = deriveWorkflowPhase(shellState);
+    shellState.workflow_phase = derived.phase;
+    shellState.primary_action_label = derived.primaryAction.label;
+    shellState.primary_action_kind = derived.primaryAction.actionKind;
+    shellState.primary_action_enabled = derived.primaryAction.enabled;
+    shellState.primary_action_reason = derived.primaryAction.reason;
+    shellState.approval_required = derived.safety.requiresConfirmation;
+    shellState.dry_run_required = derived.safety.requiresDryRun;
+    shellState.confirmation_required = derived.safety.requiresConfirmation;
+    shellState.confirmation_text_required = derived.safety.confirmationTextRequired;
+    shellState.manual_approval_only = derived.safety.manualApprovalOnly;
+    shellState.auto_continue_allowed = false;
+    shellState.execute_all_allowed = false;
+    shellState.source_state_summary = `pool=${shellState.pool_id || '-'}; pipeline_status=${shellState.status}; pipeline_phase=${shellState.phase}; plan_items=${artifacts.plan_items}; selected_action=${operatorLoopState.selectedNextAction || '-'}; action_kind=${operatorLoopState.actionKind || '-'}`;
+    state.workflowShell = shellState;
     return state.workflowShell;
+  }
+
+  function deriveWorkflowPhase(shellState) {
+    const hasGoal = !!String(shellState.goal || '').trim();
+    const hasPool = !!shellState.pool_id;
+    const hasItems = Number(shellState.artifacts?.plan_items || 0) > 0;
+    const dry = operatorLoopState.lastDryRunResult || {};
+    const dryReady = !!(operatorLoopState.dryRunExecutorRunId && dry.status === 'dry_run' && dry.validation?.executable === true);
+    const execReady = operatorLoopCanExecute();
+    if (!hasGoal) return { phase: 'idle', label: 'Enter goal', primaryAction: { id: 'atlas-workflow-primary-action-btn', label: 'Create Plan', enabled: false, reason: 'Goal input is required before creating a plan.', actionKind: 'none' }, safety: { requiresDryRun: true, requiresConfirmation: true, confirmationTextRequired: 'EXECUTE ONE ACTION', manualApprovalOnly: true, autoContinue: false, executeAll: false } };
+    if (!hasPool || !hasItems) return { phase: 'planning', label: 'Create plan', primaryAction: { id: 'atlas-workflow-primary-action-btn', label: 'Create Plan', enabled: true, reason: 'Create plan pool from current goal.', actionKind: 'create_plan' }, safety: { requiresDryRun: true, requiresConfirmation: true, confirmationTextRequired: 'EXECUTE ONE ACTION', manualApprovalOnly: true, autoContinue: false, executeAll: false } };
+    if (!operatorLoopState.multiStatusRunId || !operatorLoopState.orchestratorRunId || !operatorLoopState.actionId) return { phase: 'prepare_required', label: 'Prepare next action', primaryAction: { id: 'atlas-workflow-primary-action-btn', label: 'Prepare Next Action', enabled: true, reason: 'Prepare is required to pick a single action candidate.', actionKind: 'prepare_next' }, safety: { requiresDryRun: true, requiresConfirmation: true, confirmationTextRequired: 'EXECUTE ONE ACTION', manualApprovalOnly: true, autoContinue: false, executeAll: false } };
+    if (!dryReady) return { phase: 'dry_run_required', label: 'Dry run required', primaryAction: { id: 'atlas-workflow-primary-action-btn', label: 'Start Dry Run', enabled: true, reason: 'Dry-run-first policy is required before execution.', actionKind: 'dry_run' }, safety: { requiresDryRun: true, requiresConfirmation: true, confirmationTextRequired: 'EXECUTE ONE ACTION', manualApprovalOnly: true, autoContinue: false, executeAll: false } };
+    if (execReady) return { phase: 'execute_ready', label: 'Execute one action', primaryAction: { id: 'atlas-workflow-primary-action-btn', label: 'Execute One Action', enabled: true, reason: 'All current guards pass. Manual confirmation remains required.', actionKind: 'execute_one' }, safety: { requiresDryRun: true, requiresConfirmation: true, confirmationTextRequired: 'EXECUTE ONE ACTION', manualApprovalOnly: true, autoContinue: false, executeAll: false } };
+    return { phase: 'refresh_required', label: 'Refresh status', primaryAction: { id: 'atlas-workflow-primary-action-btn', label: 'Refresh Status', enabled: true, reason: 'Refresh and inspect current status before next manual step.', actionKind: 'refresh' }, safety: { requiresDryRun: true, requiresConfirmation: true, confirmationTextRequired: 'EXECUTE ONE ACTION', manualApprovalOnly: true, autoContinue: false, executeAll: false } };
   }
 
 
@@ -1683,15 +1713,57 @@ ${preview}`;
     if ($('atlas-workflow-project-path')) $('atlas-workflow-project-path').textContent = ws.project_path || '-';
     if ($('atlas-workflow-mode')) $('atlas-workflow-mode').textContent = ws.mode;
     if ($('atlas-workflow-status')) $('atlas-workflow-status').textContent = ws.status;
-    if ($('atlas-workflow-phase')) $('atlas-workflow-phase').textContent = ws.phase;
+    if ($('atlas-workflow-phase')) $('atlas-workflow-phase').textContent = ws.workflow_phase || ws.phase;
     if ($('atlas-workflow-approval-summary')) $('atlas-workflow-approval-summary').textContent = `Approval summary: ${ws.handoff_summary || 'manual approval + EXECUTE ONE ACTION required'}`;
     if ($('atlas-workflow-artifacts-summary')) $('atlas-workflow-artifacts-summary').textContent = `Artifacts: plan_items=${ws.artifacts.plan_items}, events=${ws.artifacts.events}, approvals=${ws.artifacts.approvals}`;
     const primary = $('atlas-workflow-primary-action-btn');
-    if (primary) { primary.disabled = true; primary.title = 'Conservative by design in PR-74; use existing manual guarded actions.'; }
+    if (primary) {
+      primary.disabled = !ws.primary_action_enabled;
+      primary.textContent = ws.primary_action_label || 'Primary action';
+      primary.title = ws.primary_action_reason || '';
+    }
+    if ($('atlas-workflow-primary-action-reason')) $('atlas-workflow-primary-action-reason').textContent = `Primary action reason: ${ws.primary_action_reason || '-'}`;
+    if ($('atlas-workflow-safety-summary')) $('atlas-workflow-safety-summary').textContent = `Safety: dry-run-first=${String(ws.dry_run_required)} / confirmation_required=${String(ws.confirmation_required)} / confirmation_text_required=${ws.confirmation_text_required || '-'} / no auto-continue / no execute-all.`;
+  }
+
+  async function handleWorkflowPrimaryAction() {
+    const ws = getWorkflowShellState();
+    if (!ws.primary_action_enabled) return renderWorkflowShell();
+    try {
+      switch (ws.primary_action_kind) {
+        case 'create_plan':
+          await createPlanPool();
+          break;
+        case 'prepare_next':
+          await operatorLoopPrepare();
+          break;
+        case 'dry_run':
+          await operatorLoopExec(true);
+          break;
+        case 'execute_one':
+          if (!operatorLoopCanExecute()) break;
+          await operatorLoopExec(false);
+          break;
+        case 'refresh':
+          await refreshStatus();
+          break;
+        case 'show_advanced':
+          setAtlasUiMode('advanced');
+          break;
+        case 'show_diagnostics':
+          setAtlasUiMode('diagnostics');
+          break;
+        default:
+          break;
+      }
+    } catch (err) {
+      showWarning(`Workflow primary action failed safely: ${err?.message || String(err)}`);
+    }
+    renderWorkflowShell();
   }
 
   function bindWorkflowShell() {
-    $('atlas-workflow-primary-action-btn')?.addEventListener('click', () => renderWorkflowShell());
+    $('atlas-workflow-primary-action-btn')?.addEventListener('click', () => { handleWorkflowPrimaryAction(); });
     $('atlas-workflow-stop-btn')?.addEventListener('click', () => {
       const status = $('atlas-workbench-status');
       if (status) status.textContent = 'Stop requested (display-only in PR-74).';
