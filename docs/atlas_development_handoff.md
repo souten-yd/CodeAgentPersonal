@@ -20,14 +20,37 @@ Completed:
 - PR-ATLAS-SCALE-87
 - PR-ATLAS-SCALE-88
 - PR-ATLAS-SCALE-89
+- PR-ATLAS-SCALE-90
 
 Current implementation PR:
-- PR-ATLAS-SCALE-90: Remote git gate consolidation
-
-Next implementation PR:
 - PR-ATLAS-SCALE-91: Self-improvement gate consolidation
 
+Next implementation PR:
+- PR-ATLAS-SCALE-92: Readiness gate rollup / Level-0 completion checkpoint
+
 Known Current Code Facts:
+- PR-90 adds remote git gate consolidation.
+- Remote git gate is metadata-only and does not run git commands.
+- Remote git gate does not push, pull, clone, fetch, or mutate remotes.
+- Remote git gate does not create branches.
+- Remote git gate does not create PRs.
+- Remote git gate does not merge PRs.
+- Direct merge remains forbidden.
+- Automatic PR creation remains disabled.
+- Draft PR creation requires a future explicit policy PR.
+- Remote git operation requests are blocked as policy metadata.
+- remote_git_gate_ready does not authorize git operations.
+- PR-89 added loop bound gate consolidation.
+- Loop bound gate is metadata-only and does not run loops.
+- Loop bound gate does not retry automatically.
+- Loop bound gate does not continue automatically.
+- Loop bound gate does not authorize automatic execution.
+- Explicit bounds are required for max actions, retries, runtime, files changed, risk level, consecutive failures, verification attempts, and patch transactions.
+- No unbounded autonomous loop is allowed.
+- Auto-continue remains disabled.
+- Execute-all remains forbidden.
+- Automatic loop execution remains disabled.
+- Automatic retry remains disabled.
 - PR-88 adds stop / kill switch gate consolidation.
 - Stop / kill switch gate is metadata-only and does not stop real jobs.
 - Stop / kill switch gate does not kill processes.
@@ -227,6 +250,28 @@ Next implementation PR:
 - PR-ATLAS-SCALE-86: Rollback readiness gate consolidation
 
 Known Current Code Facts:
+- PR-90 adds remote git gate consolidation.
+- Remote git gate is metadata-only and does not run git commands.
+- Remote git gate does not push, pull, clone, fetch, or mutate remotes.
+- Remote git gate does not create branches.
+- Remote git gate does not create PRs.
+- Remote git gate does not merge PRs.
+- Direct merge remains forbidden.
+- Automatic PR creation remains disabled.
+- Draft PR creation requires a future explicit policy PR.
+- Remote git operation requests are blocked as policy metadata.
+- remote_git_gate_ready does not authorize git operations.
+- PR-89 added loop bound gate consolidation.
+- Loop bound gate is metadata-only and does not run loops.
+- Loop bound gate does not retry automatically.
+- Loop bound gate does not continue automatically.
+- Loop bound gate does not authorize automatic execution.
+- Explicit bounds are required for max actions, retries, runtime, files changed, risk level, consecutive failures, verification attempts, and patch transactions.
+- No unbounded autonomous loop is allowed.
+- Auto-continue remains disabled.
+- Execute-all remains forbidden.
+- Automatic loop execution remains disabled.
+- Automatic retry remains disabled.
 - PR-88 adds stop / kill switch gate consolidation.
 - Stop / kill switch gate is metadata-only and does not stop real jobs.
 - Stop / kill switch gate does not kill processes.

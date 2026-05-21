@@ -797,5 +797,19 @@
   "max_runtime_required": true,
   "max_files_changed_required": true,
   "max_risk_level_required": true,
-  "loop_bound_policy": "docs/atlas_autonomous_execution_readiness_policy.md#loop-bound-gate"
+  "loop_bound_policy": "docs/atlas_autonomous_execution_readiness_policy.md#loop-bound-gate",
+  "remote_git_gate_foundation": true,
+  "remote_git_runtime_gate": "metadata_only_manual_foundation",
+  "remote_git_operations_enabled": false,
+  "git_push_enabled": false,
+  "git_pull_enabled": false,
+  "git_clone_enabled": false,
+  "git_fetch_enabled": false,
+  "git_remote_enabled": false,
+  "branch_creation_enabled": false,
+  "automatic_pr_creation_enabled": false,
+  "draft_pr_creation_enabled": false,
+  "direct_merge_enabled": false,
+  "remote_git_gate_auto_execute_enabled": false,
+  "remote_git_policy": "docs/atlas_autonomous_execution_readiness_policy.md#remote-git-gate"
 }
