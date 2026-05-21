@@ -19,6 +19,8 @@ def test_autonomous_execution_manifest_policy_contract() -> None:
     assert m['automatic_execute_enabled'] is False
 
     assert m['rollback_readiness_gate_foundation'] is True
+    assert m['artifact_capture_gate_foundation'] is True
+    assert m['automatic_artifact_capture_enabled'] is False
     assert m['rollback_readiness_auto_restore_enabled'] is False
     assert m['automatic_restore_enabled'] is False
     assert m['automatic_rollback_enabled'] is False
@@ -63,6 +65,8 @@ def test_snapshot_restore_runtime_flags() -> None:
     assert m['automatic_execute_enabled'] is False
 
     assert m['rollback_readiness_gate_foundation'] is True
+    assert m['artifact_capture_gate_foundation'] is True
+    assert m['automatic_artifact_capture_enabled'] is False
     assert m['rollback_readiness_auto_restore_enabled'] is False
     assert m['automatic_restore_enabled'] is False
     assert m['automatic_rollback_enabled'] is False

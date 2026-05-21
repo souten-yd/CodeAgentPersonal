@@ -68,9 +68,14 @@
    - automatic rollback requires a future explicit policy PR
 
 7. **Artifact Capture Gate**
-   - plan, patch, dry-run result, execution result, verification plan, verification result, warnings, and recovery instructions are captured
+   - plan / intent summary, workspace snapshot manifest, patch transaction manifest, rollback metadata, risk classification record, verification allowlist record, dry-run approval gate record, and rollback readiness gate record are required references
+   - dry-run result, execution result, verification plan, and verification result references are tracked when available and missing references are recorded explicitly
+   - warnings and recovery instructions are captured as explicit lists
    - artifacts must use resolved data_root
-   - artifacts must be inspectable from UI/CLI
+   - artifact capture is metadata-only in PR-87 and does not execute actions
+   - artifact capture does not create fake execution results
+   - artifact capture does not create fake verification results
+   - artifacts must be inspectable from future UI/CLI
 
 8. **Stop / Kill Switch Gate**
    - user can stop ongoing autonomous flow
