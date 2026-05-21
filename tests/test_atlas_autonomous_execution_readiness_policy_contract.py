@@ -13,6 +13,7 @@ def test_autonomous_execution_readiness_policy_contract() -> None:
         'Snapshot / Restore Gate',
         'resolved data_root',
         'Patch Transaction Gate',
+        'transaction has file list, diff summary, risk class, and rollback metadata',
         'Risk Classification Gate',
         'Verification Allowlist Gate',
         'Dry-run and Approval Gate',
