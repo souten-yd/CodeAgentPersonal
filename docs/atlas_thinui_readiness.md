@@ -82,6 +82,7 @@ Hidden by default:
 - PR-80: ThinUI architecture checkpoint.
 
 ## PR-81+ Autonomous Execution Roadmap
+- See also: PR-91〜PR-100 Self-Improving Atlas / KasaneCore Roadmap
 - workspace snapshot / restore foundation
 - patch transaction manager
 - autonomous execution policy v1
@@ -92,3 +93,13 @@ Hidden by default:
 - self-improving CodeAgentPersonal platform
 - GitHub branch / draft PR automation
 - autonomous development milestone
+
+
+## Self-Improvement Scope
+- Self-improvement remains explicitly in scope.
+- Atlas must eventually be able to safely improve CodeAgentPersonal / KasaneCore itself.
+- Self-improvement is not immediate full automation.
+- Self-improvement requires stricter gates than ordinary repo work.
+- Snapshot / restore / patch transaction / rollback readiness are required before autonomous self-modification.
+- ThinUI is the supervision interface for autonomous and self-improving behavior.
+- ThinUI does not replace self-improvement or autonomous execution.
