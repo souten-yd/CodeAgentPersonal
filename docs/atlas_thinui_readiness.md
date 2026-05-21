@@ -7,34 +7,32 @@ Completed:
 - PR-ATLAS-SCALE-77
 - PR-ATLAS-SCALE-77B
 - PR-ATLAS-SCALE-78
+- PR-ATLAS-SCALE-79
 - PR-ATLAS-SCALE-80: out-of-order architecture checkpoint (docs/manifest/tests only; Vue migration plan + autonomous-first UI policy)
 
 Current implementation PR:
-- PR-ATLAS-SCALE-79: Autonomous execution readiness policy checkpoint
-
-Next implementation PR:
 - PR-ATLAS-SCALE-81: Workspace snapshot / restore foundation
 
+Next implementation PR:
+- PR-ATLAS-SCALE-82: Patch transaction and rollback metadata foundation
+
 Known Current Code Facts:
-- PR-77 added workflow state machine UI.
-- PR-77B aligns primary CTA guards with existing Operator Loop guards.
-- Primary CTA is not more permissive than detailed Operator Loop controls.
-- Primary CTA may trigger at most one existing manual action per click.
-- Primary CTA does not run Build Queue automatically.
-- Primary CTA does not run Preview Token automatically.
-- Primary CTA does not run Advance to confirmation automatically.
-- Primary CTA does not run Execute and refresh automatically.
-- Primary CTA does not auto-continue.
-- Primary CTA does not execute all.
-- Primary CTA does not bypass dry-run-first.
-- Primary CTA does not bypass EXECUTE ONE ACTION.
+- PR-78 added ThinUI contract tests and manifest-driven UI smoke.
+- PR-79 defines autonomous execution readiness policy.
+- Atlas remains Level 0 manual-only execution at runtime.
+- Autonomous execution remains forbidden until readiness gates pass.
+- Required gates include snapshot/restore, patch transaction, risk classification, allowlisted verification, dry-run/approval, rollback readiness, artifact capture, stop/kill switch, loop bounds, remote git restrictions, and self-improvement gates.
+- PR-79 does not enable auto-execution.
+- PR-79 does not change runtime behavior.
+- Primary CTA remains single existing manual action only.
+- EXECUTE ONE ACTION remains required.
+- Dry-run-first remains required.
+- Suggested commands are not executed automatically.
 - Backend workflow state remains authoritative.
 - ThinUI remains replaceable and CLI-compatible.
-- PR-80 remains an out-of-order architecture checkpoint and does not imply PR-79 is complete.
+- PR-80 remains an out-of-order architecture checkpoint and does not imply PR-79 was previously complete.
 - Atlas final goal remains a fully autonomous code agent.
 - Self-improving CodeAgentPersonal / KasaneCore remains explicitly in scope.
-- Execution semantics remain unchanged.
-- Suggested commands are not executed automatically.
 
 # Atlas ThinUI Readiness
 

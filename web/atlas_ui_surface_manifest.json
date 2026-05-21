@@ -705,5 +705,28 @@
     "patch_generation",
     "retry",
     "rollback"
-  ]
+  ],
+  "autonomous_execution_readiness_policy": "docs/atlas_autonomous_execution_readiness_policy.md",
+  "autonomous_execution_runtime_level": "level_0_manual_only",
+  "autonomous_execution_enabled": false,
+  "auto_continue_enabled": false,
+  "execute_all_enabled": false,
+  "automatic_safe_apply_enabled": false,
+  "automatic_verification_enabled": false,
+  "automatic_retry_enabled": false,
+  "automatic_rollback_enabled": false,
+  "autonomous_readiness_gates": [
+    "snapshot_restore",
+    "patch_transaction",
+    "risk_classification",
+    "verification_allowlist",
+    "dry_run_and_approval",
+    "rollback_readiness",
+    "artifact_capture",
+    "stop_kill_switch",
+    "loop_bounds",
+    "remote_git_restrictions",
+    "self_improvement_gate"
+  ],
+  "autonomous_first_ui_policy": "docs/atlas_autonomous_first_ui_policy.md"
 }

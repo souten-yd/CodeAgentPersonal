@@ -179,3 +179,12 @@ No future client may depend on classic ui.html DOM structure.
 - ThinUI remains replaceable and CLI-compatible.
 - Final goal remains fully autonomous code agent and self-improving CodeAgentPersonal / KasaneCore.
 - PR-80 remains out-of-order and does not imply PR-78〜79 are complete.
+
+
+## Autonomous Execution Readiness Boundary
+- Automation-first UI does not mean autonomous execution is enabled.
+- ThinUI may expose readiness state, but not execute automatically.
+- Primary CTA remains single manual action only.
+- Autonomous execution must satisfy docs/atlas_autonomous_execution_readiness_policy.md.
+- Minimal UI must show safety state before any future autonomous mode is exposed.
+- Advanced/Diagnostics remain available for inspection.

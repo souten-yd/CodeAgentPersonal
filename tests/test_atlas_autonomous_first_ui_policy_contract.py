@@ -6,6 +6,12 @@ def test_autonomous_first_ui_policy_contract() -> None:
     assert p.exists()
     t = p.read_text(encoding='utf-8')
     for s in [
+        'Autonomous Execution Readiness Boundary',
+        'docs/atlas_autonomous_execution_readiness_policy.md',
+        'Automation-first UI does not mean autonomous execution is enabled',
+        'ThinUI may expose readiness state, but not execute automatically',
+        'Primary CTA remains single manual action only',
+        'Minimal UI must show safety state before any future autonomous mode is exposed',
         'Autonomous-first UI Policy',
         'Default Visible UI',
         'Hide by Default',
