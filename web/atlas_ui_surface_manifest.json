@@ -5,6 +5,114 @@
   "thinui_role": "frontend_simplification_for_autonomous_agent",
   "surfaces": [
     {
+      "id": "atlas-workflow-diagnostics-toggle",
+      "label": "Workflow diagnostics toggle",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Automation-first thin supervision surface."
+    },
+    {
+      "id": "atlas-workflow-advanced-toggle",
+      "label": "Workflow advanced toggle",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Automation-first thin supervision surface."
+    },
+    {
+      "id": "atlas-workflow-artifacts-summary",
+      "label": "Workflow artifacts summary",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Automation-first thin supervision surface."
+    },
+    {
+      "id": "atlas-workflow-approval-summary",
+      "label": "Workflow approval summary",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Automation-first thin supervision surface."
+    },
+    {
+      "id": "atlas-workflow-stop-btn",
+      "label": "Workflow stop",
+      "category": "safety_always_visible",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Safety control remains visible."
+    },
+    {
+      "id": "atlas-workflow-primary-action-btn",
+      "label": "Workflow primary action",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Automation-first thin supervision surface."
+    },
+    {
+      "id": "atlas-workflow-phase",
+      "label": "Workflow phase",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Automation-first thin supervision surface."
+    },
+    {
+      "id": "atlas-workflow-status",
+      "label": "Workflow status",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Automation-first thin supervision surface."
+    },
+    {
+      "id": "atlas-workflow-mode",
+      "label": "Workflow mode",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Automation-first thin supervision surface."
+    },
+    {
+      "id": "atlas-workflow-project-path",
+      "label": "Workflow project path",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Automation-first thin supervision surface."
+    },
+    {
+      "id": "atlas-workflow-goal",
+      "label": "Workflow goal",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Automation-first thin supervision surface."
+    },
+    {
+      "id": "atlas-workflow-shell",
+      "label": "Atlas Workflow shell",
+      "category": "minimal_workflow",
+      "default_visible": true,
+      "reason": "PR-74 minimal workflow shell surface.",
+      "can_hide": false,
+      "safety_notes": "Automation-first thin supervision surface."
+    },
+    {
       "id": "atlas-goal-input",
       "label": "Goal input",
       "category": "minimal_workflow",
@@ -231,5 +339,9 @@
     }
   ],
   "self_improvement_scope": "self_improving_codeagentpersonal_kasanecore",
-  "self_improvement_role": "future_strict_gate_autonomous_self_modification"
+  "self_improvement_role": "atlas_self_improvement_platform",
+  "automation_first": true,
+  "cli_compatible_target": true,
+  "replaceable_ui_target": true,
+  "workflow_state_owner": "backend"
 }

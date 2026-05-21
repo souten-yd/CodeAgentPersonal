@@ -72,6 +72,7 @@
     verificationRecommendation: null,
     verificationRecommendationHandoff: null,
     repoContextSubmitting: false,
+    workflowShell: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -1624,6 +1625,56 @@ ${preview}`;
     state.repoContextSubmitting = false;
     renderContextRefreshV2Panel();
   }
+
+  function getWorkflowShellState() {
+    const goalInput = $('atlas-goal-input')?.value || state.goalInput || '';
+    const projectPath = $('atlas-repo-index-project-path')?.value || '';
+    const handoff = operatorLoopState?.lastContractResult?.verification_handoff_summary || state.verificationRecommendationHandoff?.summary || '';
+    const artifacts = {
+      plan_items: arr(state.planPool?.items || state.planPool?.plan_pool?.items).length,
+      events: arr(state.events).length,
+      approvals: arr(state.approvalItems).length,
+    };
+    state.workflowShell = {
+      mode: 'manual_supervised', phase: state.pipelineState?.phase || '-', status: state.pipelineState?.status || 'idle',
+      goal: goalInput, project_path: projectPath, pool_id: state.currentPoolId || '', current_action: state.lastAction || '',
+      approval_required: true, dry_run_required: true, confirmation_required: true, can_start: false, can_continue: false,
+      can_stop: true, last_result: state.pipelineState?.last_result || null, handoff_summary: handoff, artifacts,
+    };
+    return state.workflowShell;
+  }
+
+  function renderWorkflowShell() {
+    const ws = getWorkflowShellState();
+    if ($('atlas-workflow-goal')) $('atlas-workflow-goal').textContent = ws.goal || '-';
+    if ($('atlas-workflow-project-path')) $('atlas-workflow-project-path').textContent = ws.project_path || '-';
+    if ($('atlas-workflow-mode')) $('atlas-workflow-mode').textContent = ws.mode;
+    if ($('atlas-workflow-status')) $('atlas-workflow-status').textContent = ws.status;
+    if ($('atlas-workflow-phase')) $('atlas-workflow-phase').textContent = ws.phase;
+    if ($('atlas-workflow-approval-summary')) $('atlas-workflow-approval-summary').textContent = `Approval summary: ${ws.handoff_summary || 'manual approval + EXECUTE ONE ACTION required'}`;
+    if ($('atlas-workflow-artifacts-summary')) $('atlas-workflow-artifacts-summary').textContent = `Artifacts: plan_items=${ws.artifacts.plan_items}, events=${ws.artifacts.events}, approvals=${ws.artifacts.approvals}`;
+    const primary = $('atlas-workflow-primary-action-btn');
+    if (primary) { primary.disabled = true; primary.title = 'Conservative by design in PR-74; use existing manual guarded actions.'; }
+  }
+
+  function bindWorkflowShell() {
+    $('atlas-workflow-primary-action-btn')?.addEventListener('click', () => renderWorkflowShell());
+    $('atlas-workflow-stop-btn')?.addEventListener('click', () => {
+      const status = $('atlas-workbench-status');
+      if (status) status.textContent = 'Stop requested (display-only in PR-74).';
+      renderWorkflowShell();
+    });
+    $('atlas-workflow-advanced-toggle')?.addEventListener('click', () => {
+      const shell = $('atlas-workflow-shell');
+      if (shell) shell.dataset.atlasAdvancedToggle = shell.dataset.atlasAdvancedToggle === 'open' ? 'closed' : 'open';
+    });
+    $('atlas-workflow-diagnostics-toggle')?.addEventListener('click', () => {
+      const shell = $('atlas-workflow-shell');
+      if (shell) shell.dataset.atlasDiagnosticsToggle = shell.dataset.atlasDiagnosticsToggle === 'open' ? 'closed' : 'open';
+    });
+    renderWorkflowShell();
+  }
+
 function bindOperatorLoop(){ loadOperatorLoopState(); ['pool-id','run-id','reviewer','reason'].forEach((k)=>{ const el=$('atlas-operator-loop-'+k); if(el) el.value=operatorLoopState[k.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]||''; }); const ct=$('atlas-operator-loop-confirmation-text'); if(ct) ct.value='EXECUTE ONE ACTION'; ['confirmation-token','confirmation-text','explicit-decision','pool-id','run-id','reviewer','reason'].forEach((k)=>$('atlas-operator-loop-'+k)?.addEventListener('input',()=>{operatorLoopReadInputs(); operatorLoopRender();})); $('atlas-operator-loop-build-queue-btn')?.addEventListener('click',operatorLoopBuildQueue); $('atlas-operator-loop-prepare-btn')?.addEventListener('click',operatorLoopPrepare); $('atlas-operator-loop-token-btn')?.addEventListener('click',operatorLoopToken); $('atlas-operator-loop-dry-run-btn')?.addEventListener('click',()=>operatorLoopExec(true)); $('atlas-operator-loop-execute-btn')?.addEventListener('click',()=>{ if(!operatorLoopCanExecute()) return; return operatorLoopExec(false);}); $('atlas-operator-loop-refresh-btn')?.addEventListener('click',operatorLoopRefresh); $('atlas-operator-loop-advance-btn')?.addEventListener('click',operatorLoopAdvanceToConfirmation); $('atlas-operator-loop-execute-refresh-btn')?.addEventListener('click',operatorLoopExecuteAndRefresh); $('atlas-operator-loop-copy-payload-btn')?.addEventListener('click',async ()=>{ const p=operatorLoopState.lastContractResult?.action_contract?.payload||{}; try{await navigator.clipboard.writeText(JSON.stringify(p,null,2));}catch(_e){} operatorLoopRender();}); $('atlas-operator-loop-verification-handoff-copy-btn')?.addEventListener('click',copyOperatorLoopVerificationHandoff); $('atlas-operator-loop-verification-handoff-export-btn')?.addEventListener('click',exportOperatorLoopVerificationHandoff); $('atlas-operator-loop-reset-btn')?.addEventListener('click',()=>{ Object.assign(operatorLoopState,{poolId:'',runId:'',reviewer:'manual',reason:'',multiStatusRunId:'',orchestratorRunId:'',actionId:'',selectedItemId:'',selectedNextAction:'',actionKind:'',confirmationToken:'',confirmationText:'EXECUTE ONE ACTION',explicitDecision:'',dryRunExecutorRunId:'',executedExecutorRunId:'',postRefreshRunId:'',lastQueueResult:null,lastContractResult:null,lastDryRunResult:null,lastExecuteResult:null,lastRefreshResult:null}); try{localStorage.removeItem(operatorLoopStorageKey);}catch(_e){} ['queue','contract','executor','refresh','next-step'].forEach((x)=>{ const el=$('atlas-operator-loop-'+x+'-result')||$('atlas-operator-loop-'+x); if(el) el.textContent='';}); const tok=$('atlas-operator-loop-confirmation-token'); if(tok) tok.value=''; operatorLoopRender(); }); operatorLoopRender(); }
   function bind() {
     const goal = $('atlas-goal-input');
@@ -1686,6 +1737,7 @@ function bindOperatorLoop(){ loadOperatorLoopState(); ['pool-id','run-id','revie
     if (!$('atlas-dashboard') || !root.AtlasPipelineAPI) return;
     bind();
     bindOperatorLoop();
+    bindWorkflowShell();
     const storedWorkspace = readStorage(storageKeys.workspaceId);
     if (storedWorkspace && $('atlas-workspace-id')) $('atlas-workspace-id').value = storedWorkspace;
     state.currentPoolId = readStorage(storageKeys.poolId);

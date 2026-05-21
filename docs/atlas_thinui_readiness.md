@@ -58,6 +58,19 @@ Hidden by default:
 - direct pool_id/run_id/multi_status_run_id controls
 - copy raw payload
 
+
+## Automation-first UI / CLI Contract
+- Atlas UI is not the source of workflow truth.
+- Backend workflow state is authoritative.
+- Browser ThinUI, future CLI, future replacement UI, and future full-auto controller must use the same high-level workflow contract.
+- ThinUI supervision surface: task input, project path, status/progress, phase, approval summary, artifact summary, primary CTA, and stop/emergency control.
+- UI must not encode execution decisions.
+- Detailed panels are legacy/debug/advanced surfaces.
+- Normal operation should not require direct low-level subsystem controls.
+- ThinUI is replaceable and not the final goal replacement.
+- Future CLI and replacement UI must not depend on current DOM structure.
+- Final goal remains fully autonomous code agent and self-improving CodeAgentPersonal / KasaneCore platform.
+
 ## ThinUI Target Architecture
 - UI should become a thin state display and approval surface.
 - Backend remains responsible for workflow state.
