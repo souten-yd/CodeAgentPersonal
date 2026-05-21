@@ -1,3 +1,20 @@
+
+## Active PR Pointer (Updated)
+
+Completed:
+- PR-ATLAS-SCALE-68
+
+Current PR:
+- PR-ATLAS-SCALE-69
+
+Next PR:
+- PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
+
+Known Current Code Facts:
+- Verification Recommendation handoff metadata is advisory-only and manual approval context only.
+- Suggested commands are never executed.
+- No tests/shell/verification/safe_apply/patch generation/retry/rollback/remote git are executed by handoff metadata.
+
 # Atlas Development Handoff
 
 ## 1. Current Status
@@ -36,14 +53,14 @@
 ## 3. Current PR Pointer
 
 Current completed PR:
-- PR-ATLAS-SCALE-67B
+- PR-ATLAS-SCALE-68 (historical completed)
 - Historical marker: PR-ATLAS-SCALE-63B
 
 Current docs PR:
 - PR-ATLAS-DOCS-ROADMAP-02
 
 Next implementation PR:
-- PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
+- PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
 
 Known limitation:
 - PR-64 verification hints are still global-ish; PR-65 will map hints per PlanItem more precisely.
@@ -66,7 +83,7 @@ Before making changes:
 7. Verify actual files, tests, and runtime wiring
 
 Current next PR:
-PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
+PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
 
 Hard safety rules:
 
@@ -129,7 +146,7 @@ Known Current Code Facts:
 ## PR-ATLAS-SCALE-64
 - Completed: PR-ATLAS-SCALE-64
 - Current PR: PR-ATLAS-SCALE-66B
-- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
+- Next PR: PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
 - Verification planning is advisory-only.
 - Suggested commands are never executed.
 - CI/test selection hints are local metadata only.
@@ -156,6 +173,6 @@ Next PR:
 - advisory-only
 - no execution
 
-- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
+- Next PR: PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
 
 - Next PR pointer updated to PR-ATLAS-SCALE-69 for verification recommendation handoff metadata.

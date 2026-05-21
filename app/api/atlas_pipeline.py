@@ -63,6 +63,8 @@ from agent.atlas_planner_packaging_v2_service import AtlasPlannerPackagingV2Serv
 from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Request
 from agent.atlas_verification_recommendation_schema import AtlasVerificationRecommendationRequest
 from agent.atlas_verification_recommendation_service import AtlasVerificationRecommendationService
+from agent.atlas_verification_recommendation_handoff_service import AtlasVerificationRecommendationHandoffService
+from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
@@ -593,6 +595,39 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlan
             "auto_test_execution_triggered": False,
             "commands_are_suggestions_only": True,
         }
+        try:
+            handoff = AtlasVerificationRecommendationHandoffService(data_root=ca_data_root).build_handoff(
+                AtlasVerificationRecommendationHandoffRequest(
+                    workspace_id=req.workspace_id,
+                    project_path=req.project_path,
+                    pool_id=pool.pool_id,
+                    goal=root_goal,
+                    plan_pool=_model_dump(pool),
+                    verification_recommendation=verification_recommendation_payload,
+                )
+            ).model_dump()
+            compact = {
+                "status": handoff.get("status", "missing"), "confidence": handoff.get("confidence", "unknown"),
+                "approval_summary": handoff.get("approval_summary", ""),
+                "impacted_files": list(handoff.get("impacted_files", []))[:20],
+                "related_tests": list(handoff.get("related_tests", []))[:15],
+                "recommended_commands": list(handoff.get("recommended_commands", []))[:5],
+                "manual_verification_steps": list(handoff.get("manual_verification_steps", []))[:10],
+                "advisory_only": True, "executed": False, "auto_verification_triggered": False,
+                "auto_test_execution_triggered": False, "commands_are_suggestions_only": True,
+                "manual_approval_only": True,
+            }
+            pool.metadata["verification_recommendation_handoff"] = compact
+            for item in (pool.items or []):
+                md = item.metadata if isinstance(item.metadata, dict) else {}
+                im = dict(compact)
+                im["item_id"] = item.item_id
+                if req.enable_repo_context:
+                    im.setdefault("warnings", ["item_specific_verification_recommendation_unavailable"])
+                md["verification_recommendation_handoff"] = im
+                item.metadata = md
+        except Exception:
+            pool.metadata["verification_recommendation_handoff"] = {"status": "failed", "advisory_only": True, "executed": False, "manual_approval_only": True}
 
     if planner_packaging_v2_payload:
         pool.metadata["planner_packaging_v2"] = {"status": planner_packaging_v2_payload.get("status", "missing"), "confidence": planner_packaging_v2_payload.get("confidence", "unknown"), "impacted_files": list(planner_packaging_v2_payload.get("impacted_files", []))[:30], "related_tests": list(planner_packaging_v2_payload.get("related_tests", []))[:20], "recommended_commands": list(planner_packaging_v2_payload.get("recommended_commands", []))[:5], "context_sections": len(list(planner_packaging_v2_payload.get("context_sections", []))), "evidence": len(list(planner_packaging_v2_payload.get("evidence", []))), "advisory_only": True, "executed": False, "auto_verification_triggered": False, "auto_test_execution_triggered": False}

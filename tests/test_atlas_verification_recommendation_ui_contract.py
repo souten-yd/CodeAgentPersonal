@@ -4,7 +4,7 @@ def test_ui_runtime_chain_contract_verification_recommendation():
     ui=Path('ui.html').read_text(); api=Path('web/js/atlas_pipeline_api.js').read_text(); dash=Path('web/js/atlas_dashboard.js').read_text()
     for dom in ['atlas-verification-recommendation-btn','atlas-verification-recommendation-summary','atlas-verification-recommendation-result']: assert dom in ui
     p_open=ui.index('<pre id="atlas-planner-packaging-v2-result"'); p_close=ui.index('</pre>', p_open); v=ui.index('atlas-verification-recommendation-btn'); assert p_open < p_close < v
-    assert 'atlas-dashboard-35' in ui
+    assert 'atlas-dashboard-36' in ui
     helper='getVerificationRecommendation(payload)'; assert helper in api and '/api/atlas/repo-context/verification-recommendation' in api and "method: 'POST'" in api and 'JSON.stringify(payload || {})' in api
     assign=api.index('root.AtlasPipelineAPI = AtlasPipelineAPI;'); hi=api.index(helper); end=api.rindex('})();'); assert hi < assign < end
     assert 'state.verificationRecommendation' in dash and 'function renderVerificationRecommendationPanel()' in dash and 'async function queryVerificationRecommendationFromUI()' in dash

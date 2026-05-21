@@ -323,6 +323,12 @@
         body: JSON.stringify(payload || {})
       });
     },
+    getVerificationRecommendationHandoff(payload) {
+      return atlasFetch('/api/atlas/repo-context/verification-recommendation-handoff', {
+        method: 'POST',
+        body: JSON.stringify(payload || {})
+      });
+    },
     getRepoContextImpactedTests(payload) {
       return atlasFetch('/api/atlas/repo-context/impacted-tests', {
         method: 'POST',

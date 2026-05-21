@@ -1,3 +1,20 @@
+
+## Active PR Pointer (Updated)
+
+Completed:
+- PR-ATLAS-SCALE-68
+
+Current PR:
+- PR-ATLAS-SCALE-69
+
+Next PR:
+- PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
+
+Known Current Code Facts:
+- Verification Recommendation handoff metadata is advisory-only and manual approval context only.
+- Suggested commands are never executed.
+- No tests/shell/verification/safe_apply/patch generation/retry/rollback/remote git are executed by handoff metadata.
+
 # Atlas Autopilot Scale Master Plan (PR-ATLAS-PIPE-41B)
 
 ## Current Completed Baseline
@@ -194,7 +211,7 @@ Known Current Code Facts:
 ## PR-ATLAS-SCALE-64
 - Completed: PR-ATLAS-SCALE-64
 - Current PR: PR-ATLAS-SCALE-66B
-- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
+- Next PR: PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
 - Verification planning is advisory-only.
 - Suggested commands are never executed.
 - CI/test selection hints are local metadata only.
@@ -209,17 +226,17 @@ Known Current Code Facts:
 - Prohibits string-only tests as sufficient completion evidence.
 - Requires UI runtime-chain checks for DOM/API/binding/endpoint/unwrap/render/cache-bust.
 - Requires backend runtime-chain checks for router/endpoint/data_root/service/response/safety flags.
-- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2.
+- Next PR: PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary.
 
 - Historical marker: PR-ATLAS-SCALE-65B
 
-- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
+- Next PR: PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
 
 
 ## PR-ATLAS-SCALE-67B
 - Completed PR: PR-ATLAS-SCALE-67B
 - Current PR: PR-ATLAS-SCALE-67B
-- Next PR: PR-ATLAS-SCALE-68: Verification Recommendation UI using Planner Packaging v2
+- Next PR: PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
 - Planner Packaging v2 remains advisory-only and manual-only.
 - Planner Packaging v2 uses Context Refresh v2 and PlanItem Impact Map.
 - No execution semantics added.
