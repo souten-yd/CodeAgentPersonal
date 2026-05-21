@@ -13,6 +13,10 @@ def test_autonomous_execution_manifest_policy_contract() -> None:
     assert m['automatic_verification_enabled'] is False
     assert m['automatic_retry_enabled'] is False
     assert m['automatic_rollback_enabled'] is False
+    assert m['dry_run_approval_gate_foundation'] is True
+    assert m['automatic_dry_run_enabled'] is False
+    assert m['automatic_approval_enabled'] is False
+    assert m['automatic_execute_enabled'] is False
 
     assert m['patch_transaction_foundation'] is True
     assert m['automatic_patch_generation_enabled'] is False
@@ -47,6 +51,10 @@ def test_snapshot_restore_runtime_flags() -> None:
     m = json.loads(Path('web/atlas_ui_surface_manifest.json').read_text(encoding='utf-8'))
     assert m['autonomous_execution_runtime_level'] == 'level_0_manual_only'
     assert m['automatic_rollback_enabled'] is False
+    assert m['dry_run_approval_gate_foundation'] is True
+    assert m['automatic_dry_run_enabled'] is False
+    assert m['automatic_approval_enabled'] is False
+    assert m['automatic_execute_enabled'] is False
 
     assert m['patch_transaction_foundation'] is True
     assert m['automatic_patch_generation_enabled'] is False

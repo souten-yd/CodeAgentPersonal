@@ -14,15 +14,31 @@ Completed:
 - PR-ATLAS-SCALE-82
 - PR-ATLAS-SCALE-83
 - PR-ATLAS-SCALE-84
+- PR-ATLAS-SCALE-84B
+- PR-ATLAS-SCALE-85
 
 Current implementation PR:
-- PR-ATLAS-SCALE-85: Dry-run and approval gate consolidation
-
-Next implementation PR:
 - PR-ATLAS-SCALE-86: Rollback readiness gate consolidation
 
+Next implementation PR:
+- PR-ATLAS-SCALE-87: Artifact capture gate consolidation
+
 Known Current Code Facts:
-- PR-84 adds verification allowlist gate foundation.
+- PR-84 added verification allowlist gate foundation.
+- PR-84B fixed verification allowlist py_compile / node check contracts.
+- PR-85 adds dry-run and approval gate consolidation.
+- Dry-run / approval gate is metadata-only and does not execute actions.
+- Gate readiness does not authorize automatic execution.
+- Gate readiness does not execute automatically.
+- Dry-run-first remains mandatory.
+- EXECUTE ONE ACTION remains required.
+- Confirmation token or future equivalent approval token remains mandatory.
+- Explicit approval is mandatory for medium/high/strict risk.
+- strict_gate always requires explicit approval.
+- Missing or failed dry-run blocks readiness.
+- Automatic dry-run remains disabled.
+- Automatic approval remains disabled.
+- Automatic execute remains disabled.
 - Verification allowlist is metadata-only and does not execute commands.
 - Allowlisted command means eligible for future guarded/manual verification, not automatic execution.
 - Broad shell, remote git, destructive commands, package installs, shell metacharacters, and arbitrary commands are blocked.
