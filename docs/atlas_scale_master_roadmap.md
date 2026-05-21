@@ -25,6 +25,7 @@ Completed:
 - PR-ATLAS-SCALE-91
 - PR-ATLAS-SCALE-91B
 - PR-ATLAS-SCALE-91C
+- PR-ATLAS-SCALE-91D
 
 Current implementation PR:
 - PR-ATLAS-SCALE-92: Readiness gate rollup / Level-0 completion checkpoint
@@ -39,6 +40,9 @@ Known Current Code Facts:
 - Invalid or unreadable reference manifests block remote git readiness.
 - remote_git_gate_ready does not authorize git operations.
 - PR-91 adds self-improvement gate consolidation.
+- PR-91D actually adds self_improvement_scope to web/atlas_ui_surface_manifest.json.
+- self_improvement_scope is self_improving_codeagentpersonal_kasanecore.
+- final_goal remains fully_autonomous_code_agent.
 - Self-improvement gate is metadata-only and does not modify code.
 - Self-improvement gate does not generate patches.
 - Self-improvement gate does not apply patches.
@@ -354,6 +358,9 @@ Known Current Code Facts:
 - Invalid or unreadable reference manifests block remote git readiness.
 - remote_git_gate_ready does not authorize git operations.
 - PR-91 adds self-improvement gate consolidation.
+- PR-91D actually adds self_improvement_scope to web/atlas_ui_surface_manifest.json.
+- self_improvement_scope is self_improving_codeagentpersonal_kasanecore.
+- final_goal remains fully_autonomous_code_agent.
 - Self-improvement gate is metadata-only and does not modify code.
 - Self-improvement gate does not generate patches.
 - Self-improvement gate does not apply patches.
