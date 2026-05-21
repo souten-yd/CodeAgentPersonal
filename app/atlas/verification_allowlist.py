@@ -81,8 +81,8 @@ def classify_verification_command(*, command: str, project_path: str | Path | No
             result.update(allowed=True, category="pytest_targeted", reason="allowlisted_targeted_pytest", matched_rule="pytest_q_tests_target", normalized_command=f"pytest -q {parts[2]}")
         else:
             result.update(reason=rel, matched_rule="pytest_target_validation")
-    elif lower[:4] == ["python", "-m", "py_compile"] and len(parts) == 5:
-        ok, rel = validate_target(parts[4], "")
+    elif lower[:3] == ["python", "-m", "py_compile"] and len(parts) == 4:
+        ok, rel = validate_target(parts[3], "")
         if ok:
             result.update(allowed=True, category="python_syntax_check", reason="allowlisted_py_compile", matched_rule="python_m_py_compile", normalized_command=f"python -m py_compile {rel}")
         else:

@@ -230,3 +230,35 @@ Hidden by default:
 - ThinUI remains replaceable and CLI-compatible.
 - Final goal remains fully autonomous code agent and self-improving CodeAgentPersonal / KasaneCore.
 - PR-80 remains out-of-order and does not imply PR-78〜79 are complete.
+
+
+## PR-ATLAS-SCALE-84B Checkpoint Update
+
+Completed PR: PR-ATLAS-SCALE-84B (Fix verification allowlist py_compile / node check contracts).
+
+Current implementation PR:
+- PR-ATLAS-SCALE-85: Dry-run and approval gate consolidation
+
+Next implementation PR:
+- PR-ATLAS-SCALE-86: Rollback readiness gate consolidation
+
+Known Current Code Facts:
+- PR-84B fixes verification allowlist py_compile / node check contracts.
+- Verification allowlist is metadata-only and does not execute commands.
+- python -m py_compile <safe relative file> is allowlisted metadata only.
+- node --check web/js/<safe js file> is allowlisted metadata only.
+- Targeted pytest -q tests/<safe test file>.py is allowlisted metadata only.
+- Allowlisted means future guarded/manual verification eligibility, not execution authorization.
+- Automatic verification remains disabled.
+- Automatic command execution remains disabled.
+- Automatic safe_apply remains disabled.
+- Automatic patch generation remains disabled.
+- Automatic patch apply remains disabled.
+- Automatic rollback remains disabled.
+- Autonomous execution remains disabled.
+- Level 0 manual-only remains.
+- EXECUTE ONE ACTION remains required.
+- Dry-run-first remains required.
+- PR-80 remains an out-of-order architecture checkpoint.
+- Atlas final goal remains a fully autonomous code agent.
+- Self-improving CodeAgentPersonal / KasaneCore remains in scope.
