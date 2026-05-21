@@ -41,3 +41,29 @@ def test_static_safety_contracts(tmp_path: Path):
     r = evaluate_remote_git_gate(**_base(tmp_path))
     assert r["remote_git_operations_enabled"] is False
     assert r["manual_only"] is True
+
+
+def test_unknown_operation_and_reference_blocking_reasons_force_not_ready(tmp_path: Path):
+    outside = tmp_path.parent / "outside.json"
+    outside.write_text("{}", encoding="utf-8")
+
+    unknown = evaluate_remote_git_gate(**_base(tmp_path), requested_operation="unknown")
+    assert unknown["remote_git_gate_ready"] is False
+    assert unknown["requested_operation_forbidden"] is True
+    assert "requested_operation_not_allowed" in unknown["blocking_reasons"]
+
+    outside_ref = evaluate_remote_git_gate(
+        **_base(tmp_path),
+        loop_bound_manifest_path=str(outside),
+    )
+    assert outside_ref["remote_git_gate_ready"] is False
+    assert "reference_path_outside_data_root" in outside_ref["blocking_reasons"]
+
+    unreadable = tmp_path / "unreadable.json"
+    unreadable.write_text("{}", encoding="utf-8")
+    read_failed = evaluate_remote_git_gate(
+        **_base(tmp_path),
+        loop_bound_manifest_path=str(unreadable),
+    )
+    assert read_failed["remote_git_gate_ready"] is False
+    assert "reference_read_failed" in read_failed["blocking_reasons"]

@@ -45,10 +45,12 @@ def evaluate_remote_git_gate(*, project_path: str | Path, data_root: str | Path 
     blocking_reasons: list[str] = []
 
     op = (requested_operation or "none").strip().lower()
-    requested_operation_forbidden = op in _OPS
+    requested_operation_forbidden = op != "none"
     requested_operation_allowed = False
     if requested_operation_forbidden:
-        blocking_reasons.append("requested_remote_git_operation_forbidden")
+        blocking_reasons.append("requested_operation_not_allowed")
+        if op in _OPS:
+            blocking_reasons.append("requested_remote_git_operation_forbidden")
 
     cmd = (requested_command or "").strip().lower()
     requested_command_present = bool(cmd)
@@ -111,7 +113,7 @@ def evaluate_remote_git_gate(*, project_path: str | Path, data_root: str | Path 
     if not recovery:
         blocking_reasons.append("recovery_instructions_missing")
 
-    ready = (not requested_operation_forbidden and not requested_command_blocked and not missing_refs and not recovery == [] and not any(flag_pairs.values()))
+    ready = not blocking_reasons
     status = "remote_git_gate_ready_manual_only" if ready else "blocked"
 
     return {
