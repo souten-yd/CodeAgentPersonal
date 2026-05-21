@@ -693,5 +693,17 @@
   "ui_cleanup_policy_doc": "docs/atlas_autonomous_first_ui_policy.md",
   "vue_migration_plan_doc": "docs/atlas_vue_migration_plan.md",
   "workflow_state_machine_ui": true,
-  "primary_cta_policy": "single_existing_manual_action_only"
+  "primary_cta_policy": "single_existing_manual_action_only",
+  "primary_cta_guard_alignment": "operator_loop_guards",
+  "primary_cta_forbidden_actions": [
+    "build_queue",
+    "preview_token",
+    "advance_to_confirmation",
+    "execute_and_refresh",
+    "safe_apply",
+    "auto_verification",
+    "patch_generation",
+    "retry",
+    "rollback"
+  ]
 }

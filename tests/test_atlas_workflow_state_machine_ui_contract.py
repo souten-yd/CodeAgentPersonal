@@ -19,3 +19,16 @@ def test_state_machine_tokens_and_iife_binding():
         assert banned not in js[js.find('function handleWorkflowPrimaryAction'):js.find('function bindWorkflowShell')].lower()
     assert 'operatorLoopCanExecute()' in js
     assert 'import ' not in js and 'export ' not in js
+
+
+def test_primary_cta_uses_operator_loop_guards():
+    js = Path('web/js/atlas_dashboard.js').read_text(encoding='utf-8')
+    assert 'function getOperatorLoopGuardState' in js
+    derive = js[js.index('function deriveWorkflowPhase'):js.index('function getAtlasUiMode')]
+    assert 'getOperatorLoopGuardState()' in derive
+    assert 'enabled: guardState.canPrepare' in derive
+    assert "if (guardState.canDryRun)" in derive
+    assert "if (guardState.canExecute)" in derive or 'operatorLoopCanExecute()' in derive
+    handler = js[js.index('function handleWorkflowPrimaryAction'):js.index('function bindWorkflowShell')]
+    for banned in ['operatorLoopBuildQueue', 'operatorLoopToken', 'operatorLoopAdvanceToConfirmation', 'operatorLoopExecuteAndRefresh']:
+        assert banned not in handler
