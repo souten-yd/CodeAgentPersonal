@@ -770,5 +770,12 @@
   "restore_manual_only_required": true,
   "rollback_strategy_required": "restore_snapshot_manual",
   "automatic_restore_enabled": false,
-  "rollback_readiness_policy": "docs/atlas_autonomous_execution_readiness_policy.md#rollback-readiness-gate"
+  "rollback_readiness_policy": "docs/atlas_autonomous_execution_readiness_policy.md#rollback-readiness-gate",
+  "artifact_capture_gate_foundation": true,
+  "artifact_capture_runtime_gate": "metadata_only_manual_foundation",
+  "artifact_capture_auto_enabled": false,
+  "artifact_capture_requires_data_root": true,
+  "artifact_capture_index_policy": "metadata_only_references",
+  "automatic_artifact_capture_enabled": false,
+  "artifact_capture_policy": "docs/atlas_autonomous_execution_readiness_policy.md#artifact-capture-gate"
 }

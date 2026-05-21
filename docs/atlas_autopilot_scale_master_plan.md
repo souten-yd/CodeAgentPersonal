@@ -17,14 +17,26 @@ Completed:
 - PR-ATLAS-SCALE-84B
 - PR-ATLAS-SCALE-85
 - PR-ATLAS-SCALE-86
+- PR-ATLAS-SCALE-87
 
 Current implementation PR:
-- PR-ATLAS-SCALE-87: Artifact capture gate consolidation
-
-Next implementation PR:
 - PR-ATLAS-SCALE-88: Stop / kill switch gate consolidation
 
+Next implementation PR:
+- PR-ATLAS-SCALE-89: Loop bound gate consolidation
+
 Known Current Code Facts:
+- PR-87 adds artifact capture gate consolidation.
+- Artifact capture gate is metadata-only and does not execute actions.
+- Artifact capture does not create fake execution results.
+- Artifact capture does not create fake verification results.
+- Artifact capture records references and missing evidence explicitly.
+- Artifact capture records are stored under resolved data_root.
+- Plan, snapshot, patch transaction, rollback metadata, risk classification, verification allowlist, dry-run approval gate, and rollback readiness gate references are required for readiness.
+- Dry-run result, execution result, verification plan, and verification result references are tracked when available; missing results are recorded explicitly.
+- Warnings and recovery instructions are captured.
+- Artifacts remain inspectable from future UI/CLI.
+- Automatic artifact capture remains disabled.
 - PR-84 added verification allowlist gate foundation.
 - PR-84B fixed verification allowlist py_compile / node check contracts.
 - PR-85 added dry-run and approval gate consolidation.
@@ -156,6 +168,17 @@ Next implementation PR:
 - PR-ATLAS-SCALE-86: Rollback readiness gate consolidation
 
 Known Current Code Facts:
+- PR-87 adds artifact capture gate consolidation.
+- Artifact capture gate is metadata-only and does not execute actions.
+- Artifact capture does not create fake execution results.
+- Artifact capture does not create fake verification results.
+- Artifact capture records references and missing evidence explicitly.
+- Artifact capture records are stored under resolved data_root.
+- Plan, snapshot, patch transaction, rollback metadata, risk classification, verification allowlist, dry-run approval gate, and rollback readiness gate references are required for readiness.
+- Dry-run result, execution result, verification plan, and verification result references are tracked when available; missing results are recorded explicitly.
+- Warnings and recovery instructions are captured.
+- Artifacts remain inspectable from future UI/CLI.
+- Automatic artifact capture remains disabled.
 - PR-84B fixes verification allowlist py_compile / node check contracts.
 - Verification allowlist is metadata-only and does not execute commands.
 - python -m py_compile <safe relative file> is allowlisted metadata only.
