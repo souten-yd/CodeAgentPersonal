@@ -4,13 +4,14 @@ Completed:
 - PR-ATLAS-SCALE-76
 - PR-ATLAS-SCALE-76B
 - PR-ATLAS-SCALE-76C
+- PR-ATLAS-SCALE-77
 - PR-ATLAS-SCALE-80: out-of-order architecture checkpoint (docs/manifest/tests only; Vue migration plan + autonomous-first UI policy)
 
 Current implementation PR:
-- PR-ATLAS-SCALE-77: Atlas workflow state machine UI
+- PR-ATLAS-SCALE-78: ThinUI contract tests and manifest-driven UI smoke
 
 Next implementation PR:
-- PR-ATLAS-SCALE-78: ThinUI contract tests and manifest-driven UI smoke
+- PR-ATLAS-SCALE-79: Autonomous execution readiness policy checkpoint
 
 Known Current Code Facts:
 - PR-73 consolidated ThinUI readiness and autonomous code agent roadmap.
@@ -182,3 +183,18 @@ Known Current Code Facts:
 - Execution semantics remain unchanged.
 - EXECUTE ONE ACTION remains required for manual execution.
 - Dry-run-first remains required.
+
+
+- PR-77 adds workflow state machine UI for the automation-first shell.
+- Workflow primary CTA is derived from existing state.
+- Primary CTA may trigger at most one existing manual action per click.
+- Primary CTA does not auto-continue.
+- Primary CTA does not execute all.
+- Primary CTA does not bypass dry-run-first.
+- Primary CTA does not bypass EXECUTE ONE ACTION.
+- Backend workflow state remains authoritative.
+- ThinUI remains replaceable and CLI-compatible.
+- PR-80 remains an out-of-order architecture checkpoint and does not imply PR-78〜79 are complete.
+- Atlas final goal remains a fully autonomous code agent.
+- Self-improving CodeAgentPersonal / KasaneCore remains explicitly in scope.
+- Execution semantics remain unchanged.

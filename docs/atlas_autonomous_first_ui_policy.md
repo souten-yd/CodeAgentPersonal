@@ -131,3 +131,14 @@ No future client may depend on classic ui.html DOM structure.
 - Execution semantics remain unchanged.
 - EXECUTE ONE ACTION remains required for manual execution.
 - Dry-run-first remains required.
+
+
+## PR-77 Workflow State Machine UI Checkpoint
+- Workflow primary CTA is derived from existing state (backend state remains authoritative).
+- Primary CTA may trigger at most one existing manual action per click.
+- No auto-continue and no execute-all.
+- Dry-run-first remains required.
+- EXECUTE ONE ACTION remains required.
+- ThinUI remains replaceable and CLI-compatible.
+- Final goal remains fully autonomous code agent and self-improving CodeAgentPersonal / KasaneCore.
+- PR-80 remains out-of-order and does not imply PR-78〜79 are complete.
