@@ -20,6 +20,10 @@ def test_autonomous_execution_manifest_policy_contract() -> None:
     assert m['rollback_metadata_auto_restore_enabled'] is False
     assert m['risk_classification_foundation'] is True
     assert m['risk_classification_auto_enabled'] is False
+
+    assert m['verification_allowlist_foundation'] is True
+    assert m['verification_allowlist_auto_execute_enabled'] is False
+    assert m['automatic_command_execution_enabled'] is False
     assert m['strict_gate_required_for_self_modification'] is True
 
     for gate in [
@@ -50,6 +54,10 @@ def test_snapshot_restore_runtime_flags() -> None:
     assert m['rollback_metadata_auto_restore_enabled'] is False
     assert m['risk_classification_foundation'] is True
     assert m['risk_classification_auto_enabled'] is False
+
+    assert m['verification_allowlist_foundation'] is True
+    assert m['verification_allowlist_auto_execute_enabled'] is False
+    assert m['automatic_command_execution_enabled'] is False
     assert m['strict_gate_required_for_self_modification'] is True
     if 'snapshot_restore_auto_enabled' in m:
         assert m['snapshot_restore_auto_enabled'] is False

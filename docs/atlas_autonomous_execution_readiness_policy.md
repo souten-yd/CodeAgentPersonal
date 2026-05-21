@@ -39,10 +39,17 @@
 
 4. **Verification Allowlist Gate**
    - verification commands must be selected from an allowlist
+   - allowlist does not execute commands
+   - allowlisted means eligible for future guarded/manual verification only
    - no broad shell
    - no arbitrary command execution
+   - no shell metacharacters
+   - no remote git
+   - no package install
+   - no destructive commands
    - no automatic test execution until allowlist and policy gates are satisfied
    - recommended commands remain suggestions only until a future execution policy enables them
+   - automatic verification remains disabled
 
 5. **Dry-run and Approval Gate**
    - dry-run-first is mandatory

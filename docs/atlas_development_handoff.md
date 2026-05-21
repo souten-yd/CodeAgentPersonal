@@ -13,14 +13,21 @@ Completed:
 - PR-ATLAS-SCALE-81B
 - PR-ATLAS-SCALE-82
 - PR-ATLAS-SCALE-83
+- PR-ATLAS-SCALE-84
 
 Current implementation PR:
-- PR-ATLAS-SCALE-84: Verification allowlist gate foundation
-
-Next implementation PR:
 - PR-ATLAS-SCALE-85: Dry-run and approval gate consolidation
 
+Next implementation PR:
+- PR-ATLAS-SCALE-86: Rollback readiness gate consolidation
+
 Known Current Code Facts:
+- PR-84 adds verification allowlist gate foundation.
+- Verification allowlist is metadata-only and does not execute commands.
+- Allowlisted command means eligible for future guarded/manual verification, not automatic execution.
+- Broad shell, remote git, destructive commands, package installs, shell metacharacters, and arbitrary commands are blocked.
+- Recommended commands remain suggestions only.
+- Automatic command execution remains disabled.
 - PR-83 adds risk classification gate foundation.
 - Risk classification is metadata-only and does not authorize execution.
 - Unknown risk is not low risk.
