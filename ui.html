@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-39">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-40">
 </head>
 <body>
 
@@ -170,6 +170,31 @@
 
         <div id="atlas-workbench-status" class="atlas-inline-status" aria-live="polite">Ready</div>
         <div id="atlas-workbench-card-resume-notice" style="display:none"></div>
+
+        
+        <section id="atlas-workflow-shell" class="atlas-panel-card" aria-label="Atlas Workflow">
+          <div class="atlas-section-title-row">
+            <div>
+              <h2>Atlas Workflow</h2>
+              <p>Automation-first ThinUI shell</p>
+            </div>
+          </div>
+          <div class="atlas-status-grid">
+            <div class="atlas-status-card"><span>Goal</span><b id="atlas-workflow-goal">-</b></div>
+            <div class="atlas-status-card"><span>Project path</span><b id="atlas-workflow-project-path">-</b></div>
+            <div class="atlas-status-card"><span>Mode</span><b id="atlas-workflow-mode">manual</b></div>
+            <div class="atlas-status-card"><span>Status</span><b id="atlas-workflow-status">idle</b></div>
+            <div class="atlas-status-card"><span>Phase</span><b id="atlas-workflow-phase">-</b></div>
+          </div>
+          <div class="atlas-button-row">
+            <button id="atlas-workflow-primary-action-btn" class="atlas-primary-btn" type="button" disabled>Primary action</button>
+            <button id="atlas-workflow-stop-btn" class="atlas-secondary-btn" type="button">Stop</button>
+            <button id="atlas-workflow-advanced-toggle" class="atlas-ghost-btn" type="button">Advanced</button>
+            <button id="atlas-workflow-diagnostics-toggle" class="atlas-ghost-btn" type="button">Diagnostics</button>
+          </div>
+          <div id="atlas-workflow-approval-summary" class="atlas-muted-note">Approval summary: -</div>
+          <div id="atlas-workflow-artifacts-summary" class="atlas-muted-note">Artifacts: -</div>
+        </section>
 
         <section class="atlas-goal-card" aria-labelledby="atlas-goal-title">
           <div class="atlas-section-title-row">
@@ -16144,8 +16169,8 @@ function testSkill(skillName) {
 <script src="/static/js/lumen_tools.js"></script>
 <script src="/static/js/lumen.js"></script>
 <script src="/static/js/nexus.js"></script>
-<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-39"></script>
-<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-39"></script>
+<script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-40"></script>
+<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-40"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

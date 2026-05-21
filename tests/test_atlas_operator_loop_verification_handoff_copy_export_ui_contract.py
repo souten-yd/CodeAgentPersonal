@@ -27,4 +27,4 @@ def test_copy_export_controls_and_runtime_wiring_contract():
     assert dash.index('exportOperatorLoopVerificationHandoff') < final
     assert 'type="module"' not in ui
     assert 'import ' not in dash and 'export ' not in dash
-    assert 'atlas-dashboard-39' in ui
+    assert 'atlas-dashboard-40' in ui

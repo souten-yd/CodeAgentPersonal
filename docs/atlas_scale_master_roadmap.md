@@ -1,13 +1,13 @@
 ## Active PR Pointer (Updated)
 
 Completed:
-- PR-ATLAS-SCALE-73B
+- PR-ATLAS-SCALE-74
 
 Current PR:
-- PR-ATLAS-SCALE-73B
+- PR-ATLAS-SCALE-74
 
 Next PR:
-- PR-ATLAS-SCALE-74: Minimal Atlas Workflow UI shell
+- PR-ATLAS-SCALE-75: Hide advanced execution panels by default
 
 Known Current Code Facts:
 - PR-73 consolidated ThinUI readiness and autonomous code agent roadmap.
@@ -29,6 +29,19 @@ Known Current Code Facts:
 - self-improving CodeAgentPersonal/KasaneCore platform
 - eventually capable of autonomous implementation loops under policy/safety gates
 
+
+## Automation-first UI / CLI Contract
+- Atlas UI is not the source of workflow truth.
+- Backend workflow state is authoritative.
+- Browser ThinUI, future CLI, future replacement UI, and future full-auto controller must use the same high-level workflow contract.
+- UI remains a thin supervision layer: task input, project path, status/progress, phase, approval summary, artifact summary, primary CTA, and stop/emergency control.
+- UI must not encode execution decisions.
+- Detailed Atlas panels are legacy/debug/advanced surfaces.
+- Normal operation should not require direct Build Queue / Prepare / Preview Token / Next Action Orchestrator / Context Refresh / Planner Packaging / Verification Recommendation controls.
+- ThinUI is replaceable.
+- Future CLI or redesigned UI must drive Atlas through the same backend workflow contract without depending on current DOM structure.
+- Final goal remains: fully autonomous code agent (goal → research → plan → implement → test → fix → PR) and self-improving CodeAgentPersonal / KasaneCore platform.
+
 ## Safety Baseline (Unchanged)
 - Recommendations are not executions.
 - Suggested commands are not executed automatically.
@@ -42,8 +55,10 @@ Known Current Code Facts:
   - classify current UI surfaces
   - preserve autonomous-code-agent final goal
   - no execution semantics change
-- **PR-74: Minimal Atlas Workflow UI shell**
-  - visible default UI: task input, project path, status, plan summary, verification handoff summary, primary CTA
+- **PR-74: Automation-first ThinUI / CLI workflow shell**
+  - add minimal workflow shell
+  - define browser UI / CLI / replacement UI / full-auto controller contract
+  - backend workflow state is source of truth
   - no execution semantics change
 - **PR-75: Hide advanced execution panels by default**
   - move Build Queue / Prepare / Preview Token / Next Action Orchestrator / direct Safe Apply / Retry / Patch Regen into Advanced drawer

@@ -1,13 +1,13 @@
 ## Active PR Pointer (Updated)
 
 Completed:
-- PR-ATLAS-SCALE-73B
+- PR-ATLAS-SCALE-74
 
 Current PR:
-- PR-ATLAS-SCALE-73B
+- PR-ATLAS-SCALE-74
 
 Next PR:
-- PR-ATLAS-SCALE-74: Minimal Atlas Workflow UI shell
+- PR-ATLAS-SCALE-75: Hide advanced execution panels by default
 
 Known Current Code Facts:
 - PR-73 consolidated ThinUI readiness and autonomous code agent roadmap.
