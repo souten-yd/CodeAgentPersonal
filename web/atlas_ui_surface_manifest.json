@@ -728,5 +728,9 @@
     "remote_git_restrictions",
     "self_improvement_gate"
   ],
-  "autonomous_first_ui_policy": "docs/atlas_autonomous_first_ui_policy.md"
+  "autonomous_first_ui_policy": "docs/atlas_autonomous_first_ui_policy.md",
+  "snapshot_restore_foundation": true,
+  "snapshot_restore_runtime_gate": "manual_only_foundation",
+  "snapshot_restore_auto_enabled": false,
+  "snapshot_restore_policy": "docs/atlas_autonomous_execution_readiness_policy.md#snapshot--restore-gate"
 }
