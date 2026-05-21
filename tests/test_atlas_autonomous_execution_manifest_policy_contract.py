@@ -14,6 +14,11 @@ def test_autonomous_execution_manifest_policy_contract() -> None:
     assert m['automatic_retry_enabled'] is False
     assert m['automatic_rollback_enabled'] is False
 
+    assert m['patch_transaction_foundation'] is True
+    assert m['automatic_patch_generation_enabled'] is False
+    assert m['automatic_patch_apply_enabled'] is False
+    assert m['rollback_metadata_auto_restore_enabled'] is False
+
     for gate in [
         'snapshot_restore','patch_transaction','risk_classification','verification_allowlist','dry_run_and_approval',
         'rollback_readiness','artifact_capture','stop_kill_switch','loop_bounds','remote_git_restrictions','self_improvement_gate'
@@ -35,5 +40,10 @@ def test_snapshot_restore_runtime_flags() -> None:
     m = json.loads(Path('web/atlas_ui_surface_manifest.json').read_text(encoding='utf-8'))
     assert m['autonomous_execution_runtime_level'] == 'level_0_manual_only'
     assert m['automatic_rollback_enabled'] is False
+
+    assert m['patch_transaction_foundation'] is True
+    assert m['automatic_patch_generation_enabled'] is False
+    assert m['automatic_patch_apply_enabled'] is False
+    assert m['rollback_metadata_auto_restore_enabled'] is False
     if 'snapshot_restore_auto_enabled' in m:
         assert m['snapshot_restore_auto_enabled'] is False
