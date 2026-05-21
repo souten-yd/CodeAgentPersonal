@@ -75,3 +75,25 @@ def test_item_override_priority_via_pool_artifact_mutation(tmp_path):
     pool_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     out = _prepare(c, pid)
     assert out["action_contract"]["metadata"]["verification_recommendation_handoff"]["approval_summary"] == "item"
+
+
+def test_request_metadata_fallback_used_when_item_and_pool_missing(tmp_path):
+    app = create_app(); app.state.atlas_ca_data_root = str(tmp_path); c = TestClient(app)
+    pid = _create_pool(c)
+    b = c.post('/api/atlas/multi-item-supervised-status/build', json={"pool_id": pid, "dry_run": True})
+    msid = b.json()["multi_status_run_id"]
+    p = c.post('/api/atlas/next-action-orchestrator/prepare', json={"pool_id": pid, "multi_status_run_id": msid, "metadata": {"verification_recommendation_handoff": {"approval_summary": "request-level"}}})
+    assert p.status_code == 200
+    handoff = p.json()["action_contract"]["metadata"]["verification_recommendation_handoff"]
+    assert handoff["approval_summary"] == "request-level"
+
+def test_handoff_metadata_does_not_change_execution_contract_fields(tmp_path):
+    app = create_app(); app.state.atlas_ca_data_root = str(tmp_path); c = TestClient(app)
+    pid = _create_pool(c, metadata={"verification_recommendation_handoff": {"approval_summary": "pool"}})
+    out = _prepare(c, pid)
+    c0 = out["action_contract"]
+    assert c0["action_kind"] in {"none", "manual_display", "execution_candidate"}
+    assert isinstance(c0["execution_allowed"], bool)
+    assert isinstance(c0["payload_valid"], bool)
+    if c0.get("action_kind") == "execution_candidate":
+        assert c0.get("target_api_path")
