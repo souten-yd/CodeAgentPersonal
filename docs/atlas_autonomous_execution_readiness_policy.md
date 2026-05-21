@@ -225,3 +225,15 @@ Known Current Code Facts:
 - PR-88 does not stop real jobs or kill processes.
 - stop acknowledgement must not be fabricated.
 - Current Atlas state remains Level 0 manual-only.
+
+## Loop Bound Gate (PR-89)
+- PR-89 adds loop bound gate consolidation as a metadata-only gate.
+- The loop bound gate does not run loops, does not retry automatically, and does not continue automatically.
+- loop_bound_ready does not authorize automatic execution.
+- Explicit bounds are required: max actions per loop, max retries, max runtime, max files changed, max risk level, max consecutive failures, max verification attempts, and max patch transactions.
+- No unbounded autonomous loop is allowed.
+- Auto-continue remains disabled.
+- Execute-all remains forbidden.
+- Automatic loop execution remains disabled.
+- Automatic retry remains disabled.
+- Atlas remains Level 0 manual-only.

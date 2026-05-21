@@ -784,5 +784,18 @@
   "automatic_stop_execution_enabled": false,
   "stop_state_visibility_required": true,
   "kill_switch_required": true,
-  "stop_kill_switch_policy": "docs/atlas_autonomous_execution_readiness_policy.md#stop--kill-switch-gate"
+  "stop_kill_switch_policy": "docs/atlas_autonomous_execution_readiness_policy.md#stop--kill-switch-gate",
+  "loop_bound_gate_foundation": true,
+  "loop_bound_runtime_gate": "metadata_only_manual_foundation",
+  "loop_bound_auto_execute_enabled": false,
+  "bounded_loop_runtime_enabled": false,
+  "automatic_loop_enabled": false,
+  "loop_bounds_required": true,
+  "no_unbounded_loop_required": true,
+  "max_actions_per_loop_required": true,
+  "max_retries_required": true,
+  "max_runtime_required": true,
+  "max_files_changed_required": true,
+  "max_risk_level_required": true,
+  "loop_bound_policy": "docs/atlas_autonomous_execution_readiness_policy.md#loop-bound-gate"
 }
