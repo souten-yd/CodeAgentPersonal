@@ -18,6 +18,9 @@ def test_autonomous_execution_manifest_policy_contract() -> None:
     assert m['automatic_patch_generation_enabled'] is False
     assert m['automatic_patch_apply_enabled'] is False
     assert m['rollback_metadata_auto_restore_enabled'] is False
+    assert m['risk_classification_foundation'] is True
+    assert m['risk_classification_auto_enabled'] is False
+    assert m['strict_gate_required_for_self_modification'] is True
 
     for gate in [
         'snapshot_restore','patch_transaction','risk_classification','verification_allowlist','dry_run_and_approval',
@@ -45,5 +48,8 @@ def test_snapshot_restore_runtime_flags() -> None:
     assert m['automatic_patch_generation_enabled'] is False
     assert m['automatic_patch_apply_enabled'] is False
     assert m['rollback_metadata_auto_restore_enabled'] is False
+    assert m['risk_classification_foundation'] is True
+    assert m['risk_classification_auto_enabled'] is False
+    assert m['strict_gate_required_for_self_modification'] is True
     if 'snapshot_restore_auto_enabled' in m:
         assert m['snapshot_restore_auto_enabled'] is False

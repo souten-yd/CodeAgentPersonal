@@ -12,14 +12,21 @@ Completed:
 - PR-ATLAS-SCALE-81
 - PR-ATLAS-SCALE-81B
 - PR-ATLAS-SCALE-82
+- PR-ATLAS-SCALE-83
 
 Current implementation PR:
-- PR-ATLAS-SCALE-83: Risk classification gate foundation
-
-Next implementation PR:
 - PR-ATLAS-SCALE-84: Verification allowlist gate foundation
 
+Next implementation PR:
+- PR-ATLAS-SCALE-85: Dry-run and approval gate consolidation
+
 Known Current Code Facts:
+- PR-83 adds risk classification gate foundation.
+- Risk classification is metadata-only and does not authorize execution.
+- Unknown risk is not low risk.
+- Runtime, launcher, Docker, execution APIs, data_root, safety docs, UI workflow state, and self-modification are strict-gate by default.
+- Automatic safe_apply remains disabled.
+- Automatic verification remains disabled.
 - Atlas remains Level 0 manual-only at runtime.
 - Automatic patch apply remains disabled.
 - Automatic patch generation remains disabled.

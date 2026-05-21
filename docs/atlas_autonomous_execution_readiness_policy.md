@@ -33,7 +33,8 @@
 
 3. **Risk Classification Gate**
    - each action/item has risk classification
-   - low-risk / medium-risk / high-risk must be explicit
+   - low-risk / medium-risk / high-risk / strict-gate must be explicit
+   - unknown risk is not low risk
    - runtime, launcher, Docker, execution APIs, data_root, safety docs, UI workflow state, and self-modification are strict-gate by default
 
 4. **Verification Allowlist Gate**
@@ -79,6 +80,8 @@
    - no git clone
    - no direct merge
    - draft PR creation requires a future explicit policy PR
+
+- Risk classification alone does not authorize execution.
 
 11. **Self-Improvement Gate**
    - CodeAgentPersonal / KasaneCore self-modification is stricter than ordinary repo work

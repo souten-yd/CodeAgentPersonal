@@ -743,5 +743,10 @@
   "automatic_patch_apply_enabled": false,
   "rollback_metadata_foundation": true,
   "rollback_metadata_auto_restore_enabled": false,
-  "patch_transaction_policy": "docs/atlas_autonomous_execution_readiness_policy.md#patch-transaction-gate"
+  "patch_transaction_policy": "docs/atlas_autonomous_execution_readiness_policy.md#patch-transaction-gate",
+  "risk_classification_foundation": true,
+  "risk_classification_runtime_gate": "metadata_only_manual_foundation",
+  "risk_classification_auto_enabled": false,
+  "strict_gate_required_for_self_modification": true,
+  "strict_gate_paths_policy": "docs/atlas_autonomous_execution_readiness_policy.md#risk-classification-gate"
 }
