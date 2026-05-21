@@ -237,3 +237,19 @@ Known Current Code Facts:
 - Automatic loop execution remains disabled.
 - Automatic retry remains disabled.
 - Atlas remains Level 0 manual-only.
+
+
+## Remote Git Gate (PR-90 metadata-only foundation)
+- no git push.
+- no git pull.
+- no git clone.
+- no git fetch.
+- no git remote.
+- no direct merge.
+- no automatic PR creation.
+- draft PR creation requires a future explicit policy PR.
+- Remote git gate is metadata-only in PR-90.
+- PR-90 does not run git commands.
+- PR-90 does not create branches, PRs, or merges.
+- remote_git_gate_ready does not authorize git operations.
+- Atlas remains Level 0 manual-only.

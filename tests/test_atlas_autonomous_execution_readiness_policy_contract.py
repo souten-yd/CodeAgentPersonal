@@ -94,3 +94,10 @@ def test_autonomous_execution_readiness_policy_contract() -> None:
         'Execute-all remains forbidden',
     ]:
         assert s in t
+
+
+
+def test_remote_git_policy_scale_90_contract():
+    text = open('docs/atlas_autonomous_execution_readiness_policy.md', encoding='utf-8').read().lower()
+    for s in ['no git push','no git pull','no git clone','no git fetch','no git remote','no direct merge','no automatic pr creation','draft pr creation requires a future explicit policy pr']:
+        assert s in text

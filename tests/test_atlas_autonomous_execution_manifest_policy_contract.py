@@ -103,3 +103,16 @@ def test_stop_kill_switch_manifest_policy_contract() -> None:
     assert m['auto_continue_enabled'] is False
     assert m['execute_all_enabled'] is False
     assert m['autonomous_execution_runtime_level'] == 'level_0_manual_only'
+
+
+
+def test_remote_git_policy_scale_90_contract():
+    import json
+    m=json.loads(open('web/atlas_ui_surface_manifest.json',encoding='utf-8').read())
+    assert m['remote_git_gate_foundation'] is True
+    assert m['git_push_enabled'] is False
+    assert m['git_pull_enabled'] is False
+    assert m['git_clone_enabled'] is False
+    assert m['direct_merge_enabled'] is False
+    assert m['automatic_pr_creation_enabled'] is False
+    assert m['autonomous_execution_runtime_level']=='level_0_manual_only'
