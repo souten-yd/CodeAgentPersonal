@@ -1,13 +1,13 @@
 ## Active PR Pointer (Updated)
 
 Completed:
-- PR-ATLAS-SCALE-70
+- PR-ATLAS-SCALE-71
 
 Current PR:
-- PR-ATLAS-SCALE-70
+- PR-ATLAS-SCALE-71
 
 Next PR:
-- PR-ATLAS-SCALE-71: Operator Loop verification recommendation display refinements / approval contract hardening
+- PR-ATLAS-SCALE-72: Operator Loop verification recommendation approval copy/export and final contract cleanup
 
 Known Current Code Facts:
 - Operator Loop uses verification recommendation handoff metadata for manual approval summary context.
@@ -52,9 +52,9 @@ Known Current Code Facts:
 - no automatic test execution
 - human confirmation required for execution
 
-## 3. Current PR Pointer
+## 3. Current PR Pointer (Historical)
 
-Current completed PR:
+Historical completed PR markers:
 - PR-ATLAS-SCALE-68 (historical completed)
 - Historical marker: PR-ATLAS-SCALE-63B
 
