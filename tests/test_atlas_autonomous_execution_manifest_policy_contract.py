@@ -116,3 +116,12 @@ def test_remote_git_policy_scale_90_contract():
     assert m['direct_merge_enabled'] is False
     assert m['automatic_pr_creation_enabled'] is False
     assert m['autonomous_execution_runtime_level']=='level_0_manual_only'
+
+
+def test_self_improvement_manifest_flags():
+    import json
+    m=json.loads(open('web/atlas_ui_surface_manifest.json',encoding='utf-8').read())
+    assert m['self_improvement_gate_foundation'] is True
+    assert m['autonomous_self_improvement_enabled'] is False
+    assert m['automatic_self_modification_enabled'] is False
+    assert m['autonomous_execution_runtime_level']=='level_0_manual_only'

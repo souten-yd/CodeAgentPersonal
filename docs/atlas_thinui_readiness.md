@@ -21,14 +21,36 @@ Completed:
 - PR-ATLAS-SCALE-88
 - PR-ATLAS-SCALE-89
 - PR-ATLAS-SCALE-90
+- PR-ATLAS-SCALE-90B
+- PR-ATLAS-SCALE-91
 
 Current implementation PR:
-- PR-ATLAS-SCALE-91: Self-improvement gate consolidation
-
-Next implementation PR:
 - PR-ATLAS-SCALE-92: Readiness gate rollup / Level-0 completion checkpoint
 
+Next implementation PR:
+- PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
+
 Known Current Code Facts:
+- PR-90B hardens remote git reference-readiness blocking.
+- requested_operation must be "none" for remote git readiness.
+- requested_operation="unknown" blocks remote git readiness.
+- Invalid or unreadable reference manifests block remote git readiness.
+- remote_git_gate_ready does not authorize git operations.
+- PR-91 adds self-improvement gate consolidation.
+- Self-improvement gate is metadata-only and does not modify code.
+- Self-improvement gate does not generate patches.
+- Self-improvement gate does not apply patches.
+- Self-improvement gate does not run safe_apply.
+- Self-improvement gate does not run tests or verification.
+- Self-improvement gate does not run git commands.
+- self_improvement_gate_ready does not authorize automatic execution.
+- self_improvement_gate_ready does not authorize patch apply.
+- self_improvement_gate_ready does not authorize git operations.
+- Autonomous self-improvement remains disabled.
+- Automatic self-modification remains disabled.
+- Self-modification is strict-gate by default.
+- Runtime, execution semantics, safety policy, autonomous controls, remote git policy, data_root, and UI workflow state are strict-gate by default.
+- Self-improvement readiness requires snapshot, patch transaction, risk classification, verification allowlist, dry-run approval, rollback readiness, artifact capture, stop gate, loop bound, and remote git gate evidence.
 - PR-90 adds remote git gate consolidation.
 - Remote git gate is metadata-only and does not run git commands.
 - Remote git gate does not push, pull, clone, fetch, or mutate remotes.
@@ -317,6 +339,26 @@ Next implementation PR:
 - PR-ATLAS-SCALE-86: Rollback readiness gate consolidation
 
 Known Current Code Facts:
+- PR-90B hardens remote git reference-readiness blocking.
+- requested_operation must be "none" for remote git readiness.
+- requested_operation="unknown" blocks remote git readiness.
+- Invalid or unreadable reference manifests block remote git readiness.
+- remote_git_gate_ready does not authorize git operations.
+- PR-91 adds self-improvement gate consolidation.
+- Self-improvement gate is metadata-only and does not modify code.
+- Self-improvement gate does not generate patches.
+- Self-improvement gate does not apply patches.
+- Self-improvement gate does not run safe_apply.
+- Self-improvement gate does not run tests or verification.
+- Self-improvement gate does not run git commands.
+- self_improvement_gate_ready does not authorize automatic execution.
+- self_improvement_gate_ready does not authorize patch apply.
+- self_improvement_gate_ready does not authorize git operations.
+- Autonomous self-improvement remains disabled.
+- Automatic self-modification remains disabled.
+- Self-modification is strict-gate by default.
+- Runtime, execution semantics, safety policy, autonomous controls, remote git policy, data_root, and UI workflow state are strict-gate by default.
+- Self-improvement readiness requires snapshot, patch transaction, risk classification, verification allowlist, dry-run approval, rollback readiness, artifact capture, stop gate, loop bound, and remote git gate evidence.
 - PR-90 adds remote git gate consolidation.
 - Remote git gate is metadata-only and does not run git commands.
 - Remote git gate does not push, pull, clone, fetch, or mutate remotes.

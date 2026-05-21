@@ -811,5 +811,15 @@
   "draft_pr_creation_enabled": false,
   "direct_merge_enabled": false,
   "remote_git_gate_auto_execute_enabled": false,
-  "remote_git_policy": "docs/atlas_autonomous_execution_readiness_policy.md#remote-git-gate"
+  "remote_git_policy": "docs/atlas_autonomous_execution_readiness_policy.md#remote-git-gate",
+  "self_improvement_gate_foundation": true,
+  "self_improvement_runtime_gate": "metadata_only_manual_foundation",
+  "self_improvement_strict_gate_required": true,
+  "self_improvement_auto_execute_enabled": false,
+  "autonomous_self_improvement_enabled": false,
+  "automatic_self_modification_enabled": false,
+  "self_modification_strict_gate_required": true,
+  "self_modification_auto_apply_enabled": false,
+  "self_improvement_policy": "docs/atlas_self_development_rules.md",
+  "self_improvement_readiness_policy": "docs/atlas_autonomous_execution_readiness_policy.md#self-improvement-gate"
 }

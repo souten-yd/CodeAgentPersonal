@@ -253,3 +253,19 @@ Known Current Code Facts:
 - PR-90 does not create branches, PRs, or merges.
 - remote_git_gate_ready does not authorize git operations.
 - Atlas remains Level 0 manual-only.
+
+## Self-Improvement Gate (PR-91 Consolidation)
+- Self-improvement is explicitly in scope for the final Atlas / KasaneCore goal.
+- PR-91 adds a metadata-only self-improvement gate foundation.
+- PR-91 does not perform self-modification.
+- autonomous self-improvement remains disabled.
+- automatic self-modification remains disabled.
+- self-modification is strict-gate by default.
+- runtime, execution semantics, safety policy, autonomous controls, remote git policy, data_root, and UI workflow state are strict-gate by default.
+- Self-improvement readiness requires evidence for snapshot, patch transaction, risk classification, verification allowlist, dry-run approval, rollback readiness, artifact capture, stop gate, loop bound, and remote git gate.
+- self_improvement_gate_ready does not authorize automatic execution.
+- self_improvement_gate_ready does not authorize patch apply.
+- self_improvement_gate_ready does not authorize git operations.
+- requested_operation must be none for remote git readiness.
+- invalid or unreadable reference manifests block remote git readiness.
+- Atlas remains Level 0 manual-only.

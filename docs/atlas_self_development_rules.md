@@ -87,3 +87,11 @@ Always required for:
   - artifact capture
   - human policy gates
 - No direct merge / push / remote git write until an explicit future policy PR.
+
+## PR-91 Self-Improvement Gate Boundary
+- Self-improving CodeAgentPersonal / KasaneCore remains explicitly in scope.
+- No autonomous self-modification is allowed at Level 0.
+- Strict-gate applies to self-modification-sensitive files and runtime/policy/control boundaries.
+- Patch generation, patch apply, verification, and rollback remain manual-only unless a future explicit policy PR enables them.
+- Remote git and direct merge remain forbidden.
+- Self-improvement gate records are evidence-only metadata and do not execute actions.
