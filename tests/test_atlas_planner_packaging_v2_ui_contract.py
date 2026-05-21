@@ -16,7 +16,7 @@ def test_planner_packaging_v2_runtime_chain_contract():
     pre_close = ui.index('</pre>', pre_open)
     planner_btn = ui.index('atlas-planner-packaging-v2-btn')
     assert pre_open < pre_close < planner_btn
-    assert 'atlas-dashboard-35' in ui
+    assert 'atlas-dashboard-36' in ui
 
     # broken-case: fails if helper missing/outside object/final iife
     helper = 'getPlannerPackagingV2(payload)'

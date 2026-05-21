@@ -15,6 +15,8 @@ from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Reque
 from agent.atlas_planner_packaging_v2_service import AtlasPlannerPackagingV2Service
 from agent.atlas_verification_recommendation_schema import AtlasVerificationRecommendationRequest
 from agent.atlas_verification_recommendation_service import AtlasVerificationRecommendationService
+from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
+from agent.atlas_verification_recommendation_handoff_service import AtlasVerificationRecommendationHandoffService
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/atlas/repo-context", tags=["atlas-repo-context"])
@@ -86,4 +88,12 @@ def verification_recommendation(req: AtlasVerificationRecommendationRequest, req
     _validate_project_path(req.project_path)
     data_root = resolve_atlas_ca_data_root(request)
     result = AtlasVerificationRecommendationService(data_root=data_root).recommend(req)
+    return result.model_dump()
+
+
+@router.post("/verification-recommendation-handoff")
+def verification_recommendation_handoff(req: AtlasVerificationRecommendationHandoffRequest, request: Request):
+    _validate_project_path(req.project_path)
+    data_root = resolve_atlas_ca_data_root(request)
+    result = AtlasVerificationRecommendationHandoffService(data_root=data_root).build_handoff(req)
     return result.model_dump()

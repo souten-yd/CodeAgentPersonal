@@ -70,6 +70,7 @@
     contextRefreshV2: null,
     plannerPackagingV2: null,
     verificationRecommendation: null,
+    verificationRecommendationHandoff: null,
     repoContextSubmitting: false,
   };
 
@@ -1418,6 +1419,7 @@ ${preview}`;
       state.planItemImpactMap = { status: 'error', message: 'project_path is required' };
       renderPlanItemImpactMapPanel();
     renderVerificationRecommendationPanel();
+    renderVerificationRecommendationHandoffPanel();
     renderContextRefreshV2Panel();
       return;
     }
@@ -1441,6 +1443,40 @@ ${preview}`;
 
 
 
+
+  function renderVerificationRecommendationHandoffPanel() {
+    const summary = $('atlas-verification-recommendation-handoff-summary');
+    const result = $('atlas-verification-recommendation-handoff-result');
+    const payload = state.verificationRecommendationHandoff?.data || state.verificationRecommendationHandoff || {};
+    const status = payload.status || (state.repoContextSubmitting ? 'submitting' : 'idle');
+    if (summary) summary.textContent = `status: ${status} / confidence: ${payload.confidence || '-'} / impacted_files: ${(payload.impacted_files || []).length} / related_tests: ${(payload.related_tests || []).length} / recommended_commands: ${(payload.recommended_commands || []).length} / manual_approval_only: true / executed: false`;
+    if (result) result.textContent = JSON.stringify(state.verificationRecommendationHandoff || {}, null, 2);
+  }
+
+  async function queryVerificationRecommendationHandoffFromUI() {
+    if (typeof root.AtlasPipelineAPI?.getVerificationRecommendationHandoff !== 'function') return;
+    const payload = buildRepoContextPayloadFromUI();
+    payload.plan_pool = currentPlanPoolPayload();
+    payload.verification_recommendation = state.verificationRecommendation?.data || state.verificationRecommendation || {};
+    payload.pool_id = state.currentPoolId || '';
+    payload.goal = state.goalInput || '';
+    if (!payload.project_path) {
+      state.verificationRecommendationHandoff = { status: 'error', message: 'project_path is required' };
+      renderVerificationRecommendationHandoffPanel();
+      return;
+    }
+    state.repoContextSubmitting = true;
+    renderVerificationRecommendationHandoffPanel();
+    try {
+      const response = await root.AtlasPipelineAPI.getVerificationRecommendationHandoff(payload);
+      const data = response?.data || response || {};
+      state.verificationRecommendationHandoff = data;
+      renderVerificationRecommendationHandoffPanel();
+    } finally {
+      state.repoContextSubmitting = false;
+      renderVerificationRecommendationHandoffPanel();
+    }
+  }
   function renderVerificationRecommendationPanel() {
     const summary = $('atlas-verification-recommendation-summary');
     const result = $('atlas-verification-recommendation-result');
@@ -1625,6 +1661,7 @@ function bindOperatorLoop(){ loadOperatorLoopState(); ['pool-id','run-id','revie
     $('atlas-context-refresh-v2-btn')?.addEventListener('click', queryContextRefreshV2FromUI);
     $('atlas-planner-packaging-v2-btn')?.addEventListener('click', queryPlannerPackagingV2FromUI);
     $('atlas-verification-recommendation-btn')?.addEventListener('click', queryVerificationRecommendationFromUI);
+    $('atlas-verification-recommendation-handoff-btn')?.addEventListener('click', queryVerificationRecommendationHandoffFromUI);
     renderRepoIndexPanel();
     renderRepoContextPanel();
     renderRepoContextTestsPanel();
