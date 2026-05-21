@@ -336,6 +336,114 @@
       "reason": "Direct handoff generation button.",
       "can_hide": true,
       "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-diagnostics-drawer",
+      "label": "Diagnostics drawer",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-json-panel",
+      "label": "Raw JSON panel",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-planpool-id",
+      "label": "PlanPool ID",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-pipeline-run-id",
+      "label": "Run ID",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-next-action-multi-status-run-id",
+      "label": "Multi status run ID",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-operator-loop-pool-id",
+      "label": "Operator loop pool ID",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-operator-loop-run-id",
+      "label": "Operator loop run ID",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-repo-index-card",
+      "label": "Repo index manual operations",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-repo-context-snapshot-btn",
+      "label": "Repo context snapshot",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-repo-context-scope-btn",
+      "label": "Repo context scope",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-repo-context-impacted-tests-btn",
+      "label": "Repo context impacted tests",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-repo-context-verification-plan-btn",
+      "label": "Repo context verification plan",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76 diagnostics/raw JSON isolation.",
+      "can_hide": true,
+      "safety_notes": "Diagnostics only."
     }
   ],
   "self_improvement_scope": "self_improving_codeagentpersonal_kasanecore",
