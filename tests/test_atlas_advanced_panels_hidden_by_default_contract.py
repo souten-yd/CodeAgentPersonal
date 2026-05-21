@@ -8,7 +8,7 @@ def test_ui_mode_and_shell_visibility_contract():
     assert 'id="atlas-workflow-shell"' in html
     assert 'id="atlas-workflow-advanced-toggle"' in html
     assert 'id="atlas-workflow-diagnostics-toggle"' in html
-    assert 'atlas-dashboard-41' in html
+    assert 'atlas-dashboard-42' in html
 
 
 def test_advanced_and_diagnostics_markers_present_without_id_removal():

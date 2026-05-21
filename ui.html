@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-41">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-42">
 
 <style>
   .atlas-surface-hidden { display: none !important; }
@@ -243,7 +243,7 @@
         </section>
 
         
-<section class="atlas-status-grid" id="atlas-status-grid" class="atlas-surface-minimal" aria-label="Atlas status summary">
+<section id="atlas-status-grid" class="atlas-status-grid atlas-surface-minimal" aria-label="Atlas status summary">
           <div class="atlas-status-card"><span>PlanPool</span><b id="atlas-status-planpool">not created</b></div>
           <div class="atlas-status-card"><span>Items</span><b id="atlas-status-items">0</b></div>
           <div class="atlas-status-card"><span>Pipeline</span><b id="atlas-status-pipeline">idle</b></div>
@@ -251,7 +251,7 @@
           <div class="atlas-status-card"><span>Last Event</span><b id="atlas-status-last-event">-</b></div>
         </section>
 
-        <section class="atlas-panel-card" aria-labelledby="atlas-automation-readiness-title">
+        <section class="atlas-panel-card atlas-surface-diagnostics" aria-labelledby="atlas-automation-readiness-title">
           <div class="atlas-section-title-row">
             <h2 id="atlas-automation-readiness-title">Automation readiness</h2>
           </div>
@@ -385,7 +385,7 @@
             <h3 id="atlas-automation-extensions-title">Automation Extensions</h3>
             <p class="atlas-muted-note">Guarded automation tools. These panels do not run rollback, restore, or unrestricted commands.</p>
             <div class="atlas-automation-extension-grid">
-              <details id="atlas-repo-index-card" class="atlas-extension-details atlas-automation-extension-card">
+              <details id="atlas-repo-index-card" class="atlas-extension-details atlas-automation-extension-card atlas-surface-diagnostics">
                 <summary>Repo Intelligence</summary>
                 <p>Builds a read-only symbol index and dependency graph.</p>
                 <p>This does not modify files.</p>
@@ -398,10 +398,10 @@
                 <button id="atlas-repo-index-related-tests-btn" type="button">Related Tests</button>
                 <div id="atlas-repo-index-status"></div><div id="atlas-repo-index-summary"></div><pre id="atlas-repo-index-result"></pre>
                 <hr />
-                <button id="atlas-repo-context-snapshot-btn" type="button">Repo Context Snapshot</button>
-                <button id="atlas-repo-context-scope-btn" type="button">Repo Context Scope</button>
-                <button id="atlas-repo-context-impacted-tests-btn" type="button">Impacted Test Recommendations</button>
-<button id="atlas-repo-context-verification-plan-btn" class="atlas-secondary-btn" type="button">Verification plan hints</button>
+                <button id="atlas-repo-context-snapshot-btn" class="atlas-surface-diagnostics" type="button">Repo Context Snapshot</button>
+                <button id="atlas-repo-context-scope-btn" class="atlas-surface-diagnostics" type="button">Repo Context Scope</button>
+                <button id="atlas-repo-context-impacted-tests-btn" class="atlas-surface-diagnostics" type="button">Impacted Test Recommendations</button>
+<button id="atlas-repo-context-verification-plan-btn" class="atlas-secondary-btn atlas-surface-diagnostics" type="button">Verification plan hints</button>
 <div id="atlas-repo-context-verification-plan-summary"></div>
 <pre id="atlas-repo-context-verification-plan-result">No verification plan yet.</pre>
 <button id="atlas-plan-item-impact-map-btn" class="atlas-secondary-btn atlas-surface-diagnostics" type="button">PlanItem impact map</button>
@@ -506,8 +506,8 @@
                 <p>This never auto-continues.</p>
                 <p>Execution requires dry run and explicit confirmation.</p>
                 <div id="atlas-operator-loop-status" class="atlas-extension-result">Ready.</div>
-                <label>pool_id <input id="atlas-operator-loop-pool-id" type="text" placeholder="pool_..." /></label>
-                <label>run_id <input id="atlas-operator-loop-run-id" type="text" placeholder="run_..." /></label>
+                <label class="atlas-surface-diagnostics">pool_id <input id="atlas-operator-loop-pool-id" type="text" placeholder="pool_..." /></label>
+                <label class="atlas-surface-diagnostics">run_id <input id="atlas-operator-loop-run-id" type="text" placeholder="run_..." /></label>
                 <label>reviewer <input id="atlas-operator-loop-reviewer" type="text" value="manual" /></label>
                 <label>reason <input id="atlas-operator-loop-reason" type="text" placeholder="optional reason" /></label>
                 <label>confirmation_token <textarea id="atlas-operator-loop-confirmation-token" rows="2" placeholder="token preview"></textarea></label>
@@ -529,7 +529,7 @@
                 <div id="atlas-operator-loop-current-step" class="atlas-extension-result">Current step: idle.</div>
                 <div id="atlas-operator-loop-semi-auto-status" class="atlas-extension-result">Semi-auto: idle.</div>
                 <div id="atlas-operator-loop-next-action-summary" class="atlas-extension-result">No next action prepared.</div>
-                <pre id="atlas-operator-loop-diagnostics" class="atlas-extension-result">No diagnostics yet.</pre>
+                <pre id="atlas-operator-loop-diagnostics" class="atlas-extension-result atlas-surface-diagnostics">No diagnostics yet.</pre>
                 <pre id="atlas-operator-loop-queue-result" class="atlas-extension-result">No queue result.</pre>
                 <pre id="atlas-operator-loop-contract-result" class="atlas-extension-result">No action contract.</pre>
                 <div class="atlas-extension-result" id="atlas-operator-loop-verification-handoff-summary">Verification Handoff Summary (manual approval context): no handoff metadata.</div>
@@ -547,7 +547,7 @@
               <details class="atlas-extension-details atlas-automation-extension-card">
                 <summary>Next Action Orchestrator</summary>
                 <p>This prepares the next action only.</p><p>This does not execute the action.</p><p>Manual confirmation is required.</p>
-                <label>multi_status_run_id <input id="atlas-next-action-multi-status-run-id" type="text" placeholder="multistatus_..." /></label>
+                <label class="atlas-surface-diagnostics">multi_status_run_id <input id="atlas-next-action-multi-status-run-id" type="text" placeholder="multistatus_..." /></label>
                 <label>item_id <input id="atlas-next-action-item-id" type="text" placeholder="optional" /></label>
                 <label>requested_next_action <input id="atlas-next-action-requested-action" type="text" placeholder="optional" /></label>
                 <div class="atlas-extension-actions"><button id="atlas-prepare-next-action" type="button" class="atlas-secondary-btn">Prepare next action</button></div>

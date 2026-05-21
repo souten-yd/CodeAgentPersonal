@@ -4,10 +4,10 @@ Completed:
 - PR-ATLAS-SCALE-75
 
 Current PR:
-- PR-ATLAS-SCALE-75
+- PR-ATLAS-SCALE-76
 
 Next PR:
-- PR-ATLAS-SCALE-76: Diagnostics drawer and raw JSON isolation
+- PR-ATLAS-SCALE-77: Atlas workflow state machine UI
 
 Known Current Code Facts:
 - PR-73 consolidated ThinUI readiness and autonomous code agent roadmap.
