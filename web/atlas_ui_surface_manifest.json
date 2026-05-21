@@ -748,5 +748,11 @@
   "risk_classification_runtime_gate": "metadata_only_manual_foundation",
   "risk_classification_auto_enabled": false,
   "strict_gate_required_for_self_modification": true,
-  "strict_gate_paths_policy": "docs/atlas_autonomous_execution_readiness_policy.md#risk-classification-gate"
+  "strict_gate_paths_policy": "docs/atlas_autonomous_execution_readiness_policy.md#risk-classification-gate",
+  "verification_allowlist_foundation": true,
+  "verification_allowlist_runtime_gate": "metadata_only_manual_foundation",
+  "verification_allowlist_auto_execute_enabled": false,
+  "automatic_command_execution_enabled": false,
+  "verification_commands_advisory_only": true,
+  "verification_allowlist_policy": "docs/atlas_autonomous_execution_readiness_policy.md#verification-allowlist-gate"
 }
