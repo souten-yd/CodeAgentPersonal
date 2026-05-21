@@ -1,14 +1,15 @@
 ## Active PR Pointer (Updated)
 
 Completed:
-- PR-ATLAS-SCALE-75
 - PR-ATLAS-SCALE-76
+- PR-ATLAS-SCALE-76B
+- PR-ATLAS-SCALE-80: out-of-order architecture checkpoint (docs/manifest/tests only; Vue migration plan + autonomous-first UI policy)
 
-Current PR:
-- PR-ATLAS-SCALE-80: Vue Atlas Next migration plan and autonomous-first UI policy checkpoint
+Current implementation PR:
+- PR-ATLAS-SCALE-77: Atlas workflow state machine UI
 
-Next PR:
-- PR-ATLAS-SCALE-81 or PR-ATLAS-VUE-01: parallel Vue/Vite Atlas Next read-only shell (or continue autonomous roadmap if numbering reserved)
+Next implementation PR:
+- PR-ATLAS-SCALE-78: ThinUI contract tests and manifest-driven UI smoke
 
 Known Current Code Facts:
 - PR-73 consolidated ThinUI readiness and autonomous code agent roadmap.
