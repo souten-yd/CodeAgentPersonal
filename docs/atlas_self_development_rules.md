@@ -95,3 +95,20 @@ Always required for:
 - Patch generation, patch apply, verification, and rollback remain manual-only unless a future explicit policy PR enables them.
 - Remote git and direct merge remain forbidden.
 - Self-improvement gate records are evidence-only metadata and do not execute actions.
+
+
+## PR-ATLAS-SCALE-91B Checkpoint Update
+
+Completed PR: PR-ATLAS-SCALE-91B.
+Current implementation PR: PR-ATLAS-SCALE-92: Readiness gate rollup / Level-0 completion checkpoint.
+Next implementation PR: PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
+PR-91B fixes self-improvement gate integration wiring and manifest contract drift.
+self_improvement_scope is self_improving_codeagentpersonal_kasanecore.
+final_goal remains fully_autonomous_code_agent.
+Invalid or unreadable referenced manifests block self-improvement readiness.
+Self-improvement gate is metadata-only and does not modify code, generate patches, apply patches, run safe_apply, run tests or verification, or run git commands.
+Autonomous self-improvement remains disabled; automatic self-modification remains disabled; self-modification is strict-gate by default.
+self_improvement_gate_ready does not authorize automatic execution, patch apply, or git operations.
+Automatic command execution, patch generation, patch apply, safe_apply, verification, restore, rollback, loop execution, and retry remain disabled.
+auto-continue remains disabled; execute-all remains forbidden; autonomous execution remains disabled.
+Atlas runtime remains Level 0 manual-only and primary CTA remains single existing manual action only.

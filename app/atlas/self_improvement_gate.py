@@ -127,6 +127,11 @@ def evaluate_self_improvement_gate(*, project_path: str | Path, data_root: str |
         if mp:
             try:
                 _ensure_under(root, Path(mp).expanduser().resolve(), "reference_path_outside_data_root")
+            except ValueError:
+                blocks.append("reference_path_outside_data_root")
+                ws.append(f"reference_read_failed:{mp}")
+                continue
+            try:
                 reader(manifest_path=mp, data_root=root)
             except Exception:
                 ws.append(f"reference_read_failed:{mp}")
@@ -189,7 +194,13 @@ def evaluate_self_improvement_gate(*, project_path: str | Path, data_root: str |
 
 def create_self_improvement_record(*, data_root: str | Path, dry_run: bool = False, **kwargs: Any) -> dict[str, Any]:
     root = Path(data_root).expanduser().resolve()
-    gate = kwargs if "self_improvement_gate_ready" in kwargs else evaluate_self_improvement_gate(data_root=root, **kwargs)
+    if "self_improvement_gate_ready" in kwargs:
+        gate = dict(kwargs)
+        gate["data_root"] = str(root)
+        if "project_path" in gate:
+            gate["project_path"] = str(Path(gate["project_path"]).expanduser().resolve())
+    else:
+        gate = evaluate_self_improvement_gate(data_root=root, **kwargs)
     gid = f"self_improvement_gate_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid.uuid4().hex[:8]}"
     gdir = root / "atlas" / "self_improvement_gates" / gid
     manifest_path = gdir / "manifest.json"

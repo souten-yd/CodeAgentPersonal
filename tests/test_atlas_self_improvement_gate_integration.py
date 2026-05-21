@@ -27,4 +27,13 @@ def test_integration_refs(tmp_path: Path):
     assert ev['self_improvement_gate_ready'] is True
     rec=create_self_improvement_record(**{k:v for k,v in ev.items() if k!='data_root'},data_root=tmp_path)
     assert rec['manifest']['remote_git_gate_id']==rg['remote_git_gate_id']
+    for k in ['snapshot_id','transaction_id','risk_id','allowlist_id','dry_run_gate_id','rollback_gate_id','artifact_gate_id','stop_gate_id','loop_gate_id','remote_git_gate_id']:
+        assert rec['manifest'][k]
+    assert rec['manifest']['artifact_capture_manifest_path']==art['manifest_path']
     assert evaluate_self_improvement_gate(project_path=tmp_path,data_root=tmp_path,self_improvement_requested=True,self_improvement_kind='docs_only',target_paths=['docs/x.md'],snapshot_id='s',transaction_id='t',risk_id='r',allowlist_id='a',dry_run_gate_id='d',rollback_gate_id='rb',artifact_gate_id='ag',stop_gate_id='sg',loop_gate_id='lg',remote_git_gate_id='',risk_level='low',dry_run_satisfied=True,rollback_ready=True,artifact_capture_ready=True,stop_gate_ready=True,loop_bound_ready=True,remote_git_gate_ready=True,verification_allowlist_ready=True,recovery_instructions=['manual'])['self_improvement_gate_ready'] is False
+
+
+def test_missing_loop_and_artifact_refs_block(tmp_path: Path):
+    base=dict(project_path=tmp_path,data_root=tmp_path,self_improvement_requested=True,self_improvement_kind='docs_only',target_paths=['docs/x.md'],snapshot_id='s',transaction_id='t',risk_id='r',allowlist_id='a',dry_run_gate_id='d',rollback_gate_id='rb',artifact_gate_id='ag',stop_gate_id='sg',loop_gate_id='lg',remote_git_gate_id='rg',risk_level='low',dry_run_satisfied=True,rollback_ready=True,artifact_capture_ready=True,stop_gate_ready=True,loop_bound_ready=True,remote_git_gate_ready=True,verification_allowlist_ready=True,recovery_instructions=['manual'])
+    assert evaluate_self_improvement_gate(**{**base,'loop_gate_id':''})['self_improvement_gate_ready'] is False
+    assert evaluate_self_improvement_gate(**{**base,'artifact_gate_id':''})['self_improvement_gate_ready'] is False
