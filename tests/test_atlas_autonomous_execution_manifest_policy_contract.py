@@ -7,6 +7,13 @@ def test_autonomous_execution_manifest_policy_contract() -> None:
     assert m['autonomous_execution_readiness_policy']
     assert m['autonomous_execution_runtime_level'] == 'level_0_manual_only'
     assert m['autonomous_execution_enabled'] is False
+
+    assert m['loop_bound_gate_foundation'] is True
+    assert m['automatic_loop_enabled'] is False
+    assert m['automatic_retry_enabled'] is False
+    assert m['auto_continue_enabled'] is False
+    assert m['execute_all_enabled'] is False
+    assert m['autonomous_execution_runtime_level'] == 'level_0_manual_only'
     assert m['auto_continue_enabled'] is False
     assert m['execute_all_enabled'] is False
     assert m['automatic_safe_apply_enabled'] is False

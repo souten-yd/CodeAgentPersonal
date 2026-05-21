@@ -81,3 +81,16 @@ def test_autonomous_execution_readiness_policy_contract() -> None:
         'self-improving CodeAgentPersonal / KasaneCore',
     ]:
         assert s in t
+
+
+    for s in [
+        'max actions per loop',
+        'max retries',
+        'max runtime',
+        'max files changed',
+        'max risk level',
+        'No unbounded autonomous loop',
+        'Auto-continue remains disabled',
+        'Execute-all remains forbidden',
+    ]:
+        assert s in t
