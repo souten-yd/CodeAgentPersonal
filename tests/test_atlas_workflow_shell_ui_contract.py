@@ -10,7 +10,7 @@ def test_workflow_shell_dom_and_safety():
     shell = html[html.index('id="atlas-workflow-shell"'):html.index('id="atlas-goal-title"')]
     for bad in ['execute all','auto continue','automatic verification','safe_apply','patch generation','retry','rollback']:
       assert bad not in shell.lower()
-    assert 'atlas-dashboard-41' in html
+    assert 'atlas-dashboard-42' in html
     assert 'type="module"' not in html
 
 

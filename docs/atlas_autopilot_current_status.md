@@ -4,10 +4,10 @@ Completed:
 - PR-ATLAS-SCALE-75
 
 Current PR:
-- PR-ATLAS-SCALE-75
+- PR-ATLAS-SCALE-76
 
 Next PR:
-- PR-ATLAS-SCALE-76: Diagnostics drawer and raw JSON isolation
+- PR-ATLAS-SCALE-77: Atlas workflow state machine UI
 
 Known Current Code Facts:
 - PR-73 consolidated ThinUI readiness and autonomous code agent roadmap.
@@ -28,9 +28,9 @@ Known Current Code Facts:
 # Atlas Autopilot Current Status
 
 ## Current
-- PR-ATLAS-SCALE-73 is a checkpoint/consolidation PR.
-- Focus: roadmap consolidation, ThinUI readiness, and contracts/tests.
-- No UI behavior changes and no execution semantics changes.
+- PR-ATLAS-SCALE-76 is the diagnostics isolation PR.
+- Focus: hide diagnostics/raw JSON/low-level IDs and direct subsystem controls from minimal mode while keeping accessibility via Diagnostics mode.
+- No execution semantics changes.
 
 ## Why UI Simplification Is Needed
 - Current UI exposes too many advanced execution controls by default.
