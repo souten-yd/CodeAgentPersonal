@@ -681,7 +681,6 @@
       "safety_notes": "Shows phase/action/safety requirements; does not execute by itself."
     }
   ],
-  "self_improvement_scope": "self_improving_codeagentpersonal_kasanecore",
   "self_improvement_role": "atlas_self_improvement_platform",
   "automation_first": true,
   "cli_compatible_target": true,
@@ -822,5 +821,18 @@
   "self_modification_strict_gate_required": true,
   "self_modification_auto_apply_enabled": false,
   "self_improvement_policy": "docs/atlas_self_development_rules.md",
-  "self_improvement_readiness_policy": "docs/atlas_autonomous_execution_readiness_policy.md#self-improvement-gate"
+  "self_improvement_readiness_policy": "docs/atlas_autonomous_execution_readiness_policy.md#self-improvement-gate",
+  "readiness_gate_rollup_foundation": true,
+  "readiness_gate_rollup_runtime_gate": "metadata_only_manual_foundation",
+  "level0_readiness_foundation_complete": true,
+  "level0_completion_checkpoint": "PR-ATLAS-SCALE-92",
+  "runtime_level": "level_0_manual_only",
+  "level1_execution_enabled": false,
+  "readiness_rollup_auto_execute_enabled": false,
+  "readiness_rollup_policy": "docs/atlas_autonomous_execution_readiness_policy.md#readiness-gate-rollup",
+  "vue_next_allowed_after_pr92": true,
+  "vue_next_started": false,
+  "vue_next_default_enabled": false,
+  "vue_next_execution_enabled": false,
+  "vue_next_policy": "docs/atlas_vue_migration_plan.md"
 }
