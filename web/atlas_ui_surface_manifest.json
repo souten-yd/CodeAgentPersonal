@@ -451,5 +451,11 @@
   "automation_first": true,
   "cli_compatible_target": true,
   "replaceable_ui_target": true,
-  "workflow_state_owner": "backend"
+  "workflow_state_owner": "backend",
+  "vue_migration_checkpoint": "PR-ATLAS-SCALE-80",
+  "vue_target": "Vue 3 + Vite + TypeScript",
+  "vue_entry_strategy": "parallel_ui_first",
+  "legacy_ui_policy": "keep_until_vue_parity",
+  "ui_cleanup_policy_doc": "docs/atlas_autonomous_first_ui_policy.md",
+  "vue_migration_plan_doc": "docs/atlas_vue_migration_plan.md"
 }

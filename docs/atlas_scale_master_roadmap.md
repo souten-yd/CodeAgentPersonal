@@ -5,10 +5,10 @@ Completed:
 - PR-ATLAS-SCALE-76
 
 Current PR:
-- PR-ATLAS-SCALE-76B
+- PR-ATLAS-SCALE-80: Vue Atlas Next migration plan and autonomous-first UI policy checkpoint
 
 Next PR:
-- PR-ATLAS-SCALE-77: Atlas workflow state machine UI
+- PR-ATLAS-SCALE-81 or PR-ATLAS-VUE-01: parallel Vue/Vite Atlas Next read-only shell (roadmap naming reserved)
 
 Known Current Code Facts:
 - PR-73 consolidated ThinUI readiness and autonomous code agent roadmap.
@@ -80,9 +80,13 @@ Known Current Code Facts:
 - **PR-79: Autonomous execution readiness policy checkpoint**
   - readiness matrix for automatic verification / safe apply / rollback / retry
   - no full-auto execution yet unless policy says ready
-- **PR-80: ThinUI architecture checkpoint**
-  - evaluate whether Atlas backend supports fully separate UI / CLI
-  - document API-only workflow contract
+- **PR-80: ThinUI architecture checkpoint (docs/manifest/tests only)**
+  - record Vue Atlas Next migration plan
+  - record autonomous-first UI cleanup policy
+  - define Go/No-Go criteria for parallel Vue UI
+  - decision: Vue implementation starts after PR-80 unless explicitly approved
+  - legacy UI remains until parity tests pass
+  - no runtime UI replacement in PR-80
 
 ## PR-81〜PR-90 Autonomous Code Agent Execution Roadmap
 - workspace snapshot / restore foundation
@@ -155,3 +159,9 @@ Known Current Code Facts:
 - Direct merge is out of scope until a later explicit policy PR.
 
 - Diagnostics remain accessible through toggles and are hidden by default, not removed.
+
+
+## UI Anti-divergence Policy
+- See `docs/atlas_vue_migration_plan.md` for PR-80 migration architecture checkpoint and Go/No-Go switching criteria.
+- See `docs/atlas_autonomous_first_ui_policy.md` for surface classification and cleanup/deprecation policy.
+- Final autonomous code-agent and self-improvement roadmap remains unchanged.

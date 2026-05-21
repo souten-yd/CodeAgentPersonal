@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 
-ALLOWED = {'minimal_workflow', 'advanced_execution', 'diagnostics', 'safety_always_visible'}
+ALLOWED = {'minimal_workflow', 'advanced_execution', 'diagnostics', 'safety_always_visible', 'deprecated', 'removed_after_migration'}
 
 
 def _manifest():
@@ -75,3 +75,29 @@ def test_scale75_manifest_mode_visibility_contract():
         assert by_id[sid]['default_visible'] is False
     assert by_id['atlas-workflow-stop-btn']['category'] == 'safety_always_visible'
     assert by_id['atlas-workflow-stop-btn']['can_hide'] is False
+
+
+def test_pr80_manifest_vue_checkpoint_contract():
+    m = _manifest()
+    assert m['automation_first'] is True
+    assert m['cli_compatible_target'] is True
+    assert m['replaceable_ui_target'] is True
+    assert m['workflow_state_owner'] == 'backend'
+    assert m['vue_migration_checkpoint'] == 'PR-ATLAS-SCALE-80'
+    assert 'Vue 3' in m['vue_target']
+    assert m['vue_entry_strategy'] == 'parallel_ui_first'
+    assert m['legacy_ui_policy'] == 'keep_until_vue_parity'
+    assert m['ui_cleanup_policy_doc'] == 'docs/atlas_autonomous_first_ui_policy.md'
+    assert m['vue_migration_plan_doc'] == 'docs/atlas_vue_migration_plan.md'
+
+
+def test_pr80_surface_categories_and_safety_constraints():
+    m = _manifest()
+    surfaces = m['surfaces']
+    cats = {s['category'] for s in surfaces}
+    for required in ['minimal_workflow','safety_always_visible','advanced_execution','diagnostics','deprecated','removed_after_migration']:
+        assert required in ALLOWED
+    for s in surfaces:
+        if s['category'] == 'safety_always_visible':
+            assert s['default_visible'] is True
+            assert s['category'] != 'deprecated'

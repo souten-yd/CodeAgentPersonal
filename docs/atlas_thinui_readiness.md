@@ -119,3 +119,20 @@ Hidden by default:
 
 - diagnostics remain accessible through toggles.
 - replaceable UI target remains supported via the backend workflow contract.
+
+
+## PR-80 Vue Migration Checkpoint
+- Vue 3 + Vite + TypeScript selected for Atlas Next.
+- Do not use Nuxt.
+- No in-place `ui.html` rewrite.
+- Backend-owned workflow state remains authoritative.
+- Vue is parallel UI first.
+- Classic UI becomes legacy only after parity tests pass.
+- UI cleanup policy prevents future surface explosion.
+- PR-80 is a docs/manifest/tests checkpoint only; no runtime UI replacement.
+
+## Autonomous-first UI Cleanup
+- Visible by default: goal/project path/plan summary/phase/status/current item/next action/primary CTA/approval/risk/verification/artifacts/progress timeline/stop-pause-emergency.
+- Hidden by default: raw JSON/internal IDs/direct subsystem controls/manual internals/debug-only panels.
+- Deprecate/remove rules: mark deprecated in manifest first; keep one migration PR when possible; never remove safety controls or diagnostics replacement paths.
+- Every UI surface must be manifest-classified as minimal_workflow, safety_always_visible, advanced_execution, diagnostics, deprecated, or removed_after_migration.
