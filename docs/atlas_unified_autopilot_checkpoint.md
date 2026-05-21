@@ -1,18 +1,20 @@
-
 ## Active PR Pointer (Updated)
 
 Completed:
-- PR-ATLAS-SCALE-68
+- PR-ATLAS-SCALE-70
 
 Current PR:
-- PR-ATLAS-SCALE-69
+- PR-ATLAS-SCALE-70
 
 Next PR:
-- PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
+- PR-ATLAS-SCALE-71: Operator Loop verification recommendation display refinements / approval contract hardening
 
 Known Current Code Facts:
+- Operator Loop uses verification recommendation handoff metadata for manual approval summary context.
 - Verification Recommendation handoff metadata is advisory-only and manual approval context only.
 - Suggested commands are never executed.
+- Confirmation requirement remains unchanged (`EXECUTE ONE ACTION`).
+- Missing handoff metadata is non-blocking.
 - No tests/shell/verification/safe_apply/patch generation/retry/rollback/remote git are executed by handoff metadata.
 
 # Atlas Unified Autopilot Continuation Checkpoint

@@ -177,6 +177,41 @@ class AtlasNextActionOrchestratorService:
             return None, None
         return selected.model_dump(), None
 
+    def _resolve_verification_recommendation_handoff(self, request, item_id: str):
+        pool_handoff = {}
+        item_handoff = {}
+        try:
+            pool = self.storage.load_pool(request.pool_id)
+            pmd = pool.metadata if isinstance(pool.metadata, dict) else {}
+            pool_handoff = pmd.get("verification_recommendation_handoff") if isinstance(pmd.get("verification_recommendation_handoff"), dict) else {}
+            item = pool.get_item(item_id) if item_id else None
+            if item and isinstance(item.metadata, dict):
+                imd = item.metadata.get("verification_recommendation_handoff")
+                if isinstance(imd, dict):
+                    item_handoff = imd
+        except Exception:
+            pass
+        req_handoff = request.metadata.get("verification_recommendation_handoff") if isinstance(request.metadata, dict) and isinstance(request.metadata.get("verification_recommendation_handoff"), dict) else {}
+        selected = item_handoff or pool_handoff or req_handoff or {}
+        compact = {
+            "approval_summary": str(selected.get("approval_summary", "")),
+            "impacted_files": list(selected.get("impacted_files", []))[:20],
+            "related_tests": list(selected.get("related_tests", []))[:15],
+            "recommended_commands": list(selected.get("recommended_commands", []))[:5],
+            "manual_verification_steps": list(selected.get("manual_verification_steps", []))[:10],
+            "confidence": str(selected.get("confidence", "unknown")),
+            "warnings": list(selected.get("warnings", []))[:10],
+            "advisory_only": True,
+            "executed": False,
+            "manual_approval_only": True,
+            "commands_are_suggestions_only": True,
+            "auto_verification_triggered": False,
+            "auto_test_execution_triggered": False,
+        }
+        if not selected:
+            compact["warnings"] = list(dict.fromkeys([*compact.get("warnings", []), "verification_recommendation_handoff_unavailable"]))
+        return compact
+
     def map_next_action_to_contract(self, s, request):
         n = s.get("next_action") or "none"; p = dict(s.get("next_action_payload") or {})
         base = dict(action_id=f"action_{uuid4().hex[:8]}", item_id=s.get("item_id", ""), item_title=s.get("item_title", ""), supervised_status=s.get("supervised_status", ""), next_action=n, selectable=bool(s.get("selectable", False)), payload_valid=False, manual_required=(n != "none"), execution_allowed=False)
@@ -187,6 +222,8 @@ class AtlasNextActionOrchestratorService:
             "run_supervised_retry": ("execution_candidate", "POST", "/api/atlas/supervised-handoff-retry/run", ["pool_id", "item_id", "verification_run_id", "safe_apply_execution_id"]),
             "run_patch_regen_from_recommendation": ("execution_candidate", "POST", "/api/atlas/patch-regen-from-recommendation/run", ["pool_id", "item_id", "recommendation_run_id"]),
         }
+        handoff = self._resolve_verification_recommendation_handoff(request, str(s.get("item_id", "")))
+        base["metadata"] = {"verification_recommendation_handoff": handoff}
         if n in {"manual_review", "investigate_failure"}:
             payload = {"pool_id": request.pool_id, "item_id": s.get("item_id", ""), "reason": request.reason, "evidence_type": s.get("evidence_type", ""), "evidence_run_id": s.get("evidence_run_id", "")}
             return AtlasNextActionContract(**base, action_kind="manual_display", payload=payload, required_fields=["pool_id", "item_id"])
