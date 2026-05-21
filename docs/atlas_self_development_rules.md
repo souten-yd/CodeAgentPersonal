@@ -64,3 +64,26 @@ Always required for:
 - execution policy changes
 - rollback/snapshot changes
 - GitHub write operations
+
+
+## Self-Improvement Roadmap Boundary
+- CodeAgentPersonal / KasaneCore self-modification is a first-class future goal.
+- Self-modification is stricter than ordinary target repo work.
+- The following are strict-gate by default:
+  - launcher
+  - Dockerfile / container build scripts
+  - runtime startup
+  - execution APIs
+  - safe_apply / verification / rollback code
+  - UI workflow state machine
+  - data_root / CA_DATA resolution
+  - security / policy / safety docs
+- Autonomous self-modification requires:
+  - snapshot
+  - restore
+  - patch transaction
+  - allowlisted verification
+  - rollback proof
+  - artifact capture
+  - human policy gates
+- No direct merge / push / remote git write until an explicit future policy PR.

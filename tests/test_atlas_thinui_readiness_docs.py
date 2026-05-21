@@ -16,6 +16,12 @@ def test_thinui_readiness_doc_contract() -> None:
         'ThinUI does not change the final goal',
         'EXECUTE ONE ACTION remains required',
         'dry-run-first remains required',
-        'suggested commands are not executed automatically'
+        'suggested commands are not executed automatically',
+        'Self-Improvement Scope',
+        'Self-improvement remains explicitly in scope',
+        'Snapshot / restore / patch transaction / rollback',
+        'stricter gates than ordinary repo work',
+        'ThinUI does not replace self-improvement',
+        'PR-91〜PR-100 Self-Improving Atlas / KasaneCore Roadmap',
     ]:
         assert s in t

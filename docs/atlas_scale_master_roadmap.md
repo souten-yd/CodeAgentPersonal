@@ -1,16 +1,17 @@
 ## Active PR Pointer (Updated)
 
 Completed:
-- PR-ATLAS-SCALE-73
+- PR-ATLAS-SCALE-73B
 
 Current PR:
-- PR-ATLAS-SCALE-73
+- PR-ATLAS-SCALE-73B
 
 Next PR:
 - PR-ATLAS-SCALE-74: Minimal Atlas Workflow UI shell
 
 Known Current Code Facts:
-- PR-64〜72 completed the advisory execution-readiness foundation.
+- PR-73 consolidated ThinUI readiness and autonomous code agent roadmap.
+- PR-73B explicitly hardens the self-improvement roadmap.
 - Atlas remains targeted at a fully autonomous code agent.
 - ThinUI is the future default interface, not a change in final goal.
 - Current UI exposes too many low-level execution/diagnostic controls.
@@ -84,3 +85,52 @@ Known Current Code Facts:
 
 - Historical quality gate reference: PR-ATLAS-DOCS-QUALITY-GATE-01.
 - Historical quality marker: PR-ATLAS-SCALE-65B.
+
+
+## PR-91〜PR-100 Self-Improving Atlas / KasaneCore Roadmap
+- **PR-91: Self-improvement policy and risk classification**
+  - classify CodeAgentPersonal / KasaneCore files by risk
+  - runtime / launcher / Docker / UI / safety gate files are strict-gate
+  - no autonomous self-modification yet
+- **PR-92: Self-repo snapshot and restore validation**
+  - verify snapshot/restore works on CodeAgentPersonal itself
+  - rollback proof required before any self-modification
+- **PR-93: Self-repo planning mode**
+  - Atlas can plan changes to its own codebase
+  - advisory only
+  - no patch apply yet
+- **PR-94: Self-repo patch candidate generation**
+  - generate patch candidates for CodeAgentPersonal / KasaneCore
+  - manual approval required
+  - no automatic apply
+- **PR-95: Self-repo safe_apply with strict gate**
+  - apply approved self-modification patches only
+  - dry-run-first
+  - restore point required
+- **PR-96: Self-repo verification loop**
+  - run allowlisted tests only
+  - no broad shell
+  - no unsafe commands
+- **PR-97: Self-repo failure recovery**
+  - rollback on failed verification
+  - preserve artifacts and failure analysis
+- **PR-98: Self-improvement draft PR workflow**
+  - create branch / draft PR candidate
+  - CI observation
+  - no direct merge
+- **PR-99: Self-improvement guarded autopilot**
+  - bounded loop for low-risk self changes
+  - strict stop conditions
+  - human approval for medium/high risk
+- **PR-100: Self-improving CodeAgentPersonal / KasaneCore milestone**
+  - end-to-end validation
+  - snapshot → plan → patch → test → fix → draft PR
+  - rollback and recovery verified
+
+### Self-improvement Safety Boundary
+- Self-improvement has stricter gates than ordinary repository work.
+- Core runtime, launcher, Docker, UI, safety policies, execution APIs, and data-root handling are strict-gate by default.
+- Autonomous self-modification is forbidden until snapshot/restore, patch transaction, verification, rollback, and artifact capture are validated.
+- ThinUI supervises self-improvement; it does not hide safety-critical state.
+- Medium/high-risk self-modification requires explicit human approval.
+- Direct merge is out of scope until a later explicit policy PR.

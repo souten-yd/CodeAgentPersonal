@@ -15,8 +15,10 @@ def test_manifest_contract():
     m = _manifest()
     assert m['version'] == 1
     assert m['final_goal'] == 'fully_autonomous_code_agent'
-    assert 'frontend_simplification' in m['thinui_role']
+    assert m['thinui_role'] == 'frontend_simplification_for_autonomous_agent'
     assert 'replacement' not in m['thinui_role']
+    if 'self_improvement_scope' in m:
+        assert m['self_improvement_scope'] == 'self_improving_codeagentpersonal_kasanecore'
     surfaces = m['surfaces']
     assert isinstance(surfaces, list) and surfaces
     for s in surfaces:
