@@ -3,6 +3,7 @@
 Completed:
 - PR-ATLAS-SCALE-76
 - PR-ATLAS-SCALE-76B
+- PR-ATLAS-SCALE-76C
 - PR-ATLAS-SCALE-80: out-of-order architecture checkpoint (docs/manifest/tests only; Vue migration plan + autonomous-first UI policy)
 
 Current implementation PR:
@@ -81,3 +82,27 @@ Hard safety rules:
 - Historical quality marker: PR-ATLAS-SCALE-65B.
 
 - Diagnostics remain accessible through toggles and are hidden by default, not removed.
+
+## PR-76C Checkpoint Notes
+
+- PR-76C fixes Diagnostics drawer structure after PR-76B.
+- Diagnostics drawer is structurally bounded and does not wrap minimal workflow surfaces.
+- Diagnostics section IDs exist and are manifest-covered.
+- Raw JSON/result panels are diagnostics surfaces.
+- Direct subsystem tools are diagnostics surfaces.
+- Low-level ID fields are diagnostics surfaces where practical.
+- PR-80 remains an out-of-order architecture checkpoint and does not imply PR-77〜79 are complete.
+- Backend workflow state is authoritative.
+- Execution semantics remain unchanged.
+- EXECUTE ONE ACTION remains required for manual execution.
+- Dry-run-first remains required.
+
+
+## Historical Pointer (Legacy Contracts)
+Current PR:
+- PR-ATLAS-SCALE-76
+Next PR:
+- PR-ATLAS-SCALE-77: Atlas workflow state machine UI
+Completed:
+- PR-ATLAS-SCALE-75
+- PR-ATLAS-SCALE-76

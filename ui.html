@@ -251,9 +251,7 @@
           <div class="atlas-status-card"><span>Last Event</span><b id="atlas-status-last-event">-</b></div>
         </section>
 
-        <section id="atlas-diagnostics-drawer" class="atlas-panel-card atlas-surface-diagnostics" aria-label="Atlas diagnostics drawer">
-          <div class="atlas-section-title-row"><div><h2>Diagnostics drawer</h2><p>Raw JSON and low-level diagnostic surfaces.</p></div></div>
-<section class="atlas-panel-card atlas-surface-diagnostics" aria-labelledby="atlas-automation-readiness-title">
+        <section id="atlas-automation-readiness-panel" class="atlas-panel-card atlas-surface-advanced" aria-labelledby="atlas-automation-readiness-title">
           <div class="atlas-section-title-row">
             <h2 id="atlas-automation-readiness-title">Automation readiness</h2>
           </div>
@@ -282,6 +280,20 @@
           </div>
         </section>
 
+        <section id="atlas-diagnostics-drawer" class="atlas-panel-card atlas-surface-diagnostics" aria-label="Atlas diagnostics drawer">
+          <div id="atlas-diagnostics-summary" class="atlas-section-title-row atlas-surface-diagnostics"><div><h2>Diagnostics</h2><p>Diagnostics are hidden by default and do not execute actions automatically.</p></div></div>
+          <div id="atlas-diagnostics-status" class="atlas-muted-note atlas-surface-diagnostics" aria-live="polite">UI mode: minimal. Diagnostics toggles do not execute actions.</div>
+          <section id="atlas-diagnostics-raw-json-section" class="atlas-surface-diagnostics" aria-label="Raw JSON diagnostics">
+            <h3>Raw JSON</h3>
+          </section>
+          <section id="atlas-diagnostics-subsystem-tools-section" class="atlas-surface-diagnostics" aria-label="Subsystem tools diagnostics">
+            <h3>Subsystem tools</h3>
+          </section>
+          <section id="atlas-diagnostics-ids-section" class="atlas-surface-diagnostics" aria-label="Low-level IDs diagnostics">
+            <h3>Low-level IDs</h3>
+          </section>
+        </section>
+
         <div class="atlas-work-grid atlas-main-grid">
           <section class="atlas-panel-card" aria-labelledby="atlas-planpool-title">
             <div class="atlas-section-title-row">
@@ -289,7 +301,7 @@
                 <h2 id="atlas-planpool-title">PlanPool Overview</h2>
                 <p>PlanItemをタイムラインカードとして表示します。</p>
               </div>
-              <span id="atlas-planpool-id" class="atlas-id-chip">No pool</span>
+              <span id="atlas-planpool-id" class="atlas-surface-diagnostics atlas-id-chip">No pool</span>
             </div>
             <div id="atlas-plan-list" class="atlas-plan-list" data-atlas-plan-list="true">
               <div class="atlas-empty-state">Goalを入力してCreate Planを押すと、PlanItemカードが表示されます。</div>
@@ -302,7 +314,7 @@
                 <h2 id="atlas-pipeline-title">Pipeline Progress</h2>
                 <p>dry-runの進捗、最新イベント、次のアクションを表示します。</p>
               </div>
-              <span id="atlas-pipeline-run-id" class="atlas-id-chip">No run</span>
+              <span id="atlas-pipeline-run-id" class="atlas-surface-diagnostics atlas-id-chip">No run</span>
             </div>
             <div id="atlas-pipeline-status" class="atlas-pipeline-status" data-atlas-pipeline-status="true">
               <div class="atlas-badge atlas-badge-muted">idle</div>
@@ -428,7 +440,7 @@
                   <button id="atlas-context-refresh-v2-btn" class="atlas-button atlas-surface-diagnostics">Run Context Refresh v2</button>
                 </div>
                 <div id="atlas-context-refresh-v2-summary" class="atlas-extension-summary">No v2 refresh run yet.</div>
-                <pre id="atlas-context-refresh-v2-result" class="atlas-extension-result">{}</pre>
+                <pre id="atlas-context-refresh-v2-result" class="atlas-surface-diagnostics atlas-extension-result">{}</pre>
                 <div class="atlas-panel">
                   <h4>Planner Packaging v2 (manual-only)</h4>
                   <button id="atlas-planner-packaging-v2-btn" class="atlas-surface-diagnostics" type="button">Run Planner Packaging v2</button>
@@ -532,8 +544,8 @@
                 <div id="atlas-operator-loop-semi-auto-status" class="atlas-extension-result">Semi-auto: idle.</div>
                 <div id="atlas-operator-loop-next-action-summary" class="atlas-extension-result">No next action prepared.</div>
                 <pre id="atlas-operator-loop-diagnostics" class="atlas-extension-result atlas-surface-diagnostics">No diagnostics yet.</pre>
-                <pre id="atlas-operator-loop-queue-result" class="atlas-extension-result">No queue result.</pre>
-                <pre id="atlas-operator-loop-contract-result" class="atlas-extension-result">No action contract.</pre>
+                <pre id="atlas-operator-loop-queue-result" class="atlas-surface-diagnostics atlas-extension-result">No queue result.</pre>
+                <pre id="atlas-operator-loop-contract-result" class="atlas-surface-diagnostics atlas-extension-result">No action contract.</pre>
                 <div class="atlas-extension-result" id="atlas-operator-loop-verification-handoff-summary">Verification Handoff Summary (manual approval context): no handoff metadata.</div>
                 <pre id="atlas-operator-loop-verification-handoff-result" class="atlas-extension-result">{}</pre>
                 <div class="atlas-extension-actions">
@@ -541,10 +553,10 @@
                   <button id="atlas-operator-loop-verification-handoff-export-btn" type="button" class="atlas-ghost-btn">Export Verification Handoff JSON</button>
                 </div>
                 <div id="atlas-operator-loop-verification-handoff-copy-status" class="atlas-extension-result">Manual approval context only. Suggested commands were not executed.</div>
-                <pre id="atlas-operator-loop-executor-result" class="atlas-extension-result">No executor result.</pre>
-                <pre id="atlas-operator-loop-refresh-result" class="atlas-extension-result">No refresh result.</pre>
+                <pre id="atlas-operator-loop-executor-result" class="atlas-surface-diagnostics atlas-extension-result">No executor result.</pre>
+                <pre id="atlas-operator-loop-refresh-result" class="atlas-surface-diagnostics atlas-extension-result">No refresh result.</pre>
                 <pre id="atlas-operator-loop-next-step" class="atlas-extension-result">No next step yet.</pre>
-                <pre id="atlas-operator-loop-guarded-result" class="atlas-extension-result">No guarded loop result.</pre>
+                <pre id="atlas-operator-loop-guarded-result" class="atlas-surface-diagnostics atlas-extension-result">No guarded loop result.</pre>
               </details>
               <details class="atlas-extension-details atlas-automation-extension-card">
                 <summary>Next Action Orchestrator</summary>
@@ -583,11 +595,11 @@
           </section>
           <section class="atlas-detail-section">
             <h3>Plan Markdown</h3>
-            <pre id="atlas-markdown-panel" class="atlas-log-panel">No markdown loaded.</pre>
+            <pre id="atlas-markdown-panel" class="atlas-surface-diagnostics atlas-log-panel">No markdown loaded.</pre>
           </section>
           <section class="atlas-detail-section">
             <h3>Pipeline Events</h3>
-            <pre id="atlas-events-panel" class="atlas-log-panel">No events yet.</pre>
+            <pre id="atlas-events-panel" class="atlas-surface-diagnostics atlas-log-panel">No events yet.</pre>
           </section>
           <section class="atlas-detail-section">
             <h3>Developer JSON</h3>

@@ -38,3 +38,16 @@ def test_advanced_and_diagnostics_markers_present_without_id_removal():
     manifest = json.loads(Path('web/atlas_ui_surface_manifest.json').read_text(encoding='utf-8'))
     for sid in [s['id'] for s in manifest['surfaces']]:
         assert f'id="{sid}"' in html or sid.startswith('atlas-workflow-') or sid in {'atlas-operator-loop-dry-run-btn','atlas-operator-loop-execute-btn','atlas-operator-loop-execute-refresh-btn'}
+
+
+def test_pr76c_advanced_and_diagnostics_container_contract():
+    html = Path('ui.html').read_text(encoding='utf-8')
+    assert "#atlas-dashboard[data-atlas-ui-mode=\"minimal\"] .atlas-surface-advanced" in html
+    assert "#atlas-dashboard[data-atlas-ui-mode=\"minimal\"] .atlas-surface-diagnostics" in html
+    assert "id=\"atlas-automation-readiness-panel\" class=\"atlas-panel-card atlas-surface-advanced\"" in html
+    for sid in ['atlas-operator-loop-card','atlas-next-action-orchestrator-panel']:
+        ix=html.index(f'id=\"{sid}\"')
+        assert "atlas-surface-advanced" in html[ix-220:ix+220]
+    for sid in ['atlas-plan-item-impact-map-btn','atlas-context-refresh-v2-btn','atlas-planner-packaging-v2-btn']:
+        ix=html.index(f'id=\"{sid}\"')
+        assert "atlas-surface-diagnostics" in html[ix-220:ix+220]

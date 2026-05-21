@@ -136,3 +136,17 @@ Hidden by default:
 - Hidden by default: raw JSON/internal IDs/direct subsystem controls/manual internals/debug-only panels.
 - Deprecate/remove rules: mark deprecated in manifest first; keep one migration PR when possible; never remove safety controls or diagnostics replacement paths.
 - Every UI surface must be manifest-classified as minimal_workflow, safety_always_visible, advanced_execution, diagnostics, deprecated, or removed_after_migration.
+
+## PR-76C Checkpoint Notes
+
+- PR-76C fixes Diagnostics drawer structure after PR-76B.
+- Diagnostics drawer is structurally bounded and does not wrap minimal workflow surfaces.
+- Diagnostics section IDs exist and are manifest-covered.
+- Raw JSON/result panels are diagnostics surfaces.
+- Direct subsystem tools are diagnostics surfaces.
+- Low-level ID fields are diagnostics surfaces where practical.
+- PR-80 remains an out-of-order architecture checkpoint and does not imply PR-77〜79 are complete.
+- Backend workflow state is authoritative.
+- Execution semantics remain unchanged.
+- EXECUTE ONE ACTION remains required for manual execution.
+- Dry-run-first remains required.
