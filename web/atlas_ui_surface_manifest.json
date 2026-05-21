@@ -732,5 +732,8 @@
   "snapshot_restore_foundation": true,
   "snapshot_restore_runtime_gate": "manual_only_foundation",
   "snapshot_restore_auto_enabled": false,
-  "snapshot_restore_policy": "docs/atlas_autonomous_execution_readiness_policy.md#snapshot--restore-gate"
+  "snapshot_restore_policy": "docs/atlas_autonomous_execution_readiness_policy.md#snapshot--restore-gate",
+  "snapshot_restore_path_safety_hardened": true,
+  "snapshot_restore_symlink_policy": "skip",
+  "snapshot_restore_delete_missing_before": "plan_only_non_destructive"
 }
