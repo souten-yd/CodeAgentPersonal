@@ -9,12 +9,13 @@ DOCS = [
     Path('docs/atlas_autopilot_scale_master_plan.md'),
 ]
 
-def test_scale_76_docs_contract():
+def test_scale_76b_docs_contract():
     text = '\n'.join(p.read_text(encoding='utf-8') for p in DOCS)
     for s in [
         'Current PR:\n- PR-ATLAS-SCALE-76',
         'Next PR:\n- PR-ATLAS-SCALE-77: Atlas workflow state machine UI',
         'Diagnostics drawer and raw JSON isolation',
+        'Completed:\n- PR-ATLAS-SCALE-75\n- PR-ATLAS-SCALE-76',
         'hidden by default, not removed',
         'diagnostics remain accessible',
         'Backend workflow state is authoritative',

@@ -2,9 +2,10 @@
 
 Completed:
 - PR-ATLAS-SCALE-75
+- PR-ATLAS-SCALE-76
 
 Current PR:
-- PR-ATLAS-SCALE-76
+- PR-ATLAS-SCALE-76B
 
 Next PR:
 - PR-ATLAS-SCALE-77: Atlas workflow state machine UI
@@ -28,7 +29,7 @@ Known Current Code Facts:
 # Atlas Autopilot Current Status
 
 ## Current
-- PR-ATLAS-SCALE-76 is the diagnostics isolation PR.
+- PR-ATLAS-SCALE-76 completed diagnostics isolation baseline; PR-ATLAS-SCALE-76B finalizes drawer, manifest, docs, and tests.
 - Focus: hide diagnostics/raw JSON/low-level IDs and direct subsystem controls from minimal mode while keeping accessibility via Diagnostics mode.
 - No execution semantics changes.
 

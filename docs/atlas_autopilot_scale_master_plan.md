@@ -2,9 +2,10 @@
 
 Completed:
 - PR-ATLAS-SCALE-75
+- PR-ATLAS-SCALE-76
 
 Current PR:
-- PR-ATLAS-SCALE-76
+- PR-ATLAS-SCALE-76B
 
 Next PR:
 - PR-ATLAS-SCALE-77: Atlas workflow state machine UI
