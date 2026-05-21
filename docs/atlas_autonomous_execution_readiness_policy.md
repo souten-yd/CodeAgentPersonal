@@ -200,3 +200,8 @@ Known Current Code Facts:
 - PR-80 remains an out-of-order architecture checkpoint.
 - Atlas final goal remains a fully autonomous code agent.
 - Self-improving CodeAgentPersonal / KasaneCore remains in scope.
+
+- explicit approval is mandatory for medium/high/strict risk
+- strict_gate always requires explicit approval
+- confirmation token or future equivalent approval token remains mandatory
+- gate readiness does not execute automatically

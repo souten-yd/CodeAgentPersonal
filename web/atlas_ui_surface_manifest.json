@@ -754,5 +754,13 @@
   "verification_allowlist_auto_execute_enabled": false,
   "automatic_command_execution_enabled": false,
   "verification_commands_advisory_only": true,
-  "verification_allowlist_policy": "docs/atlas_autonomous_execution_readiness_policy.md#verification-allowlist-gate"
+  "verification_allowlist_policy": "docs/atlas_autonomous_execution_readiness_policy.md#verification-allowlist-gate",
+  "dry_run_approval_gate_foundation": true,
+  "dry_run_approval_runtime_gate": "metadata_only_manual_foundation",
+  "dry_run_first_required": true,
+  "execute_one_action_required": true,
+  "automatic_dry_run_enabled": false,
+  "automatic_approval_enabled": false,
+  "automatic_execute_enabled": false,
+  "dry_run_approval_policy": "docs/atlas_autonomous_execution_readiness_policy.md#dry-run-and-approval-gate"
 }
