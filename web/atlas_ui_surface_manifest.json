@@ -2,6 +2,7 @@
   "version": 1,
   "default_mode": "minimal",
   "final_goal": "fully_autonomous_code_agent",
+  "self_improvement_scope": "self_improving_codeagentpersonal_kasanecore",
   "thinui_role": "frontend_simplification_for_autonomous_agent",
   "surfaces": [
     {
