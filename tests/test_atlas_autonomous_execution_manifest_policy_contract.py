@@ -85,3 +85,14 @@ def test_snapshot_restore_runtime_flags() -> None:
     assert m['strict_gate_required_for_self_modification'] is True
     if 'snapshot_restore_auto_enabled' in m:
         assert m['snapshot_restore_auto_enabled'] is False
+
+
+def test_stop_kill_switch_manifest_policy_contract() -> None:
+    import json
+    from pathlib import Path
+    m = json.loads(Path('web/atlas_ui_surface_manifest.json').read_text(encoding='utf-8'))
+    assert m['stop_kill_switch_gate_foundation'] is True
+    assert m['automatic_stop_execution_enabled'] is False
+    assert m['auto_continue_enabled'] is False
+    assert m['execute_all_enabled'] is False
+    assert m['autonomous_execution_runtime_level'] == 'level_0_manual_only'

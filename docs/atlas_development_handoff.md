@@ -18,15 +18,25 @@ Completed:
 - PR-ATLAS-SCALE-85
 - PR-ATLAS-SCALE-86
 - PR-ATLAS-SCALE-87
+- PR-ATLAS-SCALE-88
 
 Current implementation PR:
-- PR-ATLAS-SCALE-88: Stop / kill switch gate consolidation
-
-Next implementation PR:
 - PR-ATLAS-SCALE-89: Loop bound gate consolidation
 
+Next implementation PR:
+- PR-ATLAS-SCALE-90: Remote git gate consolidation
+
 Known Current Code Facts:
-- PR-87 adds artifact capture gate consolidation.
+- PR-88 adds stop / kill switch gate consolidation.
+- Stop / kill switch gate is metadata-only and does not stop real jobs.
+- Stop / kill switch gate does not kill processes.
+- Stop acknowledgement is not fabricated.
+- Stop state is recorded for future UI/CLI inspection.
+- Stop gate blocks readiness if auto-continue or execute-all is enabled.
+- Stop gate blocks readiness if required stop controls are missing.
+- No auto-continue after stop remains required.
+- Execute-all remains forbidden.
+- Automatic stop execution remains disabled.
 - Artifact capture gate is metadata-only and does not execute actions.
 - Artifact capture does not create fake execution results.
 - Artifact capture does not create fake verification results.
@@ -216,7 +226,16 @@ Next implementation PR:
 - PR-ATLAS-SCALE-86: Rollback readiness gate consolidation
 
 Known Current Code Facts:
-- PR-87 adds artifact capture gate consolidation.
+- PR-88 adds stop / kill switch gate consolidation.
+- Stop / kill switch gate is metadata-only and does not stop real jobs.
+- Stop / kill switch gate does not kill processes.
+- Stop acknowledgement is not fabricated.
+- Stop state is recorded for future UI/CLI inspection.
+- Stop gate blocks readiness if auto-continue or execute-all is enabled.
+- Stop gate blocks readiness if required stop controls are missing.
+- No auto-continue after stop remains required.
+- Execute-all remains forbidden.
+- Automatic stop execution remains disabled.
 - Artifact capture gate is metadata-only and does not execute actions.
 - Artifact capture does not create fake execution results.
 - Artifact capture does not create fake verification results.
