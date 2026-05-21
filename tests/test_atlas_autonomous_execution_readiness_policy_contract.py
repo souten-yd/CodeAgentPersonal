@@ -15,6 +15,8 @@ def test_autonomous_execution_readiness_policy_contract() -> None:
         'Patch Transaction Gate',
         'transaction has file list, diff summary, risk class, and rollback metadata',
         'Risk Classification Gate',
+        'strict-gate',
+        'unknown risk is not low risk',
         'Verification Allowlist Gate',
         'Dry-run and Approval Gate',
         'Rollback Readiness Gate',
