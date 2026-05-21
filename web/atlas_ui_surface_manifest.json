@@ -142,10 +142,10 @@
     {
       "id": "atlas-operator-loop-card",
       "label": "Operator loop card",
-      "category": "minimal_workflow",
-      "default_visible": true,
+      "category": "advanced_execution",
+      "default_visible": false,
       "reason": "Main workflow/status container.",
-      "can_hide": false,
+      "can_hide": true,
       "safety_notes": "Contains guarded execution context."
     },
     {

@@ -17,7 +17,7 @@
 - Too many direct subsystem panels are visible by default.
 - Raw IDs and JSON are visible by default.
 - Normal users cannot tell which controls are required for normal flow.
-- Detailed controls are useful for diagnostics, but should not be the default workflow.
+- Detailed controls are useful for diagnostics, but should not be the default workflow. Advanced execution controls are hidden by default, not removed. Diagnostics remain accessible but should not be required for normal operation. UI hiding must not change execution semantics. Backend workflow state remains authoritative for browser, CLI, replacement UI, and future full-auto controller consumers of the same workflow contract.
 
 ## Minimal Workflow UI
 Visible by default:
@@ -86,7 +86,7 @@ Hidden by default:
 - full-auto mode requires snapshot/restore/transaction/rollback readiness.
 
 ## PR-74〜80 UI Roadmap
-- PR-74: Minimal Atlas Workflow UI shell.
+- PR-74: Automation-first ThinUI / CLI workflow shell.
 - PR-75: Hide advanced execution panels by default.
 - PR-76: Diagnostics drawer and raw JSON isolation.
 - PR-77: Atlas workflow state machine UI.
@@ -116,3 +116,6 @@ Hidden by default:
 - Snapshot / restore / patch transaction / rollback readiness are required before autonomous self-modification.
 - ThinUI is the supervision interface for autonomous and self-improving behavior.
 - ThinUI does not replace self-improvement or autonomous execution.
+
+- diagnostics remain accessible through toggles.
+- replaceable UI target remains supported via the backend workflow contract.

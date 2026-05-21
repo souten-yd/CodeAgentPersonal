@@ -1,13 +1,13 @@
 ## Active PR Pointer (Updated)
 
 Completed:
-- PR-ATLAS-SCALE-74
+- PR-ATLAS-SCALE-75
 
 Current PR:
-- PR-ATLAS-SCALE-74
+- PR-ATLAS-SCALE-75
 
 Next PR:
-- PR-ATLAS-SCALE-75: Hide advanced execution panels by default
+- PR-ATLAS-SCALE-76: Diagnostics drawer and raw JSON isolation
 
 Known Current Code Facts:
 - PR-73 consolidated ThinUI readiness and autonomous code agent roadmap.
@@ -16,7 +16,10 @@ Known Current Code Facts:
 - Atlas remains targeted at a fully autonomous code agent.
 - Self-improving CodeAgentPersonal / KasaneCore remains explicitly in scope.
 - ThinUI is the frontend strategy for autonomous and self-improving behavior, not a replacement for the final goal.
-- Minimal workflow UI and Advanced/Diagnostics separation will begin in PR-74.
+- PR-74 added the automation-first ThinUI / CLI-compatible workflow shell.
+- PR-75 hides advanced execution panels by default.
+- Minimal workflow shell remains visible by default.
+- Existing advanced execution and diagnostic tools remain accessible.
 - Execution semantics remain unchanged.
 - `EXECUTE ONE ACTION` remains required for manual execution.
 - Dry-run-first remains required.
@@ -39,3 +42,5 @@ Known Current Code Facts:
 
 - Historical quality gate reference: PR-ATLAS-DOCS-QUALITY-GATE-01.
 - Historical quality marker: PR-ATLAS-SCALE-65B.
+
+- Diagnostics remain accessible through toggles and are hidden by default, not removed.
