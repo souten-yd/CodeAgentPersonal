@@ -1,3 +1,40 @@
+## Active PR Pointer (Updated)
+
+Completed:
+- PR-ATLAS-SCALE-76
+- PR-ATLAS-SCALE-76B
+- PR-ATLAS-SCALE-76C
+- PR-ATLAS-SCALE-77
+- PR-ATLAS-SCALE-77B
+- PR-ATLAS-SCALE-80: out-of-order architecture checkpoint (docs/manifest/tests only; Vue migration plan + autonomous-first UI policy)
+
+Current implementation PR:
+- PR-ATLAS-SCALE-78: ThinUI contract tests and manifest-driven UI smoke
+
+Next implementation PR:
+- PR-ATLAS-SCALE-79: Autonomous execution readiness policy checkpoint
+
+Known Current Code Facts:
+- PR-77 added workflow state machine UI.
+- PR-77B aligns primary CTA guards with existing Operator Loop guards.
+- Primary CTA is not more permissive than detailed Operator Loop controls.
+- Primary CTA may trigger at most one existing manual action per click.
+- Primary CTA does not run Build Queue automatically.
+- Primary CTA does not run Preview Token automatically.
+- Primary CTA does not run Advance to confirmation automatically.
+- Primary CTA does not run Execute and refresh automatically.
+- Primary CTA does not auto-continue.
+- Primary CTA does not execute all.
+- Primary CTA does not bypass dry-run-first.
+- Primary CTA does not bypass EXECUTE ONE ACTION.
+- Backend workflow state remains authoritative.
+- ThinUI remains replaceable and CLI-compatible.
+- PR-80 remains an out-of-order architecture checkpoint and does not imply PR-78〜79 are complete.
+- Atlas final goal remains a fully autonomous code agent.
+- Self-improving CodeAgentPersonal / KasaneCore remains explicitly in scope.
+- Execution semantics remain unchanged.
+- Suggested commands are not executed automatically.
+
 # Atlas Autonomous-first UI Policy
 
 ## Purpose
