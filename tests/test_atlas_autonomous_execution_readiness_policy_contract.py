@@ -29,6 +29,12 @@ def test_autonomous_execution_readiness_policy_contract() -> None:
         'strict_gate always requires explicit approval',
         'gate readiness does not execute automatically',
         'Rollback Readiness Gate',
+
+        'rollback plan exists',
+        'restore plan is required and must be valid',
+        'restore remains manual-only',
+        'automatic rollback requires a future explicit policy PR',
+        'snapshot manifest and rollback metadata are required',
         'Artifact Capture Gate',
         'Stop / Kill Switch Gate',
         'Loop Bound Gate',

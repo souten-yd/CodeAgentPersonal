@@ -59,7 +59,11 @@
 
 6. **Rollback Readiness Gate**
    - rollback plan exists
-   - rollback can be manually invoked
+   - restore plan is required and must be valid
+   - snapshot manifest and rollback metadata are required
+   - rollback strategy is manual snapshot restore
+   - rollback readiness is metadata-only and does not execute rollback
+   - restore remains manual-only
    - failed verification must not silently continue
    - automatic rollback requires a future explicit policy PR
 

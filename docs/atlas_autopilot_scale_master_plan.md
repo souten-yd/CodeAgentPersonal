@@ -16,17 +16,29 @@ Completed:
 - PR-ATLAS-SCALE-84
 - PR-ATLAS-SCALE-84B
 - PR-ATLAS-SCALE-85
+- PR-ATLAS-SCALE-86
 
 Current implementation PR:
-- PR-ATLAS-SCALE-86: Rollback readiness gate consolidation
+- PR-ATLAS-SCALE-87: Artifact capture gate consolidation
 
 Next implementation PR:
-- PR-ATLAS-SCALE-87: Artifact capture gate consolidation
+- PR-ATLAS-SCALE-88: Stop / kill switch gate consolidation
 
 Known Current Code Facts:
 - PR-84 added verification allowlist gate foundation.
 - PR-84B fixed verification allowlist py_compile / node check contracts.
-- PR-85 adds dry-run and approval gate consolidation.
+- PR-85 added dry-run and approval gate consolidation.
+- PR-86 adds rollback readiness gate consolidation.
+- Rollback readiness gate is metadata-only and does not restore files.
+- Rollback readiness does not execute rollback automatically.
+- Rollback readiness does not authorize automatic execution.
+- Snapshot manifest and rollback metadata are required for readiness.
+- Restore plan is required for readiness.
+- Rollback strategy remains manual snapshot restore.
+- Restore remains manual-only.
+- Automatic restore remains disabled.
+- Automatic rollback remains disabled.
+- Autonomous execution remains disabled.
 - Dry-run / approval gate is metadata-only and does not execute actions.
 - Gate readiness does not authorize automatic execution.
 - Gate readiness does not execute automatically.

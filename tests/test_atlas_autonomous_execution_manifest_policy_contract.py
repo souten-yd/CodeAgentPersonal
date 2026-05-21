@@ -18,6 +18,12 @@ def test_autonomous_execution_manifest_policy_contract() -> None:
     assert m['automatic_approval_enabled'] is False
     assert m['automatic_execute_enabled'] is False
 
+    assert m['rollback_readiness_gate_foundation'] is True
+    assert m['rollback_readiness_auto_restore_enabled'] is False
+    assert m['automatic_restore_enabled'] is False
+    assert m['automatic_rollback_enabled'] is False
+    assert m['autonomous_execution_runtime_level'] == 'level_0_manual_only'
+
     assert m['patch_transaction_foundation'] is True
     assert m['automatic_patch_generation_enabled'] is False
     assert m['automatic_patch_apply_enabled'] is False
@@ -55,6 +61,12 @@ def test_snapshot_restore_runtime_flags() -> None:
     assert m['automatic_dry_run_enabled'] is False
     assert m['automatic_approval_enabled'] is False
     assert m['automatic_execute_enabled'] is False
+
+    assert m['rollback_readiness_gate_foundation'] is True
+    assert m['rollback_readiness_auto_restore_enabled'] is False
+    assert m['automatic_restore_enabled'] is False
+    assert m['automatic_rollback_enabled'] is False
+    assert m['autonomous_execution_runtime_level'] == 'level_0_manual_only'
 
     assert m['patch_transaction_foundation'] is True
     assert m['automatic_patch_generation_enabled'] is False
