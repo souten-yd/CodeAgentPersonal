@@ -48,6 +48,36 @@ def _hash_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _resolve_project_file(project_root: Path, src: Path) -> Path:
+    return _ensure_under(project_root, src, "project_escape")
+
+
+def _is_symlink_or_symlink_parent(path: Path, project_root: Path) -> bool:
+    project_root = project_root.resolve()
+    target = path
+    while True:
+        if target.is_symlink():
+            return True
+        if target == project_root or target.parent == target:
+            break
+        target = target.parent
+    return False
+
+
+def _should_skip_snapshot_source(project_root: Path, src: Path) -> tuple[bool, str]:
+    if _is_symlink_or_symlink_parent(src, project_root):
+        try:
+            _resolve_project_file(project_root, src)
+            return True, "symlink_skipped"
+        except ValueError:
+            return True, "symlink_escape"
+    try:
+        _resolve_project_file(project_root, src)
+    except ValueError:
+        return True, "project_escape"
+    return False, ""
+
+
 def create_workspace_snapshot(*, project_path: str | Path, data_root: str | Path, workspace_id: str = "", pool_id: str = "", item_id: str = "", run_id: str = "", reason: str = "", include_paths: list[str] | None = None, exclude_paths: list[str] | None = None, max_files: int | None = None, max_bytes: int | None = None, dry_run: bool = False) -> dict[str, Any]:
     project_root = Path(project_path).expanduser().resolve()
     root = Path(data_root).expanduser().resolve()
@@ -65,13 +95,37 @@ def create_workspace_snapshot(*, project_path: str | Path, data_root: str | Path
     include_rel = [_safe_relpath(p) for p in include_paths] if include_paths else []
 
     roots = [project_root / p for p in include_rel] if include_rel else [project_root]
+    snapshots_root = (root / "atlas" / "snapshots").resolve()
     for base in roots:
+        if base.is_absolute() and include_rel and str(base) not in [str(project_root / p) for p in include_rel]:
+            warnings.append(f"include_path_invalid:{base}")
+            continue
+        try:
+            _ensure_under(project_root, base, "include_path_escape")
+        except ValueError:
+            skipped_files.append({"relative_path": str(base), "reason": "symlink_escape" if base.is_symlink() else "include_path_escape"})
+            warnings.append(f"include_path_escape:{base}")
+            continue
+        if _is_symlink_or_symlink_parent(base, project_root):
+            skipped_files.append({"relative_path": str(base.relative_to(project_root)), "reason": "symlink_skipped"})
+            warnings.append(f"include_path_symlink_skipped:{base}")
+            continue
         if not base.exists():
             warnings.append(f"include_path_missing:{base}")
             continue
         candidates = [base] if base.is_file() else list(base.rglob("*"))
         for src in candidates:
             if src.is_dir():
+                continue
+            skip, reason = _should_skip_snapshot_source(project_root, src)
+            if skip:
+                rel = src.relative_to(project_root).as_posix() if src.is_relative_to(project_root) else str(src)
+                skipped_files.append({"relative_path": rel, "reason": reason})
+                continue
+            resolved_src = src.resolve()
+            if os.path.commonpath([str(snapshots_root), str(resolved_src)]) == str(snapshots_root):
+                rel = src.relative_to(project_root).as_posix()
+                skipped_files.append({"relative_path": rel, "reason": "snapshot_artifact_excluded"})
                 continue
             rel = src.relative_to(project_root).as_posix()
             top = rel.split("/", 1)[0]
@@ -121,6 +175,9 @@ def create_workspace_snapshot(*, project_path: str | Path, data_root: str | Path
         "hash_algorithm": "sha256",
         "restore_supported": True,
         "restore_status": "manual_only",
+        "symlink_policy": "skip",
+        "path_safety": "project_root_resolved_paths_only",
+        "delete_missing_before_supported": False,
         "warnings": warnings,
     }
     if not dry_run:
@@ -174,13 +231,15 @@ def plan_workspace_restore(*, manifest_path: str | Path | None = None, snapshot_
             overwrite.append(rel)
             changed.append(rel)
     files_missing = []
+    warnings = []
     if delete_missing_before:
+        warnings.append("delete_missing_before_plan_only")
         for p in project_root.rglob("*"):
             if p.is_file():
                 rel = p.relative_to(project_root).as_posix()
                 if rel not in snapshot_set:
                     files_missing.append(rel)
-    return {"status": "planned", "snapshot_id": manifest["snapshot_id"], "restore_plan": {"delete_missing_before": delete_missing_before}, "files_to_restore": restore, "files_to_create": create, "files_to_overwrite": overwrite, "files_missing_from_snapshot": files_missing, "files_changed_since_snapshot": changed, "warnings": []}
+    return {"status": "planned", "snapshot_id": manifest["snapshot_id"], "restore_plan": {"delete_missing_before": delete_missing_before, "delete_missing_before_executed": False}, "files_to_restore": restore, "files_to_create": create, "files_to_overwrite": overwrite, "files_missing_from_snapshot": files_missing, "files_changed_since_snapshot": changed, "warnings": warnings}
 
 
 def restore_workspace_snapshot(*, manifest_path: str | Path | None = None, snapshot_id: str = "", data_root: str | Path | None = None, project_path: str | Path, confirm_restore: bool, delete_missing_before: bool = False) -> dict[str, Any]:
@@ -193,10 +252,22 @@ def restore_workspace_snapshot(*, manifest_path: str | Path | None = None, snaps
     restored = 0
     skipped = 0
     warnings = []
+    if delete_missing_before:
+        warnings.append("delete_missing_before_not_destructive")
     for entry in manifest["files"]:
         try:
             rel = _safe_relpath(entry["relative_path"])
-            src = _ensure_under(snapshot_dir, snapshot_dir / _safe_relpath(entry["snapshot_relative_path"]), "snapshot_escape")
+            snap_rel = _safe_relpath(entry["snapshot_relative_path"])
+            raw_src = snapshot_dir / snap_rel
+            if raw_src.is_symlink():
+                skipped += 1
+                warnings.append(f"symlink_restore_source_skipped:{snap_rel}")
+                continue
+            src = _ensure_under(snapshot_dir, raw_src, "snapshot_escape")
+            if not src.exists() or not src.is_file():
+                skipped += 1
+                warnings.append(f"snapshot_source_missing_or_not_file:{snap_rel}")
+                continue
             dst = _ensure_under(project_root, project_root / rel, "project_escape")
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
@@ -207,6 +278,6 @@ def restore_workspace_snapshot(*, manifest_path: str | Path | None = None, snaps
     report_dir = root / "atlas" / "snapshots" / "restore_reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / f"restore_{manifest['snapshot_id']}_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
-    report = {"snapshot_id": manifest["snapshot_id"], "restored_count": restored, "skipped_count": skipped, "warnings": warnings, "delete_missing_before": delete_missing_before, "manual_only": True, "automatic_rollback_enabled": False}
+    report = {"snapshot_id": manifest["snapshot_id"], "restored_count": restored, "skipped_count": skipped, "warnings": warnings, "delete_missing_before": delete_missing_before, "delete_missing_before_requested": delete_missing_before, "delete_missing_before_executed": False, "manual_only": True, "automatic_rollback_enabled": False, "path_safety": "snapshot_and_project_bounds_checked"}
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return {"status": "restored", "snapshot_id": manifest["snapshot_id"], "restored_count": restored, "skipped_count": skipped, "report_path": str(report_path), "warnings": warnings}

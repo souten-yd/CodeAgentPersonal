@@ -10,6 +10,7 @@ Completed:
 - PR-ATLAS-SCALE-79
 - PR-ATLAS-SCALE-80: out-of-order architecture checkpoint (docs/manifest/tests only; Vue migration plan + autonomous-first UI policy)
 - PR-ATLAS-SCALE-81
+- PR-ATLAS-SCALE-81B
 
 Current implementation PR:
 - PR-ATLAS-SCALE-82: Patch transaction and rollback metadata foundation
@@ -20,7 +21,14 @@ Next implementation PR:
 Known Current Code Facts:
 - PR-78 added ThinUI contract tests and manifest-driven UI smoke.
 - PR-79 defined autonomous execution readiness policy.
-- PR-81 adds workspace snapshot / restore foundation.
+- PR-81 added workspace snapshot / restore foundation.
+- PR-81B hardens snapshot / restore path safety.
+- Snapshot source files must resolve under project_root.
+- Symlinks are skipped by default and not followed.
+- Symlink escapes are skipped / warned and not read.
+- Restore source files must resolve under snapshot_dir.
+- Restore destination files must resolve under project_path.
+- delete_missing_before is plan-only / non-destructive for now.
 - Snapshot artifacts are stored under resolved data_root.
 - Path("ca_data") direct writes remain forbidden.
 - Restore is manual-only.
