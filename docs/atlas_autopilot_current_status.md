@@ -327,3 +327,15 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 
 
 - Vue implementation has not started in this PR series.
+
+
+## PR-ATLAS-SCALE-92 Level-0 Completion Checkpoint
+- PR-ATLAS-SCALE-92 completed the Level-0 metadata-only readiness foundation via readiness gate rollup.
+- Level-0 completion checkpoint is metadata-only and does not enable Level-1 execution.
+- Level-0 completion does not authorize autonomous execution, patch generation/apply, safe_apply, verification execution, rollback/restore, or git operations.
+- Runtime remains Level 0 manual-only.
+- Current implementation PR is PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
+- Vue implementation is allowed only after PR-92 is merged and has not started in PR-92.
+- Separate UI track after merge: PR-ATLAS-VUE-01 read-only parallel UI track; existing ui.html remains default and backend workflow_state remains authoritative.
+- PR-80 remains Vue migration planning checkpoint and did not add Vue runtime code.
+- automatic command execution disabled; automatic verification disabled; automatic patch generation disabled; automatic patch apply disabled; automatic safe_apply disabled; automatic rollback disabled; automatic restore disabled; automatic loop execution disabled; automatic retry disabled; auto-continue disabled; execute-all forbidden; autonomous execution disabled; autonomous self-improvement disabled; remote git disabled; direct merge forbidden; primary CTA remains single existing manual action only.

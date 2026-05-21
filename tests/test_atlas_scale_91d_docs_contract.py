@@ -28,7 +28,6 @@ def test_scale_91d_docs_contract():
         assert s in text
 
     forbidden = [
-        "pr-atlas-scale-92 completed",
         "vue implementation started",
     ]
     for s in forbidden:
