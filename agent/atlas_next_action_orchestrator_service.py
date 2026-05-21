@@ -207,6 +207,9 @@ class AtlasNextActionOrchestratorService:
             "commands_are_suggestions_only": True,
             "auto_verification_triggered": False,
             "auto_test_execution_triggered": False,
+            "confirmation_required": True,
+            "confirmation_text_required": "EXECUTE ONE ACTION",
+            "dry_run_first_required": True,
         }
         if not selected:
             compact["warnings"] = list(dict.fromkeys([*compact.get("warnings", []), "verification_recommendation_handoff_unavailable"]))

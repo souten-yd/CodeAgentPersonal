@@ -1,13 +1,13 @@
 ## Active PR Pointer (Updated)
 
 Completed:
-- PR-ATLAS-SCALE-71
+- PR-ATLAS-SCALE-72
 
 Current PR:
-- PR-ATLAS-SCALE-71
+- PR-ATLAS-SCALE-72
 
 Next PR:
-- PR-ATLAS-SCALE-72: Operator Loop verification recommendation approval copy/export and final contract cleanup
+- PR-ATLAS-SCALE-73: Atlas autonomous execution readiness checkpoint and roadmap consolidation
 
 Known Current Code Facts:
 - Operator Loop uses verification recommendation handoff metadata for manual approval summary context.
@@ -293,7 +293,7 @@ Known Current Code Facts:
 ## PR-ATLAS-SCALE-64
 - Completed: PR-ATLAS-SCALE-64
 - Current PR: PR-ATLAS-SCALE-66B
-- Next PR: PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
+- Next PR (historical): PR-ATLAS-SCALE-70 (completed)
 - Verification planning is advisory-only.
 - Suggested commands are never executed.
 - CI/test selection hints are local metadata only.
@@ -308,21 +308,40 @@ Known Current Code Facts:
 - Prohibits string-only tests as sufficient completion evidence.
 - Requires UI runtime-chain checks for DOM/API/binding/endpoint/unwrap/render/cache-bust.
 - Requires backend runtime-chain checks for router/endpoint/data_root/service/response/safety flags.
-- Next PR: PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary.
+- Next PR (historical): PR-ATLAS-SCALE-70 (completed).
 
 
 ## Historical Marker
 - PR-ATLAS-SCALE-65B
 
-- Next PR: PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
+- Next PR (historical): PR-ATLAS-SCALE-70 (completed)
 
 
 ## PR-ATLAS-SCALE-67B
 - Completed PR: PR-ATLAS-SCALE-67B
 - Current PR: PR-ATLAS-SCALE-67B
-- Next PR: PR-ATLAS-SCALE-70: Operator Loop uses verification recommendation handoff metadata for manual approval summary
+- Next PR (historical): PR-ATLAS-SCALE-70 (completed)
 - Planner Packaging v2 remains advisory-only and manual-only.
 - Planner Packaging v2 uses Context Refresh v2 and PlanItem Impact Map.
 - No execution semantics added.
 
 - Next PR pointer updated to PR-ATLAS-SCALE-69 for verification recommendation handoff metadata.
+
+
+## PR-ATLAS-SCALE-72 Update
+- Operator Loop action contract includes verification_recommendation_handoff metadata.
+- Operator Loop UI displays verification handoff summary for manual approval context.
+- Operator Loop UI can copy/export verification handoff JSON.
+- Copy/export is manual-only and does not execute anything.
+- Handoff metadata is advisory-only.
+- Suggested commands are not executed.
+- Confirmation requirement remains unchanged.
+- `EXECUTE ONE ACTION` remains required for execution.
+- Dry-run-first remains required.
+- Missing handoff metadata remains non-blocking.
+- No tests, shell, verification, safe_apply, patch generation, retry, rollback, or remote git are triggered by handoff metadata or copy/export.
+
+- copy/export is manual-only.
+- Suggested commands are not executed.
+- Confirmation requirement remains unchanged.
+- Dry-run-first remains required.
