@@ -5,10 +5,10 @@ Completed:
 - PR-ATLAS-SCALE-76
 
 Current PR:
-- PR-ATLAS-SCALE-76B
+- PR-ATLAS-SCALE-80: Vue Atlas Next migration plan and autonomous-first UI policy checkpoint
 
 Next PR:
-- PR-ATLAS-SCALE-77: Atlas workflow state machine UI
+- PR-ATLAS-SCALE-81 or PR-ATLAS-VUE-01: parallel Vue/Vite Atlas Next read-only shell (or continue autonomous roadmap if numbering reserved)
 
 Known Current Code Facts:
 - PR-73 consolidated ThinUI readiness and autonomous code agent roadmap.
