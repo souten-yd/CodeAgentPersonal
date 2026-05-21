@@ -8,7 +8,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-40">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-41">
+
+<style>
+  .atlas-surface-hidden { display: none !important; }
+  #atlas-dashboard[data-atlas-ui-mode="minimal"] .atlas-surface-advanced,
+  #atlas-dashboard[data-atlas-ui-mode="minimal"] .atlas-surface-diagnostics { display: none; }
+  #atlas-dashboard[data-atlas-ui-mode="advanced"] .atlas-surface-diagnostics { display: none; }
+  #atlas-dashboard[data-atlas-ui-mode="diagnostics"] .atlas-surface-advanced { display: none; }
+</style>
 </head>
 <body>
 
@@ -154,7 +162,7 @@
 
   <!-- ATLAS MODE -->
   <div class="atlas-panel-col mob-hidden" id="atlas-panel-col" style="display:none">
-    <section class="atlas-dashboard" id="atlas-dashboard" data-atlas-dashboard-root="true" aria-label="Atlas Dashboard">
+    <section class="atlas-dashboard" id="atlas-dashboard" data-atlas-dashboard-root="true" data-atlas-ui-mode="minimal" aria-label="Atlas Dashboard">
       <div class="atlas-dashboard-shell plan-card" id="atlas-workbench-card" data-atlas-current-subview="dashboard">
         <section class="atlas-hero-card">
           <div class="atlas-hero-copy">
@@ -172,7 +180,7 @@
         <div id="atlas-workbench-card-resume-notice" style="display:none"></div>
 
         
-        <section id="atlas-workflow-shell" class="atlas-panel-card" aria-label="Atlas Workflow">
+        <section id="atlas-workflow-shell" class="atlas-panel-card atlas-surface-minimal" aria-label="Atlas Workflow">
           <div class="atlas-section-title-row">
             <div>
               <h2>Atlas Workflow</h2>
@@ -204,7 +212,7 @@
             </div>
           </div>
           <label class="atlas-field-label" for="atlas-goal-input">Goal Composer</label>
-          <textarea id="atlas-goal-input" class="atlas-goal-input" rows="4" placeholder="例: AtlasのPipeline進捗UIを改善し、リロード後も状態復元できるようにする"></textarea>
+          <textarea id="atlas-goal-input" class="atlas-goal-input atlas-surface-minimal" rows="4" placeholder="例: AtlasのPipeline進捗UIを改善し、リロード後も状態復元できるようにする"></textarea>
           <div class="atlas-button-row" aria-label="Atlas primary actions">
             <button id="atlas-create-plan-btn" class="atlas-primary-btn" type="button" onclick="window.AtlasDashboard?.createPlanPool()">Create Plan</button>
             <button id="atlas-start-dry-run-btn" class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.startDryRun()">Start Dry-run</button>
@@ -235,7 +243,7 @@
         </section>
 
         
-<section class="atlas-status-grid" id="atlas-status-grid" aria-label="Atlas status summary">
+<section class="atlas-status-grid" id="atlas-status-grid" class="atlas-surface-minimal" aria-label="Atlas status summary">
           <div class="atlas-status-card"><span>PlanPool</span><b id="atlas-status-planpool">not created</b></div>
           <div class="atlas-status-card"><span>Items</span><b id="atlas-status-items">0</b></div>
           <div class="atlas-status-card"><span>Pipeline</span><b id="atlas-status-pipeline">idle</b></div>
@@ -396,7 +404,7 @@
 <button id="atlas-repo-context-verification-plan-btn" class="atlas-secondary-btn" type="button">Verification plan hints</button>
 <div id="atlas-repo-context-verification-plan-summary"></div>
 <pre id="atlas-repo-context-verification-plan-result">No verification plan yet.</pre>
-<button id="atlas-plan-item-impact-map-btn" class="atlas-secondary-btn" type="button">PlanItem impact map</button>
+<button id="atlas-plan-item-impact-map-btn" class="atlas-secondary-btn atlas-surface-diagnostics" type="button">PlanItem impact map</button>
 <div id="atlas-plan-item-impact-map-summary"></div>
 <pre id="atlas-plan-item-impact-map-result">No plan-item impact map yet.</pre>
 
@@ -415,25 +423,25 @@
                 <p>Local-first context refresh.</p><p>Web and Deep Research require explicit policy.</p><p>No code changes are applied by context refresh.</p>
                 <div id="atlas-context-refresh-panel" class="atlas-extension-result">No refresh run yet.</div>
                 <div class="atlas-row" style="margin-top:8px;gap:8px;">
-                  <button id="atlas-context-refresh-v2-btn" class="atlas-button">Run Context Refresh v2</button>
+                  <button id="atlas-context-refresh-v2-btn" class="atlas-button atlas-surface-diagnostics">Run Context Refresh v2</button>
                 </div>
                 <div id="atlas-context-refresh-v2-summary" class="atlas-extension-summary">No v2 refresh run yet.</div>
                 <pre id="atlas-context-refresh-v2-result" class="atlas-extension-result">{}</pre>
                 <div class="atlas-panel">
                   <h4>Planner Packaging v2 (manual-only)</h4>
-                  <button id="atlas-planner-packaging-v2-btn" type="button">Run Planner Packaging v2</button>
+                  <button id="atlas-planner-packaging-v2-btn" class="atlas-surface-diagnostics" type="button">Run Planner Packaging v2</button>
                   <div id="atlas-planner-packaging-v2-summary"></div>
                   <pre id="atlas-planner-packaging-v2-result"></pre>
                 </div>
                 <div class="atlas-panel">
                   <h4>Verification Recommendation (manual-only)</h4>
-                  <button id="atlas-verification-recommendation-btn" type="button">Run Verification Recommendation</button>
+                  <button id="atlas-verification-recommendation-btn" class="atlas-surface-diagnostics" type="button">Run Verification Recommendation</button>
                   <div id="atlas-verification-recommendation-summary"></div>
                   <pre id="atlas-verification-recommendation-result"></pre>
                 </div>
                 <div class="atlas-panel">
                   <h4>Verification Recommendation Handoff (manual approval metadata)</h4>
-                  <button id="atlas-verification-recommendation-handoff-btn" type="button">Run Verification Recommendation Handoff</button>
+                  <button id="atlas-verification-recommendation-handoff-btn" class="atlas-surface-diagnostics" type="button">Run Verification Recommendation Handoff</button>
                   <div id="atlas-verification-recommendation-handoff-summary"></div>
                   <pre id="atlas-verification-recommendation-handoff-result"></pre>
                 </div>
@@ -460,7 +468,7 @@
                 <summary>Supervised Handoff Retry</summary>
                 <p>This reruns allowlisted verification only.</p><p>This does not re-apply the patch.</p><p>This does not rollback or restore.</p><p>This does not regenerate patches.</p>
                 <div class="atlas-extension-actions"><button id="atlas-run-supervised-handoff-retry" type="button" class="atlas-secondary-btn">Run supervised retry</button></div>
-                <div id="atlas-supervised-handoff-retry-panel" class="atlas-extension-result">No supervised retry run yet.</div>
+                <div id="atlas-supervised-handoff-retry-panel" class="atlas-extension-result atlas-surface-advanced">No supervised retry run yet.</div>
               </details>
               <details class="atlas-extension-card">
                 <summary>Patch Regen Recommendation</summary>
@@ -475,7 +483,7 @@
                 <label>reviewer <input id="atlas-patch-regen-from-rec-reviewer" type="text" value="manual" /></label>
                 <label>reason <input id="atlas-patch-regen-from-rec-reason" type="text" placeholder="manual trigger reason" /></label>
                 <div class="atlas-extension-actions"><button id="atlas-run-patch-regen-from-recommendation" type="button" class="atlas-secondary-btn">Run patch regen from recommendation</button></div>
-                <div id="atlas-patch-regen-from-recommendation-panel" class="atlas-extension-result">status: none / patch_regen_result_id: - / patch_regen_status: - / candidate approval_status: - / safe_apply_ready: false</div>
+                <div id="atlas-patch-regen-from-recommendation-panel" class="atlas-extension-result atlas-surface-advanced">status: none / patch_regen_result_id: - / patch_regen_status: - / candidate approval_status: - / safe_apply_ready: false</div>
               </details>
               
               <details class="atlas-extension-details atlas-automation-extension-card">
@@ -488,11 +496,11 @@
               <details class="atlas-extension-details atlas-automation-extension-card">
                 <summary>Multi-item Supervised Status</summary>
                 <p>This only builds a supervised status queue.</p><p>This does not execute the next action.</p><p>This does not apply, verify, retry, approve, or regenerate patches.</p>
-                <div id="atlas-multi-item-supervised-status-panel" class="atlas-extension-result">No supervised status queue yet.</div>
+                <div id="atlas-multi-item-supervised-status-panel" class="atlas-extension-result atlas-surface-advanced">No supervised status queue yet.</div>
               </details>
               
 
-              <details id="atlas-operator-loop-card" class="atlas-extension-details atlas-automation-extension-card">
+              <details id="atlas-operator-loop-card" class="atlas-extension-details atlas-automation-extension-card atlas-surface-advanced">
                 <summary>Operator Loop</summary>
                 <p>Prepare, dry-run, execute one action, then refresh the next manual step.</p>
                 <p>This never auto-continues.</p>
@@ -543,14 +551,14 @@
                 <label>item_id <input id="atlas-next-action-item-id" type="text" placeholder="optional" /></label>
                 <label>requested_next_action <input id="atlas-next-action-requested-action" type="text" placeholder="optional" /></label>
                 <div class="atlas-extension-actions"><button id="atlas-prepare-next-action" type="button" class="atlas-secondary-btn">Prepare next action</button></div>
-                <pre id="atlas-next-action-orchestrator-panel" class="atlas-extension-result">No orchestrator result yet.</pre>
+                <pre id="atlas-next-action-orchestrator-panel" class="atlas-extension-result atlas-surface-advanced">No orchestrator result yet.</pre>
               </details>
 
               <details class="atlas-extension-details atlas-automation-extension-card">
                 <summary>Supervised Handoff Safe Apply</summary>
                 <p>This applies an already approved handoff patch. This does not run verification. This does not rollback or restore.</p>
                 <div class="atlas-extension-actions"><button id="atlas-execute-supervised-safe-apply" type="button" class="atlas-secondary-btn">Execute supervised safe_apply</button></div>
-                <div id="atlas-handoff-safe-apply-panel" class="atlas-extension-result">Run verification separately after apply.</div>
+                <div id="atlas-handoff-safe-apply-panel" class="atlas-extension-result atlas-surface-advanced">Run verification separately after apply.</div>
               </details>
             </div>
           </section>
@@ -581,7 +589,7 @@
           </section>
           <section class="atlas-detail-section">
             <h3>Developer JSON</h3>
-            <pre id="atlas-json-panel" class="atlas-log-panel">No JSON yet.</pre>
+            <pre id="atlas-json-panel" class="atlas-log-panel atlas-surface-diagnostics">No JSON yet.</pre>
           </section>
           <section class="atlas-detail-section">
             <h3>Checkpoint</h3>

@@ -56,3 +56,22 @@ def test_scale74_manifest_flags_and_workflow_shell_surfaces():
         assert sid in by_id
     assert by_id['atlas-workflow-stop-btn']['category'] == 'safety_always_visible'
     assert by_id['atlas-workflow-stop-btn']['can_hide'] is False
+
+
+def test_scale75_manifest_mode_visibility_contract():
+    m = _manifest()
+    assert m['default_mode'] == 'minimal'
+    assert m['automation_first'] is True
+    assert m['cli_compatible_target'] is True
+    assert m['replaceable_ui_target'] is True
+    assert m['workflow_state_owner'] == 'backend'
+    by_id = {s['id']: s for s in m['surfaces']}
+    assert by_id['atlas-workflow-shell']['default_visible'] is True
+    for sid in ['atlas-next-action-orchestrator-panel','atlas-multi-item-supervised-status-panel','atlas-handoff-safe-apply-panel','atlas-supervised-handoff-retry-panel','atlas-patch-regen-from-recommendation-panel','atlas-operator-loop-card']:
+        assert by_id[sid]['category'] == 'advanced_execution'
+        assert by_id[sid]['default_visible'] is False
+    for sid in ['atlas-plan-item-impact-map-btn','atlas-context-refresh-v2-btn','atlas-planner-packaging-v2-btn','atlas-verification-recommendation-btn','atlas-verification-recommendation-handoff-btn']:
+        assert by_id[sid]['category'] == 'diagnostics'
+        assert by_id[sid]['default_visible'] is False
+    assert by_id['atlas-workflow-stop-btn']['category'] == 'safety_always_visible'
+    assert by_id['atlas-workflow-stop-btn']['can_hide'] is False

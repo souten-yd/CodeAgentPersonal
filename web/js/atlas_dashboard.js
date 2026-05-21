@@ -1644,6 +1644,37 @@ ${preview}`;
     return state.workflowShell;
   }
 
+
+  function getAtlasUiMode() {
+    const rootEl = $('atlas-dashboard');
+    const allowed = { minimal: true, advanced: true, diagnostics: true, full: true };
+    let mode = 'minimal';
+    try {
+      const saved = localStorage.getItem('atlas:uiMode');
+      if (saved && allowed[saved]) mode = saved;
+    } catch (_e) {}
+    const domMode = rootEl?.dataset?.atlasUiMode;
+    if (domMode && allowed[domMode]) mode = domMode;
+    return mode;
+  }
+
+  function setAtlasUiMode(mode) {
+    const allowed = { minimal: true, advanced: true, diagnostics: true, full: true };
+    const nextMode = allowed[mode] ? mode : 'minimal';
+    const rootEl = $('atlas-dashboard');
+    if (rootEl) rootEl.setAttribute('data-atlas-ui-mode', nextMode);
+    try { localStorage.setItem('atlas:uiMode', nextMode); } catch (_e) {}
+    renderAtlasUiMode();
+  }
+
+  function renderAtlasUiMode() {
+    const mode = getAtlasUiMode();
+    const advancedBtn = $('atlas-workflow-advanced-toggle');
+    const diagnosticsBtn = $('atlas-workflow-diagnostics-toggle');
+    if (advancedBtn) advancedBtn.textContent = mode === 'advanced' ? 'Hide Advanced' : 'Show Advanced';
+    if (diagnosticsBtn) diagnosticsBtn.textContent = mode === 'diagnostics' ? 'Hide Diagnostics' : 'Show Diagnostics';
+  }
+
   function renderWorkflowShell() {
     const ws = getWorkflowShellState();
     if ($('atlas-workflow-goal')) $('atlas-workflow-goal').textContent = ws.goal || '-';
@@ -1665,13 +1696,14 @@ ${preview}`;
       renderWorkflowShell();
     });
     $('atlas-workflow-advanced-toggle')?.addEventListener('click', () => {
-      const shell = $('atlas-workflow-shell');
-      if (shell) shell.dataset.atlasAdvancedToggle = shell.dataset.atlasAdvancedToggle === 'open' ? 'closed' : 'open';
+      const mode = getAtlasUiMode();
+      setAtlasUiMode(mode === 'advanced' ? 'minimal' : 'advanced');
     });
     $('atlas-workflow-diagnostics-toggle')?.addEventListener('click', () => {
-      const shell = $('atlas-workflow-shell');
-      if (shell) shell.dataset.atlasDiagnosticsToggle = shell.dataset.atlasDiagnosticsToggle === 'open' ? 'closed' : 'open';
+      const mode = getAtlasUiMode();
+      setAtlasUiMode(mode === 'diagnostics' ? 'minimal' : 'diagnostics');
     });
+    setAtlasUiMode(getAtlasUiMode());
     renderWorkflowShell();
   }
 
