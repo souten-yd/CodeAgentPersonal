@@ -1,256 +1,86 @@
 ## Active PR Pointer (Updated)
 
 Completed:
-- PR-ATLAS-SCALE-72
+- PR-ATLAS-SCALE-73
 
 Current PR:
-- PR-ATLAS-SCALE-72
+- PR-ATLAS-SCALE-73
 
 Next PR:
-- PR-ATLAS-SCALE-73: Atlas autonomous execution readiness checkpoint and roadmap consolidation
+- PR-ATLAS-SCALE-74: Minimal Atlas Workflow UI shell
 
 Known Current Code Facts:
-- Operator Loop uses verification recommendation handoff metadata for manual approval summary context.
-- Verification Recommendation handoff metadata is advisory-only and manual approval context only.
-- Suggested commands are never executed.
-- Confirmation requirement remains unchanged (`EXECUTE ONE ACTION`).
-- Missing handoff metadata is non-blocking.
-- No tests/shell/verification/safe_apply/patch generation/retry/rollback/remote git are executed by handoff metadata.
+- PR-64〜72 completed the advisory execution-readiness foundation.
+- Atlas remains targeted at a fully autonomous code agent.
+- ThinUI is the future default interface, not a change in final goal.
+- Current UI exposes too many low-level execution/diagnostic controls.
+- Minimal workflow UI and Advanced/Diagnostics separation will begin in PR-74.
+- Execution semantics remain unchanged.
+- `EXECUTE ONE ACTION` remains required for manual execution.
+- Dry-run-first remains required.
+- Suggested commands are not executed automatically.
 
 # Atlas Scale Master Roadmap
 
-## Atlasの最終目標
+## Final Vision: Autonomous Development Platform
+- large repo coding agent
+- goal → research → plan → implement → test → fix → PR
+- self-improving CodeAgentPersonal/KasaneCore platform
+- eventually capable of autonomous implementation loops under policy/safety gates
 
-- 中〜大規模リポジトリでも安全に運用できる Atlas guarded autopilot を確立する。
-- 実行系は常に human-in-the-loop を維持し、提案と実行を明確に分離する。
-- local-first を維持しつつ、必要時のみ GitHub/CI 連携を段階的に有効化する。
-
-## 現在の完成度
-
-- Guarded loop の基盤（PR-ATLAS-PIPE-0〜60D）は完了。
-- Repo context / planner packaging の初期段階（PR-ATLAS-SCALE-61〜63B）は完了。
-- 次フェーズは verification planning と CI/GitHub read-only 連携の強化。
-
-## Completed PRs
-
-- PR-ATLAS-PIPE-0〜60D: completed
-- PR-ATLAS-SCALE-61〜63B: completed
-- PR-SEARXNG-SECRET-SYNC-01: completed
-
-## Current Architecture
-
-- PlanPool / Context Refresh / Evaluator / Supervised loop は分離された責務で構成。
-- Repo Index は advisory 情報を提供し、実行を直接トリガーしない。
-- Impacted tests は recommendation のみであり、自動実行はしない。
-- Operator Loop は dry_run-first + one-action confirmation を維持。
-
-## Remaining Roadmap
-
-- verification planning の精度向上（repo context, changed files, dependency graph 利用）。
-- PlanItem ごとの影響範囲可視化と説明可能性の向上。
-- Context Refresh の安定化（大規模repo/部分失敗/キャッシュ整合性）。
-- Planner Packaging v2 による入力品質向上。
-- Verification recommendation UI と CI 失敗マッピング強化。
-- GitHub read-only / Draft PR ワークフロー統合。
-
-## PR-64〜PR-72計画
-
-- **PR-ATLAS-SCALE-64**: Use repo context for verification planning and CI/test selection hints without auto execution。
-- **PR-ATLAS-SCALE-65**: PlanItem Impact Map。
-- **PR-ATLAS-SCALE-66**: Context Refresh v2。
-- **PR-ATLAS-SCALE-67**: Planner Packaging v2。
-- **PR-ATLAS-SCALE-68**: Verification Recommendation UI。
-- **PR-ATLAS-SCALE-69**: CI Failure Mapping。
-- **PR-ATLAS-SCALE-70**: GitHub Read-only Integration。
-- **PR-ATLAS-SCALE-71**: Draft PR Workflow。
-- **PR-ATLAS-SCALE-72**: Large Repo Readiness Milestone。
-
-## Safety Policy
-
-### 禁止事項
-
-- execute all
-- auto continue
-- shell=True
-- remote git
-- automatic safe_apply
-- automatic verification
-- automatic retry
-- automatic patch generation
-- automatic test execution
-
-### 許可事項
-
-- read-only analysis
-- recommendations
-- metadata generation
-- small-step execution
-- human approval
-
-## Milestones
-
-- M1: PR-64〜66 で verification planning / context refresh の基盤を安定化。
-- M2: PR-67〜69 で planner/verification/CI 提案品質を向上。
-- M3: PR-70〜72 で GitHub read-only と Draft PR 運用を接続し、大規模repo readiness を達成。
-
-## Future候補
-
-- Repo scale profiling dashboard。
-- Evidence traceability for recommendation rationale。
-- Optional policy templates per repository size/team。
-- Risk-tiered verification suggestion presets。
-
-## PR-73〜PR-82 Autonomous Development Roadmap
-
-- **PR-73: Workspace Snapshot & Restore Foundation**
-  - 実行前snapshot
-  - changed files manifest
-  - restore point作成
-  - full rollback API
-  - no auto restore yet
-- **PR-74: Patch Transaction Manager**
-  - patch apply transaction
-  - before/after hash保存
-  - partial failure検出
-  - rollback candidate生成
-- **PR-75: Autonomous Execution Policy v1**
-  - auto-run可能範囲をpolicy化
-  - safe / medium / high risk分類
-  - low-riskのみ連続実行許可
-- **PR-76: Auto Verification Loop**
-  - suggested testsを自動実行
-  - failed test解析
-  - retry plan生成
-  - patch再生成はまだ人間承認
-- **PR-77: Auto Patch Regen Loop**
-  - failed verificationからpatch再生成
-  - dry-run
-  - diff review
-  - policy内なら再適用
-- **PR-78: Full Task Autopilot v1**
-  - goal → plan → implement → test → fix loop
-  - max iteration / max files / max risk制限
-  - restore point必須
-- **PR-79: Self-Improvement Guardrails**
-  - CodeAgentPersonal自身の改修専用policy
-  - core files変更時は厳格gate
-  - launcher / Docker / UI / API変更の安全分類
-- **PR-80: Self-Improving CodeAgent Platform v1**
-  - AtlasでCodeAgentPersonal自身を改修
-  - snapshot → implement → test → rollback/commit candidate
-  - PR生成候補まで
-- **PR-81: GitHub Branch / Draft PR Automation**
-  - branch作成
-  - commit candidate
-  - draft PR作成
-  - CI monitor
-  - 失敗時修正loop
-- **PR-82: Autonomous Development Milestone**
-  - 大規模repo一気通貫評価
-  - recovery / rollback検証
-  - self-improvement検証
-
-## 9. Final Vision: Autonomous Development Platform
-
-- Atlasの最終像
-  - large repo coding agent
-  - goal → research → plan → implement → test → fix → PR
-  - self-improving CodeAgentPersonal/KasaneCore platform
-- 完全自動化の前提条件
-  - workspace snapshot
-  - restore point
-  - patch transaction
-  - before/after hash
-  - test/CI artifact
-  - rollback verified
-  - human policy gates
-- 安全境界
-  - low-riskのみ自動化
-  - medium/high-riskはapproval必須
-  - core/runtime/Docker/launcher変更はstrict gate
-  - self-modificationは専用policy
-
-## Milestones (Extended)
-
-- Milestone G: Transactional Development Foundation
-  - Target: PR-73〜75
-- Milestone H: Autonomous Verification / Fix Loop
-  - Target: PR-76〜78
-- Milestone I: Self-Improving Platform
-  - Target: PR-79〜82
-
-## Atlas Constitution / Checklist Reference Update
-
-- docs/atlas_development_constitution.md
-- docs/atlas_preflight_checklist.md
-- docs/atlas_postflight_checklist.md
-- docs/atlas_pr_template.md
-- docs/atlas_self_development_rules.md
-
-Current PR:
-- PR-ATLAS-DOCS-CONSTITUTION-01
-
-Next PR:
-- PR-ATLAS-SCALE-64: Use repo context for verification planning and CI/test selection hints without auto execution
-
-Known Current Code Facts:
-- Atlas development must follow constitution/preflight/postflight docs.
-- Future self-development requires snapshot/restore foundation before autonomous modification.
-
-
-
-## PR-ATLAS-SCALE-64
-- Completed: PR-ATLAS-SCALE-64
-- Current PR: PR-ATLAS-SCALE-66B
-- Next PR (historical): PR-ATLAS-SCALE-70 (completed)
-- Verification planning is advisory-only.
-- Suggested commands are never executed.
-- CI/test selection hints are local metadata only.
-- Missing Repo Index remains non-blocking.
-- No GitHub CI fetching or GitHub write operations are introduced.
-
-
-## PR-ATLAS-DOCS-QUALITY-GATE-01
-
-- Adds runtime-chain contract-test quality rules.
-- Requires adversarial self-review for all future Atlas PRs.
-- Prohibits string-only tests as sufficient completion evidence.
-- Requires UI runtime-chain checks for DOM/API/binding/endpoint/unwrap/render/cache-bust.
-- Requires backend runtime-chain checks for router/endpoint/data_root/service/response/safety flags.
-- Next PR (historical): PR-ATLAS-SCALE-70 (completed).
-
-- Historical marker: PR-ATLAS-SCALE-65B
-
-- Historical completed item: PR-ATLAS-SCALE-66: Context Refresh v2 using PlanItem Impact Map.
-
-- Next PR (historical): PR-ATLAS-SCALE-70 (completed)
-
-
-## PR-ATLAS-SCALE-67B
-- Completed PR: PR-ATLAS-SCALE-67B
-- Current PR: PR-ATLAS-SCALE-67B
-- Next PR (historical): PR-ATLAS-SCALE-70 (completed)
-- Planner Packaging v2 remains advisory-only and manual-only.
-- Planner Packaging v2 uses Context Refresh v2 and PlanItem Impact Map.
-- No execution semantics added.
-
-- Next PR pointer updated to PR-ATLAS-SCALE-69 for verification recommendation handoff metadata.
-
-
-## PR-ATLAS-SCALE-72 Update
-- Operator Loop action contract includes verification_recommendation_handoff metadata.
-- Operator Loop UI displays verification handoff summary for manual approval context.
-- Operator Loop UI can copy/export verification handoff JSON.
-- Copy/export is manual-only and does not execute anything.
-- Handoff metadata is advisory-only.
-- Suggested commands are not executed.
-- Confirmation requirement remains unchanged.
-- `EXECUTE ONE ACTION` remains required for execution.
+## Safety Baseline (Unchanged)
+- Recommendations are not executions.
+- Suggested commands are not executed automatically.
+- `EXECUTE ONE ACTION` confirmation remains required.
 - Dry-run-first remains required.
-- Missing handoff metadata remains non-blocking.
-- No tests, shell, verification, safe_apply, patch generation, retry, rollback, or remote git are triggered by handoff metadata or copy/export.
+- No execution semantics change in PR-73.
 
-- copy/export is manual-only.
-- Suggested commands are not executed.
-- Confirmation requirement remains unchanged.
-- Dry-run-first remains required.
+## PR-73〜PR-80 ThinUI / Autonomous Readiness Roadmap
+- **PR-73: Autonomous Code Agent roadmap consolidation and ThinUI readiness checkpoint**
+  - consolidate docs
+  - classify current UI surfaces
+  - preserve autonomous-code-agent final goal
+  - no execution semantics change
+- **PR-74: Minimal Atlas Workflow UI shell**
+  - visible default UI: task input, project path, status, plan summary, verification handoff summary, primary CTA
+  - no execution semantics change
+- **PR-75: Hide advanced execution panels by default**
+  - move Build Queue / Prepare / Preview Token / Next Action Orchestrator / direct Safe Apply / Retry / Patch Regen into Advanced drawer
+  - preserve DOM IDs and tests
+- **PR-76: Diagnostics drawer and raw JSON isolation**
+  - raw JSON, run IDs, pool IDs, direct repo context tools, planner packaging, impact map, context refresh v2 into Diagnostics
+  - accessible but hidden by default
+- **PR-77: Atlas workflow state machine UI**
+  - single primary CTA changes by backend phase: Plan → Prepare → Dry Run → Execute One Action → Refresh / Continue
+  - preserve EXECUTE ONE ACTION gate
+- **PR-78: ThinUI contract tests and manifest-driven UI smoke**
+  - minimal surfaces visible
+  - advanced/diagnostic surfaces accessible but hidden by default
+  - no classic script contract violations
+- **PR-79: Autonomous execution readiness policy checkpoint**
+  - readiness matrix for automatic verification / safe apply / rollback / retry
+  - no full-auto execution yet unless policy says ready
+- **PR-80: ThinUI architecture checkpoint**
+  - evaluate whether Atlas backend supports fully separate UI / CLI
+  - document API-only workflow contract
+
+## PR-81〜PR-90 Autonomous Code Agent Execution Roadmap
+- workspace snapshot / restore foundation
+- patch transaction manager
+- autonomous execution policy v1
+- auto verification loop
+- auto patch regeneration loop
+- full task autopilot v1
+- self-improvement guardrails
+- self-improving CodeAgentPersonal platform
+- GitHub branch / draft PR automation
+- autonomous development milestone
+
+## Historical Chronology (Historical)
+- Completed baseline: PR-ATLAS-PIPE-0〜60D
+- Completed baseline: PR-ATLAS-SCALE-61〜72
+- Historical docs/checkpoint references retained for traceability.
+
+
+- Historical quality gate reference: PR-ATLAS-DOCS-QUALITY-GATE-01.
+- Historical quality marker: PR-ATLAS-SCALE-65B.

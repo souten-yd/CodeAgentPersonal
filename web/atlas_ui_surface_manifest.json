@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "default_mode": "minimal",
+  "final_goal": "fully_autonomous_code_agent",
+  "thinui_role": "frontend_simplification_for_autonomous_agent",
+  "surfaces": [
+    {"id":"atlas-goal-input","label":"Goal input","category":"minimal_workflow","default_visible":true,"reason":"Primary user task entry.","can_hide":false,"safety_notes":"Required for normal workflow."},
+    {"id":"atlas-repo-index-project-path","label":"Project path","category":"minimal_workflow","default_visible":true,"reason":"Project scope selection.","can_hide":false,"safety_notes":"Needed to avoid wrong target repo."},
+    {"id":"atlas-create-plan-btn","label":"Create Plan","category":"minimal_workflow","default_visible":true,"reason":"Primary plan/create action.","can_hide":false,"safety_notes":"Core workflow trigger."},
+    {"id":"atlas-operator-loop-card","label":"Operator loop card","category":"minimal_workflow","default_visible":true,"reason":"Main workflow/status container.","can_hide":false,"safety_notes":"Contains guarded execution context."},
+
+    {"id":"atlas-operator-loop-build-queue-btn","label":"Build Queue","category":"advanced_execution","default_visible":false,"reason":"Direct execution-sequence step.","can_hide":true,"safety_notes":"Advanced control only."},
+    {"id":"atlas-operator-loop-prepare-btn","label":"Prepare","category":"advanced_execution","default_visible":false,"reason":"Internal step in manual sequence.","can_hide":true,"safety_notes":"Advanced control only."},
+    {"id":"atlas-operator-loop-token-btn","label":"Preview Token","category":"advanced_execution","default_visible":false,"reason":"Confirmation prep control.","can_hide":true,"safety_notes":"Advanced control only."},
+    {"id":"atlas-operator-loop-dry-run-btn","label":"Dry Run","category":"safety_always_visible","default_visible":true,"reason":"Safety gate before execute.","can_hide":false,"safety_notes":"Dry-run-first is required."},
+    {"id":"atlas-operator-loop-execute-btn","label":"Execute One Action","category":"safety_always_visible","default_visible":true,"reason":"Guarded execution action.","can_hide":false,"safety_notes":"Requires confirmation token/text."},
+    {"id":"atlas-operator-loop-refresh-btn","label":"Refresh","category":"minimal_workflow","default_visible":true,"reason":"Refresh status after action.","can_hide":false,"safety_notes":"Post-action visibility."},
+    {"id":"atlas-operator-loop-advance-btn","label":"Advance to confirmation","category":"advanced_execution","default_visible":false,"reason":"Intermediate sequence helper.","can_hide":true,"safety_notes":"Advanced control only."},
+    {"id":"atlas-operator-loop-execute-refresh-btn","label":"Execute and refresh","category":"safety_always_visible","default_visible":true,"reason":"Combined guarded step.","can_hide":false,"safety_notes":"Must preserve confirmation/dry-run requirements."},
+
+    {"id":"atlas-operator-loop-verification-handoff-summary","label":"Verification handoff summary","category":"minimal_workflow","default_visible":true,"reason":"Approval context summary.","can_hide":false,"safety_notes":"Advisory context only."},
+    {"id":"atlas-operator-loop-verification-handoff-copy-btn","label":"Copy handoff","category":"minimal_workflow","default_visible":true,"reason":"Copy approval context.","can_hide":false,"safety_notes":"No execution side effects."},
+    {"id":"atlas-operator-loop-verification-handoff-export-btn","label":"Export handoff","category":"minimal_workflow","default_visible":true,"reason":"Export approval context.","can_hide":false,"safety_notes":"No execution side effects."},
+
+    {"id":"atlas-next-action-orchestrator-panel","label":"Next Action Orchestrator","category":"advanced_execution","default_visible":false,"reason":"Direct subsystem execution panel.","can_hide":true,"safety_notes":"Advanced only."},
+    {"id":"atlas-multi-item-supervised-status-panel","label":"Multi-item supervised status","category":"advanced_execution","default_visible":false,"reason":"Direct orchestration subsystem.","can_hide":true,"safety_notes":"Advanced only."},
+    {"id":"atlas-handoff-safe-apply-panel","label":"Supervised Safe Apply","category":"advanced_execution","default_visible":false,"reason":"Direct safe apply panel.","can_hide":true,"safety_notes":"Advanced only."},
+    {"id":"atlas-supervised-handoff-retry-panel","label":"Supervised Retry","category":"advanced_execution","default_visible":false,"reason":"Direct retry subsystem.","can_hide":true,"safety_notes":"Advanced only."},
+    {"id":"atlas-patch-regen-from-recommendation-panel","label":"Patch Regen","category":"advanced_execution","default_visible":false,"reason":"Direct patch regeneration panel.","can_hide":true,"safety_notes":"Advanced only."},
+
+    {"id":"atlas-plan-item-impact-map-btn","label":"PlanItem Impact Map","category":"diagnostics","default_visible":false,"reason":"Direct analysis subsystem button.","can_hide":true,"safety_notes":"Diagnostics only."},
+    {"id":"atlas-context-refresh-v2-btn","label":"Context Refresh v2","category":"diagnostics","default_visible":false,"reason":"Direct context subsystem button.","can_hide":true,"safety_notes":"Diagnostics only."},
+    {"id":"atlas-planner-packaging-v2-btn","label":"Planner Packaging v2","category":"diagnostics","default_visible":false,"reason":"Direct planner packaging button.","can_hide":true,"safety_notes":"Diagnostics only."},
+    {"id":"atlas-verification-recommendation-btn","label":"Verification Recommendation","category":"diagnostics","default_visible":false,"reason":"Direct verification analysis button.","can_hide":true,"safety_notes":"Diagnostics only."},
+    {"id":"atlas-verification-recommendation-handoff-btn","label":"Verification Recommendation Handoff","category":"diagnostics","default_visible":false,"reason":"Direct handoff generation button.","can_hide":true,"safety_notes":"Diagnostics only."}
+  ]
+}
