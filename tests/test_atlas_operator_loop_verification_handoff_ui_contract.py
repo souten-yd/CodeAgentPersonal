@@ -18,7 +18,15 @@ def test_operator_loop_handoff_ui_contract():
     assert dash.index('renderOperatorLoopVerificationHandoff') < final
     assert 'type="module"' not in ui
     assert 'import ' not in dash and 'export ' not in dash
-    assert 'atlas-dashboard-38' in ui
+    assert 'atlas-dashboard-39' in ui
     assert 'EXECUTE ONE ACTION' in ui and 'EXECUTE ONE ACTION' in dash
     for bad in ['Run verification', 'safe_apply', 'retry', 'rollback']:
         assert bad not in ui[ui.index('atlas-operator-loop-card'):ui.index('atlas-operator-loop-card')+3000]
+
+
+def test_handoff_summary_includes_manual_only_note_and_execution_requirement_unchanged():
+    ui = Path('ui.html').read_text(encoding='utf-8')
+    dash = Path('web/js/atlas_dashboard.js').read_text(encoding='utf-8')
+    assert "Manual approval context only. Suggested commands were not executed." in dash
+    assert "executed" in dash
+    assert "EXECUTE ONE ACTION" in ui and "EXECUTE ONE ACTION" in dash

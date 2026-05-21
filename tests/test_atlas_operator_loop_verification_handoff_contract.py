@@ -97,3 +97,15 @@ def test_handoff_metadata_does_not_change_execution_contract_fields(tmp_path):
     assert isinstance(c0["payload_valid"], bool)
     if c0.get("action_kind") == "execution_candidate":
         assert c0.get("target_api_path")
+
+
+def test_handoff_metadata_enforces_confirmation_and_dry_run_flags(tmp_path):
+    app = create_app(); app.state.atlas_ca_data_root = str(tmp_path); c = TestClient(app)
+    pid = _create_pool(c, metadata={"verification_recommendation_handoff": {"approval_summary": "pool", "recommended_commands": ["pytest -q"]}})
+    out = _prepare(c, pid)
+    handoff = out["action_contract"]["metadata"]["verification_recommendation_handoff"]
+    assert handoff["confirmation_required"] is True
+    assert handoff["confirmation_text_required"] == "EXECUTE ONE ACTION"
+    assert handoff["dry_run_first_required"] is True
+    assert handoff["commands_are_suggestions_only"] is True
+    assert handoff["executed"] is False
