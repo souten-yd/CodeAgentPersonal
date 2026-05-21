@@ -762,5 +762,13 @@
   "automatic_dry_run_enabled": false,
   "automatic_approval_enabled": false,
   "automatic_execute_enabled": false,
-  "dry_run_approval_policy": "docs/atlas_autonomous_execution_readiness_policy.md#dry-run-and-approval-gate"
+  "dry_run_approval_policy": "docs/atlas_autonomous_execution_readiness_policy.md#dry-run-and-approval-gate",
+  "rollback_readiness_gate_foundation": true,
+  "rollback_readiness_runtime_gate": "metadata_only_manual_foundation",
+  "rollback_readiness_auto_restore_enabled": false,
+  "rollback_readiness_auto_execute_enabled": false,
+  "restore_manual_only_required": true,
+  "rollback_strategy_required": "restore_snapshot_manual",
+  "automatic_restore_enabled": false,
+  "rollback_readiness_policy": "docs/atlas_autonomous_execution_readiness_policy.md#rollback-readiness-gate"
 }
