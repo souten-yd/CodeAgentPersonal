@@ -444,6 +444,222 @@
       "reason": "PR-76 diagnostics/raw JSON isolation.",
       "can_hide": true,
       "safety_notes": "Diagnostics only."
+    },
+    {
+      "id": "atlas-diagnostics-summary",
+      "label": "atlas-diagnostics-summary",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-diagnostics-raw-json-section",
+      "label": "atlas-diagnostics-raw-json-section",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-diagnostics-subsystem-tools-section",
+      "label": "atlas-diagnostics-subsystem-tools-section",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-diagnostics-ids-section",
+      "label": "atlas-diagnostics-ids-section",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-diagnostics-status",
+      "label": "atlas-diagnostics-status",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-repo-index-result",
+      "label": "atlas-repo-index-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-repo-context-result",
+      "label": "atlas-repo-context-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-repo-context-tests-result",
+      "label": "atlas-repo-context-tests-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-repo-context-verification-plan-result",
+      "label": "atlas-repo-context-verification-plan-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-plan-item-impact-map-result",
+      "label": "atlas-plan-item-impact-map-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-context-refresh-v2-result",
+      "label": "atlas-context-refresh-v2-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-planner-packaging-v2-result",
+      "label": "atlas-planner-packaging-v2-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-verification-recommendation-result",
+      "label": "atlas-verification-recommendation-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-verification-recommendation-handoff-result",
+      "label": "atlas-verification-recommendation-handoff-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-operator-loop-diagnostics",
+      "label": "atlas-operator-loop-diagnostics",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-operator-loop-queue-result",
+      "label": "atlas-operator-loop-queue-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-operator-loop-contract-result",
+      "label": "atlas-operator-loop-contract-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-operator-loop-executor-result",
+      "label": "atlas-operator-loop-executor-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-operator-loop-refresh-result",
+      "label": "atlas-operator-loop-refresh-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-operator-loop-guarded-result",
+      "label": "atlas-operator-loop-guarded-result",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-events-panel",
+      "label": "atlas-events-panel",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-markdown-panel",
+      "label": "atlas-markdown-panel",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-patch-regen-from-rec-id",
+      "label": "atlas-patch-regen-from-rec-id",
+      "category": "diagnostics",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
+    },
+    {
+      "id": "atlas-automation-readiness-panel",
+      "label": "atlas-automation-readiness-panel",
+      "category": "advanced_execution",
+      "default_visible": false,
+      "reason": "PR-76C diagnostics cleanup.",
+      "can_hide": true,
+      "safety_notes": "Hidden by default diagnostics/advanced surface."
     }
   ],
   "self_improvement_scope": "self_improving_codeagentpersonal_kasanecore",

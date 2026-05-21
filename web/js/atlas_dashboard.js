@@ -1673,6 +1673,8 @@ ${preview}`;
     const diagnosticsBtn = $('atlas-workflow-diagnostics-toggle');
     if (advancedBtn) advancedBtn.textContent = mode === 'advanced' ? 'Hide Advanced' : 'Show Advanced';
     if (diagnosticsBtn) diagnosticsBtn.textContent = mode === 'diagnostics' ? 'Hide Diagnostics' : 'Show Diagnostics';
+    const diagnosticsStatus = $('atlas-diagnostics-status');
+    if (diagnosticsStatus) diagnosticsStatus.textContent = `UI mode: ${mode}. Diagnostics toggles do not execute actions automatically.`;
   }
 
   function renderWorkflowShell() {
