@@ -11,6 +11,7 @@ def test_autonomous_execution_readiness_policy_contract() -> None:
         'Current Atlas state remains Level 0',
         'Future PRs must explicitly move levels',
         'Snapshot / Restore Gate',
+        'resolved data_root',
         'Patch Transaction Gate',
         'Risk Classification Gate',
         'Verification Allowlist Gate',

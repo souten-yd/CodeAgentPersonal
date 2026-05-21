@@ -9,16 +9,23 @@ Completed:
 - PR-ATLAS-SCALE-78
 - PR-ATLAS-SCALE-79
 - PR-ATLAS-SCALE-80: out-of-order architecture checkpoint (docs/manifest/tests only; Vue migration plan + autonomous-first UI policy)
+- PR-ATLAS-SCALE-81
 
 Current implementation PR:
-- PR-ATLAS-SCALE-81: Workspace snapshot / restore foundation
+- PR-ATLAS-SCALE-82: Patch transaction and rollback metadata foundation
 
 Next implementation PR:
-- PR-ATLAS-SCALE-82: Patch transaction and rollback metadata foundation
+- PR-ATLAS-SCALE-83: Risk classification gate foundation
 
 Known Current Code Facts:
 - PR-78 added ThinUI contract tests and manifest-driven UI smoke.
-- PR-79 defines autonomous execution readiness policy.
+- PR-79 defined autonomous execution readiness policy.
+- PR-81 adds workspace snapshot / restore foundation.
+- Snapshot artifacts are stored under resolved data_root.
+- Path("ca_data") direct writes remain forbidden.
+- Restore is manual-only.
+- Automatic rollback remains disabled.
+- Autonomous execution remains disabled.
 - Atlas remains Level 0 manual-only execution at runtime.
 - Autonomous execution remains forbidden until readiness gates pass.
 - Required gates include snapshot/restore, patch transaction, risk classification, allowlisted verification, dry-run/approval, rollback readiness, artifact capture, stop/kill switch, loop bounds, remote git restrictions, and self-improvement gates.

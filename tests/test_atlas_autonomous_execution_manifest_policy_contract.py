@@ -29,3 +29,11 @@ def test_autonomous_execution_manifest_policy_contract() -> None:
     assert m['vue_migration_plan_doc']
     assert m['vue_migration_checkpoint'] == 'PR-ATLAS-SCALE-80'
     assert m['autonomous_first_ui_policy'] == 'docs/atlas_autonomous_first_ui_policy.md'
+
+
+def test_snapshot_restore_runtime_flags() -> None:
+    m = json.loads(Path('web/atlas_ui_surface_manifest.json').read_text(encoding='utf-8'))
+    assert m['autonomous_execution_runtime_level'] == 'level_0_manual_only'
+    assert m['automatic_rollback_enabled'] is False
+    if 'snapshot_restore_auto_enabled' in m:
+        assert m['snapshot_restore_auto_enabled'] is False
