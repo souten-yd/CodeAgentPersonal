@@ -735,5 +735,13 @@
   "snapshot_restore_policy": "docs/atlas_autonomous_execution_readiness_policy.md#snapshot--restore-gate",
   "snapshot_restore_path_safety_hardened": true,
   "snapshot_restore_symlink_policy": "skip",
-  "snapshot_restore_delete_missing_before": "plan_only_non_destructive"
+  "snapshot_restore_delete_missing_before": "plan_only_non_destructive",
+  "patch_transaction_foundation": true,
+  "patch_transaction_runtime_gate": "metadata_only_manual_foundation",
+  "patch_transaction_apply_enabled": false,
+  "automatic_patch_generation_enabled": false,
+  "automatic_patch_apply_enabled": false,
+  "rollback_metadata_foundation": true,
+  "rollback_metadata_auto_restore_enabled": false,
+  "patch_transaction_policy": "docs/atlas_autonomous_execution_readiness_policy.md#patch-transaction-gate"
 }
