@@ -896,5 +896,19 @@
   "vue_next_deployment_raw_source_allowed": false,
   "vue_next_deployment_default_route_allowed": false,
   "vue_next_deployment_ui_html_fallback_allowed": false,
-  "vue_next_deployment_root_fallback_allowed": false
+  "vue_next_deployment_root_fallback_allowed": false,
+  "vue_next_route_packaging_checkpoint": "PR-ATLAS-VUE-13",
+  "vue_next_route_packaging_integration_defined": true,
+  "vue_next_deploy_includes_dist_only": true,
+  "vue_next_deploy_prebuilt_dist_required": true,
+  "vue_next_runtime_build_allowed": false,
+  "vue_next_server_startup_build_allowed": false,
+  "vue_next_deploy_validation_required": true,
+  "vue_next_deploy_validation_policy": "validate_dist_before_packaging",
+  "vue_next_dist_artifact_source": "prebuilt_web_atlas_next_dist",
+  "vue_next_dist_artifact_path": "web/atlas-next/dist",
+  "vue_next_route_packaging_default_route_allowed": false,
+  "vue_next_route_packaging_ui_html_fallback_allowed": false,
+  "vue_next_route_packaging_root_fallback_allowed": false,
+  "vue_next_route_packaging_raw_source_allowed": false
 }

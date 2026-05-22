@@ -542,8 +542,34 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - `/atlas-next` remains guarded, dist-backed, fail-closed, and non-default.
 - Existing `ui.html` remains default; Vue remains parallel/read-only/not default.
 - Backend workflow state remains authoritative; no Vue execution capability exists.
-- Current UI track: PR-ATLAS-VUE-13.
+- Current UI track: PR-ATLAS-VUE-14.
 - Current automation track remains PR-ATLAS-SCALE-93.
+
+## PR-ATLAS-VUE-13 Route Packaging/Deployment Integration Policy
+- PR-ATLAS-VUE-13 completed.
+- Completed UI PR: PR-ATLAS-VUE-13.
+- Current UI track: PR-ATLAS-VUE-14.
+- Current automation track remains PR-ATLAS-SCALE-93.
+- Existing `ui.html` remains default.
+- Vue remains parallel/read-only/not default; supervision UI only.
+- `/atlas-next` remains guarded/dist-backed/fail-closed.
+- Diagnostics endpoint remains GET-only/metadata-only: `/api/atlas/vue-next-preview/diagnostics`.
+- Backend `workflow_state` remains authoritative.
+- No Vue execution capability exists.
+- Deployment integration must use prebuilt dist artifacts only.
+- Server startup must not run `npm install` or `npm run build` automatically.
+- Missing or invalid dist must continue to fail closed.
+- Generated dist is not source of truth.
+- Source remains `web/atlas-next`.
+- Dist remains `web/atlas-next/dist`.
+- Build commands remain:
+  - `cd web/atlas-next`
+  - `npm install`
+  - `npm run build`
+  - `npm run typecheck`
+- Deployment packaging may include `web/atlas-next/dist` only after validation passes.
+- No raw Vite source serving.
+- No fallback to `/` or `ui.html`.
 
 
 ## PR-ATLAS-VUE-12 Packaging/Deployment Readiness Policy
