@@ -129,3 +129,12 @@ def test_vue_next_manifest_flags():
     assert m['vue_next_source_of_truth'] is False
     assert m['vue_next_backend_authoritative'] is True
     assert m['vue_next_read_only_shell'] is True
+
+
+def test_vue_next_v04_manifest_decision_flags():
+    m = _manifest()
+    assert m['vue_next_get_adapter_decision'] in {'deferred_no_stable_get_contract', 'connected_safe_get'}
+    assert m['vue_next_static_mount_decision'] in {'deferred_no_dist_strategy', 'mounted_static_dist'}
+    assert m['vue_next_available_actions_metadata_only'] is True
+    assert m['vue_next_backend_state_parity_hardened'] is True
+    assert m['vue_next_policy'] == 'docs/atlas_vue_migration_plan.md'

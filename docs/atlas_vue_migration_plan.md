@@ -166,3 +166,16 @@ Vue Atlas Next may become default only when:
 - Vue does not call mutation endpoints in this track.
 - Vue does not compute execution eligibility.
 - PR-80 was planning only and did not add Vue runtime code.
+
+## PR-ATLAS-VUE-04 Decision Update
+- PR-ATLAS-VUE-04 completed the safe backend GET adapter/static mount decision checkpoint.
+- Safe GET adapter decision: deferred because no stable dedicated read-only workflow_state + available_actions endpoint contract is finalized yet.
+- Static mount decision: deferred because committed dist/static artifact strategy for `/atlas-next` is not locked yet.
+- Existing `ui.html` remains default; Vue Next remains parallel, replaceable, read-only, and not default.
+- Backend workflow state remains authoritative. Vue does not compute execution eligibility.
+- Vue available actions remain metadata-only (`readOnly:true`, `enabled:false`).
+- Vue does not call mutation endpoints.
+- Current automation track remains `PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint`.
+- Next UI track: `PR-ATLAS-VUE-05: Define stable read-only workflow_state backend contract` (with parity tests/visual refinement after contract lock).
+- `/atlas-next` mount remains future work until dist/static strategy is locked.
+- Final goal remains `fully_autonomous_code_agent`; self-improving CodeAgentPersonal / KasaneCore remains in scope.

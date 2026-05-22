@@ -480,3 +480,11 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Separate UI track after merge: PR-ATLAS-VUE-01 read-only parallel UI track; existing ui.html remains default and backend workflow_state remains authoritative.
 - PR-80 remains Vue migration planning checkpoint and did not add Vue runtime code.
 - automatic command execution disabled; automatic verification disabled; automatic patch generation disabled; automatic patch apply disabled; automatic safe_apply disabled; automatic rollback disabled; automatic restore disabled; automatic loop execution disabled; automatic retry disabled; auto-continue disabled; execute-all forbidden; autonomous execution disabled; autonomous self-improvement disabled; remote git disabled; direct merge forbidden; primary CTA remains single existing manual action only.
+
+## PR-ATLAS-VUE-04 Status Update
+- Completed: PR-ATLAS-VUE-04 safe backend workflow_state GET adapter / static mount decision.
+- Safe GET adapter decision: deferred_no_stable_get_contract.
+- Static mount decision: deferred_no_dist_strategy.
+- Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint (not completed).
+- Current UI track: PR-ATLAS-VUE-05: Define stable read-only workflow_state backend contract.
+- Existing ui.html remains default; Vue remains parallel read-only and not workflow truth.

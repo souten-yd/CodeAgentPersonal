@@ -847,5 +847,9 @@
   "vue_next_action_buttons_enabled": false,
   "vue_next_workflow_cards": true,
   "vue_next_backend_state_parity_hardened": true,
-  "vue_next_available_actions_metadata_only": true
+  "vue_next_available_actions_metadata_only": true,
+  "vue_next_get_adapter_decision": "deferred_no_stable_get_contract",
+  "vue_next_static_mount_decision": "deferred_no_dist_strategy",
+  "vue_next_backend_get_adapter_connected": false,
+  "vue_next_backend_contract_ready": false
 }
