@@ -361,3 +361,16 @@ Vue Atlas Next may become default only when:
 - Direct subsystem buttons must not appear in minimal/default mode.
 - Vue must not compute execution eligibility; Backend workflow_state remains authoritative.
 - No execute-all, no auto-continue, and no autonomous execution.
+
+
+## PR-ATLAS-VUE-14 Route/Diagnostics Alignment
+- PR-ATLAS-VUE-14 completed client/backend/manifest/docs diagnostics alignment for guarded `/atlas-next`.
+- Completed UI PR: PR-ATLAS-VUE-14; current UI track: PR-ATLAS-VUE-15.
+- Existing `ui.html` remains default until PR-ATLAS-VUE-21 default-enable checkpoint.
+- Vue remains parallel/read-only/not default; backend workflow_state remains authoritative.
+- `/atlas-next` remains mounted, guarded, dist-backed, fail-closed, and non-default.
+- Diagnostics endpoint remains GET-only/metadata-only: `/api/atlas/vue-next-preview/diagnostics`.
+- Vue client diagnostics now align with mounted guarded route state and no longer report static mount deferred.
+- No execution capability exists in Vue; runtime remains `level_0_manual_only`.
+- Default-visible Vue UI remains `minimal_workflow` + `safety_always_visible`; advanced execution controls, raw JSON, internal IDs, direct subsystem panels, diagnostics, and debug controls remain hidden by default.
+

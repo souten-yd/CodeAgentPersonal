@@ -33,8 +33,15 @@ export type AtlasWorkflowArtifactState = {
 
 export type AtlasWorkflowDiagnosticsState = {
   source: 'placeholder' | 'safe_get_adapter'
-  routeMounted: false
-  staticMountDeferred: true
+  routeMounted: boolean
+  routePath: '/atlas-next'
+  routeDefault: false
+  routeGuarded: true
+  distBacked: true
+  failClosed: true
+  staticMountDeferred: boolean
+  diagnosticsEndpoint: '/api/atlas/vue-next-preview/diagnostics'
+  previewHealth: 'observable_fail_closed' | 'placeholder'
   backendContractReady: boolean
   warnings: string[]
 }
@@ -142,8 +149,15 @@ function normalizeWorkflowState(payload: AtlasBackendWorkflowStateContract): Atl
   const runtimeLevel = typeof payload.runtime_level === 'string' ? payload.runtime_level : 'level_0_manual_only'
   const diagnostics: AtlasWorkflowDiagnosticsState = {
     source: accepted ? 'safe_get_adapter' : 'placeholder',
-    routeMounted: false,
-    staticMountDeferred: true,
+    routeMounted: true,
+    routePath: '/atlas-next',
+    routeDefault: false,
+    routeGuarded: true,
+    distBacked: true,
+    failClosed: true,
+    staticMountDeferred: false,
+    diagnosticsEndpoint: '/api/atlas/vue-next-preview/diagnostics',
+    previewHealth: accepted ? 'observable_fail_closed' : 'placeholder',
     backendContractReady: accepted,
     warnings: Array.isArray(payload.diagnostics?.warnings)
       ? payload.diagnostics?.warnings.filter((item): item is string => typeof item === 'string')
