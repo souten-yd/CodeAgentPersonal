@@ -38,6 +38,7 @@ Completed:
 - PR-ATLAS-VUE-05B: Manifest/docs/tests alignment for stable workflow_state contract
 - PR-ATLAS-VUE-06: Bind Vue read-only adapter to stable GET workflow_state contract
 - PR-ATLAS-VUE-06B: Fix Vue Next StatusCard SFC typecheck failure
+- PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement
 
 Current automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
@@ -46,8 +47,8 @@ Next automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
 
 Separate UI track opened after PR-92:
-- Current UI track: PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement
-- Next UI track: PR-ATLAS-VUE-08: Safe static mount/dist strategy
+- Current UI track: PR-ATLAS-VUE-08: Safe static mount/dist strategy
+- Next UI track: PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy
 - Vue Next static mount remains deferred until build/static serving strategy is finalized (dist artifact strategy not yet locked).
 
 Known Current Code Facts:
