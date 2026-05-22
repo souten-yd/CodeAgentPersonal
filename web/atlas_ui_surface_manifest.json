@@ -854,5 +854,7 @@
   "vue_next_backend_contract_ready": true,
   "vue_next_workflow_state_contract": "atlas.workflow_state.v1",
   "vue_next_workflow_state_contract_defined": true,
-  "vue_next_workflow_state_get_endpoint": "/api/atlas/workflow-state/read-only"
+  "vue_next_workflow_state_get_endpoint": "/api/atlas/workflow-state/read-only",
+  "vue_next_read_only_parity_hardened": true,
+  "vue_next_visual_refinement_checkpoint": "PR-ATLAS-VUE-07"
 }

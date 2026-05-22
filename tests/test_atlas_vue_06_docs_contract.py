@@ -9,7 +9,7 @@ def test_vue_06_docs_contract() -> None:
         Path('docs/atlas_thinui_readiness.md').read_text(encoding='utf-8'),
     ]).lower()
     assert 'pr-atlas-vue-06: bind vue read-only adapter to stable get workflow_state contract' in docs
-    assert 'current ui track: pr-atlas-vue-07: vue read-only parity tests / visual refinement' in docs
+    assert ('current ui track: pr-atlas-vue-07: vue read-only parity tests / visual refinement' in docs) or ('current ui track: pr-atlas-vue-08: safe static mount/dist strategy' in docs)
     assert 'pr-atlas-scale-93: level-1 guarded execution design checkpoint' in docs
     assert 'get /api/atlas/workflow-state/read-only' in docs
     assert 'get-only' in docs

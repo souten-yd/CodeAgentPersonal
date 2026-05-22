@@ -1,6 +1,7 @@
 <template>
   <StatusCard title="Artifacts (Read-only)">
     <p><b>Readiness level:</b> {{ snapshot.readinessLevel || 'unknown' }}</p>
+    <p><b>available_actions display:</b> metadata-only / disabled/read-only.</p>
     <ul>
       <li v-for="(v,k) in snapshot.artifacts" :key="k">{{ k }}: {{ v ? 'available' : 'missing' }}</li>
     </ul>

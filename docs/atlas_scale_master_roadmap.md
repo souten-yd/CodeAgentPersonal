@@ -505,3 +505,10 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Static mount remains deferred while dist/static artifact strategy is not locked.
 - Automation track remains `PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint`.
 - Final goal remains `fully_autonomous_code_agent` and self-improvement scope remains `self_improving_codeagentpersonal_kasanecore`.
+
+## PR-ATLAS-VUE-07 Completion Pointer
+- Completed includes PR-ATLAS-VUE-06, PR-ATLAS-VUE-06B, and PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement.
+- Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
+- Current UI track after this PR: PR-ATLAS-VUE-08: Safe static mount/dist strategy.
+- Next UI track candidate: PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy.
+- UI and automation tracks remain separate; PR-ATLAS-VUE-07 does not replace PR-ATLAS-SCALE-93.

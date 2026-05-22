@@ -6,10 +6,11 @@
     <p><b>Status:</b> {{ snapshot.status || 'unknown' }}</p>
     <p><b>Primary CTA:</b> {{ snapshot.primaryCtaLabel || 'Read-only preview' }} ({{ snapshot.primaryCtaState || 'read_only' }})</p>
     <p><b>Backend authority:</b> {{ snapshot.backendAuthorityNote }}</p>
-    <button disabled>Read-only preview (not wired)</button>
+    <button disabled aria-disabled="true">Read-only preview (not wired)</button>
   </StatusCard>
 
   <StatusCard title="Available Actions (metadata only)">
+    <p><b>Metadata-only badge:</b> Every action is read-only and disabled in Vue Next.</p>
     <ul>
       <li v-for="action in snapshot.availableActions" :key="action.id">
         <b>{{ action.label }}</b> [{{ action.kind || 'read_only' }}] - {{ action.reason }}
