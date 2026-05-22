@@ -849,12 +849,17 @@
   "vue_next_backend_state_parity_hardened": true,
   "vue_next_available_actions_metadata_only": true,
   "vue_next_get_adapter_decision": "connected_safe_get",
-  "vue_next_static_mount_decision": "deferred_no_dist_strategy",
+  "vue_next_static_mount_decision": "deferred_until_dist_policy_smoke",
   "vue_next_backend_get_adapter_connected": true,
   "vue_next_backend_contract_ready": true,
   "vue_next_workflow_state_contract": "atlas.workflow_state.v1",
   "vue_next_workflow_state_contract_defined": true,
   "vue_next_workflow_state_get_endpoint": "/api/atlas/workflow-state/read-only",
   "vue_next_read_only_parity_hardened": true,
-  "vue_next_visual_refinement_checkpoint": "PR-ATLAS-VUE-07"
+  "vue_next_visual_refinement_checkpoint": "PR-ATLAS-VUE-07",
+  "vue_next_static_mount_strategy": "dist_required",
+  "vue_next_dist_strategy_defined": true,
+  "vue_next_dist_dir": "web/atlas-next/dist",
+  "vue_next_serves_raw_vite_source": false,
+  "vue_next_static_mount_policy": "docs/atlas_vue_migration_plan.md#safe-static-mount--dist-strategy"
 }

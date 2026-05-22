@@ -33,7 +33,7 @@ def test_manifest_and_docs_contract():
     assert m['vue_next_source_of_truth'] is False
     assert m['vue_next_backend_authoritative'] is True
     assert m['vue_next_get_adapter_decision'] in {'deferred_no_stable_get_contract', 'connected_safe_get', 'contract_defined_binding_deferred'}
-    assert m['vue_next_static_mount_decision'] in {'deferred_no_dist_strategy', 'mounted_static_dist'}
+    assert m['vue_next_static_mount_decision'] in {'deferred_until_dist_policy_smoke', 'mounted_static_dist'}
 
     assert m['vue_next_route'] == ''
     assert m['vue_next_route_mounted'] is False

@@ -206,3 +206,18 @@ Vue Atlas Next may become default only when:
 - Next UI track candidate: PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy.
 - Final goal remains fully_autonomous_code_agent.
 - Self-improving CodeAgentPersonal / KasaneCore remains in scope.
+
+
+## Safe static mount / dist strategy (PR-ATLAS-VUE-08)
+- Vue Next source remains under `web/atlas-next/`.
+- Vue Next production artifacts are built into `web/atlas-next/dist/` via:
+  - `cd web/atlas-next`
+  - `npm install`
+  - `npm run build`
+- `dist/` is a build artifact, not workflow truth and not source of truth.
+- Raw Vite source files must not be served as production UI.
+- Existing `ui.html` remains the default UI for `/` and `/ui.html`.
+- Any future Vue preview route must be `/atlas-next` only, read-only only, built-dist only, not default, with no execution controls and no mutation endpoint calls.
+- If dist is absent at runtime, future `/atlas-next` must fail safely (defer/404) rather than exposing source files.
+- Static mount decision in this PR remains deferred; implementation is carried by PR-ATLAS-VUE-09 smoke route/build artifact policy.
+- Vue remains parallel/read-only/not default, backend workflow state remains authoritative, available_actions are metadata only, and Vue does not compute execution eligibility.
