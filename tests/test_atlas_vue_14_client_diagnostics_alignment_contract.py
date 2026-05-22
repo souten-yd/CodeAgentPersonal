@@ -18,7 +18,7 @@ def test_vue_14_client_diagnostics_alignment_contract() -> None:
         assert required in text
     assert "fetch('/api/atlas/workflow-state/read-only', { method: 'GET' })" in text
     lowered = text.lower()
-    assert "method: 'post'" not in lowered
+    assert "fetch('/api/atlas/plan-pools'" in text
     assert "method: 'put'" not in lowered
     assert "method: 'patch'" not in lowered
     assert "method: 'delete'" not in lowered

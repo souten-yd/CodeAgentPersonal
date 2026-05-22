@@ -1,8 +1,8 @@
 ## Current Atlas Vue UI Track State
 
-- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-15
-- Current UI track: PR-ATLAS-VUE-16
-- Planned UI track: PR-ATLAS-VUE-16 through PR-ATLAS-VUE-21
+- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-16
+- Current UI track: PR-ATLAS-VUE-17
+- Planned UI track: PR-ATLAS-VUE-17 through PR-ATLAS-VUE-21
 - Current automation track: PR-ATLAS-SCALE-93
 - Existing ui.html remains default until PR-ATLAS-VUE-21
 - Vue remains parallel/read-only/not default
@@ -195,7 +195,7 @@ Known Current Code Facts:
 - Static mount remains deferred because dist/static artifact strategy for `/atlas-next` is not locked.
 - Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened.
 - Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened
-- Current UI track: PR-ATLAS-VUE-16: Atlas-specific Requirement Input / Start Atlas UI follow-up.
+- Current UI track: PR-ATLAS-VUE-17: Atlas-specific Requirement Input / Start Atlas UI follow-up.
 - Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
 - Vue remains parallel, read-only, replaceable, and not default; existing `ui.html` remains default.
 - Backend workflow state remains authoritative.
@@ -441,7 +441,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - PR-ATLAS-VUE-07 is completed: Vue read-only parity tests / visual refinement.
 - Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened.
 - Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened
-- Current UI track: PR-ATLAS-VUE-16: Atlas-specific Requirement Input / Start Atlas UI follow-up.
+- Current UI track: PR-ATLAS-VUE-17: Atlas-specific Requirement Input / Start Atlas UI follow-up.
 - Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
 - Vue remains parallel/read-only/not default; existing ui.html remains default.
 - Vue adapter remains GET-only to /api/atlas/workflow-state/read-only with placeholder fallback.
@@ -579,3 +579,10 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 PR-ATLAS-VUE-15 completed.
 
 - Vue workflow_state real-data connection is strengthened in PR-ATLAS-VUE-15 (metadata-only, GET-only, backend authoritative, no execution capability).
+
+
+- PR-ATLAS-VUE-16 completed: Vue Requirement Input / Start Atlas Planning (POST /api/atlas/plan-pools only).
+- Planning POST classification remains planning_metadata_only (non-execution).
+- Vue remains non-default and execution capability remains none.
+- Backend remains authoritative and runtime remains level_0_manual_only.
+- VUE17 next: Requirement / clarification / plan review UI.

@@ -228,3 +228,59 @@ export async function fetchAtlasWorkflowSnapshot(): Promise<AtlasWorkflowSnapsho
   const payload = await fetchReadOnlyWorkflowState()
   return normalizeWorkflowState(payload)
 }
+
+
+export type CreatePlanPoolRequest = {
+  input: string
+  project_path?: string
+  project_name?: string
+  planning_depth?: string
+  workspace_id?: string
+  automation_level?: string
+  execution_strategy?: string
+}
+
+export type CreatePlanPoolResponse = {
+  pool_id: string
+  status: string
+  item_count: number
+  planner_status?: string
+  warnings?: string[]
+  errors?: string[]
+  questions?: Array<Record<string, unknown>>
+  requirement?: Record<string, unknown>
+  plan?: Record<string, unknown>
+}
+
+export async function createPlanPool(request: CreatePlanPoolRequest): Promise<CreatePlanPoolResponse> {
+  const payload: CreatePlanPoolRequest = {
+    input: request.input,
+    project_path: request.project_path ?? '',
+    project_name: request.project_name ?? 'CodeAgentPersonal',
+    planning_depth: request.planning_depth ?? 'standard',
+    workspace_id: request.workspace_id ?? 'default',
+    automation_level: request.automation_level ?? 'plan_then_ask',
+    execution_strategy: request.execution_strategy ?? 'sequential'
+  }
+
+  const response = await fetch('/api/atlas/plan-pools', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+
+  if (!response.ok) {
+    let detail = 'Failed to start Atlas planning.'
+    try {
+      const errorPayload = await response.json() as { detail?: unknown }
+      if (typeof errorPayload.detail === 'string' && errorPayload.detail.trim()) {
+        detail = errorPayload.detail
+      }
+    } catch {
+      // keep safe default error message
+    }
+    throw new Error(detail)
+  }
+
+  return await response.json() as CreatePlanPoolResponse
+}

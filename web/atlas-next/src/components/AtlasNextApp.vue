@@ -3,6 +3,7 @@
     <h1>Atlas Next (Parallel Read-only Shell)</h1>
     <p class="headline">Read-only supervision UI. Existing ui.html remains default. Guarded /atlas-next preview route mounted (non-default).</p>
     <p class="headline">Level 0 manual-only runtime. Backend workflow state remains authoritative.</p>
+    <RequirementInput />
     <WorkflowShell :snapshot="snapshot" />
     <SafetySummary :snapshot="snapshot" />
     <ArtifactSummary :snapshot="snapshot" />
@@ -13,6 +14,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { fetchAtlasWorkflowSnapshot, type AtlasWorkflowSnapshot } from '../api/atlasClient'
+import RequirementInput from './RequirementInput.vue'
 import WorkflowShell from './WorkflowShell.vue'
 import SafetySummary from './SafetySummary.vue'
 import ArtifactSummary from './ArtifactSummary.vue'
