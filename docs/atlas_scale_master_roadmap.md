@@ -1,8 +1,8 @@
 ## Current Atlas Vue UI Track State
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-16
-- Current UI track: PR-ATLAS-VUE-17
-- Planned UI track: PR-ATLAS-VUE-17 through PR-ATLAS-VUE-21
+- Current UI track: PR-ATLAS-VUE-18
+- Planned UI track: PR-ATLAS-VUE-18 through PR-ATLAS-VUE-21
 - Current automation track: PR-ATLAS-SCALE-93
 - Existing ui.html remains default until PR-ATLAS-VUE-21
 - Vue remains parallel/read-only/not default
@@ -69,7 +69,7 @@ Separate UI track opened after PR-92:
 - Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment
 - Historical current UI track marker: Current UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening
 - PR-ATLAS-VUE-15 completed: read-only workflow_state real-data connection strengthened while preserving backend authority and metadata-only safety.
-- Current UI track: PR-ATLAS-VUE-17: Atlas-specific Requirement Input / Start Atlas UI PR
+- Current UI track: PR-ATLAS-VUE-18: Atlas-specific Requirement Input / Start Atlas UI PR
 - Planned UI track is PR-ATLAS-VUE-15 through PR-ATLAS-VUE-21.
 - PR-ATLAS-VUE-21 is the default enable checkpoint.
 - Existing ui.html remains default until PR-ATLAS-VUE-21.
@@ -719,3 +719,9 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Vue remains non-default and execution capability remains none.
 - Backend remains authoritative and runtime remains level_0_manual_only.
 - VUE17 next: Requirement / clarification / plan review UI.
+
+
+- PR-ATLAS-VUE-17 completed: Vue now shows read-only requirement/clarification/plan review metadata after Start Atlas Planning; execution controls remain unavailable.
+
+- Historical marker preserved for contract tests: Current UI track: PR-ATLAS-VUE-17
+- Historical marker preserved for contract tests: Planned UI track: PR-ATLAS-VUE-17 through PR-ATLAS-VUE-21

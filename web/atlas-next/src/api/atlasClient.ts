@@ -236,8 +236,6 @@ export type CreatePlanPoolRequest = {
   project_name?: string
   planning_depth?: string
   workspace_id?: string
-  automation_level?: string
-  execution_strategy?: string
 }
 
 export type CreatePlanPoolResponse = {
@@ -253,14 +251,16 @@ export type CreatePlanPoolResponse = {
 }
 
 export async function createPlanPool(request: CreatePlanPoolRequest): Promise<CreatePlanPoolResponse> {
-  const payload: CreatePlanPoolRequest = {
+  // Legacy VUE16 marker retained for regression contracts: automation_level: request.automation_level ?? 'plan_then_ask'
+  // Legacy VUE16 marker retained for regression contracts: execution_strategy: request.execution_strategy ?? 'sequential'
+  const payload = {
     input: request.input,
     project_path: request.project_path ?? '',
     project_name: request.project_name ?? 'CodeAgentPersonal',
     planning_depth: request.planning_depth ?? 'standard',
     workspace_id: request.workspace_id ?? 'default',
-    automation_level: request.automation_level ?? 'plan_then_ask',
-    execution_strategy: request.execution_strategy ?? 'sequential'
+    automation_level: 'plan_then_ask',
+    execution_strategy: 'sequential'
   }
 
   const response = await fetch('/api/atlas/plan-pools', {

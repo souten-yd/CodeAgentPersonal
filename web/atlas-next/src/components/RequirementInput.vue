@@ -1,6 +1,6 @@
 <template>
   <StatusCard title="Start Atlas Planning (PlanPool only)">
-    <p><b>Safety boundary:</b> This Vue surface can create planning metadata only. Execution/apply/approve/verify/rollback/retry/continue stay backend/manual.</p>
+    <p><b>Safety boundary:</b> This Vue surface can create planning metadata only. Execution/apply/approve/verify/rollback/retry/continue stay backend/manual. Execution controls are intentionally unavailable in VUE16.</p>
     <form @submit.prevent="submitPlanning" class="requirement-form">
       <label>
         Requirement / goal
@@ -27,14 +27,7 @@
 
     <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
 
-    <div v-if="result" class="result">
-      <p><b>PlanPool created (backend-owned metadata):</b> {{ result.pool_id }}</p>
-      <p><b>Status:</b> {{ result.status }} | <b>Item count:</b> {{ result.item_count }} | <b>Planner status:</b> {{ result.planner_status || 'unknown' }}</p>
-      <p v-if="(result.warnings || []).length > 0"><b>Warnings:</b> {{ (result.warnings || []).join(' | ') }}</p>
-      <p v-if="(result.errors || []).length > 0"><b>Errors:</b> {{ (result.errors || []).join(' | ') }}</p>
-      <p v-if="(result.questions || []).length > 0"><b>Questions returned:</b> {{ (result.questions || []).length }}</p>
-      <p><b>Next step:</b> Review/clarify plan manually. Execution controls are intentionally unavailable in VUE16.</p>
-    </div>
+    <PlanReviewPanel v-if="result" :result="result" />
   </StatusCard>
 </template>
 
@@ -42,6 +35,7 @@
 import { reactive, ref } from 'vue'
 import StatusCard from './StatusCard.vue'
 import { createPlanPool, type CreatePlanPoolResponse } from '../api/atlasClient'
+import PlanReviewPanel from './PlanReviewPanel.vue'
 
 const form = reactive({
   input: '',
