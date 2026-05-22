@@ -57,6 +57,6 @@ def test_vue_next_adapter_backend_authoritative_and_no_execution_eligibility_log
 
 def test_vue_next_adapter_v04_decision_fields() -> None:
     manifest = __import__('json').loads(Path('web/atlas_ui_surface_manifest.json').read_text(encoding='utf-8'))
-    assert manifest['vue_next_get_adapter_decision'] in {'deferred_no_stable_get_contract', 'connected_safe_get'}
+    assert manifest['vue_next_get_adapter_decision'] in {'deferred_no_stable_get_contract', 'connected_safe_get', 'contract_defined_binding_deferred'}
     assert manifest['vue_next_backend_get_adapter_connected'] in {True, False}
     assert manifest['vue_next_backend_contract_ready'] in {True, False}
