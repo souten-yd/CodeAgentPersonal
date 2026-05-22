@@ -149,7 +149,7 @@ Vue Atlas Next may become default only when:
 
 
 ## PR-ATLAS-SCALE-92 Level-0 Completion Checkpoint
-- Historical checkpoint: Current UI track: PR-ATLAS-VUE-02: Safe static serving / read-only workflow_state adapter hardening.
+- Historical checkpoint: PR-ATLAS-VUE-02 completed safe static serving / read-only workflow_state adapter hardening; current UI track is PR-ATLAS-VUE-03: Read-only workflow cards / backend state parity hardening.
 - PR-ATLAS-SCALE-92 completed the Level-0 metadata-only readiness foundation via readiness gate rollup.
 - Level-0 completion checkpoint is metadata-only and does not enable Level-1 execution.
 - Level-0 completion does not authorize autonomous execution, patch generation/apply, safe_apply, verification execution, rollback/restore, or git operations.
