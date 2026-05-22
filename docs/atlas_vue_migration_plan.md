@@ -344,3 +344,20 @@ Vue Atlas Next may become default only when:
 - Backend workflow_state remains authoritative.
 - No execute-all, no auto-continue, and no autonomous execution are authorized by this roadmap.
 
+
+
+## Vue Defaultization Numbering Realignment (post VUE-13)
+- PR-ATLAS-VUE-13 is completed and is route packaging/deployment integration (docs/manifest metadata/tests), not diagnostics alignment work.
+- PR-ATLAS-VUE-13 did not change runtime semantics, did not make Vue default, and did not enable execution/mutation behavior.
+- `/atlas-next` remains guarded, dist-backed, fail-closed, and non-default; prebuilt dist artifacts are required and server startup must not run `npm install`/`npm run build`.
+- Completed UI PRs include PR-ATLAS-VUE-01 through PR-ATLAS-VUE-13.
+- Current UI track is PR-ATLAS-VUE-14.
+- Planned defaultization track runs PR-ATLAS-VUE-14 through PR-ATLAS-VUE-21, with PR-ATLAS-VUE-21 as the default-enable checkpoint.
+- Existing `ui.html` remains default until PR-ATLAS-VUE-21.
+- PR-ATLAS-SCALE-93 remains the current automation track; automation roadmap focus resumes after PR-ATLAS-VUE-21.
+- PR-ATLAS-VUE-14 is now the preview route / manifest / backend diagnostics / client diagnostics state-alignment PR, including stale `routeMounted`/`staticMountDeferred` wording correction.
+- Default-visible Vue UI remains `minimal_workflow` + `safety_always_visible` only.
+- Advanced execution controls, raw JSON, internal IDs, direct subsystem panels, diagnostics, and debug controls remain hidden by default.
+- Direct subsystem buttons must not appear in minimal/default mode.
+- Vue must not compute execution eligibility; Backend workflow_state remains authoritative.
+- No execute-all, no auto-continue, and no autonomous execution.

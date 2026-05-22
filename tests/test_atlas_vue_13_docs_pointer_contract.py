@@ -13,8 +13,8 @@ def test_vue_13_docs_pointers_and_policy() -> None:
         _text('docs/atlas_development_handoff.md'),
     ])
     required = [
-        'completed ui pr: pr-atlas-vue-12',
-        'pr-atlas-vue-13 completed',
+                'pr-atlas-vue-13 completed',
+        'completed ui prs include pr-atlas-vue-01 through pr-atlas-vue-13',
         'completed ui pr: pr-atlas-vue-13',
         'current ui track: pr-atlas-vue-14',
         'current automation track remains pr-atlas-scale-93',

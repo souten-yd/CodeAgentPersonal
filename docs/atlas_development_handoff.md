@@ -529,15 +529,15 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Diagnostics endpoint remains GET-only and metadata-only: `/api/atlas/vue-next-preview/diagnostics`.
 - Backend `workflow_state` remains authoritative; Vue execution capability remains none.
 - This PR does not make Vue default and does not enable execution.
-- Current UI track: PR-ATLAS-VUE-13.
+- Current UI track: PR-ATLAS-VUE-14.
 - Current automation track remains PR-ATLAS-SCALE-93.
 
 ## Vue Defaultization Through VUE-21 and Return-to-Automation
 
 - This roadmap window is docs/planning for a temporary focused UI track only.
-- Completed UI PRs include PR-ATLAS-VUE-01 through PR-ATLAS-VUE-12.
-- Current UI track is PR-ATLAS-VUE-13.
-- Planned UI track runs PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21.
+- Completed UI PRs include PR-ATLAS-VUE-01 through PR-ATLAS-VUE-13.
+- Current UI track is PR-ATLAS-VUE-14.
+- Planned UI track runs PR-ATLAS-VUE-14 through PR-ATLAS-VUE-21.
 - Existing ui.html remains default until PR-ATLAS-VUE-21.
 - Vue remains non-default and read-only/non-authoritative until PR-ATLAS-VUE-21 gates pass.
 - Current automation track remains PR-ATLAS-SCALE-93 (Level-1 guarded execution design checkpoint).
