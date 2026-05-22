@@ -54,8 +54,11 @@ Separate UI track opened after PR-92:
 - Current UI track during PR-ATLAS-VUE-08 was: PR-ATLAS-VUE-08: Safe static mount/dist strategy
 - Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment
 - Historical current UI track marker: Current UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening
-- Current UI track: PR-ATLAS-VUE-13: Atlas Next route packaging / deployment integration follow-up
-- Next UI track: PR-ATLAS-VUE-14 (or another roadmap-approved next item)
+- PR-ATLAS-VUE-15 completed: read-only workflow_state real-data connection strengthened while preserving backend authority and metadata-only safety.
+- Current UI track: PR-ATLAS-VUE-16: Atlas-specific Requirement Input / Start Atlas UI PR
+- Planned UI track is PR-ATLAS-VUE-15 through PR-ATLAS-VUE-21.
+- PR-ATLAS-VUE-21 is the default enable checkpoint.
+- Existing ui.html remains default until PR-ATLAS-VUE-21.
 - PR-ATLAS-VUE-10 completed optional guarded /atlas-next preview route hardening with a dist-backed fail-closed preview route that never replaces `/` or `/ui.html`.
 
 Known Current Code Facts:
@@ -693,3 +696,5 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Vue client diagnostics now represent route mounted state (`routeMounted=true`, `staticMountDeferred=false`) aligned to guarded preview-route reality.
 - Backend workflow_state remains authoritative at runtime Level 0 manual-only.
 
+
+- Vue workflow_state real-data connection is strengthened in PR-ATLAS-VUE-15 (metadata-only, GET-only, backend authoritative, no execution capability).

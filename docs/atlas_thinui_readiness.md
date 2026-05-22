@@ -605,3 +605,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Backend workflow_state remains authoritative and runtime remains `level_0_manual_only`.
 - Default-visible Vue UI remains minimal_workflow + safety_always_visible; advanced execution controls, raw JSON, internal IDs, direct subsystem panels, diagnostics, and debug controls remain hidden by default.
 
+
+PR-ATLAS-VUE-15 completed.
+
+- Vue workflow_state real-data connection is strengthened in PR-ATLAS-VUE-15 (metadata-only, GET-only, backend authoritative, no execution capability).

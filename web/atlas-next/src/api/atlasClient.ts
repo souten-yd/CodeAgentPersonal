@@ -59,6 +59,25 @@ export type AtlasWorkflowSnapshot = {
   availableActions: AtlasReadOnlyAvailableAction[]
   artifacts: AtlasWorkflowArtifactState
   diagnostics: AtlasWorkflowDiagnosticsState
+  workflowMetadata: AtlasWorkflowRealDataMetadata
+}
+export type AtlasWorkflowRealDataMetadata = {
+  latestPoolId?: string
+  latestRunId?: string
+  latestPlanId?: string
+  latestRequirementId?: string
+  currentPhase?: string
+  latestStatus?: string
+  continuationState?: string
+  recoveryState?: string
+  planPoolAvailable: boolean
+  activePlanAvailable: boolean
+  lastReportAvailable: boolean
+  lastErrorSummary?: string
+  lastUpdatedAt?: string
+  dataFreshness: string
+  sourceDetail: string
+  workflowSnapshotAvailable: boolean
 }
 
 export type AtlasBackendWorkflowStateContract = {
@@ -81,6 +100,7 @@ export type AtlasBackendWorkflowStateContract = {
     backend_contract_ready?: boolean
     warnings?: unknown
   }
+  workflow_state_metadata?: Record<string, unknown>
 }
 
 // Safe GET-only backend workflow_state contract endpoint binding.
@@ -176,7 +196,31 @@ function normalizeWorkflowState(payload: AtlasBackendWorkflowStateContract): Atl
     safety: getReadOnlySafetyState(runtimeLevel),
     availableActions: toReadOnlyAvailableActions(payload.available_actions),
     artifacts: payload.artifacts ?? {},
-    diagnostics
+    diagnostics,
+    workflowMetadata: normalizeWorkflowMetadata(payload.workflow_state_metadata)
+  }
+}
+
+function normalizeWorkflowMetadata(value: unknown): AtlasWorkflowRealDataMetadata {
+  const item = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+  const toOptionalString = (raw: unknown): string | undefined => typeof raw === 'string' && raw.trim() ? raw : undefined
+  return {
+    latestPoolId: toOptionalString(item.latest_pool_id),
+    latestRunId: toOptionalString(item.latest_run_id),
+    latestPlanId: toOptionalString(item.latest_plan_id),
+    latestRequirementId: toOptionalString(item.latest_requirement_id),
+    currentPhase: toOptionalString(item.current_phase),
+    latestStatus: toOptionalString(item.latest_status),
+    continuationState: toOptionalString(item.continuation_state),
+    recoveryState: toOptionalString(item.recovery_state),
+    planPoolAvailable: item.plan_pool_available === true,
+    activePlanAvailable: item.active_plan_available === true,
+    lastReportAvailable: item.last_report_available === true,
+    lastErrorSummary: toOptionalString(item.last_error_summary),
+    lastUpdatedAt: toOptionalString(item.last_updated_at),
+    dataFreshness: toOptionalString(item.data_freshness) ?? 'unknown',
+    sourceDetail: toOptionalString(item.source_detail) ?? 'backend_contract_metadata_only',
+    workflowSnapshotAvailable: item.workflow_snapshot_available === true
   }
 }
 

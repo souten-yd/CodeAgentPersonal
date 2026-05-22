@@ -351,7 +351,7 @@ Vue Atlas Next may become default only when:
 - PR-ATLAS-VUE-13 did not change runtime semantics, did not make Vue default, and did not enable execution/mutation behavior.
 - `/atlas-next` remains guarded, dist-backed, fail-closed, and non-default; prebuilt dist artifacts are required and server startup must not run `npm install`/`npm run build`.
 - Completed UI PRs include PR-ATLAS-VUE-01 through PR-ATLAS-VUE-13.
-- Current UI track is PR-ATLAS-VUE-14.
+- PR-ATLAS-VUE-15 completed. Current UI track is PR-ATLAS-VUE-16.
 - Planned defaultization track runs PR-ATLAS-VUE-14 through PR-ATLAS-VUE-21, with PR-ATLAS-VUE-21 as the default-enable checkpoint.
 - Existing `ui.html` remains default until PR-ATLAS-VUE-21.
 - PR-ATLAS-SCALE-93 remains the current automation track; automation roadmap focus resumes after PR-ATLAS-VUE-21.
@@ -374,3 +374,5 @@ Vue Atlas Next may become default only when:
 - No execution capability exists in Vue; runtime remains `level_0_manual_only`.
 - Default-visible Vue UI remains `minimal_workflow` + `safety_always_visible`; advanced execution controls, raw JSON, internal IDs, direct subsystem panels, diagnostics, and debug controls remain hidden by default.
 
+
+- Vue workflow_state real-data connection is strengthened in PR-ATLAS-VUE-15 (metadata-only, GET-only, backend authoritative, no execution capability).
