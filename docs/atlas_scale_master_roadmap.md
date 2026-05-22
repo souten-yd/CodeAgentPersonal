@@ -52,8 +52,10 @@ Next automation track PR:
 
 Separate UI track opened after PR-92:
 - Current UI track during PR-ATLAS-VUE-08 was: PR-ATLAS-VUE-08: Safe static mount/dist strategy
-- Current UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening
-- Next UI track: PR-ATLAS-VUE-12: Atlas Next route packaging / deployment integration (or another roadmap-approved next item)
+- Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment
+- Historical current UI track marker: Current UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening
+- Current UI track: PR-ATLAS-VUE-13: Atlas Next route packaging / deployment integration follow-up
+- Next UI track: PR-ATLAS-VUE-14 (or another roadmap-approved next item)
 - PR-ATLAS-VUE-10 completed optional guarded /atlas-next preview route hardening with a dist-backed fail-closed preview route that never replaces `/` or `/ui.html`.
 
 Known Current Code Facts:

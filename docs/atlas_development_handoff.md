@@ -179,7 +179,8 @@ Known Current Code Facts:
 - PR-ATLAS-VUE-04 is completed: safe backend workflow_state GET adapter / static mount decision checkpoint.
 - Safe GET adapter remains deferred because there is no stable safe read-only workflow_state backend contract yet.
 - Static mount remains deferred because dist/static artifact strategy for `/atlas-next` is not locked.
-- Current UI track is PR-ATLAS-VUE-08: Safe static mount/dist strategy.
+- Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment.
+- Current UI track: PR-ATLAS-VUE-13: Atlas Next route packaging / deployment integration follow-up.
 - Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
 - Vue remains parallel, read-only, replaceable, and not default; existing `ui.html` remains default.
 - Backend workflow state remains authoritative.
@@ -423,7 +424,8 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 
 ## Vue Next Pointer Update (PR-ATLAS-VUE-07)
 - PR-ATLAS-VUE-07 is completed: Vue read-only parity tests / visual refinement.
-- Current UI track is PR-ATLAS-VUE-08: Safe static mount/dist strategy.
+- Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment.
+- Current UI track: PR-ATLAS-VUE-13: Atlas Next route packaging / deployment integration follow-up.
 - Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
 - Vue remains parallel/read-only/not default; existing ui.html remains default.
 - Vue adapter remains GET-only to /api/atlas/workflow-state/read-only with placeholder fallback.
