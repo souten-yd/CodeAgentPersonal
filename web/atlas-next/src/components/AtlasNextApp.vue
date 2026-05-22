@@ -1,7 +1,8 @@
 <template>
-  <main>
+  <main class="atlas-next-root">
     <h1>Atlas Next (Parallel Read-only Shell)</h1>
-    <p>Runtime remains Level 0 manual-only. Existing ui.html remains default. Backend workflow state remains authoritative.</p>
+    <p class="headline">Read-only supervision UI. Existing ui.html remains default. Static mount deferred.</p>
+    <p class="headline">Level 0 manual-only runtime. Backend workflow state remains authoritative.</p>
     <WorkflowShell :snapshot="snapshot" />
     <SafetySummary :snapshot="snapshot" />
     <ArtifactSummary :snapshot="snapshot" />
@@ -42,3 +43,8 @@ onMounted(async () => {
   snapshot.value = await fetchAtlasWorkflowSnapshot()
 })
 </script>
+
+<style scoped>
+.atlas-next-root { max-width: 960px; margin: 0 auto; padding: 8px 12px 24px; }
+.headline { margin: 4px 0; color: #334155; }
+</style>

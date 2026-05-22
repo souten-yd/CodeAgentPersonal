@@ -420,3 +420,14 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Static mount remains deferred while dist/static artifact strategy is not locked.
 - Automation track remains `PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint`.
 - Final goal remains `fully_autonomous_code_agent` and self-improvement scope remains `self_improving_codeagentpersonal_kasanecore`.
+
+## Vue Next Pointer Update (PR-ATLAS-VUE-07)
+- PR-ATLAS-VUE-07 is completed: Vue read-only parity tests / visual refinement.
+- Current UI track is PR-ATLAS-VUE-08: Safe static mount/dist strategy.
+- Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
+- Vue remains parallel/read-only/not default; existing ui.html remains default.
+- Vue adapter remains GET-only to /api/atlas/workflow-state/read-only with placeholder fallback.
+- available_actions are metadata only and all actions are disabled/read-only.
+- Backend workflow state remains authoritative.
+- Vue does not compute execution eligibility and does not call mutation endpoints.
+- Static mount remains deferred; /atlas-next remains unmounted.
