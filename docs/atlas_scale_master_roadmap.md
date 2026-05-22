@@ -533,3 +533,12 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - If dist is absent at runtime, future `/atlas-next` must fail safely (defer/404) rather than exposing source files.
 - Static mount decision in this PR remains deferred; implementation is carried by PR-ATLAS-VUE-09 smoke route/build artifact policy.
 - Vue remains parallel/read-only/not default, backend workflow state remains authoritative, available_actions are metadata only, and Vue does not compute execution eligibility.
+
+## PR-ATLAS-VUE-11 Status
+- PR-ATLAS-VUE-11 completed: Atlas Next preview route observability / fallback hardening.
+- Added GET-only `/api/atlas/vue-next-preview/diagnostics` metadata endpoint.
+- `/atlas-next` remains guarded, dist-backed, fail-closed, and non-default.
+- Existing `ui.html` remains default; Vue remains parallel/read-only/not default.
+- Backend workflow state remains authoritative; no Vue execution capability exists.
+- Current UI track: PR-ATLAS-VUE-12.
+- Current automation track remains PR-ATLAS-SCALE-93.

@@ -875,5 +875,13 @@
   "vue_next_preview_route_fail_closed": true,
   "vue_next_preview_route_serves_raw_source": false,
   "vue_next_preview_route_default": false,
-  "vue_next_preview_route_policy": "docs/atlas_vue_migration_plan.md#guarded-atlas-next-preview-route"
+  "vue_next_preview_route_policy": "docs/atlas_vue_migration_plan.md#guarded-atlas-next-preview-route",
+  "vue_next_preview_health": "observable_fail_closed",
+  "vue_next_preview_dist_detected": "runtime_detected",
+  "vue_next_preview_assets_detected": "runtime_detected",
+  "vue_next_preview_index_present": "runtime_detected",
+  "vue_next_preview_fallback_ready": true,
+  "vue_next_preview_route_observable": true,
+  "vue_next_preview_diagnostics_enabled": true,
+  "vue_next_preview_diagnostics_endpoint": "/api/atlas/vue-next-preview/diagnostics"
 }

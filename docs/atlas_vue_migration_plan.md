@@ -261,3 +261,12 @@ Vue Atlas Next may become default only when:
 - PR-ATLAS-SCALE-93 remains the current automation track.
 - Final goal remains `fully_autonomous_code_agent`.
 - Self-improvement scope remains `self_improving_codeagentpersonal_kasanecore`.
+
+## PR-ATLAS-VUE-11 Update
+- PR-ATLAS-VUE-11 completed: Atlas Next preview route observability / fallback hardening.
+- Preview route remains guarded, dist-backed, fail-closed, and read-only.
+- Added GET-only metadata diagnostics endpoint: `/api/atlas/vue-next-preview/diagnostics`.
+- Existing `ui.html` remains default; Vue remains parallel/read-only/not default.
+- Backend `workflow_state` remains authoritative; Vue execution capability remains none.
+- Current UI track moves to PR-ATLAS-VUE-12.
+- Current automation track remains PR-ATLAS-SCALE-93.
