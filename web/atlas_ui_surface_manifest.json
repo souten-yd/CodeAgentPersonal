@@ -841,5 +841,8 @@
   "vue_next_backend_authoritative": true,
   "vue_next_read_only_shell": true,
   "vue_next_route": "",
-  "vue_next_route_mounted": false
+  "vue_next_route_mounted": false,
+  "vue_next_adapter": "read_only_workflow_state",
+  "vue_next_mutation_endpoints_enabled": false,
+  "vue_next_action_buttons_enabled": false
 }
