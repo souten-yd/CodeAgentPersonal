@@ -29,15 +29,16 @@ Completed:
 - PR-ATLAS-SCALE-92
 - PR-ATLAS-VUE-01: Add parallel Vue/Vite Atlas Next read-only shell
 - PR-ATLAS-VUE-01B: Docs/test contract hardening for parallel read-only Vue shell
+- PR-ATLAS-VUE-02: Safe static serving / read-only workflow_state adapter hardening
 
-Current implementation PR:
+Current automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
 
-Next implementation PR:
+Next automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
 
 Separate UI track opened after PR-92:
-- Current UI track: PR-ATLAS-VUE-02: Safe static serving / read-only workflow_state adapter hardening
+- Current UI track: PR-ATLAS-VUE-03: Read-only workflow cards / backend state parity hardening
 - Next UI track: PR-ATLAS-VUE-03: Read-only workflow cards / backend state parity hardening
 - Vue Next static mount remains deferred until build/static serving strategy is finalized (dist artifact strategy not yet locked).
 

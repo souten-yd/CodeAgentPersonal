@@ -120,6 +120,10 @@ def test_vue_next_manifest_flags():
     assert m['vue_next_allowed_after_pr92'] is True
     assert m['vue_next_foundation'] is True
     assert m['vue_next_runtime_gate'] == 'parallel_read_only'
+    assert m['vue_next_adapter'] == 'read_only_workflow_state'
+    assert m['vue_next_mutation_endpoints_enabled'] is False
+    assert m['vue_next_action_buttons_enabled'] is False
+    assert m['vue_next_route_mounted'] is False
     assert m['vue_next_default_enabled'] is False
     assert m['vue_next_execution_enabled'] is False
     assert m['vue_next_source_of_truth'] is False

@@ -23,17 +23,12 @@
 - Existing Atlas UI remains available as legacy until Vue reaches feature parity for the minimal workflow contract.
 
 ## Recommended PR Sequence
-- PR-80: Record migration plan and autonomous-first UI cleanup policy.
-- PR-81: Add backend-owned workflow_state / available_actions contract if not already complete.
-- PR-82: Add Vue/Vite scaffold as a parallel read-only Atlas Next UI.
-- PR-83: Add read-only workflow dashboard using backend workflow_state.
-- PR-84: Add graphical plan timeline / plan item cards / risk badges / verification summary.
-- PR-85: Add manual guarded actions through backend available_actions only.
-- PR-86: Add diagnostics drawer for advanced information.
-- PR-87: Run parity tests between classic ThinUI and Vue Atlas Next.
-- PR-88: Make Vue Atlas Next default candidate behind a setting or route flag.
-- PR-89: Keep classic Atlas UI as atlas-legacy.
-- PR-90: Architecture review before removing or archiving legacy surfaces.
+- PR-ATLAS-SCALE-80: planning checkpoint (docs/manifest/tests only; migration plan + autonomous-first UI policy).
+- PR-ATLAS-SCALE-92: Level-0 readiness completion checkpoint; opened Vue work after merge.
+- PR-ATLAS-VUE-01: Add parallel Vue/Vite Atlas Next read-only shell.
+- PR-ATLAS-VUE-01B: Docs/test contract hardening for the parallel read-only shell.
+- PR-ATLAS-VUE-02: Harden read-only workflow_state adapter and defer static mount.
+- PR-ATLAS-VUE-03: Next UI track for read-only workflow cards / backend state parity hardening.
 
 ## Vue Stack Decision
 - Use Vue 3 + Vite + TypeScript.
@@ -154,6 +149,7 @@ Vue Atlas Next may become default only when:
 
 
 ## PR-ATLAS-SCALE-92 Level-0 Completion Checkpoint
+- Historical checkpoint: Current UI track: PR-ATLAS-VUE-02: Safe static serving / read-only workflow_state adapter hardening.
 - PR-ATLAS-SCALE-92 completed the Level-0 metadata-only readiness foundation via readiness gate rollup.
 - Level-0 completion checkpoint is metadata-only and does not enable Level-1 execution.
 - Level-0 completion does not authorize autonomous execution, patch generation/apply, safe_apply, verification execution, rollback/restore, or git operations.
@@ -166,4 +162,7 @@ Vue Atlas Next may become default only when:
 
 - PR-ATLAS-VUE-01 is a separate UI track and starts only after PR-ATLAS-SCALE-92.
 - Vue is read-only and not default in PR-ATLAS-VUE-01.
+- Vue available actions are metadata only in this track.
+- Vue does not call mutation endpoints in this track.
+- Vue does not compute execution eligibility.
 - PR-80 was planning only and did not add Vue runtime code.
