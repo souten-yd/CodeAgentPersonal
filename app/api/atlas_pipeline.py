@@ -67,6 +67,7 @@ from agent.atlas_verification_recommendation_handoff_service import AtlasVerific
 from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_root import resolve_atlas_ca_data_root
+from app.atlas.workflow_state_contract import build_read_only_workflow_state
 
 
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
@@ -1224,6 +1225,20 @@ def atlas_automation_safe_apply_one(request_body: AtlasAutoSafeApplyRequest, req
     result.orchestration_summary = _model_dump(summary)
     result.continuation_prompt = continuation.continuation_prompt
     return result
+
+
+@router.get("/workflow-state/read-only")
+def atlas_workflow_state_read_only() -> dict[str, Any]:
+    return build_read_only_workflow_state(
+        goal="Atlas Next read-only supervision shell",
+        project_path="Backend-provided project path when safe workflow_state is available",
+        phase="read_only_preview",
+        status="Stable backend read-only workflow_state contract available (non-executable metadata).",
+        primary_cta_label="Read-only preview (metadata only)",
+        available_actions=[{"id": "inspect_workflow_state", "label": "Inspect workflow state payload", "kind": "read_only"}],
+        artifacts={"rollup": True, "dry_run": True, "snapshot": True, "allowlist": True, "risk": True},
+        warnings=["Route is read-only metadata only. Vue static mount remains deferred."],
+    )
 
 
 @router.get("/verification/allowlist")

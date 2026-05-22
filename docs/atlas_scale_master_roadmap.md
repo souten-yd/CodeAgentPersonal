@@ -33,6 +33,8 @@ Completed:
 - PR-ATLAS-VUE-02B: Manifest/docs/test drift fix + UI track pointer correction
 - PR-ATLAS-VUE-03: Read-only workflow cards / backend state parity hardening
 - PR-ATLAS-VUE-04: Safe backend workflow_state GET adapter / static mount decision
+- PR-ATLAS-VUE-04B: Docs pointer correction / UI track alignment
+- PR-ATLAS-VUE-05: Define stable read-only workflow_state backend contract
 
 Current automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
@@ -41,8 +43,8 @@ Next automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
 
 Separate UI track opened after PR-92:
-- Current UI track: PR-ATLAS-VUE-05: Define stable read-only workflow_state backend contract
-- Next UI track: PR-ATLAS-VUE-05: Vue read-only parity tests / visual refinement
+- Current UI track: PR-ATLAS-VUE-06: Bind Vue read-only adapter to stable GET workflow_state contract
+- Next UI track: PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement
 - Vue Next static mount remains deferred until build/static serving strategy is finalized (dist artifact strategy not yet locked).
 
 Known Current Code Facts:

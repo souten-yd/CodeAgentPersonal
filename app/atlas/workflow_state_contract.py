@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+from typing import Any
+
+_PRIMARY_REASON = "Metadata only. Execution remains in guarded backend/manual flow."
+_ACTION_REASON = "Metadata only. This endpoint never executes actions."
+
+
+def normalize_read_only_available_actions(actions: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for index, raw in enumerate(actions or []):
+        item = raw if isinstance(raw, dict) else {}
+        action_id = str(item.get("id") or item.get("action_id") or f"action_{index + 1}")
+        label = str(item.get("label") or item.get("title") or action_id)
+        kind = str(item.get("kind") or "read_only")
+        normalized.append(
+            {
+                "id": action_id,
+                "label": label,
+                "kind": kind,
+                "read_only": True,
+                "enabled": False,
+                "requires_confirmation": True,
+                "requires_dry_run": True,
+                "reason": _ACTION_REASON,
+            }
+        )
+    return normalized
+
+
+def build_read_only_workflow_state(
+    *,
+    goal: str,
+    project_path: str,
+    phase: str,
+    status: str,
+    primary_cta_label: str,
+    available_actions: list[dict[str, Any]] | None = None,
+    artifacts: dict[str, Any] | None = None,
+    warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    artifacts_payload = artifacts or {}
+    return {
+        "schema_version": "atlas.workflow_state.v1",
+        "contract": "read_only_workflow_state",
+        "source": "backend_contract",
+        "runtime_level": "level_0_manual_only",
+        "backend_workflow_state_authoritative": True,
+        "vue_source_of_truth": False,
+        "vue_execution_enabled": False,
+        "autonomous_execution_enabled": False,
+        "level1_execution_enabled": False,
+        "goal": goal,
+        "project_path": project_path,
+        "phase": phase,
+        "status": status,
+        "primary_cta": {
+            "label": primary_cta_label,
+            "state": "read_only",
+            "enabled": False,
+            "read_only": True,
+            "reason": _PRIMARY_REASON,
+        },
+        "available_actions": normalize_read_only_available_actions(available_actions),
+        "safety": {
+            "dry_run_first_preserved": True,
+            "execute_one_action_preserved": True,
+            "manual_only": True,
+            "mutation_endpoints_enabled": False,
+            "automatic_execution_enabled": False,
+            "automatic_verification_enabled": False,
+            "automatic_patch_generation_enabled": False,
+            "automatic_patch_apply_enabled": False,
+            "automatic_rollback_enabled": False,
+            "automatic_retry_enabled": False,
+            "execute_all_enabled": False,
+            "auto_continue_enabled": False,
+        },
+        "artifacts": {
+            "snapshot": bool(artifacts_payload.get("snapshot", False)),
+            "transaction": bool(artifacts_payload.get("transaction", False)),
+            "risk": bool(artifacts_payload.get("risk", False)),
+            "allowlist": bool(artifacts_payload.get("allowlist", False)),
+            "dry_run": bool(artifacts_payload.get("dry_run", False)),
+            "rollback": bool(artifacts_payload.get("rollback", False)),
+            "artifact_capture": bool(artifacts_payload.get("artifact_capture", False)),
+            "stop": bool(artifacts_payload.get("stop", False)),
+            "loop_bound": bool(artifacts_payload.get("loop_bound", False)),
+            "remote_git": bool(artifacts_payload.get("remote_git", False)),
+            "self_improvement": bool(artifacts_payload.get("self_improvement", False)),
+            "rollup": bool(artifacts_payload.get("rollup", False)),
+        },
+        "diagnostics": {
+            "static_mount_deferred": True,
+            "route_mounted": False,
+            "backend_contract_ready": True,
+            "warnings": list(warnings or []),
+        },
+    }
+
+
+def summarize_workflow_state_contract(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": str(payload.get("schema_version", "")),
+        "contract": str(payload.get("contract", "")),
+        "runtime_level": str(payload.get("runtime_level", "level_0_manual_only")),
+        "manual_only": bool((payload.get("safety") or {}).get("manual_only", True)),
+        "available_action_count": len(payload.get("available_actions") or []),
+        "backend_contract_ready": bool((payload.get("diagnostics") or {}).get("backend_contract_ready", False)),
+    }
