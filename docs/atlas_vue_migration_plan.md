@@ -225,7 +225,7 @@ Vue Atlas Next may become default only when:
 ## PR-ATLAS-VUE-08B docs pointer contract
 - PR-ATLAS-VUE-08 is completed: Safe static mount/dist strategy.
 - Current UI track is PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy.
-- Next UI track is PR-ATLAS-VUE-10: Optional guarded `/atlas-next` preview route hardening.
+- Next UI track is PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening.
 - Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint (not completed here).
 - Dist strategy is defined as `dist_required` with production artifacts in `web/atlas-next/dist`.
 - Raw Vite source must not be served as production UI.
@@ -246,3 +246,18 @@ Vue Atlas Next may become default only when:
 - If dist is missing, future `/atlas-next` must fail closed (disabled/deferred or 404) rather than serving source.
 - Build artifact policy and smoke route policy must be covered by contract tests before any route mount is enabled.
 - Vue remains parallel/read-only/not default/no execution; backend workflow state remains authoritative; `available_actions` remain metadata only; Vue does not compute execution eligibility and does not call mutation endpoints.
+
+
+## Guarded Atlas Next Preview Route
+- PR-ATLAS-VUE-10 adds optional guarded `/atlas-next` preview route hardening.
+- `/atlas-next` serves built assets only from `web/atlas-next/dist`.
+- Route fails closed (404) when dist or `dist/index.html` is missing.
+- Route never serves raw Vite source and never serves `web/atlas-next/src`.
+- Route never replaces `/` or `/ui.html`; existing `ui.html` remains default.
+- Vue remains parallel/read-only/not default and does not call mutation endpoints.
+- Vue adapter remains GET-only to `/api/atlas/workflow-state/read-only`.
+- `available_actions` remain metadata-only and disabled/read-only.
+- Backend workflow state remains authoritative; Vue does not compute execution eligibility.
+- PR-ATLAS-SCALE-93 remains the current automation track.
+- Final goal remains `fully_autonomous_code_agent`.
+- Self-improvement scope remains `self_improving_codeagentpersonal_kasanecore`.

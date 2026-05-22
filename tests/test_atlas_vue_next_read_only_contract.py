@@ -33,10 +33,10 @@ def test_manifest_and_docs_contract():
     assert m['vue_next_source_of_truth'] is False
     assert m['vue_next_backend_authoritative'] is True
     assert m['vue_next_get_adapter_decision'] in {'deferred_no_stable_get_contract', 'connected_safe_get', 'contract_defined_binding_deferred'}
-    assert m['vue_next_static_mount_decision'] in {'deferred_until_guarded_smoke_route', 'mounted_static_dist'}
+    assert m['vue_next_static_mount_decision'] in {'deferred_until_guarded_smoke_route', 'mounted_static_dist', 'mounted_guarded_static_dist'}
 
-    assert m['vue_next_route'] == ''
-    assert m['vue_next_route_mounted'] is False
+    assert m['vue_next_route'] in {'', '/atlas-next'}
+    assert isinstance(m['vue_next_route_mounted'], bool)
     docs = (Path('docs/atlas_vue_migration_plan.md').read_text() + Path('docs/atlas_scale_master_roadmap.md').read_text()).lower()
     assert 'pr-atlas-vue-01: add parallel vue/vite atlas next read-only shell' in docs
     assert ('current ui track: pr-atlas-vue-07: vue read-only parity tests / visual refinement' in docs) or ('current ui track: pr-atlas-vue-08: safe static mount/dist strategy' in docs)
