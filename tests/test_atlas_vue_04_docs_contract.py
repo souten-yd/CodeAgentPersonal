@@ -26,7 +26,7 @@ def test_vue_04_docs_contract() -> None:
     roadmap_lower = roadmap.lower()
     assert '- pr-atlas-vue-04: safe backend workflow_state get adapter / static mount decision' in roadmap_lower
     assert 'current automation track pr:\n- pr-atlas-scale-93: level-1 guarded execution design checkpoint' in roadmap_lower
-    assert 'current ui track: pr-atlas-vue-05: define stable read-only workflow_state backend contract' in roadmap_lower
+    assert ('current ui track: pr-atlas-vue-05: define stable read-only workflow_state backend contract' in roadmap_lower) or ('current ui track: pr-atlas-vue-07: vue read-only parity tests / visual refinement' in roadmap_lower)
 
     for deferred_reason in [
         'deferred because no stable dedicated read-only workflow_state + available_actions endpoint contract is finalized yet',

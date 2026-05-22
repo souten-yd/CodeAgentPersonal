@@ -34,5 +34,5 @@ def test_pr92_prereq_and_vue01_track_language():
 
 def test_vue_migration_plan_v04_checkpoint_language():
     t = Path('docs/atlas_vue_migration_plan.md').read_text(encoding='utf-8')
-    for s in ['PR-ATLAS-VUE-04','safe backend GET adapter/static mount decision','PR-ATLAS-VUE-05','PR-ATLAS-SCALE-93','ui.html remains default']:
+    for s in ['PR-ATLAS-VUE-04','safe backend GET adapter/static mount decision','PR-ATLAS-VUE-05','PR-ATLAS-VUE-06','PR-ATLAS-SCALE-93','ui.html remains default']:
         assert s in t

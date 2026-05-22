@@ -179,7 +179,7 @@ Known Current Code Facts:
 - PR-ATLAS-VUE-04 is completed: safe backend workflow_state GET adapter / static mount decision checkpoint.
 - Safe GET adapter remains deferred because there is no stable safe read-only workflow_state backend contract yet.
 - Static mount remains deferred because dist/static artifact strategy for `/atlas-next` is not locked.
-- Current UI track is PR-ATLAS-VUE-05: define stable read-only workflow_state backend contract.
+- Current UI track is PR-ATLAS-VUE-06: Bind Vue read-only adapter to stable GET workflow_state contract.
 - Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
 - Vue remains parallel, read-only, replaceable, and not default; existing `ui.html` remains default.
 - Backend workflow state remains authoritative.
@@ -407,5 +407,16 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Decision: safe backend GET adapter deferred (no stable dedicated workflow_state contract yet).
 - Decision: static mount deferred (no locked dist/static artifact strategy).
 - Current automation track remains PR-ATLAS-SCALE-93 (not completed).
-- Current UI track moves to PR-ATLAS-VUE-05: Define stable read-only workflow_state backend contract.
+- Current UI track moves to PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement.
 - Vue remains parallel/read-only/not default; existing ui.html remains default; backend workflow state remains authoritative.
+
+
+## PR-ATLAS-VUE-06 Contract Binding Checkpoint
+- PR-ATLAS-VUE-06 completed: Vue read-only adapter is bound to `GET /api/atlas/workflow-state/read-only`.
+- Adapter remains GET-only and fallback-safe: invalid/non-OK responses use a placeholder read-only snapshot fallback.
+- `available_actions` remain metadata only; all actions are disabled/read-only in Vue.
+- Backend workflow state remains authoritative; Vue does not compute execution eligibility and does not call mutation endpoints.
+- Vue remains parallel/read-only/not default; existing `ui.html` remains default.
+- Static mount remains deferred while dist/static artifact strategy is not locked.
+- Automation track remains `PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint`.
+- Final goal remains `fully_autonomous_code_agent` and self-improvement scope remains `self_improving_codeagentpersonal_kasanecore`.

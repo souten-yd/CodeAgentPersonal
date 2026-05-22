@@ -462,3 +462,14 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Static mount deferred (`deferred_no_dist_strategy`) until dist artifact strategy is locked.
 - Vue remains read-only/parallel/not default; `ui.html` remains default.
 - Backend workflow state remains authoritative; available actions in Vue remain metadata-only.
+
+
+## PR-ATLAS-VUE-06 Contract Binding Checkpoint
+- PR-ATLAS-VUE-06 completed: Vue read-only adapter is bound to `GET /api/atlas/workflow-state/read-only`.
+- Adapter remains GET-only and fallback-safe: invalid/non-OK responses use a placeholder read-only snapshot fallback.
+- `available_actions` remain metadata only; all actions are disabled/read-only in Vue.
+- Backend workflow state remains authoritative; Vue does not compute execution eligibility and does not call mutation endpoints.
+- Vue remains parallel/read-only/not default; existing `ui.html` remains default.
+- Static mount remains deferred while dist/static artifact strategy is not locked.
+- Automation track remains `PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint`.
+- Final goal remains `fully_autonomous_code_agent` and self-improvement scope remains `self_improving_codeagentpersonal_kasanecore`.

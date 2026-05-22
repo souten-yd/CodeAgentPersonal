@@ -35,6 +35,8 @@ Completed:
 - PR-ATLAS-VUE-04: Safe backend workflow_state GET adapter / static mount decision
 - PR-ATLAS-VUE-04B: Docs pointer correction / UI track alignment
 - PR-ATLAS-VUE-05: Define stable read-only workflow_state backend contract
+- PR-ATLAS-VUE-05B: Manifest/docs/tests alignment for stable workflow_state contract
+- PR-ATLAS-VUE-06: Bind Vue read-only adapter to stable GET workflow_state contract
 
 Current automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
@@ -43,8 +45,8 @@ Next automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
 
 Separate UI track opened after PR-92:
-- Current UI track: PR-ATLAS-VUE-06: Bind Vue read-only adapter to stable GET workflow_state contract
-- Next UI track: PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement
+- Current UI track: PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement
+- Next UI track: PR-ATLAS-VUE-08: Safe static mount/dist strategy
 - Vue Next static mount remains deferred until build/static serving strategy is finalized (dist artifact strategy not yet locked).
 
 Known Current Code Facts:
@@ -489,5 +491,16 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Safe GET adapter decision: deferred_no_stable_get_contract.
 - Static mount decision: deferred_no_dist_strategy.
 - Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint (not completed).
-- Current UI track: PR-ATLAS-VUE-05: Define stable read-only workflow_state backend contract.
+- Current UI track: PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement.
 - Existing ui.html remains default; Vue remains parallel read-only and not workflow truth.
+
+
+## PR-ATLAS-VUE-06 Contract Binding Checkpoint
+- PR-ATLAS-VUE-06 completed: Vue read-only adapter is bound to `GET /api/atlas/workflow-state/read-only`.
+- Adapter remains GET-only and fallback-safe: invalid/non-OK responses use a placeholder read-only snapshot fallback.
+- `available_actions` remain metadata only; all actions are disabled/read-only in Vue.
+- Backend workflow state remains authoritative; Vue does not compute execution eligibility and does not call mutation endpoints.
+- Vue remains parallel/read-only/not default; existing `ui.html` remains default.
+- Static mount remains deferred while dist/static artifact strategy is not locked.
+- Automation track remains `PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint`.
+- Final goal remains `fully_autonomous_code_agent` and self-improvement scope remains `self_improving_codeagentpersonal_kasanecore`.

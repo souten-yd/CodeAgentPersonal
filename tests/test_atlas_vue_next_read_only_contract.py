@@ -39,7 +39,7 @@ def test_manifest_and_docs_contract():
     assert m['vue_next_route_mounted'] is False
     docs = (Path('docs/atlas_vue_migration_plan.md').read_text() + Path('docs/atlas_scale_master_roadmap.md').read_text()).lower()
     assert 'pr-atlas-vue-01: add parallel vue/vite atlas next read-only shell' in docs
-    assert 'current ui track: pr-atlas-vue-05: define stable read-only workflow_state backend contract' in docs
+    assert 'current ui track: pr-atlas-vue-07: vue read-only parity tests / visual refinement' in docs
     assert 'pr-atlas-scale-93: level-1 guarded execution design checkpoint' in docs
     assert 'existing ui.html remains default' in docs
     assert 'not default' in docs
