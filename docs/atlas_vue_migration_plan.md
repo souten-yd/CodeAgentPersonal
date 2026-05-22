@@ -221,3 +221,12 @@ Vue Atlas Next may become default only when:
 - If dist is absent at runtime, future `/atlas-next` must fail safely (defer/404) rather than exposing source files.
 - Static mount decision in this PR remains deferred; implementation is carried by PR-ATLAS-VUE-09 smoke route/build artifact policy.
 - Vue remains parallel/read-only/not default, backend workflow state remains authoritative, available_actions are metadata only, and Vue does not compute execution eligibility.
+
+## PR-ATLAS-VUE-08B docs pointer contract
+- PR-ATLAS-VUE-08 is completed: Safe static mount/dist strategy.
+- Current UI track is PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy.
+- Next UI track is PR-ATLAS-VUE-10: Optional guarded `/atlas-next` preview route hardening.
+- Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint (not completed here).
+- Dist strategy is defined as `dist_required` with production artifacts in `web/atlas-next/dist`.
+- Raw Vite source must not be served as production UI.
+- Static mount remains deferred until VUE-09 / smoke route policy.
