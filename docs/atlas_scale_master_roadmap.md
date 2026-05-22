@@ -40,8 +40,8 @@ Next automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
 
 Separate UI track opened after PR-92:
-- Current UI track: PR-ATLAS-VUE-03: Read-only workflow cards / backend state parity hardening
-- Next UI track: PR-ATLAS-VUE-04: Safe backend workflow_state GET adapter / static mount decision
+- Current UI track: PR-ATLAS-VUE-04: Safe backend workflow_state GET adapter / static mount decision
+- Next UI track: PR-ATLAS-VUE-05: Vue read-only parity tests / visual refinement
 - Vue Next static mount remains deferred until build/static serving strategy is finalized (dist artifact strategy not yet locked).
 
 Known Current Code Facts:
