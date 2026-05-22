@@ -1,7 +1,7 @@
 <template>
   <main class="atlas-next-root">
     <h1>Atlas Next (Parallel Read-only Shell)</h1>
-    <p class="headline">Read-only supervision UI. Existing ui.html remains default. Static mount deferred.</p>
+    <p class="headline">Read-only supervision UI. Existing ui.html remains default. Guarded /atlas-next preview route mounted (non-default).</p>
     <p class="headline">Level 0 manual-only runtime. Backend workflow state remains authoritative.</p>
     <WorkflowShell :snapshot="snapshot" />
     <SafetySummary :snapshot="snapshot" />
@@ -31,8 +31,15 @@ const snapshot = ref<AtlasWorkflowSnapshot>({
   artifacts: {},
   diagnostics: {
     source: 'placeholder',
-    routeMounted: false,
-    staticMountDeferred: true,
+    routeMounted: true,
+    routePath: '/atlas-next',
+    routeDefault: false,
+    routeGuarded: true,
+    distBacked: true,
+    failClosed: true,
+    staticMountDeferred: false,
+    diagnosticsEndpoint: '/api/atlas/vue-next-preview/diagnostics',
+    previewHealth: 'placeholder',
     backendContractReady: false,
     warnings: []
   },

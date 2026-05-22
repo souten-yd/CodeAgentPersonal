@@ -592,3 +592,16 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - PR-ATLAS-SCALE-93 remains the current automation track throughout Vue defaultization.
 - After PR-ATLAS-VUE-21, roadmap focus returns to automation work (Level-1 guarded execution design and beyond).
 
+
+
+## PR-ATLAS-VUE-14 Diagnostics Alignment Status
+- PR-ATLAS-VUE-14 completed.
+- Current UI track advances to PR-ATLAS-VUE-15; automation track remains PR-ATLAS-SCALE-93.
+- Existing `ui.html` remains default until PR-ATLAS-VUE-21.
+- Vue remains parallel/read-only/not default, supervision-only, and non-execution.
+- `/atlas-next` remains guarded, dist-backed, fail-closed, and non-default.
+- Preview diagnostics endpoint remains GET-only/metadata-only: `/api/atlas/vue-next-preview/diagnostics`.
+- Vue client diagnostics route state now aligns with mounted guarded preview route (`routeMounted=true`, `staticMountDeferred=false`).
+- Backend workflow_state remains authoritative and runtime remains `level_0_manual_only`.
+- Default-visible Vue UI remains minimal_workflow + safety_always_visible; advanced execution controls, raw JSON, internal IDs, direct subsystem panels, diagnostics, and debug controls remain hidden by default.
+

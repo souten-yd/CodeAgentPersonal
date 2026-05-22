@@ -910,5 +910,15 @@
   "vue_next_route_packaging_default_route_allowed": false,
   "vue_next_route_packaging_ui_html_fallback_allowed": false,
   "vue_next_route_packaging_root_fallback_allowed": false,
-  "vue_next_route_packaging_raw_source_allowed": false
+  "vue_next_route_packaging_raw_source_allowed": false,
+  "vue_next_diagnostics_alignment_checkpoint": "PR-ATLAS-VUE-14",
+  "vue_next_client_diagnostics_route_mounted": true,
+  "vue_next_client_diagnostics_static_mount_deferred": false,
+  "vue_next_client_diagnostics_route_path": "/atlas-next",
+  "vue_next_client_diagnostics_route_default": false,
+  "vue_next_client_diagnostics_guarded_route": true,
+  "vue_next_client_diagnostics_dist_backed": true,
+  "vue_next_client_diagnostics_fail_closed": true,
+  "vue_next_backend_diagnostics_route_state_aligned": true,
+  "vue_next_docs_diagnostics_route_state_aligned": true
 }
