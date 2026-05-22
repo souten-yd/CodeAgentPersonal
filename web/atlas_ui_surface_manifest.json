@@ -883,5 +883,18 @@
   "vue_next_preview_fallback_ready": true,
   "vue_next_preview_route_observable": true,
   "vue_next_preview_diagnostics_enabled": true,
-  "vue_next_preview_diagnostics_endpoint": "/api/atlas/vue-next-preview/diagnostics"
+  "vue_next_preview_diagnostics_endpoint": "/api/atlas/vue-next-preview/diagnostics",
+  "vue_next_packaging_readiness_checkpoint": "PR-ATLAS-VUE-12",
+  "vue_next_packaging_policy_defined": true,
+  "vue_next_deployment_readiness_defined": true,
+  "vue_next_dist_packaging_policy": "dist_required_validated",
+  "vue_next_dist_source_of_truth": false,
+  "vue_next_source_dir": "web/atlas-next",
+  "vue_next_build_command": "cd web/atlas-next && npm install && npm run build",
+  "vue_next_typecheck_command": "cd web/atlas-next && npm run typecheck",
+  "vue_next_deployment_requires_valid_dist": true,
+  "vue_next_deployment_raw_source_allowed": false,
+  "vue_next_deployment_default_route_allowed": false,
+  "vue_next_deployment_ui_html_fallback_allowed": false,
+  "vue_next_deployment_root_fallback_allowed": false
 }
