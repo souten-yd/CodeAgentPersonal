@@ -163,3 +163,7 @@ Vue Atlas Next may become default only when:
 - Separate UI track after merge: PR-ATLAS-VUE-01 read-only parallel UI track; existing ui.html remains default and backend workflow_state remains authoritative.
 - PR-80 remains Vue migration planning checkpoint and did not add Vue runtime code.
 - automatic command execution disabled; automatic verification disabled; automatic patch generation disabled; automatic patch apply disabled; automatic safe_apply disabled; automatic rollback disabled; automatic restore disabled; automatic loop execution disabled; automatic retry disabled; auto-continue disabled; execute-all forbidden; autonomous execution disabled; autonomous self-improvement disabled; remote git disabled; direct merge forbidden; primary CTA remains single existing manual action only.
+
+- PR-ATLAS-VUE-01 is a separate UI track and starts only after PR-ATLAS-SCALE-92.
+- Vue is read-only and not default in PR-ATLAS-VUE-01.
+- PR-80 was planning only and did not add Vue runtime code.
