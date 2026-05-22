@@ -331,3 +331,16 @@ Vue Atlas Next may become default only when:
 - Vue Atlas Next remains non-default until PR-ATLAS-VUE-21.
 - Current automation track remains PR-ATLAS-SCALE-93 and resumes as active focus after PR-ATLAS-VUE-21.
 
+## Minimal UI Policy During Vue Defaultization (VUE-13 through VUE-21)
+
+- Vue Atlas Next must not become another large dashboard.
+- Vue must preserve the Atlas minimal UI policy in `docs/atlas_autonomous_first_ui_policy.md` before, during, and after defaultization.
+- Default-visible Vue UI remains `minimal_workflow` + `safety_always_visible` only.
+- Advanced execution controls, raw JSON, internal IDs, direct subsystem panels, diagnostics, and debug controls remain hidden by default.
+- Direct subsystem buttons must not appear in minimal/default mode.
+- New Vue surfaces in PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21 must be manifest-classified in `web/atlas_ui_surface_manifest.json`.
+- Any newly default-visible surface must directly support: goal → plan → review → approval → guarded execution/progress → report.
+- Vue must not compute execution eligibility.
+- Backend workflow_state remains authoritative.
+- No execute-all, no auto-continue, and no autonomous execution are authorized by this roadmap.
+

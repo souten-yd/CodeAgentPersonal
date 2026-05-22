@@ -605,6 +605,14 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Planned UI track is PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21.
 - Existing ui.html remains default until PR-ATLAS-VUE-21.
 - Vue is not default yet.
+- Vue Atlas Next must not become another large dashboard.
+- Vue defaultization must preserve the Atlas minimal UI policy from `docs/atlas_autonomous_first_ui_policy.md`.
+- Default-visible Vue UI must remain `minimal_workflow` + `safety_always_visible` only.
+- Advanced execution controls, raw JSON, internal IDs, direct subsystem panels, diagnostics, and debug controls must remain hidden by default.
+- New Vue surfaces added in PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21 must be classified in `web/atlas_ui_surface_manifest.json`.
+- Any new default-visible surface must directly support the final user flow: goal → plan → review → approval → guarded execution/progress → report.
+- Direct subsystem buttons must not appear in minimal/default mode.
+- Vue must not compute execution eligibility; backend workflow_state remains authoritative.
 
 ### Planned Vue PR Sequence
 
