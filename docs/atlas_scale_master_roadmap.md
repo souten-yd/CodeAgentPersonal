@@ -27,6 +27,7 @@ Completed:
 - PR-ATLAS-SCALE-91C
 - PR-ATLAS-SCALE-91D
 - PR-ATLAS-SCALE-92
+- PR-ATLAS-VUE-01: Add parallel Vue/Vite Atlas Next read-only shell
 
 Current implementation PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
@@ -35,8 +36,8 @@ Next implementation PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
 
 Separate UI track opened after PR-92:
-- PR-ATLAS-VUE-01: Add parallel Vue/Vite Atlas Next read-only shell
-- Next UI track: PR-ATLAS-VUE-02: Decide safe serving/mount strategy or connect read-only workflow_state adapter
+- Current UI track: PR-ATLAS-VUE-02: safe static serving/mount or read-only workflow_state adapter hardening
+- Next UI track: PR-ATLAS-VUE-02: safe static serving/mount or read-only workflow_state adapter hardening
 
 Known Current Code Facts:
 - PR-90B hardens remote git reference-readiness blocking.
