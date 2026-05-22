@@ -840,5 +840,6 @@
   "vue_next_source_of_truth": false,
   "vue_next_backend_authoritative": true,
   "vue_next_read_only_shell": true,
-  "vue_next_route": ""
+  "vue_next_route": "",
+  "vue_next_route_mounted": false
 }
