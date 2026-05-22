@@ -952,5 +952,20 @@
   "vue_next_start_atlas_auto_apply": false,
   "vue_next_start_atlas_backend_authoritative": true,
   "vue_next_requirement_input_default_visible": true,
-  "vue_next_raw_json_default_visible": false
+  "vue_next_raw_json_default_visible": false,
+  "vue_next_plan_review_checkpoint": "PR-ATLAS-VUE-17",
+  "vue_next_plan_review_enabled": true,
+  "vue_next_clarification_questions_display_enabled": true,
+  "vue_next_clarification_answer_submission_enabled": false,
+  "vue_next_requirement_summary_display_enabled": true,
+  "vue_next_plan_summary_display_enabled": true,
+  "vue_next_plan_items_display_enabled": true,
+  "vue_next_plan_review_scope": "read_only_review_metadata",
+  "vue_next_plan_review_approval_enabled": false,
+  "vue_next_plan_review_execution_enabled": false,
+  "vue_next_plan_review_dry_run_enabled": false,
+  "vue_next_plan_review_auto_continue": false,
+  "vue_next_plan_review_backend_authoritative": true,
+  "vue_next_plan_review_raw_json_default_visible": false,
+  "vue_next_plan_review_direct_subsystem_panels_default_visible": false
 }
