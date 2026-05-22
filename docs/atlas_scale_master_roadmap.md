@@ -1,3 +1,17 @@
+## Current Atlas Vue UI Track State
+
+- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-15
+- Current UI track: PR-ATLAS-VUE-16
+- Planned UI track: PR-ATLAS-VUE-16 through PR-ATLAS-VUE-21
+- Current automation track: PR-ATLAS-SCALE-93
+- Existing ui.html remains default until PR-ATLAS-VUE-21
+- Vue remains parallel/read-only/not default
+- /atlas-next remains mounted/guarded/dist-backed/fail-closed/non-default
+- diagnostics endpoint remains GET-only/metadata-only
+- backend workflow_state remains authoritative
+- runtime remains level_0_manual_only
+- Vue execution capability remains none
+
 ## Active PR Pointer (Updated)
 
 Completed:
@@ -545,13 +559,13 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - `/atlas-next` remains guarded, dist-backed, fail-closed, and non-default.
 - Existing `ui.html` remains default; Vue remains parallel/read-only/not default.
 - Backend workflow state remains authoritative; no Vue execution capability exists.
-- Current UI track: PR-ATLAS-VUE-14.
+- Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
 - Current automation track remains PR-ATLAS-SCALE-93.
 
 ## PR-ATLAS-VUE-13 Route Packaging/Deployment Integration Policy
 - PR-ATLAS-VUE-13 completed.
 - Completed UI PR: PR-ATLAS-VUE-13.
-- Current UI track: PR-ATLAS-VUE-14.
+- Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
 - Current automation track remains PR-ATLAS-SCALE-93.
 - Existing `ui.html` remains default.
 - Vue remains parallel/read-only/not default; supervision UI only.
@@ -594,7 +608,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Diagnostics endpoint remains GET-only and metadata-only: `/api/atlas/vue-next-preview/diagnostics`.
 - Backend `workflow_state` remains authoritative; Vue execution capability remains none.
 - This PR does not make Vue default and does not enable execution.
-- Current UI track: PR-ATLAS-VUE-14.
+- Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
 - Current automation track remains PR-ATLAS-SCALE-93.
 
 ## Vue Atlas Next Defaultization Plan: PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21
@@ -604,7 +618,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - It exists to make Atlas usable through the future Vue Workbench before resuming automation work.
 - PR-ATLAS-SCALE-93 remains the current automation track and is not completed by Vue work.
 - Completed UI PRs include PR-ATLAS-VUE-01 through PR-ATLAS-VUE-13.
-- Current UI track is PR-ATLAS-VUE-14.
+- Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
 - Planned UI track is PR-ATLAS-VUE-14 through PR-ATLAS-VUE-21.
 - Existing ui.html remains default until PR-ATLAS-VUE-21.
 - Vue is not default yet.
@@ -687,7 +701,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 
 ## PR-ATLAS-VUE-14 Diagnostics Alignment Checkpoint
 - PR-ATLAS-VUE-14 completed.
-- Current UI track is now PR-ATLAS-VUE-15.
+- Historical marker (superseded): Current UI track advanced to PR-ATLAS-VUE-15 at that checkpoint. See Current Atlas Vue UI Track State.
 - PR-ATLAS-SCALE-93 remains the current automation track.
 - Existing `ui.html` remains default until PR-ATLAS-VUE-21.
 - Vue Atlas Next remains parallel/read-only/not default and not execution-capable.
