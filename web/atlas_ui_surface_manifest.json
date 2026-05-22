@@ -849,7 +849,7 @@
   "vue_next_backend_state_parity_hardened": true,
   "vue_next_available_actions_metadata_only": true,
   "vue_next_get_adapter_decision": "connected_safe_get",
-  "vue_next_static_mount_decision": "deferred_until_dist_policy_smoke",
+  "vue_next_static_mount_decision": "deferred_until_guarded_smoke_route",
   "vue_next_backend_get_adapter_connected": true,
   "vue_next_backend_contract_ready": true,
   "vue_next_workflow_state_contract": "atlas.workflow_state.v1",
@@ -861,5 +861,13 @@
   "vue_next_dist_strategy_defined": true,
   "vue_next_dist_dir": "web/atlas-next/dist",
   "vue_next_serves_raw_vite_source": false,
-  "vue_next_static_mount_policy": "docs/atlas_vue_migration_plan.md#safe-static-mount--dist-strategy"
+  "vue_next_static_mount_policy": "docs/atlas_vue_migration_plan.md#atlas-next-read-only-smoke-route--build-artifact-policy",
+  "vue_next_build_artifact_policy_defined": true,
+  "vue_next_smoke_route_policy_defined": true,
+  "vue_next_build_artifact_required": true,
+  "vue_next_dist_required_for_route": true,
+  "vue_next_raw_source_serving_allowed": false,
+  "vue_next_smoke_route": "/atlas-next",
+  "vue_next_smoke_route_enabled": false,
+  "vue_next_smoke_route_policy": "docs/atlas_vue_migration_plan.md#atlas-next-read-only-smoke-route--build-artifact-policy"
 }

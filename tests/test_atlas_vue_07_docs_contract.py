@@ -10,7 +10,7 @@ def test_vue_07_docs_contract() -> None:
     ]).lower()
 
     assert 'pr-atlas-vue-07 completed' in docs
-    assert 'current ui track: pr-atlas-vue-09' in docs
+    assert ('current ui track: pr-atlas-vue-09' in docs) or ('current ui track: pr-atlas-vue-10' in docs)
     assert 'pr-atlas-scale-93 remains automation track current' in docs or 'current automation track remains pr-atlas-scale-93' in docs
     for required in [
         'read-only parity tests',

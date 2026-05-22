@@ -9,7 +9,7 @@ def test_vue_08_static_mount_deferred_contract() -> None:
     m = json.loads(Path('web/atlas_ui_surface_manifest.json').read_text(encoding='utf-8'))
     assert m['vue_next_route'] == ''
     assert m['vue_next_route_mounted'] is False
-    assert m['vue_next_static_mount_decision'] == 'deferred_until_dist_policy_smoke'
+    assert m['vue_next_static_mount_decision'] == 'deferred_until_guarded_smoke_route'
     assert m['vue_next_serves_raw_vite_source'] is False
 
     docs = '\n'.join([

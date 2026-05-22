@@ -134,7 +134,7 @@ def test_vue_next_manifest_flags():
 def test_vue_next_v04_manifest_decision_flags():
     m = _manifest()
     assert m['vue_next_get_adapter_decision'] in {'deferred_no_stable_get_contract', 'connected_safe_get', 'contract_defined_binding_deferred'}
-    assert m['vue_next_static_mount_decision'] in {'deferred_until_dist_policy_smoke', 'mounted_static_dist'}
+    assert m['vue_next_static_mount_decision'] in {'deferred_until_guarded_smoke_route', 'mounted_static_dist'}
     assert m['vue_next_available_actions_metadata_only'] is True
     assert m['vue_next_backend_state_parity_hardened'] is True
     assert m['vue_next_policy'] == 'docs/atlas_vue_migration_plan.md'
