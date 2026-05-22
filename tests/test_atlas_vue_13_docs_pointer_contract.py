@@ -14,9 +14,10 @@ def test_vue_13_docs_pointers_and_policy() -> None:
     ])
     required = [
                 'pr-atlas-vue-13 completed',
-        'completed ui prs include pr-atlas-vue-01 through pr-atlas-vue-13',
+        'completed ui prs: pr-atlas-vue-01 through pr-atlas-vue-15',
         'completed ui pr: pr-atlas-vue-13',
-        'current ui track: pr-atlas-vue-14',
+        'current atlas vue ui track state',
+        'current ui track: pr-atlas-vue-16',
         'current automation track remains pr-atlas-scale-93',
         'existing `ui.html` remains default',
         'parallel/read-only/not default',

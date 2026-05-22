@@ -1,3 +1,17 @@
+## Current Atlas Vue UI Track State
+
+- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-15
+- Current UI track: PR-ATLAS-VUE-16
+- Planned UI track: PR-ATLAS-VUE-16 through PR-ATLAS-VUE-21
+- Current automation track: PR-ATLAS-SCALE-93
+- Existing ui.html remains default until PR-ATLAS-VUE-21
+- Vue remains parallel/read-only/not default
+- /atlas-next remains mounted/guarded/dist-backed/fail-closed/non-default
+- diagnostics endpoint remains GET-only/metadata-only
+- backend workflow_state remains authoritative
+- runtime remains level_0_manual_only
+- Vue execution capability remains none
+
 # Atlas Vue Migration Plan
 
 ## Purpose
@@ -270,13 +284,13 @@ Vue Atlas Next may become default only when:
 - Existing `ui.html` remains default; Vue remains parallel/read-only/not default.
 - Backend `workflow_state` remains authoritative; Vue execution capability remains none.
 - Completed UI PR: PR-ATLAS-VUE-12.
-- Current UI track: PR-ATLAS-VUE-14.
+- Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
 - Current automation track remains PR-ATLAS-SCALE-93.
 
 ## PR-ATLAS-VUE-13 Route Packaging/Deployment Integration Policy
 - PR-ATLAS-VUE-13 completed.
 - Completed UI PR: PR-ATLAS-VUE-13.
-- Current UI track: PR-ATLAS-VUE-14.
+- Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
 - Current automation track remains PR-ATLAS-SCALE-93.
 - Existing `ui.html` remains default.
 - Vue remains parallel/read-only/not default; supervision UI only.

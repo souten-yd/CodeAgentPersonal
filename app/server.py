@@ -165,6 +165,7 @@ def get_atlas_next_preview_diagnostics(
         "backend_authoritative": True,
         "mutation_endpoints_enabled": False,
         "execution_enabled": False,
+        "runtime_level": "level_0_manual_only",
     }
 
 
