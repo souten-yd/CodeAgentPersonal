@@ -390,3 +390,11 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - automatic command execution disabled; automatic verification disabled; automatic patch generation disabled; automatic patch apply disabled; automatic safe_apply disabled; automatic rollback disabled; automatic restore disabled; automatic loop execution disabled; automatic retry disabled; auto-continue disabled; execute-all forbidden; autonomous execution disabled; autonomous self-improvement disabled; remote git disabled; direct merge forbidden; primary CTA remains single existing manual action only.
 
 - Existing ui.html remains the default UI.
+
+## UI Track Update (PR-ATLAS-VUE-04)
+- Completed UI PR: PR-ATLAS-VUE-04.
+- Decision: safe backend GET adapter deferred (no stable dedicated workflow_state contract yet).
+- Decision: static mount deferred (no locked dist/static artifact strategy).
+- Current automation track remains PR-ATLAS-SCALE-93 (not completed).
+- Current UI track moves to PR-ATLAS-VUE-05: Define stable read-only workflow_state backend contract.
+- Vue remains parallel/read-only/not default; existing ui.html remains default; backend workflow state remains authoritative.

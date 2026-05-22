@@ -118,7 +118,7 @@ function normalizeWorkflowState(payload: AtlasWorkflowStateResponse): AtlasWorkf
 }
 
 export async function fetchAtlasWorkflowSnapshot(): Promise<AtlasWorkflowSnapshot> {
-  // TODO(PR-ATLAS-VUE-04): Bind this read-only adapter to a dedicated backend workflow_state contract endpoint when available.
+  // TODO(PR-ATLAS-VUE-05): Define and bind a stable GET-only backend workflow_state contract endpoint (available_actions metadata only) once finalized.
   return normalizeWorkflowState({
     goal: 'Atlas Next read-only supervision shell',
     project_path: 'Backend-provided project path when safe workflow_state is available',
