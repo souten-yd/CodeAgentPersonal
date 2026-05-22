@@ -540,5 +540,28 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - `/atlas-next` remains guarded, dist-backed, fail-closed, and non-default.
 - Existing `ui.html` remains default; Vue remains parallel/read-only/not default.
 - Backend workflow state remains authoritative; no Vue execution capability exists.
-- Current UI track: PR-ATLAS-VUE-12.
+- Current UI track: PR-ATLAS-VUE-13.
+- Current automation track remains PR-ATLAS-SCALE-93.
+
+
+## PR-ATLAS-VUE-12 Packaging/Deployment Readiness Policy
+- Completed UI PR: PR-ATLAS-VUE-12 (docs/manifest/tests alignment only; no runtime execution change).
+- Vue source remains in `web/atlas-next`.
+- Production artifacts are generated with:
+  - `cd web/atlas-next`
+  - `npm install`
+  - `npm run build`
+- Dist output remains `web/atlas-next/dist`.
+- `/atlas-next` may serve only dist artifacts.
+- Generated dist is not the source of truth.
+- Deployment may include dist artifacts only after build validation passes.
+- Missing or invalid dist must fail closed.
+- No raw Vite source may be served.
+- No fallback to `ui.html` or `/` is allowed.
+- Existing `ui.html` remains default.
+- Vue remains parallel/read-only/not default.
+- Diagnostics endpoint remains GET-only and metadata-only: `/api/atlas/vue-next-preview/diagnostics`.
+- Backend `workflow_state` remains authoritative; Vue execution capability remains none.
+- This PR does not make Vue default and does not enable execution.
+- Current UI track: PR-ATLAS-VUE-13.
 - Current automation track remains PR-ATLAS-SCALE-93.
