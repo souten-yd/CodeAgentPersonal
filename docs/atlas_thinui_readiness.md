@@ -524,3 +524,12 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - PR-ATLAS-SCALE-93 remains the current automation track.
 - Final goal remains `fully_autonomous_code_agent`.
 - Self-improvement scope remains `self_improving_codeagentpersonal_kasanecore`.
+
+## PR-ATLAS-VUE-11 Checkpoint
+- PR-ATLAS-VUE-11 is complete.
+- Atlas Next preview diagnostics are GET-only and metadata-only.
+- No execution/mutation capability added to Vue Next.
+- Existing `ui.html` remains default; Vue remains non-default parallel surface.
+- Preview route remains guarded, dist-backed, fail-closed.
+- Next UI track: PR-ATLAS-VUE-12.
+- Automation track remains PR-ATLAS-SCALE-93.

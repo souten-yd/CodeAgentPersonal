@@ -14,7 +14,7 @@ from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 
@@ -96,6 +96,78 @@ def configure_static_assets(
 
 
 
+def validate_atlas_next_dist(
+    dist_dir: str | Path = "web/atlas-next/dist",
+) -> dict[str, object]:
+    """Validate Atlas Next preview dist output with fail-closed semantics."""
+
+    dist_relative = str(Path(dist_dir)).replace("\\", "/")
+    dist_root = Path(dist_dir).resolve()
+    index = dist_root / "index.html"
+    result: dict[str, object] = {
+        "valid": False,
+        "reason": "missing_dist",
+        "dist_dir": dist_relative,
+        "dist_exists": False,
+        "index_present": False,
+        "asset_count": 0,
+        "fallback_ready": False,
+    }
+
+    if not dist_root.is_dir():
+        return result
+
+    result["dist_exists"] = True
+    if not index.is_file():
+        result["reason"] = "missing_index"
+        return result
+
+    result["index_present"] = True
+    index_text = index.read_text(encoding="utf-8", errors="ignore")
+    has_atlas_next_reference = "/atlas-next/" in index_text
+    has_built_asset_reference = "assets/" in index_text
+    if not (has_atlas_next_reference or has_built_asset_reference):
+        result["reason"] = "invalid_index_references"
+        return result
+
+    asset_count = sum(1 for item in dist_root.rglob("*") if item.is_file() and item.name != "index.html")
+    result["asset_count"] = asset_count
+    if has_built_asset_reference and asset_count < 1:
+        result["reason"] = "missing_assets"
+        return result
+
+    result["valid"] = True
+    result["reason"] = "ok"
+    result["fallback_ready"] = True
+    return result
+
+
+def get_atlas_next_preview_diagnostics(
+    dist_dir: str | Path = "web/atlas-next/dist",
+) -> dict[str, object]:
+    validation = validate_atlas_next_dist(dist_dir)
+    valid = bool(validation["valid"])
+    return {
+        "route_mounted": True,
+        "route_path": "/atlas-next",
+        "dist_dir": validation["dist_dir"],
+        "dist_exists": validation["dist_exists"],
+        "dist_validation_result": validation["reason"],
+        "index_present": validation["index_present"],
+        "asset_count": validation["asset_count"],
+        "fallback_ready": validation["fallback_ready"],
+        "preview_health_state": "healthy" if valid else "fail_closed",
+        "raw_source_serving_allowed": False,
+        "default_route": False,
+        "ui_html_fallback": False,
+        "root_fallback": False,
+        "read_only": True,
+        "backend_authoritative": True,
+        "mutation_endpoints_enabled": False,
+        "execution_enabled": False,
+    }
+
+
 def configure_atlas_next_preview_route(
     app: FastAPI,
     *,
@@ -113,24 +185,22 @@ def configure_atlas_next_preview_route(
             raise HTTPException(status_code=404, detail="Not found") from exc
         return candidate
 
-    def _dist_index() -> Path:
-        index = dist_root / "index.html"
-        if not dist_root.is_dir() or not index.is_file():
-            raise HTTPException(status_code=404, detail="Atlas Next preview unavailable")
-        return index
+    @app.get("/api/atlas/vue-next-preview/diagnostics")
+    def atlas_next_preview_diagnostics():
+        return JSONResponse(get_atlas_next_preview_diagnostics(dist_dir=dist_dir))
 
     @app.get("/atlas-next")
     @app.get("/atlas-next/")
     def atlas_next_index():
-        try:
-            index = _dist_index()
-        except HTTPException:
+        validation = validate_atlas_next_dist(dist_dir=dist_dir)
+        if not bool(validation["valid"]):
             return PlainTextResponse("Atlas Next preview unavailable.", status_code=404)
-        return FileResponse(index)
+        return FileResponse(dist_root / "index.html")
 
     @app.get("/atlas-next/{path:path}")
     def atlas_next_path(path: str):
-        if not dist_root.is_dir():
+        validation = validate_atlas_next_dist(dist_dir=dist_dir)
+        if not bool(validation["valid"]):
             return PlainTextResponse("Atlas Next preview unavailable.", status_code=404)
 
         request_path = path.lstrip("/")
@@ -140,16 +210,18 @@ def configure_atlas_next_preview_route(
             return PlainTextResponse("Not found.", status_code=404)
 
         if candidate.is_file():
+            relative = str(candidate.relative_to(dist_root)).replace("\\", "/")
+            if relative.startswith("src/"):
+                return PlainTextResponse("Not found.", status_code=404)
             return FileResponse(candidate)
-
-        index = dist_root / "index.html"
-        if not index.is_file():
-            return PlainTextResponse("Atlas Next preview unavailable.", status_code=404)
 
         if "." in Path(request_path).name:
             return PlainTextResponse("Not found.", status_code=404)
 
-        return FileResponse(index)
+        if not bool(validation["fallback_ready"]):
+            return PlainTextResponse("Atlas Next preview unavailable.", status_code=404)
+
+        return FileResponse(dist_root / "index.html")
 
 def include_routers(app: FastAPI) -> None:
     """Register API routers that have been split out of ``main.py``.
