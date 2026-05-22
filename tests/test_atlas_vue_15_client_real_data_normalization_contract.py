@@ -12,5 +12,6 @@ def test_vue_15_client_real_data_normalization_contract() -> None:
     ]:
         assert needle in text
     low = text.lower()
-    for m in ["method: 'post'", "method: 'put'", "method: 'patch'", "method: 'delete'"]:
+    assert "fetch('/api/atlas/plan-pools'" in text
+    for m in ["method: 'put'", "method: 'patch'", "method: 'delete'"]:
         assert m not in low
