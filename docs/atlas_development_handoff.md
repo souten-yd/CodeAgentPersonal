@@ -175,6 +175,17 @@ Known Current Code Facts:
 - PR-ATLAS-SCALE-74 adds automation-first ThinUI / CLI workflow shell contract and minimal workflow shell surfaces.
 - Runtime behavior is unchanged in this PR.
 
+## Vue Next Pointer Update (PR-ATLAS-VUE-04B)
+- PR-ATLAS-VUE-04 is completed: safe backend workflow_state GET adapter / static mount decision checkpoint.
+- Safe GET adapter remains deferred because there is no stable safe read-only workflow_state backend contract yet.
+- Static mount remains deferred because dist/static artifact strategy for `/atlas-next` is not locked.
+- Current UI track is PR-ATLAS-VUE-05: define stable read-only workflow_state backend contract.
+- Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
+- Vue remains parallel, read-only, replaceable, and not default; existing `ui.html` remains default.
+- Backend workflow state remains authoritative.
+- Vue does not call mutation endpoints.
+- Vue does not compute execution eligibility.
+
 ## Safety Boundaries (Unchanged)
 - no execute all / no auto continue
 - no shell=True / no remote git
