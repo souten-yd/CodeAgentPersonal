@@ -179,8 +179,9 @@ Known Current Code Facts:
 - PR-ATLAS-VUE-04 is completed: safe backend workflow_state GET adapter / static mount decision checkpoint.
 - Safe GET adapter remains deferred because there is no stable safe read-only workflow_state backend contract yet.
 - Static mount remains deferred because dist/static artifact strategy for `/atlas-next` is not locked.
-- Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment.
-- Current UI track: PR-ATLAS-VUE-13: Atlas Next route packaging / deployment integration follow-up.
+- Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened.
+- Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened
+- Current UI track: PR-ATLAS-VUE-16: Atlas-specific Requirement Input / Start Atlas UI follow-up.
 - Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
 - Vue remains parallel, read-only, replaceable, and not default; existing `ui.html` remains default.
 - Backend workflow state remains authoritative.
@@ -424,8 +425,9 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 
 ## Vue Next Pointer Update (PR-ATLAS-VUE-07)
 - PR-ATLAS-VUE-07 is completed: Vue read-only parity tests / visual refinement.
-- Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment.
-- Current UI track: PR-ATLAS-VUE-13: Atlas Next route packaging / deployment integration follow-up.
+- Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened.
+- Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened
+- Current UI track: PR-ATLAS-VUE-16: Atlas-specific Requirement Input / Start Atlas UI follow-up.
 - Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
 - Vue remains parallel/read-only/not default; existing ui.html remains default.
 - Vue adapter remains GET-only to /api/atlas/workflow-state/read-only with placeholder fallback.
@@ -559,3 +561,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Vue execution capability remains none; runtime remains `level_0_manual_only`.
 - Default-visible Vue UI remains `minimal_workflow` + `safety_always_visible`; advanced execution controls, raw JSON, internal IDs, direct subsystem panels, diagnostics, and debug controls remain hidden by default.
 
+
+PR-ATLAS-VUE-15 completed.
+
+- Vue workflow_state real-data connection is strengthened in PR-ATLAS-VUE-15 (metadata-only, GET-only, backend authoritative, no execution capability).

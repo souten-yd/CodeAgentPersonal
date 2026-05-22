@@ -38,8 +38,10 @@ def build_read_only_workflow_state(
     available_actions: list[dict[str, Any]] | None = None,
     artifacts: dict[str, Any] | None = None,
     warnings: list[str] | None = None,
+    workflow_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     artifacts_payload = artifacts or {}
+    metadata_payload = workflow_metadata or {}
     return {
         "schema_version": "atlas.workflow_state.v1",
         "contract": "read_only_workflow_state",
@@ -102,6 +104,24 @@ def build_read_only_workflow_state(
             "preview_health": "observable_fail_closed",
             "backend_contract_ready": True,
             "warnings": list(warnings or []),
+        },
+        "workflow_state_metadata": {
+            "latest_pool_id": metadata_payload.get("latest_pool_id"),
+            "latest_run_id": metadata_payload.get("latest_run_id"),
+            "latest_plan_id": metadata_payload.get("latest_plan_id"),
+            "latest_requirement_id": metadata_payload.get("latest_requirement_id"),
+            "current_phase": metadata_payload.get("current_phase"),
+            "latest_status": metadata_payload.get("latest_status"),
+            "continuation_state": metadata_payload.get("continuation_state"),
+            "recovery_state": metadata_payload.get("recovery_state"),
+            "plan_pool_available": bool(metadata_payload.get("plan_pool_available", False)),
+            "active_plan_available": bool(metadata_payload.get("active_plan_available", False)),
+            "last_report_available": bool(metadata_payload.get("last_report_available", False)),
+            "last_error_summary": metadata_payload.get("last_error_summary"),
+            "last_updated_at": metadata_payload.get("last_updated_at"),
+            "data_freshness": metadata_payload.get("data_freshness", "unknown"),
+            "source_detail": metadata_payload.get("source_detail", "backend_contract_metadata_only"),
+            "workflow_snapshot_available": bool(metadata_payload.get("workflow_snapshot_available", False)),
         },
     }
 

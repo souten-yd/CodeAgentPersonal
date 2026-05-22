@@ -1237,7 +1237,28 @@ def atlas_workflow_state_read_only() -> dict[str, Any]:
         primary_cta_label="Read-only preview (metadata only)",
         available_actions=[{"id": "inspect_workflow_state", "label": "Inspect workflow state payload", "kind": "read_only"}],
         artifacts={"rollup": True, "dry_run": True, "snapshot": True, "allowlist": True, "risk": True},
-        warnings=["Route is read-only metadata only. Vue static mount remains deferred."],
+        warnings=[
+            "Route is read-only metadata only.",
+            "Real-data workflow metadata is safe-if-available and may be unknown when backend state is unavailable.",
+        ],
+        workflow_metadata={
+            "latest_pool_id": None,
+            "latest_run_id": None,
+            "latest_plan_id": None,
+            "latest_requirement_id": None,
+            "current_phase": "read_only_preview",
+            "latest_status": "unknown",
+            "continuation_state": "unknown",
+            "recovery_state": "unknown",
+            "plan_pool_available": False,
+            "active_plan_available": False,
+            "last_report_available": False,
+            "last_error_summary": None,
+            "last_updated_at": None,
+            "data_freshness": "unknown",
+            "source_detail": "safe_read_only_backend_metadata",
+            "workflow_snapshot_available": False,
+        },
     )
 
 

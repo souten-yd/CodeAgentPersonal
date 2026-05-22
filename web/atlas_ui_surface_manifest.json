@@ -920,5 +920,17 @@
   "vue_next_client_diagnostics_dist_backed": true,
   "vue_next_client_diagnostics_fail_closed": true,
   "vue_next_backend_diagnostics_route_state_aligned": true,
-  "vue_next_docs_diagnostics_route_state_aligned": true
+  "vue_next_docs_diagnostics_route_state_aligned": true,
+  "vue_next_real_data_connection_checkpoint": "PR-ATLAS-VUE-15",
+  "vue_next_workflow_state_real_data_strengthened": true,
+  "vue_next_workflow_state_real_data_read_only": true,
+  "vue_next_workflow_state_backend_owned": true,
+  "vue_next_workflow_state_metadata_only": true,
+  "vue_next_workflow_state_execution_eligibility_computed_in_vue": false,
+  "vue_next_workflow_state_mutation_capability": false,
+  "vue_next_latest_pool_metadata_supported": "safe_if_available",
+  "vue_next_latest_run_metadata_supported": "safe_if_available",
+  "vue_next_continuation_metadata_supported": "safe_if_available",
+  "vue_next_recovery_metadata_supported": "safe_if_available",
+  "vue_next_raw_internal_ids_default_visible": false
 }

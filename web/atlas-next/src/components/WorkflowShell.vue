@@ -18,6 +18,13 @@
       <li v-if="snapshot.availableActions.length === 0">No available actions provided by current read-only payload.</li>
     </ul>
   </StatusCard>
+  <StatusCard title="Workflow State Metadata (read-only)">
+    <p><b>Current phase:</b> {{ snapshot.workflowMetadata.currentPhase || 'unknown' }}</p>
+    <p><b>Latest status:</b> {{ snapshot.workflowMetadata.latestStatus || 'unknown' }}</p>
+    <p><b>Continuation:</b> {{ snapshot.workflowMetadata.continuationState || 'unknown' }} | <b>Recovery:</b> {{ snapshot.workflowMetadata.recoveryState || 'unknown' }}</p>
+    <p><b>Plan pool available:</b> {{ snapshot.workflowMetadata.planPoolAvailable ? 'yes' : 'no' }} | <b>Active plan:</b> {{ snapshot.workflowMetadata.activePlanAvailable ? 'yes' : 'no' }}</p>
+    <p><b>Last report:</b> {{ snapshot.workflowMetadata.lastReportAvailable ? 'available' : 'unavailable' }} | <b>Freshness:</b> {{ snapshot.workflowMetadata.dataFreshness }}</p>
+  </StatusCard>
 </template>
 
 <script setup lang="ts">

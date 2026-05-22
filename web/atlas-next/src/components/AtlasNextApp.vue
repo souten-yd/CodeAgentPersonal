@@ -43,6 +43,14 @@ const snapshot = ref<AtlasWorkflowSnapshot>({
     backendContractReady: false,
     warnings: []
   },
+  workflowMetadata: {
+    planPoolAvailable: false,
+    activePlanAvailable: false,
+    lastReportAvailable: false,
+    dataFreshness: 'unknown',
+    sourceDetail: 'placeholder',
+    workflowSnapshotAvailable: false
+  },
   backendAuthorityNote: 'Backend workflow state remains authoritative. Vue Next does not compute execution eligibility.'
 })
 
