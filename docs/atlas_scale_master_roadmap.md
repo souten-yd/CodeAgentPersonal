@@ -593,3 +593,89 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - This PR does not make Vue default and does not enable execution.
 - Current UI track: PR-ATLAS-VUE-13.
 - Current automation track remains PR-ATLAS-SCALE-93.
+
+## Vue Atlas Next Defaultization Plan: PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21
+
+- Vue defaultization is a temporary focused UI track.
+- This temporary Vue defaultization track does not replace the Atlas automation roadmap.
+- It exists to make Atlas usable through the future Vue Workbench before resuming automation work.
+- PR-ATLAS-SCALE-93 remains the current automation track and is not completed by Vue work.
+- Completed UI PRs include PR-ATLAS-VUE-01 through PR-ATLAS-VUE-12.
+- Current UI track is PR-ATLAS-VUE-13.
+- Planned UI track is PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21.
+- Existing ui.html remains default until PR-ATLAS-VUE-21.
+- Vue is not default yet.
+- Vue Atlas Next must not become another large dashboard.
+- Vue defaultization must preserve the Atlas minimal UI policy from `docs/atlas_autonomous_first_ui_policy.md`.
+- Default-visible Vue UI must remain `minimal_workflow` + `safety_always_visible` only.
+- Advanced execution controls, raw JSON, internal IDs, direct subsystem panels, diagnostics, and debug controls must remain hidden by default.
+- New Vue surfaces added in PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21 must be classified in `web/atlas_ui_surface_manifest.json`.
+- Any new default-visible surface must directly support the final user flow: goal → plan → review → approval → guarded execution/progress → report.
+- Direct subsystem buttons must not appear in minimal/default mode.
+- Vue must not compute execution eligibility; backend workflow_state remains authoritative.
+
+### Planned Vue PR Sequence
+
+- **PR-ATLAS-VUE-13**
+  - Preview route / manifest / backend diagnostics / client diagnostics state alignment.
+  - Fix stale routeMounted/staticMountDeferred wording.
+  - Ensure docs, manifest, backend endpoint, and Vue diagnostics all describe the same guarded preview state.
+  - Vue remains non-default.
+- **PR-ATLAS-VUE-14**
+  - Strengthen read-only workflow_state real-data connection.
+  - Move read-only payload closer to latest pool/run/continuation/recovery state.
+  - Backend remains authoritative.
+  - Vue remains read-only for actions.
+- **PR-ATLAS-VUE-15**
+  - Add Atlas-specific Requirement Input and Start Atlas UI in Vue.
+  - Add goal/task input, project path input, and minimal planning options.
+  - Allow guarded plan creation through existing planning API.
+  - This may create plans but must not execute patches or safe_apply.
+  - Chat input should no longer be required to start Atlas once this is complete.
+- **PR-ATLAS-VUE-16**
+  - Requirement / clarification / plan review UI.
+  - Display planner questions, clarification answers, generated requirement, generated plan, and PlanPool items.
+  - Vue remains a workflow client, not workflow authority.
+- **PR-ATLAS-VUE-17**
+  - Approval and dry-run preview UI.
+  - Display dry-run results, approval-required items, risk summary, verification recommendation, artifact references.
+  - Add approval decision surface only if it preserves backend authority and existing guards.
+  - No automatic execution.
+- **PR-ATLAS-VUE-18**
+  - Guarded Execute One Action parity.
+  - Implement Vue UI parity for the existing manual guarded execution flow.
+  - Preserve confirmation token, dry-run-first, approval, risk, stop, and recovery/rollback visibility.
+  - Do not add execute-all, auto-continue, or autonomous execution.
+- **PR-ATLAS-VUE-19**
+  - Minimal workflow parity and advanced diagnostics migration.
+  - Vue covers normal Atlas workflow surfaces.
+  - Advanced/debug/raw JSON/pool IDs/run IDs remain accessible but hidden by default.
+  - Safety-critical state remains visible.
+- **PR-ATLAS-VUE-20**
+  - Default switch candidate.
+  - Vue becomes default candidate only, not default yet.
+  - Keep ui.html as rollback/legacy route.
+  - Add smoke, packaging, rollback, and fail-closed tests.
+  - Require Vue build/typecheck and backend contract tests.
+- **PR-ATLAS-VUE-21**
+  - Vue Atlas Next default enable.
+  - Make Vue the default Atlas UI only after VUE-20 gates pass.
+  - Keep legacy ui.html available for rollback.
+  - No execution semantics change.
+  - Backend workflow_state remains authoritative.
+  - PR-ATLAS-VUE-21 is the default enable checkpoint.
+  - After this PR, mark Vue defaultization track complete and return to the automation roadmap.
+
+## Post-VUE-21 Return to Automation Roadmap
+
+- After PR-ATLAS-VUE-21, the active focus returns to PR-ATLAS-SCALE-93 or its successor.
+- The next work resumes Level-1 guarded execution design and the original automation path.
+- Vue is the supervision/workbench UI, not the autonomous engine.
+- Backend policy gates remain authoritative.
+- The long-term goal remains a fully autonomous code agent: goal → research → plan → implement → test → fix → PR.
+- Self-improving CodeAgentPersonal / KasaneCore remains explicitly in scope.
+- Remote git/PR creation/merge remain disabled until later explicit policy PRs.
+- Autonomous execution remains disabled unless later guarded automation PRs explicitly enable it.
+- Runtime remains level_0_manual_only during this transition.
+- available_actions remain metadata-only unless explicitly changed by a later guarded execution PR.
+

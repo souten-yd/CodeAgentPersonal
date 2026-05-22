@@ -582,3 +582,13 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Deployment packaging may include `web/atlas-next/dist` only after validation passes.
 - No raw Vite source serving.
 - No fallback to `/` or `ui.html`.
+
+## Vue Track Alignment (VUE-13 through VUE-21)
+
+- ThinUI/automation-first policy is unchanged while Vue migration continues in parallel.
+- Completed Vue UI PRs include PR-ATLAS-VUE-01 through PR-ATLAS-VUE-12.
+- Current UI track is PR-ATLAS-VUE-13; planned defaultization sequence runs through PR-ATLAS-VUE-21.
+- Existing ui.html remains default until PR-ATLAS-VUE-21 default-enable gates are satisfied.
+- PR-ATLAS-SCALE-93 remains the current automation track throughout Vue defaultization.
+- After PR-ATLAS-VUE-21, roadmap focus returns to automation work (Level-1 guarded execution design and beyond).
+
