@@ -13,7 +13,8 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 
@@ -45,6 +46,7 @@ def create_app(
         assets_dir=assets_dir,
         web_dir=web_dir,
     )
+    configure_atlas_next_preview_route(app)
 
     return app
 
@@ -92,6 +94,62 @@ def configure_static_assets(
     if web_dir and Path(web_dir).is_dir():
         app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
 
+
+
+def configure_atlas_next_preview_route(
+    app: FastAPI,
+    *,
+    dist_dir: str | Path = "web/atlas-next/dist",
+) -> None:
+    """Mount a guarded read-only Atlas Next preview route backed only by dist assets."""
+
+    dist_root = Path(dist_dir).resolve()
+
+    def _resolve_in_dist(request_path: str) -> Path:
+        candidate = (dist_root / request_path).resolve()
+        try:
+            candidate.relative_to(dist_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Not found") from exc
+        return candidate
+
+    def _dist_index() -> Path:
+        index = dist_root / "index.html"
+        if not dist_root.is_dir() or not index.is_file():
+            raise HTTPException(status_code=404, detail="Atlas Next preview unavailable")
+        return index
+
+    @app.get("/atlas-next")
+    @app.get("/atlas-next/")
+    def atlas_next_index():
+        try:
+            index = _dist_index()
+        except HTTPException:
+            return PlainTextResponse("Atlas Next preview unavailable.", status_code=404)
+        return FileResponse(index)
+
+    @app.get("/atlas-next/{path:path}")
+    def atlas_next_path(path: str):
+        if not dist_root.is_dir():
+            return PlainTextResponse("Atlas Next preview unavailable.", status_code=404)
+
+        request_path = path.lstrip("/")
+        try:
+            candidate = _resolve_in_dist(request_path)
+        except HTTPException:
+            return PlainTextResponse("Not found.", status_code=404)
+
+        if candidate.is_file():
+            return FileResponse(candidate)
+
+        index = dist_root / "index.html"
+        if not index.is_file():
+            return PlainTextResponse("Atlas Next preview unavailable.", status_code=404)
+
+        if "." in Path(request_path).name:
+            return PlainTextResponse("Not found.", status_code=404)
+
+        return FileResponse(index)
 
 def include_routers(app: FastAPI) -> None:
     """Register API routers that have been split out of ``main.py``.

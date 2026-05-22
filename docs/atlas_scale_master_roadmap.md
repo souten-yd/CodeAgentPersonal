@@ -42,6 +42,7 @@ Completed:
 - PR-ATLAS-VUE-08: Safe static mount/dist strategy
 - PR-ATLAS-VUE-08B: Roadmap/docs pointer drift fix
 - PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy
+- PR-ATLAS-VUE-10: Optional guarded /atlas-next preview route hardening
 
 Current automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
@@ -51,9 +52,9 @@ Next automation track PR:
 
 Separate UI track opened after PR-92:
 - Current UI track during PR-ATLAS-VUE-08 was: PR-ATLAS-VUE-08: Safe static mount/dist strategy
-- Current UI track: PR-ATLAS-VUE-10: Optional guarded /atlas-next preview route hardening
-- Next UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening (or another roadmap-approved next item)
-- PR-ATLAS-VUE-09 completed build artifact/smoke-route policy hardening; static mount remains deferred until guarded dist-backed route hardening is implemented and fully tested.
+- Current UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening
+- Next UI track: PR-ATLAS-VUE-12: Atlas Next route packaging / deployment integration (or another roadmap-approved next item)
+- PR-ATLAS-VUE-10 completed optional guarded /atlas-next preview route hardening with a dist-backed fail-closed preview route that never replaces `/` or `/ui.html`.
 
 Known Current Code Facts:
 - PR-90B hardens remote git reference-readiness blocking.

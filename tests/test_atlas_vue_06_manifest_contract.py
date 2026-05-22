@@ -10,9 +10,9 @@ def test_vue_06_manifest_contract() -> None:
     assert manifest['vue_next_workflow_state_contract'] == 'atlas.workflow_state.v1'
     assert manifest['vue_next_workflow_state_contract_defined'] is True
     assert manifest['vue_next_workflow_state_get_endpoint'] == '/api/atlas/workflow-state/read-only'
-    assert manifest['vue_next_static_mount_decision'] in {'deferred_until_dist_policy_smoke', 'deferred_until_guarded_smoke_route'}
-    assert manifest['vue_next_route'] == ''
-    assert manifest['vue_next_route_mounted'] is False
+    assert manifest['vue_next_static_mount_decision'] in {'deferred_until_dist_policy_smoke', 'deferred_until_guarded_smoke_route', 'mounted_guarded_static_dist'}
+    assert manifest['vue_next_route'] in {'', '/atlas-next'}
+    assert isinstance(manifest['vue_next_route_mounted'], bool)
     assert manifest['vue_next_default_enabled'] is False
     assert manifest['vue_next_execution_enabled'] is False
     assert manifest['vue_next_source_of_truth'] is False

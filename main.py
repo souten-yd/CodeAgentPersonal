@@ -122,7 +122,7 @@ from app.nexus.router import (
 )
 from app.nexus.web_scout import get_last_web_search_status, plan_web_queries, run_web_search
 from app.nexus.web_service import execute_nexus_web_search
-from app.server import configure_static_assets, configure_workspace_mount, include_routers
+from app.server import configure_atlas_next_preview_route, configure_static_assets, configure_workspace_mount, include_routers
 from app.api.runtime_controls import (
     CUDA_REGRESSION_BASELINE_REF,
     CUDA_REGRESSION_SUSPECTED_FILES,
@@ -17713,6 +17713,7 @@ configure_static_assets(
     assets_dir=ASSETS_DIR,
     web_dir=WEB_DIR,
 )
+configure_atlas_next_preview_route(app)
 
 def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict:
     route = resolve_tts_language_route(req, model_version)

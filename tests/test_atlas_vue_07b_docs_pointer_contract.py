@@ -11,7 +11,7 @@ def test_vue_07b_docs_pointer_contract() -> None:
     ])
 
     assert 'pr-atlas-vue-07: vue read-only parity tests / visual refinement' in roadmap
-    assert ('current ui track: pr-atlas-vue-09: atlas next read-only smoke route / build artifact policy' in roadmap) or ('current ui track: pr-atlas-vue-10: optional guarded /atlas-next preview route hardening' in roadmap)
+    assert ('current ui track: pr-atlas-vue-09: atlas next read-only smoke route / build artifact policy' in roadmap) or ('current ui track: pr-atlas-vue-10: optional guarded /atlas-next preview route hardening' in roadmap) or ('current ui track: pr-atlas-vue-11: atlas next preview route observability / fallback hardening' in roadmap)
     assert 'current automation track pr:' in roadmap
     assert 'pr-atlas-scale-93: level-1 guarded execution design checkpoint' in roadmap
 

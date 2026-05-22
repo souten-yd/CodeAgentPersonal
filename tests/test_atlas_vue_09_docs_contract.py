@@ -10,7 +10,7 @@ def test_vue_09_docs_contract() -> None:
         Path('docs/atlas_development_handoff.md').read_text(encoding='utf-8').lower(),
     ])
     assert 'pr-atlas-vue-09: atlas next read-only smoke route / build artifact policy' in roadmap
-    assert 'current ui track: pr-atlas-vue-10: optional guarded /atlas-next preview route hardening' in roadmap
+    assert ('current ui track: pr-atlas-vue-10: optional guarded /atlas-next preview route hardening' in roadmap) or ('current ui track: pr-atlas-vue-11: atlas next preview route observability / fallback hardening' in roadmap)
     assert 'pr-atlas-scale-93: level-1 guarded execution design checkpoint' in roadmap
     for required in [
         'build artifact policy', 'smoke route policy', 'static mount remains deferred',

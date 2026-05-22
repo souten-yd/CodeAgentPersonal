@@ -4,12 +4,12 @@ from pathlib import Path
 
 def test_vue_08_static_mount_deferred_contract() -> None:
     main_py = Path('main.py').read_text(encoding='utf-8').lower()
-    assert '/atlas-next' not in main_py
+    assert 'configure_atlas_next_preview_route(app)' in main_py
 
     m = json.loads(Path('web/atlas_ui_surface_manifest.json').read_text(encoding='utf-8'))
-    assert m['vue_next_route'] == ''
-    assert m['vue_next_route_mounted'] is False
-    assert m['vue_next_static_mount_decision'] == 'deferred_until_guarded_smoke_route'
+    assert m['vue_next_route'] == '/atlas-next'
+    assert m['vue_next_route_mounted'] is True
+    assert m['vue_next_static_mount_decision'] == 'mounted_guarded_static_dist'
     assert m['vue_next_serves_raw_vite_source'] is False
 
     docs = '\n'.join([
