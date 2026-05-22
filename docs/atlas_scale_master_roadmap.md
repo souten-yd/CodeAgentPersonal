@@ -34,6 +34,10 @@ Current implementation PR:
 Next implementation PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
 
+Separate UI track opened after PR-92:
+- PR-ATLAS-VUE-01: Add parallel Vue/Vite Atlas Next read-only shell
+- Next UI track: PR-ATLAS-VUE-02: Decide safe serving/mount strategy or connect read-only workflow_state adapter
+
 Known Current Code Facts:
 - PR-90B hardens remote git reference-readiness blocking.
 - requested_operation must be "none" for remote git readiness.

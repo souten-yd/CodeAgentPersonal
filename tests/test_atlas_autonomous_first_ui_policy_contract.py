@@ -30,3 +30,9 @@ def test_autonomous_first_ui_policy_contract() -> None:
         'CLI/TUI',
     ]:
         assert s in t
+
+
+def test_ui_html_default_and_vue_parallel_statements_in_docs():
+    d=(Path('docs/atlas_development_handoff.md').read_text()+Path('docs/atlas_thinui_readiness.md').read_text()).lower()
+    assert 'ui.html remains the default' in d
+    assert 'parallel' in d and 'read-only' in d

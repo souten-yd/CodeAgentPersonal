@@ -113,3 +113,15 @@ def test_pr80_surface_categories_and_safety_constraints():
         if s['category'] == 'safety_always_visible':
             assert s['default_visible'] is True
             assert s['category'] != 'deprecated'
+
+
+def test_vue_next_manifest_flags():
+    m = _manifest()
+    assert m['vue_next_allowed_after_pr92'] is True
+    assert m['vue_next_foundation'] is True
+    assert m['vue_next_runtime_gate'] == 'parallel_read_only'
+    assert m['vue_next_default_enabled'] is False
+    assert m['vue_next_execution_enabled'] is False
+    assert m['vue_next_source_of_truth'] is False
+    assert m['vue_next_backend_authoritative'] is True
+    assert m['vue_next_read_only_shell'] is True

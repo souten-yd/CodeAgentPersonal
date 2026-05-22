@@ -24,3 +24,9 @@ def test_vue_migration_plan_contract() -> None:
         assert s in t
     assert 'replace the current UI immediately' not in t
     assert 'make Vue the default UI immediately' not in t
+
+
+def test_pr92_prereq_and_vue01_track_language():
+    t = Path('docs/atlas_vue_migration_plan.md').read_text(encoding='utf-8')
+    for s in ['PR-ATLAS-SCALE-92','separate UI track','read-only','not default','PR-80 was planning only']:
+        assert s in t
