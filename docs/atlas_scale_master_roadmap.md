@@ -37,6 +37,7 @@ Completed:
 - PR-ATLAS-VUE-05: Define stable read-only workflow_state backend contract
 - PR-ATLAS-VUE-05B: Manifest/docs/tests alignment for stable workflow_state contract
 - PR-ATLAS-VUE-06: Bind Vue read-only adapter to stable GET workflow_state contract
+- PR-ATLAS-VUE-06B: Fix Vue Next StatusCard SFC typecheck failure
 
 Current automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
