@@ -179,7 +179,7 @@ Known Current Code Facts:
 - PR-ATLAS-VUE-04 is completed: safe backend workflow_state GET adapter / static mount decision checkpoint.
 - Safe GET adapter remains deferred because there is no stable safe read-only workflow_state backend contract yet.
 - Static mount remains deferred because dist/static artifact strategy for `/atlas-next` is not locked.
-- Current UI track is PR-ATLAS-VUE-06: Bind Vue read-only adapter to stable GET workflow_state contract.
+- Current UI track is PR-ATLAS-VUE-08: Safe static mount/dist strategy.
 - Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
 - Vue remains parallel, read-only, replaceable, and not default; existing `ui.html` remains default.
 - Backend workflow state remains authoritative.
