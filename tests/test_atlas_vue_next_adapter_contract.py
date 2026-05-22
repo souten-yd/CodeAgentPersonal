@@ -7,6 +7,8 @@ def test_vue_next_adapter_exports_and_read_only_normalization() -> None:
         'export type AtlasReadOnlyAvailableAction =',
         'export type AtlasReadOnlySafetyState =',
         'export type AtlasWorkflowSnapshot =',
+        'export type AtlasWorkflowArtifactState =',
+        'export type AtlasWorkflowDiagnosticsState =',
     ]:
         assert exported in client
 
@@ -21,6 +23,12 @@ def test_vue_next_adapter_has_no_mutation_or_execution_calls() -> None:
         'fetch(',
         'method: "post"',
         "method: 'post'",
+        'method: "put"',
+        "method: 'put'",
+        'method: "patch"',
+        "method: 'patch'",
+        'method: "delete"',
+        "method: 'delete'",
         '/execute',
         '/apply',
         '/approve',
