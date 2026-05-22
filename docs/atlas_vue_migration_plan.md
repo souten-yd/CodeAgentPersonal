@@ -230,3 +230,19 @@ Vue Atlas Next may become default only when:
 - Dist strategy is defined as `dist_required` with production artifacts in `web/atlas-next/dist`.
 - Raw Vite source must not be served as production UI.
 - Static mount remains deferred until VUE-09 / smoke route policy.
+
+
+## Atlas Next read-only smoke route / build artifact policy
+- PR-ATLAS-VUE-09 defines policy/tests only; `/atlas-next` stays unmounted by default in this PR.
+- Vue Next source of truth for implementation remains `web/atlas-next/` source files.
+- Vue Next production build output is generated at `web/atlas-next/dist/` via:
+  - `cd web/atlas-next`
+  - `npm install`
+  - `npm run build`
+- `dist/` is a generated artifact and not the workflow source of truth.
+- Raw Vite source (including `web/atlas-next/src`) must never be served as production UI.
+- Any future preview route must be `/atlas-next` only, read-only preview only, built-dist only, not default, no execution controls, and no mutation endpoint calls.
+- Vue route must never replace `/` and must never replace `/ui.html`; existing `ui.html` remains default.
+- If dist is missing, future `/atlas-next` must fail closed (disabled/deferred or 404) rather than serving source.
+- Build artifact policy and smoke route policy must be covered by contract tests before any route mount is enabled.
+- Vue remains parallel/read-only/not default/no execution; backend workflow state remains authoritative; `available_actions` remain metadata only; Vue does not compute execution eligibility and does not call mutation endpoints.

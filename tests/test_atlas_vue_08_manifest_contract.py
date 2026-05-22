@@ -10,8 +10,8 @@ def test_vue_08_manifest_contract() -> None:
     assert m['vue_next_dist_strategy_defined'] is True
     assert m['vue_next_dist_dir'] == 'web/atlas-next/dist'
     assert m['vue_next_serves_raw_vite_source'] is False
-    assert m['vue_next_static_mount_decision'] == 'deferred_until_dist_policy_smoke'
-    assert m['vue_next_static_mount_policy'] == 'docs/atlas_vue_migration_plan.md#safe-static-mount--dist-strategy'
+    assert m['vue_next_static_mount_decision'] == 'deferred_until_guarded_smoke_route'
+    assert m['vue_next_static_mount_policy'] in {'docs/atlas_vue_migration_plan.md#safe-static-mount--dist-strategy','docs/atlas_vue_migration_plan.md#atlas-next-read-only-smoke-route--build-artifact-policy'}
     for k, v in {
         'vue_next_default_enabled': False,
         'vue_next_execution_enabled': False,

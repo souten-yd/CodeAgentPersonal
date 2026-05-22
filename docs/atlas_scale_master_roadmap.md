@@ -40,6 +40,8 @@ Completed:
 - PR-ATLAS-VUE-06B: Fix Vue Next StatusCard SFC typecheck failure
 - PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement
 - PR-ATLAS-VUE-08: Safe static mount/dist strategy
+- PR-ATLAS-VUE-08B: Roadmap/docs pointer drift fix
+- PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy
 
 Current automation track PR:
 - PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint
@@ -49,9 +51,9 @@ Next automation track PR:
 
 Separate UI track opened after PR-92:
 - Current UI track during PR-ATLAS-VUE-08 was: PR-ATLAS-VUE-08: Safe static mount/dist strategy
-- Current UI track: PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy
-- Next UI track: PR-ATLAS-VUE-10: Optional guarded /atlas-next preview route hardening
-- Vue Next static mount remains deferred until PR-ATLAS-VUE-09 smoke route / build artifact policy is completed.
+- Current UI track: PR-ATLAS-VUE-10: Optional guarded /atlas-next preview route hardening
+- Next UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening (or another roadmap-approved next item)
+- PR-ATLAS-VUE-09 completed build artifact/smoke-route policy hardening; static mount remains deferred until guarded dist-backed route hardening is implemented and fully tested.
 
 Known Current Code Facts:
 - PR-90B hardens remote git reference-readiness blocking.
