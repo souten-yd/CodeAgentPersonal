@@ -321,3 +321,13 @@ Vue Atlas Next may become default only when:
 - This PR does not make Vue default and does not enable execution.
 - Current UI track: PR-ATLAS-VUE-13.
 - Current automation track remains PR-ATLAS-SCALE-93.
+
+## Active Vue Defaultization Pointer Update
+
+- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-12.
+- Current UI track: PR-ATLAS-VUE-13.
+- Planned UI defaultization track: PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21.
+- Existing ui.html remains default until PR-ATLAS-VUE-21.
+- Vue Atlas Next remains non-default until PR-ATLAS-VUE-21.
+- Current automation track remains PR-ATLAS-SCALE-93 and resumes as active focus after PR-ATLAS-VUE-21.
+
