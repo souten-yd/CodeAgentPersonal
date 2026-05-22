@@ -54,7 +54,10 @@ export type AtlasWorkflowSnapshot = {
   diagnostics: AtlasWorkflowDiagnosticsState
 }
 
-type AtlasWorkflowStateResponse = {
+export type AtlasBackendWorkflowStateContract = {
+  schema_version?: string
+  contract?: string
+  source?: string
   goal?: string
   project_path?: string
   phase?: string
@@ -63,9 +66,33 @@ type AtlasWorkflowStateResponse = {
   primary_cta_state?: string
   readiness_level?: string
   runtime_level?: string
+  backend_workflow_state_authoritative?: boolean
   artifacts?: AtlasWorkflowArtifactState
   available_actions?: Array<Record<string, unknown>>
-  diagnostics?: Partial<AtlasWorkflowDiagnosticsState>
+  diagnostics?: {
+    source?: string
+    backend_contract_ready?: boolean
+    warnings?: unknown
+  }
+}
+
+// Safe GET-only backend workflow_state contract endpoint binding.
+const PLACEHOLDER_SNAPSHOT: AtlasBackendWorkflowStateContract = {
+  goal: 'Atlas Next read-only supervision shell',
+  project_path: 'Backend-provided project path when safe workflow_state is available',
+  phase: 'read_only_preview',
+  status: 'Vue shell is not wired to execution endpoints',
+  primary_cta_label: 'Read-only preview (not wired)',
+  primary_cta_state: 'read_only',
+  readiness_level: 'Level 0 metadata-only readiness complete',
+  runtime_level: 'level_0_manual_only',
+  artifacts: { rollup: true, dryRun: true, snapshot: true, allowlist: true, risk: true },
+  available_actions: [{ id: 'inspect_workflow_state', label: 'Inspect workflow state payload', kind: 'read_only' }],
+  diagnostics: {
+    source: 'placeholder',
+    backend_contract_ready: false,
+    warnings: ['Using placeholder read-only snapshot when safe GET adapter endpoint is unavailable or invalid.']
+  }
 }
 
 function getReadOnlySafetyState(runtimeLevel?: string): AtlasReadOnlySafetyState {
@@ -90,17 +117,39 @@ function toReadOnlyAvailableActions(value: unknown): AtlasReadOnlyAvailableActio
   })
 }
 
-function normalizeWorkflowState(payload: AtlasWorkflowStateResponse): AtlasWorkflowSnapshot {
+function fallbackWorkflowStateContract(): AtlasBackendWorkflowStateContract {
+  return PLACEHOLDER_SNAPSHOT
+}
+
+function isValidWorkflowStateContract(payload: AtlasBackendWorkflowStateContract): boolean {
+  return payload.schema_version === 'atlas.workflow_state.v1' && payload.contract === 'read_only_workflow_state'
+}
+
+async function fetchReadOnlyWorkflowState(): Promise<AtlasBackendWorkflowStateContract> {
+  try {
+    const response = await fetch('/api/atlas/workflow-state/read-only', { method: 'GET' })
+    if (!response.ok) return fallbackWorkflowStateContract()
+    const payload = (await response.json()) as AtlasBackendWorkflowStateContract
+    if (!isValidWorkflowStateContract(payload)) return fallbackWorkflowStateContract()
+    return payload
+  } catch {
+    return fallbackWorkflowStateContract()
+  }
+}
+
+function normalizeWorkflowState(payload: AtlasBackendWorkflowStateContract): AtlasWorkflowSnapshot {
+  const accepted = isValidWorkflowStateContract(payload)
   const runtimeLevel = typeof payload.runtime_level === 'string' ? payload.runtime_level : 'level_0_manual_only'
   const diagnostics: AtlasWorkflowDiagnosticsState = {
-    source: payload.diagnostics?.source === 'safe_get_adapter' ? 'safe_get_adapter' : 'placeholder',
+    source: accepted ? 'safe_get_adapter' : 'placeholder',
     routeMounted: false,
     staticMountDeferred: true,
-    backendContractReady: payload.diagnostics?.backendContractReady === true,
+    backendContractReady: accepted,
     warnings: Array.isArray(payload.diagnostics?.warnings)
       ? payload.diagnostics?.warnings.filter((item): item is string => typeof item === 'string')
       : []
   }
+
   return {
     goal: payload.goal,
     projectPath: payload.project_path,
@@ -118,26 +167,6 @@ function normalizeWorkflowState(payload: AtlasWorkflowStateResponse): AtlasWorkf
 }
 
 export async function fetchAtlasWorkflowSnapshot(): Promise<AtlasWorkflowSnapshot> {
-  // TODO(PR-ATLAS-VUE-05): Define and bind a stable GET-only backend workflow_state contract endpoint (available_actions metadata only) once finalized.
-  return normalizeWorkflowState({
-    goal: 'Atlas Next read-only supervision shell',
-    project_path: 'Backend-provided project path when safe workflow_state is available',
-    phase: 'read_only_preview',
-    status: 'Vue shell is not wired to execution endpoints',
-    primary_cta_label: 'Read-only preview (not wired)',
-    primary_cta_state: 'read_only',
-    readiness_level: 'Level 0 metadata-only readiness complete',
-    runtime_level: 'level_0_manual_only',
-    artifacts: { rollup: true, dryRun: true, snapshot: true, allowlist: true, risk: true },
-    available_actions: [
-      { id: 'inspect_workflow_state', label: 'Inspect workflow state payload', kind: 'read_only' }
-    ],
-    diagnostics: {
-      source: 'placeholder',
-      routeMounted: false,
-      staticMountDeferred: true,
-      backendContractReady: false,
-      warnings: ['Using placeholder read-only snapshot until safe GET adapter endpoint contract is mounted.']
-    }
-  })
+  const payload = await fetchReadOnlyWorkflowState()
+  return normalizeWorkflowState(payload)
 }

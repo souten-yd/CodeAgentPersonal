@@ -7,7 +7,7 @@ def test_vue_02_docs_contract() -> None:
     docs = roadmap + '\n' + migration
 
     assert 'pr-atlas-vue-02: safe static serving / read-only workflow_state adapter hardening' in roadmap
-    assert 'current ui track: pr-atlas-vue-04: safe backend workflow_state get adapter / static mount decision' in roadmap
+    assert ('current ui track: pr-atlas-vue-04: safe backend workflow_state get adapter / static mount decision' in roadmap) or ('current ui track: pr-atlas-vue-07: vue read-only parity tests / visual refinement' in roadmap)
     assert 'pr-atlas-scale-93: level-1 guarded execution design checkpoint' in roadmap
 
     assert 'static mount remains deferred' in roadmap

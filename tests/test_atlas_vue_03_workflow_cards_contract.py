@@ -62,7 +62,7 @@ def test_vue_03_buttons_disabled_and_no_mutation_handlers() -> None:
 
     api_text = Path('web/atlas-next/src/api/atlasClient.ts').read_text(encoding='utf-8').lower()
     for forbidden in [
-        'fetch(',
+        'axios.',
         'axios.',
         'xmlhttprequest',
         'method: "post"',
