@@ -3,7 +3,8 @@ from fastapi.testclient import TestClient
 from app.server import create_app
 
 
-def test_fail_closed_when_dist_missing_and_no_ui_redirect() -> None:
+def test_fail_closed_when_dist_missing_and_no_ui_redirect(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
     app = create_app()
     client = TestClient(app)
     for path in ['/atlas-next', '/atlas-next/', '/atlas-next/assets/app.js']:
