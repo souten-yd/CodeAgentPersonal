@@ -1,8 +1,8 @@
 ## Current Atlas Vue UI Track State
 
-- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-17
-- Current UI track: PR-ATLAS-VUE-18
-- Planned UI track: PR-ATLAS-VUE-18 through PR-ATLAS-VUE-21
+- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-18
+- Current UI track: PR-ATLAS-VUE-19
+- Planned UI track: PR-ATLAS-VUE-19 through PR-ATLAS-VUE-21
 - Current automation track: PR-ATLAS-SCALE-93
 - Existing ui.html remains default until PR-ATLAS-VUE-21
 - Vue remains parallel/read-only/not default
@@ -69,7 +69,7 @@ Separate UI track opened after PR-92:
 - Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment
 - Historical current UI track marker: Current UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening
 - PR-ATLAS-VUE-15 completed: read-only workflow_state real-data connection strengthened while preserving backend authority and metadata-only safety.
-- Current UI track: PR-ATLAS-VUE-18: Atlas-specific Requirement Input / Start Atlas UI PR
+- Current UI track: PR-ATLAS-VUE-19: Atlas-specific Requirement Input / Start Atlas UI PR
 - Planned UI track is PR-ATLAS-VUE-15 through PR-ATLAS-VUE-21.
 - PR-ATLAS-VUE-21 is the default enable checkpoint.
 - Existing ui.html remains default until PR-ATLAS-VUE-21.
@@ -725,3 +725,16 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 
 - Historical marker preserved for contract tests: Current UI track: PR-ATLAS-VUE-17
 - Historical marker preserved for contract tests: Planned UI track: PR-ATLAS-VUE-17 through PR-ATLAS-VUE-21
+
+
+- PR-ATLAS-VUE-18 completed: Vue can display approval/dry-run readiness metadata only.
+- Vue cannot approve, start dry-run, execute, apply, verify, rollback, retry, restore, or continue.
+- Backend workflow_state remains authoritative, runtime remains level_0_manual_only, and Vue execution capability remains none.
+
+
+## Historical Track Markers (Compatibility)
+- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-17
+- Current UI track: PR-ATLAS-VUE-18
+- Current automation track remains PR-ATLAS-SCALE-93
+- no Vue execution capability exists
+- Planned UI track: PR-ATLAS-VUE-18 through PR-ATLAS-VUE-21
