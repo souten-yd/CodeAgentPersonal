@@ -8,9 +8,9 @@ DOCS = [
 ]
 
 
-def test_scale_98_docs_advanced_to_scale_99_track() -> None:
+def test_scale_98_docs_advanced_to_scale_100_track() -> None:
     for d in DOCS:
         t = Path(d).read_text(encoding='utf-8')
-        assert 'Completed automation PR: PR-ATLAS-SCALE-98' in t
-        assert 'Current automation track: PR-ATLAS-SCALE-99' in t
-        assert 'Next automation track: PR-ATLAS-SCALE-99' in t
+        assert 'Completed automation PR: PR-ATLAS-SCALE-99' in t
+        assert 'Current automation track: PR-ATLAS-SCALE-100' in t
+        assert 'Next automation track: PR-ATLAS-SCALE-100' in t

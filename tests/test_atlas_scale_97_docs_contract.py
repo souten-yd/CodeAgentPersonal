@@ -8,4 +8,4 @@ DOCS=[
 def test_scale_97_docs_pointer_updates() -> None:
     for d in DOCS:
         t=Path(d).read_text(encoding='utf-8')
-        assert ('Completed automation PR: PR-ATLAS-SCALE-97' in t) or ('Completed automation PR: PR-ATLAS-SCALE-98' in t)
+        assert ('Completed automation PR: PR-ATLAS-SCALE-99' in t)
