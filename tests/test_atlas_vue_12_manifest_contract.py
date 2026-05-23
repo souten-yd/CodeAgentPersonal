@@ -13,6 +13,9 @@ def test_vue_12_manifest_packaging_metadata_and_preserved_fields() -> None:
     assert m['vue_next_dist_dir'] == 'web/atlas-next/dist'
     assert m['vue_next_preview_health'] == 'observable_fail_closed'
     assert m['vue_next_preview_diagnostics_endpoint'] == '/api/atlas/vue-next-preview/diagnostics'
-    assert m['vue_next_default_enabled'] is False
+    assert m['vue_next_default_enabled'] is True
+    assert m['vue_next_default_not_execution_enable'] is True
+    assert m['vue_next_execution_enabled'] is False
+    assert m['runtime_level'] == 'level_0_manual_only'
     assert m['vue_next_execution_enabled'] is False
     assert m['runtime_level'] == 'level_0_manual_only'

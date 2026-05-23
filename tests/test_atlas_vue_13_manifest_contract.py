@@ -26,7 +26,10 @@ def test_vue_13_manifest_contract() -> None:
     assert m['vue_next_dist_packaging_policy'] == 'dist_required_validated'
     assert m['vue_next_dist_source_of_truth'] is False
     assert m['vue_next_preview_diagnostics_endpoint'] == '/api/atlas/vue-next-preview/diagnostics'
-    assert m['vue_next_default_enabled'] is False
+    assert m['vue_next_default_enabled'] is True
+    assert m['vue_next_default_not_execution_enable'] is True
+    assert m['vue_next_execution_enabled'] is False
+    assert m['runtime_level'] == 'level_0_manual_only'
     assert m['vue_next_execution_enabled'] is False
     assert m['vue_next_mutation_endpoints_enabled'] is False
     assert m['vue_next_action_buttons_enabled'] is False

@@ -10,10 +10,10 @@ def test_vue16_docs_track_and_safety_contract() -> None:
     ])
     for marker in [
         'PR-ATLAS-VUE-16 completed',
-        'Current UI track: PR-ATLAS-VUE-17',
-        'Planned UI track: PR-ATLAS-VUE-17 through PR-ATLAS-VUE-21',
+        'Current UI track: Vue defaultization complete',
+        'Planned UI track: return to PR-ATLAS-SCALE-93 automation track',
         'PR-ATLAS-SCALE-93',
-        'ui.html remains default until PR-ATLAS-VUE-21',
+        'legacy UI remains available via /ui/',
         'planning_metadata_only',
         'runtime remains level_0_manual_only',
         'execution capability remains none',

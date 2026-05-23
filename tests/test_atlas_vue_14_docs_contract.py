@@ -13,7 +13,7 @@ def test_vue_14_docs_contract() -> None:
         'current ui track',
         'pr-atlas-vue-15',
         'pr-atlas-scale-93',
-        'ui.html remains default until pr-atlas-vue-21',
+        'legacy ui remains available via /ui/',
         '/atlas-next',
         'guarded',
         'dist-backed',

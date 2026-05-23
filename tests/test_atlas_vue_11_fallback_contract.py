@@ -10,7 +10,7 @@ def test_preview_route_not_default_and_ui_html_default_remains() -> None:
     text = Path('main.py').read_text(encoding='utf-8').lower()
     assert 'configure_atlas_next_preview_route(app)' in text
     manifest = Path('web/atlas_ui_surface_manifest.json').read_text(encoding='utf-8').lower()
-    assert '"vue_next_default_enabled": false' in manifest
+    assert '"vue_next_default_enabled": true' in manifest
     assert Path('ui.html').is_file()
 
 
