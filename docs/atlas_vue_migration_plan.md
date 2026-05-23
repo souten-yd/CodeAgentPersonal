@@ -6,6 +6,8 @@
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-94 automation track
 - Current automation track: PR-ATLAS-SCALE-94
+- Next automation track: PR-ATLAS-SCALE-94
+- SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
 - legacy UI remains available via /ui/
@@ -14,6 +16,7 @@
 - runtime remains level_0_manual_only
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
+- Level-1 execution remains disabled
 - next work is PR-ATLAS-SCALE-94
 
 ## Purpose
@@ -31,7 +34,7 @@
 ## Migration Timing
 - PR-80 records the migration plan, architecture contract, and cleanup policy.
 - Vue implementation starts after PR-80 in a separate PR series unless explicitly approved.
-- Existing ui.html remains the default until Vue Atlas Next passes contract tests.
+- Historical note: Existing ui.html remained the default until Vue Atlas Next passed contract tests; this was completed by PR-ATLAS-VUE-21 guarded defaultization.
 - Vue Atlas Next must initially be added as a parallel UI, for example:
   - web/atlas-next/
   - /atlas-next
