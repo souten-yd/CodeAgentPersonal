@@ -15,6 +15,7 @@
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-104 automation track
 - Current automation track: PR-ATLAS-SCALE-104
+- Current automation track: PR-ATLAS-SCALE-104
 - Next automation track: PR-ATLAS-SCALE-104
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
@@ -30,9 +31,9 @@
 
 ## Active PR Pointer (Updated)
 
-- Completed automation PR: PR-ATLAS-SCALE-103
-- Current automation track: PR-ATLAS-SCALE-104
-- Next automation track: PR-ATLAS-SCALE-104
+- Completed automation PR: PR-ATLAS-SCALE-104
+- Current automation track: PR-ATLAS-SCALE-105
+- Next automation track: PR-ATLAS-SCALE-105
 
 Completed:
 - PR-ATLAS-SCALE-76
@@ -216,7 +217,7 @@ Known Current Code Facts:
 - Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened.
 - Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened
 - Current UI track: Vue defaultization complete: Atlas-specific Requirement Input / Start Atlas UI follow-up.
-- Current automation track: PR-ATLAS-SCALE-104.
+- Current automation track: PR-ATLAS-SCALE-105.
 - Vue remains parallel, read-only, replaceable, and not default; existing `ui.html` remains default.
 - Backend workflow state remains authoritative.
 - Vue does not call mutation endpoints.
@@ -462,7 +463,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened.
 - Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened
 - Current UI track: Vue defaultization complete: Atlas-specific Requirement Input / Start Atlas UI follow-up.
-- Current automation track: PR-ATLAS-SCALE-104.
+- Current automation track: PR-ATLAS-SCALE-105.
 - Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI; existing ui.html remains default.
 - Vue adapter remains GET-only to /api/atlas/workflow-state/read-only with placeholder fallback.
 - available_actions are metadata only and all actions are disabled/read-only.
@@ -719,9 +720,9 @@ Current automation track: PR-ATLAS-SCALE-98
 Current automation track: PR-ATLAS-SCALE-99
 ## SCALE-101 Update (local history only)
 - PR-ATLAS-SCALE-101 completed: local browser-storage readiness metadata history only; browser-storage-only, no backend mutation/upload, no readiness decision, no execution eligibility computation, no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
-- Completed automation PR: PR-ATLAS-SCALE-103
-- Current automation track: PR-ATLAS-SCALE-104
-- Next automation track: PR-ATLAS-SCALE-104
+- Completed automation PR: PR-ATLAS-SCALE-104
+- Current automation track: PR-ATLAS-SCALE-105
+- Next automation track: PR-ATLAS-SCALE-105
 - History is local-only and does not mutate backend.
 - History does not upload metadata.
 - History does not decide readiness.
@@ -743,12 +744,12 @@ Current automation track: PR-ATLAS-SCALE-99
 - Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-102
 
 
-- PR-ATLAS-SCALE-103 completed.
+- PR-ATLAS-SCALE-104 completed.
 - SCALE-103 adds a local-only readiness metadata history diff view (browser-local display only).
 - The history diff view does not upload metadata, does not mutate backend state, does not decide readiness, and does not compute execution eligibility.
 - UI adds no execution controls and exposes no execution endpoint; Level-1 execution remains disabled.
 - Runtime remains level_0_manual_only; autonomous execution remains disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
-- Next PR may add local-only diff filtering/grouping and must not enable execution.
+- Next PR may add local-only diff export and must not enable execution.
 
 
 ## Current Atlas Vue UI Track State
@@ -756,9 +757,17 @@ Current automation track: PR-ATLAS-SCALE-99
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-104 automation track
-- Current automation track: PR-ATLAS-SCALE-104
-- Next automation track: PR-ATLAS-SCALE-104
-- next work is PR-ATLAS-SCALE-104
+- Current automation track: PR-ATLAS-SCALE-105
+- Next automation track: PR-ATLAS-SCALE-105
+- next work is PR-ATLAS-SCALE-105
 - runtime remains level_0_manual_only
 - Vue execution capability remains none
 - Backend workflow_state remains authoritative
+
+- Historical marker preserved for compatibility: PR-ATLAS-SCALE-103 completed.
+- Historical marker preserved for compatibility: Completed automation PR: PR-ATLAS-SCALE-103.
+- Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-104.
+- Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-104.
+- Historical marker preserved for compatibility: Planned UI track: return to PR-ATLAS-SCALE-104 automation track.
+- Historical marker preserved for compatibility: next work is PR-ATLAS-SCALE-104.
+- Historical marker preserved for compatibility: PR-ATLAS-SCALE-104 may add local-only diff filtering/grouping.

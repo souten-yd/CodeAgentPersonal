@@ -93,9 +93,32 @@
         <thead><tr><th>source</th><th>before_missing_evidence_count</th><th>after_missing_evidence_count</th><th>delta_missing_evidence_count</th></tr></thead>
         <tbody><tr v-for="row in comparisonResult.evidence_summary_delta_by_source" :key="row.source"><td>{{ row.source }}</td><td>{{ row.before_missing_evidence_count }}</td><td>{{ row.after_missing_evidence_count }}</td><td>{{ row.delta_missing_evidence_count }}</td></tr></tbody>
       </table>
-      <table v-if="comparisonResult.changed_gates.length" class="gate-table">
+      <div class="metadata-actions" role="group" aria-label="Readiness local history diff filtering controls">
+        <label>Display filter:
+          <select v-model="activeDiffFilter">
+            <option value="all">Show all diff gates</option>
+            <option value="status">Status changes</option>
+            <option value="evidence">Evidence changes</option>
+            <option value="blocker">Blocker reason changes</option>
+            <option value="added">Added gates</option>
+            <option value="removed">Removed gates</option>
+          </select>
+        </label>
+        <span class="metadata-status">{{ diffFilterStatusLabel }}</span>
+      </div>
+      <ul>
+        <li>Summary by change type: {{ diffChangeTypeSummaryText }}</li>
+        <li>Summary by source: {{ diffSourceSummaryText }}</li>
+        <li>Summary by before_status: {{ diffBeforeStatusSummaryText }}</li>
+        <li>Summary by after_status: {{ diffAfterStatusSummaryText }}</li>
+      </ul>
+      <ul v-if="visibleAddedGates.length || visibleRemovedGates.length">
+        <li>filtered added gates: {{ visibleAddedGates.join(', ') || '-' }}</li>
+        <li>filtered removed gates: {{ visibleRemovedGates.join(', ') || '-' }}</li>
+      </ul>
+      <table v-if="visibleChangedGates.length" class="gate-table">
         <thead><tr><th>gate_id</th><th>before_status</th><th>after_status</th><th>before_evidence_available</th><th>after_evidence_available</th><th>before_blocker_reason</th><th>after_blocker_reason</th></tr></thead>
-        <tbody><tr v-for="gate in comparisonResult.changed_gates" :key="gate.gate_id"><td>{{ gate.gate_id }}</td><td>{{ gate.before_status }}</td><td>{{ gate.after_status }}</td><td>{{ gate.before_evidence_available }}</td><td>{{ gate.after_evidence_available }}</td><td>{{ gate.before_blocker_reason || '-' }}</td><td>{{ gate.after_blocker_reason || '-' }}</td></tr></tbody>
+        <tbody><tr v-for="gate in visibleChangedGates" :key="gate.gate_id"><td>{{ gate.gate_id }}</td><td>{{ gate.before_status }}</td><td>{{ gate.after_status }}</td><td>{{ gate.before_evidence_available }}</td><td>{{ gate.after_evidence_available }}</td><td>{{ gate.before_blocker_reason || '-' }}</td><td>{{ gate.after_blocker_reason || '-' }}</td></tr></tbody>
       </table>
     </div>
   </StatusCard>
@@ -128,6 +151,47 @@ const comparisonStatus = ref('Local metadata comparison idle.')
 const hasDiagnostics = computed(() => diagnostics.value !== null)
 const hasBaseline = computed(() => baselineSnapshot.value !== null)
 const hasPastedJson = computed(() => pastedSnapshotJson.value.trim().length > 0)
+
+type DiffFilter = 'all' | 'status' | 'evidence' | 'blocker' | 'added' | 'removed'
+const activeDiffFilter = ref<DiffFilter>('all')
+const visibleChangedGates = computed(() => {
+  const result = comparisonResult.value
+  if (!result) return []
+  if (activeDiffFilter.value === 'added' || activeDiffFilter.value === 'removed') return []
+  if (activeDiffFilter.value === 'all') return result.changed_gates
+  if (activeDiffFilter.value === 'status') return result.changed_gates.filter((g) => g.before_status !== g.after_status)
+  if (activeDiffFilter.value === 'evidence') return result.changed_gates.filter((g) => g.before_evidence_available !== g.after_evidence_available)
+  return result.changed_gates.filter((g) => (g.before_blocker_reason || '') !== (g.after_blocker_reason || ''))
+})
+const visibleAddedGates = computed(() => { const result = comparisonResult.value; if (!result) return []; return activeDiffFilter.value === 'all' || activeDiffFilter.value === 'added' ? result.added_gates : [] })
+const visibleRemovedGates = computed(() => { const result = comparisonResult.value; if (!result) return []; return activeDiffFilter.value === 'all' || activeDiffFilter.value === 'removed' ? result.removed_gates : [] })
+const diffFilterStatusLabel = computed(() => `Local display-only diff filter: ${activeDiffFilter.value}`)
+
+function summarizeBy(rows: string[]): string {
+  if (!rows.length) return '-'
+  const counts = new Map<string, number>()
+  rows.forEach((k) => counts.set(k || 'unknown', (counts.get(k || 'unknown') || 0) + 1))
+  return [...counts.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v]) => `${k}:${v}`).join(', ')
+}
+const diffChangeTypeSummaryText = computed(() => {
+  const result = comparisonResult.value
+  if (!result) return '-'
+  const tokens = [
+    ...result.changed_gates.filter((g)=>g.before_status!==g.after_status).map(()=>'status_change'),
+    ...result.changed_gates.filter((g)=>g.before_evidence_available!==g.after_evidence_available).map(()=>'evidence_change'),
+    ...result.changed_gates.filter((g)=>(g.before_blocker_reason||'')!==(g.after_blocker_reason||'')).map(()=>'blocker_reason_change'),
+    ...result.added_gates.map(()=>'added_gate'),
+    ...result.removed_gates.map(()=>'removed_gate'),
+  ]
+  return summarizeBy(tokens)
+})
+const diffSourceSummaryText = computed(() => summarizeBy(visibleChangedGates.value.map((g) => {
+  const target = diagnostics.value?.gate_source_map.find((s) => s.gate_id === g.gate_id)
+  return target?.source || 'unknown'
+})))
+const diffBeforeStatusSummaryText = computed(() => summarizeBy(visibleChangedGates.value.map((g) => g.before_status || 'unknown')) )
+const diffAfterStatusSummaryText = computed(() => summarizeBy(visibleChangedGates.value.map((g) => g.after_status || 'unknown')) )
+
 
 function saveCurrentAsBaseline(): void {
   if (!diagnostics.value) return
