@@ -12,9 +12,9 @@ def test_scale_96_docs_track_pointers() -> None:
     for doc in DOCS:
         t = Path(doc).read_text(encoding='utf-8')
         assert ('Completed automation PR: PR-ATLAS-SCALE-97' in t) or ('Completed automation PR: PR-ATLAS-SCALE-98' in t)
-        assert ('Current automation track: PR-ATLAS-SCALE-98' in t) or ('Current automation track: PR-ATLAS-SCALE-99' in t)
+        assert ('Current automation track: PR-ATLAS-SCALE-98' in t) or ('Current automation track: PR-ATLAS-SCALE-99' in t) or ('Current automation track: PR-ATLAS-SCALE-103' in t)
         assert ('Next automation track: PR-ATLAS-SCALE-98' in t) or ('Next automation track: PR-ATLAS-SCALE-99' in t) or ('Next automation track: PR-ATLAS-SCALE-101' in t) or ('Next automation track: PR-ATLAS-SCALE-103' in t)
-        assert ('next work is PR-ATLAS-SCALE-99' in t) or ('next work is PR-ATLAS-SCALE-101' in t) or ('next work is PR-ATLAS-SCALE-102' in t)
+        assert ('next work is PR-ATLAS-SCALE-99' in t) or ('next work is PR-ATLAS-SCALE-101' in t) or ('next work is PR-ATLAS-SCALE-102' in t) or ('next work is PR-ATLAS-SCALE-103' in t)
         assert 'next work is PR-ATLAS-SCALE-96' not in t
         assert 'Planned UI track: return to PR-ATLAS-SCALE-96 automation track' not in t
         assert 'SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.' in t

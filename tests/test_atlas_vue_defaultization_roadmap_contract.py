@@ -8,7 +8,7 @@ def test_atlas_vue_defaultization_roadmap_contract() -> None:
     for marker in [
         "Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21",
         "Current UI track: Vue defaultization complete",
-        "Planned UI track: return to PR-ATLAS-SCALE-102 automation track",
+        "Planned UI track: return to PR-ATLAS-SCALE-103 automation track",
         "Current automation track: PR-ATLAS-SCALE-103",
         "/` is guarded Atlas Next default only when validated dist passes",
         "invalid/missing Vue dist falls back safely to legacy UI",
@@ -17,7 +17,7 @@ def test_atlas_vue_defaultization_roadmap_contract() -> None:
         "runtime remains level_0_manual_only",
         "Vue execution capability remains none",
         "VUE21 completed default-enable only, not execution-enable",
-        "next work is PR-ATLAS-SCALE-102",
+        "next work is PR-ATLAS-SCALE-103",
         "fully autonomous code agent",
         "goal → research → plan → implement → test → fix → PR",
         "Self-improving CodeAgentPersonal / KasaneCore remains explicitly in scope",
