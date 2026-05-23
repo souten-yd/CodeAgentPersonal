@@ -1055,5 +1055,14 @@
   "level1_runtime_level_after_skeleton": "level_0_manual_only",
   "level1_vue_controls_after_skeleton": false,
   "level1_next_pr_may_add_readiness_diagnostics_get": true,
-  "level1_next_pr_must_not_enable_execution": true
+  "level1_next_pr_must_not_enable_execution": true,
+  "level1_readiness_diagnostics_checkpoint": "PR-ATLAS-SCALE-95",
+  "level1_readiness_diagnostics_enabled": true,
+  "level1_readiness_diagnostics_method": "GET",
+  "level1_readiness_diagnostics_metadata_only": true,
+  "level1_readiness_diagnostics_execution_enabled": false,
+  "level1_readiness_diagnostics_mutation_enabled": false,
+  "level1_readiness_diagnostics_endpoint": "/api/atlas/level1/readiness",
+  "level1_readiness_diagnostics_reports_disabled_skeleton": true,
+  "level1_readiness_diagnostics_reports_blockers": true
 }

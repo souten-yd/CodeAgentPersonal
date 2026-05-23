@@ -4,9 +4,9 @@
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-95 automation track
-- Current automation track: PR-ATLAS-SCALE-95
-- Next automation track: PR-ATLAS-SCALE-95
+- Planned UI track: return to PR-ATLAS-SCALE-96 automation track
+- Current automation track: PR-ATLAS-SCALE-96
+- Next automation track: PR-ATLAS-SCALE-96
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
@@ -17,7 +17,7 @@
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
-- next work is PR-ATLAS-SCALE-95
+- next work is PR-ATLAS-SCALE-96
 
 ## Purpose
 - Record PR-80 as the official architecture checkpoint for the Vue-based Atlas Next UI migration.
