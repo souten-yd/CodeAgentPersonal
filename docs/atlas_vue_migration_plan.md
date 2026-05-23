@@ -6,7 +6,7 @@
 - Completed automation PR: PR-ATLAS-SCALE-100.
 - Current automation track: PR-ATLAS-SCALE-101.
 - Next automation track: PR-ATLAS-SCALE-101.
-- next work is PR-ATLAS-SCALE-100.
+- next work is PR-ATLAS-SCALE-101.
 - SCALE-98 scope remains display-only readiness UI grouping/filtering and UX refinement, not execution enable.
 - Level-1 execution remains disabled.
 - Runtime remains level_0_manual_only.
@@ -20,7 +20,7 @@
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-100 automation track
+- Planned UI track: return to PR-ATLAS-SCALE-101 automation track
 - Current automation track: PR-ATLAS-SCALE-101
 - Next automation track: PR-ATLAS-SCALE-101
 - SCALE-94 is disabled backend skeleton candidate only
@@ -33,7 +33,7 @@
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
-- next work is PR-ATLAS-SCALE-100
+- next work is PR-ATLAS-SCALE-101
 
 ## Purpose
 - Record PR-80 as the official architecture checkpoint for the Vue-based Atlas Next UI migration.
@@ -457,7 +457,7 @@ Vue Atlas Next may become default only when:
 - Completed automation PR: PR-ATLAS-SCALE-96
 - Current automation track: PR-ATLAS-SCALE-101
 - Next automation track: PR-ATLAS-SCALE-101
-- next work is PR-ATLAS-SCALE-100
+- next work is PR-ATLAS-SCALE-101
 - SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.
 - Level-1 execution remains disabled.
 - Runtime remains level_0_manual_only.

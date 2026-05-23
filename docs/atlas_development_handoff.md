@@ -12,7 +12,7 @@
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-100 automation track
+- Planned UI track: return to PR-ATLAS-SCALE-101 automation track
 - Current automation track: PR-ATLAS-SCALE-101
 - Next automation track: PR-ATLAS-SCALE-101
 - SCALE-94 is disabled backend skeleton candidate only
@@ -25,7 +25,7 @@
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
-- next work is PR-ATLAS-SCALE-100
+- next work is PR-ATLAS-SCALE-101
 
 ## Active PR Pointer (Updated)
 
