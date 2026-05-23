@@ -2,11 +2,11 @@
 - PR-ATLAS-VUE-20 completed: Default-readiness preflight / route selection guard review (display-only metadata; no default switch).
 ## Current Atlas Vue UI Track State
 
-- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-20
-- Current UI track: PR-ATLAS-VUE-21
-- Planned UI track: PR-ATLAS-VUE-21 only
+- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
+- Current UI track: Vue defaultization complete
+- Planned UI track: return to PR-ATLAS-SCALE-93 automation track
 - Current automation track: PR-ATLAS-SCALE-93
-- Existing ui.html remains default until PR-ATLAS-VUE-21
+- Atlas Next is guarded default route for `/` only when dist validation passes
 - Vue remains parallel/read-only/not default
 - /atlas-next remains mounted/guarded/dist-backed/fail-closed/non-default
 - diagnostics endpoint remains GET-only/metadata-only
@@ -608,7 +608,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - ThinUI/automation-first policy is unchanged while Vue migration continues in parallel.
 - Completed Vue UI PRs include PR-ATLAS-VUE-01 through PR-ATLAS-VUE-13.
 - Current UI track is PR-ATLAS-VUE-14; planned defaultization sequence runs PR-ATLAS-VUE-14 through PR-ATLAS-VUE-21.
-- Existing ui.html remains default until PR-ATLAS-VUE-21 default-enable gates are satisfied.
+- Atlas Next is guarded default route for `/` only when dist validation passes default-enable gates are satisfied.
 - PR-ATLAS-SCALE-93 remains the current automation track throughout Vue defaultization.
 - After PR-ATLAS-VUE-21, roadmap focus returns to automation work (Level-1 guarded execution design and beyond).
 
@@ -663,3 +663,11 @@ PR-ATLAS-VUE-15 completed.
 
 - Historical marker: Current UI track: PR-ATLAS-VUE-19.
 - Historical marker: Planned UI track: PR-ATLAS-VUE-19 through PR-ATLAS-VUE-21.
+
+- Existing legacy ui.html remains available through `/ui/` and `/ui.html`.
+- If Vue dist is invalid, root falls back safely to existing legacy UI.
+- VUE21 is not execution-enable.
+- Backend remains authoritative.
+- Runtime remains level_0_manual_only.
+- Vue execution capability remains none.
+- After VUE21, return to automation roadmap: PR-ATLAS-SCALE-93.

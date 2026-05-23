@@ -122,7 +122,14 @@ from app.nexus.router import (
 )
 from app.nexus.web_scout import get_last_web_search_status, plan_web_queries, run_web_search
 from app.nexus.web_service import execute_nexus_web_search
-from app.server import configure_atlas_next_preview_route, configure_static_assets, configure_workspace_mount, include_routers
+from app.server import (
+    configure_atlas_next_preview_route,
+    configure_static_assets,
+    configure_workspace_mount,
+    include_routers,
+    get_atlas_next_preview_diagnostics,
+    validate_atlas_next_dist,
+)
 from app.api.runtime_controls import (
     CUDA_REGRESSION_BASELINE_REF,
     CUDA_REGRESSION_SUSPECTED_FILES,
@@ -17694,17 +17701,73 @@ app.state.system_summary_provider = system_summary_payload
 # / と /ui/ どちらでもUIにアクセスできる
 # =========================
 
-@app.get("/")
-def root():
-    """ルートアクセスをUIのindex.htmlに直接返す"""
+
+ATLAS_NEXT_DEFAULT_ENABLED = True
+ATLAS_NEXT_DEFAULT_ROUTE = "/"
+ATLAS_NEXT_LEGACY_UI_ROUTE = "/ui/"
+
+
+def serve_existing_ui_index() -> FileResponse | RedirectResponse:
+    """Serve legacy UI safely as default fallback."""
     index = os.path.join(UI_DIR, "index.html")
     if os.path.exists(index):
         return FileResponse(index, media_type="text/html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
-    return RedirectResponse("/ui/")
+    return RedirectResponse(ATLAS_NEXT_LEGACY_UI_ROUTE)
+
+
+def can_serve_atlas_next_default() -> tuple[bool, dict[str, object]]:
+    """Guarded Atlas Next default selection; fail closed to legacy UI."""
+    validation = validate_atlas_next_dist()
+    fallback_ready = os.path.exists(os.path.join(UI_DIR, "index.html")) or os.path.isdir(UI_DIR)
+    can_serve = bool(
+        ATLAS_NEXT_DEFAULT_ENABLED
+        and validation.get("dist_exists")
+        and validation.get("index_present")
+        and validation.get("valid")
+        and fallback_ready
+    )
+    diagnostics = {
+        "vue_next_default_enabled": ATLAS_NEXT_DEFAULT_ENABLED,
+        "default_route": ATLAS_NEXT_DEFAULT_ROUTE,
+        "legacy_ui_available": True,
+        "default_uses_validated_dist": bool(validation.get("valid")),
+        "default_dist_validated": bool(validation.get("valid")),
+        "default_fallback_ready": bool(fallback_ready),
+        "default_fallback_to_legacy_ui": True,
+        "fallback_to_legacy_ui_on_invalid_dist": True,
+        "default_route_selected": "atlas-next" if can_serve else "legacy-ui",
+        "execution_enabled": False,
+        "mutation_endpoints_enabled": False,
+        "runtime_level": "level_0_manual_only",
+        "backend_authoritative": True,
+    }
+    return can_serve, diagnostics
+
+@app.get("/")
+def root():
+    """Serve guarded Atlas Next default or fail closed to legacy UI."""
+    atlas_next_allowed, _ = can_serve_atlas_next_default()
+    if atlas_next_allowed:
+        dist_index = Path("web/atlas-next/dist/index.html")
+        if dist_index.is_file():
+            return FileResponse(dist_index, media_type="text/html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+    return serve_existing_ui_index()
 
 @app.get("/ui")
 def ui_redirect():
     return RedirectResponse("/ui/")
+
+
+@app.get("/api/atlas/vue-next-default/diagnostics")
+def atlas_next_default_diagnostics():
+    _, default_diag = can_serve_atlas_next_default()
+    preview_diag = get_atlas_next_preview_diagnostics()
+    merged = dict(preview_diag)
+    merged.update(default_diag)
+    merged["default_route"] = "/"
+    merged["default_enabled"] = ATLAS_NEXT_DEFAULT_ENABLED
+    merged["default_route"] = "/"
+    return JSONResponse(merged)
 
 configure_workspace_mount(app, workspace_dir=WORK_DIR)
 configure_static_assets(

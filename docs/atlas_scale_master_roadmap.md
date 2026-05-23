@@ -2,11 +2,11 @@
 - PR-ATLAS-VUE-20 completed: Default-readiness preflight / route selection guard review (display-only metadata; no default switch).
 ## Current Atlas Vue UI Track State
 
-- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-20
-- Current UI track: PR-ATLAS-VUE-21
-- Planned UI track: PR-ATLAS-VUE-21 only
+- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
+- Current UI track: Vue defaultization complete
+- Planned UI track: return to PR-ATLAS-SCALE-93 automation track
 - Current automation track: PR-ATLAS-SCALE-93
-- Existing ui.html remains default until PR-ATLAS-VUE-21
+- Atlas Next is guarded default route for `/` only when dist validation passes
 - Vue remains parallel/read-only/not default
 - /atlas-next remains mounted/guarded/dist-backed/fail-closed/non-default
 - diagnostics endpoint remains GET-only/metadata-only
@@ -75,10 +75,10 @@ Separate UI track opened after PR-92:
 - Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment
 - Historical current UI track marker: Current UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening
 - PR-ATLAS-VUE-15 completed: read-only workflow_state real-data connection strengthened while preserving backend authority and metadata-only safety.
-- Current UI track: PR-ATLAS-VUE-21: Atlas-specific Requirement Input / Start Atlas UI PR
+- Current UI track: Vue defaultization complete: Atlas-specific Requirement Input / Start Atlas UI PR
 - Planned UI track is PR-ATLAS-VUE-15 through PR-ATLAS-VUE-21.
 - PR-ATLAS-VUE-21 is the default enable checkpoint.
-- Existing ui.html remains default until PR-ATLAS-VUE-21.
+- Atlas Next is guarded default route for `/` only when dist validation passes.
 - PR-ATLAS-VUE-10 completed optional guarded /atlas-next preview route hardening with a dist-backed fail-closed preview route that never replaces `/` or `/ui.html`.
 
 Known Current Code Facts:
@@ -626,7 +626,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Completed UI PRs include PR-ATLAS-VUE-01 through PR-ATLAS-VUE-13.
 - Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
 - Planned UI track is PR-ATLAS-VUE-14 through PR-ATLAS-VUE-21.
-- Existing ui.html remains default until PR-ATLAS-VUE-21.
+- Atlas Next is guarded default route for `/` only when dist validation passes.
 - Vue is not default yet.
 - Vue Atlas Next must not become another large dashboard.
 - Vue defaultization must preserve the Atlas minimal UI policy from `docs/atlas_autonomous_first_ui_policy.md`.
@@ -752,3 +752,11 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 
 - Historical marker: Current UI track: PR-ATLAS-VUE-19.
 - Historical marker: Planned UI track: PR-ATLAS-VUE-19 through PR-ATLAS-VUE-21.
+
+- Existing legacy ui.html remains available through `/ui/` and `/ui.html`.
+- If Vue dist is invalid, root falls back safely to existing legacy UI.
+- VUE21 is not execution-enable.
+- Backend remains authoritative.
+- Runtime remains level_0_manual_only.
+- Vue execution capability remains none.
+- After VUE21, return to automation roadmap: PR-ATLAS-SCALE-93.
