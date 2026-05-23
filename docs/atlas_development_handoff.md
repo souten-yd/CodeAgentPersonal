@@ -7,7 +7,7 @@
 - Planned UI track: return to PR-ATLAS-SCALE-93 automation track
 - Current automation track: PR-ATLAS-SCALE-93
 - Atlas Next is guarded default route for `/` only when dist validation passes
-- Vue remains parallel/read-only/not default
+- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI
 - /atlas-next remains mounted/guarded/dist-backed/fail-closed/non-default
 - diagnostics endpoint remains GET-only/metadata-only
 - backend workflow_state remains authoritative
@@ -15,7 +15,7 @@
 - Vue execution capability remains none
 - VUE20 does not redirect / or /ui.html and does not change default routes
 - VUE20 only adds default-readiness preflight and route selection guard review
-- VUE21 is next: guarded default enable, if preflight passes (default-enable checkpoint only; no execution enable).
+- VUE21 completed: guarded default enable is active when preflight passes (default-enable checkpoint only; no execution enable).
 - VUE21 is default-enable checkpoint, not execution-enable checkpoint.
 
 ## Active PR Pointer (Updated)
@@ -430,7 +430,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Decision: static mount deferred (no locked dist/static artifact strategy).
 - Current automation track remains PR-ATLAS-SCALE-93 (not completed).
 - Current UI track moves to PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement.
-- Vue remains parallel/read-only/not default; existing ui.html remains default; backend workflow state remains authoritative.
+- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI; existing ui.html remains default; backend workflow state remains authoritative.
 
 
 ## PR-ATLAS-VUE-06 Contract Binding Checkpoint
@@ -438,7 +438,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Adapter remains GET-only and fallback-safe: invalid/non-OK responses use a placeholder read-only snapshot fallback.
 - `available_actions` remain metadata only; all actions are disabled/read-only in Vue.
 - Backend workflow state remains authoritative; Vue does not compute execution eligibility and does not call mutation endpoints.
-- Vue remains parallel/read-only/not default; existing `ui.html` remains default.
+- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI; existing `ui.html` remains default.
 - Static mount remains deferred while dist/static artifact strategy is not locked.
 - Automation track remains `PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint`.
 - Final goal remains `fully_autonomous_code_agent` and self-improvement scope remains `self_improving_codeagentpersonal_kasanecore`.
@@ -449,7 +449,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Completed UI PR: PR-ATLAS-VUE-15: Workflow_state real-data read-only connection strengthened
 - Current UI track: Vue defaultization complete: Atlas-specific Requirement Input / Start Atlas UI follow-up.
 - Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
-- Vue remains parallel/read-only/not default; existing ui.html remains default.
+- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI; existing ui.html remains default.
 - Vue adapter remains GET-only to /api/atlas/workflow-state/read-only with placeholder fallback.
 - available_actions are metadata only and all actions are disabled/read-only.
 - Backend workflow state remains authoritative.
@@ -469,7 +469,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Any future Vue preview route must be `/atlas-next` only, read-only only, built-dist only, not default, with no execution controls and no mutation endpoint calls.
 - If dist is absent at runtime, future `/atlas-next` must fail safely (defer/404) rather than exposing source files.
 - Static mount decision in this PR remains deferred; implementation is carried by PR-ATLAS-VUE-09 smoke route/build artifact policy.
-- Vue remains parallel/read-only/not default, backend workflow state remains authoritative, available_actions are metadata only, and Vue does not compute execution eligibility.
+- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI, backend workflow state remains authoritative, available_actions are metadata only, and Vue does not compute execution eligibility.
 
 ## PR-ATLAS-VUE-08B docs pointer contract
 - PR-ATLAS-VUE-08 is completed: Safe static mount/dist strategy.
@@ -487,7 +487,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Route fails closed (404) when dist or `dist/index.html` is missing.
 - Route never serves raw Vite source and never serves `web/atlas-next/src`.
 - Route never replaces `/` or `/ui.html`; existing `ui.html` remains default.
-- Vue remains parallel/read-only/not default and does not call mutation endpoints.
+- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI and does not call mutation endpoints.
 - Vue adapter remains GET-only to `/api/atlas/workflow-state/read-only`.
 - `available_actions` remain metadata-only and disabled/read-only.
 - Backend workflow state remains authoritative; Vue does not compute execution eligibility.
@@ -511,7 +511,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
 - Current automation track remains PR-ATLAS-SCALE-93.
 - Existing `ui.html` remains default.
-- Vue remains parallel/read-only/not default; supervision UI only.
+- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI; supervision UI only.
 - `/atlas-next` remains guarded/dist-backed/fail-closed.
 - Diagnostics endpoint remains GET-only/metadata-only: `/api/atlas/vue-next-preview/diagnostics`.
 - Backend `workflow_state` remains authoritative.
@@ -547,7 +547,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - No raw Vite source may be served.
 - No fallback to `ui.html` or `/` is allowed.
 - Existing `ui.html` remains default.
-- Vue remains parallel/read-only/not default.
+- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI.
 - Diagnostics endpoint remains GET-only and metadata-only: `/api/atlas/vue-next-preview/diagnostics`.
 - Backend `workflow_state` remains authoritative; Vue execution capability remains none.
 - This PR does not make Vue default and does not enable execution.
@@ -573,7 +573,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Historical marker (superseded): Current UI track was PR-ATLAS-VUE-15 (schema-ready safe-if-available workflow metadata checkpoint). See Current Atlas Vue UI Track State.
 - Current automation track remains PR-ATLAS-SCALE-93.
 - Existing `ui.html` remains default until PR-ATLAS-VUE-21.
-- Vue remains parallel/read-only/not default and supervision-only.
+- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI and supervision-only.
 - `/atlas-next` remains mounted, guarded, dist-backed, fail-closed, and non-default.
 - Diagnostics endpoint remains GET-only/metadata-only: `/api/atlas/vue-next-preview/diagnostics`.
 - Vue client diagnostics no longer claim static mount deferred; they align to mounted guarded preview route state.
