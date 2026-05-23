@@ -6,6 +6,8 @@
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-94 automation track
 - Current automation track: PR-ATLAS-SCALE-94
+- Next automation track: PR-ATLAS-SCALE-94
+- SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
 - legacy UI remains available via /ui/

@@ -6,6 +6,8 @@
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-94 automation track
 - Current automation track: PR-ATLAS-SCALE-94
+- Next automation track: PR-ATLAS-SCALE-94
+- SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
 - legacy UI remains available via /ui/
@@ -78,9 +80,9 @@ Separate UI track opened after PR-92:
 - Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment
 - Historical current UI track marker: Current UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening
 - PR-ATLAS-VUE-15 completed: read-only workflow_state real-data connection strengthened while preserving backend authority and metadata-only safety.
-- Current UI track: Vue defaultization complete: Atlas-specific Requirement Input / Start Atlas UI PR
-- Planned UI track is PR-ATLAS-VUE-15 through PR-ATLAS-VUE-21.
-- PR-ATLAS-VUE-21 is the default enable checkpoint.
+- Historical marker (superseded): After PR-ATLAS-VUE-15, the UI track temporarily focused on Atlas-specific Requirement Input / Start Atlas UI follow-up before defaultization completion.
+- Historical marker (superseded): Planned UI track was PR-ATLAS-VUE-15 through PR-ATLAS-VUE-21.
+- Historical marker (superseded): PR-ATLAS-VUE-21 was the default-enable checkpoint (default-enable only, not execution-enable).
 - Atlas Next is guarded default route for `/` only when dist validation passes.
 - PR-ATLAS-VUE-10 completed optional guarded /atlas-next preview route hardening with a dist-backed fail-closed preview route that never replaces `/` or `/ui.html`.
 
