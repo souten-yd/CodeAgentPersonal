@@ -4,8 +4,8 @@
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-93 automation track
-- Current automation track: PR-ATLAS-SCALE-93
+- Planned UI track: return to PR-ATLAS-SCALE-94 automation track
+- Current automation track: PR-ATLAS-SCALE-94
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
 - legacy UI remains available via /ui/
@@ -14,9 +14,14 @@
 - runtime remains level_0_manual_only
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
-- next work returns to PR-ATLAS-SCALE-93
+- Level-1 execution remains disabled
+- next work is PR-ATLAS-SCALE-94
 
 ## Active PR Pointer (Updated)
+
+- Completed automation PR: PR-ATLAS-SCALE-93
+- Current automation track: PR-ATLAS-SCALE-94
+- Next automation track: PR-ATLAS-SCALE-94
 
 Completed:
 - PR-ATLAS-SCALE-76
@@ -501,7 +506,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Vue does not compute execution eligibility and does not call mutation endpoints.
 - Vue adapter remains GET-only at /api/atlas/workflow-state/read-only with fallback.
 - Static mount remains deferred until safe dist/static strategy is locked.
-- Automation track remains PR-ATLAS-SCALE-93.
+- Automation track remains PR-ATLAS-SCALE-94.
 - Current UI track after this PR: PR-ATLAS-VUE-08.
 
 
@@ -523,7 +528,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - PR-ATLAS-VUE-08 is completed: Safe static mount/dist strategy.
 - Current UI track is PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy.
 - Next UI track is PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening.
-- Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint (not completed here).
+- Current automation track remains PR-ATLAS-SCALE-94: Level-1 guarded execution design checkpoint (not completed here).
 - Dist strategy is defined as `dist_required` with production artifacts in `web/atlas-next/dist`.
 - Raw Vite source must not be served as production UI.
 - Static mount remains deferred until VUE-09 / smoke route policy.
@@ -550,7 +555,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Existing `ui.html` remains default; Vue remains non-default parallel surface.
 - Preview route remains guarded, dist-backed, fail-closed.
 - Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
-- Automation track remains PR-ATLAS-SCALE-93.
+- Automation track remains PR-ATLAS-SCALE-94.
 
 
 ## PR-ATLAS-VUE-12 Packaging/Deployment Readiness Policy
@@ -573,13 +578,13 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 - Backend `workflow_state` remains authoritative; Vue execution capability remains none.
 - This PR does not make Vue default and does not enable execution.
 - Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
-- Current automation track remains PR-ATLAS-SCALE-93.
+- Current automation track remains PR-ATLAS-SCALE-94.
 
 ## PR-ATLAS-VUE-13 Route Packaging/Deployment Integration Policy
 - PR-ATLAS-VUE-13 completed.
 - Completed UI PR: PR-ATLAS-VUE-13.
 - Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
-- Current automation track remains PR-ATLAS-SCALE-93.
+- Current automation track remains PR-ATLAS-SCALE-94.
 - Existing `ui.html` remains default.
 - Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI; supervision UI only.
 - `/atlas-next` remains guarded/dist-backed/fail-closed.
@@ -650,7 +655,7 @@ PR-ATLAS-VUE-15 completed.
 ## Historical Track Markers (Compatibility)
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-17
 - Current UI track: PR-ATLAS-VUE-18
-- Current automation track remains PR-ATLAS-SCALE-93
+- Current automation track remains PR-ATLAS-SCALE-94
 - no Vue execution capability exists
 - Planned UI track: PR-ATLAS-VUE-18 through PR-ATLAS-VUE-21
 
@@ -668,7 +673,7 @@ PR-ATLAS-VUE-15 completed.
 - Backend remains authoritative.
 - Runtime remains level_0_manual_only.
 - Vue execution capability remains none.
-- After VUE21, return to automation roadmap: PR-ATLAS-SCALE-93.
+- After VUE21, return to automation roadmap: PR-ATLAS-SCALE-94.
 
 ## PR-ATLAS-SCALE-93 Level-1 Guarded Execution Design Checkpoint
 
