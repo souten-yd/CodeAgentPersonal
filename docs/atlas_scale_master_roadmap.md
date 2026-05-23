@@ -1,9 +1,10 @@
 - PR-ATLAS-VUE-19 completed: Execution safety / non-execution boundary review UI (display-only metadata).
+- PR-ATLAS-VUE-20 completed: Default-readiness preflight / route selection guard review (display-only metadata; no default switch).
 ## Current Atlas Vue UI Track State
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-19
-- Current UI track: PR-ATLAS-VUE-20
-- Planned UI track: PR-ATLAS-VUE-20 through PR-ATLAS-VUE-21
+- Current UI track: PR-ATLAS-VUE-21
+- Planned UI track: PR-ATLAS-VUE-21 only
 - Current automation track: PR-ATLAS-SCALE-93
 - Existing ui.html remains default until PR-ATLAS-VUE-21
 - Vue remains parallel/read-only/not default
@@ -12,6 +13,10 @@
 - backend workflow_state remains authoritative
 - runtime remains level_0_manual_only
 - Vue execution capability remains none
+- VUE20 does not redirect / or /ui.html and does not change default routes
+- VUE20 only adds default-readiness preflight and route selection guard review
+- VUE21 is next: guarded default enable, if preflight passes
+- VUE21 is default-enable checkpoint, not execution-enable checkpoint.
 
 ## Active PR Pointer (Updated)
 
@@ -70,7 +75,7 @@ Separate UI track opened after PR-92:
 - Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment
 - Historical current UI track marker: Current UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening
 - PR-ATLAS-VUE-15 completed: read-only workflow_state real-data connection strengthened while preserving backend authority and metadata-only safety.
-- Current UI track: PR-ATLAS-VUE-20: Atlas-specific Requirement Input / Start Atlas UI PR
+- Current UI track: PR-ATLAS-VUE-21: Atlas-specific Requirement Input / Start Atlas UI PR
 - Planned UI track is PR-ATLAS-VUE-15 through PR-ATLAS-VUE-21.
 - PR-ATLAS-VUE-21 is the default enable checkpoint.
 - Existing ui.html remains default until PR-ATLAS-VUE-21.
