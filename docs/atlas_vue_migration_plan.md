@@ -2,7 +2,7 @@
 - PR-ATLAS-VUE-20 completed: Default-readiness preflight / route selection guard review (display-only metadata; no default switch).
 ## Current Atlas Vue UI Track State
 
-- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-19
+- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-20
 - Current UI track: PR-ATLAS-VUE-21
 - Planned UI track: PR-ATLAS-VUE-21 only
 - Current automation track: PR-ATLAS-SCALE-93
@@ -15,7 +15,7 @@
 - Vue execution capability remains none
 - VUE20 does not redirect / or /ui.html and does not change default routes
 - VUE20 only adds default-readiness preflight and route selection guard review
-- VUE21 is next: guarded default enable, if preflight passes
+- VUE21 is next: guarded default enable, if preflight passes (default-enable checkpoint only; no execution enable).
 - VUE21 is default-enable checkpoint, not execution-enable checkpoint.
 
 # Atlas Vue Migration Plan
