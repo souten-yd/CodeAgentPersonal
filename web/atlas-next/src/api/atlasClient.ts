@@ -251,8 +251,6 @@ export type CreatePlanPoolResponse = {
 }
 
 export async function createPlanPool(request: CreatePlanPoolRequest): Promise<CreatePlanPoolResponse> {
-  // Legacy VUE16 marker retained for regression contracts: automation_level: request.automation_level ?? 'plan_then_ask'
-  // Legacy VUE16 marker retained for regression contracts: execution_strategy: request.execution_strategy ?? 'sequential'
   const payload = {
     input: request.input,
     project_path: request.project_path ?? '',

@@ -12,3 +12,15 @@ def test_manifest_vue17_flags_present_and_safety_preserved() -> None:
     assert m['vue_next_mutation_endpoints_enabled'] is False
     assert m['runtime_level'] == 'level_0_manual_only'
     assert m['vue_next_start_atlas_scope'] == 'planning_metadata_only'
+
+    assert m['vue_next_plan_review_approval_enabled'] is False
+    assert m['vue_next_plan_review_execution_enabled'] is False
+    assert m['vue_next_plan_review_dry_run_enabled'] is False
+    assert m['vue_next_plan_review_auto_continue'] is False
+    assert m['vue_next_start_atlas_scope'] == 'planning_metadata_only'
+    assert m['vue_next_start_atlas_method'] == 'POST'
+    assert m['vue_next_start_atlas_endpoint'] == '/api/atlas/plan-pools'
+    assert m['vue_next_start_atlas_auto_execute'] is False
+    assert m['vue_next_start_atlas_auto_continue'] is False
+    assert m['vue_next_start_atlas_auto_verify'] is False
+    assert m['vue_next_start_atlas_auto_apply'] is False
