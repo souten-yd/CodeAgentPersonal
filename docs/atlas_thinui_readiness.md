@@ -8,8 +8,8 @@
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-96 automation track
-- Current automation track: PR-ATLAS-SCALE-96
-- Next automation track: PR-ATLAS-SCALE-96
+- Current automation track: PR-ATLAS-SCALE-97
+- Next automation track: PR-ATLAS-SCALE-97
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
@@ -24,9 +24,9 @@
 
 ## Active PR Pointer (Updated)
 
-- Completed automation PR: PR-ATLAS-SCALE-95
-- Current automation track: PR-ATLAS-SCALE-96
-- Next automation track: PR-ATLAS-SCALE-96
+- Completed automation PR: PR-ATLAS-SCALE-96
+- Current automation track: PR-ATLAS-SCALE-97
+- Next automation track: PR-ATLAS-SCALE-97
 
 Completed:
 - PR-ATLAS-SCALE-76
@@ -729,3 +729,14 @@ Each gate must include: status, owner/source, required evidence, blocking reason
 - Backend workflow_state remains authoritative.
 - Vue execution capability remains none.
 - SCALE-96 may add deeper gate-source mapping/readiness evidence, not execution enable.
+
+
+- PR-ATLAS-SCALE-96 completed.
+- SCALE-96 added metadata-only gate-source mapping / evidence summary.
+- No execution endpoint is exposed.
+- Level-1 execution remains disabled.
+- Runtime remains level_0_manual_only.
+- Autonomous execution remains disabled.
+- Backend workflow_state remains authoritative.
+- Vue execution capability remains none.
+- Next PR may add readiness UI display for gate-source mapping, not execution enable.

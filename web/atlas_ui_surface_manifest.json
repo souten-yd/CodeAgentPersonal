@@ -1064,5 +1064,15 @@
   "level1_readiness_diagnostics_mutation_enabled": false,
   "level1_readiness_diagnostics_endpoint": "/api/atlas/level1/readiness",
   "level1_readiness_diagnostics_reports_disabled_skeleton": true,
-  "level1_readiness_diagnostics_reports_blockers": true
+  "level1_readiness_diagnostics_reports_blockers": true,
+  "level1_gate_source_mapping_checkpoint": "PR-ATLAS-SCALE-96",
+  "level1_gate_source_mapping_enabled": true,
+  "level1_gate_source_mapping_metadata_only": true,
+  "level1_gate_source_mapping_mutation_enabled": false,
+  "level1_gate_source_mapping_execution_enabled": false,
+  "level1_readiness_diagnostics_reports_gate_sources": true,
+  "level1_readiness_diagnostics_reports_evidence_summary": true,
+  "level1_readiness_diagnostics_advisory_only": true,
+  "level1_next_pr_may_add_readiness_ui_display": true,
+  "level1_next_pr_must_not_enable_execution": true
 }

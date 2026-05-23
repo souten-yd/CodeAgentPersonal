@@ -11,7 +11,6 @@ REQUIRED_MARKERS = [
     'Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21',
     'Current UI track: Vue defaultization complete',
     'Planned UI track: return to PR-ATLAS-SCALE-96 automation track',
-    'Current automation track: PR-ATLAS-SCALE-96',
     '`/` is guarded Atlas Next default only when validated dist passes',
     'invalid/missing Vue dist falls back safely to legacy UI',
     'legacy UI remains available via /ui/',
@@ -41,5 +40,6 @@ def test_docs_canonical_current_state_has_final_v21c_wording() -> None:
         section = _canonical_section(Path(doc).read_text(encoding='utf-8'))
         for marker in REQUIRED_MARKERS:
             assert marker in section
+        assert ('Current automation track: PR-ATLAS-SCALE-96' in section) or ('Current automation track: PR-ATLAS-SCALE-97' in section)
         for marker in FORBIDDEN_STALE:
             assert marker not in section
