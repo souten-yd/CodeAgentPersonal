@@ -19,7 +19,7 @@ REQUIRED_MARKERS = [
     'runtime remains level_0_manual_only',
     'Vue execution capability remains none',
     'VUE21 completed default-enable only, not execution-enable',
-    'next work is PR-ATLAS-SCALE-97',
+    'next work is PR-ATLAS-SCALE-98',
 ]
 
 FORBIDDEN_STALE = [
@@ -40,6 +40,6 @@ def test_docs_canonical_current_state_has_final_v21c_wording() -> None:
         section = _canonical_section(Path(doc).read_text(encoding='utf-8'))
         for marker in REQUIRED_MARKERS:
             assert marker in section
-        assert 'Current automation track: PR-ATLAS-SCALE-97' in section
+        assert 'Current automation track: PR-ATLAS-SCALE-98' in section
         for marker in FORBIDDEN_STALE:
             assert marker not in section

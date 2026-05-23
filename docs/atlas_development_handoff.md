@@ -1,3 +1,4 @@
+- PR-ATLAS-SCALE-97 completed: read-only UI display for Level-1 readiness gate-source mapping via GET diagnostics only; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-94 completed: disabled backend skeleton contract only; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-95 completed: GET-only Level-1 readiness diagnostics for disabled backend skeleton metadata; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - Diagnostics are metadata-only.
@@ -8,8 +9,8 @@
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-97 automation track
-- Current automation track: PR-ATLAS-SCALE-97
-- Next automation track: PR-ATLAS-SCALE-97
+- Current automation track: PR-ATLAS-SCALE-98
+- Next automation track: PR-ATLAS-SCALE-98
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
@@ -20,13 +21,13 @@
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
-- next work is PR-ATLAS-SCALE-97
+- next work is PR-ATLAS-SCALE-98
 
 ## Active PR Pointer (Updated)
 
-- Completed automation PR: PR-ATLAS-SCALE-96
-- Current automation track: PR-ATLAS-SCALE-97
-- Next automation track: PR-ATLAS-SCALE-97
+- Completed automation PR: PR-ATLAS-SCALE-97
+- Current automation track: PR-ATLAS-SCALE-98
+- Next automation track: PR-ATLAS-SCALE-98
 
 Completed:
 - PR-ATLAS-SCALE-76
@@ -698,3 +699,5 @@ Each gate must include: status, owner/source, required evidence, blocking reason
 - Next PR may add readiness UI display for gate-source mapping, not execution enable.
 
 - SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.
+
+- SCALE-98 may add gate filtering/grouping or UX refinement, not execution enable.

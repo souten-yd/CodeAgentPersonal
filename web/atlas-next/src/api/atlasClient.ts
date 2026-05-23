@@ -230,6 +230,47 @@ export async function fetchAtlasWorkflowSnapshot(): Promise<AtlasWorkflowSnapsho
 }
 
 
+
+export type AtlasLevel1ReadinessGateSource = {
+  gate_id: string
+  label: string
+  owner: string
+  source: string
+  evidence_required: boolean
+  evidence_available: boolean
+  current_status: string
+  blocker_reason: string
+  test_requirement: string
+  mutable: boolean
+  advisory_only: boolean
+}
+
+export type AtlasLevel1ReadinessDiagnostics = {
+  enabled: false
+  runtime_level: string
+  level1_execution_enabled: false
+  callable_execution_endpoint_enabled: false
+  vue_execution_controls_enabled: false
+  advisory_only: boolean
+  mutation_performed: false
+  execution_performed: false
+  required_gate_count: number
+  missing_evidence_count: number
+  satisfied_gate_count: number
+  unsatisfied_gate_count: number
+  gate_source_map: AtlasLevel1ReadinessGateSource[]
+}
+
+export async function fetchLevel1ReadinessDiagnostics(): Promise<AtlasLevel1ReadinessDiagnostics | null> {
+  try {
+    const response = await fetch('/api/atlas/level1/readiness', { method: 'GET' })
+    if (!response.ok) return null
+    return await response.json() as AtlasLevel1ReadinessDiagnostics
+  } catch {
+    return null
+  }
+}
+
 export type CreatePlanPoolRequest = {
   input: string
   project_path?: string
