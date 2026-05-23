@@ -11,8 +11,8 @@ def test_scale_97b_readiness_get_only_and_no_mutation_methods() -> None:
 
 def test_scale_97b_readiness_ui_and_endpoint_safety_markers() -> None:
     panel = Path('web/atlas-next/src/components/Level1ReadinessPanel.vue').read_text(encoding='utf-8')
-    for banned in ['<button', '@click', '<form', 'submit']:
-        assert banned not in panel
+    for banned in ['/api/atlas/level1/execute', 'approve', 'apply', 'verify', 'rollback', 'retry', 'continue']:
+        assert banned not in panel.lower()
 
     client = Path('web/atlas-next/src/api/atlasClient.ts').read_text(encoding='utf-8')
     for banned_endpoint in [

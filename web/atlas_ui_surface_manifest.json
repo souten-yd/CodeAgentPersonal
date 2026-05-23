@@ -1083,5 +1083,13 @@
   "level1_readiness_ui_mutation_controls_enabled": false,
   "level1_readiness_ui_backend_authoritative": true,
   "level1_readiness_ui_advisory_only": true,
-  "level1_next_pr_may_add_gate_filtering_or_grouping": true
+  "level1_next_pr_may_add_gate_filtering_or_grouping": true,
+  "level1_readiness_ui_refinement_checkpoint": "PR-ATLAS-SCALE-98",
+  "level1_readiness_ui_grouping_enabled": true,
+  "level1_readiness_ui_filtering_display_only": true,
+  "level1_readiness_ui_computes_execution_eligibility": false,
+  "level1_readiness_ui_decides_readiness": false,
+  "level1_readiness_ui_mutation_enabled": false,
+  "level1_readiness_ui_execution_enabled": false,
+  "level1_next_pr_may_add_export_or_copy_metadata": true
 }
