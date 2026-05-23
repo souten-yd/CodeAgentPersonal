@@ -15,6 +15,7 @@
     <ul v-if="items.length" class="compact-list">
       <li v-for="(item, i) in items" :key="i">{{ item }}</li>
     </ul>
+    <ApprovalDryRunPreview :result="result as unknown as Record<string, unknown>" />
     <p><b>Next step:</b> Review/clarify only. Approve/approval, dry-run, execute, apply, verify, rollback/restore, retry, and continue remain unavailable in Vue.</p>
   </StatusCard>
 </template>
@@ -22,6 +23,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import StatusCard from './StatusCard.vue'
+import ApprovalDryRunPreview from './ApprovalDryRunPreview.vue'
 import type { CreatePlanPoolResponse } from '../api/atlasClient'
 
 const props = defineProps<{ result: CreatePlanPoolResponse }>()
