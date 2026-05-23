@@ -50,6 +50,15 @@
   "level1_readiness_metadata_history_diff_filtering_computes_execution_eligibility": false,
   "level1_readiness_metadata_history_diff_filtering_execution_enabled": false,
   "level1_next_pr_may_add_history_diff_export_local_only": true,
+  "level1_readiness_metadata_history_diff_export_checkpoint": "PR-ATLAS-SCALE-105",
+  "level1_readiness_metadata_history_diff_export_enabled": true,
+  "level1_readiness_metadata_history_diff_export_local_only": true,
+  "level1_readiness_metadata_history_diff_export_upload_enabled": false,
+  "level1_readiness_metadata_history_diff_export_backend_mutation_enabled": false,
+  "level1_readiness_metadata_history_diff_export_decides_readiness": false,
+  "level1_readiness_metadata_history_diff_export_computes_execution_eligibility": false,
+  "level1_readiness_metadata_history_diff_export_execution_enabled": false,
+  "level1_next_pr_may_add_history_diff_annotation_local_only": true,
   "level1_next_pr_must_not_enable_execution": true,
   "surfaces": [
     {

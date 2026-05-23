@@ -106,6 +106,13 @@
         </label>
         <span class="metadata-status">{{ diffFilterStatusLabel }}</span>
       </div>
+      <div class="metadata-actions" role="group" aria-label="Readiness local history diff export actions">
+        <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="copyDiffJson">Copy diff JSON</button>
+        <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="downloadDiffJson">Export diff JSON</button>
+        <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="copyFilteredDiffSummary">Copy filtered diff summary</button>
+        <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="downloadFilteredDiffSummary">Export filtered diff summary</button>
+        <span class="metadata-status">{{ diffExportStatus }}</span>
+      </div>
       <ul>
         <li>Summary by change type: {{ diffChangeTypeSummaryText }}</li>
         <li>Summary by source: {{ diffSourceSummaryText }}</li>
@@ -192,6 +199,62 @@ const diffSourceSummaryText = computed(() => summarizeBy(visibleChangedGates.val
 const diffBeforeStatusSummaryText = computed(() => summarizeBy(visibleChangedGates.value.map((g) => g.before_status || 'unknown')) )
 const diffAfterStatusSummaryText = computed(() => summarizeBy(visibleChangedGates.value.map((g) => g.after_status || 'unknown')) )
 
+
+const diffExportStatus = ref('Local diff export idle.')
+
+function diffExportJsonText(): string { return comparisonResult.value ? JSON.stringify(comparisonResult.value, null, 2) : '' }
+function filteredDiffSummaryText(): string {
+  const result = comparisonResult.value
+  if (!result) return ''
+  const lines = [
+    'Atlas Level-1 readiness metadata history diff summary (local-only)',
+    `filter=${activeDiffFilter.value}`,
+    `comparison_available=${result.comparison_available ? 'true' : 'false'}`,
+    `changed_gates_visible=${visibleChangedGates.value.length}`,
+    `added_gates_visible=${visibleAddedGates.value.length}`,
+    `removed_gates_visible=${visibleRemovedGates.value.length}`,
+    `summary_change_type=${diffChangeTypeSummaryText.value}`,
+    `summary_source=${diffSourceSummaryText.value}`,
+    `summary_before_status=${diffBeforeStatusSummaryText.value}`,
+    `summary_after_status=${diffAfterStatusSummaryText.value}`,
+  ]
+  return lines.join('\n')
+}
+
+function downloadLocalTextFile(payload: string, filename: string, mimeType: string): boolean {
+  if (!payload || typeof window === 'undefined' || typeof document === 'undefined') return false
+  const blob = new Blob([payload], { type: mimeType })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(url)
+  return true
+}
+
+async function copyDiffJson(): Promise<void> {
+  const payload = diffExportJsonText()
+  const ok = await copyTextToClipboard(payload)
+  diffExportStatus.value = ok ? 'Copied local diff JSON to clipboard.' : 'Clipboard unavailable for local diff JSON copy.'
+}
+
+function downloadDiffJson(): void {
+  const ok = downloadLocalTextFile(diffExportJsonText(), 'atlas-level1-readiness-diff.json', 'application/json')
+  diffExportStatus.value = ok ? 'Exported local diff JSON file.' : 'Local diff JSON export unavailable.'
+}
+
+async function copyFilteredDiffSummary(): Promise<void> {
+  const ok = await copyTextToClipboard(filteredDiffSummaryText())
+  diffExportStatus.value = ok ? 'Copied filtered local diff summary to clipboard.' : 'Clipboard unavailable for filtered diff summary copy.'
+}
+
+function downloadFilteredDiffSummary(): void {
+  const ok = downloadLocalTextFile(filteredDiffSummaryText(), 'atlas-level1-readiness-diff-summary.txt', 'text/plain;charset=utf-8')
+  diffExportStatus.value = ok ? 'Exported filtered local diff summary file.' : 'Filtered diff summary export unavailable.'
+}
 
 function saveCurrentAsBaseline(): void {
   if (!diagnostics.value) return
