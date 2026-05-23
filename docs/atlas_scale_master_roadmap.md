@@ -22,7 +22,7 @@
 
 ## Active PR Pointer (Updated)
 
-- Completed automation PR: PR-ATLAS-SCALE-93
+- Completed automation PR: PR-ATLAS-SCALE-94
 - Current automation track: PR-ATLAS-SCALE-95
 - Next automation track: PR-ATLAS-SCALE-95
 
