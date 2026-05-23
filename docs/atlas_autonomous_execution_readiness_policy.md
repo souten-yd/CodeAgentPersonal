@@ -1,5 +1,6 @@
 - PR-ATLAS-SCALE-94 completed: disabled backend skeleton contract only; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-95 completed: GET-only Level-1 readiness diagnostics for disabled backend skeleton metadata; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
+- Diagnostics are metadata-only.
 # Atlas Autonomous Execution Readiness Policy
 
 ## Purpose
@@ -9,7 +10,7 @@
 - This policy exists to prevent premature automation.
 
 ## Current Execution Boundary
-- Completed automation PR: PR-ATLAS-SCALE-94
+- Completed automation PR: PR-ATLAS-SCALE-95
 - Current automation track: PR-ATLAS-SCALE-96
 - Next automation track: PR-ATLAS-SCALE-96
 - PR-ATLAS-SCALE-93 defined Level-1 guarded execution design only.
@@ -366,4 +367,4 @@ Each gate must include: status, owner/source, required evidence, blocking reason
 - No execution endpoint is exposed.
 - Backend workflow_state remains authoritative.
 - Vue execution capability remains none.
-- Next PR may add deeper gate-source mapping/readiness evidence, not execution enable.
+- SCALE-96 may add deeper gate-source mapping/readiness evidence, not execution enable.

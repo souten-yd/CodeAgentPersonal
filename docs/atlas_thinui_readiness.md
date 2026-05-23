@@ -1,5 +1,6 @@
 - PR-ATLAS-SCALE-94 completed: disabled backend skeleton contract only; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-95 completed: GET-only Level-1 readiness diagnostics for disabled backend skeleton metadata; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
+- Diagnostics are metadata-only.
 - PR-ATLAS-VUE-19 completed: Execution safety / non-execution boundary review UI (display-only metadata).
 - PR-ATLAS-VUE-20 completed: Default-readiness preflight / route selection guard review (display-only metadata; no default switch).
 ## Current Atlas Vue UI Track State
@@ -23,7 +24,7 @@
 
 ## Active PR Pointer (Updated)
 
-- Completed automation PR: PR-ATLAS-SCALE-94
+- Completed automation PR: PR-ATLAS-SCALE-95
 - Current automation track: PR-ATLAS-SCALE-96
 - Next automation track: PR-ATLAS-SCALE-96
 
@@ -727,4 +728,4 @@ Each gate must include: status, owner/source, required evidence, blocking reason
 - No execution endpoint is exposed.
 - Backend workflow_state remains authoritative.
 - Vue execution capability remains none.
-- Next PR may add deeper gate-source mapping/readiness evidence, not execution enable.
+- SCALE-96 may add deeper gate-source mapping/readiness evidence, not execution enable.
