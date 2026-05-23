@@ -13,11 +13,10 @@
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-104 automation track
-- Current automation track: PR-ATLAS-SCALE-104
-- Current automation track: PR-ATLAS-SCALE-104
-- Next automation track: PR-ATLAS-SCALE-104
-- PR-ATLAS-SCALE-104 added local-only readiness metadata history diff filtering/grouping (browser-local, display-only).
+- Planned UI track: return to PR-ATLAS-SCALE-105 automation track
+- Current automation track: PR-ATLAS-SCALE-105
+- Next automation track: PR-ATLAS-SCALE-105
+- PR-ATLAS-SCALE-104 completed: local-only readiness metadata history diff filtering/grouping; browser-local/display-only; no backend mutation/upload; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
@@ -28,15 +27,14 @@
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
-- next work is PR-ATLAS-SCALE-104
-- Historical marker preserved for compatibility: next work is PR-ATLAS-SCALE-104
+- next work is PR-ATLAS-SCALE-105
 
 ## Active PR Pointer (Updated)
 
 - Completed automation PR: PR-ATLAS-SCALE-104
 - Current automation track: PR-ATLAS-SCALE-105
 - Next automation track: PR-ATLAS-SCALE-105
-- PR-ATLAS-SCALE-104 added local-only readiness metadata history diff filtering/grouping (browser-local, display-only).
+- PR-ATLAS-SCALE-104 completed: local-only readiness metadata history diff filtering/grouping; browser-local/display-only; no backend mutation/upload; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 
 Completed:
 - PR-ATLAS-SCALE-76
@@ -892,7 +890,7 @@ Current automation track: PR-ATLAS-SCALE-99
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-104 automation track
+- Planned UI track: return to PR-ATLAS-SCALE-105 automation track
 - Current automation track: PR-ATLAS-SCALE-105
 - Next automation track: PR-ATLAS-SCALE-105
 - next work is PR-ATLAS-SCALE-105

@@ -5,11 +5,9 @@
 - PR-ATLAS-SCALE-98 completed: display-only readiness UI grouping/filtering and UX refinement.
 - PR-ATLAS-SCALE-98B completed: post-SCALE-98 docs pointer correction.
 - Completed automation PR: PR-ATLAS-SCALE-104.
-- Current automation track: PR-ATLAS-SCALE-104
-- Current automation track: PR-ATLAS-SCALE-104.
-- Next automation track: PR-ATLAS-SCALE-104.
-- next work is PR-ATLAS-SCALE-104
-- Historical marker preserved for compatibility: next work is PR-ATLAS-SCALE-104.
+- Current automation track: PR-ATLAS-SCALE-105
+- Next automation track: PR-ATLAS-SCALE-105
+- next work is PR-ATLAS-SCALE-105
 - SCALE-98 scope remains display-only readiness UI grouping/filtering and UX refinement, not execution enable.
 - Level-1 execution remains disabled.
 - Runtime remains level_0_manual_only.
@@ -23,7 +21,7 @@
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-104 automation track
+- Planned UI track: return to PR-ATLAS-SCALE-105 automation track
 - Current automation track: PR-ATLAS-SCALE-105
 - Next automation track: PR-ATLAS-SCALE-105
 - SCALE-94 is disabled backend skeleton candidate only
@@ -512,7 +510,7 @@ Next automation track: PR-ATLAS-SCALE-100
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-104 automation track
+- Planned UI track: return to PR-ATLAS-SCALE-105 automation track
 - Current automation track: PR-ATLAS-SCALE-105
 - Next automation track: PR-ATLAS-SCALE-105
 - next work is PR-ATLAS-SCALE-105
