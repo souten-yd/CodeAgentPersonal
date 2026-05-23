@@ -6,6 +6,7 @@
     <RequirementInput />
     <WorkflowShell :snapshot="snapshot" />
     <SafetySummary :snapshot="snapshot" />
+    <ExecutionSafetyBoundary :snapshot="snapshot" />
     <ArtifactSummary :snapshot="snapshot" />
     <DiagnosticsNotice :snapshot="snapshot" />
   </main>
@@ -17,6 +18,7 @@ import { fetchAtlasWorkflowSnapshot, type AtlasWorkflowSnapshot } from '../api/a
 import RequirementInput from './RequirementInput.vue'
 import WorkflowShell from './WorkflowShell.vue'
 import SafetySummary from './SafetySummary.vue'
+import ExecutionSafetyBoundary from './ExecutionSafetyBoundary.vue'
 import ArtifactSummary from './ArtifactSummary.vue'
 import DiagnosticsNotice from './DiagnosticsNotice.vue'
 
