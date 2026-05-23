@@ -4,8 +4,8 @@
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-93 automation track
-- Current automation track: PR-ATLAS-SCALE-93
+- Planned UI track: return to PR-ATLAS-SCALE-94 automation track
+- Current automation track: PR-ATLAS-SCALE-94
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
 - legacy UI remains available via /ui/
@@ -14,7 +14,7 @@
 - runtime remains level_0_manual_only
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
-- next work returns to PR-ATLAS-SCALE-93
+- next work is PR-ATLAS-SCALE-94
 
 ## Purpose
 - Record PR-80 as the official architecture checkpoint for the Vue-based Atlas Next UI migration.
@@ -242,7 +242,7 @@ Vue Atlas Next may become default only when:
 - PR-ATLAS-VUE-08 is completed: Safe static mount/dist strategy.
 - Current UI track is PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy.
 - Next UI track is PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening.
-- Current automation track remains PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint (not completed here).
+- Current automation track remains PR-ATLAS-SCALE-94: Level-1 guarded execution design checkpoint (not completed here).
 - Dist strategy is defined as `dist_required` with production artifacts in `web/atlas-next/dist`.
 - Raw Vite source must not be served as production UI.
 - Static mount remains deferred until VUE-09 / smoke route policy.
@@ -287,13 +287,13 @@ Vue Atlas Next may become default only when:
 - Backend `workflow_state` remains authoritative; Vue execution capability remains none.
 - Completed UI PR: PR-ATLAS-VUE-12.
 - Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
-- Current automation track remains PR-ATLAS-SCALE-93.
+- Current automation track remains PR-ATLAS-SCALE-94.
 
 ## PR-ATLAS-VUE-13 Route Packaging/Deployment Integration Policy
 - PR-ATLAS-VUE-13 completed.
 - Completed UI PR: PR-ATLAS-VUE-13.
 - Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
-- Current automation track remains PR-ATLAS-SCALE-93.
+- Current automation track remains PR-ATLAS-SCALE-94.
 - Existing `ui.html` remains default.
 - Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI; supervision UI only.
 - `/atlas-next` remains guarded/dist-backed/fail-closed.
@@ -336,7 +336,7 @@ Vue Atlas Next may become default only when:
 - Backend `workflow_state` remains authoritative; Vue execution capability remains none.
 - This PR does not make Vue default and does not enable execution.
 - Current UI track: PR-ATLAS-VUE-13.
-- Current automation track remains PR-ATLAS-SCALE-93.
+- Current automation track remains PR-ATLAS-SCALE-94.
 
 ## Active Vue Defaultization Pointer Update
 
@@ -345,7 +345,7 @@ Vue Atlas Next may become default only when:
 - Planned UI defaultization track: PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21.
 - Atlas Next is guarded default route for `/` only when dist validation passes.
 - Vue Atlas Next remains non-default until PR-ATLAS-VUE-21.
-- Current automation track remains PR-ATLAS-SCALE-93 and resumes as active focus after PR-ATLAS-VUE-21.
+- Current automation track remains PR-ATLAS-SCALE-94 and resumes as active focus after PR-ATLAS-VUE-21.
 
 ## Minimal UI Policy During Vue Defaultization (VUE-13 through VUE-21)
 
@@ -415,7 +415,7 @@ Vue Atlas Next may become default only when:
 ## Historical Track Markers (Compatibility)
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-17
 - Current UI track: PR-ATLAS-VUE-18
-- Current automation track remains PR-ATLAS-SCALE-93
+- Current automation track remains PR-ATLAS-SCALE-94
 - no Vue execution capability exists
 - Planned UI track: PR-ATLAS-VUE-18 through PR-ATLAS-VUE-21
 
@@ -433,4 +433,4 @@ Vue Atlas Next may become default only when:
 - Backend remains authoritative.
 - Runtime remains level_0_manual_only.
 - Vue execution capability remains none.
-- After VUE21, return to automation roadmap: PR-ATLAS-SCALE-93.
+- After VUE21, return to automation roadmap: PR-ATLAS-SCALE-94.
