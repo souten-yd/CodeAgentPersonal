@@ -68,6 +68,7 @@ from agent.atlas_verification_recommendation_handoff_schema import AtlasVerifica
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from app.atlas.workflow_state_contract import build_read_only_workflow_state
+from app.atlas.level1_guarded_execution import Level1GuardedExecutionSkeleton
 
 
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
@@ -1260,6 +1261,12 @@ def atlas_workflow_state_read_only() -> dict[str, Any]:
             "workflow_snapshot_available": False,
         },
     )
+
+
+@router.get("/level1/readiness")
+def atlas_level1_readiness_diagnostics() -> dict[str, object]:
+    """GET-only metadata diagnostics for the disabled Level-1 backend skeleton."""
+    return Level1GuardedExecutionSkeleton.build_disabled_level1_contract()
 
 
 @router.get("/verification/allowlist")
