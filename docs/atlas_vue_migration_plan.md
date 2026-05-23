@@ -5,10 +5,9 @@
 - PR-ATLAS-SCALE-98 completed: display-only readiness UI grouping/filtering and UX refinement.
 - PR-ATLAS-SCALE-98B completed: post-SCALE-98 docs pointer correction.
 - Completed automation PR: PR-ATLAS-SCALE-102.
-- Current automation track: PR-ATLAS-SCALE-102
-- Current automation track: PR-ATLAS-SCALE-103.
+- - Current automation track: PR-ATLAS-SCALE-103.
 - Next automation track: PR-ATLAS-SCALE-103.
-- next work is PR-ATLAS-SCALE-102.
+- next work is PR-ATLAS-SCALE-103.
 - SCALE-98 scope remains display-only readiness UI grouping/filtering and UX refinement, not execution enable.
 - Level-1 execution remains disabled.
 - Runtime remains level_0_manual_only.
@@ -22,9 +21,8 @@
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-102 automation track
-- Current automation track: PR-ATLAS-SCALE-102
-- Current automation track: PR-ATLAS-SCALE-103
+- Planned UI track: return to PR-ATLAS-SCALE-103 automation track
+- - Current automation track: PR-ATLAS-SCALE-103
 - Next automation track: PR-ATLAS-SCALE-103
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
@@ -36,7 +34,7 @@
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
-- next work is PR-ATLAS-SCALE-102
+- next work is PR-ATLAS-SCALE-103
 
 ## Purpose
 - Record PR-80 as the official architecture checkpoint for the Vue-based Atlas Next UI migration.
@@ -460,7 +458,7 @@ Vue Atlas Next may become default only when:
 - Completed automation PR: PR-ATLAS-SCALE-96
 - Current automation track: PR-ATLAS-SCALE-103
 - Next automation track: PR-ATLAS-SCALE-103
-- next work is PR-ATLAS-SCALE-102
+- next work is PR-ATLAS-SCALE-103
 - SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.
 - Level-1 execution remains disabled.
 - Runtime remains level_0_manual_only.
@@ -496,6 +494,5 @@ Next automation track: PR-ATLAS-SCALE-100
 
 - Historical marker preserved for compatibility: Completed automation PR: PR-ATLAS-SCALE-101
 
-- Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-102
-
+- Historical marker preserved for compatibility: 
 - Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-102

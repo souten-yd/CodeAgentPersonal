@@ -14,8 +14,8 @@ def test_docs_scale_100_completion_and_101_pointer_contract():
         t = Path(d).read_text(encoding='utf-8')
         assert 'PR-ATLAS-SCALE-100 completed' in t
         assert 'Completed automation PR: PR-ATLAS-SCALE-101' in t
-        assert 'Current automation track: PR-ATLAS-SCALE-102' in t
-        assert 'Next automation track: PR-ATLAS-SCALE-102' in t
+        assert 'Current automation track: PR-ATLAS-SCALE-103' in t
+        assert 'Next automation track: PR-ATLAS-SCALE-103' in t
         assert 'next work is PR-ATLAS-SCALE-102' in t
         assert 'next work is PR-ATLAS-SCALE-100' not in t
         assert 'Planned UI track: return to PR-ATLAS-SCALE-100 automation track' not in t

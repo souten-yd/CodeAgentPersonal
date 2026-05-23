@@ -16,8 +16,7 @@
 
 ## Current Execution Boundary
 - Completed automation PR: PR-ATLAS-SCALE-102
-- Current automation track: PR-ATLAS-SCALE-102
-- Current automation track: PR-ATLAS-SCALE-103
+- - Current automation track: PR-ATLAS-SCALE-103
 - Next automation track: PR-ATLAS-SCALE-103
 - PR-ATLAS-SCALE-93 defined Level-1 guarded execution design only.
 - PR-ATLAS-SCALE-94 added disabled backend skeleton only (no execution enable, no runtime level change, no Vue execution controls).
@@ -388,7 +387,7 @@ Each gate must include: status, owner/source, required evidence, blocking reason
 
 - SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.
 
-- next work is PR-ATLAS-SCALE-102
+- next work is PR-ATLAS-SCALE-103
 
 - SCALE-99 may add export/copy metadata or another display-only refinement, not execution enable.
 
@@ -424,6 +423,5 @@ Current automation track: PR-ATLAS-SCALE-99
 
 - Historical marker preserved for compatibility: Completed automation PR: PR-ATLAS-SCALE-101
 
-- Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-102
-
+- Historical marker preserved for compatibility: 
 - Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-102
