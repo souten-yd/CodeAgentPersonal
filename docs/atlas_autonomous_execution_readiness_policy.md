@@ -386,7 +386,7 @@ Each gate must include: status, owner/source, required evidence, blocking reason
 
 - SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.
 
-- next work is PR-ATLAS-SCALE-100
+- next work is PR-ATLAS-SCALE-101
 
 - SCALE-99 may add export/copy metadata or another display-only refinement, not execution enable.
 
