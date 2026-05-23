@@ -981,5 +981,19 @@
   "vue_next_approval_dry_run_preview_scope": "read_only_readiness_metadata",
   "vue_next_approval_dry_run_backend_authoritative": true,
   "vue_next_approval_dry_run_raw_json_default_visible": false,
-  "vue_next_approval_dry_run_actions_default_visible": false
+  "vue_next_approval_dry_run_actions_default_visible": false,
+  "vue_next_execution_safety_boundary_checkpoint": "PR-ATLAS-VUE-19",
+  "vue_next_execution_safety_boundary_enabled": true,
+  "vue_next_execution_boundary_display_only": true,
+  "vue_next_execution_actions_enabled": false,
+  "vue_next_dry_run_actions_enabled": false,
+  "vue_next_approval_actions_enabled": false,
+  "vue_next_apply_actions_enabled": false,
+  "vue_next_verification_actions_enabled": false,
+  "vue_next_rollback_restore_actions_enabled": false,
+  "vue_next_retry_continue_actions_enabled": false,
+  "vue_next_execution_boundary_scope": "read_only_safety_metadata",
+  "vue_next_execution_boundary_backend_authoritative": true,
+  "vue_next_execution_boundary_raw_json_default_visible": false,
+  "vue_next_vue21_default_enable_not_execution_enable": true
 }
