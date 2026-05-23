@@ -1030,5 +1030,19 @@
   "vue_next_default_not_execution_enable": true,
   "vue_next_previous_default_route": "ui.html",
   "vue_next_after_defaultization_returns_to_automation_track": "PR-ATLAS-SCALE-93",
-  "vue_next_vue20_previous_default_route": "ui.html"
+  "vue_next_vue20_previous_default_route": "ui.html",
+  "level1_guarded_execution_design_checkpoint": "PR-ATLAS-SCALE-93",
+  "level1_guarded_execution_design_defined": true,
+  "level1_backend_skeleton_enabled": false,
+  "level1_vue_execution_controls_enabled": false,
+  "level1_requires_dry_run_first": true,
+  "level1_requires_explicit_human_approval": true,
+  "level1_requires_single_action_only": true,
+  "level1_allows_auto_continue": false,
+  "level1_allows_execute_all": false,
+  "level1_allows_autonomous_loop": false,
+  "level1_allows_remote_git_push": false,
+  "level1_allows_self_modification_execution": false,
+  "level1_required_gates_defined": true,
+  "level1_next_pr_may_add_disabled_backend_skeleton": true
 }

@@ -669,3 +669,47 @@ PR-ATLAS-VUE-15 completed.
 - Runtime remains level_0_manual_only.
 - Vue execution capability remains none.
 - After VUE21, return to automation roadmap: PR-ATLAS-SCALE-93.
+
+## PR-ATLAS-SCALE-93 Level-1 Guarded Execution Design Checkpoint
+
+SCALE-93 is a design-only checkpoint. Runtime remains `level_0_manual_only` and no execution/autonomous behavior is enabled in this PR.
+
+### Level-1 boundary (defined, not enabled)
+- Guarded single-step execution candidate only
+- Exactly one action at a time
+- Low-risk only
+- Dry-run-first is mandatory
+- Explicit human approval token is mandatory
+- Backend-owned execution authority only
+- Vue has no execution authority
+- No auto-continue
+- No execute-all
+- No autonomous loop
+- No remote git push/merge
+- No self-modification execution
+- No Level-2 behavior
+
+### Required Level-1 gates before any implementation
+Each gate must include: status, owner/source, required evidence, blocking reason when unsatisfied, and test requirement.
+
+| Gate | Status | Owner/Source | Required evidence | Blocking reason (if unmet) | Test requirement |
+|---|---|---|---|---|---|
+| Snapshot/restore readiness | required_not_satisfied | backend services/policy | Snapshot manifest + restore plan under data_root | Cannot safely recover workspace | contract + integration coverage |
+| Patch transaction readiness | required_not_satisfied | patch transaction service | Transaction metadata + rollback metadata linkage | Cannot trace or recover mutation intent | service + manifest contracts |
+| Risk classification readiness | required_not_satisfied | risk classification policy | Deterministic low/medium/high/strict classification evidence | Cannot constrain to low-risk-only | risk classification contracts |
+| Dry-run proof readiness | required_not_satisfied | dry-run gate policy | Successful dry-run record bound to candidate action | Execute without proof is forbidden | dry-run gate tests |
+| Explicit approval token readiness | required_not_satisfied | approval gate policy | Human approval token/record tied to action | No human authorization for mutation | approval gate tests |
+| Allowlisted verification readiness | required_not_satisfied | verification allowlist policy | Allowed verification plan + command compliance | Verification could become arbitrary execution | allowlist contracts |
+| Rollback readiness | required_not_satisfied | rollback readiness policy | Snapshot + rollback strategy + restore references | No safe restoration path | rollback readiness tests |
+| Artifact capture readiness | required_not_satisfied | artifact capture policy | Persisted run artifacts and warnings | Audit/replay evidence missing | artifact capture tests |
+| Stop/kill switch readiness | required_not_satisfied | stop gate policy | Explicit stop controls + blocked auto-continue | Unsafe inability to halt | stop gate contracts |
+| Loop bound readiness | required_not_satisfied | loop-bound policy | Max actions/retries/runtime/failures bounds | Unbounded automation risk | loop-bound contracts |
+| Remote git restriction readiness | required_not_satisfied | remote git gate policy | Policy evidence that push/merge stays forbidden | Potential external side effects | remote git gate tests |
+| Self-improvement gate readiness | required_not_satisfied | self-improvement gate policy | Scope + strict gate evidence with no auto mutation | Self-modification could bypass safety | self-improvement gate tests |
+| Audit log readiness | required_not_satisfied | audit/reporting policy | Immutable run/decision log references | Post-incident traceability gap | audit log contracts |
+| data_root/path safety readiness | required_not_satisfied | path safety policy | Normalized/contained paths + escape protection | File safety boundary can be violated | path safety tests |
+| Forbidden command execution policy | required_not_satisfied | command safety policy | Blocklist/allowlist proof for forbidden operations | Dangerous commands may run | policy regression tests |
+| Backend authority enforcement | required_not_satisfied | backend workflow contract | workflow_state marks backend authoritative | Authority drift into UI | contract tests |
+| UI non-authority enforcement | required_not_satisfied | Vue client + manifest policy | Vue endpoints remain read-only + planning metadata only | UI could trigger execution | client/manifest regression tests |
+
+
