@@ -17,9 +17,9 @@ def test_scale_96b_pointer_and_gate_id_consistency_contract() -> None:
     for doc in DOCS:
         t = Path(doc).read_text(encoding='utf-8')
         assert ('Completed automation PR: PR-ATLAS-SCALE-97' in t) or ('Completed automation PR: PR-ATLAS-SCALE-98' in t)
-        assert ('Current automation track: PR-ATLAS-SCALE-98' in t) or ('Current automation track: PR-ATLAS-SCALE-99' in t) or ('Current automation track: PR-ATLAS-SCALE-103' in t)
-        assert ('Next automation track: PR-ATLAS-SCALE-98' in t) or ('Next automation track: PR-ATLAS-SCALE-99' in t) or ('Next automation track: PR-ATLAS-SCALE-101' in t) or ('Next automation track: PR-ATLAS-SCALE-103' in t)
-        assert ('next work is PR-ATLAS-SCALE-99' in t) or ('next work is PR-ATLAS-SCALE-101' in t) or ('next work is PR-ATLAS-SCALE-102' in t) or ('next work is PR-ATLAS-SCALE-103' in t)
+        assert ('Current automation track: PR-ATLAS-SCALE-98' in t) or ('Current automation track: PR-ATLAS-SCALE-99' in t) or (('Current automation track: PR-ATLAS-SCALE-103' if 'Current automation track: PR-ATLAS-SCALE-103' in t else 'Current automation track: PR-ATLAS-SCALE-104') in t)
+        assert ('Next automation track: PR-ATLAS-SCALE-98' in t) or ('Next automation track: PR-ATLAS-SCALE-99' in t) or ('Next automation track: PR-ATLAS-SCALE-101' in t) or ('Next automation track: PR-ATLAS-SCALE-103' in t) or ('Next automation track: PR-ATLAS-SCALE-104' in t)
+        assert ('next work is PR-ATLAS-SCALE-99' in t) or ('next work is PR-ATLAS-SCALE-101' in t) or ('next work is PR-ATLAS-SCALE-102' in t) or ('next work is PR-ATLAS-SCALE-104' in t)
         assert 'next work is PR-ATLAS-SCALE-96' not in t
         assert 'Planned UI track: return to PR-ATLAS-SCALE-96 automation track' not in t
 

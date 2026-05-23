@@ -24,6 +24,25 @@
       <button type="button" class="filter-btn" :disabled="!historyEntries.length" @click="clearHistory">Clear local history</button>
       <span class="metadata-status">{{ historyStatus }}</span>
     </div>
+    <div class="comparison-box">
+      <p><b>local history diff view:</b> local display-only; compares browser-stored snapshots/current diagnostics only.</p>
+      <div class="diff-selectors">
+        <select v-model="historyDiffBaselineId" :disabled="!historyEntries.length">
+          <option value="">Select diff baseline snapshot</option>
+          <option v-for="entry in historyEntries" :key="`baseline-${entry.id}`" :value="entry.id">{{ entry.label }} — {{ entry.saved_at }}</option>
+        </select>
+        <select v-model="historyDiffTargetId" :disabled="!historyEntries.length">
+          <option value="">Select diff target snapshot</option>
+          <option v-for="entry in historyEntries" :key="`target-${entry.id}`" :value="entry.id">{{ entry.label }} — {{ entry.saved_at }}</option>
+        </select>
+      </div>
+      <div class="metadata-actions" role="group" aria-label="Readiness local history diff actions">
+        <button type="button" class="filter-btn" :disabled="!canCompareHistoryEntries" @click="compareSelectedHistoryEntries">Compare selected history snapshots</button>
+        <button type="button" class="filter-btn" :disabled="!canCompareCurrentToHistory" @click="compareCurrentToHistoryEntry">Compare current diagnostics to selected baseline</button>
+        <button type="button" class="filter-btn" @click="clearHistoryDiffSelection">Clear diff selection</button>
+        <span class="metadata-status">{{ historyDiffStatus }}</span>
+      </div>
+    </div>
     <div class="metadata-actions" role="group" aria-label="Readiness local history import export actions">
       <button type="button" class="filter-btn" :disabled="!historyEntries.length" @click="copyHistoryJson">Copy local history JSON</button>
       <button type="button" class="filter-btn" :disabled="!historyEntries.length" @click="downloadHistoryJson">Export local history JSON</button>
@@ -226,6 +245,11 @@ const HISTORY_STORAGE_KEY = 'atlas.level1.readiness.history'
 const HISTORY_MAX_ENTRIES = 5
 const historyEntries = ref<LocalHistoryEntry[]>([])
 const selectedHistoryId = ref('')
+const historyDiffBaselineId = ref('')
+const historyDiffTargetId = ref('')
+const historyDiffStatus = ref('Local history diff idle.')
+const canCompareHistoryEntries = computed(() => !!historyDiffBaselineId.value && !!historyDiffTargetId.value && historyDiffBaselineId.value !== historyDiffTargetId.value)
+const canCompareCurrentToHistory = computed(() => hasDiagnostics.value && !!historyDiffBaselineId.value)
 const historyStatus = ref('Local history idle.')
 const historyImportJson = ref('')
 const historyImportStatus = ref('Local import/export idle.')
@@ -276,9 +300,34 @@ function useHistoryBaseline(): void {
   comparisonStatus.value = 'Compared selected local history baseline against current diagnostics.'
 }
 
+
+function compareSelectedHistoryEntries(): void {
+  const baseline = historyEntries.value.find((e) => e.id === historyDiffBaselineId.value)
+  const target = historyEntries.value.find((e) => e.id === historyDiffTargetId.value)
+  if (!baseline || !target) { historyDiffStatus.value = 'Select valid local baseline and target snapshots.'; return }
+  comparisonResult.value = compareSnapshots(baseline.diagnostics, target.diagnostics)
+  comparisonStatus.value = 'Compared selected local history snapshots.'
+  historyDiffStatus.value = 'History snapshot diff displayed (local-only).'
+}
+
+function compareCurrentToHistoryEntry(): void {
+  if (!diagnostics.value) { historyDiffStatus.value = 'Current diagnostics unavailable for local comparison.'; return }
+  const baseline = historyEntries.value.find((e) => e.id === historyDiffBaselineId.value)
+  if (!baseline) { historyDiffStatus.value = 'Select a valid local baseline snapshot.'; return }
+  comparisonResult.value = compareSnapshots(baseline.diagnostics, diagnostics.value)
+  comparisonStatus.value = 'Compared selected local baseline against current diagnostics.'
+  historyDiffStatus.value = 'Current vs local baseline diff displayed (local-only).'
+}
+
+function clearHistoryDiffSelection(): void {
+  historyDiffBaselineId.value = ''
+  historyDiffTargetId.value = ''
+  historyDiffStatus.value = 'Cleared local history diff selection.'
+}
+
 function deleteHistoryEntry(id: string): void {
   const updated = historyEntries.value.filter((e) => e.id !== id)
-  if (persistHistory(updated)) { historyEntries.value = updated; if (selectedHistoryId.value === id) selectedHistoryId.value=''; historyStatus.value = 'Deleted one local history snapshot.' }
+  if (persistHistory(updated)) { historyEntries.value = updated; if (selectedHistoryId.value === id) selectedHistoryId.value=''; if (historyDiffBaselineId.value===id) historyDiffBaselineId.value=''; if (historyDiffTargetId.value===id) historyDiffTargetId.value=''; historyStatus.value = 'Deleted one local history snapshot.' }
 }
 
 
@@ -354,7 +403,7 @@ function loadHistoryImportFile(event: Event): void {
 
 function clearHistory(): void {
   if (!storageAvailable()) { historyStatus.value = 'Local browser storage unavailable.'; return }
-  try { window.localStorage.removeItem(HISTORY_STORAGE_KEY); historyEntries.value=[]; selectedHistoryId.value=''; historyStatus.value='Cleared local history.' }
+  try { window.localStorage.removeItem(HISTORY_STORAGE_KEY); historyEntries.value=[]; selectedHistoryId.value=''; historyDiffBaselineId.value=''; historyDiffTargetId.value=''; historyStatus.value='Cleared local history.' }
   catch { historyStatus.value='Unable to clear local history due to storage error.' }
 }
 
