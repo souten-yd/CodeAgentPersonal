@@ -2,11 +2,11 @@
 - PR-ATLAS-VUE-20 completed: Default-readiness preflight / route selection guard review (display-only metadata; no default switch).
 ## Current Atlas Vue UI Track State
 
-- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-20
-- Current UI track: PR-ATLAS-VUE-21
-- Planned UI track: PR-ATLAS-VUE-21 only
+- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
+- Current UI track: Vue defaultization complete
+- Planned UI track: return to PR-ATLAS-SCALE-93 automation track
 - Current automation track: PR-ATLAS-SCALE-93
-- Existing ui.html remains default until PR-ATLAS-VUE-21
+- Atlas Next is guarded default route for `/` only when dist validation passes
 - Vue remains parallel/read-only/not default
 - /atlas-next remains mounted/guarded/dist-backed/fail-closed/non-default
 - diagnostics endpoint remains GET-only/metadata-only
@@ -347,7 +347,7 @@ Vue Atlas Next may become default only when:
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-12.
 - Current UI track: PR-ATLAS-VUE-13.
 - Planned UI defaultization track: PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21.
-- Existing ui.html remains default until PR-ATLAS-VUE-21.
+- Atlas Next is guarded default route for `/` only when dist validation passes.
 - Vue Atlas Next remains non-default until PR-ATLAS-VUE-21.
 - Current automation track remains PR-ATLAS-SCALE-93 and resumes as active focus after PR-ATLAS-VUE-21.
 
@@ -430,3 +430,11 @@ Vue Atlas Next may become default only when:
 
 - Historical marker: Current UI track: PR-ATLAS-VUE-19.
 - Historical marker: Planned UI track: PR-ATLAS-VUE-19 through PR-ATLAS-VUE-21.
+
+- Existing legacy ui.html remains available through `/ui/` and `/ui.html`.
+- If Vue dist is invalid, root falls back safely to existing legacy UI.
+- VUE21 is not execution-enable.
+- Backend remains authoritative.
+- Runtime remains level_0_manual_only.
+- Vue execution capability remains none.
+- After VUE21, return to automation roadmap: PR-ATLAS-SCALE-93.
