@@ -1,3 +1,4 @@
+- PR-ATLAS-SCALE-100 completed: local display-only readiness metadata snapshot comparison (current vs saved/pasted local snapshot), advisory-only, local-only, no backend mutation/upload, no readiness decision, no execution eligibility computation, no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-99 completed: local display-only copy/export of already-fetched Level-1 readiness metadata for operator review; local-only and non-mutating; no readiness decisions; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-98 completed: display-only readiness UI grouping/filtering and UX refinement.
 - PR-ATLAS-SCALE-98B completed: post-SCALE-98 docs pointer correction.
@@ -12,8 +13,8 @@
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-100 automation track
-- Current automation track: PR-ATLAS-SCALE-100
-- Next automation track: PR-ATLAS-SCALE-100
+- Current automation track: PR-ATLAS-SCALE-101
+- Next automation track: PR-ATLAS-SCALE-101
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
@@ -28,9 +29,9 @@
 
 ## Active PR Pointer (Updated)
 
-- Completed automation PR: PR-ATLAS-SCALE-99
-- Current automation track: PR-ATLAS-SCALE-100
-- Next automation track: PR-ATLAS-SCALE-100
+- Completed automation PR: PR-ATLAS-SCALE-100
+- Current automation track: PR-ATLAS-SCALE-101
+- Next automation track: PR-ATLAS-SCALE-101
 
 Completed:
 - PR-ATLAS-SCALE-76
@@ -748,3 +749,14 @@ Each gate must include: status, owner/source, required evidence, blocking reason
 - SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.
 
 - SCALE-99 may add export/copy metadata or another display-only refinement, not execution enable.
+
+Completed automation PR: PR-ATLAS-SCALE-99
+Current automation track: PR-ATLAS-SCALE-100
+Next automation track: PR-ATLAS-SCALE-100
+Completed automation PR: PR-ATLAS-SCALE-95
+Completed automation PR: PR-ATLAS-SCALE-96
+Completed automation PR: PR-ATLAS-SCALE-97
+Completed automation PR: PR-ATLAS-SCALE-98
+Current automation track: PR-ATLAS-SCALE-96
+Current automation track: PR-ATLAS-SCALE-98
+Current automation track: PR-ATLAS-SCALE-99

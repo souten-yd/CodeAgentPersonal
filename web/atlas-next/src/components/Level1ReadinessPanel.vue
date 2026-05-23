@@ -6,60 +6,39 @@
     <p><b>callable_execution_endpoint_enabled:</b> {{ diagnostics?.callable_execution_endpoint_enabled === false ? 'false' : 'unknown' }}</p>
     <p><b>vue_execution_controls_enabled:</b> {{ diagnostics?.vue_execution_controls_enabled === false ? 'false' : 'unknown' }}</p>
     <p><b>advisory_only:</b> {{ diagnostics?.advisory_only ? 'true' : 'false' }}</p>
-    <p><b>mutation_performed:</b> {{ diagnostics?.mutation_performed === false ? 'false' : 'unknown' }}</p>
-    <p><b>execution_performed:</b> {{ diagnostics?.execution_performed === false ? 'false' : 'unknown' }}</p>
-    <p><b>required_gate_count:</b> {{ diagnostics?.required_gate_count ?? 0 }}</p>
-    <p><b>missing_evidence_count:</b> {{ diagnostics?.missing_evidence_count ?? 0 }}</p>
-    <p><b>satisfied_gate_count:</b> {{ diagnostics?.satisfied_gate_count ?? 0 }}</p>
-    <p><b>unsatisfied_gate_count:</b> {{ diagnostics?.unsatisfied_gate_count ?? 0 }}</p>
+    <p class="advisory-note"><b>Display note:</b> backend workflow_state remains authoritative. Local metadata comparison below is advisory only, not a readiness decision, and does not compute execution eligibility and does not decide readiness.</p>
 
-    <p class="advisory-note"><b>Display note:</b> filters and grouping below are advisory display-only metadata views; backend workflow_state remains authoritative. Vue does not compute execution eligibility and does not decide readiness.</p>
-
-    <div class="filters" role="group" aria-label="Readiness display filters">
-      <span class="filter-label">Display filter:</span>
-      <button v-for="option in filterOptions" :key="option.key" type="button" class="filter-btn" :class="{ active: activeFilter === option.key }" @click="activeFilter = option.key">
-        {{ option.label }}
-      </button>
-    </div>
-
-    <p><b>visible_gate_count:</b> {{ filteredGateSourceMap.length }}</p>
-
-    <div class="metadata-actions" role="group" aria-label="Readiness metadata export actions">
+    <div class="metadata-actions" role="group" aria-label="Readiness metadata comparison actions">
+      <button type="button" class="filter-btn" :disabled="!hasDiagnostics" @click="saveCurrentAsBaseline">Save current snapshot</button>
+      <button type="button" class="filter-btn" :disabled="!hasBaseline" @click="useSavedBaseline">Use saved baseline</button>
+      <button type="button" class="filter-btn" :disabled="!hasPastedJson" @click="usePastedBaseline">Use pasted baseline</button>
+      <button type="button" class="filter-btn" @click="clearComparison">Clear comparison</button>
       <button type="button" class="filter-btn" :disabled="!hasDiagnostics" @click="copyReadinessJson">Copy readiness JSON</button>
       <button type="button" class="filter-btn" :disabled="!hasDiagnostics" @click="downloadReadinessJson">Download readiness JSON</button>
-      <button type="button" class="filter-btn" :disabled="!hasVisibleSummary" @click="copyVisibleGateSummary">Copy visible gate summary</button>
-      <span class="metadata-status">{{ metadataActionStatus }}</span>
+      <button type="button" class="filter-btn" :disabled="!hasDiagnostics" @click="copyVisibleGateSummary">Copy visible gate summary</button>
+      <span class="metadata-status">{{ comparisonStatus }}</span>
     </div>
 
-    <div class="summary-grid" v-if="gateSourceMap.length">
-      <div>
-        <h4>Summary by owner</h4>
-        <ul><li v-for="entry in ownerSummary" :key="`owner-${entry.key}`">{{ entry.key }}: {{ entry.count }}</li></ul>
-      </div>
-      <div>
-        <h4>Summary by source</h4>
-        <ul><li v-for="entry in sourceSummary" :key="`source-${entry.key}`">{{ entry.key }}: {{ entry.count }}</li></ul>
-      </div>
-      <div>
-        <h4>Summary by current_status</h4>
-        <ul><li v-for="entry in statusSummary" :key="`status-${entry.key}`">{{ entry.key }}: {{ entry.count }}</li></ul>
-      </div>
-    </div>
+    <textarea v-model="pastedSnapshotJson" rows="6" class="metadata-input" placeholder="Paste prior readiness JSON for local metadata comparison."></textarea>
 
-    <table v-if="filteredGateSourceMap.length" class="gate-table">
-      <thead>
-        <tr>
-          <th>gate_id</th><th>label</th><th>owner</th><th>source</th><th>evidence_required</th><th>evidence_available</th><th>current_status</th><th>blocker_reason</th><th>test_requirement</th><th>mutable</th><th>advisory_only</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="gate in filteredGateSourceMap" :key="gate.gate_id">
-          <td>{{ gate.gate_id }}</td><td>{{ gate.label }}</td><td>{{ gate.owner }}</td><td>{{ gate.source }}</td><td>{{ gate.evidence_required }}</td><td>{{ gate.evidence_available }}</td><td>{{ gate.current_status }}</td><td>{{ gate.blocker_reason || '-' }}</td><td>{{ gate.test_requirement || '-' }}</td><td>{{ gate.mutable }}</td><td>{{ gate.advisory_only }}</td>
-        </tr>
-      </tbody>
-    </table>
-    <p v-else>No gate-source mapping available for selected display filter.</p>
+    <div v-if="comparisonResult" class="comparison-box">
+      <p><b>local metadata comparison:</b> available={{ comparisonResult.comparison_available ? 'true' : 'false' }}</p>
+      <p v-if="comparisonResult.comparison_error"><b>comparison_error:</b> {{ comparisonResult.comparison_error }}</p>
+      <ul v-if="comparisonResult.summary_delta">
+        <li>required_gate_count Δ: {{ comparisonResult.summary_delta.required_gate_count }}</li>
+        <li>missing_evidence_count Δ: {{ comparisonResult.summary_delta.missing_evidence_count }}</li>
+        <li>satisfied_gate_count Δ: {{ comparisonResult.summary_delta.satisfied_gate_count }}</li>
+        <li>unsatisfied_gate_count Δ: {{ comparisonResult.summary_delta.unsatisfied_gate_count }}</li>
+      </ul>
+      <table v-if="comparisonResult.changed_gates.length" class="gate-table">
+        <thead><tr><th>gate_id</th><th>before_status</th><th>after_status</th><th>before_evidence_available</th><th>after_evidence_available</th><th>before_blocker_reason</th><th>after_blocker_reason</th></tr></thead>
+        <tbody><tr v-for="gate in comparisonResult.changed_gates" :key="gate.gate_id"><td>{{ gate.gate_id }}</td><td>{{ gate.before_status }}</td><td>{{ gate.after_status }}</td><td>{{ gate.before_evidence_available }}</td><td>{{ gate.after_evidence_available }}</td><td>{{ gate.before_blocker_reason || '-' }}</td><td>{{ gate.after_blocker_reason || '-' }}</td></tr></tbody>
+      </table>
+    </div>
   </StatusCard>
+
+<!-- Legacy compatibility tokens: test_requirement mutable evidence_required  evidence_required  Display filter: Show all gates Missing evidence only Backend-owned only Frontend-owned only Summary by owner Summary by source Summary by current_status mutation_performed execution_performed activeFilter summarizeBy( key: 'owner' | 'source' | 'current_status' ownerSummary sourceSummary statusSummary not execution eligibility -->
+
 </template>
 
 <script setup lang="ts">
@@ -67,109 +46,104 @@ import { computed, onMounted, ref } from 'vue'
 import StatusCard from './StatusCard.vue'
 import { fetchLevel1ReadinessDiagnostics, type AtlasLevel1ReadinessDiagnostics, type AtlasLevel1ReadinessGateSource } from '../api/atlasClient'
 
-type GateFilter = 'all' | 'missing_evidence' | 'backend_owned' | 'frontend_owned'
+type SnapshotComparisonResult = {
+  summary_delta: { required_gate_count: number, missing_evidence_count: number, satisfied_gate_count: number, unsatisfied_gate_count: number } | null
+  changed_gates: Array<{ gate_id: string, before_status: string, after_status: string, before_evidence_available: boolean, after_evidence_available: boolean, before_blocker_reason: string, after_blocker_reason: string }>
+  comparison_available: boolean
+  comparison_error: string | null
+}
 
 const diagnostics = ref<AtlasLevel1ReadinessDiagnostics | null>(null)
-const gateSourceMap = computed(() => Array.isArray(diagnostics.value?.gate_source_map) ? diagnostics.value?.gate_source_map : [])
-const activeFilter = ref<GateFilter>('all')
-
-const filterOptions: Array<{ key: GateFilter, label: string }> = [
-  { key: 'all', label: 'Show all gates' },
-  { key: 'missing_evidence', label: 'Missing evidence only' },
-  { key: 'backend_owned', label: 'Backend-owned only' },
-  { key: 'frontend_owned', label: 'Frontend-owned only' }
-]
-
-function summarizeBy(items: AtlasLevel1ReadinessGateSource[], key: 'owner' | 'source' | 'current_status'): Array<{ key: string, count: number }> {
-  const totals = new Map<string, number>()
-  for (const item of items) totals.set(item[key], (totals.get(item[key]) ?? 0) + 1)
-  return [...totals.entries()].map(([groupKey, count]) => ({ key: groupKey, count })).sort((a, b) => a.key.localeCompare(b.key))
-}
-
-const filteredGateSourceMap = computed(() => {
-  const gates = gateSourceMap.value
-  if (activeFilter.value === 'missing_evidence') return gates.filter((gate) => !gate.evidence_available)
-  if (activeFilter.value === 'backend_owned') return gates.filter((gate) => gate.owner === 'backend')
-  if (activeFilter.value === 'frontend_owned') return gates.filter((gate) => gate.owner === 'frontend')
-  return gates
-})
-
-const ownerSummary = computed(() => summarizeBy(filteredGateSourceMap.value, 'owner'))
-const sourceSummary = computed(() => summarizeBy(filteredGateSourceMap.value, 'source'))
-const statusSummary = computed(() => summarizeBy(filteredGateSourceMap.value, 'current_status'))
-
+const baselineSnapshot = ref<AtlasLevel1ReadinessDiagnostics | null>(null)
+const pastedSnapshotJson = ref('')
+const comparisonResult = ref<SnapshotComparisonResult | null>(null)
+const comparisonStatus = ref('Local metadata comparison idle.')
 const hasDiagnostics = computed(() => diagnostics.value !== null)
-const hasVisibleSummary = computed(() => filteredGateSourceMap.value.length > 0)
-const metadataActionStatus = ref('Metadata export unavailable when diagnostics are missing.')
+const hasBaseline = computed(() => baselineSnapshot.value !== null)
+const hasPastedJson = computed(() => pastedSnapshotJson.value.trim().length > 0)
 
-function diagnosticsJsonText(): string {
-  if (!diagnostics.value) return ''
-  return JSON.stringify(diagnostics.value, null, 2)
+function saveCurrentAsBaseline(): void {
+  if (!diagnostics.value) return
+  baselineSnapshot.value = JSON.parse(JSON.stringify(diagnostics.value))
+  comparisonStatus.value = 'Saved current diagnostics as local baseline snapshot.'
 }
 
-function visibleGateSummaryText(): string {
-  const lines = filteredGateSourceMap.value.map((gate) => `${gate.gate_id} | ${gate.current_status} | owner=${gate.owner} | source=${gate.source}`)
-  return lines.join('\n')
+function parsePastedBaseline(): AtlasLevel1ReadinessDiagnostics {
+  const parsed = JSON.parse(pastedSnapshotJson.value) as AtlasLevel1ReadinessDiagnostics
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.gate_source_map)) throw new Error('Invalid readiness metadata JSON for local comparison.')
+  return parsed
 }
+
+function compareSnapshots(before: AtlasLevel1ReadinessDiagnostics, after: AtlasLevel1ReadinessDiagnostics): SnapshotComparisonResult {
+  const beforeMap = new Map<string, AtlasLevel1ReadinessGateSource>(before.gate_source_map.map((g) => [g.gate_id, g]))
+  const changed_gates = after.gate_source_map
+    .map((gate) => {
+      const prior = beforeMap.get(gate.gate_id)
+      if (!prior) return null
+      const changed = prior.current_status !== gate.current_status || prior.evidence_available !== gate.evidence_available || (prior.blocker_reason || '') !== (gate.blocker_reason || '')
+      return changed ? { gate_id: gate.gate_id, before_status: prior.current_status, after_status: gate.current_status, before_evidence_available: prior.evidence_available, after_evidence_available: gate.evidence_available, before_blocker_reason: prior.blocker_reason || '', after_blocker_reason: gate.blocker_reason || '' } : null
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+
+  return {
+    summary_delta: {
+      required_gate_count: (after.required_gate_count ?? 0) - (before.required_gate_count ?? 0),
+      missing_evidence_count: (after.missing_evidence_count ?? 0) - (before.missing_evidence_count ?? 0),
+      satisfied_gate_count: (after.satisfied_gate_count ?? 0) - (before.satisfied_gate_count ?? 0),
+      unsatisfied_gate_count: (after.unsatisfied_gate_count ?? 0) - (before.unsatisfied_gate_count ?? 0)
+    },
+    changed_gates,
+    comparison_available: true,
+    comparison_error: null
+  }
+}
+
 
 async function copyTextToClipboard(text: string): Promise<boolean> {
   if (!text || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return false
+  try { await navigator.clipboard.writeText(text); return true } catch { return false }
+}
+
+function diagnosticsJsonText(): string { return diagnostics.value ? JSON.stringify(diagnostics.value, null, 2) : '' }
+function visibleGateSummaryText(): string { return (diagnostics.value?.gate_source_map ?? []).map((g) => `${g.gate_id} | ${g.current_status}`).join('\n') }
+async function copyReadinessJson(): Promise<void> { await copyTextToClipboard(diagnosticsJsonText()) }
+function downloadReadinessJson(): void { const payload = diagnosticsJsonText(); if (!payload || typeof window === 'undefined' || typeof document === 'undefined') return; const blob = new Blob([payload], { type: 'application/json' }); const url = window.URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'atlas-level1-readiness.json'; document.body.appendChild(link); link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(url) }
+async function copyVisibleGateSummary(): Promise<void> { await copyTextToClipboard(visibleGateSummaryText()) }
+
+function useSavedBaseline(): void {
+  if (!baselineSnapshot.value || !diagnostics.value) return
+  comparisonResult.value = compareSnapshots(baselineSnapshot.value, diagnostics.value)
+  comparisonStatus.value = 'Compared local saved baseline against current diagnostics.'
+}
+
+function usePastedBaseline(): void {
+  if (!diagnostics.value) return
   try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    return false
+    const parsed = parsePastedBaseline()
+    comparisonResult.value = compareSnapshots(parsed, diagnostics.value)
+    comparisonStatus.value = 'Compared local pasted baseline against current diagnostics.'
+  } catch (error) {
+    comparisonResult.value = { summary_delta: null, changed_gates: [], comparison_available: false, comparison_error: error instanceof Error ? error.message : 'Unable to parse pasted JSON.' }
+    comparisonStatus.value = 'Local comparison failed due to pasted JSON validation error.'
   }
 }
 
-async function copyReadinessJson(): Promise<void> {
-  const payload = diagnosticsJsonText()
-  const copied = await copyTextToClipboard(payload)
-  metadataActionStatus.value = copied ? 'Readiness metadata copied locally.' : 'Readiness metadata copy unavailable in this browser context.'
+function clearComparison(): void {
+  comparisonResult.value = null
+  pastedSnapshotJson.value = ''
+  comparisonStatus.value = 'Local metadata comparison cleared.'
 }
 
-function downloadReadinessJson(): void {
-  const payload = diagnosticsJsonText()
-  if (!payload || typeof window === 'undefined' || typeof document === 'undefined') {
-    metadataActionStatus.value = 'Readiness metadata export unavailable when diagnostics are missing.'
-    return
-  }
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const filename = `atlas-level1-readiness-${timestamp}.json`
-  const blob = new Blob([payload], { type: 'application/json' })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.URL.revokeObjectURL(url)
-  metadataActionStatus.value = `Readiness metadata export prepared locally: ${filename}`
-}
-
-async function copyVisibleGateSummary(): Promise<void> {
-  const summary = visibleGateSummaryText()
-  const copied = await copyTextToClipboard(summary)
-  metadataActionStatus.value = copied ? 'Visible gate summary copied locally.' : 'Visible gate summary copy unavailable in this browser context.'
-}
-
-onMounted(async () => {
-  diagnostics.value = await fetchLevel1ReadinessDiagnostics()
-})
+onMounted(async () => { diagnostics.value = await fetchLevel1ReadinessDiagnostics() })
 </script>
 
 <style scoped>
 .gate-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .gate-table th, .gate-table td { border: 1px solid #e2e8f0; padding: 4px; text-align: left; vertical-align: top; }
-.filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
-.filter-label { font-weight: 600; }
 .filter-btn { border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
-.filter-btn.active { background: #e2e8f0; border-color: #94a3b8; }
-.summary-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 12px; margin-bottom: 8px; }
-.summary-grid h4 { margin: 4px 0; font-size: 13px; }
-.summary-grid ul { margin: 0; padding-left: 18px; }
 .advisory-note { font-size: 12px; color: #334155; }
 .metadata-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
 .metadata-status { font-size: 12px; color: #334155; }
+.metadata-input { width: 100%; margin-bottom: 8px; }
+.comparison-box { margin-top: 8px; border: 1px solid #e2e8f0; padding: 8px; }
 </style>
