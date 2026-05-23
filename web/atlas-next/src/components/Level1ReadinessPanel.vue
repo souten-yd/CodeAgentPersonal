@@ -18,6 +18,25 @@
       <button type="button" class="filter-btn" :disabled="!hasDiagnostics" @click="copyVisibleGateSummary">Copy visible gate summary</button>
       <span class="metadata-status">{{ comparisonStatus }}</span>
     </div>
+    <div class="metadata-actions" role="group" aria-label="Readiness local history actions">
+      <button type="button" class="filter-btn" :disabled="!hasDiagnostics" @click="saveCurrentToHistory">Save to local history</button>
+      <button type="button" class="filter-btn" :disabled="!selectedHistoryId" @click="useHistoryBaseline">Use selected history baseline</button>
+      <button type="button" class="filter-btn" :disabled="!historyEntries.length" @click="clearHistory">Clear local history</button>
+      <span class="metadata-status">{{ historyStatus }}</span>
+    </div>
+    <div class="comparison-box">
+      <p><b>local history storage:</b> browser storage only; max entries: {{ HISTORY_MAX_ENTRIES }}</p>
+      <select v-model="selectedHistoryId" :disabled="!historyEntries.length">
+        <option value="">Select local history snapshot</option>
+        <option v-for="entry in historyEntries" :key="entry.id" :value="entry.id">{{ entry.label }} — {{ entry.saved_at }}</option>
+      </select>
+      <ul v-if="historyEntries.length">
+        <li v-for="entry in historyEntries" :key="entry.id">
+          {{ entry.label }} — {{ entry.saved_at }}
+          <button type="button" class="filter-btn" @click="deleteHistoryEntry(entry.id)">Delete</button>
+        </li>
+      </ul>
+    </div>
 
     <textarea v-model="pastedSnapshotJson" rows="6" class="metadata-input" placeholder="Paste prior readiness JSON for local metadata comparison."></textarea>
 
@@ -184,7 +203,78 @@ function clearComparison(): void {
   comparisonStatus.value = 'Local metadata comparison cleared.'
 }
 
-onMounted(async () => { diagnostics.value = await fetchLevel1ReadinessDiagnostics() })
+
+
+type LocalHistoryEntry = {
+  id: string
+  saved_at: string
+  label: string
+  diagnostics: AtlasLevel1ReadinessDiagnostics
+}
+
+const HISTORY_STORAGE_KEY = 'atlas.level1.readiness.history'
+const HISTORY_MAX_ENTRIES = 5
+const historyEntries = ref<LocalHistoryEntry[]>([])
+const selectedHistoryId = ref('')
+const historyStatus = ref('Local history idle.')
+
+function storageAvailable(): boolean {
+  try { return typeof window !== 'undefined' && !!window.localStorage } catch { return false }
+}
+
+function loadHistory(): void {
+  if (!storageAvailable()) { historyStatus.value = 'Local browser storage unavailable.'; historyEntries.value = []; return }
+  try {
+    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY)
+    if (!raw) { historyEntries.value = []; return }
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) throw new Error('invalid history payload')
+    historyEntries.value = parsed.filter((e) => e && typeof e.id === 'string' && typeof e.saved_at === 'string' && typeof e.label === 'string' && e.diagnostics && Array.isArray(e.diagnostics.gate_source_map)).slice(0, HISTORY_MAX_ENTRIES)
+  } catch {
+    historyEntries.value = []
+    historyStatus.value = 'Local history parse error; history reset in memory.'
+  }
+}
+
+function persistHistory(entries: LocalHistoryEntry[]): boolean {
+  if (!storageAvailable()) { historyStatus.value = 'Local browser storage unavailable.'; return false }
+  try {
+    window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(entries.slice(0, HISTORY_MAX_ENTRIES)))
+    return true
+  } catch {
+    historyStatus.value = 'Unable to save local history (storage quota or storage error).';
+    return false
+  }
+}
+
+function saveCurrentToHistory(): void {
+  if (!diagnostics.value) return
+  const now = new Date().toISOString()
+  const entry: LocalHistoryEntry = { id: `${Date.now()}`, saved_at: now, label: `Snapshot ${new Date().toLocaleString()}`, diagnostics: JSON.parse(JSON.stringify(diagnostics.value)) }
+  const updated = [entry, ...historyEntries.value].slice(0, HISTORY_MAX_ENTRIES)
+  if (persistHistory(updated)) { historyEntries.value = updated; historyStatus.value = 'Saved current diagnostics to local history.'; selectedHistoryId.value = entry.id }
+}
+
+function useHistoryBaseline(): void {
+  if (!diagnostics.value || !selectedHistoryId.value) return
+  const found = historyEntries.value.find((e) => e.id === selectedHistoryId.value)
+  if (!found) { historyStatus.value = 'Selected local history snapshot not found.'; return }
+  comparisonResult.value = compareSnapshots(found.diagnostics, diagnostics.value)
+  comparisonStatus.value = 'Compared selected local history baseline against current diagnostics.'
+}
+
+function deleteHistoryEntry(id: string): void {
+  const updated = historyEntries.value.filter((e) => e.id !== id)
+  if (persistHistory(updated)) { historyEntries.value = updated; if (selectedHistoryId.value === id) selectedHistoryId.value=''; historyStatus.value = 'Deleted one local history snapshot.' }
+}
+
+function clearHistory(): void {
+  if (!storageAvailable()) { historyStatus.value = 'Local browser storage unavailable.'; return }
+  try { window.localStorage.removeItem(HISTORY_STORAGE_KEY); historyEntries.value=[]; selectedHistoryId.value=''; historyStatus.value='Cleared local history.' }
+  catch { historyStatus.value='Unable to clear local history due to storage error.' }
+}
+
+onMounted(async () => { loadHistory(); diagnostics.value = await fetchLevel1ReadinessDiagnostics() })
 </script>
 
 <style scoped>
