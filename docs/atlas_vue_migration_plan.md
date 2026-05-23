@@ -1,12 +1,24 @@
+- PR-ATLAS-SCALE-97 completed.
+- Completed automation PR: PR-ATLAS-SCALE-97.
+- Current automation track: PR-ATLAS-SCALE-98.
+- Next automation track: PR-ATLAS-SCALE-98.
+- next work is PR-ATLAS-SCALE-98.
+- SCALE-98 scope remains gate filtering/grouping and UX refinement, not execution enable.
+- Level-1 execution remains disabled.
+- Runtime remains level_0_manual_only.
+- Autonomous execution remains disabled.
+- Vue execution capability remains none.
+- Backend workflow_state remains authoritative.
+
 - PR-ATLAS-VUE-19 completed: Execution safety / non-execution boundary review UI (display-only metadata).
 - PR-ATLAS-VUE-20 completed: Default-readiness preflight / route selection guard review (display-only metadata; no default switch).
 ## Current Atlas Vue UI Track State
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-97 automation track
+- Planned UI track: return to PR-ATLAS-SCALE-98 automation track
 - Current automation track: PR-ATLAS-SCALE-98
-- Next automation track: PR-ATLAS-SCALE-97
+- Next automation track: PR-ATLAS-SCALE-98
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
@@ -440,7 +452,7 @@ Vue Atlas Next may become default only when:
 
 - Completed automation PR: PR-ATLAS-SCALE-96
 - Current automation track: PR-ATLAS-SCALE-98
-- Next automation track: PR-ATLAS-SCALE-97
+- Next automation track: PR-ATLAS-SCALE-98
 - next work is PR-ATLAS-SCALE-98
 - SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.
 - Level-1 execution remains disabled.

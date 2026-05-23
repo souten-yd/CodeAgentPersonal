@@ -236,7 +236,7 @@ export type AtlasLevel1ReadinessGateSource = {
   label: string
   owner: string
   source: string
-  evidence_required: boolean
+  evidence_required: string
   evidence_available: boolean
   current_status: string
   blocker_reason: string
