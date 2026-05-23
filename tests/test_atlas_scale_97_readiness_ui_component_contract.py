@@ -11,5 +11,5 @@ def test_scale_97_readiness_component_exists_and_display_fields() -> None:
         'blocker_reason', 'test_requirement', 'mutable'
     ]:
         assert field in t
-    for banned in ['<button', '@click', '<form', 'submit']:
-        assert banned not in t
+    for banned in ['execute', 'apply', 'approve', 'verify', 'rollback', 'retry', 'continue']:
+        assert banned not in t.lower()
