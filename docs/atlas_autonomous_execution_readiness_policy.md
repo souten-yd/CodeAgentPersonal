@@ -18,9 +18,7 @@
 ## Current Execution Boundary
 - Completed automation PR: PR-ATLAS-SCALE-105
 - Current automation track: PR-ATLAS-SCALE-106
-- Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-105
 - Next automation track: PR-ATLAS-SCALE-106
-- Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-105
 - PR-ATLAS-SCALE-93 defined Level-1 guarded execution design only.
 - PR-ATLAS-SCALE-94 added disabled backend skeleton only (no execution enable, no runtime level change, no Vue execution controls).
 - Level-1 execution remains disabled.
@@ -443,7 +441,6 @@ Current automation track: PR-ATLAS-SCALE-99
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-106 automation track
-- Historical marker preserved for compatibility: Planned UI track: return to PR-ATLAS-SCALE-105 automation track
 - Current automation track: PR-ATLAS-SCALE-106
 - Next automation track: PR-ATLAS-SCALE-106
 - next work is PR-ATLAS-SCALE-106
@@ -454,6 +451,3 @@ Current automation track: PR-ATLAS-SCALE-99
 - Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-104.
 - Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-104.
 
-- Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-105
-- Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-105
-- Historical marker preserved for compatibility: next work is PR-ATLAS-SCALE-105
