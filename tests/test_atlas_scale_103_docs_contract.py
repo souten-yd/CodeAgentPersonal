@@ -11,3 +11,24 @@ def test_docs_scale_103_state_and_104_next_track():
     ]
     for token in required:
         assert token in DOCS
+
+
+def test_docs_forbid_stale_scale_103_current_state_lines():
+    forbidden = [
+        'Planned UI track: return to PR-ATLAS-SCALE-103 automation track',
+        'next work is PR-ATLAS-SCALE-103',
+        'PR-ATLAS-SCALE-103 may add local-only history diff view',
+    ]
+    for token in forbidden:
+        assert token not in DOCS
+
+
+def test_docs_require_scale_104_next_work_and_ui_track():
+    required = [
+        'Planned UI track: return to PR-ATLAS-SCALE-104 automation track',
+        'next work is PR-ATLAS-SCALE-104',
+        'PR-ATLAS-SCALE-104 may add local-only diff filtering/grouping',
+        'backend workflow_state remains authoritative',
+    ]
+    for token in required:
+        assert token in DOCS

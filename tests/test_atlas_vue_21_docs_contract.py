@@ -10,7 +10,7 @@ DOCS = [
 REQUIRED_MARKERS = [
     'Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21',
     'Current UI track: Vue defaultization complete',
-    'Planned UI track: return to PR-ATLAS-SCALE-103 automation track',
+    'Planned UI track: return to PR-ATLAS-SCALE-104 automation track',
     '`/` is guarded Atlas Next default only when validated dist passes',
     'invalid/missing Vue dist falls back safely to legacy UI',
     'legacy UI remains available via /ui/',
