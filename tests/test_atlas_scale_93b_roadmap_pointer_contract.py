@@ -23,7 +23,7 @@ def test_scale_93b_pointer_state_is_aligned_to_scale_94() -> None:
 
 def test_scale_94_is_described_as_disabled_backend_skeleton_candidate_only() -> None:
     text = Path('docs/atlas_scale_master_roadmap.md').read_text(encoding='utf-8')
-    assert 'PR-ATLAS-SCALE-95: post-SCALE-94 diagnostics/readiness observability checkpoint' in text
+    assert 'PR-ATLAS-SCALE-94: disabled backend skeleton candidate for future Level-1 guarded single-step execution' in text
     assert 'execution remains disabled by default' in text
     assert 'no runtime level change' in text
     assert 'no Vue execution controls' in text

@@ -19,7 +19,7 @@ def test_scale_100b_pointer_alignment():
         assert 'Current automation track: PR-ATLAS-SCALE-103' in t
         assert 'Next automation track: PR-ATLAS-SCALE-103' in t
     merged = '\\n'.join(all_text).lower()
-    assert 'next work is pr-atlas-scale-102' in merged
+    assert 'next work is pr-atlas-scale-103' in merged
     assert 'next work is pr-atlas-scale-100' not in merged
     assert 'planned ui track: return to pr-atlas-scale-100 automation track' not in merged
 
