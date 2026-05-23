@@ -1,3 +1,4 @@
+- PR-ATLAS-SCALE-98 completed.
 - PR-ATLAS-SCALE-97 completed: read-only UI display for Level-1 readiness gate-source mapping via GET diagnostics only; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-94 completed: disabled backend skeleton contract only; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-95 completed: GET-only Level-1 readiness diagnostics for disabled backend skeleton metadata; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
@@ -8,7 +9,7 @@
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-98 automation track
+- Planned UI track: return to PR-ATLAS-SCALE-99 automation track
 - Current automation track: PR-ATLAS-SCALE-99
 - Next automation track: PR-ATLAS-SCALE-99
 - SCALE-94 is disabled backend skeleton candidate only
@@ -21,7 +22,7 @@
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
-- next work is PR-ATLAS-SCALE-98
+- next work is PR-ATLAS-SCALE-99
 
 ## Active PR Pointer (Updated)
 
@@ -744,4 +745,4 @@ Each gate must include: status, owner/source, required evidence, blocking reason
 
 - SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.
 
-- SCALE-98 may add gate filtering/grouping or UX refinement, not execution enable.
+- SCALE-99 may add export/copy metadata or another display-only refinement, not execution enable.
