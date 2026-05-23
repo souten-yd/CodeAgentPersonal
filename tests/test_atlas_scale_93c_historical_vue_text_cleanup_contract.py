@@ -18,8 +18,8 @@ def test_scale_93c_canonical_current_state_and_tracks() -> None:
     for doc in DOCS:
         text = Path(doc).read_text(encoding='utf-8')
         section = _canonical_section(text)
-        assert ('Current automation track: PR-ATLAS-SCALE-96' in section) or ('Current automation track: PR-ATLAS-SCALE-98' in section) or ('Current automation track: PR-ATLAS-SCALE-98' in section)
-        assert ('Next automation track: PR-ATLAS-SCALE-96' in text) or ('Completed automation PR: PR-ATLAS-SCALE-97' in text) or ('Next automation track: PR-ATLAS-SCALE-97' in text) or ('Current automation track: PR-ATLAS-SCALE-98' in text)
+        assert ('Current automation track: PR-ATLAS-SCALE-96' in section) or ('Current automation track: PR-ATLAS-SCALE-98' in section) or ('Current automation track: PR-ATLAS-SCALE-99' in section)
+        assert ('Next automation track: PR-ATLAS-SCALE-96' in text) or ('Completed automation PR: PR-ATLAS-SCALE-97' in text) or ('Next automation track: PR-ATLAS-SCALE-97' in text) or ('Current automation track: PR-ATLAS-SCALE-98' in text) or ('Current automation track: PR-ATLAS-SCALE-99' in text)
         assert 'SCALE-94 is disabled backend skeleton candidate only' in section
         assert 'VUE21 completed default-enable only, not execution-enable' in section
         assert 'legacy UI remains available via /ui/' in section

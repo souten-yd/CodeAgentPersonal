@@ -1,3 +1,4 @@
+- PR-ATLAS-SCALE-98 completed.
 - PR-ATLAS-SCALE-97 completed: read-only UI display for Level-1 readiness gate-source mapping via GET diagnostics only; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-94 completed: disabled backend skeleton contract only; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-95 completed: GET-only Level-1 readiness diagnostics for disabled backend skeleton metadata; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
@@ -383,6 +384,6 @@ Each gate must include: status, owner/source, required evidence, blocking reason
 
 - SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.
 
-- next work is PR-ATLAS-SCALE-98
+- next work is PR-ATLAS-SCALE-99
 
-- SCALE-98 may add gate filtering/grouping or UX refinement, not execution enable.
+- SCALE-99 may add export/copy metadata or another display-only refinement, not execution enable.

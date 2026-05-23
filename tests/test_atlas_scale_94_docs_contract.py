@@ -12,8 +12,8 @@ def test_scale_94_docs_pointer_and_boundary() -> None:
     for doc in DOCS:
         text = Path(doc).read_text(encoding="utf-8").lower()
         assert ("completed automation pr: pr-atlas-scale-95" in text) or ("completed automation pr: pr-atlas-scale-96" in text) or ("completed automation pr: pr-atlas-scale-97" in text) or ("completed automation pr: pr-atlas-scale-98" in text)
-        assert ("current automation track: pr-atlas-scale-96" in text) or ("completed automation pr: pr-atlas-scale-97" in text) or ("current automation track: pr-atlas-scale-97" in text)
-        assert ("next automation track: pr-atlas-scale-96" in text) or ("completed automation pr: pr-atlas-scale-97" in text) or ("next automation track: pr-atlas-scale-97" in text)
+        assert ("current automation track: pr-atlas-scale-96" in text) or ("completed automation pr: pr-atlas-scale-97" in text) or ("current automation track: pr-atlas-scale-97" in text) or ("current automation track: pr-atlas-scale-99" in text)
+        assert ("next automation track: pr-atlas-scale-96" in text) or ("completed automation pr: pr-atlas-scale-97" in text) or ("next automation track: pr-atlas-scale-97" in text) or ("next automation track: pr-atlas-scale-99" in text)
         assert "disabled backend skeleton" in text
         assert "no execution endpoint" in text
         assert "level-1" in text and "disabled" in text
