@@ -24,6 +24,13 @@
 
     <p><b>visible_gate_count:</b> {{ filteredGateSourceMap.length }}</p>
 
+    <div class="metadata-actions" role="group" aria-label="Readiness metadata export actions">
+      <button type="button" class="filter-btn" :disabled="!hasDiagnostics" @click="copyReadinessJson">Copy readiness JSON</button>
+      <button type="button" class="filter-btn" :disabled="!hasDiagnostics" @click="downloadReadinessJson">Download readiness JSON</button>
+      <button type="button" class="filter-btn" :disabled="!hasVisibleSummary" @click="copyVisibleGateSummary">Copy visible gate summary</button>
+      <span class="metadata-status">{{ metadataActionStatus }}</span>
+    </div>
+
     <div class="summary-grid" v-if="gateSourceMap.length">
       <div>
         <h4>Summary by owner</h4>
@@ -91,6 +98,62 @@ const ownerSummary = computed(() => summarizeBy(filteredGateSourceMap.value, 'ow
 const sourceSummary = computed(() => summarizeBy(filteredGateSourceMap.value, 'source'))
 const statusSummary = computed(() => summarizeBy(filteredGateSourceMap.value, 'current_status'))
 
+const hasDiagnostics = computed(() => diagnostics.value !== null)
+const hasVisibleSummary = computed(() => filteredGateSourceMap.value.length > 0)
+const metadataActionStatus = ref('Metadata export unavailable when diagnostics are missing.')
+
+function diagnosticsJsonText(): string {
+  if (!diagnostics.value) return ''
+  return JSON.stringify(diagnostics.value, null, 2)
+}
+
+function visibleGateSummaryText(): string {
+  const lines = filteredGateSourceMap.value.map((gate) => `${gate.gate_id} | ${gate.current_status} | owner=${gate.owner} | source=${gate.source}`)
+  return lines.join('\n')
+}
+
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (!text || typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return false
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function copyReadinessJson(): Promise<void> {
+  const payload = diagnosticsJsonText()
+  const copied = await copyTextToClipboard(payload)
+  metadataActionStatus.value = copied ? 'Readiness metadata copied locally.' : 'Readiness metadata copy unavailable in this browser context.'
+}
+
+function downloadReadinessJson(): void {
+  const payload = diagnosticsJsonText()
+  if (!payload || typeof window === 'undefined' || typeof document === 'undefined') {
+    metadataActionStatus.value = 'Readiness metadata export unavailable when diagnostics are missing.'
+    return
+  }
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const filename = `atlas-level1-readiness-${timestamp}.json`
+  const blob = new Blob([payload], { type: 'application/json' })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(url)
+  metadataActionStatus.value = `Readiness metadata export prepared locally: ${filename}`
+}
+
+async function copyVisibleGateSummary(): Promise<void> {
+  const summary = visibleGateSummaryText()
+  const copied = await copyTextToClipboard(summary)
+  metadataActionStatus.value = copied ? 'Visible gate summary copied locally.' : 'Visible gate summary copy unavailable in this browser context.'
+}
+
 onMounted(async () => {
   diagnostics.value = await fetchLevel1ReadinessDiagnostics()
 })
@@ -107,4 +170,6 @@ onMounted(async () => {
 .summary-grid h4 { margin: 4px 0; font-size: 13px; }
 .summary-grid ul { margin: 0; padding-left: 18px; }
 .advisory-note { font-size: 12px; color: #334155; }
+.metadata-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.metadata-status { font-size: 12px; color: #334155; }
 </style>

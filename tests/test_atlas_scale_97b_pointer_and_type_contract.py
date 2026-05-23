@@ -13,10 +13,10 @@ def test_scale_97b_docs_pointer_and_track_state() -> None:
     stale = 'Planned UI track: return to PR-ATLAS-SCALE-97 automation track'
     for path in DOCS:
         text = Path(path).read_text(encoding='utf-8')
-        assert ('Completed automation PR: PR-ATLAS-SCALE-97' in text) or ('Completed automation PR: PR-ATLAS-SCALE-98' in text)
-        assert ('Current automation track: PR-ATLAS-SCALE-98' in text) or ('Current automation track: PR-ATLAS-SCALE-99' in text)
-        assert ('Next automation track: PR-ATLAS-SCALE-98' in text) or ('Next automation track: PR-ATLAS-SCALE-99' in text)
-        assert 'next work is PR-ATLAS-SCALE-99' in text
+        assert ('Completed automation PR: PR-ATLAS-SCALE-99' in text)
+        assert 'Current automation track: PR-ATLAS-SCALE-100' in text
+        assert 'Next automation track: PR-ATLAS-SCALE-100' in text
+        assert 'next work is PR-ATLAS-SCALE-100' in text
         assert stale not in text
 
 
