@@ -15,11 +15,8 @@
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-106 automation track
-- Historical marker preserved for compatibility: Planned UI track: return to PR-ATLAS-SCALE-105 automation track
 - Current automation track: PR-ATLAS-SCALE-106
-- Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-105
 - Next automation track: PR-ATLAS-SCALE-106
-- Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-105
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
@@ -31,7 +28,6 @@
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
 - next work is PR-ATLAS-SCALE-106
-- Historical marker preserved for compatibility: next work is PR-ATLAS-SCALE-105
 
 ## Active PR Pointer (Updated)
 
@@ -815,6 +811,3 @@ Current automation track: PR-ATLAS-SCALE-99
 - Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-104.
 - Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-104.
 
-- Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-105
-- Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-105
-- Historical marker preserved for compatibility: next work is PR-ATLAS-SCALE-105

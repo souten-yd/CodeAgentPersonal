@@ -15,11 +15,8 @@
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-106 automation track
-- Historical marker preserved for compatibility: Planned UI track: return to PR-ATLAS-SCALE-105 automation track
 - Current automation track: PR-ATLAS-SCALE-106
-- Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-105
 - Next automation track: PR-ATLAS-SCALE-106
-- Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-105
 - PR-ATLAS-SCALE-105 completed: local-only readiness metadata history diff export/copy for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
@@ -32,7 +29,6 @@
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
 - next work is PR-ATLAS-SCALE-106
-- Historical marker preserved for compatibility: next work is PR-ATLAS-SCALE-105
 
 ## Active PR Pointer (Updated)
 
@@ -907,10 +903,6 @@ Current automation track: PR-ATLAS-SCALE-99
 - Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-104.
 
 - Historical marker preserved for compatibility: Completed automation PR: PR-ATLAS-SCALE-104
-- Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-105
-- Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-105
-- Historical marker preserved for compatibility: next work is PR-ATLAS-SCALE-105
 - Historical marker preserved for compatibility: Next PR may add local-only diff export and must not enable execution.
 
-- Historical marker preserved for compatibility: Planned UI track: return to PR-ATLAS-SCALE-105 automation track
 - Historical marker preserved for compatibility: PR-ATLAS-SCALE-104 may add local-only diff filtering/grouping
