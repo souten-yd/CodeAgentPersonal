@@ -21,4 +21,4 @@ def test_102b_manifest_and_docs_alignment():
     assert manifest['autonomous_execution_enabled'] is False
     assert ('Current automation track: PR-ATLAS-SCALE-103' in docs) or ('Current automation track: PR-ATLAS-SCALE-104' in docs)
     assert ('Next automation track: PR-ATLAS-SCALE-103' in docs) or ('Next automation track: PR-ATLAS-SCALE-104' in docs)
-    assert 'PR-ATLAS-SCALE-103 may add local-only history diff view' in docs
+    assert 'PR-ATLAS-SCALE-104 may add local-only diff filtering/grouping' in docs

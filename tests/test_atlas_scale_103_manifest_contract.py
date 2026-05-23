@@ -23,3 +23,9 @@ def test_scale_102_fields_preserved():
     assert MANIFEST['runtime_level'] == 'level_0_manual_only'
     assert MANIFEST['level1_execution_enabled'] is False
     assert MANIFEST['autonomous_execution_enabled'] is False
+
+
+def test_scale_103_runtime_safety_flags_preserved():
+    assert MANIFEST['runtime_level'] == 'level_0_manual_only'
+    assert MANIFEST['level1_execution_enabled'] is False
+    assert MANIFEST['autonomous_execution_enabled'] is False
