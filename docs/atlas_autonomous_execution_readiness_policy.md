@@ -16,7 +16,7 @@
 
 ## Current Execution Boundary
 - Completed automation PR: PR-ATLAS-SCALE-102
-- - Current automation track: PR-ATLAS-SCALE-103
+- Current automation track: PR-ATLAS-SCALE-103
 - Next automation track: PR-ATLAS-SCALE-103
 - PR-ATLAS-SCALE-93 defined Level-1 guarded execution design only.
 - PR-ATLAS-SCALE-94 added disabled backend skeleton only (no execution enable, no runtime level change, no Vue execution controls).

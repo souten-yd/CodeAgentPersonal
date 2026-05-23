@@ -14,7 +14,7 @@
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-103 automation track
-- - Current automation track: PR-ATLAS-SCALE-103
+- Current automation track: PR-ATLAS-SCALE-103
 - Next automation track: PR-ATLAS-SCALE-103
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes

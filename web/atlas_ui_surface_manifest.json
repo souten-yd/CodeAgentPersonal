@@ -13,7 +13,6 @@
   "level1_readiness_metadata_comparison_computes_execution_eligibility": false,
   "level1_readiness_metadata_comparison_execution_enabled": false,
   "level1_next_pr_may_add_metadata_history_local_storage": true,
-  "level1_next_pr_must_not_enable_execution": true,
   "level1_readiness_metadata_history_checkpoint": "PR-ATLAS-SCALE-101",
   "level1_readiness_metadata_history_enabled": true,
   "level1_readiness_metadata_history_browser_storage_only": true,
@@ -23,6 +22,16 @@
   "level1_readiness_metadata_history_computes_execution_eligibility": false,
   "level1_readiness_metadata_history_execution_enabled": false,
   "level1_next_pr_may_add_history_import_export_local_only": true,
+  "level1_readiness_metadata_history_import_export_checkpoint": "PR-ATLAS-SCALE-102",
+  "level1_readiness_metadata_history_import_export_enabled": true,
+  "level1_readiness_metadata_history_import_export_local_only": true,
+  "level1_readiness_metadata_history_import_export_upload_enabled": false,
+  "level1_readiness_metadata_history_import_export_backend_mutation_enabled": false,
+  "level1_readiness_metadata_history_import_export_decides_readiness": false,
+  "level1_readiness_metadata_history_import_export_computes_execution_eligibility": false,
+  "level1_readiness_metadata_history_import_export_execution_enabled": false,
+  "level1_next_pr_may_add_history_diff_view_local_only": true,
+  "level1_next_pr_must_not_enable_execution": true,
   "surfaces": [
     {
       "id": "atlas-workflow-diagnostics-toggle",
@@ -1119,14 +1128,5 @@
   "level1_readiness_metadata_export_execution_enabled": false,
   "level1_readiness_metadata_export_decides_readiness": false,
   "level1_readiness_metadata_export_computes_execution_eligibility": false,
-  "level1_next_pr_may_add_metadata_snapshot_comparison": true,
-  "level1_readiness_metadata_history_import_export_checkpoint": "PR-ATLAS-SCALE-102",
-  "level1_readiness_metadata_history_import_export_enabled": true,
-  "level1_readiness_metadata_history_import_export_local_only": true,
-  "level1_readiness_metadata_history_import_export_upload_enabled": false,
-  "level1_readiness_metadata_history_import_export_backend_mutation_enabled": false,
-  "level1_readiness_metadata_history_import_export_decides_readiness": false,
-  "level1_readiness_metadata_history_import_export_computes_execution_eligibility": false,
-  "level1_readiness_metadata_history_import_export_execution_enabled": false,
-  "level1_next_pr_may_add_history_diff_view_local_only": true
+  "level1_next_pr_may_add_metadata_snapshot_comparison": true
 }
