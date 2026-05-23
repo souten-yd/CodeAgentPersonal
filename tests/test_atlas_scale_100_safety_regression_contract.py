@@ -11,9 +11,22 @@ SAFETY_FILES = [
     'app/server.py',
 ]
 
-def test_no_level1_or_general_execute_routes_exposed_in_scanned_surfaces():
+
+def _read(path: str) -> str:
+    return Path(path).read_text(encoding='utf-8').lower()
+
+
+def test_no_public_level1_execute_route_exposed_in_scanned_surfaces():
     forbidden = ['/api/atlas/level1/execute', '/api/atlas/execute']
     for f in SAFETY_FILES:
-        text = Path(f).read_text(encoding='utf-8').lower()
+        text = _read(f)
         for token in forbidden:
-            assert token not in text
+            assert token not in text, f'{token} present in {f}'
+
+
+def test_no_unsafe_shell_execution_primitives_in_scanned_surfaces():
+    forbidden = ['os.system']
+    for f in SAFETY_FILES:
+        text = _read(f)
+        for token in forbidden:
+            assert token not in text, f'{token} present in {f}'
