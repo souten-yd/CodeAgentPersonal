@@ -5,7 +5,7 @@ def test_ui_default_route_and_execution_boundary_markers() -> None:
     assert 'atlas-next' not in ui or 'type="module"' not in ui
 
     docs = Path('docs/atlas_development_handoff.md').read_text(encoding='utf-8')
-    assert '/atlas-next remains mounted/guarded/dist-backed/fail-closed/non-default' in docs
+    assert '/` is guarded Atlas Next default only when validated dist passes' in docs
     assert 'backend workflow_state remains authoritative' in docs
     assert 'runtime remains level_0_manual_only' in docs
     assert 'Vue execution capability remains none' in docs

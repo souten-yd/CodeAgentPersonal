@@ -15,8 +15,8 @@ def test_vue_12_packaging_readiness_policy_documented() -> None:
         'fail closed',
         'no raw vite source may be served',
         'no fallback to `ui.html` or `/` is allowed',
-        'existing `ui.html` remains default',
-        'parallel/read-only/not default',
+        'legacy ui remains available via /ui/',
+        'guarded atlas next default',
         'get-only and metadata-only',
         'does not make vue default and does not enable execution',
     ]

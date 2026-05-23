@@ -7,7 +7,10 @@ def test_manifest_vue17_flags_present_and_safety_preserved() -> None:
     assert m['vue_next_plan_review_enabled'] is True
     assert m['vue_next_clarification_answer_submission_enabled'] is False
     assert m['vue_next_plan_review_scope'] == 'read_only_review_metadata'
-    assert m['vue_next_default_enabled'] is False
+    assert m['vue_next_default_enabled'] is True
+    assert m['vue_next_default_not_execution_enable'] is True
+    assert m['vue_next_execution_enabled'] is False
+    assert m['runtime_level'] == 'level_0_manual_only'
     assert m['vue_next_execution_enabled'] is False
     assert m['vue_next_mutation_endpoints_enabled'] is False
     assert m['runtime_level'] == 'level_0_manual_only'

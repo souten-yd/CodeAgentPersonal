@@ -15,5 +15,5 @@ def test_vue_14_safety_regression_contract() -> None:
     for method in ["method: 'put'", "method: 'patch'", "method: 'delete'"]:
         assert method not in client
     assert 'level_0_manual_only' in manifest
-    assert '"vue_next_default_enabled": false' in manifest
+    assert '"vue_next_default_enabled": true' in manifest
     assert '"vue_next_execution_enabled": false' in manifest
