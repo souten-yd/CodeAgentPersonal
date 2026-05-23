@@ -1,3 +1,4 @@
+- PR-ATLAS-SCALE-102 completed: local-only readiness metadata history import/export (browser storage only), with local JSON validation and merge/replace options; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 - PR-ATLAS-SCALE-100 completed: local display-only readiness metadata snapshot comparison (current vs saved/pasted local snapshot), advisory-only, local-only, no backend mutation/upload, no readiness decision, no execution eligibility computation, no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-99 completed: local display-only copy/export of already-fetched Level-1 readiness metadata for operator review; local-only and non-mutating; no readiness decisions; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-97 completed: read-only UI display for Level-1 readiness gate-source mapping via GET diagnostics only; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
@@ -14,7 +15,8 @@
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-102 automation track
 - Current automation track: PR-ATLAS-SCALE-102
-- Next automation track: PR-ATLAS-SCALE-102
+- Current automation track: PR-ATLAS-SCALE-103
+- Next automation track: PR-ATLAS-SCALE-103
 - PR-ATLAS-SCALE-102 may refine local-only history import/export (browser storage only, display-only), and must not enable execution.
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
@@ -30,9 +32,9 @@
 
 ## Active PR Pointer (Updated)
 
-- Completed automation PR: PR-ATLAS-SCALE-101
-- Current automation track: PR-ATLAS-SCALE-102
-- Next automation track: PR-ATLAS-SCALE-102
+- Completed automation PR: PR-ATLAS-SCALE-102
+- Current automation track: PR-ATLAS-SCALE-103
+- Next automation track: PR-ATLAS-SCALE-103
 - PR-ATLAS-SCALE-102 may refine local-only history import/export (browser storage only, display-only), and must not enable execution.
 
 Completed:
@@ -853,9 +855,9 @@ Current automation track: PR-ATLAS-SCALE-98
 Current automation track: PR-ATLAS-SCALE-99
 ## SCALE-101 Update (local history only)
 - PR-ATLAS-SCALE-101 completed: local browser-storage readiness metadata history only; browser-storage-only, no backend mutation/upload, no readiness decision, no execution eligibility computation, no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
-- Completed automation PR: PR-ATLAS-SCALE-101
-- Current automation track: PR-ATLAS-SCALE-102
-- Next automation track: PR-ATLAS-SCALE-102
+- Completed automation PR: PR-ATLAS-SCALE-102
+- Current automation track: PR-ATLAS-SCALE-103
+- Next automation track: PR-ATLAS-SCALE-103
 - History is local-only and does not mutate backend.
 - History does not upload metadata.
 - History does not decide readiness.
@@ -867,3 +869,12 @@ Current automation track: PR-ATLAS-SCALE-99
 - Backend workflow_state remains authoritative.
 - Vue execution capability remains none.
 - Next PR may add local-only history import/export refinement, not execution enable.
+
+
+- Next PR may add local-only history diff view, and must not enable execution.
+
+- Historical marker preserved for compatibility: Completed automation PR: PR-ATLAS-SCALE-101
+
+- Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-102
+
+- Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-102
