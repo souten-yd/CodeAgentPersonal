@@ -4,6 +4,16 @@
   "final_goal": "fully_autonomous_code_agent",
   "self_improvement_scope": "self_improving_codeagentpersonal_kasanecore",
   "thinui_role": "frontend_simplification_for_autonomous_agent",
+    "level1_readiness_metadata_comparison_checkpoint": "PR-ATLAS-SCALE-100",
+  "level1_readiness_metadata_comparison_enabled": true,
+  "level1_readiness_metadata_comparison_local_only": true,
+  "level1_readiness_metadata_comparison_upload_enabled": false,
+  "level1_readiness_metadata_comparison_backend_mutation_enabled": false,
+  "level1_readiness_metadata_comparison_decides_readiness": false,
+  "level1_readiness_metadata_comparison_computes_execution_eligibility": false,
+  "level1_readiness_metadata_comparison_execution_enabled": false,
+  "level1_next_pr_may_add_metadata_history_local_storage": true,
+  "level1_next_pr_must_not_enable_execution": true,
   "surfaces": [
     {
       "id": "atlas-workflow-diagnostics-toggle",
