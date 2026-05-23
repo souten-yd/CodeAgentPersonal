@@ -24,6 +24,16 @@
       <button type="button" class="filter-btn" :disabled="!historyEntries.length" @click="clearHistory">Clear local history</button>
       <span class="metadata-status">{{ historyStatus }}</span>
     </div>
+    <div class="metadata-actions" role="group" aria-label="Readiness local history import export actions">
+      <button type="button" class="filter-btn" :disabled="!historyEntries.length" @click="copyHistoryJson">Copy local history JSON</button>
+      <button type="button" class="filter-btn" :disabled="!historyEntries.length" @click="downloadHistoryJson">Export local history JSON</button>
+      <button type="button" class="filter-btn" :disabled="!hasHistoryImportJson" @click="importHistoryMerge">Merge imported history</button>
+      <button type="button" class="filter-btn" :disabled="!hasHistoryImportJson" @click="importHistoryReplace">Replace local history</button>
+      <button type="button" class="filter-btn" :disabled="!historyImportJson" @click="clearHistoryImportText">Clear import text</button>
+      <input type="file" accept="application/json" @change="loadHistoryImportFile" />
+      <span class="metadata-status">{{ historyImportStatus }}</span>
+    </div>
+    <textarea v-model="historyImportJson" rows="6" class="metadata-input" placeholder="Paste local history JSON array or object with history array."></textarea>
     <div class="comparison-box">
       <p><b>local history storage:</b> browser storage only; max entries: {{ HISTORY_MAX_ENTRIES }}</p>
       <select v-model="selectedHistoryId" :disabled="!historyEntries.length">
@@ -217,6 +227,9 @@ const HISTORY_MAX_ENTRIES = 5
 const historyEntries = ref<LocalHistoryEntry[]>([])
 const selectedHistoryId = ref('')
 const historyStatus = ref('Local history idle.')
+const historyImportJson = ref('')
+const historyImportStatus = ref('Local import/export idle.')
+const hasHistoryImportJson = computed(() => historyImportJson.value.trim().length > 0)
 
 function storageAvailable(): boolean {
   try { return typeof window !== 'undefined' && !!window.localStorage } catch { return false }
@@ -266,6 +279,77 @@ function useHistoryBaseline(): void {
 function deleteHistoryEntry(id: string): void {
   const updated = historyEntries.value.filter((e) => e.id !== id)
   if (persistHistory(updated)) { historyEntries.value = updated; if (selectedHistoryId.value === id) selectedHistoryId.value=''; historyStatus.value = 'Deleted one local history snapshot.' }
+}
+
+
+
+function historyJsonText(): string { return JSON.stringify(historyEntries.value, null, 2) }
+async function copyHistoryJson(): Promise<void> {
+  const ok = await copyTextToClipboard(historyJsonText())
+  historyImportStatus.value = ok ? 'Copied local history JSON to clipboard.' : 'Clipboard unavailable for local history copy.'
+}
+function downloadHistoryJson(): void {
+  const payload = historyJsonText()
+  if (!payload || typeof window === 'undefined' || typeof document === 'undefined') return
+  const blob = new Blob([payload], { type: 'application/json' })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'atlas-level1-readiness-history.json'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(url)
+  historyImportStatus.value = 'Exported local history JSON file.'
+}
+function clearHistoryImportText(): void { historyImportJson.value = ''; historyImportStatus.value = 'Cleared local history import text.' }
+
+function isValidHistoryEntry(value: unknown): value is LocalHistoryEntry {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  const diagnostics = item.diagnostics as Record<string, unknown> | undefined
+  return typeof item.id === 'string' && typeof item.saved_at === 'string' && typeof item.label === 'string' && !!diagnostics && typeof diagnostics === 'object' && Array.isArray(diagnostics.gate_source_map)
+}
+
+function parseHistoryImportPayload(raw: string): LocalHistoryEntry[] {
+  const parsed = JSON.parse(raw) as unknown
+  const entries: unknown[] | null = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).history) ? ((parsed as Record<string, unknown>).history as unknown[]) : null)
+  if (!entries) throw new Error('Import JSON must be an array or an object with a history array.')
+  return entries.filter(isValidHistoryEntry).map((entry) => JSON.parse(JSON.stringify(entry)) as LocalHistoryEntry).slice(0, HISTORY_MAX_ENTRIES)
+}
+
+function mergeHistoryEntries(imported: LocalHistoryEntry[]): LocalHistoryEntry[] {
+  const byId = new Map<string, LocalHistoryEntry>()
+  ;[...imported, ...historyEntries.value].forEach((entry) => { if (!byId.has(entry.id)) byId.set(entry.id, entry) })
+  return [...byId.values()].sort((a, b) => b.saved_at.localeCompare(a.saved_at)).slice(0, HISTORY_MAX_ENTRIES)
+}
+
+function importHistoryMerge(): void {
+  try {
+    const imported = parseHistoryImportPayload(historyImportJson.value)
+    const merged = mergeHistoryEntries(imported)
+    if (persistHistory(merged)) { historyEntries.value = merged; historyImportStatus.value = `Merged ${imported.length} valid local history entries.` }
+  } catch (error) { historyImportStatus.value = error instanceof Error ? error.message : 'Failed to merge local history import.' }
+}
+
+function importHistoryReplace(): void {
+  try {
+    const imported = parseHistoryImportPayload(historyImportJson.value)
+    if (persistHistory(imported)) { historyEntries.value = imported; selectedHistoryId.value = ''; historyImportStatus.value = `Replaced local history with ${imported.length} valid entries.` }
+  } catch (error) { historyImportStatus.value = error instanceof Error ? error.message : 'Failed to replace local history import.' }
+}
+
+function loadHistoryImportFile(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    historyImportJson.value = typeof reader.result === 'string' ? reader.result : ''
+    historyImportStatus.value = 'Loaded local history JSON file into import text area.'
+  }
+  reader.onerror = () => { historyImportStatus.value = 'Unable to read local history file.' }
+  reader.readAsText(file)
 }
 
 function clearHistory(): void {
