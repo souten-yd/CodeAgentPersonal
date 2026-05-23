@@ -6,19 +6,15 @@
 - Current UI track: Vue defaultization complete
 - Planned UI track: return to PR-ATLAS-SCALE-93 automation track
 - Current automation track: PR-ATLAS-SCALE-93
-- Atlas Next is guarded default route for `/` only when dist validation passes
-- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI
-- /atlas-next remains mounted/guarded/dist-backed/fail-closed/non-default
-- diagnostics endpoint remains GET-only/metadata-only
+- `/` is guarded Atlas Next default only when validated dist passes
+- invalid/missing Vue dist falls back safely to legacy UI
+- legacy UI remains available via /ui/
+- `/atlas-next` remains guarded preview route
 - backend workflow_state remains authoritative
 - runtime remains level_0_manual_only
 - Vue execution capability remains none
-- VUE20 does not redirect / or /ui.html and does not change default routes
-- VUE20 only adds default-readiness preflight and route selection guard review
-- VUE21 completed: guarded default enable is active when preflight passes (default-enable checkpoint only; no execution enable).
-- VUE21 is default-enable checkpoint, not execution-enable checkpoint.
-
-# Atlas Vue Migration Plan
+- VUE21 completed default-enable only, not execution-enable
+- next work returns to PR-ATLAS-SCALE-93
 
 ## Purpose
 - Record PR-80 as the official architecture checkpoint for the Vue-based Atlas Next UI migration.

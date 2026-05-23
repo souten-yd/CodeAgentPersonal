@@ -1027,5 +1027,8 @@
   "vue_next_default_backend_authoritative": true,
   "vue_next_default_runtime_level": "level_0_manual_only",
   "vue_next_default_switch_scope": "guarded_default_route_only",
-  "vue_next_default_not_execution_enable": true
+  "vue_next_default_not_execution_enable": true,
+  "vue_next_previous_default_route": "ui.html",
+  "vue_next_after_defaultization_returns_to_automation_track": "PR-ATLAS-SCALE-93",
+  "vue_next_vue20_previous_default_route": "ui.html"
 }
