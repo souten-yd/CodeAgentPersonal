@@ -401,7 +401,7 @@ Current automation track: PR-ATLAS-SCALE-96
 Current automation track: PR-ATLAS-SCALE-98
 Current automation track: PR-ATLAS-SCALE-99
 ## SCALE-101 Update (local history only)
-- PR-ATLAS-SCALE-101 completed: local browser-storage readiness metadata history only.
+- PR-ATLAS-SCALE-101 completed: local browser-storage readiness metadata history only; browser-storage-only, no backend mutation/upload, no readiness decision, no execution eligibility computation, no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - Completed automation PR: PR-ATLAS-SCALE-101
 - Current automation track: PR-ATLAS-SCALE-102
 - Next automation track: PR-ATLAS-SCALE-102
