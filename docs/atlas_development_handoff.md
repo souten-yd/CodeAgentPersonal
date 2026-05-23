@@ -1,6 +1,6 @@
 ## Current Atlas Vue UI Track State
 
-- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-16
+- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-17
 - Current UI track: PR-ATLAS-VUE-18
 - Planned UI track: PR-ATLAS-VUE-18 through PR-ATLAS-VUE-21
 - Current automation track: PR-ATLAS-SCALE-93

@@ -9,9 +9,9 @@ DOCS = [
 
 REQUIRED = [
     "## Current Atlas Vue UI Track State",
-    "Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-16",
-    "Current UI track: PR-ATLAS-VUE-17",
-    "Planned UI track: PR-ATLAS-VUE-17 through PR-ATLAS-VUE-21",
+    "Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-17",
+    "Current UI track: PR-ATLAS-VUE-18",
+    "Planned UI track: PR-ATLAS-VUE-18 through PR-ATLAS-VUE-21",
     "Current automation track: PR-ATLAS-SCALE-93",
     "Existing ui.html remains default until PR-ATLAS-VUE-21",
     "Vue remains parallel/read-only/not default",
