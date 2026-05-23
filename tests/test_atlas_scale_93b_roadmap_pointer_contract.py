@@ -11,7 +11,7 @@ DOCS = [
 def test_scale_93b_pointer_state_is_aligned_to_scale_94() -> None:
     for doc in DOCS:
         text = Path(doc).read_text(encoding='utf-8')
-        assert 'Completed automation PR: PR-ATLAS-SCALE-93' in text
+        assert 'Completed automation PR: PR-ATLAS-SCALE-94' in text
         assert 'Current automation track: PR-ATLAS-SCALE-95' in text
         assert 'Next automation track: PR-ATLAS-SCALE-95' in text
         assert ('Level-1 execution remains disabled' in text) or ('Level-1 backend skeleton remains disabled' in text)
