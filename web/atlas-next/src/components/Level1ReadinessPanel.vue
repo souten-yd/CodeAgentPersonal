@@ -30,6 +30,21 @@
         <li>satisfied_gate_count Δ: {{ comparisonResult.summary_delta.satisfied_gate_count }}</li>
         <li>unsatisfied_gate_count Δ: {{ comparisonResult.summary_delta.unsatisfied_gate_count }}</li>
       </ul>
+      <ul>
+        <li>enabled changed: {{ comparisonResult.disabled_status_delta.enabled_changed ? 'yes' : 'no' }}</li>
+        <li>level1_execution_enabled changed: {{ comparisonResult.disabled_status_delta.level1_execution_changed ? 'yes' : 'no' }}</li>
+        <li>callable_execution_endpoint_enabled changed: {{ comparisonResult.disabled_status_delta.callable_execution_endpoint_changed ? 'yes' : 'no' }}</li>
+        <li>vue_execution_controls_enabled changed: {{ comparisonResult.disabled_status_delta.vue_execution_controls_changed ? 'yes' : 'no' }}</li>
+        <li>runtime_level changed: {{ comparisonResult.disabled_status_delta.runtime_level_changed ? 'yes' : 'no' }}</li>
+      </ul>
+      <ul v-if="comparisonResult.added_gates.length || comparisonResult.removed_gates.length">
+        <li>added gates: {{ comparisonResult.added_gates.join(', ') || '-' }}</li>
+        <li>removed gates: {{ comparisonResult.removed_gates.join(', ') || '-' }}</li>
+      </ul>
+      <table v-if="comparisonResult.evidence_summary_delta_by_source.length" class="gate-table">
+        <thead><tr><th>source</th><th>before_missing_evidence_count</th><th>after_missing_evidence_count</th><th>delta_missing_evidence_count</th></tr></thead>
+        <tbody><tr v-for="row in comparisonResult.evidence_summary_delta_by_source" :key="row.source"><td>{{ row.source }}</td><td>{{ row.before_missing_evidence_count }}</td><td>{{ row.after_missing_evidence_count }}</td><td>{{ row.delta_missing_evidence_count }}</td></tr></tbody>
+      </table>
       <table v-if="comparisonResult.changed_gates.length" class="gate-table">
         <thead><tr><th>gate_id</th><th>before_status</th><th>after_status</th><th>before_evidence_available</th><th>after_evidence_available</th><th>before_blocker_reason</th><th>after_blocker_reason</th></tr></thead>
         <tbody><tr v-for="gate in comparisonResult.changed_gates" :key="gate.gate_id"><td>{{ gate.gate_id }}</td><td>{{ gate.before_status }}</td><td>{{ gate.after_status }}</td><td>{{ gate.before_evidence_available }}</td><td>{{ gate.after_evidence_available }}</td><td>{{ gate.before_blocker_reason || '-' }}</td><td>{{ gate.after_blocker_reason || '-' }}</td></tr></tbody>
@@ -48,7 +63,11 @@ import { fetchLevel1ReadinessDiagnostics, type AtlasLevel1ReadinessDiagnostics, 
 
 type SnapshotComparisonResult = {
   summary_delta: { required_gate_count: number, missing_evidence_count: number, satisfied_gate_count: number, unsatisfied_gate_count: number } | null
+  disabled_status_delta: { enabled_changed: boolean, level1_execution_changed: boolean, callable_execution_endpoint_changed: boolean, vue_execution_controls_changed: boolean, runtime_level_changed: boolean }
+  evidence_summary_delta_by_source: Array<{ source: string, before_missing_evidence_count: number, after_missing_evidence_count: number, delta_missing_evidence_count: number }>
   changed_gates: Array<{ gate_id: string, before_status: string, after_status: string, before_evidence_available: boolean, after_evidence_available: boolean, before_blocker_reason: string, after_blocker_reason: string }>
+  added_gates: string[]
+  removed_gates: string[]
   comparison_available: boolean
   comparison_error: string | null
 }
@@ -76,6 +95,8 @@ function parsePastedBaseline(): AtlasLevel1ReadinessDiagnostics {
 
 function compareSnapshots(before: AtlasLevel1ReadinessDiagnostics, after: AtlasLevel1ReadinessDiagnostics): SnapshotComparisonResult {
   const beforeMap = new Map<string, AtlasLevel1ReadinessGateSource>(before.gate_source_map.map((g) => [g.gate_id, g]))
+  const afterGateIds = new Set(after.gate_source_map.map((g) => g.gate_id))
+  const beforeGateIds = new Set(before.gate_source_map.map((g) => g.gate_id))
   const changed_gates = after.gate_source_map
     .map((gate) => {
       const prior = beforeMap.get(gate.gate_id)
@@ -85,6 +106,16 @@ function compareSnapshots(before: AtlasLevel1ReadinessDiagnostics, after: AtlasL
     })
     .filter((item): item is NonNullable<typeof item> => item !== null)
 
+  const added_gates = [...afterGateIds].filter((gateId) => !beforeGateIds.has(gateId))
+  const removed_gates = [...beforeGateIds].filter((gateId) => !afterGateIds.has(gateId))
+  const sourceKeys = new Set<string>([...before.gate_source_map.map((g) => g.source || 'unknown'), ...after.gate_source_map.map((g) => g.source || 'unknown')])
+  const missingEvidenceCountBySource = (snapshot: AtlasLevel1ReadinessDiagnostics, source: string): number => snapshot.gate_source_map.filter((g) => (g.source || 'unknown') === source && !g.evidence_available).length
+  const evidence_summary_delta_by_source = [...sourceKeys].sort().map((source) => {
+    const before_missing_evidence_count = missingEvidenceCountBySource(before, source)
+    const after_missing_evidence_count = missingEvidenceCountBySource(after, source)
+    return { source, before_missing_evidence_count, after_missing_evidence_count, delta_missing_evidence_count: after_missing_evidence_count - before_missing_evidence_count }
+  })
+
   return {
     summary_delta: {
       required_gate_count: (after.required_gate_count ?? 0) - (before.required_gate_count ?? 0),
@@ -93,6 +124,16 @@ function compareSnapshots(before: AtlasLevel1ReadinessDiagnostics, after: AtlasL
       unsatisfied_gate_count: (after.unsatisfied_gate_count ?? 0) - (before.unsatisfied_gate_count ?? 0)
     },
     changed_gates,
+    disabled_status_delta: {
+      enabled_changed: before.enabled !== after.enabled,
+      level1_execution_changed: before.level1_execution_enabled !== after.level1_execution_enabled,
+      callable_execution_endpoint_changed: before.callable_execution_endpoint_enabled !== after.callable_execution_endpoint_enabled,
+      vue_execution_controls_changed: before.vue_execution_controls_enabled !== after.vue_execution_controls_enabled,
+      runtime_level_changed: before.runtime_level !== after.runtime_level
+    },
+    evidence_summary_delta_by_source,
+    added_gates,
+    removed_gates,
     comparison_available: true,
     comparison_error: null
   }
@@ -123,7 +164,16 @@ function usePastedBaseline(): void {
     comparisonResult.value = compareSnapshots(parsed, diagnostics.value)
     comparisonStatus.value = 'Compared local pasted baseline against current diagnostics.'
   } catch (error) {
-    comparisonResult.value = { summary_delta: null, changed_gates: [], comparison_available: false, comparison_error: error instanceof Error ? error.message : 'Unable to parse pasted JSON.' }
+    comparisonResult.value = {
+      summary_delta: null,
+      disabled_status_delta: { enabled_changed: false, level1_execution_changed: false, callable_execution_endpoint_changed: false, vue_execution_controls_changed: false, runtime_level_changed: false },
+      evidence_summary_delta_by_source: [],
+      changed_gates: [],
+      added_gates: [],
+      removed_gates: [],
+      comparison_available: false,
+      comparison_error: error instanceof Error ? error.message : 'Unable to parse pasted JSON.'
+    }
     comparisonStatus.value = 'Local comparison failed due to pasted JSON validation error.'
   }
 }
