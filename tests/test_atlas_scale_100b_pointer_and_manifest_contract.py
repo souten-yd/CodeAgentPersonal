@@ -16,8 +16,8 @@ def test_scale_100b_pointer_alignment():
         t = Path(d).read_text(encoding='utf-8')
         all_text.append(t)
         assert 'Completed automation PR: PR-ATLAS-SCALE-101' in t
-        assert 'Current automation track: PR-ATLAS-SCALE-102' in t
-        assert 'Next automation track: PR-ATLAS-SCALE-102' in t
+        assert 'Current automation track: PR-ATLAS-SCALE-103' in t
+        assert 'Next automation track: PR-ATLAS-SCALE-103' in t
     merged = '\\n'.join(all_text).lower()
     assert 'next work is pr-atlas-scale-102' in merged
     assert 'next work is pr-atlas-scale-100' not in merged
