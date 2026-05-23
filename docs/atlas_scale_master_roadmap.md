@@ -1,4 +1,4 @@
-- PR-ATLAS-SCALE-105 completed: local-only readiness metadata history diff export/copy for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
+- PR-ATLAS-SCALE-106 completed: local-only readiness metadata history diff annotations for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 - PR-ATLAS-SCALE-102 completed: local-only readiness metadata history import/export (browser storage only), with local JSON validation and merge/replace options; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 - PR-ATLAS-SCALE-100 completed: local display-only readiness metadata snapshot comparison (current vs saved/pasted local snapshot), advisory-only, local-only, no backend mutation/upload, no readiness decision, no execution eligibility computation, no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-SCALE-99 completed: local display-only copy/export of already-fetched Level-1 readiness metadata for operator review; local-only and non-mutating; no readiness decisions; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
@@ -14,10 +14,10 @@
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-106 automation track
-- Current automation track: PR-ATLAS-SCALE-106
-- Next automation track: PR-ATLAS-SCALE-106
-- PR-ATLAS-SCALE-105 completed: local-only readiness metadata history diff export/copy for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
+- Planned UI track: return to PR-ATLAS-SCALE-107 automation track
+- Current automation track: PR-ATLAS-SCALE-107
+- Next automation track: PR-ATLAS-SCALE-107
+- PR-ATLAS-SCALE-106 completed: local-only readiness metadata history diff annotations for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
@@ -28,14 +28,14 @@
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
-- next work is PR-ATLAS-SCALE-106
+- next work is PR-ATLAS-SCALE-107
 
 ## Active PR Pointer (Updated)
 
-- Completed automation PR: PR-ATLAS-SCALE-105
-- Current automation track: PR-ATLAS-SCALE-106
-- Next automation track: PR-ATLAS-SCALE-106
-- PR-ATLAS-SCALE-105 completed: local-only readiness metadata history diff export/copy for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
+- Completed automation PR: PR-ATLAS-SCALE-106
+- Current automation track: PR-ATLAS-SCALE-107
+- Next automation track: PR-ATLAS-SCALE-107
+- PR-ATLAS-SCALE-106 completed: local-only readiness metadata history diff annotations for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 
 Completed:
 - PR-ATLAS-SCALE-76
@@ -556,7 +556,7 @@ Atlas runtime remains Level 0 manual-only and primary CTA remains single existin
 
 ## PR-ATLAS-VUE-07 Completion Pointer
 - Completed includes PR-ATLAS-VUE-06, PR-ATLAS-VUE-06B, and PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement.
-- Current automation track: PR-ATLAS-SCALE-106.
+- Current automation track: PR-ATLAS-SCALE-107.
 - Current UI track after this PR: PR-ATLAS-VUE-08: Safe static mount/dist strategy.
 - Next UI track candidate: PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy.
 - UI and automation tracks remain separate; PR-ATLAS-VUE-07 does not replace PR-ATLAS-SCALE-93.
@@ -855,9 +855,9 @@ Current automation track: PR-ATLAS-SCALE-98
 Current automation track: PR-ATLAS-SCALE-99
 ## SCALE-101 Update (local history only)
 - PR-ATLAS-SCALE-101 completed: local browser-storage readiness metadata history only; browser-storage-only, no backend mutation/upload, no readiness decision, no execution eligibility computation, no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
-- Completed automation PR: PR-ATLAS-SCALE-105
-- Current automation track: PR-ATLAS-SCALE-106
-- Next automation track: PR-ATLAS-SCALE-106
+- Completed automation PR: PR-ATLAS-SCALE-106
+- Current automation track: PR-ATLAS-SCALE-107
+- Next automation track: PR-ATLAS-SCALE-107
 - History is local-only and does not mutate backend.
 - History does not upload metadata.
 - History does not decide readiness.
@@ -891,10 +891,10 @@ Current automation track: PR-ATLAS-SCALE-99
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-106 automation track
-- Current automation track: PR-ATLAS-SCALE-106
-- Next automation track: PR-ATLAS-SCALE-106
-- next work is PR-ATLAS-SCALE-106
+- Planned UI track: return to PR-ATLAS-SCALE-107 automation track
+- Current automation track: PR-ATLAS-SCALE-107
+- Next automation track: PR-ATLAS-SCALE-107
+- next work is PR-ATLAS-SCALE-107
 - runtime remains level_0_manual_only
 - Vue execution capability remains none
 - Backend workflow_state remains authoritative

@@ -113,6 +113,15 @@
         <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="downloadFilteredDiffSummary">Export filtered diff summary</button>
         <span class="metadata-status">{{ diffExportStatus }}</span>
       </div>
+      <div class="comparison-box">
+        <p><b>local diff annotation:</b> browser-local/display-only notes for current diff view; never uploaded.</p>
+        <textarea v-model="diffAnnotationText" rows="4" class="metadata-input" placeholder="Add local review notes for this displayed diff."></textarea>
+        <div class="metadata-actions" role="group" aria-label="Readiness local history diff annotation actions">
+          <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="saveDiffAnnotationDraft">Save local annotation</button>
+          <button type="button" class="filter-btn" :disabled="!diffAnnotationText.trim()" @click="clearDiffAnnotation">Clear local annotation</button>
+          <span class="metadata-status">{{ diffAnnotationStatus }}</span>
+        </div>
+      </div>
       <ul>
         <li>Summary by change type: {{ diffChangeTypeSummaryText }}</li>
         <li>Summary by source: {{ diffSourceSummaryText }}</li>
@@ -201,8 +210,14 @@ const diffAfterStatusSummaryText = computed(() => summarizeBy(visibleChangedGate
 
 
 const diffExportStatus = ref('Local diff export idle.')
+const DIFF_ANNOTATION_STORAGE_KEY = 'atlas.level1.readiness.diff.annotation.draft'
+const diffAnnotationText = ref('')
+const diffAnnotationStatus = ref('Local diff annotation idle.')
 
-function diffExportJsonText(): string { return comparisonResult.value ? JSON.stringify(comparisonResult.value, null, 2) : '' }
+function diffExportJsonText(): string {
+  if (!comparisonResult.value) return ''
+  return JSON.stringify(annotatedDiffExportJsonText(), null, 2)
+}
 function filteredDiffSummaryText(): string {
   const result = comparisonResult.value
   if (!result) return ''
@@ -218,7 +233,35 @@ function filteredDiffSummaryText(): string {
     `summary_before_status=${diffBeforeStatusSummaryText.value}`,
     `summary_after_status=${diffAfterStatusSummaryText.value}`,
   ]
+  if (diffAnnotationText.value.trim()) {
+    lines.push('annotation_local_only=' + diffAnnotationText.value.trim())
+  }
   return lines.join('\n')
+}
+
+
+function annotatedDiffExportJsonText(): Record<string, unknown> {
+  const result = comparisonResult.value
+  return {
+    ...(result || {}),
+    local_diff_annotation: diffAnnotationText.value.trim() || null,
+    local_diff_annotation_local_only: true,
+  }
+}
+
+function saveDiffAnnotationDraft(): void {
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(DIFF_ANNOTATION_STORAGE_KEY, diffAnnotationText.value)
+  }
+  diffAnnotationStatus.value = diffAnnotationText.value.trim() ? 'Saved local annotation draft.' : 'Saved empty local annotation draft.'
+}
+
+function clearDiffAnnotation(): void {
+  diffAnnotationText.value = ''
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(DIFF_ANNOTATION_STORAGE_KEY)
+  }
+  diffAnnotationStatus.value = 'Cleared local annotation draft.'
 }
 
 function downloadLocalTextFile(payload: string, filename: string, mimeType: string): boolean {

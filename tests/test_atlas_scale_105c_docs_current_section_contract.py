@@ -9,7 +9,7 @@ DOC_PATHS = [
 ]
 
 REQUIRED_SCALE_105_SUMMARY_TOKENS = [
-    'local-only readiness metadata history diff export/copy',
+    'local-only readiness metadata history diff annotations',
     'browser-local/display-only',
     'no metadata upload',
     'no backend mutation',
@@ -38,9 +38,9 @@ def test_active_pr_pointer_uses_canonical_scale_106_track_tokens():
         section = _section_slice(text, 'Active PR Pointer (Updated)')
         if not section:
             continue
-        assert 'Completed automation PR: PR-ATLAS-SCALE-105' in section
-        assert 'Current automation track: PR-ATLAS-SCALE-106' in section
-        assert 'Next automation track: PR-ATLAS-SCALE-106' in section
+        assert 'Completed automation PR: PR-ATLAS-SCALE-106' in section
+        assert 'Current automation track: PR-ATLAS-SCALE-107' in section
+        assert 'Next automation track: PR-ATLAS-SCALE-107' in section
 
 
 def test_current_vue_ui_track_state_uses_canonical_scale_106_tokens_and_forbids_stale_105_markers():
@@ -55,10 +55,10 @@ def test_current_vue_ui_track_state_uses_canonical_scale_106_tokens_and_forbids_
         section = _section_slice(text, 'Current Atlas Vue UI Track State')
         if not section:
             continue
-        assert 'Planned UI track: return to PR-ATLAS-SCALE-106 automation track' in section
-        assert 'Current automation track: PR-ATLAS-SCALE-106' in section
-        assert 'Next automation track: PR-ATLAS-SCALE-106' in section
-        assert 'next work is PR-ATLAS-SCALE-106' in section
+        assert 'Planned UI track: return to PR-ATLAS-SCALE-107 automation track' in section
+        assert 'Current automation track: PR-ATLAS-SCALE-107' in section
+        assert 'Next automation track: PR-ATLAS-SCALE-107' in section
+        assert 'next work is PR-ATLAS-SCALE-107' in section
         for token in stale:
             assert token not in section, f'stale token remained in current-state section: {path} :: {token}'
 
