@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.atlas.level1_guarded_execution import Level1GuardedExecutionSkeleton
+
 _PRIMARY_REASON = "Metadata only. Execution remains in guarded backend/manual flow."
 _ACTION_REASON = "Metadata only. This endpoint never executes actions."
 
@@ -52,6 +54,7 @@ def build_read_only_workflow_state(
         "vue_execution_enabled": False,
         "autonomous_execution_enabled": False,
         "level1_execution_enabled": False,
+        "level1_disabled_backend_skeleton": Level1GuardedExecutionSkeleton.build_disabled_level1_contract(),
         "goal": goal,
         "project_path": project_path,
         "phase": phase,

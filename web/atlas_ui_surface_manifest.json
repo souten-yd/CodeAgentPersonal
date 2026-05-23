@@ -1033,7 +1033,7 @@
   "vue_next_vue20_previous_default_route": "ui.html",
   "level1_guarded_execution_design_checkpoint": "PR-ATLAS-SCALE-93",
   "level1_guarded_execution_design_defined": true,
-  "level1_backend_skeleton_enabled": false,
+  "level1_backend_skeleton_enabled": true,
   "level1_vue_execution_controls_enabled": false,
   "level1_requires_dry_run_first": true,
   "level1_requires_explicit_human_approval": true,
@@ -1044,5 +1044,16 @@
   "level1_allows_remote_git_push": false,
   "level1_allows_self_modification_execution": false,
   "level1_required_gates_defined": true,
-  "level1_next_pr_may_add_disabled_backend_skeleton": true
+  "level1_next_pr_may_add_disabled_backend_skeleton": true,
+  "level1_disabled_backend_skeleton_checkpoint": "PR-ATLAS-SCALE-94",
+  "level1_backend_skeleton_execution_enabled": false,
+  "level1_callable_execution_endpoint_enabled": false,
+  "level1_route_exposed": false,
+  "level1_metadata_only": true,
+  "level1_readiness_result_available": true,
+  "level1_disabled_blockers_reported": true,
+  "level1_runtime_level_after_skeleton": "level_0_manual_only",
+  "level1_vue_controls_after_skeleton": false,
+  "level1_next_pr_may_add_readiness_diagnostics_get": true,
+  "level1_next_pr_must_not_enable_execution": true
 }

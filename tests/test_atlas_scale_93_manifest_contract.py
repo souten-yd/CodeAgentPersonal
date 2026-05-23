@@ -8,7 +8,7 @@ def test_scale_93_manifest_fields_and_runtime_contract() -> None:
         'level1_guarded_execution_design_checkpoint': 'PR-ATLAS-SCALE-93',
         'level1_guarded_execution_design_defined': True,
         'level1_execution_enabled': False,
-        'level1_backend_skeleton_enabled': False,
+        'level1_backend_skeleton_enabled': True,
         'level1_vue_execution_controls_enabled': False,
         'level1_requires_dry_run_first': True,
         'level1_requires_explicit_human_approval': True,

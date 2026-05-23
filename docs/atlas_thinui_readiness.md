@@ -1,12 +1,13 @@
+- PR-ATLAS-SCALE-94 completed: disabled backend skeleton contract only; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
 - PR-ATLAS-VUE-19 completed: Execution safety / non-execution boundary review UI (display-only metadata).
 - PR-ATLAS-VUE-20 completed: Default-readiness preflight / route selection guard review (display-only metadata; no default switch).
 ## Current Atlas Vue UI Track State
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-94 automation track
-- Current automation track: PR-ATLAS-SCALE-94
-- Next automation track: PR-ATLAS-SCALE-94
+- Planned UI track: return to PR-ATLAS-SCALE-95 automation track
+- Current automation track: PR-ATLAS-SCALE-95
+- Next automation track: PR-ATLAS-SCALE-95
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
 - invalid/missing Vue dist falls back safely to legacy UI
@@ -17,13 +18,13 @@
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
-- next work is PR-ATLAS-SCALE-94
+- next work is PR-ATLAS-SCALE-95
 
 ## Active PR Pointer (Updated)
 
 - Completed automation PR: PR-ATLAS-SCALE-93
-- Current automation track: PR-ATLAS-SCALE-94
-- Next automation track: PR-ATLAS-SCALE-94
+- Current automation track: PR-ATLAS-SCALE-95
+- Next automation track: PR-ATLAS-SCALE-95
 
 Completed:
 - PR-ATLAS-SCALE-76
