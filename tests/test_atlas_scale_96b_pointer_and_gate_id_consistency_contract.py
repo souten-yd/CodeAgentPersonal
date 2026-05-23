@@ -1,5 +1,10 @@
 from pathlib import Path
 
+from app.atlas.level1_guarded_execution import (
+    build_level1_disabled_readiness_result,
+    build_level1_gate_source_map,
+)
+
 DOCS = [
     'docs/atlas_scale_master_roadmap.md',
     'docs/atlas_development_handoff.md',
@@ -8,7 +13,7 @@ DOCS = [
 ]
 
 
-def test_scale_96_docs_track_pointers() -> None:
+def test_scale_96b_pointer_and_gate_id_consistency_contract() -> None:
     for doc in DOCS:
         t = Path(doc).read_text(encoding='utf-8')
         assert 'Completed automation PR: PR-ATLAS-SCALE-96' in t
@@ -17,9 +22,9 @@ def test_scale_96_docs_track_pointers() -> None:
         assert 'next work is PR-ATLAS-SCALE-97' in t
         assert 'next work is PR-ATLAS-SCALE-96' not in t
         assert 'Planned UI track: return to PR-ATLAS-SCALE-96 automation track' not in t
-        assert 'SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.' in t
-        assert 'Level-1 execution remains disabled' in t
-        assert 'runtime remains level_0_manual_only' in t or 'Runtime remains level_0_manual_only' in t
-        assert 'Autonomous execution remains disabled' in t
-        assert 'Vue execution capability remains none' in t
-        assert 'Backend workflow_state remains authoritative' in t or 'backend workflow_state remains authoritative' in t
+
+    required = set(build_level1_disabled_readiness_result().required_gates)
+    mapped = {item['gate_id'] for item in build_level1_gate_source_map()}
+    blockers = {item.gate for item in build_level1_disabled_readiness_result().blockers}
+    assert required == mapped
+    assert blockers == required

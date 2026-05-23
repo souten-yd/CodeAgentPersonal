@@ -379,3 +379,7 @@ Each gate must include: status, owner/source, required evidence, blocking reason
 - Backend workflow_state remains authoritative.
 - Vue execution capability remains none.
 - Next PR may add readiness UI display for gate-source mapping, not execution enable.
+
+- SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.
+
+- next work is PR-ATLAS-SCALE-97
