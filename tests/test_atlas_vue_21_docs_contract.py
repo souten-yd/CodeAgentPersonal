@@ -13,3 +13,5 @@ def test_vue21_docs_completion_markers() -> None:
         assert 'PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21' in text
         assert 'Current automation track: PR-ATLAS-SCALE-93' in text
         assert 'VUE21 is not execution-enable' in text
+        assert 'VUE21 is next: guarded default enable' not in text
+        assert 'Vue remains parallel/read-only/not default' not in text
