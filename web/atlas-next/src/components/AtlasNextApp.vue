@@ -7,6 +7,7 @@
     <WorkflowShell :snapshot="snapshot" />
     <SafetySummary :snapshot="snapshot" />
     <ExecutionSafetyBoundary :snapshot="snapshot" />
+    <DefaultReadinessPreflight />
     <ArtifactSummary :snapshot="snapshot" />
     <DiagnosticsNotice :snapshot="snapshot" />
   </main>
@@ -21,6 +22,7 @@ import SafetySummary from './SafetySummary.vue'
 import ExecutionSafetyBoundary from './ExecutionSafetyBoundary.vue'
 import ArtifactSummary from './ArtifactSummary.vue'
 import DiagnosticsNotice from './DiagnosticsNotice.vue'
+import DefaultReadinessPreflight from './DefaultReadinessPreflight.vue'
 
 const snapshot = ref<AtlasWorkflowSnapshot>({
   safety: {
