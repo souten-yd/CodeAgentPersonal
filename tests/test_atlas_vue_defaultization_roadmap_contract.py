@@ -9,7 +9,7 @@ def test_atlas_vue_defaultization_roadmap_contract() -> None:
         "Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21",
         "Current UI track: Vue defaultization complete",
         "Planned UI track: return to PR-ATLAS-SCALE-96 automation track",
-        "Current automation track: PR-ATLAS-SCALE-96",
+        "Current automation track: PR-ATLAS-SCALE-97",
         "/` is guarded Atlas Next default only when validated dist passes",
         "invalid/missing Vue dist falls back safely to legacy UI",
         "legacy UI remains available via /ui/",

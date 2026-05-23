@@ -10,9 +10,9 @@
 - This policy exists to prevent premature automation.
 
 ## Current Execution Boundary
-- Completed automation PR: PR-ATLAS-SCALE-95
-- Current automation track: PR-ATLAS-SCALE-96
-- Next automation track: PR-ATLAS-SCALE-96
+- Completed automation PR: PR-ATLAS-SCALE-96
+- Current automation track: PR-ATLAS-SCALE-97
+- Next automation track: PR-ATLAS-SCALE-97
 - PR-ATLAS-SCALE-93 defined Level-1 guarded execution design only.
 - PR-ATLAS-SCALE-94 added disabled backend skeleton only (no execution enable, no runtime level change, no Vue execution controls).
 - Level-1 execution remains disabled.
@@ -368,3 +368,14 @@ Each gate must include: status, owner/source, required evidence, blocking reason
 - Backend workflow_state remains authoritative.
 - Vue execution capability remains none.
 - SCALE-96 may add deeper gate-source mapping/readiness evidence, not execution enable.
+
+
+- PR-ATLAS-SCALE-96 completed.
+- SCALE-96 added metadata-only gate-source mapping / evidence summary.
+- No execution endpoint is exposed.
+- Level-1 execution remains disabled.
+- Runtime remains level_0_manual_only.
+- Autonomous execution remains disabled.
+- Backend workflow_state remains authoritative.
+- Vue execution capability remains none.
+- Next PR may add readiness UI display for gate-source mapping, not execution enable.
