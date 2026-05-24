@@ -95,7 +95,6 @@
   "level1_readiness_metadata_history_diff_label_filter_computes_execution_eligibility": false,
   "level1_readiness_metadata_history_diff_label_filter_execution_enabled": false,
   "level1_next_pr_may_add_history_diff_label_export_local_only": true,
-  "level1_next_pr_must_not_enable_execution": true,
   "surfaces": [
     {
       "id": "atlas-workflow-diagnostics-toggle",
@@ -924,7 +923,7 @@
   "readiness_rollup_policy": "docs/atlas_autonomous_execution_readiness_policy.md#readiness-gate-rollup",
   "vue_next_allowed_after_pr92": true,
   "vue_next_started": false,
-  "vue_next_default_enabled": true,
+  "vue_next_default_enabled": false,
   "vue_next_execution_enabled": false,
   "vue_next_policy": "docs/atlas_vue_migration_plan.md",
   "vue_next_foundation": true,

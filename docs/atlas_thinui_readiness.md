@@ -835,3 +835,32 @@ Current automation track: PR-ATLAS-SCALE-99
 
 - PR-ATLAS-SCALE-109 completed: local-only readiness metadata history diff label filtering; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 - next PR may add local-only diff label export, not execution enable.
+
+
+## PR-ATLAS-VUE-12 Pointer + Packaging/Deployment Readiness Alignment
+
+- PR-ATLAS-VUE-11 completed and merged (GitHub PR #1281).
+- Completed UI PR: PR-ATLAS-VUE-12.
+- Current UI track: PR-ATLAS-VUE-13.
+- Current automation track remains PR-ATLAS-SCALE-93.
+- Existing ui.html remains default.
+- Vue Atlas Next remains parallel/read-only/not default (supervision UI only).
+- `/atlas-next` remains guarded, dist-backed, and fail-closed.
+- Preview diagnostics endpoint (`GET /api/atlas/vue-next-preview/diagnostics`) remains GET-only and metadata-only.
+- Backend workflow_state remains authoritative.
+- Vue execution capability remains none.
+
+### Packaging/Deployment Policy (VUE-12)
+- Vue source of truth remains `web/atlas-next`.
+- Production artifacts are generated with:
+  - `cd web/atlas-next`
+  - `npm install`
+  - `npm run build`
+- Dist output remains `web/atlas-next/dist`.
+- `/atlas-next` may serve only dist artifacts.
+- Generated dist is not the source of truth.
+- Deployment may include dist artifacts only after build validation passes.
+- Missing or invalid dist must fail closed.
+- Serving raw Vite source is disallowed.
+- No fallback to `ui.html` or `/` is allowed for `/atlas-next`.
+- This policy does not make Vue default and does not enable execution.
