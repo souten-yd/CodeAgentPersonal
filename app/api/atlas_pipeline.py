@@ -67,6 +67,7 @@ from agent.atlas_verification_recommendation_handoff_service import AtlasVerific
 from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_root import resolve_atlas_ca_data_root
+from app.atlas.level1_dry_run_result_artifact_capture import capture_level1_dry_run_result_artifact
 from app.atlas.level1_dry_run_endpoint_skeleton import build_level1_dry_run_only_result
 from app.atlas.workflow_state_contract import build_read_only_workflow_state
 from app.atlas.level1_guarded_execution import Level1GuardedExecutionSkeleton
@@ -150,6 +151,11 @@ class Level1DryRunOnlyRequest(BaseModel):
     risk_level: str = "unknown"
     dry_run_summary: str = ""
     metadata: dict = Field(default_factory=dict)
+
+
+class Level1DryRunResultArtifactCaptureRequest(BaseModel):
+    dry_run_result: dict = Field(default_factory=dict)
+    workspace_id: str = "default"
 
 
 class RecoveryResponse(BaseModel):
@@ -1285,6 +1291,18 @@ def atlas_level1_readiness_diagnostics() -> dict[str, object]:
 def atlas_level1_dry_run_only_endpoint(req: Level1DryRunOnlyRequest) -> dict[str, Any]:
     """Dry-run-only Level-1 skeleton; returns metadata without side effects."""
     return build_level1_dry_run_only_result(req.model_dump())
+
+
+@router.post("/level1/dry-run-result-artifact")
+def atlas_level1_dry_run_result_artifact_endpoint(
+    req: Level1DryRunResultArtifactCaptureRequest,
+    request: Request,
+) -> dict[str, Any]:
+    """Capture dry-run-only result metadata without executing or mutating project files."""
+    return capture_level1_dry_run_result_artifact(
+        data_root=resolve_atlas_ca_data_root(request),
+        dry_run_result={**dict(req.dry_run_result), "workspace_id": req.workspace_id},
+    )
 
 
 @router.get("/verification/allowlist")
