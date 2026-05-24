@@ -6,20 +6,21 @@ This file is the canonical safety and level-advancement policy for Atlas automat
 
 The canonical implementation roadmap is `docs/atlas_scale_master_roadmap.md`.
 The machine-readable phase contract is `docs/atlas_automation_phase_manifest.json`.
+The roadmap/document ownership index is `docs/atlas_roadmap_index.md`.
 
 Do not duplicate active/current/next PR pointers in additional planning files. Any future handoff or UI migration note must link to the master roadmap instead of copying its PR table.
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-112
-- Current automation track: PR-ATLAS-SCALE-113
-- Next automation track after this correction: PR-ATLAS-SCALE-114
-- Current level: Level 0 manual only
-- Target level: Level 1 guarded single-step automation
-- Final goal: fully autonomous code agent
-- Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
+- Completed automation PR: PR-ATLAS-SCALE-116
+- Current automation track: PR-ATLAS-SCALE-117
+- Next automation track: PR-ATLAS-SCALE-117
+- Current level: level_0_manual_only
+- Target level: level_1_guarded_single_step
+- Final goal: fully_autonomous_code_agent
+- Self-improvement goal: self_improving_codeagentpersonal_kasanecore
 
-PR-ATLAS-SCALE-113 is a roadmap correction and consolidation PR. It does not enable execution.
+PR-ATLAS-SCALE-117 is the next unfinished Level-1 readiness evidence PR. It is planned as a dry-run-only backend endpoint skeleton and must not enable mutation, patch apply, git operations, autonomous loop behavior, or execution capability.
 
 Manual execution remains the only allowed execution mode until the explicit Level-1 runtime transition checkpoint.
 

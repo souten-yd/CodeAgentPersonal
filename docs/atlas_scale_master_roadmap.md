@@ -17,6 +17,7 @@ This file is the single human-readable source of truth for Atlas automation plan
 
 Machine-readable phase and anti-drift rules are recorded in `docs/atlas_automation_phase_manifest.json`.
 Execution readiness policy is recorded in `docs/atlas_autonomous_execution_readiness_policy.md`.
+Roadmap ownership and cross-document pointers are indexed in `docs/atlas_roadmap_index.md`.
 
 ## Consolidation decision
 

@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MASTER_PLAN = ROOT / "docs" / "atlas_scale_master_roadmap.md"
 POLICY = ROOT / "docs" / "atlas_autonomous_execution_readiness_policy.md"
+ROADMAP_INDEX = ROOT / "docs" / "atlas_roadmap_index.md"
 PHASE_MANIFEST = ROOT / "docs" / "atlas_automation_phase_manifest.json"
 VALIDATOR = ROOT / "scripts" / "validate_atlas_automation_plan.py"
 
@@ -24,9 +25,11 @@ def test_scale_113_defines_single_canonical_master_plan() -> None:
     assert "single human-readable source of truth" in master
     assert phase["canonical_human_plan"] == "docs/atlas_scale_master_roadmap.md"
     assert phase["canonical_safety_policy"] == "docs/atlas_autonomous_execution_readiness_policy.md"
+    assert phase["roadmap_index"] == "docs/atlas_roadmap_index.md"
     assert "Do not duplicate active/current/next PR pointers" in policy
     assert "docs/atlas_automation_phase_manifest.json" in master
     assert "docs/atlas_scale_master_roadmap.md" in policy
+    assert "docs/atlas_roadmap_index.md" in master
 
 
 def test_scale_113_preserves_final_goal_and_self_improvement_goal() -> None:
@@ -93,3 +96,20 @@ def test_scale_113_forbids_known_drift_phrases() -> None:
     assert "next PR may add local-only diff label conflict export" not in combined
     assert "Current automation track PR:\n- PR-ATLAS-SCALE-94" not in combined
     assert "Next automation track PR:\n- PR-ATLAS-SCALE-94" not in combined
+    assert "Completed automation PR: PR-ATLAS-SCALE-112" not in combined
+    assert "Current automation track: PR-ATLAS-SCALE-113" not in combined
+
+
+def test_roadmap_index_points_to_current_completed_and_next_tracks() -> None:
+    index = read(ROADMAP_INDEX)
+
+    assert "Completed automation PR: PR-ATLAS-SCALE-116" in index
+    assert "Current / next automation track: PR-ATLAS-SCALE-117" in index
+    assert "Current runtime level: level_0_manual_only" in index
+    assert "PR-ATLAS-SCALE-117: dry-run-only backend endpoint skeleton" in index
+    assert "docs/atlas_scale_master_roadmap.md" in index
+    assert "docs/atlas_autonomous_execution_readiness_policy.md" in index
+    assert "docs/atlas_automation_phase_manifest.json" in index
+    assert "web/atlas_ui_surface_manifest.json" in index
+    assert "docs/agent_guided_workflow_integration.md" in index
+    assert "Vue must remain non-default, non-authoritative, display-only" in index

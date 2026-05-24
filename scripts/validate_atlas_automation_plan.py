@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MASTER_PLAN = ROOT / "docs" / "atlas_scale_master_roadmap.md"
 POLICY = ROOT / "docs" / "atlas_autonomous_execution_readiness_policy.md"
+ROADMAP_INDEX = ROOT / "docs" / "atlas_roadmap_index.md"
 PHASE_MANIFEST = ROOT / "docs" / "atlas_automation_phase_manifest.json"
 UI_MANIFEST = ROOT / "web" / "atlas_ui_surface_manifest.json"
 DELETED_DUPLICATE_DOCS = [
@@ -26,11 +27,13 @@ def _load_json(path: Path) -> dict:
 def validate() -> None:
     master = _read(MASTER_PLAN)
     policy = _read(POLICY)
+    index = _read(ROADMAP_INDEX)
     phase = _load_json(PHASE_MANIFEST)
     ui_manifest = _load_json(UI_MANIFEST)
 
     assert phase["canonical_human_plan"] == "docs/atlas_scale_master_roadmap.md"
     assert phase["canonical_safety_policy"] == "docs/atlas_autonomous_execution_readiness_policy.md"
+    assert phase["roadmap_index"] == "docs/atlas_roadmap_index.md"
     assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-116"
     assert phase["current_automation_track"] == "PR-ATLAS-SCALE-117"
     assert phase["next_automation_track"] == "PR-ATLAS-SCALE-117"
@@ -68,6 +71,9 @@ def validate() -> None:
 
     for token in [
         "Readiness Metadata Review Phase",
+        "PR-ATLAS-SCALE-116",
+        "PR-ATLAS-SCALE-117",
+        "level_0_manual_only",
         "Level 1: Guarded single-step automation",
         "Level 4: Self-improvement candidate",
         "Anti-drift",
@@ -75,10 +81,24 @@ def validate() -> None:
     ]:
         assert token in policy, token
 
+    for token in [
+        "Atlas Roadmap Index",
+        "docs/atlas_scale_master_roadmap.md",
+        "docs/atlas_autonomous_execution_readiness_policy.md",
+        "docs/atlas_automation_phase_manifest.json",
+        "web/atlas_ui_surface_manifest.json",
+        "docs/agent_guided_workflow_integration.md",
+        "PR-ATLAS-SCALE-117: dry-run-only backend endpoint skeleton",
+        "Vue must remain non-default, non-authoritative, display-only",
+    ]:
+        assert token in index, token
+
     assert "Current automation track PR:\n- PR-ATLAS-SCALE-94" not in master
     assert "Next automation track PR:\n- PR-ATLAS-SCALE-94" not in master
     assert "next PR may add local-only diff label conflict export" not in master
     assert "next PR may add local-only diff label conflict export" not in policy
+    assert "Completed automation PR: PR-ATLAS-SCALE-112" not in policy
+    assert "Current automation track: PR-ATLAS-SCALE-113" not in policy
 
     planned = {item["pr"]: item for item in phase["planned_prs"]}
     for pr in [f"PR-ATLAS-SCALE-{i}" for i in range(113, 147)]:

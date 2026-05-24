@@ -2,6 +2,7 @@
   "version": 1,
   "canonical_human_plan": "docs/atlas_scale_master_roadmap.md",
   "canonical_safety_policy": "docs/atlas_autonomous_execution_readiness_policy.md",
+  "roadmap_index": "docs/atlas_roadmap_index.md",
   "completed_automation_pr": "PR-ATLAS-SCALE-116",
   "current_automation_track": "PR-ATLAS-SCALE-117",
   "next_automation_track": "PR-ATLAS-SCALE-117",
