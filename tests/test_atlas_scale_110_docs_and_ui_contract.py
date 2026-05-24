@@ -12,12 +12,12 @@ DOCS = [
 def test_docs_advance_to_scale_111_pointer_after_scale_110():
     for doc in DOCS:
         text = Path(doc).read_text(encoding='utf-8')
-        assert 'Completed automation PR: PR-ATLAS-SCALE-110' in text
-        assert 'Current automation track: PR-ATLAS-SCALE-111' in text
-        assert 'Next automation track: PR-ATLAS-SCALE-111' in text
-        assert 'Planned UI track: return to PR-ATLAS-SCALE-111 automation track' in text
-        assert 'next work is PR-ATLAS-SCALE-111' in text
-        assert 'next PR may add local-only diff label import, not execution enable' in text
+        assert 'Completed automation PR: PR-ATLAS-SCALE-111' in text
+        assert 'Current automation track: PR-ATLAS-SCALE-112' in text
+        assert 'Next automation track: PR-ATLAS-SCALE-112' in text
+        assert 'Planned UI track: return to PR-ATLAS-SCALE-112 automation track' in text
+        assert 'next work is PR-ATLAS-SCALE-112' in text
+        assert 'next PR may add local-only diff label conflict resolution, not execution enable' in text
 
 
 def test_scale_110_label_filtered_export_ui_is_local_only_and_non_execution():
