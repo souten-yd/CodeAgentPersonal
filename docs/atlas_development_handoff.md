@@ -780,3 +780,15 @@ Current automation track: PR-ATLAS-SCALE-99
 - Compatibility pointer: Completed automation PR: PR-ATLAS-SCALE-106
 
 - desktop submenu/right-pane layout regression contract remains present and passing.
+
+
+- Completed automation PR: PR-ATLAS-SCALE-108
+- Current automation track: PR-ATLAS-SCALE-108
+- Next automation track: PR-ATLAS-SCALE-108
+- SCALE-108 added local-only readiness metadata history diff labels (browser-local/display-only; no upload; no backend mutation; no readiness decision; no execution eligibility computation).
+- Level-1 execution remains disabled; runtime remains level_0_manual_only; autonomous execution remains disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
+
+- Planned UI track: return to PR-ATLAS-SCALE-108 automation track
+- Current automation track: PR-ATLAS-SCALE-108
+- Next automation track: PR-ATLAS-SCALE-108
+- next work is PR-ATLAS-SCALE-108
