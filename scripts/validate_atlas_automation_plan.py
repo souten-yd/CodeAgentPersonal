@@ -31,9 +31,9 @@ def validate() -> None:
 
     assert phase["canonical_human_plan"] == "docs/atlas_scale_master_roadmap.md"
     assert phase["canonical_safety_policy"] == "docs/atlas_autonomous_execution_readiness_policy.md"
-    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-118"
-    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-119"
-    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-119"
+    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-119"
+    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-120"
+    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-120"
     assert phase["completed_phase"] == "readiness_metadata_review"
     assert phase["automation_phase"] == "level_1_advancement_preparation"
     assert phase["current_level"] == "level_0_manual_only"
@@ -60,6 +60,7 @@ def validate() -> None:
         "PR-ATLAS-SCALE-117",
         "PR-ATLAS-SCALE-118",
         "PR-ATLAS-SCALE-119",
+        "PR-ATLAS-SCALE-120",
         "Level-1 Advancement Preparation",
         "PR-B is allowed only when",
         "must not add another local-only diff label/bookmark/annotation UX",
