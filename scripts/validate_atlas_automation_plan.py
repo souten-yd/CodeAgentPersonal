@@ -31,9 +31,9 @@ def validate() -> None:
 
     assert phase["canonical_human_plan"] == "docs/atlas_scale_master_roadmap.md"
     assert phase["canonical_safety_policy"] == "docs/atlas_autonomous_execution_readiness_policy.md"
-    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-114"
-    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-115"
-    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-115"
+    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-115"
+    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-116"
+    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-116"
     assert phase["completed_phase"] == "readiness_metadata_review"
     assert phase["automation_phase"] == "level_1_advancement_preparation"
     assert phase["current_level"] == "level_0_manual_only"
@@ -56,8 +56,8 @@ def validate() -> None:
         assert not path.exists(), f"duplicate planning doc must stay deleted: {path}"
 
     for token in [
-        "PR-ATLAS-SCALE-114",
         "PR-ATLAS-SCALE-115",
+        "PR-ATLAS-SCALE-116",
         "Level-1 Advancement Preparation",
         "PR-B is allowed only when",
         "must not add another local-only diff label/bookmark/annotation UX",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -89,7 +90,7 @@ def test_scale_115_deterministic_manifest_and_invariants() -> None:
 def test_scale_115_manifest_persistence_roundtrip(tmp_path: Path) -> None:
     manifest = _make_manifest()
     out = write_dry_run_artifact_manifest(data_root=tmp_path, manifest=manifest)
-    loaded = load_dry_run_artifact_manifest(manifest_path=out)
+    loaded = load_dry_run_artifact_manifest(data_root=tmp_path, manifest_path=out)
     assert loaded == manifest
     assert out == tmp_path / "atlas" / "dry_run_artifacts" / manifest["artifact_id"] / "manifest.json"
 
@@ -105,3 +106,20 @@ def test_scale_115_forbids_execution_mutation_git_self_modification_strings() ->
     target = Path("app/atlas/dry_run_artifact_schema.py").read_text(encoding="utf-8").lower()
     for token in FORBIDDEN_STRINGS:
         assert token not in target
+
+
+def test_scale_115_rejects_manifest_path_outside_data_root(tmp_path: Path) -> None:
+    manifest = _make_manifest()
+    out = write_dry_run_artifact_manifest(data_root=tmp_path, manifest=manifest)
+    with pytest.raises(ValueError, match="manifest_outside_data_root"):
+        load_dry_run_artifact_manifest(data_root=tmp_path / "other_root", manifest_path=out)
+
+
+def test_scale_115_plan_validator_subprocess_contract() -> None:
+    result = subprocess.run(
+        ["python", "scripts/validate_atlas_automation_plan.py"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "Atlas automation plan contract OK" in result.stdout

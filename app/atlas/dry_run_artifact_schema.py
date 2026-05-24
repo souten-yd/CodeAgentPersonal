@@ -150,7 +150,14 @@ def write_dry_run_artifact_manifest(*, data_root: str | Path, manifest: dict[str
     return manifest_path
 
 
-def load_dry_run_artifact_manifest(*, manifest_path: str | Path) -> dict[str, Any]:
+def load_dry_run_artifact_manifest(
+    *,
+    data_root: str | Path | None = None,
+    manifest_path: str | Path,
+) -> dict[str, Any]:
     path = Path(manifest_path).expanduser().resolve()
+    if data_root is not None:
+        root = Path(data_root).expanduser().resolve()
+        _ensure_under(root, path, "manifest_outside_data_root")
     payload = json.loads(path.read_text(encoding="utf-8"))
     return validate_dry_run_artifact_manifest(payload)
