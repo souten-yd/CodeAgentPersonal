@@ -352,7 +352,7 @@ function clearDiffLabels(): void {
   diffLabelStatus.value = 'Cleared local diff labels.'
 }
 function saveDiffLabels(): void { if (typeof window !== 'undefined') window.localStorage.setItem(DIFF_LABEL_STORAGE_KEY, JSON.stringify(diffLabelMap.value)) }
-function loadDiffLabels(): void { try { if (typeof window==='undefined') return; const raw=window.localStorage.getItem(DIFF_LABEL_STORAGE_KEY); if (!raw) return; const parsed=JSON.parse(raw); if (parsed && typeof parsed==='object' && !Array.isArray(parsed)) diffLabelMap.value=Object.fromEntries(Object.entries(parsed).filter(([k,v])=>typeof k==='string' && typeof v==='string')) } catch {} }
+function loadDiffLabels(): void { try { if (typeof window==='undefined') return; const raw=window.localStorage.getItem(DIFF_LABEL_STORAGE_KEY); if (!raw) return; const parsed=JSON.parse(raw); if (parsed && typeof parsed==='object' && !Array.isArray(parsed)) { const labels: Record<string, string> = {}; for (const [k, v] of Object.entries(parsed)) { if (typeof k === 'string' && typeof v === 'string') labels[k] = v } diffLabelMap.value = labels } } catch {} }
 function parseImportedDiffLabels(payload: unknown): { labels: Record<string, string>, skipped: number, importedCount: number } {
   const source = payload && typeof payload === 'object' && !Array.isArray(payload)
     ? ((payload as { local_diff_labels?: unknown, local_diff_label_filtered_items?: unknown }).local_diff_labels

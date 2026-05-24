@@ -67,6 +67,7 @@ from agent.atlas_verification_recommendation_handoff_service import AtlasVerific
 from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_root import resolve_atlas_ca_data_root
+from app.atlas.level1_dry_run_endpoint_skeleton import build_level1_dry_run_only_result
 from app.atlas.workflow_state_contract import build_read_only_workflow_state
 from app.atlas.level1_guarded_execution import Level1GuardedExecutionSkeleton
 
@@ -138,6 +139,17 @@ class PipelineDryRunResponse(BaseModel):
     errors: list[str] = Field(default_factory=list)
     orchestration_summary: dict = Field(default_factory=dict)
     clarification_session_id: str = ""
+
+
+class Level1DryRunOnlyRequest(BaseModel):
+    workspace_id: str = "default"
+    pool_id: str = ""
+    item_id: str = ""
+    action_id: str = ""
+    command_id: str = ""
+    risk_level: str = "unknown"
+    dry_run_summary: str = ""
+    metadata: dict = Field(default_factory=dict)
 
 
 class RecoveryResponse(BaseModel):
@@ -1267,6 +1279,12 @@ def atlas_workflow_state_read_only() -> dict[str, Any]:
 def atlas_level1_readiness_diagnostics() -> dict[str, object]:
     """GET-only metadata diagnostics for the disabled Level-1 backend skeleton."""
     return Level1GuardedExecutionSkeleton.build_disabled_level1_contract()
+
+
+@router.post("/level1/dry-run-only")
+def atlas_level1_dry_run_only_endpoint(req: Level1DryRunOnlyRequest) -> dict[str, Any]:
+    """Dry-run-only Level-1 skeleton; returns metadata without side effects."""
+    return build_level1_dry_run_only_result(req.model_dump())
 
 
 @router.get("/verification/allowlist")
