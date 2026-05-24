@@ -11,15 +11,15 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-117
-- Current automation track: PR-ATLAS-SCALE-118
-- Next automation track after this correction: PR-ATLAS-SCALE-118
+- Completed automation PR: PR-ATLAS-SCALE-118
+- Current automation track: PR-ATLAS-SCALE-119
+- Next automation track after this correction: PR-ATLAS-SCALE-119
 - Current level: Level 0 manual only
 - Target level: Level 1 guarded single-step automation
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
-PR-ATLAS-SCALE-117 added a dry-run-only backend endpoint skeleton. It does not enable execution, persistence, verification, patch apply, rollback, retry, remote git, or auto-continue.
+PR-ATLAS-SCALE-118 added dry-run-only result artifact capture under resolved data_root. It does not enable execution, project mutation, verification execution, patch apply, rollback, retry, remote git, or auto-continue.
 
 Manual execution remains the only allowed execution mode until the explicit Level-1 runtime transition checkpoint.
 
