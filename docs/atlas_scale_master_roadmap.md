@@ -1,932 +1,206 @@
-- PR-ATLAS-SCALE-111 completed: local-only readiness metadata history diff label import; browser-local/display-only; no upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
-- PR-ATLAS-SCALE-107 completed: local-only readiness metadata history diff bookmarks; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
-- PR-ATLAS-SCALE-109 completed: local-only readiness metadata history diff label filtering; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
-- next PR may add local-only diff label conflict export, not execution enable.
-- PR-ATLAS-SCALE-106 completed: local-only readiness metadata history diff annotations for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
-- PR-ATLAS-SCALE-102 completed: local-only readiness metadata history import/export (browser storage only), with local JSON validation and merge/replace options; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
-- PR-ATLAS-SCALE-100 completed: local display-only readiness metadata snapshot comparison (current vs saved/pasted local snapshot), advisory-only, local-only, no backend mutation/upload, no readiness decision, no execution eligibility computation, no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
-- PR-ATLAS-SCALE-99 completed: local display-only copy/export of already-fetched Level-1 readiness metadata for operator review; local-only and non-mutating; no readiness decisions; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
-- PR-ATLAS-SCALE-97 completed: read-only UI display for Level-1 readiness gate-source mapping via GET diagnostics only; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
-- PR-ATLAS-SCALE-98 completed: display-only readiness UI grouping/filtering and UX refinement.
-- PR-ATLAS-SCALE-98B completed: post-SCALE-98 docs pointer correction.
-- PR-ATLAS-SCALE-94 completed: disabled backend skeleton contract only; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
-- PR-ATLAS-SCALE-95 completed: GET-only Level-1 readiness diagnostics for disabled backend skeleton metadata; no execution endpoint exposure; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
-- Diagnostics are metadata-only.
-- PR-ATLAS-VUE-19 completed: Execution safety / non-execution boundary review UI (display-only metadata).
-- PR-ATLAS-VUE-20 completed: Default-readiness preflight / route selection guard review (display-only metadata; no default switch).
-## Current Atlas Vue UI Track State
+# Atlas Automation Master Plan
 
-- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
-- Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-113 automation track
+## Canonical status
+
+This file is the single human-readable source of truth for Atlas automation planning.
+
+- Completed automation PR: PR-ATLAS-SCALE-112
 - Current automation track: PR-ATLAS-SCALE-113
-- Next automation track: PR-ATLAS-SCALE-113
-- PR-ATLAS-SCALE-106 completed: local-only readiness metadata history diff annotations for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
-- SCALE-94 is disabled backend skeleton candidate only
-- `/` is guarded Atlas Next default only when validated dist passes
-- invalid/missing Vue dist falls back safely to legacy UI
-- legacy UI remains available via /ui/
-- `/atlas-next` remains guarded preview route
-- backend workflow_state remains authoritative
+- Next automation track after this correction: PR-ATLAS-SCALE-114
+- Current runtime level: level_0_manual_only
+- Target runtime level: level_1_guarded_single_step
+- Final goal: fully_autonomous_code_agent
+- Self-improvement goal: self_improving_codeagentpersonal_kasanecore
+- Backend workflow_state remains authoritative.
+- Vue remains display-only and non-authoritative.
+- Atlas Next defaultization is complete, but defaultization is not execution enablement.
+
+Machine-readable phase and anti-drift rules are recorded in `docs/atlas_automation_phase_manifest.json`.
+Execution readiness policy is recorded in `docs/atlas_autonomous_execution_readiness_policy.md`.
+
+## Consolidation decision
+
+The previous roadmap state duplicated active PR pointers across multiple files. This made Codex/Claude tasks drift by updating several similar documents with slightly different current/next PR text.
+
+Canonical planning is now consolidated as follows:
+
+- `docs/atlas_scale_master_roadmap.md`: canonical human roadmap and PR-by-PR execution plan.
+- `docs/atlas_autonomous_execution_readiness_policy.md`: canonical safety and level advancement policy.
+- `docs/atlas_automation_phase_manifest.json`: machine-readable current phase, goals, forbidden drift classes, and PR plan.
+
+The following redundant planning files are removed from the active docs set:
+
+- `docs/atlas_development_handoff.md`
+- `docs/atlas_thinui_readiness.md`
+- `docs/atlas_vue_migration_plan.md`
+
+Future PRs must not reintroduce duplicated active/current/next automation pointers in replacement files. If a handoff summary is required, it must reference this master plan instead of copying the PR table.
+
+## Completed phase: Readiness Metadata Review Phase
+
+SCALE-100 through SCALE-112 are complete and are now closed as the Readiness Metadata Review Phase.
+
+This phase delivered local-only, display-only operator review capabilities:
+
+- readiness metadata snapshot comparison
+- local readiness history
+- local import/export
+- local diff view
+- diff filtering/grouping
+- local diff export/copy
+- annotations
+- bookmarks
+- labels
+- label filtering
+- label export
+- label import
+- label conflict resolution
+
+This phase intentionally did not add execution capability. All of the following remain true:
+
+- no backend mutation from these review tools
+- no metadata upload
+- no readiness decision from Vue
+- no execution eligibility computation from Vue
+- no execution controls added by the metadata review phase
 - runtime remains level_0_manual_only
-- Vue execution capability remains none
-- VUE21 completed default-enable only, not execution-enable
+- Level-1 and autonomous execution remain disabled
+
+## Current phase: Level-1 Advancement Preparation
+
+SCALE-113 starts the Level-1 Advancement Preparation phase. The purpose of this phase is to move away from more local-only review UX and toward the evidence generation needed for guarded single-step automation.
+
+### Direction lock
+
+Next PRs must advance Level-1 readiness evidence or the roadmap/validator itself.
+
+They must not add another local-only diff label/bookmark/annotation UX unless explicitly approved as a PR-B drift repair or a user-requested exception.
+
+Allowed PR-B additions:
+
+- PR-B is allowed only when a required implementation is incomplete, broken, or unsafe.
+- PR-B must keep the same phase and goal as its parent PR.
+- PR-B must not introduce a new feature family that delays Level-1 advancement.
+- PR-B must explicitly state which parent PR acceptance criteria it fixes.
+
+Disallowed drift:
+
+- new local-only metadata decoration as the mainline next work
+- Vue becoming authoritative
+- execution endpoint exposure before the explicit Level-1 transition PR
+- mutation, patch apply, git operations, autonomous loop, or PR creation before their planned PRs
+- changing runtime level before the explicit transition checkpoint
+
+## Level roadmap
+
+### Level 0: Manual only
+
+Current state. No autonomous execution. Backend remains authoritative. Vue remains display-only.
+
+### Level 1: Guarded single-step automation
+
+One low-risk, allowlisted action at a time. Dry-run first. Explicit approval token required. No auto-continue.
+
+### Level 2: Guarded bounded loop
+
+Limited low-risk sequence. Hard bounds. Stop gate. Allowlisted verification. Captured artifacts.
+
+### Level 3: Autonomous implementation loop
+
+Plan, patch, dry-run, apply, verify, bounded fix loop, draft PR only. No direct merge.
+
+### Level 4: Self-improvement platform
+
+Atlas may improve CodeAgentPersonal / KasaneCore itself under strict self-modification gates, draft PR only, no direct merge.
+
+## PR-by-PR implementation plan
+
+### Phase 1: Level-1 readiness evidence generation
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-113 | Consolidate master plan, remove duplicate plan docs, add phase manifest and drift validator | no runtime change | canonical plan only |
+| PR-ATLAS-SCALE-114 | Advisory readiness rollup and gate evidence summary | no execution | advisory-only, not eligibility |
+| PR-ATLAS-SCALE-115 | Dry-run artifact schema v1 | no execution | schema only |
+| PR-ATLAS-SCALE-116 | Verification allowlist resolver | no command execution | resolver only |
+| PR-ATLAS-SCALE-117 | Dry-run-only backend endpoint skeleton | no mutation | no patch apply, no git |
+| PR-ATLAS-SCALE-118 | Dry-run result artifact capture | no mutation | captures real dry-run output only |
+| PR-ATLAS-SCALE-119 | Approval token backend contract | no execution | token does not authorize autonomous loop |
+| PR-ATLAS-SCALE-120 | UI dry-run result viewer | Vue display-only | Vue remains non-authoritative |
+
+### Phase 2: Level-1 guarded single-step enablement
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-121 | Disabled single allowlisted command runner | default disabled | allowlisted only |
+| PR-ATLAS-SCALE-122 | Execution artifact capture v1 | no loop | one action only |
+| PR-ATLAS-SCALE-123 | Stop / kill-switch runtime integration | no auto-continue | stop blocks continuation |
+| PR-ATLAS-SCALE-124 | Rollback readiness verification | no automatic rollback | verify only |
+| PR-ATLAS-SCALE-125 | Level-1 guarded single-step endpoint | limited execution | dry-run + approval required |
+| PR-ATLAS-SCALE-126 | UI guarded execution review panel | Vue still non-authoritative | backend executes, Vue reviews |
+| PR-ATLAS-SCALE-127 | Explicit Level-1 runtime transition checkpoint | runtime may become level_1_guarded_single_step | only if all gates pass |
+
+### Phase 3: Patch, branch, and draft PR pipeline
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-128 | Patch proposal generator | no apply | proposal only |
+| PR-ATLAS-SCALE-129 | Patch transaction preview | no apply | rollback metadata required |
+| PR-ATLAS-SCALE-130 | Human-approved patch apply one action | single mutation | snapshot required |
+| PR-ATLAS-SCALE-131 | Local branch proposal artifact | no git mutation | proposal only |
+| PR-ATLAS-SCALE-132 | Approved local branch creation | local git only | no remote push |
+| PR-ATLAS-SCALE-133 | Draft PR policy | no PR creation | policy only |
+| PR-ATLAS-SCALE-134 | Draft PR creation | remote git limited | draft only, no merge |
+| PR-ATLAS-SCALE-135 | PR update from approved patch transaction | draft PR update only | no direct merge |
+
+### Phase 4: Bounded autonomous loop
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-136 | Bounded loop policy v1 | no loop yet | hard limits only |
+| PR-ATLAS-SCALE-137 | Bounded retry and failure recovery | limited retry candidate | no unbounded retry |
+| PR-ATLAS-SCALE-138 | Level-2 guarded bounded loop checkpoint | runtime may advance to Level 2 | explicit transition only |
+| PR-ATLAS-SCALE-139 | Level-3 autonomous implementation loop candidate | autonomous candidate | draft PR only, no direct merge |
+
+### Phase 5: Self-improving platform
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-140 | Self-improvement proposal mode | no self-apply | proposal only |
+| PR-ATLAS-SCALE-141 | Strict self-modification risk classifier | no execution | strict by default |
+| PR-ATLAS-SCALE-142 | Self-improvement patch preview | no apply | preview only |
+| PR-ATLAS-SCALE-143 | Self-improvement dry-run verification | no apply | allowlisted verification only |
+| PR-ATLAS-SCALE-144 | Self-improvement approved patch apply | single approved mutation | snapshot + rollback required |
+| PR-ATLAS-SCALE-145 | Self-improvement draft PR creation | draft PR only | no direct merge |
+| PR-ATLAS-SCALE-146 | Level-4 self-improvement checkpoint | explicit transition | all self gates required |
+
+## Required checks for every future confirmation
+
+When checking a PR, verify all of the following against this master plan and the actual codebase:
+
+- Scope matches the planned PR row.
+- Any PR-B only repairs the parent PR criteria.
+- No deleted duplicate plan docs are recreated.
+- No local-only metadata UX is added as mainline work after SCALE-113 unless explicitly approved.
+- Runtime level remains unchanged unless the planned transition PR explicitly allows it.
+- Backend workflow_state remains authoritative.
+- Vue remains non-authoritative.
+- No execution, mutation, patch apply, git, autonomous loop, or self-modification is added before its scheduled PR.
+- Tests cover the planned acceptance criteria and drift checks.
+
+## Safety invariants
+
+Until the explicit transition PR says otherwise:
+
+- runtime_level remains level_0_manual_only
 - Level-1 execution remains disabled
-- next work is PR-ATLAS-SCALE-113
-
-## Active PR Pointer (Updated)
-
-- Completed automation PR: PR-ATLAS-SCALE-112
-- Current automation track: PR-ATLAS-SCALE-113
-- Next automation track: PR-ATLAS-SCALE-113
-- PR-ATLAS-SCALE-106 completed: local-only readiness metadata history diff annotations for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
-
-Completed:
-- PR-ATLAS-SCALE-76
-- PR-ATLAS-SCALE-76B
-- PR-ATLAS-SCALE-76C
-- PR-ATLAS-SCALE-77
-- PR-ATLAS-SCALE-77B
-- PR-ATLAS-SCALE-78
-- PR-ATLAS-SCALE-79
-- PR-ATLAS-SCALE-80: out-of-order architecture checkpoint (docs/manifest/tests only; Vue migration plan + autonomous-first UI policy)
-- PR-ATLAS-SCALE-81
-- PR-ATLAS-SCALE-81B
-- PR-ATLAS-SCALE-82
-- PR-ATLAS-SCALE-83
-- PR-ATLAS-SCALE-84
-- PR-ATLAS-SCALE-84B
-- PR-ATLAS-SCALE-85
-- PR-ATLAS-SCALE-86
-- PR-ATLAS-SCALE-87
-- PR-ATLAS-SCALE-88
-- PR-ATLAS-SCALE-89
-- PR-ATLAS-SCALE-90
-- PR-ATLAS-SCALE-90B
-- PR-ATLAS-SCALE-91
-- PR-ATLAS-SCALE-91B
-- PR-ATLAS-SCALE-91C
-- PR-ATLAS-SCALE-91D
-- PR-ATLAS-SCALE-92
-- PR-ATLAS-VUE-01: Add parallel Vue/Vite Atlas Next read-only shell
-- PR-ATLAS-VUE-01B: Docs/test contract hardening for parallel read-only Vue shell
-- PR-ATLAS-VUE-02: Safe static serving / read-only workflow_state adapter hardening
-- PR-ATLAS-VUE-02B: Manifest/docs/test drift fix + UI track pointer correction
-- PR-ATLAS-VUE-03: Read-only workflow cards / backend state parity hardening
-- PR-ATLAS-VUE-04: Safe backend workflow_state GET adapter / static mount decision
-- PR-ATLAS-VUE-04B: Docs pointer correction / UI track alignment
-- PR-ATLAS-VUE-05: Define stable read-only workflow_state backend contract
-- PR-ATLAS-VUE-05B: Manifest/docs/tests alignment for stable workflow_state contract
-- PR-ATLAS-VUE-06: Bind Vue read-only adapter to stable GET workflow_state contract
-- PR-ATLAS-VUE-06B: Fix Vue Next StatusCard SFC typecheck failure
-- PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement
-- PR-ATLAS-VUE-08: Safe static mount/dist strategy
-- PR-ATLAS-VUE-08B: Roadmap/docs pointer drift fix
-- PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy
-- PR-ATLAS-VUE-10: Optional guarded /atlas-next preview route hardening
-
-Current automation track PR:
-- PR-ATLAS-SCALE-94: disabled backend skeleton candidate for future Level-1 guarded single-step execution (execution remains disabled by default; backend-only candidate; no runtime level change; no Vue execution controls)
-
-Next automation track PR:
-- PR-ATLAS-SCALE-94: disabled backend skeleton candidate for future Level-1 guarded single-step execution (execution remains disabled by default; backend-only candidate; no runtime level change; no Vue execution controls)
-
-Separate UI track opened after PR-92:
-- Current UI track during PR-ATLAS-VUE-08 was: PR-ATLAS-VUE-08: Safe static mount/dist strategy
-- Completed UI PR: PR-ATLAS-VUE-12: Atlas Next roadmap/docs pointer cleanup and packaging/deployment readiness alignment
-- Historical current UI track marker: Current UI track: PR-ATLAS-VUE-11: Atlas Next preview route observability / fallback hardening
-- PR-ATLAS-VUE-15 completed: read-only workflow_state real-data connection strengthened while preserving backend authority and metadata-only safety.
-- Historical marker (superseded): After PR-ATLAS-VUE-15, the UI track temporarily focused on Atlas-specific Requirement Input / Start Atlas UI follow-up before defaultization completion.
-- Historical marker (superseded): Planned UI track was PR-ATLAS-VUE-15 through PR-ATLAS-VUE-21.
-- Historical marker (superseded): PR-ATLAS-VUE-21 was the default-enable checkpoint (default-enable only, not execution-enable).
-- Atlas Next is guarded default route for `/` only when dist validation passes.
-- PR-ATLAS-VUE-10 completed optional guarded /atlas-next preview route hardening with a dist-backed fail-closed preview route that never replaces `/` or `/ui.html`.
-
-Known Current Code Facts:
-- PR-90B hardens remote git reference-readiness blocking.
-- requested_operation must be "none" for remote git readiness.
-- requested_operation="unknown" blocks remote git readiness.
-- Invalid or unreadable reference manifests block remote git readiness.
-- remote_git_gate_ready does not authorize git operations.
-- PR-91 adds self-improvement gate consolidation.
-- PR-91D actually adds self_improvement_scope to web/atlas_ui_surface_manifest.json.
-- self_improvement_scope is self_improving_codeagentpersonal_kasanecore.
-- final_goal remains fully_autonomous_code_agent.
-- Self-improvement gate is metadata-only and does not modify code.
-- Self-improvement gate does not generate patches.
-- Self-improvement gate does not apply patches.
-- Self-improvement gate does not run safe_apply.
-- Self-improvement gate does not run tests or verification.
-- Self-improvement gate does not run git commands.
-- self_improvement_gate_ready does not authorize automatic execution.
-- self_improvement_gate_ready does not authorize patch apply.
-- self_improvement_gate_ready does not authorize git operations.
-- Autonomous self-improvement remains disabled.
-- Automatic self-modification remains disabled.
-- Self-modification is strict-gate by default.
-- Runtime, execution semantics, safety policy, autonomous controls, remote git policy, data_root, and UI workflow state are strict-gate by default.
-- Self-improvement readiness requires snapshot, patch transaction, risk classification, verification allowlist, dry-run approval, rollback readiness, artifact capture, stop gate, loop bound, and remote git gate evidence.
-- PR-90 adds remote git gate consolidation.
-- Remote git gate is metadata-only and does not run git commands.
-- Remote git gate does not push, pull, clone, fetch, or mutate remotes.
-- Remote git gate does not create branches.
-- Remote git gate does not create PRs.
-- Remote git gate does not merge PRs.
-- Direct merge remains forbidden.
-- Automatic PR creation remains disabled.
-- Draft PR creation requires a future explicit policy PR.
-- Remote git operation requests are blocked as policy metadata.
-- remote_git_gate_ready does not authorize git operations.
-- PR-89 added loop bound gate consolidation.
-- Loop bound gate is metadata-only and does not run loops.
-- Loop bound gate does not retry automatically.
-- Loop bound gate does not continue automatically.
-- Loop bound gate does not authorize automatic execution.
-- Explicit bounds are required for max actions, retries, runtime, files changed, risk level, consecutive failures, verification attempts, and patch transactions.
-- No unbounded autonomous loop is allowed.
-- Auto-continue remains disabled.
-- Execute-all remains forbidden.
-- Automatic loop execution remains disabled.
-- Automatic retry remains disabled.
-- PR-88 adds stop / kill switch gate consolidation.
-- Stop / kill switch gate is metadata-only and does not stop real jobs.
-- Stop / kill switch gate does not kill processes.
-- Stop acknowledgement is not fabricated.
-- Stop state is recorded for future UI/CLI inspection.
-- Stop gate blocks readiness if auto-continue or execute-all is enabled.
-- Stop gate blocks readiness if required stop controls are missing.
-- No auto-continue after stop remains required.
-- Execute-all remains forbidden.
-- Automatic stop execution remains disabled.
-- Artifact capture gate is metadata-only and does not execute actions.
-- Artifact capture does not create fake execution results.
-- Artifact capture does not create fake verification results.
-- Artifact capture records references and missing evidence explicitly.
-- Artifact capture records are stored under resolved data_root.
-- Plan, snapshot, patch transaction, rollback metadata, risk classification, verification allowlist, dry-run approval gate, and rollback readiness gate references are required for readiness.
-- Dry-run result, execution result, verification plan, and verification result references are tracked when available; missing results are recorded explicitly.
-- Warnings and recovery instructions are captured.
-- Artifacts remain inspectable from future UI/CLI.
-- Automatic artifact capture remains disabled.
-- PR-84 added verification allowlist gate foundation.
-- PR-84B fixed verification allowlist py_compile / node check contracts.
-- PR-85 added dry-run and approval gate consolidation.
-- PR-86 adds rollback readiness gate consolidation.
-- Rollback readiness gate is metadata-only and does not restore files.
-- Rollback readiness does not execute rollback automatically.
-- Rollback readiness does not authorize automatic execution.
-- Snapshot manifest and rollback metadata are required for readiness.
-- Restore plan is required for readiness.
-- Rollback strategy remains manual snapshot restore.
-- Restore remains manual-only.
-- Automatic restore remains disabled.
-- Automatic rollback remains disabled.
-- Autonomous execution remains disabled.
-- Dry-run / approval gate is metadata-only and does not execute actions.
-- Gate readiness does not authorize automatic execution.
-- Gate readiness does not execute automatically.
-- Dry-run-first remains mandatory.
-- EXECUTE ONE ACTION remains required.
-- Confirmation token or future equivalent approval token remains mandatory.
-- Explicit approval is mandatory for medium/high/strict risk.
-- strict_gate always requires explicit approval.
-- Missing or failed dry-run blocks readiness.
-- Automatic dry-run remains disabled.
-- Automatic approval remains disabled.
-- Automatic execute remains disabled.
-- Verification allowlist is metadata-only and does not execute commands.
-- Allowlisted command means eligible for future guarded/manual verification, not automatic execution.
-- Broad shell, remote git, destructive commands, package installs, shell metacharacters, and arbitrary commands are blocked.
-- Recommended commands remain suggestions only.
-- Automatic command execution remains disabled.
-- PR-83 adds risk classification gate foundation.
-- Risk classification is metadata-only and does not authorize execution.
-- Unknown risk is not low risk.
-- Runtime, launcher, Docker, execution APIs, data_root, safety docs, UI workflow state, and self-modification are strict-gate by default.
-- Automatic safe_apply remains disabled.
-- Automatic verification remains disabled.
-- PR-82 completed patch transaction and rollback metadata foundation.
-- Patch transactions are metadata-only and do not apply patches.
-- Rollback metadata references manual snapshot restore.
-- PR-78 added ThinUI contract tests and manifest-driven UI smoke.
-- PR-79 defined autonomous execution readiness policy.
-- PR-81 added workspace snapshot / restore foundation.
-- PR-81B hardens snapshot / restore path safety.
-- Snapshot source files must resolve under project_root.
-- Symlinks are skipped by default and not followed.
-- Symlink escapes are skipped / warned and not read.
-- Restore source files must resolve under snapshot_dir.
-- Restore destination files must resolve under project_path.
-- delete_missing_before is plan-only / non-destructive for now.
-- Snapshot artifacts are stored under resolved data_root.
-- Path("ca_data") direct writes remain forbidden.
-- Restore is manual-only.
-- Automatic rollback remains disabled.
-- Autonomous execution remains disabled.
-- Atlas remains Level 0 manual-only execution at runtime.
-- Autonomous execution remains forbidden until readiness gates pass.
-- Required gates include snapshot/restore, patch transaction, risk classification, allowlisted verification, dry-run/approval, rollback readiness, artifact capture, stop/kill switch, loop bounds, remote git restrictions, and self-improvement gates.
-- PR-79 does not enable auto-execution.
-- PR-79 does not change runtime behavior.
-- Primary CTA remains single existing manual action only.
-- EXECUTE ONE ACTION remains required.
-- Dry-run-first remains required.
-- Suggested commands are not executed automatically.
-- Backend workflow state remains authoritative.
-- ThinUI remains replaceable and CLI-compatible.
-- PR-80 remains an out-of-order architecture checkpoint and does not imply PR-79 was previously complete.
-- Atlas final goal remains a fully autonomous code agent.
-- Self-improving CodeAgentPersonal / KasaneCore remains explicitly in scope.
-
-# Atlas Scale Master Roadmap
-
-## Final Vision: Autonomous Development Platform
-- large repo coding agent
-- goal → research → plan → implement → test → fix → PR
-- self-improving CodeAgentPersonal/KasaneCore platform
-- eventually capable of autonomous implementation loops under policy/safety gates
-
-
-## Automation-first UI / CLI Contract
-- Atlas UI is not the source of workflow truth.
-- Backend workflow state is authoritative.
-- Browser ThinUI, future CLI, future replacement UI, and future full-auto controller must use the same high-level workflow contract.
-- UI remains a thin supervision layer: task input, project path, status/progress, phase, approval summary, artifact summary, primary CTA, and stop/emergency control.
-- UI must not encode execution decisions.
-- Detailed Atlas panels are legacy/debug/advanced surfaces.
-- Normal operation should not require direct Build Queue / Prepare / Preview Token / Next Action Orchestrator / Context Refresh / Planner Packaging / Verification Recommendation controls.
-- ThinUI is replaceable.
-- Future CLI or redesigned UI must drive Atlas through the same backend workflow contract without depending on current DOM structure.
-- Final goal remains: fully autonomous code agent (goal → research → plan → implement → test → fix → PR) and self-improving CodeAgentPersonal / KasaneCore platform.
-
-## Safety Baseline (Unchanged)
-- Recommendations are not executions.
-- Suggested commands are not executed automatically.
-- `EXECUTE ONE ACTION` confirmation remains required.
-- Dry-run-first remains required.
-- No execution semantics change in PR-73.
-
-## PR-73〜PR-80 ThinUI / Autonomous Readiness Roadmap
-- **PR-73: Autonomous Code Agent roadmap consolidation and ThinUI readiness checkpoint**
-  - consolidate docs
-  - classify current UI surfaces
-  - preserve autonomous-code-agent final goal
-  - no execution semantics change
-- **PR-74: Automation-first ThinUI / CLI workflow shell**
-  - add minimal workflow shell
-  - define browser UI / CLI / replacement UI / full-auto controller contract
-  - backend workflow state is source of truth
-  - no execution semantics change
-- **PR-75: Hide advanced execution panels by default**
-  - move Build Queue / Prepare / Preview Token / Next Action Orchestrator / direct Safe Apply / Retry / Patch Regen into Advanced drawer
-  - preserve DOM IDs and tests
-- **PR-76: Diagnostics drawer and raw JSON isolation**
-  - raw JSON, run IDs, pool IDs, direct repo context tools, planner packaging, impact map, context refresh v2 into Diagnostics
-  - accessible but hidden by default
-- **PR-77: Atlas workflow state machine UI**
-  - single primary CTA changes by backend phase: Plan → Prepare → Dry Run → Execute One Action → Refresh / Continue
-  - preserve EXECUTE ONE ACTION gate
-- **PR-78: ThinUI contract tests and manifest-driven UI smoke**
-  - minimal surfaces visible
-  - advanced/diagnostic surfaces accessible but hidden by default
-  - no classic script contract violations
-- **PR-79: Autonomous execution readiness policy checkpoint**
-  - readiness matrix for automatic verification / safe apply / rollback / retry
-  - no full-auto execution yet unless policy says ready
-- **PR-80: ThinUI architecture checkpoint (docs/manifest/tests only; out-of-order)**
-  - record Vue Atlas Next migration plan
-  - record autonomous-first UI cleanup policy
-  - define Go/No-Go criteria for parallel Vue UI
-  - decision: Vue implementation starts after PR-80 unless explicitly approved
-  - legacy UI remains until parity tests pass
-  - no runtime UI replacement in PR-80
-  - out-of-order note: PR-80 does not imply PR-77〜79 implementation completion
-
-## PR-81〜PR-90 Autonomous Code Agent Execution Roadmap
-- workspace snapshot / restore foundation (completed in PR-81)
-- patch transaction manager
-- autonomous execution policy v1
-- auto verification loop
-- auto patch regeneration loop
-- full task autopilot v1
-- self-improvement guardrails
-- self-improving CodeAgentPersonal platform
-- GitHub branch / draft PR automation
-- autonomous development milestone
-
-## Historical Chronology (Historical)
-- Completed baseline: PR-ATLAS-PIPE-0〜60D
-- Completed baseline: PR-ATLAS-SCALE-61〜72
-- Historical docs/checkpoint references retained for traceability.
-
-
-- Historical quality gate reference: PR-ATLAS-DOCS-QUALITY-GATE-01.
-- Historical quality marker: PR-ATLAS-SCALE-65B.
-
-
-## PR-91〜PR-100 Self-Improving Atlas / KasaneCore Roadmap
-- **PR-91: Self-improvement policy and risk classification**
-  - classify CodeAgentPersonal / KasaneCore files by risk
-  - runtime / launcher / Docker / UI / safety gate files are strict-gate
-  - no autonomous self-modification yet
-- **PR-92: Self-repo snapshot and restore validation**
-  - verify snapshot/restore works on CodeAgentPersonal itself
-  - rollback proof required before any self-modification
-- **PR-93: Self-repo planning mode**
-  - Atlas can plan changes to its own codebase
-  - advisory only
-  - no patch apply yet
-- **PR-94: Self-repo patch candidate generation**
-  - generate patch candidates for CodeAgentPersonal / KasaneCore
-  - manual approval required
-  - no automatic apply
-- **PR-95: Self-repo safe_apply with strict gate**
-  - apply approved self-modification patches only
-  - dry-run-first
-  - restore point required
-- **PR-96: Self-repo verification loop**
-  - run allowlisted tests only
-  - no broad shell
-  - no unsafe commands
-- **PR-97: Self-repo failure recovery**
-  - rollback on failed verification
-  - preserve artifacts and failure analysis
-- **PR-98: Self-improvement draft PR workflow**
-  - create branch / draft PR candidate
-  - CI observation
-  - no direct merge
-- **PR-99: Self-improvement guarded autopilot**
-  - bounded loop for low-risk self changes
-  - strict stop conditions
-  - human approval for medium/high risk
-- **PR-100: Self-improving CodeAgentPersonal / KasaneCore milestone**
-  - end-to-end validation
-  - snapshot → plan → patch → test → fix → draft PR
-  - rollback and recovery verified
-
-### Self-improvement Safety Boundary
-- Self-improvement has stricter gates than ordinary repository work.
-- Core runtime, launcher, Docker, UI, safety policies, execution APIs, and data-root handling are strict-gate by default.
-- Autonomous self-modification is forbidden until snapshot/restore, patch transaction, verification, rollback, and artifact capture are validated.
-- ThinUI supervises self-improvement; it does not hide safety-critical state.
-- Medium/high-risk self-modification requires explicit human approval.
-- Direct merge is out of scope until a later explicit policy PR.
-
-- Diagnostics remain accessible through toggles and are hidden by default, not removed.
-
-
-## UI Anti-divergence Policy
-- See `docs/atlas_vue_migration_plan.md` for PR-80 migration architecture checkpoint and Go/No-Go switching criteria.
-- See `docs/atlas_autonomous_first_ui_policy.md` for surface classification and cleanup/deprecation policy.
-- Final autonomous code-agent and self-improvement roadmap remains unchanged.
-
-## PR-76C Checkpoint Notes
-
-- PR-76C fixes Diagnostics drawer structure after PR-76B.
-- Diagnostics drawer is structurally bounded and does not wrap minimal workflow surfaces.
-- Diagnostics section IDs exist and are manifest-covered.
-- Raw JSON/result panels are diagnostics surfaces.
-- Direct subsystem tools are diagnostics surfaces.
-- Low-level ID fields are diagnostics surfaces where practical.
-- PR-80 remains an out-of-order architecture checkpoint and does not imply PR-77〜79 are complete.
-- Backend workflow state is authoritative.
-- Execution semantics remain unchanged.
-- EXECUTE ONE ACTION remains required for manual execution.
-- Dry-run-first remains required.
-
-
-- PR-77 adds workflow state machine UI for the automation-first shell.
-- Workflow primary CTA is derived from existing state.
-- Primary CTA may trigger at most one existing manual action per click.
-- Primary CTA does not auto-continue.
-- Primary CTA does not execute all.
-- Primary CTA does not bypass dry-run-first.
-- Primary CTA does not bypass EXECUTE ONE ACTION.
-- Backend workflow state remains authoritative.
-- ThinUI remains replaceable and CLI-compatible.
-- PR-80 remains an out-of-order architecture checkpoint and does not imply PR-79 is complete.
-- Atlas final goal remains a fully autonomous code agent.
-- Self-improving CodeAgentPersonal / KasaneCore remains explicitly in scope.
-- Execution semantics remain unchanged.
-
-
-## PR-ATLAS-SCALE-84B Checkpoint Update
-
-Completed PR: PR-ATLAS-SCALE-84B (Fix verification allowlist py_compile / node check contracts).
-
-Current implementation PR:
-- PR-ATLAS-SCALE-85: Dry-run and approval gate consolidation
-
-Next implementation PR:
-- PR-ATLAS-SCALE-86: Rollback readiness gate consolidation
-
-Known Current Code Facts:
-- PR-90B hardens remote git reference-readiness blocking.
-- requested_operation must be "none" for remote git readiness.
-- requested_operation="unknown" blocks remote git readiness.
-- Invalid or unreadable reference manifests block remote git readiness.
-- remote_git_gate_ready does not authorize git operations.
-- PR-91 adds self-improvement gate consolidation.
-- PR-91D actually adds self_improvement_scope to web/atlas_ui_surface_manifest.json.
-- self_improvement_scope is self_improving_codeagentpersonal_kasanecore.
-- final_goal remains fully_autonomous_code_agent.
-- Self-improvement gate is metadata-only and does not modify code.
-- Self-improvement gate does not generate patches.
-- Self-improvement gate does not apply patches.
-- Self-improvement gate does not run safe_apply.
-- Self-improvement gate does not run tests or verification.
-- Self-improvement gate does not run git commands.
-- self_improvement_gate_ready does not authorize automatic execution.
-- self_improvement_gate_ready does not authorize patch apply.
-- self_improvement_gate_ready does not authorize git operations.
-- Autonomous self-improvement remains disabled.
-- Automatic self-modification remains disabled.
-- Self-modification is strict-gate by default.
-- Runtime, execution semantics, safety policy, autonomous controls, remote git policy, data_root, and UI workflow state are strict-gate by default.
-- Self-improvement readiness requires snapshot, patch transaction, risk classification, verification allowlist, dry-run approval, rollback readiness, artifact capture, stop gate, loop bound, and remote git gate evidence.
-- PR-90 adds remote git gate consolidation.
-- Remote git gate is metadata-only and does not run git commands.
-- Remote git gate does not push, pull, clone, fetch, or mutate remotes.
-- Remote git gate does not create branches.
-- Remote git gate does not create PRs.
-- Remote git gate does not merge PRs.
-- Direct merge remains forbidden.
-- Automatic PR creation remains disabled.
-- Draft PR creation requires a future explicit policy PR.
-- Remote git operation requests are blocked as policy metadata.
-- remote_git_gate_ready does not authorize git operations.
-- PR-89 added loop bound gate consolidation.
-- Loop bound gate is metadata-only and does not run loops.
-- Loop bound gate does not retry automatically.
-- Loop bound gate does not continue automatically.
-- Loop bound gate does not authorize automatic execution.
-- Explicit bounds are required for max actions, retries, runtime, files changed, risk level, consecutive failures, verification attempts, and patch transactions.
-- No unbounded autonomous loop is allowed.
-- Auto-continue remains disabled.
-- Execute-all remains forbidden.
-- Automatic loop execution remains disabled.
-- Automatic retry remains disabled.
-- PR-88 adds stop / kill switch gate consolidation.
-- Stop / kill switch gate is metadata-only and does not stop real jobs.
-- Stop / kill switch gate does not kill processes.
-- Stop acknowledgement is not fabricated.
-- Stop state is recorded for future UI/CLI inspection.
-- Stop gate blocks readiness if auto-continue or execute-all is enabled.
-- Stop gate blocks readiness if required stop controls are missing.
-- No auto-continue after stop remains required.
-- Execute-all remains forbidden.
-- Automatic stop execution remains disabled.
-- Artifact capture gate is metadata-only and does not execute actions.
-- Artifact capture does not create fake execution results.
-- Artifact capture does not create fake verification results.
-- Artifact capture records references and missing evidence explicitly.
-- Artifact capture records are stored under resolved data_root.
-- Plan, snapshot, patch transaction, rollback metadata, risk classification, verification allowlist, dry-run approval gate, and rollback readiness gate references are required for readiness.
-- Dry-run result, execution result, verification plan, and verification result references are tracked when available; missing results are recorded explicitly.
-- Warnings and recovery instructions are captured.
-- Artifacts remain inspectable from future UI/CLI.
-- Automatic artifact capture remains disabled.
-- PR-84B fixes verification allowlist py_compile / node check contracts.
-- Verification allowlist is metadata-only and does not execute commands.
-- python -m py_compile <safe relative file> is allowlisted metadata only.
-- node --check web/js/<safe js file> is allowlisted metadata only.
-- Targeted pytest -q tests/<safe test file>.py is allowlisted metadata only.
-- Allowlisted means future guarded/manual verification eligibility, not execution authorization.
-- Automatic verification remains disabled.
-- Automatic command execution remains disabled.
-- Automatic safe_apply remains disabled.
-- Automatic patch generation remains disabled.
-- Automatic patch apply remains disabled.
-- Automatic rollback remains disabled.
-- Autonomous execution remains disabled.
-- Level 0 manual-only remains.
-- EXECUTE ONE ACTION remains required.
-- Dry-run-first remains required.
-- PR-80 remains an out-of-order architecture checkpoint.
-- Atlas final goal remains a fully autonomous code agent.
-- Self-improving CodeAgentPersonal / KasaneCore remains in scope.
-
-
-## PR-ATLAS-SCALE-91B Checkpoint Update
-
-Completed PR: PR-ATLAS-SCALE-91B.
-Current implementation PR: PR-ATLAS-SCALE-92: Readiness gate rollup / Level-0 completion checkpoint.
-Next implementation PR: PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
-PR-91B fixes self-improvement gate integration wiring and evaluated-payload persistence.
-PR-91C fixes the final self-improvement manifest contract drift.
-self_improvement_scope is self_improving_codeagentpersonal_kasanecore.
-final_goal remains fully_autonomous_code_agent.
-Invalid or unreadable referenced manifests block self-improvement readiness.
-Self-improvement gate is metadata-only and does not modify code, generate patches, apply patches, run safe_apply, run tests or verification, or run git commands.
-Autonomous self-improvement remains disabled; automatic self-modification remains disabled; self-modification is strict-gate by default.
-self_improvement_gate_ready does not authorize automatic execution, patch apply, or git operations.
-Automatic command execution, patch generation, patch apply, safe_apply, verification, restore, rollback, loop execution, and retry remain disabled.
-auto-continue remains disabled; execute-all remains forbidden; autonomous execution remains disabled.
-Atlas runtime remains Level 0 manual-only and primary CTA remains single existing manual action only.
-
-
-- Vue implementation has not started in this PR series.
-
-
-## PR-ATLAS-SCALE-92 Level-0 Completion Checkpoint
-- PR-ATLAS-SCALE-92 completed the Level-0 metadata-only readiness foundation via readiness gate rollup.
-- Level-0 completion checkpoint is metadata-only and does not enable Level-1 execution.
-- Level-0 completion does not authorize autonomous execution, patch generation/apply, safe_apply, verification execution, rollback/restore, or git operations.
-- Runtime remains Level 0 manual-only.
-- Current implementation PR is PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint.
-- Vue implementation is allowed only after PR-92 is merged and has not started in PR-92.
-- Separate UI track after merge: PR-ATLAS-VUE-01 read-only parallel UI track; existing ui.html remains default and backend workflow_state remains authoritative.
-- PR-80 remains Vue migration planning checkpoint and did not add Vue runtime code.
-- automatic command execution disabled; automatic verification disabled; automatic patch generation disabled; automatic patch apply disabled; automatic safe_apply disabled; automatic rollback disabled; automatic restore disabled; automatic loop execution disabled; automatic retry disabled; auto-continue disabled; execute-all forbidden; autonomous execution disabled; autonomous self-improvement disabled; remote git disabled; direct merge forbidden; primary CTA remains single existing manual action only.
-
-## PR-ATLAS-VUE-04 Status Update
-- Completed: PR-ATLAS-VUE-04 safe backend workflow_state GET adapter / static mount decision.
-- Safe GET adapter decision: deferred_no_stable_get_contract.
-- Static mount decision: deferred_no_dist_strategy.
-- Current automation track remains PR-ATLAS-SCALE-94: Level-1 guarded execution design checkpoint (not completed).
-- Current UI track: PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement.
-- Existing ui.html remains default; Vue remains parallel read-only and not workflow truth.
-
-
-## PR-ATLAS-VUE-06 Contract Binding Checkpoint
-- PR-ATLAS-VUE-06 completed: Vue read-only adapter is bound to `GET /api/atlas/workflow-state/read-only`.
-- Adapter remains GET-only and fallback-safe: invalid/non-OK responses use a placeholder read-only snapshot fallback.
-- `available_actions` remain metadata only; all actions are disabled/read-only in Vue.
-- Backend workflow state remains authoritative; Vue does not compute execution eligibility and does not call mutation endpoints.
-- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI; existing `ui.html` remains default.
-- Static mount remains deferred while dist/static artifact strategy is not locked.
-- Automation track remains `PR-ATLAS-SCALE-93: Level-1 guarded execution design checkpoint`.
-- Final goal remains `fully_autonomous_code_agent` and self-improvement scope remains `self_improving_codeagentpersonal_kasanecore`.
-
-## PR-ATLAS-VUE-07 Completion Pointer
-- Completed includes PR-ATLAS-VUE-06, PR-ATLAS-VUE-06B, and PR-ATLAS-VUE-07: Vue read-only parity tests / visual refinement.
-- Current automation track: PR-ATLAS-SCALE-107.
-- Current UI track after this PR: PR-ATLAS-VUE-08: Safe static mount/dist strategy.
-- Next UI track candidate: PR-ATLAS-VUE-09: Atlas Next read-only smoke route / build artifact policy.
-- UI and automation tracks remain separate; PR-ATLAS-VUE-07 does not replace PR-ATLAS-SCALE-93.
-
-
-## Safe static mount / dist strategy (PR-ATLAS-VUE-08)
-- Vue Next source remains under `web/atlas-next/`.
-- Vue Next production artifacts are built into `web/atlas-next/dist/` via:
-  - `cd web/atlas-next`
-  - `npm install`
-  - `npm run build`
-- `dist/` is a build artifact, not workflow truth and not source of truth.
-- Raw Vite source files must not be served as production UI.
-- Existing `ui.html` remains the default UI for `/` and `/ui.html`.
-- Any future Vue preview route must be `/atlas-next` only, read-only only, built-dist only, not default, with no execution controls and no mutation endpoint calls.
-- If dist is absent at runtime, future `/atlas-next` must fail safely (defer/404) rather than exposing source files.
-- Static mount decision in this PR remains deferred; implementation is carried by PR-ATLAS-VUE-09 smoke route/build artifact policy.
-- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI, backend workflow state remains authoritative, available_actions are metadata only, and Vue does not compute execution eligibility.
-
-## PR-ATLAS-VUE-11 Status
-- PR-ATLAS-VUE-11 completed: Atlas Next preview route observability / fallback hardening.
-- Added GET-only `/api/atlas/vue-next-preview/diagnostics` metadata endpoint.
-- `/atlas-next` remains guarded, dist-backed, fail-closed, and non-default.
-- Existing `ui.html` remains default; Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI.
-- Backend workflow state remains authoritative; no Vue execution capability exists.
-- Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
-- Current automation track remains PR-ATLAS-SCALE-94.
-
-## PR-ATLAS-VUE-13 Route Packaging/Deployment Integration Policy
-- PR-ATLAS-VUE-13 completed.
-- Completed UI PR: PR-ATLAS-VUE-13.
-- Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
-- Current automation track remains PR-ATLAS-SCALE-94.
-- Existing `ui.html` remains default.
-- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI; supervision UI only.
-- `/atlas-next` remains guarded/dist-backed/fail-closed.
-- Diagnostics endpoint remains GET-only/metadata-only: `/api/atlas/vue-next-preview/diagnostics`.
-- Backend `workflow_state` remains authoritative.
-- No Vue execution capability exists.
-- Deployment integration must use prebuilt dist artifacts only.
-- Server startup must not run `npm install` or `npm run build` automatically.
-- Missing or invalid dist must continue to fail closed.
-- Generated dist is not source of truth.
-- Source remains `web/atlas-next`.
-- Dist remains `web/atlas-next/dist`.
-- Build commands remain:
-  - `cd web/atlas-next`
-  - `npm install`
-  - `npm run build`
-  - `npm run typecheck`
-- Deployment packaging may include `web/atlas-next/dist` only after validation passes.
-- No raw Vite source serving.
-- No fallback to `/` or `ui.html`.
-
-
-## PR-ATLAS-VUE-12 Packaging/Deployment Readiness Policy
-- Completed UI PR: PR-ATLAS-VUE-12 (docs/manifest/tests alignment only; no runtime execution change).
-- Vue source remains in `web/atlas-next`.
-- Production artifacts are generated with:
-  - `cd web/atlas-next`
-  - `npm install`
-  - `npm run build`
-- Dist output remains `web/atlas-next/dist`.
-- `/atlas-next` may serve only dist artifacts.
-- Generated dist is not the source of truth.
-- Deployment may include dist artifacts only after build validation passes.
-- Missing or invalid dist must fail closed.
-- No raw Vite source may be served.
-- No fallback to `ui.html` or `/` is allowed.
-- Existing `ui.html` remains default.
-- Vue default route is guarded: `/` serves Atlas Next only when validated dist is available; otherwise it fail-closed falls back to legacy UI.
-- Diagnostics endpoint remains GET-only and metadata-only: `/api/atlas/vue-next-preview/diagnostics`.
-- Backend `workflow_state` remains authoritative; Vue execution capability remains none.
-- This PR does not make Vue default and does not enable execution.
-- Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
-- Current automation track remains PR-ATLAS-SCALE-94.
-
-## Vue Atlas Next Defaultization Plan: PR-ATLAS-VUE-13 through PR-ATLAS-VUE-21
-
-- Vue defaultization is a temporary focused UI track.
-- This temporary Vue defaultization track does not replace the Atlas automation roadmap.
-- It exists to make Atlas usable through the future Vue Workbench before resuming automation work.
-- PR-ATLAS-SCALE-93 remains the current automation track and is not completed by Vue work.
-- Completed UI PRs include PR-ATLAS-VUE-01 through PR-ATLAS-VUE-13.
-- Historical marker (superseded): Current UI track was PR-ATLAS-VUE-14. See Current Atlas Vue UI Track State.
-- Planned UI track is PR-ATLAS-VUE-14 through PR-ATLAS-VUE-21.
-- Atlas Next is guarded default route for `/` only when dist validation passes.
-- Vue is not default yet.
-- Vue Atlas Next must not become another large dashboard.
-- Vue defaultization must preserve the Atlas minimal UI policy from `docs/atlas_autonomous_first_ui_policy.md`.
-- Default-visible Vue UI must remain `minimal_workflow` + `safety_always_visible` only.
-- Advanced execution controls, raw JSON, internal IDs, direct subsystem panels, diagnostics, and debug controls must remain hidden by default.
-- New Vue surfaces added in PR-ATLAS-VUE-14 through PR-ATLAS-VUE-21 must be classified in `web/atlas_ui_surface_manifest.json`.
-- Any new default-visible surface must directly support the final user flow: goal → plan → review → approval → guarded execution/progress → report.
-- Direct subsystem buttons must not appear in minimal/default mode.
-- Vue must not compute execution eligibility; backend workflow_state remains authoritative.
-
-### Planned Vue PR Sequence
-
-- **PR-ATLAS-VUE-14**
-  - Preview route / manifest / backend diagnostics / client diagnostics state alignment.
-  - Fix stale routeMounted/staticMountDeferred wording.
-  - Ensure docs, manifest, backend endpoint, and Vue diagnostics all describe the same guarded preview state.
-  - Replace deferred wording with guarded/dist-backed/non-default route state wording.
-  - Backend read-only workflow_state warnings must not claim static mount is deferred once guarded `/atlas-next` exists.
-  - Vue remains non-default.
-  - No execution or mutation endpoints are added.
-- **PR-ATLAS-VUE-15**
-  - Strengthen read-only workflow_state real-data connection.
-  - Move read-only payload closer to latest pool/run/continuation/recovery state.
-  - Backend remains authoritative.
-  - Vue remains read-only for actions.
-- **PR-ATLAS-VUE-16**
-  - Add Atlas-specific Requirement Input and Start Atlas UI in Vue.
-  - Add goal/task input, project path input, and minimal planning options.
-  - Allow guarded plan creation through existing planning API.
-  - This may create plans but must not execute patches or safe_apply.
-  - Chat input should no longer be required to start Atlas once this is complete.
-- **PR-ATLAS-VUE-17**
-  - Requirement / clarification / plan review UI.
-  - Display planner questions, clarification answers, generated requirement, generated plan, and PlanPool items.
-  - Vue remains a workflow client, not workflow authority.
-- **PR-ATLAS-VUE-18**
-  - Approval and dry-run preview UI.
-  - Display dry-run results, approval-required items, risk summary, verification recommendation, artifact references.
-  - Add approval decision surface only if it preserves backend authority and existing guards.
-  - No automatic execution.
-- **PR-ATLAS-VUE-19**
-  - Guarded Execute One Action parity.
-  - Implement Vue UI parity for the existing manual guarded execution flow.
-  - Preserve confirmation token, dry-run-first, approval, risk, stop, and recovery/rollback visibility.
-  - Do not add execute-all, auto-continue, or autonomous execution.
-- **PR-ATLAS-VUE-20**
-  - Minimal workflow parity, advanced diagnostics migration, and default switch candidate.
-  - Vue covers normal Atlas workflow surfaces.
-  - Advanced/debug/raw JSON/pool IDs/run IDs remain accessible but hidden by default.
-  - Safety-critical state remains visible.
-  - Vue becomes default candidate only, not default yet.
-  - Keep ui.html as rollback/legacy route.
-  - Add smoke, packaging, rollback, and fail-closed tests.
-  - Require Vue build/typecheck and backend contract tests.
-- **PR-ATLAS-VUE-21**
-  - Vue Atlas Next default enable.
-  - Make Vue the default Atlas UI only after VUE-20 gates pass.
-  - Keep legacy ui.html available for rollback.
-  - No execution semantics change.
-  - Backend workflow_state remains authoritative.
-  - PR-ATLAS-VUE-21 is the default enable checkpoint.
-  - After this PR, mark Vue defaultization track complete and return to the automation roadmap.
-
-## Post-VUE-21 Return to Automation Roadmap
-
-- After PR-ATLAS-VUE-21, the active focus returns to PR-ATLAS-SCALE-93 or its successor.
-- The next work resumes Level-1 guarded execution design and the original automation path.
-- Vue is the supervision/workbench UI, not the autonomous engine.
-- Backend policy gates remain authoritative.
-- The long-term goal remains a fully autonomous code agent: goal → research → plan → implement → test → fix → PR.
-- Self-improving CodeAgentPersonal / KasaneCore remains explicitly in scope.
-- Remote git/PR creation/merge remain disabled until later explicit policy PRs.
-- Autonomous execution remains disabled unless later guarded automation PRs explicitly enable it.
-- Runtime remains level_0_manual_only during this transition.
-- available_actions remain metadata-only unless explicitly changed by a later guarded execution PR.
-
-
-
-## PR-ATLAS-VUE-14 Diagnostics Alignment Checkpoint
-- PR-ATLAS-VUE-14 completed.
-- Historical marker (superseded): Current UI track advanced to PR-ATLAS-VUE-15 at that checkpoint. See Current Atlas Vue UI Track State.
-- PR-ATLAS-SCALE-93 remains the current automation track.
-- Existing `ui.html` remains default until PR-ATLAS-VUE-21.
-- Vue Atlas Next remains parallel/read-only/not default and not execution-capable.
-- `/atlas-next` remains guarded/dist-backed/fail-closed/non-default.
-- Preview diagnostics remains GET-only/metadata-only at `/api/atlas/vue-next-preview/diagnostics`.
-- Vue client diagnostics now represent route mounted state (`routeMounted=true`, `staticMountDeferred=false`) aligned to guarded preview-route reality.
-- Backend workflow_state remains authoritative at runtime Level 0 manual-only.
-
-
-- Vue workflow_state real-data connection is strengthened in PR-ATLAS-VUE-15 (metadata-only, GET-only, backend authoritative, no execution capability).
-
-
-- PR-ATLAS-VUE-16 completed: Vue Requirement Input / Start Atlas Planning (POST /api/atlas/plan-pools only).
-- Planning POST classification remains planning_metadata_only (non-execution).
-- Vue remains non-default and execution capability remains none.
-- Backend remains authoritative and runtime remains level_0_manual_only.
-- VUE17 next: Requirement / clarification / plan review UI.
-
-
-- PR-ATLAS-VUE-17 completed: Vue now shows read-only requirement/clarification/plan review metadata after Start Atlas Planning; execution controls remain unavailable.
-
-- Historical marker preserved for contract tests: Current UI track: PR-ATLAS-VUE-17
-- Historical marker preserved for contract tests: Planned UI track: PR-ATLAS-VUE-17 through PR-ATLAS-VUE-21
-
-
-- PR-ATLAS-VUE-18 completed: Vue can display approval/dry-run readiness metadata only.
-- Vue cannot approve, start dry-run, execute, apply, verify, rollback, retry, restore, or continue.
-- Backend workflow_state remains authoritative, runtime remains level_0_manual_only, and Vue execution capability remains none.
-
-
-## Historical Track Markers (Compatibility)
-- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-17
-- Current UI track: PR-ATLAS-VUE-18
-- Current automation track remains PR-ATLAS-SCALE-94
-- no Vue execution capability exists
-- Planned UI track: PR-ATLAS-VUE-18 through PR-ATLAS-VUE-21
-
-- VUE21 is default-enable checkpoint, not execution-enable checkpoint.
-- Vue can display execution safety boundary metadata only.
-- Vue cannot approve, start dry-run, execute, apply, verify, rollback, retry, restore, or continue.
-- VUE20 next scope: default-readiness preflight / route selection guard review.
-
-- Historical marker: Current UI track: PR-ATLAS-VUE-19.
-- Historical marker: Planned UI track: PR-ATLAS-VUE-19 through PR-ATLAS-VUE-21.
-
-- Existing legacy ui.html remains available through `/ui/` and `/ui.html`.
-- If Vue dist is invalid, root falls back safely to existing legacy UI.
-- VUE21 is not execution-enable.
-- Backend remains authoritative.
-- Runtime remains level_0_manual_only.
-- Vue execution capability remains none.
-- After VUE21, return to automation roadmap: PR-ATLAS-SCALE-94.
-
-## PR-ATLAS-SCALE-93 Level-1 Guarded Execution Design Checkpoint
-
-SCALE-93 is a design-only checkpoint. Runtime remains `level_0_manual_only` and no execution/autonomous behavior is enabled in this PR.
-
-### Level-1 boundary (defined, not enabled)
-- Guarded single-step execution candidate only
-- Exactly one action at a time
-- Low-risk only
-- Dry-run-first is mandatory
-- Explicit human approval token is mandatory
-- Backend-owned execution authority only
-- Vue has no execution authority
-- No auto-continue
-- No execute-all
-- No autonomous loop
-- No remote git push/merge
-- No self-modification execution
-- No Level-2 behavior
-
-### Required Level-1 gates before any implementation
-Each gate must include: status, owner/source, required evidence, blocking reason when unsatisfied, and test requirement.
-
-| Gate | Status | Owner/Source | Required evidence | Blocking reason (if unmet) | Test requirement |
-|---|---|---|---|---|---|
-| Snapshot/restore readiness | required_not_satisfied | backend services/policy | Snapshot manifest + restore plan under data_root | Cannot safely recover workspace | contract + integration coverage |
-| Patch transaction readiness | required_not_satisfied | patch transaction service | Transaction metadata + rollback metadata linkage | Cannot trace or recover mutation intent | service + manifest contracts |
-| Risk classification readiness | required_not_satisfied | risk classification policy | Deterministic low/medium/high/strict classification evidence | Cannot constrain to low-risk-only | risk classification contracts |
-| Dry-run proof readiness | required_not_satisfied | dry-run gate policy | Successful dry-run record bound to candidate action | Execute without proof is forbidden | dry-run gate tests |
-| Explicit approval token readiness | required_not_satisfied | approval gate policy | Human approval token/record tied to action | No human authorization for mutation | approval gate tests |
-| Allowlisted verification readiness | required_not_satisfied | verification allowlist policy | Allowed verification plan + command compliance | Verification could become arbitrary execution | allowlist contracts |
-| Rollback readiness | required_not_satisfied | rollback readiness policy | Snapshot + rollback strategy + restore references | No safe restoration path | rollback readiness tests |
-| Artifact capture readiness | required_not_satisfied | artifact capture policy | Persisted run artifacts and warnings | Audit/replay evidence missing | artifact capture tests |
-| Stop/kill switch readiness | required_not_satisfied | stop gate policy | Explicit stop controls + blocked auto-continue | Unsafe inability to halt | stop gate contracts |
-| Loop bound readiness | required_not_satisfied | loop-bound policy | Max actions/retries/runtime/failures bounds | Unbounded automation risk | loop-bound contracts |
-| Remote git restriction readiness | required_not_satisfied | remote git gate policy | Policy evidence that push/merge stays forbidden | Potential external side effects | remote git gate tests |
-| Self-improvement gate readiness | required_not_satisfied | self-improvement gate policy | Scope + strict gate evidence with no auto mutation | Self-modification could bypass safety | self-improvement gate tests |
-| Audit log readiness | required_not_satisfied | audit/reporting policy | Immutable run/decision log references | Post-incident traceability gap | audit log contracts |
-| data_root/path safety readiness | required_not_satisfied | path safety policy | Normalized/contained paths + escape protection | File safety boundary can be violated | path safety tests |
-| Forbidden command execution policy | required_not_satisfied | command safety policy | Blocklist/allowlist proof for forbidden operations | Dangerous commands may run | policy regression tests |
-| Backend authority enforcement | required_not_satisfied | backend workflow contract | workflow_state marks backend authoritative | Authority drift into UI | contract tests |
-| UI non-authority enforcement | required_not_satisfied | Vue client + manifest policy | Vue endpoints remain read-only + planning metadata only | UI could trigger execution | client/manifest regression tests |
-
-
-
-- SCALE-95 added GET-only Level-1 readiness diagnostics only.
-- No execution endpoint is exposed.
-- Backend workflow_state remains authoritative.
-- Vue execution capability remains none.
-- SCALE-96 may add deeper gate-source mapping/readiness evidence, not execution enable.
-
-
-- PR-ATLAS-SCALE-96 completed.
-- SCALE-96 added metadata-only gate-source mapping / evidence summary.
-- No execution endpoint is exposed.
-- Level-1 execution remains disabled.
-- Runtime remains level_0_manual_only.
-- Autonomous execution remains disabled.
-- Backend workflow_state remains authoritative.
-- Vue execution capability remains none.
-- Next PR may add readiness UI display for gate-source mapping, not execution enable.
-
-- SCALE-97 may add readiness UI display for gate-source mapping, not execution enable.
-
-- SCALE-99 may add export/copy metadata or another display-only refinement, not execution enable.
-
-Completed automation PR: PR-ATLAS-SCALE-99
-Current automation track: PR-ATLAS-SCALE-100
-Next automation track: PR-ATLAS-SCALE-100
-Completed automation PR: PR-ATLAS-SCALE-95
-Completed automation PR: PR-ATLAS-SCALE-96
-Completed automation PR: PR-ATLAS-SCALE-97
-Completed automation PR: PR-ATLAS-SCALE-98
-Current automation track: PR-ATLAS-SCALE-96
-Current automation track: PR-ATLAS-SCALE-98
-Current automation track: PR-ATLAS-SCALE-99
-## SCALE-101 Update (local history only)
-- PR-ATLAS-SCALE-101 completed: local browser-storage readiness metadata history only; browser-storage-only, no backend mutation/upload, no readiness decision, no execution eligibility computation, no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled.
-- Completed automation PR: PR-ATLAS-SCALE-106
-- Current automation track: PR-ATLAS-SCALE-107
-- Next automation track: PR-ATLAS-SCALE-107
-- History is local-only and does not mutate backend.
-- History does not upload metadata.
-- History does not decide readiness.
-- History does not compute execution eligibility.
-- UI adds no execution controls and exposes no execution endpoint.
-- Level-1 execution remains disabled.
-- Runtime remains level_0_manual_only.
-- Autonomous execution remains disabled.
-- Backend workflow_state remains authoritative.
-- Vue execution capability remains none.
-- Next PR may add local-only history import/export refinement, not execution enable.
-
-
-- Next PR may add local-only history diff view, and must not enable execution.
-
-- Historical marker preserved for compatibility: Completed automation PR: PR-ATLAS-SCALE-101
-
-- Historical marker preserved for compatibility: 
-- Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-102
-
-
-- PR-ATLAS-SCALE-104 completed.
-- SCALE-103 adds a local-only readiness metadata history diff view (browser-local display only).
-- The history diff view does not upload metadata, does not mutate backend state, does not decide readiness, and does not compute execution eligibility.
-- UI adds no execution controls and exposes no execution endpoint; Level-1 execution remains disabled.
-- Runtime remains level_0_manual_only; autonomous execution remains disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
-- Next PR may add local-only diff export and must not enable execution.
-
-
-## Current Atlas Vue UI Track State
-
-- Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
-- Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-113 automation track
-- Current automation track: PR-ATLAS-SCALE-113
-- Next automation track: PR-ATLAS-SCALE-113
-- next work is PR-ATLAS-SCALE-113
-- runtime remains level_0_manual_only
-- Vue execution capability remains none
-- Backend workflow_state remains authoritative
-
-- Historical marker preserved for compatibility: Current automation track: PR-ATLAS-SCALE-104.
-- Historical marker preserved for compatibility: Next automation track: PR-ATLAS-SCALE-104.
-
-- Historical marker preserved for compatibility: Completed automation PR: PR-ATLAS-SCALE-104
-- Historical marker preserved for compatibility: Next PR may add local-only diff export and must not enable execution.
-
-- Historical marker preserved for compatibility: PR-ATLAS-SCALE-104 may add local-only diff filtering/grouping
-- SCALE-107 completion pointer: Completed automation PR: PR-ATLAS-SCALE-107; Current automation track: PR-ATLAS-SCALE-113; Next automation track: PR-ATLAS-SCALE-113; next work is PR-ATLAS-SCALE-113.
-
-- Compatibility pointer: Completed automation PR: PR-ATLAS-SCALE-106
-
-- desktop submenu/right-pane layout regression contract remains present and passing.
-
-
-- Completed automation PR: PR-ATLAS-SCALE-112
-- Current automation track: PR-ATLAS-SCALE-113
-- Next automation track: PR-ATLAS-SCALE-113
-- SCALE-108 added local-only readiness metadata history diff labels (browser-local/display-only; no upload; no backend mutation; no readiness decision; no execution eligibility computation).
-- Level-1 execution remains disabled; runtime remains level_0_manual_only; autonomous execution remains disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
-
-- Planned UI track: return to PR-ATLAS-SCALE-113 automation track
-- Current automation track: PR-ATLAS-SCALE-113
-- Next automation track: PR-ATLAS-SCALE-113
-- next work is PR-ATLAS-SCALE-113
-
-- PR-ATLAS-SCALE-109 completed: local-only readiness metadata history diff label filtering; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
-- next PR may add local-only diff label conflict export, not execution enable.
+- autonomous execution remains disabled
+- automatic verification remains disabled
+- automatic patch generation remains disabled
+- automatic patch apply remains disabled
+- automatic rollback remains disabled
+- automatic retry remains disabled
+- execute-all remains disabled
+- auto-continue remains disabled
+- direct merge remains forbidden
+- draft PR creation remains forbidden until the draft PR policy and creation PRs
