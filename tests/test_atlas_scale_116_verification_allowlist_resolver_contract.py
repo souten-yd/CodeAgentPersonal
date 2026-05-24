@@ -1,3 +1,7 @@
+import subprocess
+import sys
+from pathlib import Path
+
 from agent.atlas_verification_allowlist import resolve_verification_allowlist_target
 
 
@@ -44,3 +48,16 @@ def test_no_shell_or_subprocess_or_route_tokens_introduced():
     forbidden = ["subprocess", "shell=", "@router.post", "@router.put", "@router.patch", "@router.delete"]
 
     assert not any(token in dumped for token in forbidden)
+
+
+def test_validator_subprocess_contract_ok():
+    repo_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, "scripts/validate_atlas_automation_plan.py"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "Atlas automation plan contract OK" in result.stdout
