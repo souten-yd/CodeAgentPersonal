@@ -17,27 +17,18 @@ def _section_required(text: str, heading: str) -> str:
     return tail[:i] if i != -1 else tail
 
 
-def test_docs_canonical_scale_110b_pointers_and_wording():
+def test_docs_canonical_scale_112_pointers_and_wording():
     for doc in DOCS:
         text = Path(doc).read_text(encoding='utf-8')
         active = _section_required(text, 'Active PR Pointer (Updated)')
         current = _section_required(text, 'Current Atlas Vue UI Track State')
 
-        assert active.count('Completed automation PR: PR-ATLAS-SCALE-111') == 1
-        assert active.count('Current automation track: PR-ATLAS-SCALE-112') == 1
-        assert active.count('Next automation track: PR-ATLAS-SCALE-112') == 1
-        assert 'Completed automation PR: PR-ATLAS-SCALE-109' not in active
-        assert 'Current automation track: PR-ATLAS-SCALE-111' not in active
-        assert 'Next automation track: PR-ATLAS-SCALE-111' not in active
+        assert 'Completed automation PR: PR-ATLAS-SCALE-112' in active
+        assert 'Current automation track: PR-ATLAS-SCALE-113' in active
+        assert 'Next automation track: PR-ATLAS-SCALE-113' in active
 
-        assert current.count('Planned UI track: return to PR-ATLAS-SCALE-112 automation track') == 1
-        assert current.count('Current automation track: PR-ATLAS-SCALE-112') == 1
-        assert current.count('Next automation track: PR-ATLAS-SCALE-112') == 1
-        assert current.count('next work is PR-ATLAS-SCALE-112') == 1
-        assert 'Planned UI track: return to PR-ATLAS-SCALE-111 automation track' not in current
-        assert 'Current automation track: PR-ATLAS-SCALE-111' not in current
-        assert 'Next automation track: PR-ATLAS-SCALE-111' not in current
-        assert 'next work is PR-ATLAS-SCALE-111' not in current
-
-        assert 'next PR may add local-only diff label export, not execution enable' not in text
-        assert 'next PR may add local-only diff label conflict resolution, not execution enable' in text
+        assert 'Planned UI track: return to PR-ATLAS-SCALE-113 automation track' in current
+        assert 'Current automation track: PR-ATLAS-SCALE-113' in current
+        assert 'Next automation track: PR-ATLAS-SCALE-113' in current
+        assert 'next work is PR-ATLAS-SCALE-113' in current
+        assert 'next PR may add local-only diff label conflict export, not execution enable' in text
