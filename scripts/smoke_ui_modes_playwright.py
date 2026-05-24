@@ -318,6 +318,74 @@ async def verify_mode_switches(page) -> None:
   await page.wait_for_function("() => document.getElementById('agent-panel-col') && getComputedStyle(document.getElementById('agent-panel-col')).display === 'none'")
   assert await page.locator("#chat-role-note").count() == 0
   assert await page.locator("#chat-task-toggle").count() == 0
+
+
+async def verify_desktop_lumen_chat_input_layout(page) -> None:
+  await page.set_viewport_size({"width": 1792, "height": 992})
+  await set_mode(page, "chat")
+  await wait_named(page, "chat_col_visible", "() => { const el = document.querySelector('#chat-col'); return !!el && getComputedStyle(el).display !== 'none' && getComputedStyle(el).visibility !== 'hidden'; }")
+
+  required_tokens = ["Files", "Log", "Skill", "Memory", "Models"]
+  diagnostics = await page.evaluate("""(requiredTokens) => {
+    const q = (sel) => document.querySelector(sel);
+    const vis = (el) => {
+      if (!el) return { exists: false, visible: false, display: '', visibility: '' };
+      const cs = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return {
+        exists: true,
+        visible: cs.display !== 'none' && cs.visibility !== 'hidden' && rect.width > 0 && rect.height > 0,
+        display: cs.display,
+        visibility: cs.visibility,
+        rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height },
+      };
+    };
+    const chat = q('#chat-col');
+    const messages = q('#messages');
+    const inputArea = q('.input-area');
+    const input = q('textarea#input');
+    const sendBtn = q('#btn-send') || q('button#send-btn') || q('.input-area button');
+    const panel = q('#panel-col');
+    const labels = requiredTokens.reduce((acc, token) => {
+      acc[token] = !!Array.from(document.querySelectorAll('#panel-col *')).find((el) => (el.textContent || '').trim() === token);
+      return acc;
+    }, {});
+    const doc = document.documentElement;
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      horizontalOverflow: { scrollWidth: doc.scrollWidth, clientWidth: doc.clientWidth },
+      elements: { chat: vis(chat), messages: vis(messages), inputArea: vis(inputArea), input: vis(input), sendBtn: vis(sendBtn), panel: vis(panel) },
+      labels,
+    };
+  }""", required_tokens)
+
+  safe = _safe_artifact_name("desktop_lumen_input_visible")
+  artifact_json = PLAYWRIGHT_ARTIFACT_DIR / f"{safe}.layout.json"
+  PLAYWRIGHT_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+  artifact_json.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
+
+  missing = [name for name, info in diagnostics["elements"].items() if not info.get("visible")]
+  if missing:
+    dom = await write_dom_snapshot(page, f"{safe}_dom")
+    raise AssertionError(f"desktop_lumen_input_visible_missing:{missing}; artifact={safe_artifact_path(artifact_json)}; dom={dom}")
+  missing_labels = [label for label, present in diagnostics["labels"].items() if not present]
+  if missing_labels:
+    raise AssertionError(f"desktop_lumen_input_visible_panel_labels_missing:{missing_labels}; artifact={safe_artifact_path(artifact_json)}")
+
+  chat_rect = diagnostics["elements"]["chat"]["rect"]
+  panel_rect = diagnostics["elements"]["panel"]["rect"]
+  input_rect = diagnostics["elements"]["input"]["rect"]
+  input_area_rect = diagnostics["elements"]["inputArea"]["rect"]
+  if not panel_rect["left"] >= (chat_rect["right"] - 1):
+    raise AssertionError(f"desktop_lumen_input_visible_panel_not_right_of_chat; artifact={safe_artifact_path(artifact_json)}")
+  if not (panel_rect["left"] >= input_area_rect["right"] - 1 or panel_rect["top"] >= input_area_rect["bottom"] - 1):
+    raise AssertionError(f"desktop_lumen_input_visible_panel_overlaps_input; artifact={safe_artifact_path(artifact_json)}")
+  vp = diagnostics["viewport"]
+  if input_rect["left"] < 0 or input_rect["right"] > vp["width"] or input_rect["top"] < 0 or input_rect["bottom"] > vp["height"]:
+    raise AssertionError(f"desktop_lumen_input_visible_input_outside_viewport; artifact={safe_artifact_path(artifact_json)}")
+  overflow = diagnostics["horizontalOverflow"]
+  if overflow["scrollWidth"] > overflow["clientWidth"] + 3:
+    raise AssertionError(f"desktop_lumen_input_visible_horizontal_overflow:{overflow}; artifact={safe_artifact_path(artifact_json)}")
   chat_text = await page.locator("#chat-col").inner_text()
   for forbidden in ["Legacy Task", "Chat is for lightweight conversation", "Planning, approval", "Plan設定", "Open Atlas", "Use Chat Input", "Atlas Plan", "Atlas status"]:
     assert forbidden not in chat_text, f"Chat planning affordance leaked: {forbidden}"
@@ -2480,6 +2548,7 @@ SMOKE_SCENARIOS: dict[str, SmokeScenarioSpec] = {
   "reference_card_actions": SmokeScenarioSpec(id="reference_card_actions", fn=verify_reference_card_actions, kind="ui", default_ui=True),
   "chat_search_and_agent_web_tool_tts": SmokeScenarioSpec(id="chat_search_and_agent_web_tool_tts", fn=verify_chat_search_and_agent_web_tool_tts, kind="ui", default_ui=True),
   "mobile_mode_switches": SmokeScenarioSpec(id="mobile_mode_switches", fn=verify_mobile_mode_switches, kind="ui"),
+  "desktop_lumen_input_visible": SmokeScenarioSpec(id="desktop_lumen_input_visible", fn=verify_desktop_lumen_chat_input_layout, kind="ui", default_ui=True, acceptance_default=True),
 }
 
 
@@ -2532,6 +2601,7 @@ def resolve_smoke_scenarios(*, only: list[str], preflight_only_mode: bool, run_b
 async def main() -> None:
   parser = argparse.ArgumentParser(add_help=True)
   parser.add_argument("--list-scenarios", action="store_true")
+  parser.add_argument("--only", default="", help="Comma-separated smoke scenario ids (alias: desktop-lumen-input -> desktop_lumen_input_visible)")
   parser.add_argument("--use-explicit-base-url", action="store_true", help="Run UI smoke against PLAYWRIGHT_SMOKE_BASE_URL instead of the mock server.")
   args, _ = parser.parse_known_args()
   if args.list_scenarios:
@@ -2542,7 +2612,7 @@ async def main() -> None:
     print("Install with:")
     print("python -m pip install playwright")
     print("python -m playwright install chromium")
-    return
+    raise SystemExit(2)
   syntax_rc = check_ui_syntax_main()
   if syntax_rc != 0:
     raise AssertionError(f"ui inline script syntax check failed: rc={syntax_rc}")
@@ -2738,7 +2808,11 @@ async def main() -> None:
 
       scenario_runners["bootstrap_api_contract"] = bootstrap_assertions
 
-    only = [item.strip() for item in os.environ.get("PLAYWRIGHT_SMOKE_ONLY", "").split(",") if item.strip()]
+    cli_only_raw = [item.strip() for item in args.only.split(",") if item.strip()]
+    alias = {"desktop-lumen-input": "desktop_lumen_input_visible"}
+    cli_only = [alias.get(item, item) for item in cli_only_raw]
+    env_only = [item.strip() for item in os.environ.get("PLAYWRIGHT_SMOKE_ONLY", "").split(",") if item.strip()]
+    only = cli_only or env_only
     selected_scenarios = resolve_smoke_scenarios(
       only=only,
       preflight_only_mode=preflight_only_mode,

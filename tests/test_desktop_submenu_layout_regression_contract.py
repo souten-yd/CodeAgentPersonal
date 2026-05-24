@@ -2,6 +2,7 @@ from pathlib import Path
 
 UI = Path('ui.html').read_text(encoding='utf-8')
 CSS = Path('web/css/app.css').read_text(encoding='utf-8')
+MAIN = Path('main.py').read_text(encoding='utf-8')
 
 
 def _media_blocks(css: str, media: str) -> list[str]:
@@ -102,3 +103,13 @@ def test_desktop_mode_switch_clears_mobile_hidden_classes_for_columns():
         "nexusCol?.classList.remove('mob-hidden');",
     ):
         assert token in UI
+
+
+def test_debug_tests_surface_includes_desktop_lumen_visibility_check():
+    assert "/debug/tests" in MAIN
+    assert "desktop_lumen_input_visible" in MAIN
+    assert "desktop-lumen-input" in MAIN
+
+
+def test_debug_tests_surface_excludes_stale_grid_only_listing():
+    assert "grid-template-areas" not in MAIN[MAIN.find('def debug_tests_home'):MAIN.find('def debug_tests_run_all')]
