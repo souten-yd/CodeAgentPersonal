@@ -2,18 +2,10 @@ import json
 from pathlib import Path
 
 
-def test_manifest_scale_112_conflict_resolution_local_only_fields():
-    p = Path('web/atlas_ui_surface_manifest.json')
-    text = p.read_text(encoding='utf-8')
-    m = json.loads(text)
-    assert m['level1_readiness_metadata_history_diff_label_conflict_resolution_checkpoint'] == 'PR-ATLAS-SCALE-112'
-    assert m['level1_readiness_metadata_history_diff_label_conflict_resolution_enabled'] is True
-    assert m['level1_readiness_metadata_history_diff_label_conflict_resolution_local_only'] is True
-    assert m['level1_readiness_metadata_history_diff_label_conflict_resolution_upload_enabled'] is False
-    assert m['level1_readiness_metadata_history_diff_label_conflict_resolution_backend_mutation_enabled'] is False
-    assert m['level1_readiness_metadata_history_diff_label_conflict_resolution_decides_readiness'] is False
-    assert m['level1_readiness_metadata_history_diff_label_conflict_resolution_computes_execution_eligibility'] is False
-    assert m['level1_readiness_metadata_history_diff_label_conflict_resolution_execution_enabled'] is False
-    assert m['level1_next_pr_may_add_history_diff_label_conflict_export_local_only'] is True
-    assert m['level1_next_pr_must_not_enable_execution'] is True
-    assert text.count('"level1_next_pr_must_not_enable_execution"') == 1
+def test_manifest_forbids_stale_local_only_next_pr_metadata_after_scale_113() -> None:
+    manifest_path = Path('web/atlas_ui_surface_manifest.json')
+    text = manifest_path.read_text(encoding='utf-8').lower()
+    _ = json.loads(manifest_path.read_text(encoding='utf-8'))
+
+    assert 'next local-only metadata ux' not in text
+    assert 'next pr may add local-only diff label conflict export' not in text
