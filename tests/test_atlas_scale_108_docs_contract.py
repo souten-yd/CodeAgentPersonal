@@ -22,17 +22,17 @@ def test_roadmap_sections_are_strict_and_track_progression():
     active = _section_required(text, "Active PR Pointer (Updated)")
     current = _section_required(text, "Current Atlas Vue UI Track State")
 
-    assert "Completed automation PR: PR-ATLAS-SCALE-110" in active
-    assert "Current automation track: PR-ATLAS-SCALE-111" in active
-    assert "Next automation track: PR-ATLAS-SCALE-111" in active
-    assert "Planned UI track: return to PR-ATLAS-SCALE-111 automation track" in current
-    assert "next work is PR-ATLAS-SCALE-111" in current
+    assert "Completed automation PR: PR-ATLAS-SCALE-111" in active
+    assert "Current automation track: PR-ATLAS-SCALE-112" in active
+    assert "Next automation track: PR-ATLAS-SCALE-112" in active
+    assert "Planned UI track: return to PR-ATLAS-SCALE-112 automation track" in current
+    assert "next work is PR-ATLAS-SCALE-112" in current
 
     assert "Completed automation PR: PR-ATLAS-SCALE-109" not in active
-    assert "Current automation track: PR-ATLAS-SCALE-110" not in active
-    assert "Next automation track: PR-ATLAS-SCALE-110" not in active
-    assert "Current automation track: PR-ATLAS-SCALE-110" not in current
-    assert "Next automation track: PR-ATLAS-SCALE-110" not in current
+    assert "Current automation track: PR-ATLAS-SCALE-111" not in active
+    assert "Next automation track: PR-ATLAS-SCALE-111" not in active
+    assert "Current automation track: PR-ATLAS-SCALE-111" not in current
+    assert "Next automation track: PR-ATLAS-SCALE-111" not in current
     assert "next PR may add local-only diff labels, not execution enable" not in current
     assert "Level-1 execution remains disabled" in text
 
@@ -40,9 +40,9 @@ def test_roadmap_sections_are_strict_and_track_progression():
 def test_docs_track_progression_and_no_stale_current_state_tokens():
     for doc in DOCS:
         text = Path(doc).read_text(encoding="utf-8")
-        assert "Completed automation PR: PR-ATLAS-SCALE-110" in text
-        assert "Current automation track: PR-ATLAS-SCALE-111" in text
-        assert "Next automation track: PR-ATLAS-SCALE-111" in text
-        assert "Planned UI track: return to PR-ATLAS-SCALE-111 automation track" in text
-        assert "next work is PR-ATLAS-SCALE-111" in text
+        assert "Completed automation PR: PR-ATLAS-SCALE-111" in text
+        assert "Current automation track: PR-ATLAS-SCALE-112" in text
+        assert "Next automation track: PR-ATLAS-SCALE-112" in text
+        assert "Planned UI track: return to PR-ATLAS-SCALE-112 automation track" in text
+        assert "next work is PR-ATLAS-SCALE-112" in text
         assert "next PR may add local-only diff labels, not execution enable" not in text
