@@ -363,10 +363,12 @@ function parseImportedDiffLabels(payload: unknown): { labels: Record<string, str
   let skipped = 0
   let importedCount = 0
   const consumeRecord = (id: unknown, label: unknown) => {
-    if (typeof id === 'string' && id.trim() && typeof label === 'string' && label.trim()) {
-      labels[id] = label
-      importedCount += 1
-    } else { skipped += 1 }
+    if (typeof id !== 'string' || !id.trim() || typeof label !== 'string' || !DIFF_LABEL_OPTIONS.includes(label as (typeof DIFF_LABEL_OPTIONS)[number])) {
+      skipped += 1
+      return
+    }
+    labels[id] = label
+    importedCount += 1
   }
   if (Array.isArray(source)) {
     for (const item of source) {
