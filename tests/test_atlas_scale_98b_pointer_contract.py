@@ -12,5 +12,5 @@ def test_scale_98b_pointer_contract() -> None:
         text = Path(d).read_text(encoding='utf-8')
         assert 'PR-ATLAS-SCALE-99 completed' in text
         assert 'Completed automation PR: PR-ATLAS-SCALE-99' in text
-        assert ('Current automation track: PR-ATLAS-SCALE-103' in text) or ('Current automation track: PR-ATLAS-SCALE-104' in text)
-        assert ('Next automation track: PR-ATLAS-SCALE-103' in text) or ('Next automation track: PR-ATLAS-SCALE-104' in text)
+        assert ('Current automation track: PR-ATLAS-SCALE-111' in text) or ('Current automation track: PR-ATLAS-SCALE-111' in text)
+        assert ('Next automation track: PR-ATLAS-SCALE-111' in text) or ('Next automation track: PR-ATLAS-SCALE-111' in text)
