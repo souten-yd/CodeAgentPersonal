@@ -1,4 +1,5 @@
-import json
+import subprocess
+import sys
 from pathlib import Path
 
 from app.atlas.readiness_gate_rollup import evaluate_readiness_gate_rollup
@@ -90,7 +91,13 @@ def test_scale_114_no_forbidden_execution_or_mutation_strings_introduced():
 
 
 def test_scale_114_manifest_validator_still_passes():
-    manifest = json.loads(Path("docs/atlas_automation_phase_manifest.json").read_text(encoding="utf-8"))
-    assert manifest["current_level"] == "level_0_manual_only"
-    assert manifest["level1_execution_enabled"] is False
-    assert manifest["autonomous_execution_enabled"] is False
+    root = Path(__file__).resolve().parents[1]
+    validator = root / "scripts" / "validate_atlas_automation_plan.py"
+    result = subprocess.run(
+        [sys.executable, str(validator)],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Atlas automation plan contract OK" in result.stdout

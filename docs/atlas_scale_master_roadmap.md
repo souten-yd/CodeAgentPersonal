@@ -4,9 +4,9 @@
 
 This file is the single human-readable source of truth for Atlas automation planning.
 
-- Completed automation PR: PR-ATLAS-SCALE-112
-- Current automation track: PR-ATLAS-SCALE-113
-- Next automation track after this correction: PR-ATLAS-SCALE-114
+- Completed automation PR: PR-ATLAS-SCALE-114
+- Current automation track: PR-ATLAS-SCALE-115
+- Next automation track after this correction: PR-ATLAS-SCALE-115
 - Current runtime level: level_0_manual_only
 - Target runtime level: level_1_guarded_single_step
 - Final goal: fully_autonomous_code_agent
@@ -50,6 +50,7 @@ SCALE-113 starts the Level-1 Advancement Preparation phase. The purpose of this 
 
 ### Direction lock
 
+- SCALE-114 completed: advisory readiness rollup and gate evidence summary captured (advisory-only, no execution enablement).
 Next PRs must advance Level-1 readiness evidence or the roadmap/validator itself.
 
 They must not add another local-only diff label/bookmark/annotation UX unless explicitly approved as a PR-B drift repair or a user-requested exception.
