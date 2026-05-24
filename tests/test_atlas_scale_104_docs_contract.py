@@ -14,9 +14,9 @@ def test_docs_advance_to_scale_104_complete_105_current_next():
     for token in [
         'PR-ATLAS-SCALE-104 completed.',
         'Completed automation PR: PR-ATLAS-SCALE-104',
-        'Current automation track: PR-ATLAS-SCALE-106',
-        'Next automation track: PR-ATLAS-SCALE-106',
-        'next work is PR-ATLAS-SCALE-106',
+        'Current automation track: PR-ATLAS-SCALE-107',
+        'Next automation track: PR-ATLAS-SCALE-107',
+        'next work is PR-ATLAS-SCALE-107',
         'Next PR may add local-only diff export and must not enable execution.',
         'backend workflow_state remains authoritative',
     ]:
@@ -31,4 +31,4 @@ def test_current_state_sections_forbid_stale_scale_104_pointers_and_duplicates()
         assert 'Next automation track: PR-ATLAS-SCALE-104' not in current_slice
         assert 'next work is PR-ATLAS-SCALE-104' not in current_slice
         assert 'Planned UI track: return to PR-ATLAS-SCALE-104 automation track' not in current_slice
-        assert current_slice.count('Current automation track: PR-ATLAS-SCALE-106') <= 1
+        assert current_slice.count('Current automation track: PR-ATLAS-SCALE-107') <= 1
