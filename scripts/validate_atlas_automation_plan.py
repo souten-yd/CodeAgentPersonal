@@ -57,7 +57,6 @@ def validate() -> None:
 
     for token in [
         "PR-ATLAS-SCALE-114",
-        "level_1_advancement_preparation",
         "Level-1 Advancement Preparation",
         "PR-B is allowed only when",
         "must not add another local-only diff label/bookmark/annotation UX",
