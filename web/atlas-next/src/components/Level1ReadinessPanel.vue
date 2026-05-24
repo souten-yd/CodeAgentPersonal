@@ -111,6 +111,10 @@
         <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="downloadDiffJson">Export diff JSON</button>
         <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="copyFilteredDiffSummary">Copy filtered diff summary</button>
         <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="downloadFilteredDiffSummary">Export filtered diff summary</button>
+        <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="copyLabelFilteredDiffJson">Copy label-filtered diff JSON</button>
+        <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="downloadLabelFilteredDiffJson">Export label-filtered diff JSON</button>
+        <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="copyLabelFilteredDiffSummary">Copy label-filtered summary</button>
+        <button type="button" class="filter-btn" :disabled="!comparisonResult" @click="downloadLabelFilteredDiffSummary">Export label-filtered summary</button>
         <span class="metadata-status">{{ diffExportStatus }}</span>
       </div>
       <div class="comparison-box">
@@ -353,6 +357,14 @@ function filteredDiffSummaryText(): string {
 }
 
 
+function labelFilteredDiffItemsForExport(): Array<Record<string, unknown>> {
+  return visibleDiffItemsForLabelFilter.value.map((item) => ({
+    ...item,
+    local_label: diffLabelMap.value[item.id] || null,
+    local_bookmarked: diffBookmarkIds.value.includes(item.id),
+  }))
+}
+
 function annotatedDiffExportJsonText(): Record<string, unknown> {
   const result = comparisonResult.value
   return {
@@ -366,7 +378,46 @@ function annotatedDiffExportJsonText(): Record<string, unknown> {
     local_diff_label_filter: activeDiffLabelFilter.value,
     local_diff_label_filter_local_only: true,
     local_diff_label_filter_summary: labelFilterSummaryText.value,
+    local_diff_label_filtered_items: labelFilteredDiffItemsForExport(),
+    local_diff_label_filtered_items_local_only: true,
   }
+}
+
+
+
+function labelFilteredDiffSummaryText(): string {
+  const lines = [
+    'Atlas Level-1 readiness metadata history label-filtered diff summary (local-only)',
+    `local_diff_label_filter=${activeDiffLabelFilter.value}`,
+    'local_diff_label_filter_local_only=true',
+    `local_diff_label_filter_summary=${labelFilterSummaryText.value}`,
+    `local_diff_label_filtered_items_count=${labelFilteredDiffItemsForExport().length}`,
+    'local_diff_label_filtered_items_local_only=true',
+  ]
+  if (labeledDiffItems.value.length) lines.push('labels_local_only=' + labeledDiffSummaryText.value)
+  if (bookmarkedDiffItems.value.length) lines.push('bookmarks_local_only=' + bookmarkedDiffSummaryText.value)
+  if (diffAnnotationText.value.trim()) lines.push('annotation_local_only=' + diffAnnotationText.value.trim())
+  return lines.join('\n')
+}
+
+async function copyLabelFilteredDiffJson(): Promise<void> {
+  const ok = await copyTextToClipboard(JSON.stringify(annotatedDiffExportJsonText(), null, 2))
+  diffExportStatus.value = ok ? 'Copied local label-filtered diff JSON to clipboard.' : 'Clipboard unavailable for local label-filtered diff JSON copy.'
+}
+
+function downloadLabelFilteredDiffJson(): void {
+  const ok = downloadLocalTextFile(JSON.stringify(annotatedDiffExportJsonText(), null, 2), 'atlas-level1-readiness-diff-label-filtered.json', 'application/json')
+  diffExportStatus.value = ok ? 'Exported local label-filtered diff JSON file.' : 'Local label-filtered diff JSON export unavailable.'
+}
+
+async function copyLabelFilteredDiffSummary(): Promise<void> {
+  const ok = await copyTextToClipboard(labelFilteredDiffSummaryText())
+  diffExportStatus.value = ok ? 'Copied local label-filtered diff summary to clipboard.' : 'Clipboard unavailable for local label-filtered diff summary copy.'
+}
+
+function downloadLabelFilteredDiffSummary(): void {
+  const ok = downloadLocalTextFile(labelFilteredDiffSummaryText(), 'atlas-level1-readiness-diff-label-filtered-summary.txt', 'text/plain;charset=utf-8')
+  diffExportStatus.value = ok ? 'Exported local label-filtered diff summary file.' : 'Local label-filtered diff summary export unavailable.'
 }
 
 function saveDiffAnnotationDraft(): void {
