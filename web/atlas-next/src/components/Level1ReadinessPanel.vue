@@ -114,6 +114,16 @@
         <span class="metadata-status">{{ diffExportStatus }}</span>
       </div>
       <div class="comparison-box">
+        <p><b>local diff bookmarks:</b> browser-local/display-only markers for diff rows; never uploaded.</p>
+        <div class="metadata-actions" role="group" aria-label="Readiness local history diff bookmark actions">
+          <button type="button" class="filter-btn" :disabled="!bookmarkedDiffItems.length" @click="clearDiffBookmarks">Clear local bookmarks</button>
+          <span class="metadata-status">{{ diffBookmarkStatus }}</span>
+        </div>
+        <ul v-if="bookmarkedDiffItems.length">
+          <li v-for="item in bookmarkedDiffItems" :key="`saved-${item.id}`">{{ item.label }}</li>
+        </ul>
+      </div>
+      <div class="comparison-box">
         <p><b>local diff annotation:</b> browser-local/display-only notes for current diff view; never uploaded.</p>
         <textarea v-model="diffAnnotationText" rows="4" class="metadata-input" placeholder="Add local review notes for this displayed diff."></textarea>
         <div class="metadata-actions" role="group" aria-label="Readiness local history diff annotation actions">
@@ -130,11 +140,13 @@
       </ul>
       <ul v-if="visibleAddedGates.length || visibleRemovedGates.length">
         <li>filtered added gates: {{ visibleAddedGates.join(', ') || '-' }}</li>
+        <li v-for="gateId in visibleAddedGates" :key="`added-bookmark-${gateId}`"><button type="button" class="filter-btn" @click="toggleDiffBookmark(`added:${gateId}`)">Bookmark added gate {{ gateId }}</button></li>
         <li>filtered removed gates: {{ visibleRemovedGates.join(', ') || '-' }}</li>
+        <li v-for="gateId in visibleRemovedGates" :key="`removed-bookmark-${gateId}`"><button type="button" class="filter-btn" @click="toggleDiffBookmark(`removed:${gateId}`)">Bookmark removed gate {{ gateId }}</button></li>
       </ul>
       <table v-if="visibleChangedGates.length" class="gate-table">
         <thead><tr><th>gate_id</th><th>before_status</th><th>after_status</th><th>before_evidence_available</th><th>after_evidence_available</th><th>before_blocker_reason</th><th>after_blocker_reason</th></tr></thead>
-        <tbody><tr v-for="gate in visibleChangedGates" :key="gate.gate_id"><td>{{ gate.gate_id }}</td><td>{{ gate.before_status }}</td><td>{{ gate.after_status }}</td><td>{{ gate.before_evidence_available }}</td><td>{{ gate.after_evidence_available }}</td><td>{{ gate.before_blocker_reason || '-' }}</td><td>{{ gate.after_blocker_reason || '-' }}</td></tr></tbody>
+        <tbody><tr v-for="gate in visibleChangedGates" :key="gate.gate_id"><td>{{ gate.gate_id }}<button type="button" class="filter-btn" @click="toggleDiffBookmark(`changed:${gate.gate_id}`)">Bookmark changed gate</button></td><td>{{ gate.before_status }}</td><td>{{ gate.after_status }}</td><td>{{ gate.before_evidence_available }}</td><td>{{ gate.after_evidence_available }}</td><td>{{ gate.before_blocker_reason || '-' }}</td><td>{{ gate.after_blocker_reason || '-' }}</td></tr></tbody>
       </table>
     </div>
   </StatusCard>
@@ -211,8 +223,31 @@ const diffAfterStatusSummaryText = computed(() => summarizeBy(visibleChangedGate
 
 const diffExportStatus = ref('Local diff export idle.')
 const DIFF_ANNOTATION_STORAGE_KEY = 'atlas.level1.readiness.diff.annotation.draft'
+const DIFF_BOOKMARK_STORAGE_KEY = 'atlas.level1.readiness.diff.bookmarks'
 const diffAnnotationText = ref('')
 const diffAnnotationStatus = ref('Local diff annotation idle.')
+const diffBookmarkIds = ref<string[]>([])
+const diffBookmarkStatus = ref('Local diff bookmarks idle.')
+
+
+const allDiffBookmarkItems = computed(() => {
+  const result = comparisonResult.value
+  if (!result) return [] as Array<{id:string,label:string,type:string}>
+  const changed = result.changed_gates.map((g)=>({id:`changed:${g.gate_id}`,label:`changed gate: ${g.gate_id} (${g.before_status}→${g.after_status})`,type:'changed'}))
+  const added = result.added_gates.map((gateId)=>({id:`added:${gateId}`,label:`added gate: ${gateId}`,type:'added'}))
+  const removed = result.removed_gates.map((gateId)=>({id:`removed:${gateId}`,label:`removed gate: ${gateId}`,type:'removed'}))
+  return [...changed,...added,...removed]
+})
+const bookmarkedDiffItems = computed(() => allDiffBookmarkItems.value.filter((item)=>diffBookmarkIds.value.includes(item.id)))
+const bookmarkedDiffSummaryText = computed(() => bookmarkedDiffItems.value.map((item)=>item.label).join(' | ') || '-')
+function toggleDiffBookmark(id: string): void {
+  diffBookmarkIds.value = diffBookmarkIds.value.includes(id) ? diffBookmarkIds.value.filter((v)=>v!==id) : [...diffBookmarkIds.value,id]
+  saveDiffBookmarks()
+  diffBookmarkStatus.value = diffBookmarkIds.value.includes(id) ? 'Bookmarked local diff item.' : 'Removed local diff bookmark.'
+}
+function clearDiffBookmarks(): void { diffBookmarkIds.value = []; if (typeof window!=='undefined') window.localStorage.removeItem(DIFF_BOOKMARK_STORAGE_KEY); diffBookmarkStatus.value='Cleared local diff bookmarks.' }
+function saveDiffBookmarks(): void { if (typeof window!=='undefined') window.localStorage.setItem(DIFF_BOOKMARK_STORAGE_KEY, JSON.stringify(diffBookmarkIds.value)) }
+function loadDiffBookmarks(): void { try { if (typeof window==='undefined') return; const raw=window.localStorage.getItem(DIFF_BOOKMARK_STORAGE_KEY); if (!raw) return; const parsed=JSON.parse(raw); if (Array.isArray(parsed)) diffBookmarkIds.value=parsed.filter((v)=>typeof v==='string') } catch {} }
 
 function diffExportJsonText(): string {
   if (!comparisonResult.value) return ''
@@ -233,6 +268,9 @@ function filteredDiffSummaryText(): string {
     `summary_before_status=${diffBeforeStatusSummaryText.value}`,
     `summary_after_status=${diffAfterStatusSummaryText.value}`,
   ]
+  if (bookmarkedDiffItems.value.length) {
+    lines.push('bookmarks_local_only=' + bookmarkedDiffSummaryText.value)
+  }
   if (diffAnnotationText.value.trim()) {
     lines.push('annotation_local_only=' + diffAnnotationText.value.trim())
   }
@@ -246,6 +284,8 @@ function annotatedDiffExportJsonText(): Record<string, unknown> {
     ...(result || {}),
     local_diff_annotation: diffAnnotationText.value.trim() || null,
     local_diff_annotation_local_only: true,
+    local_diff_bookmarks: bookmarkedDiffItems.value,
+    local_diff_bookmarks_local_only: true,
   }
 }
 
@@ -577,7 +617,7 @@ function clearHistory(): void {
   catch { historyStatus.value='Unable to clear local history due to storage error.' }
 }
 
-onMounted(async () => { loadHistory(); diagnostics.value = await fetchLevel1ReadinessDiagnostics() })
+onMounted(async () => { loadHistory(); loadDiffBookmarks(); diagnostics.value = await fetchLevel1ReadinessDiagnostics() })
 </script>
 
 <style scoped>
