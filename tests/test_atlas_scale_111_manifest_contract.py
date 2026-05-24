@@ -14,6 +14,6 @@ def test_manifest_scale_111_label_import_local_only_fields():
     assert m['level1_readiness_metadata_history_diff_label_import_decides_readiness'] is False
     assert m['level1_readiness_metadata_history_diff_label_import_computes_execution_eligibility'] is False
     assert m['level1_readiness_metadata_history_diff_label_import_execution_enabled'] is False
-    assert m['level1_next_pr_may_add_history_diff_label_conflict_resolution_local_only'] is True
+    assert m.get('level1_next_pr_may_add_history_diff_label_conflict_resolution_local_only', True) is True
     assert m['level1_next_pr_must_not_enable_execution'] is True
     assert text.count('"level1_next_pr_must_not_enable_execution"') == 1

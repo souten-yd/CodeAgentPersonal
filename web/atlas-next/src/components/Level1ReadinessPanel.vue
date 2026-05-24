@@ -150,6 +150,22 @@
           <input type="file" accept="application/json" @change="onDiffLabelImportFile" />
           <span class="metadata-status">{{ labelImportStatus }}</span>
         </div>
+        <div class="comparison-box" v-if="pendingLabelImport">
+          <p><b>local label conflict preview:</b> {{ importedLabelConflicts.length }} conflict(s) across {{ pendingLabelImport.importedCount }} imported label(s).</p>
+          <p v-if="importedLabelConflicts.length"><b>conflict summary:</b> existing local labels differ from imported local labels for the ids below.</p>
+          <ul v-if="importedLabelConflicts.length">
+            <li v-for="conflict in importedLabelConflicts" :key="`label-conflict-${conflict.id}`">
+              {{ conflict.id }} — existing: {{ conflict.existingLabel }} | imported: {{ conflict.importedLabel }}
+            </li>
+          </ul>
+          <div class="metadata-actions" role="group" aria-label="Readiness local history diff label conflict resolution actions">
+            <button type="button" class="filter-btn" :disabled="!importedLabelConflicts.length" @click="applyImportedLabelConflicts('keep-existing')">Keep existing labels</button>
+            <button type="button" class="filter-btn" :disabled="!importedLabelConflicts.length" @click="applyImportedLabelConflicts('use-imported')">Use imported labels</button>
+            <button type="button" class="filter-btn" :disabled="!importedLabelConflicts.length" @click="applyImportedLabelConflicts('clear-conflicts')">Clear conflicting labels</button>
+            <button type="button" class="filter-btn" @click="clearLabelConflictPreview">Clear conflict preview</button>
+            <span class="metadata-status">{{ labelConflictStatus }}</span>
+          </div>
+        </div>
         <p><b>local label import source:</b> browser-local/display-only; imported labels are never uploaded and never mutate backend.</p>
         <p v-if="labelImportFileName"><b>import file:</b> {{ labelImportFileName }}</p>
         <textarea v-model="labelImportText" rows="5" class="metadata-input" placeholder="Paste local diff label export JSON (local_diff_labels or local_diff_label_filtered_items)."></textarea>
@@ -271,6 +287,9 @@ const diffLabelStatus = ref('Local diff labels idle.')
 const labelImportText = ref('')
 const labelImportStatus = ref('Local diff label import idle.')
 const labelImportFileName = ref('')
+const pendingLabelImport = ref<{ labels: Record<string, string>, importedCount: number, skipped: number } | null>(null)
+const importedLabelConflicts = ref<Array<{ id: string, existingLabel: string, importedLabel: string }>>([])
+const labelConflictStatus = ref('Local label conflict preview idle.')
 const hasLabelImportText = computed(() => labelImportText.value.trim().length > 0)
 type DiffLabelFilter = 'all' | 'unlabeled' | (typeof DIFF_LABEL_OPTIONS)[number]
 const activeDiffLabelFilter = ref<DiffLabelFilter>('all')
@@ -334,29 +353,38 @@ function clearDiffLabels(): void {
 }
 function saveDiffLabels(): void { if (typeof window !== 'undefined') window.localStorage.setItem(DIFF_LABEL_STORAGE_KEY, JSON.stringify(diffLabelMap.value)) }
 function loadDiffLabels(): void { try { if (typeof window==='undefined') return; const raw=window.localStorage.getItem(DIFF_LABEL_STORAGE_KEY); if (!raw) return; const parsed=JSON.parse(raw); if (parsed && typeof parsed==='object' && !Array.isArray(parsed)) diffLabelMap.value=Object.fromEntries(Object.entries(parsed).filter(([k,v])=>typeof k==='string' && typeof v==='string')) } catch {} }
-function parseImportedDiffLabels(payload: unknown): { labels: Record<string, string>, skipped: number } {
+function parseImportedDiffLabels(payload: unknown): { labels: Record<string, string>, skipped: number, importedCount: number } {
+  const source = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? ((payload as { local_diff_labels?: unknown, local_diff_label_filtered_items?: unknown }).local_diff_labels
+      ?? (payload as { local_diff_label_filtered_items?: unknown }).local_diff_label_filtered_items
+      ?? payload)
+    : payload
   const labels: Record<string, string> = {}
   let skipped = 0
-  const allowed = new Set<string>(DIFF_LABEL_OPTIONS as unknown as string[])
-  const collect = (items: unknown): void => {
-    if (!Array.isArray(items)) return
-    items.forEach((entry) => {
-      if (!entry || typeof entry !== 'object') { skipped += 1; return }
-      const id = (entry as Record<string, unknown>).id
-      const localLabel = (entry as Record<string, unknown>).local_label
-      if (typeof id !== 'string' || typeof localLabel !== 'string' || !allowed.has(localLabel)) { skipped += 1; return }
-      labels[id] = localLabel
-    })
+  let importedCount = 0
+  const consumeRecord = (id: unknown, label: unknown) => {
+    if (typeof id === 'string' && id.trim() && typeof label === 'string' && label.trim()) {
+      labels[id] = label
+      importedCount += 1
+    } else { skipped += 1 }
   }
-  if (payload && typeof payload === 'object') {
-    const obj = payload as Record<string, unknown>
-    collect(obj.local_diff_labels)
-    collect(obj.local_diff_label_filtered_items)
-  } else {
-    skipped += 1
+  if (Array.isArray(source)) {
+    for (const item of source) {
+      if (item && typeof item === 'object' && !Array.isArray(item)) consumeRecord((item as { id?: unknown }).id, (item as { local_label?: unknown, label?: unknown }).local_label ?? (item as { label?: unknown }).label)
+      else skipped += 1
+    }
+  } else if (source && typeof source === 'object') {
+    for (const [id, value] of Object.entries(source as Record<string, unknown>)) consumeRecord(id, value)
   }
-  return { labels, skipped }
+  return { labels, skipped, importedCount }
 }
+
+function previewImportedDiffLabels(labels: Record<string, string>): Array<{ id: string, existingLabel: string, importedLabel: string }> {
+  return Object.entries(labels)
+    .filter(([id, importedLabel]) => typeof diffLabelMap.value[id] === 'string' && diffLabelMap.value[id] !== importedLabel)
+    .map(([id, importedLabel]) => ({ id, existingLabel: diffLabelMap.value[id], importedLabel }))
+}
+
 function importDiffLabelsFromText(mode: 'merge' | 'replace'): void {
   const text = labelImportText.value.trim()
   if (!text) {
@@ -366,19 +394,49 @@ function importDiffLabelsFromText(mode: 'merge' | 'replace'): void {
   try {
     const parsed = JSON.parse(text)
     const result = parseImportedDiffLabels(parsed)
-    const importedCount = Object.keys(result.labels).length
-    diffLabelMap.value = mode === 'replace' ? result.labels : { ...diffLabelMap.value, ...result.labels }
+    pendingLabelImport.value = result
+    importedLabelConflicts.value = previewImportedDiffLabels(result.labels)
+    labelConflictStatus.value = importedLabelConflicts.value.length
+      ? `Previewed ${importedLabelConflicts.value.length} local conflict(s).`
+      : 'No local label conflicts detected.'
+    const nextLabels = mode === 'replace' ? { ...result.labels } : { ...diffLabelMap.value, ...result.labels }
+    diffLabelMap.value = nextLabels
     saveDiffLabels()
     diffLabelStatus.value = `Updated local diff labels (${mode}).`
-    labelImportStatus.value = `Imported ${importedCount} label(s); skipped ${result.skipped} invalid item(s) (${mode}).`
+    labelImportStatus.value = `Imported ${result.importedCount} label(s); skipped ${result.skipped} invalid item(s) (${mode}).`
   } catch {
     labelImportStatus.value = 'Import failed: invalid JSON.'
+    pendingLabelImport.value = null
+    importedLabelConflicts.value = []
+    labelConflictStatus.value = 'Invalid JSON; conflict preview not available.'
   }
+}
+
+function applyImportedLabelConflicts(mode: 'keep-existing' | 'use-imported' | 'clear-conflicts'): void {
+  const pending = pendingLabelImport.value
+  if (!pending || !importedLabelConflicts.value.length) return
+  const next = { ...diffLabelMap.value }
+  for (const conflict of importedLabelConflicts.value) {
+    if (mode === 'keep-existing') next[conflict.id] = conflict.existingLabel
+    else if (mode === 'use-imported') next[conflict.id] = conflict.importedLabel
+    else delete next[conflict.id]
+  }
+  diffLabelMap.value = next
+  saveDiffLabels()
+  diffLabelStatus.value = `Applied local label conflict resolution (${mode}).`
+  labelConflictStatus.value = `Applied conflict resolution: ${mode}.`
+}
+
+function clearLabelConflictPreview(): void {
+  pendingLabelImport.value = null
+  importedLabelConflicts.value = []
+  labelConflictStatus.value = 'Cleared local label conflict preview.'
 }
 function clearDiffLabelImportText(): void {
   labelImportText.value = ''
   labelImportFileName.value = ''
   labelImportStatus.value = 'Cleared local diff label import text.'
+  clearLabelConflictPreview()
 }
 function onDiffLabelImportFile(event: Event): void {
   const input = event.target as HTMLInputElement | null
