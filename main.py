@@ -17584,10 +17584,19 @@ def debug_tests_home():
     _debug_harness_guard()
     runs = _list_debug_runs()
     from scripts.run_debug_test_matrix import DIAGNOSTIC_TEST_PRESETS, TEST_PRESETS
-    preset_items = "".join([f"<li><b>{html.escape(p.id)}</b>: {html.escape(p.title)} - {html.escape(p.description)}</li>" for p in TEST_PRESETS])
+    acceptance_ids = {"desktop_lumen_input_visible", "atlas_current_ui_smoke", "nexus_current_ui_smoke", "static_contracts"}
+    preset_items = "".join([f"<li><b>{html.escape(p.id)}</b>: {html.escape(p.title)} - {html.escape(p.description)}</li>" for p in TEST_PRESETS if p.id in acceptance_ids])
     diagnostic_items = "".join([f"<li><b>{html.escape(p.id)}</b>: {html.escape(p.title)} - {html.escape(p.description)} <em>(manual only; not run by Run All Tests)</em></li>" for p in DIAGNOSTIC_TEST_PRESETS]) or "<li>No diagnostic presets</li>"
     run_items = "".join([f"<li><a href='/debug/tests/runs/{html.escape(r['run_id'])}'>{html.escape(r['run_id'])}</a> - {html.escape(r.get('status','unknown'))}</li>" for r in runs]) or "<li>No runs yet</li>"
-    return f"""<html><body><h1>Debug Test Harness enabled</h1><form method='post' action='/api/debug/tests/run-all'><button type='submit'>Run All Tests</button></form><p>Run All Tests executes only the default acceptance presets below.</p><h2>Default acceptance presets</h2><p>Stable, deterministic, blocking checks.</p><ul>{preset_items}</ul><h2>Diagnostic presets</h2><p>Optional checks. May depend on experimental fixture or live model behavior. Not blocking.</p><ul>{diagnostic_items}</ul><h2>Recent runs</h2><ul>{run_items}</ul></body></html>"""
+    groups_html = """
+    <h2>Canonical Debug Test Groups</h2>
+    <h3>A. UI Layout Smoke</h3><ul><li>desktop_lumen_input_visible</li><li>desktop right panel beside chat</li><li>mobile stacked layout allowed</li><li>Files / Log / Skill / Memory / Models visible</li></ul>
+    <h3>B. UI Mode Smoke</h3><ul><li>Lumen / Atlas / Echo / Nexus mode switch visibility</li><li>no Atlas UI leakage into Lumen chat</li></ul>
+    <h3>C. Atlas Safety Smoke</h3><ul><li>readiness UI remains GET-only/display-only</li><li>no execution controls exposed</li><li>runtime remains level_0_manual_only</li></ul>
+    <h3>D. Source Contracts</h3><ul><li>ui.html structural contracts</li><li>app.css v2.8-style flex desktop contract</li><li>no stale grid-only contract in debug harness inventory</li></ul>
+    """
+    run_help = "<h2>Run commands</h2><ul><li><code>python scripts/run_debug_test_matrix.py</code> (Run All equivalent)</li><li><code>python scripts/smoke_ui_modes_playwright.py --only desktop-lumen-input</code> (desktop Lumen input visibility only)</li><li>If Playwright missing: <code>python -m pip install playwright && python -m playwright install chromium</code></li></ul>"
+    return f"""<html><body><h1>Debug Test Harness enabled</h1><form method='post' action='/api/debug/tests/run-all'><button type='submit'>Run All Tests</button></form><p>Run All Tests executes only the default acceptance presets below.</p><h2>Default acceptance presets</h2><p>Stable, deterministic, blocking checks.</p><ul>{preset_items}</ul>{groups_html}{run_help}<h2>Diagnostic presets</h2><p>Optional checks. May depend on experimental fixture or live model behavior. Not blocking.</p><ul>{diagnostic_items}</ul><h2>Recent runs</h2><ul>{run_items}</ul></body></html>"""
 
 @app.post("/api/debug/tests/run-all")
 def debug_tests_run_all():
