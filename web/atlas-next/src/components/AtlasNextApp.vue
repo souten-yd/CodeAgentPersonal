@@ -9,6 +9,7 @@
     <ExecutionSafetyBoundary :snapshot="snapshot" />
     <DefaultReadinessPreflight />
     <Level1ReadinessPanel />
+    <DryRunResultViewer :snapshot="snapshot" />
     <ArtifactSummary :snapshot="snapshot" />
     <DiagnosticsNotice :snapshot="snapshot" />
   </main>
@@ -25,6 +26,7 @@ import ArtifactSummary from './ArtifactSummary.vue'
 import DiagnosticsNotice from './DiagnosticsNotice.vue'
 import DefaultReadinessPreflight from './DefaultReadinessPreflight.vue'
 import Level1ReadinessPanel from './Level1ReadinessPanel.vue'
+import DryRunResultViewer from './DryRunResultViewer.vue'
 
 const snapshot = ref<AtlasWorkflowSnapshot>({
   safety: {

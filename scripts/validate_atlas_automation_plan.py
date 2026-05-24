@@ -31,9 +31,9 @@ def validate() -> None:
 
     assert phase["canonical_human_plan"] == "docs/atlas_scale_master_roadmap.md"
     assert phase["canonical_safety_policy"] == "docs/atlas_autonomous_execution_readiness_policy.md"
-    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-119"
-    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-120"
-    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-120"
+    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-120"
+    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-121"
+    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-121"
     assert phase["completed_phase"] == "readiness_metadata_review"
     assert phase["automation_phase"] == "level_1_advancement_preparation"
     assert phase["current_level"] == "level_0_manual_only"
@@ -51,6 +51,14 @@ def validate() -> None:
     assert ui_manifest["final_goal"] == phase["final_goal"]
     assert ui_manifest["self_improvement_scope"] == phase["self_improvement_goal"]
     assert ui_manifest["level1_next_pr_must_not_enable_execution"] is True
+    assert ui_manifest["vue_next_dry_run_result_viewer_checkpoint"] == "PR-ATLAS-SCALE-120"
+    assert ui_manifest["vue_next_dry_run_result_viewer_enabled"] is True
+    assert ui_manifest["vue_next_dry_run_result_viewer_display_only"] is True
+    assert ui_manifest["vue_next_dry_run_result_viewer_backend_authoritative"] is True
+    assert ui_manifest["vue_next_dry_run_result_viewer_starts_dry_run"] is False
+    assert ui_manifest["vue_next_dry_run_result_viewer_captures_artifact"] is False
+    assert ui_manifest["vue_next_dry_run_result_viewer_execution_enabled"] is False
+    assert ui_manifest["vue_next_dry_run_result_viewer_mutation_enabled"] is False
 
     for path in DELETED_DUPLICATE_DOCS:
         assert not path.exists(), f"duplicate planning doc must stay deleted: {path}"
@@ -61,6 +69,7 @@ def validate() -> None:
         "PR-ATLAS-SCALE-118",
         "PR-ATLAS-SCALE-119",
         "PR-ATLAS-SCALE-120",
+        "PR-ATLAS-SCALE-121",
         "Level-1 Advancement Preparation",
         "PR-B is allowed only when",
         "must not add another local-only diff label/bookmark/annotation UX",

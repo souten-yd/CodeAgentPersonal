@@ -11,15 +11,15 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-119
-- Current automation track: PR-ATLAS-SCALE-120
-- Next automation track after this correction: PR-ATLAS-SCALE-120
+- Completed automation PR: PR-ATLAS-SCALE-120
+- Current automation track: PR-ATLAS-SCALE-121
+- Next automation track after this correction: PR-ATLAS-SCALE-121
 - Current level: Level 0 manual only
 - Target level: Level 1 guarded single-step automation
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
-PR-ATLAS-SCALE-119 added an approval token backend contract. It stores digest-only token metadata and validates manual gate inputs, but it does not authorize execution, project mutation, autonomous loop continuation, verification execution, patch apply, rollback, retry, remote git, or auto-continue.
+PR-ATLAS-SCALE-120 added a Vue dry-run result viewer. It displays backend-owned dry-run result metadata only and does not start dry-runs, capture artifacts, authorize execution, mutate project files, continue autonomous loops, run verification, apply patches, rollback, retry, use remote git, or auto-continue.
 
 Manual execution remains the only allowed execution mode until the explicit Level-1 runtime transition checkpoint.
 
