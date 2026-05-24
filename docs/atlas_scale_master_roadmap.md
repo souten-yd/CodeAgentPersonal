@@ -4,9 +4,9 @@
 
 This file is the single human-readable source of truth for Atlas automation planning.
 
-- Completed automation PR: PR-ATLAS-SCALE-115
-- Current automation track: PR-ATLAS-SCALE-116
-- Next automation track after this correction: PR-ATLAS-SCALE-116
+- Completed automation PR: PR-ATLAS-SCALE-116
+- Current automation track: PR-ATLAS-SCALE-117
+- Next automation track after this correction: PR-ATLAS-SCALE-117
 - Current runtime level: level_0_manual_only
 - Target runtime level: level_1_guarded_single_step
 - Final goal: fully_autonomous_code_agent
@@ -52,6 +52,7 @@ SCALE-113 starts the Level-1 Advancement Preparation phase. The purpose of this 
 
 - SCALE-114 completed: advisory readiness rollup and gate evidence summary captured (advisory-only, no execution enablement).
 - SCALE-115 completed: dry-run artifact schema v1 added as schema-only metadata infrastructure, no execution enablement.
+- SCALE-116 completed: verification allowlist resolver added as metadata-only resolver, no command execution.
 Next PRs must advance Level-1 readiness evidence or the roadmap/validator itself.
 
 They must not add another local-only diff label/bookmark/annotation UX unless explicitly approved as a PR-B drift repair or a user-requested exception.
