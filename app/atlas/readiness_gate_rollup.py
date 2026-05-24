@@ -20,6 +20,19 @@ REQ_GATES = {
     "remote_git": "remote git gate",
     "self_improvement": "self-improvement gate",
 }
+REQ_GATE_ORDER = [
+    "snapshot",
+    "transaction",
+    "risk",
+    "allowlist",
+    "dry_run_gate",
+    "rollback_readiness",
+    "artifact_capture",
+    "stop_gate",
+    "loop_bound",
+    "remote_git",
+    "self_improvement",
+]
 
 UNSAFE_FLAGS = ["level1_execution_enabled","autonomous_execution_enabled","autonomous_self_improvement_enabled","automatic_execute_enabled","automatic_command_execution_enabled","automatic_verification_enabled","automatic_patch_generation_enabled","automatic_patch_apply_enabled","automatic_safe_apply_enabled","automatic_rollback_enabled","automatic_restore_enabled","automatic_loop_enabled","automatic_retry_enabled","auto_continue_enabled","execute_all_enabled","remote_git_operations_enabled","direct_merge_enabled"]
 
@@ -42,8 +55,12 @@ def evaluate_readiness_gate_rollup(*, project_path: str | Path, data_root: str |
         "snapshot": bool(snapshot_id or snapshot_manifest_path), "transaction": bool(transaction_id or transaction_manifest_path), "risk": bool(risk_id or risk_manifest_path), "allowlist": bool(allowlist_id or allowlist_manifest_path), "dry_run_gate": bool(dry_run_gate_id or dry_run_gate_manifest_path), "rollback_readiness": bool(rollback_gate_id or rollback_readiness_manifest_path), "artifact_capture": bool(artifact_gate_id or artifact_capture_manifest_path), "stop_gate": bool(stop_gate_id or stop_gate_manifest_path), "loop_bound": bool(loop_gate_id or loop_bound_manifest_path), "remote_git": bool(remote_git_gate_id or remote_git_manifest_path), "self_improvement": bool(self_improvement_gate_id or self_improvement_manifest_path),
     }
     gate_ready = {"snapshot": bool(snapshot_ready), "transaction": bool(patch_transaction_ready), "risk": bool(risk_classification_ready), "allowlist": bool(verification_allowlist_ready), "dry_run_gate": bool(dry_run_approval_ready), "rollback_readiness": bool(rollback_readiness_ready), "artifact_capture": bool(artifact_capture_ready), "stop_gate": bool(stop_kill_switch_ready), "loop_bound": bool(loop_bound_ready), "remote_git": bool(remote_git_gate_ready), "self_improvement": bool(self_improvement_gate_ready)}
-    missing = sorted([REQ_GATES[k] for k, v in refs.items() if not v])
-    failed = sorted([REQ_GATES[k] for k, v in gate_ready.items() if not v])
+    missing = [REQ_GATES[k] for k in REQ_GATE_ORDER if not refs[k]]
+    failed = [REQ_GATES[k] for k in REQ_GATE_ORDER if not gate_ready[k]]
+    gate_evidence = {
+        k: {"gate": REQ_GATES[k], "reference_present": refs[k], "ready": gate_ready[k], "evidence_status": "present" if refs[k] else "missing"}
+        for k in REQ_GATE_ORDER
+    }
 
     blocks: list[str] = []
     if runtime_level != "level_0_manual_only": blocks.append("runtime_level_not_level_0_manual_only")
@@ -74,12 +91,13 @@ def evaluate_readiness_gate_rollup(*, project_path: str | Path, data_root: str |
     status = "level0_readiness_complete_manual_only" if ready else "blocked"
     return {
         "status": status, "readiness_rollup_ready": ready, "level0_foundation_complete": level0_complete,
+        "advisory_only": True, "computes_execution_eligibility": False, "execution_enabled": False,
         "runtime_level": "level_0_manual_only", "manual_only": True,
         **{k: False for k in UNSAFE_FLAGS},
         "snapshot_reference_present": refs["snapshot"], "transaction_reference_present": refs["transaction"], "risk_reference_present": refs["risk"], "allowlist_reference_present": refs["allowlist"], "dry_run_gate_reference_present": refs["dry_run_gate"], "rollback_readiness_reference_present": refs["rollback_readiness"], "artifact_capture_reference_present": refs["artifact_capture"], "stop_gate_reference_present": refs["stop_gate"], "loop_bound_reference_present": refs["loop_bound"], "remote_git_reference_present": refs["remote_git"], "self_improvement_reference_present": refs["self_improvement"],
         "snapshot_ready": gate_ready["snapshot"], "patch_transaction_ready": gate_ready["transaction"], "risk_classification_ready": gate_ready["risk"], "verification_allowlist_ready": gate_ready["allowlist"], "dry_run_approval_ready": gate_ready["dry_run_gate"], "rollback_readiness_ready": gate_ready["rollback_readiness"], "artifact_capture_ready": gate_ready["artifact_capture"], "stop_kill_switch_ready": gate_ready["stop_gate"], "loop_bound_ready": gate_ready["loop_bound"], "remote_git_gate_ready": gate_ready["remote_git"], "self_improvement_gate_ready": gate_ready["self_improvement"],
         "vue_next_allowed_after_pr92": True, "vue_next_started": False, "vue_next_default_enabled": False, "vue_next_execution_enabled": False,
-        "required_level0_gates": list(REQ_GATES.values()), "missing_required_gates": missing, "failed_required_gates": failed,
+        "required_level0_gates": [REQ_GATES[k] for k in REQ_GATE_ORDER], "missing_required_gates": missing, "failed_required_gates": failed, "gate_evidence_summary": gate_evidence,
         "unsafe_automation_flags": unsafe, "blocking_reasons": sorted(set(blocks)), "warnings": sorted(set(ws)), "policy_notes": notes,
         "level0_state_summary": {"required_gate_count": len(REQ_GATES), "present_gate_count": sum(1 for v in refs.values() if v), "ready_gate_count": sum(1 for v in gate_ready.values() if v)},
         "summary": {"workspace_id": workspace_id, "pool_id": pool_id, "item_id": item_id, "run_id": run_id, "action_id": action_id, "reason": reason, "manual_only": True},
