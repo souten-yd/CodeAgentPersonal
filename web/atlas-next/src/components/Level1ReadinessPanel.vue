@@ -142,6 +142,17 @@
           <button type="button" class="filter-btn" :disabled="!labeledDiffItems.length" @click="clearDiffLabels">Clear local labels</button>
           <span class="metadata-status">{{ diffLabelStatus }}</span>
         </div>
+        <div class="metadata-actions" role="group" aria-label="Readiness local history diff label import actions">
+          <button type="button" class="filter-btn" :disabled="!hasLabelImportText" @click="importDiffLabelsFromText('merge')">Merge imported labels</button>
+          <button type="button" class="filter-btn" :disabled="!hasLabelImportText" @click="importDiffLabelsFromText('replace')">Replace local labels</button>
+          <button type="button" class="filter-btn" :disabled="!Object.keys(diffLabelMap).length" @click="clearDiffLabels">Clear all local labels</button>
+          <button type="button" class="filter-btn" :disabled="!labelImportText.trim()" @click="clearDiffLabelImportText">Clear import text</button>
+          <input type="file" accept="application/json" @change="onDiffLabelImportFile" />
+          <span class="metadata-status">{{ labelImportStatus }}</span>
+        </div>
+        <p><b>local label import source:</b> browser-local/display-only; imported labels are never uploaded and never mutate backend.</p>
+        <p v-if="labelImportFileName"><b>import file:</b> {{ labelImportFileName }}</p>
+        <textarea v-model="labelImportText" rows="5" class="metadata-input" placeholder="Paste local diff label export JSON (local_diff_labels or local_diff_label_filtered_items)."></textarea>
         <ul v-if="labeledDiffItems.length">
           <li v-for="item in labeledDiffItems" :key="`label-${item.id}`">{{ item.label }} => {{ item.local_label }}</li>
         </ul>
@@ -257,6 +268,10 @@ const diffBookmarkIds = ref<string[]>([])
 const diffBookmarkStatus = ref('Local diff bookmarks idle.')
 const diffLabelMap = ref<Record<string, string>>({})
 const diffLabelStatus = ref('Local diff labels idle.')
+const labelImportText = ref('')
+const labelImportStatus = ref('Local diff label import idle.')
+const labelImportFileName = ref('')
+const hasLabelImportText = computed(() => labelImportText.value.trim().length > 0)
 type DiffLabelFilter = 'all' | 'unlabeled' | (typeof DIFF_LABEL_OPTIONS)[number]
 const activeDiffLabelFilter = ref<DiffLabelFilter>('all')
 
@@ -319,6 +334,66 @@ function clearDiffLabels(): void {
 }
 function saveDiffLabels(): void { if (typeof window !== 'undefined') window.localStorage.setItem(DIFF_LABEL_STORAGE_KEY, JSON.stringify(diffLabelMap.value)) }
 function loadDiffLabels(): void { try { if (typeof window==='undefined') return; const raw=window.localStorage.getItem(DIFF_LABEL_STORAGE_KEY); if (!raw) return; const parsed=JSON.parse(raw); if (parsed && typeof parsed==='object' && !Array.isArray(parsed)) diffLabelMap.value=Object.fromEntries(Object.entries(parsed).filter(([k,v])=>typeof k==='string' && typeof v==='string')) } catch {} }
+function parseImportedDiffLabels(payload: unknown): { labels: Record<string, string>, skipped: number } {
+  const labels: Record<string, string> = {}
+  let skipped = 0
+  const allowed = new Set<string>(DIFF_LABEL_OPTIONS as unknown as string[])
+  const collect = (items: unknown): void => {
+    if (!Array.isArray(items)) return
+    items.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') { skipped += 1; return }
+      const id = (entry as Record<string, unknown>).id
+      const localLabel = (entry as Record<string, unknown>).local_label
+      if (typeof id !== 'string' || typeof localLabel !== 'string' || !allowed.has(localLabel)) { skipped += 1; return }
+      labels[id] = localLabel
+    })
+  }
+  if (payload && typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>
+    collect(obj.local_diff_labels)
+    collect(obj.local_diff_label_filtered_items)
+  } else {
+    skipped += 1
+  }
+  return { labels, skipped }
+}
+function importDiffLabelsFromText(mode: 'merge' | 'replace'): void {
+  const text = labelImportText.value.trim()
+  if (!text) {
+    labelImportStatus.value = 'No import JSON provided.'
+    return
+  }
+  try {
+    const parsed = JSON.parse(text)
+    const result = parseImportedDiffLabels(parsed)
+    const importedCount = Object.keys(result.labels).length
+    diffLabelMap.value = mode === 'replace' ? result.labels : { ...diffLabelMap.value, ...result.labels }
+    saveDiffLabels()
+    diffLabelStatus.value = `Updated local diff labels (${mode}).`
+    labelImportStatus.value = `Imported ${importedCount} label(s); skipped ${result.skipped} invalid item(s) (${mode}).`
+  } catch {
+    labelImportStatus.value = 'Import failed: invalid JSON.'
+  }
+}
+function clearDiffLabelImportText(): void {
+  labelImportText.value = ''
+  labelImportFileName.value = ''
+  labelImportStatus.value = 'Cleared local diff label import text.'
+}
+function onDiffLabelImportFile(event: Event): void {
+  const input = event.target as HTMLInputElement | null
+  const file = input?.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    labelImportText.value = typeof reader.result === 'string' ? reader.result : ''
+    labelImportFileName.value = file.name
+    labelImportStatus.value = `Loaded import file: ${file.name}`
+  }
+  reader.onerror = () => { labelImportStatus.value = `Failed to read import file: ${file.name}` }
+  reader.readAsText(file)
+  if (input) input.value = ''
+}
 
 function saveDiffBookmarks(): void { if (typeof window!=='undefined') window.localStorage.setItem(DIFF_BOOKMARK_STORAGE_KEY, JSON.stringify(diffBookmarkIds.value)) }
 function loadDiffBookmarks(): void { try { if (typeof window==='undefined') return; const raw=window.localStorage.getItem(DIFF_BOOKMARK_STORAGE_KEY); if (!raw) return; const parsed=JSON.parse(raw); if (Array.isArray(parsed)) diffBookmarkIds.value=parsed.filter((v)=>typeof v==='string') } catch {} }
