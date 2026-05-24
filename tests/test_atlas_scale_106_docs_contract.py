@@ -23,11 +23,11 @@ def _active_pointer_slice(text: str) -> str:
 def test_docs_advance_to_scale_106_complete_106_current_next():
     required = [
         'PR-ATLAS-SCALE-106 completed',
-        'Completed automation PR: PR-ATLAS-SCALE-107',
-        ('Current automation track: PR-ATLAS-SCALE-110' if 'Current automation track: PR-ATLAS-SCALE-110' in DOCS else 'Current automation track: PR-ATLAS-SCALE-110'),
-        ('Next automation track: PR-ATLAS-SCALE-110' if 'Next automation track: PR-ATLAS-SCALE-110' in DOCS else 'Next automation track: PR-ATLAS-SCALE-110'),
-        ('next work is PR-ATLAS-SCALE-110' if 'next work is PR-ATLAS-SCALE-110' in DOCS else 'next work is PR-ATLAS-SCALE-110'),
-        ('Planned UI track: return to PR-ATLAS-SCALE-110 automation track' if 'Planned UI track: return to PR-ATLAS-SCALE-110 automation track' in DOCS else 'Planned UI track: return to PR-ATLAS-SCALE-110 automation track'),
+        'Completed automation PR: PR-ATLAS-SCALE-110',
+        ('Current automation track: PR-ATLAS-SCALE-111' if 'Current automation track: PR-ATLAS-SCALE-111' in DOCS else 'Current automation track: PR-ATLAS-SCALE-111'),
+        ('Next automation track: PR-ATLAS-SCALE-111' if 'Next automation track: PR-ATLAS-SCALE-111' in DOCS else 'Next automation track: PR-ATLAS-SCALE-111'),
+        ('next work is PR-ATLAS-SCALE-111' if 'next work is PR-ATLAS-SCALE-111' in DOCS else 'next work is PR-ATLAS-SCALE-111'),
+        ('Planned UI track: return to PR-ATLAS-SCALE-111 automation track' if 'Planned UI track: return to PR-ATLAS-SCALE-111 automation track' in DOCS else 'Planned UI track: return to PR-ATLAS-SCALE-111 automation track'),
         'local-only readiness metadata history diff annotations',
         'backend workflow_state remains authoritative',
     ]
@@ -54,6 +54,6 @@ def test_docs_current_state_slice_forbids_stale_scale_106_pointer_tokens():
 def test_active_pointer_summary_describes_scale_106_not_scale_104():
     roadmap = Path('docs/atlas_scale_master_roadmap.md').read_text()
     active = _active_pointer_slice(roadmap)
-    assert ('Completed automation PR: PR-ATLAS-SCALE-107' in active) or ('Completed automation PR: PR-ATLAS-SCALE-109' in active)
+    assert ('Completed automation PR: PR-ATLAS-SCALE-110' in active) or ('Completed automation PR: PR-ATLAS-SCALE-110' in active)
     assert 'PR-ATLAS-SCALE-106 completed: local-only readiness metadata history diff annotations' in active
     assert 'PR-ATLAS-SCALE-105 completed: local-only readiness metadata history diff filtering/grouping' not in active

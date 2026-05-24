@@ -103,9 +103,6 @@
   "level1_readiness_metadata_history_diff_label_export_computes_execution_eligibility": false,
   "level1_readiness_metadata_history_diff_label_export_execution_enabled": false,
   "level1_next_pr_may_add_history_diff_label_import_local_only": true,
-  "level1_next_pr_must_not_enable_execution": true,
-  "level1_next_pr_may_add_history_diff_label_export_local_only": true,
-  "level1_next_pr_must_not_enable_execution": true,
   "surfaces": [
     {
       "id": "atlas-workflow-diagnostics-toggle",
