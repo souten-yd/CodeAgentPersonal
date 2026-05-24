@@ -14,7 +14,7 @@ def test_scale_106_manifest_fields():
         'level1_readiness_metadata_history_diff_annotation_decides_readiness': False,
         'level1_readiness_metadata_history_diff_annotation_computes_execution_eligibility': False,
         'level1_readiness_metadata_history_diff_annotation_execution_enabled': False,
-        'level1_next_pr_may_add_history_diff_filtering_local_only': True,
+        'level1_next_pr_may_add_history_diff_bookmarks_local_only': True,
         'level1_next_pr_must_not_enable_execution': True,
     }
     for k, v in expected.items():
