@@ -61,6 +61,8 @@ from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapServi
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
 from agent.atlas_planner_packaging_v2_service import AtlasPlannerPackagingV2Service
 from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Request
+from agent.atlas_requirement_intake_schema import AtlasRequirementIntakePreview, AtlasRequirementIntakeRequest
+from agent.atlas_requirement_intake_service import AtlasRequirementIntakeService
 from agent.atlas_verification_recommendation_schema import AtlasVerificationRecommendationRequest
 from agent.atlas_verification_recommendation_service import AtlasVerificationRecommendationService
 from agent.atlas_verification_recommendation_handoff_service import AtlasVerificationRecommendationHandoffService
@@ -111,6 +113,11 @@ class CreatePlanPoolResponse(BaseModel):
     review_result: dict = Field(default_factory=dict)
     orchestration_summary: dict = Field(default_factory=dict)
     clarification_session_id: str = ""
+
+
+@router.post("/requirements/preview", response_model=AtlasRequirementIntakePreview)
+def preview_requirement_intake(req: AtlasRequirementIntakeRequest) -> AtlasRequirementIntakePreview:
+    return AtlasRequirementIntakeService().preview(req)
 
 
 class PipelineDryRunRequest(BaseModel):

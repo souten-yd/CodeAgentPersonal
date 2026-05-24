@@ -119,6 +119,10 @@
   "level1_readiness_metadata_history_diff_label_conflict_resolution_computes_execution_eligibility": false,
   "level1_readiness_metadata_history_diff_label_conflict_resolution_execution_enabled": false,
   "level1_next_pr_must_not_enable_execution": true,
+  "atlas_requirement_intake_preview_contract": "atlas.requirement_intake_preview.v1",
+  "atlas_requirement_intake_preview_read_only": true,
+  "atlas_requirement_intake_preview_execution_enabled": false,
+  "atlas_requirement_intake_preview_mutation_enabled": false,
   "surfaces": [
     {
       "id": "atlas-workflow-diagnostics-toggle",

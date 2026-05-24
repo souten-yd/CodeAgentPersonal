@@ -25,6 +25,7 @@
       <button type="submit" :disabled="isSubmitting">{{ isSubmitting ? 'Starting...' : 'Start Atlas Planning' }}</button>
     </form>
 
+    <p v-if="previewMessage" class="preview">{{ previewMessage }}</p>
     <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
 
     <PlanReviewPanel v-if="result" :result="result" />
@@ -34,7 +35,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import StatusCard from './StatusCard.vue'
-import { createPlanPool, type CreatePlanPoolResponse } from '../api/atlasClient'
+import { createPlanPool, previewRequirementIntake, type CreatePlanPoolResponse, type RequirementIntakePreview } from '../api/atlasClient'
 import PlanReviewPanel from './PlanReviewPanel.vue'
 
 const form = reactive({
@@ -47,10 +48,14 @@ const form = reactive({
 
 const isSubmitting = ref(false)
 const errorMessage = ref('')
+const previewMessage = ref('')
+const preview = ref<RequirementIntakePreview | null>(null)
 const result = ref<CreatePlanPoolResponse | null>(null)
 
 async function submitPlanning() {
   errorMessage.value = ''
+  previewMessage.value = ''
+  preview.value = null
   result.value = null
   if (!form.input.trim()) {
     errorMessage.value = 'Requirement / goal is required.'
@@ -58,6 +63,12 @@ async function submitPlanning() {
   }
   isSubmitting.value = true
   try {
+    preview.value = await previewRequirementIntake({ ...form })
+    previewMessage.value = `Requirement preview: ${preview.value.status} / source=${preview.value.source} / runtime=${preview.value.safety.runtime_level}`
+    if (!preview.value.can_start_planning) {
+      errorMessage.value = `Requirement preview blocked planning: ${preview.value.blocked_reasons.join(' | ')}`
+      return
+    }
     result.value = await createPlanPool({ ...form })
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Failed to start Atlas planning.'
@@ -71,6 +82,7 @@ async function submitPlanning() {
 .requirement-form { display: grid; gap: 8px; }
 .requirement-form label { display: grid; gap: 4px; font-weight: 600; }
 .requirement-form input, .requirement-form textarea { font: inherit; padding: 6px; }
+.preview { color: #334155; }
 .error { color: #b91c1c; }
 .result { margin-top: 8px; }
 </style>

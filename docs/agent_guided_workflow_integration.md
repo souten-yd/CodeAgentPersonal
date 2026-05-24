@@ -712,6 +712,13 @@
 - Agent move remains Phase 31.1.
 - Destructive actions remain gated and not automated.
 
+## Phase 31.4 note (Atlas Requirement intake preview foundation)
+- Atlas Next Requirement input now has a backend read-only preview contract at `/api/atlas/requirements/preview`.
+- The preview normalizes Atlas/Vue/API input source, reports planning readiness, and returns safety flags proving no mutation, execution, patch apply, git operation, autonomous execution, or self-modification occurred.
+- Vue Next may display the preview result before creating planning metadata, but Vue remains non-authoritative and does not compute execution eligibility.
+- The legacy `ui.html` default surface and backend workflow state authority are unchanged.
+- No approval / dry-run execution / execute / patch apply / verify / rollback / retry behavior is introduced.
+
 
 ## PR1 Atlas Autopilot foundation
 - Atlas is the primary code generation, planning, execution preview, patch review, verification, and run audit workbench.

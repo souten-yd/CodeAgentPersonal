@@ -279,6 +279,34 @@ export type CreatePlanPoolRequest = {
   workspace_id?: string
 }
 
+export type RequirementIntakePreview = {
+  schema_version: 'atlas.requirement_intake_preview.v1'
+  contract: 'read_only_requirement_intake'
+  status: string
+  source: string
+  normalized_input: string
+  input_length: number
+  can_start_planning: boolean
+  blocked_reasons: string[]
+  warnings: string[]
+  project_path: string
+  project_name: string
+  workspace_id: string
+  planning_depth: string
+  safety: {
+    runtime_level: 'level_0_manual_only' | string
+    backend_workflow_state_authoritative: true
+    vue_source_of_truth: false
+    vue_execution_capability: 'none'
+    mutation_performed: false
+    execution_performed: false
+    patch_apply_performed: false
+    git_operation_performed: false
+    autonomous_execution_enabled: false
+    self_modification_enabled: false
+  }
+}
+
 export type CreatePlanPoolResponse = {
   pool_id: string
   status: string
@@ -322,4 +350,26 @@ export async function createPlanPool(request: CreatePlanPoolRequest): Promise<Cr
   }
 
   return await response.json() as CreatePlanPoolResponse
+}
+
+export async function previewRequirementIntake(request: CreatePlanPoolRequest): Promise<RequirementIntakePreview> {
+  const response = await fetch('/api/atlas/requirements/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      input: request.input,
+      source: 'vue_next',
+      project_path: request.project_path ?? '',
+      project_name: request.project_name ?? 'CodeAgentPersonal',
+      planning_depth: request.planning_depth ?? 'standard',
+      workspace_id: request.workspace_id ?? 'default',
+      metadata: { ui: 'atlas_next_requirement_input', read_only_preview: true }
+    })
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to preview Atlas Requirement input.')
+  }
+
+  return await response.json() as RequirementIntakePreview
 }
