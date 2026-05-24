@@ -124,6 +124,17 @@
         </ul>
       </div>
       <div class="comparison-box">
+        <p><b>local diff labels:</b> browser-local/display-only labels for diff rows; never uploaded.</p>
+        <div class="metadata-actions" role="group" aria-label="Readiness local history diff label actions">
+          <button type="button" class="filter-btn" :disabled="!labeledDiffItems.length" @click="clearDiffLabels">Clear local labels</button>
+          <span class="metadata-status">{{ diffLabelStatus }}</span>
+        </div>
+        <ul v-if="labeledDiffItems.length">
+          <li v-for="item in labeledDiffItems" :key="`label-${item.id}`">{{ item.label }} => {{ item.local_label }}</li>
+        </ul>
+        <p><b>label summary:</b> {{ labeledDiffSummaryText }}</p>
+      </div>
+      <div class="comparison-box">
         <p><b>local diff annotation:</b> browser-local/display-only notes for current diff view; never uploaded.</p>
         <textarea v-model="diffAnnotationText" rows="4" class="metadata-input" placeholder="Add local review notes for this displayed diff."></textarea>
         <div class="metadata-actions" role="group" aria-label="Readiness local history diff annotation actions">
@@ -140,13 +151,13 @@
       </ul>
       <ul v-if="visibleAddedGates.length || visibleRemovedGates.length">
         <li>filtered added gates: {{ visibleAddedGates.join(', ') || '-' }}</li>
-        <li v-for="gateId in visibleAddedGates" :key="`added-bookmark-${gateId}`"><button type="button" class="filter-btn" @click="toggleDiffBookmark(`added:${gateId}`)">Bookmark added gate {{ gateId }}</button></li>
+        <li v-for="gateId in visibleAddedGates" :key="`added-bookmark-${gateId}`"><button type="button" class="filter-btn" @click="toggleDiffBookmark(`added:${gateId}`)">Bookmark added gate {{ gateId }}</button> <select :value="diffLabelMap[`added:${gateId}`] || ''" @change="setDiffLabel(`added:${gateId}`, ($event.target as HTMLSelectElement).value)"> <option value="">No local label</option><option v-for="opt in DIFF_LABEL_OPTIONS" :key="`added-${gateId}-${opt}`" :value="opt">{{ opt }}</option></select><button type="button" class="filter-btn" @click="clearDiffLabel(`added:${gateId}`)">Clear label</button></li>
         <li>filtered removed gates: {{ visibleRemovedGates.join(', ') || '-' }}</li>
-        <li v-for="gateId in visibleRemovedGates" :key="`removed-bookmark-${gateId}`"><button type="button" class="filter-btn" @click="toggleDiffBookmark(`removed:${gateId}`)">Bookmark removed gate {{ gateId }}</button></li>
+        <li v-for="gateId in visibleRemovedGates" :key="`removed-bookmark-${gateId}`"><button type="button" class="filter-btn" @click="toggleDiffBookmark(`removed:${gateId}`)">Bookmark removed gate {{ gateId }}</button> <select :value="diffLabelMap[`removed:${gateId}`] || ''" @change="setDiffLabel(`removed:${gateId}`, ($event.target as HTMLSelectElement).value)"> <option value="">No local label</option><option v-for="opt in DIFF_LABEL_OPTIONS" :key="`removed-${gateId}-${opt}`" :value="opt">{{ opt }}</option></select><button type="button" class="filter-btn" @click="clearDiffLabel(`removed:${gateId}`)">Clear label</button></li>
       </ul>
       <table v-if="visibleChangedGates.length" class="gate-table">
         <thead><tr><th>gate_id</th><th>before_status</th><th>after_status</th><th>before_evidence_available</th><th>after_evidence_available</th><th>before_blocker_reason</th><th>after_blocker_reason</th></tr></thead>
-        <tbody><tr v-for="gate in visibleChangedGates" :key="gate.gate_id"><td>{{ gate.gate_id }}<button type="button" class="filter-btn" @click="toggleDiffBookmark(`changed:${gate.gate_id}`)">Bookmark changed gate</button></td><td>{{ gate.before_status }}</td><td>{{ gate.after_status }}</td><td>{{ gate.before_evidence_available }}</td><td>{{ gate.after_evidence_available }}</td><td>{{ gate.before_blocker_reason || '-' }}</td><td>{{ gate.after_blocker_reason || '-' }}</td></tr></tbody>
+        <tbody><tr v-for="gate in visibleChangedGates" :key="gate.gate_id"><td>{{ gate.gate_id }}<button type="button" class="filter-btn" @click="toggleDiffBookmark(`changed:${gate.gate_id}`)">Bookmark changed gate</button> <select :value="diffLabelMap[`changed:${gate.gate_id}`] || ''" @change="setDiffLabel(`changed:${gate.gate_id}`, ($event.target as HTMLSelectElement).value)"> <option value="">No local label</option><option v-for="opt in DIFF_LABEL_OPTIONS" :key="`changed-${gate.gate_id}-${opt}`" :value="opt">{{ opt }}</option></select><button type="button" class="filter-btn" @click="clearDiffLabel(`changed:${gate.gate_id}`)">Clear label</button></td><td>{{ gate.before_status }}</td><td>{{ gate.after_status }}</td><td>{{ gate.before_evidence_available }}</td><td>{{ gate.after_evidence_available }}</td><td>{{ gate.before_blocker_reason || '-' }}</td><td>{{ gate.after_blocker_reason || '-' }}</td></tr></tbody>
       </table>
     </div>
   </StatusCard>
@@ -224,10 +235,14 @@ const diffAfterStatusSummaryText = computed(() => summarizeBy(visibleChangedGate
 const diffExportStatus = ref('Local diff export idle.')
 const DIFF_ANNOTATION_STORAGE_KEY = 'atlas.level1.readiness.diff.annotation.draft'
 const DIFF_BOOKMARK_STORAGE_KEY = 'atlas.level1.readiness.diff.bookmarks'
+const DIFF_LABEL_STORAGE_KEY = 'atlas.level1.readiness.diff.labels'
+const DIFF_LABEL_OPTIONS = ['Needs review', 'Evidence issue', 'Blocker changed', 'Resolved', 'Follow up', 'Ignore locally'] as const
 const diffAnnotationText = ref('')
 const diffAnnotationStatus = ref('Local diff annotation idle.')
 const diffBookmarkIds = ref<string[]>([])
 const diffBookmarkStatus = ref('Local diff bookmarks idle.')
+const diffLabelMap = ref<Record<string, string>>({})
+const diffLabelStatus = ref('Local diff labels idle.')
 
 
 const allDiffBookmarkItems = computed(() => {
@@ -240,12 +255,42 @@ const allDiffBookmarkItems = computed(() => {
 })
 const bookmarkedDiffItems = computed(() => allDiffBookmarkItems.value.filter((item)=>diffBookmarkIds.value.includes(item.id)))
 const bookmarkedDiffSummaryText = computed(() => bookmarkedDiffItems.value.map((item)=>item.label).join(' | ') || '-')
+const labeledDiffItems = computed(() => allDiffBookmarkItems.value
+  .filter((item) => typeof diffLabelMap.value[item.id] === 'string' && diffLabelMap.value[item.id].trim())
+  .map((item) => ({ ...item, local_label: diffLabelMap.value[item.id] })))
+const labeledDiffSummaryText = computed(() => labeledDiffItems.value.map((item) => `${item.local_label}:${item.id}`).join(' | ') || '-')
 function toggleDiffBookmark(id: string): void {
   diffBookmarkIds.value = diffBookmarkIds.value.includes(id) ? diffBookmarkIds.value.filter((v)=>v!==id) : [...diffBookmarkIds.value,id]
   saveDiffBookmarks()
   diffBookmarkStatus.value = diffBookmarkIds.value.includes(id) ? 'Bookmarked local diff item.' : 'Removed local diff bookmark.'
 }
 function clearDiffBookmarks(): void { diffBookmarkIds.value = []; if (typeof window!=='undefined') window.localStorage.removeItem(DIFF_BOOKMARK_STORAGE_KEY); diffBookmarkStatus.value='Cleared local diff bookmarks.' }
+
+function setDiffLabel(id: string, label: string): void {
+  if (!label) {
+    clearDiffLabel(id)
+    return
+  }
+  diffLabelMap.value = { ...diffLabelMap.value, [id]: label }
+  saveDiffLabels()
+  diffLabelStatus.value = 'Updated local diff label.'
+}
+function clearDiffLabel(id: string): void {
+  if (!(id in diffLabelMap.value)) return
+  const next = { ...diffLabelMap.value }
+  delete next[id]
+  diffLabelMap.value = next
+  saveDiffLabels()
+  diffLabelStatus.value = 'Cleared local diff label.'
+}
+function clearDiffLabels(): void {
+  diffLabelMap.value = {}
+  if (typeof window !== 'undefined') window.localStorage.removeItem(DIFF_LABEL_STORAGE_KEY)
+  diffLabelStatus.value = 'Cleared local diff labels.'
+}
+function saveDiffLabels(): void { if (typeof window !== 'undefined') window.localStorage.setItem(DIFF_LABEL_STORAGE_KEY, JSON.stringify(diffLabelMap.value)) }
+function loadDiffLabels(): void { try { if (typeof window==='undefined') return; const raw=window.localStorage.getItem(DIFF_LABEL_STORAGE_KEY); if (!raw) return; const parsed=JSON.parse(raw); if (parsed && typeof parsed==='object' && !Array.isArray(parsed)) diffLabelMap.value=Object.fromEntries(Object.entries(parsed).filter(([k,v])=>typeof k==='string' && typeof v==='string')) } catch {} }
+
 function saveDiffBookmarks(): void { if (typeof window!=='undefined') window.localStorage.setItem(DIFF_BOOKMARK_STORAGE_KEY, JSON.stringify(diffBookmarkIds.value)) }
 function loadDiffBookmarks(): void { try { if (typeof window==='undefined') return; const raw=window.localStorage.getItem(DIFF_BOOKMARK_STORAGE_KEY); if (!raw) return; const parsed=JSON.parse(raw); if (Array.isArray(parsed)) diffBookmarkIds.value=parsed.filter((v)=>typeof v==='string') } catch {} }
 
@@ -271,6 +316,9 @@ function filteredDiffSummaryText(): string {
   if (bookmarkedDiffItems.value.length) {
     lines.push('bookmarks_local_only=' + bookmarkedDiffSummaryText.value)
   }
+  if (labeledDiffItems.value.length) {
+    lines.push('labels_local_only=' + labeledDiffSummaryText.value)
+  }
   if (diffAnnotationText.value.trim()) {
     lines.push('annotation_local_only=' + diffAnnotationText.value.trim())
   }
@@ -286,6 +334,8 @@ function annotatedDiffExportJsonText(): Record<string, unknown> {
     local_diff_annotation_local_only: true,
     local_diff_bookmarks: bookmarkedDiffItems.value,
     local_diff_bookmarks_local_only: true,
+    local_diff_labels: labeledDiffItems.value,
+    local_diff_labels_local_only: true,
   }
 }
 
