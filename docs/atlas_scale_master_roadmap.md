@@ -4,9 +4,9 @@
 
 This file is the single human-readable source of truth for Atlas automation planning.
 
-- Completed automation PR: PR-ATLAS-SCALE-121
-- Current automation track: PR-ATLAS-SCALE-122
-- Next automation track after this correction: PR-ATLAS-SCALE-122
+- Completed automation PR: PR-ATLAS-SCALE-122
+- Current automation track: PR-ATLAS-SCALE-123
+- Next automation track after this correction: PR-ATLAS-SCALE-123
 - Current runtime level: level_0_manual_only
 - Target runtime level: level_1_guarded_single_step
 - Final goal: fully_autonomous_code_agent
@@ -58,6 +58,7 @@ SCALE-113 starts the Level-1 Advancement Preparation phase. The purpose of this 
 - SCALE-119 completed: approval token backend contract added as digest-only metadata, no execution or autonomous authorization.
 - SCALE-120 completed: Vue dry-run result viewer added as display-only backend-owned metadata view, no dry-run start or execution capability.
 - SCALE-121 completed: disabled single allowlisted command runner contract added as default-disabled metadata, no command execution.
+- SCALE-122 completed: execution artifact capture v1 schema added as one-action metadata capture, no loop or execution enablement.
 Next PRs must advance Level-1 readiness evidence or the roadmap/validator itself.
 
 They must not add another local-only diff label/bookmark/annotation UX unless explicitly approved as a PR-B drift repair or a user-requested exception.
