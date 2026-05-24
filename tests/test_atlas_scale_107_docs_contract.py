@@ -23,7 +23,7 @@ def _section(text: str, heading: str) -> str:
     return rest[:next_idx] if next_idx != -1 else rest
 
 
-def test_active_pr_pointer_and_current_track_sections_are_scale_108():
+def test_active_pr_pointer_and_current_track_sections_are_scale_109_chain():
     for path in DOC_PATHS:
         text = _read(path)
 
@@ -45,7 +45,7 @@ def test_active_pr_pointer_and_current_track_sections_are_scale_108():
         else:
             continue
 
-        assert 'Completed automation PR: PR-ATLAS-SCALE-107' in active
+        assert 'Completed automation PR: PR-ATLAS-SCALE-108' in active
         assert 'Current automation track: PR-ATLAS-SCALE-109' in active
         assert 'Next automation track: PR-ATLAS-SCALE-109' in active
 
@@ -65,7 +65,7 @@ def test_scale_107_completion_and_safety_statements_remain_present():
         'Level-1/autonomous execution remain disabled',
         'backend workflow_state remains authoritative',
         'Vue execution capability remains none',
-        'next PR may add local-only diff labels, not execution enable',
+        'next PR may add local-only diff label filtering, not execution enable',
         'desktop submenu/right-pane layout regression contract',
     ]
     for token in required_tokens:
