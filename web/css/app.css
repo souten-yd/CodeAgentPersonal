@@ -262,11 +262,17 @@ html.logo-svg-ready .logo-text{display:none}
   }
 }
 @media(min-width:769px){
-  .chat-col,.echo-col,.agent-col{flex:1 1 auto;min-width:0;border-right:1px solid var(--border)}
-  .nexus-col{flex:1 1 auto;min-width:0}
-  .panel-col{flex:0 0 var(--panel-col-width, min(46vw, 560px));min-width:260px;max-width:75vw}
-  .agent-panel-col{flex:0 0 min(42vw, 520px);min-width:240px;max-width:70vw}
-  .panel-resizer{display:block}
+  .app-body{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 8px minmax(300px,var(--panel-col-width,360px));
+    grid-template-areas:"main resizer side";
+    align-items:stretch;
+  }
+  .chat-col,.echo-col,.agent-col{grid-area:main;min-width:0;border-right:1px solid var(--border)}
+  .nexus-col{grid-area:main;min-width:0}
+  .panel-col{grid-area:side;min-width:300px;max-width:min(46vw,560px);width:100%}
+  .agent-panel-col{grid-area:side;min-width:240px;max-width:min(42vw,520px);width:100%}
+  .panel-resizer{grid-area:resizer;display:block}
 }
 
 /* ── CHAT COL ── */
