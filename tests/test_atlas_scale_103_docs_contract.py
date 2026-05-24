@@ -6,7 +6,7 @@ def test_docs_scale_103_state_and_104_next_track():
     required=[
         'PR-ATLAS-SCALE-103 completed',
         'Completed automation PR: PR-ATLAS-SCALE-103',
-        'Current automation track: PR-ATLAS-SCALE-106',
+        'Current automation track: PR-ATLAS-SCALE-107',
         'Next automation track: PR-ATLAS-SCALE-104',
     ]
     for token in required:
@@ -25,8 +25,8 @@ def test_docs_forbid_stale_scale_103_current_state_lines():
 
 def test_docs_require_scale_104_next_work_and_ui_track():
     required = [
-        'Planned UI track: return to PR-ATLAS-SCALE-106 automation track',
-        'next work is PR-ATLAS-SCALE-106',
+        'Planned UI track: return to PR-ATLAS-SCALE-107 automation track',
+        'next work is PR-ATLAS-SCALE-107',
         'PR-ATLAS-SCALE-104 may add local-only diff filtering/grouping',
         'backend workflow_state remains authoritative',
     ]
