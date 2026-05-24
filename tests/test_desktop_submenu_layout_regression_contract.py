@@ -75,3 +75,24 @@ def test_panel_structure_not_nested_in_chat_input_container():
     panel_pos = app_body.index('<div class="panel-col mob-hidden" id="panel-col">')
 
     assert input_pos < resizer_pos < panel_pos
+
+
+def test_chat_column_contains_messages_and_input_area_structure():
+    chat_col = UI.split('<div class="chat-col" id="chat-col">', 1)[1].split('<!-- ATLAS MODE -->', 1)[0]
+    assert 'class="messages"' in chat_col and 'id="messages"' in chat_col
+    assert '<div class="input-area">' in chat_col
+    assert '<textarea id="input"' in chat_col
+
+
+def test_desktop_mode_switch_clears_mobile_hidden_classes_for_columns():
+    assert "if (window.innerWidth > 768) {" in UI
+    for token in (
+        "chatCol?.classList.remove('mob-hidden');",
+        "panelCol?.classList.remove('mob-hidden');",
+        "echoCol?.classList.remove('mob-hidden');",
+        "agentCol?.classList.remove('mob-hidden');",
+        "agentPanelCol?.classList.remove('mob-hidden');",
+        "atlasPanelCol?.classList.remove('mob-hidden');",
+        "nexusCol?.classList.remove('mob-hidden');",
+    ):
+        assert token in UI

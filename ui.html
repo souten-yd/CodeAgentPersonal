@@ -6281,6 +6281,16 @@ function setMode(m, options = {}) {
     _setEchoTabVisibility(false);
   }
 
+  if (window.innerWidth > 768) {
+    chatCol?.classList.remove('mob-hidden');
+    echoCol?.classList.remove('mob-hidden');
+    panelCol?.classList.remove('mob-hidden');
+    agentCol?.classList.remove('mob-hidden');
+    agentPanelCol?.classList.remove('mob-hidden');
+    atlasPanelCol?.classList.remove('mob-hidden');
+    nexusCol?.classList.remove('mob-hidden');
+  }
+
   syncAgentSessionUi();
 
   if (window.innerWidth <= 768) {
