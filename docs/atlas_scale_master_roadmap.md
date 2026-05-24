@@ -16,9 +16,9 @@
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-108 automation track
-- Current automation track: PR-ATLAS-SCALE-108
-- Next automation track: PR-ATLAS-SCALE-108
+- Planned UI track: return to PR-ATLAS-SCALE-109 automation track
+- Current automation track: PR-ATLAS-SCALE-109
+- Next automation track: PR-ATLAS-SCALE-109
 - PR-ATLAS-SCALE-106 completed: local-only readiness metadata history diff annotations for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 - SCALE-94 is disabled backend skeleton candidate only
 - `/` is guarded Atlas Next default only when validated dist passes
@@ -30,13 +30,13 @@
 - Vue execution capability remains none
 - VUE21 completed default-enable only, not execution-enable
 - Level-1 execution remains disabled
-- next work is PR-ATLAS-SCALE-108
+- next work is PR-ATLAS-SCALE-109
 
 ## Active PR Pointer (Updated)
 
 - Completed automation PR: PR-ATLAS-SCALE-107
-- Current automation track: PR-ATLAS-SCALE-108
-- Next automation track: PR-ATLAS-SCALE-108
+- Current automation track: PR-ATLAS-SCALE-109
+- Next automation track: PR-ATLAS-SCALE-109
 - PR-ATLAS-SCALE-106 completed: local-only readiness metadata history diff annotations for currently computed and filtered diff results; browser-local/display-only; no metadata upload; no backend mutation; no readiness decision; no execution eligibility computation; no execution controls; runtime remains level_0_manual_only; Level-1/autonomous execution remain disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 
 Completed:
@@ -893,10 +893,10 @@ Current automation track: PR-ATLAS-SCALE-99
 
 - Completed UI PRs: PR-ATLAS-VUE-01 through PR-ATLAS-VUE-21
 - Current UI track: Vue defaultization complete
-- Planned UI track: return to PR-ATLAS-SCALE-108 automation track
-- Current automation track: PR-ATLAS-SCALE-108
-- Next automation track: PR-ATLAS-SCALE-108
-- next work is PR-ATLAS-SCALE-108
+- Planned UI track: return to PR-ATLAS-SCALE-109 automation track
+- Current automation track: PR-ATLAS-SCALE-109
+- Next automation track: PR-ATLAS-SCALE-109
+- next work is PR-ATLAS-SCALE-109
 - runtime remains level_0_manual_only
 - Vue execution capability remains none
 - Backend workflow_state remains authoritative
@@ -908,7 +908,7 @@ Current automation track: PR-ATLAS-SCALE-99
 - Historical marker preserved for compatibility: Next PR may add local-only diff export and must not enable execution.
 
 - Historical marker preserved for compatibility: PR-ATLAS-SCALE-104 may add local-only diff filtering/grouping
-- SCALE-107 completion pointer: Completed automation PR: PR-ATLAS-SCALE-107; Current automation track: PR-ATLAS-SCALE-108; Next automation track: PR-ATLAS-SCALE-108; next work is PR-ATLAS-SCALE-108.
+- SCALE-107 completion pointer: Completed automation PR: PR-ATLAS-SCALE-107; Current automation track: PR-ATLAS-SCALE-109; Next automation track: PR-ATLAS-SCALE-109; next work is PR-ATLAS-SCALE-109.
 
 - Compatibility pointer: Completed automation PR: PR-ATLAS-SCALE-106
 
@@ -916,12 +916,14 @@ Current automation track: PR-ATLAS-SCALE-99
 
 
 - Completed automation PR: PR-ATLAS-SCALE-108
-- Current automation track: PR-ATLAS-SCALE-108
-- Next automation track: PR-ATLAS-SCALE-108
+- Current automation track: PR-ATLAS-SCALE-109
+- Next automation track: PR-ATLAS-SCALE-109
 - SCALE-108 added local-only readiness metadata history diff labels (browser-local/display-only; no upload; no backend mutation; no readiness decision; no execution eligibility computation).
 - Level-1 execution remains disabled; runtime remains level_0_manual_only; autonomous execution remains disabled; backend workflow_state remains authoritative; Vue execution capability remains none.
 
-- Planned UI track: return to PR-ATLAS-SCALE-108 automation track
-- Current automation track: PR-ATLAS-SCALE-108
-- Next automation track: PR-ATLAS-SCALE-108
-- next work is PR-ATLAS-SCALE-108
+- Planned UI track: return to PR-ATLAS-SCALE-109 automation track
+- Current automation track: PR-ATLAS-SCALE-109
+- Next automation track: PR-ATLAS-SCALE-109
+- next work is PR-ATLAS-SCALE-109
+
+- next PR may add local-only diff label filtering, not execution enable.

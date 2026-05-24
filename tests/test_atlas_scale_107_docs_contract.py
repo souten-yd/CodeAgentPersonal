@@ -28,10 +28,10 @@ def test_active_pr_pointer_and_current_track_sections_are_scale_108():
         text = _read(path)
 
         current_state = _section(text, 'Current Atlas Vue UI Track State')
-        assert 'Planned UI track: return to PR-ATLAS-SCALE-108 automation track' in current_state
-        assert 'Current automation track: PR-ATLAS-SCALE-108' in current_state
-        assert 'Next automation track: PR-ATLAS-SCALE-108' in current_state
-        assert 'next work is PR-ATLAS-SCALE-108' in current_state
+        assert 'Planned UI track: return to PR-ATLAS-SCALE-109 automation track' in current_state
+        assert 'Current automation track: PR-ATLAS-SCALE-109' in current_state
+        assert 'Next automation track: PR-ATLAS-SCALE-109' in current_state
+        assert 'next work is PR-ATLAS-SCALE-109' in current_state
 
         assert 'Planned UI track: return to PR-ATLAS-SCALE-107 automation track' not in current_state
         assert 'Current automation track: PR-ATLAS-SCALE-107' not in current_state
@@ -46,8 +46,8 @@ def test_active_pr_pointer_and_current_track_sections_are_scale_108():
             continue
 
         assert 'Completed automation PR: PR-ATLAS-SCALE-107' in active
-        assert 'Current automation track: PR-ATLAS-SCALE-108' in active
-        assert 'Next automation track: PR-ATLAS-SCALE-108' in active
+        assert 'Current automation track: PR-ATLAS-SCALE-109' in active
+        assert 'Next automation track: PR-ATLAS-SCALE-109' in active
 
 
 def test_scale_107_completion_and_safety_statements_remain_present():
