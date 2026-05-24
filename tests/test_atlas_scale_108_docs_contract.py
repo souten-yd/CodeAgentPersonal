@@ -12,5 +12,5 @@ def test_docs_track_progression_and_no_stale_current_state():
     for doc in DOCS:
         text = Path(doc).read_text(encoding='utf-8')
         assert 'Completed automation PR: PR-ATLAS-SCALE-108' in text
-        assert 'Current automation track: PR-ATLAS-SCALE-108' in text
-        assert 'Next automation track: PR-ATLAS-SCALE-108' in text
+        assert 'Current automation track: PR-ATLAS-SCALE-109' in text
+        assert 'Next automation track: PR-ATLAS-SCALE-109' in text
