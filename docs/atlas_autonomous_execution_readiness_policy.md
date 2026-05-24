@@ -11,17 +11,55 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-112
-- Current automation track: PR-ATLAS-SCALE-113
-- Next automation track after this correction: PR-ATLAS-SCALE-114
+- Completed automation PR: PR-ATLAS-SCALE-117
+- Current automation track: PR-ATLAS-SCALE-118
+- Next automation track after this correction: PR-ATLAS-SCALE-118
 - Current level: Level 0 manual only
 - Target level: Level 1 guarded single-step automation
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
-PR-ATLAS-SCALE-113 is a roadmap correction and consolidation PR. It does not enable execution.
+PR-ATLAS-SCALE-117 added a dry-run-only backend endpoint skeleton. It does not enable execution, persistence, verification, patch apply, rollback, retry, remote git, or auto-continue.
 
 Manual execution remains the only allowed execution mode until the explicit Level-1 runtime transition checkpoint.
+
+## Contract phrase lock
+
+This policy does not enable autonomous execution. Current Atlas state remains Level 0. Future PRs must explicitly move levels.
+
+- Backend workflow state is authoritative.
+- ThinUI remains supervision layer.
+- CLI should use the same backend workflow contract.
+- allowlist does not execute commands.
+- recommended commands remain suggestions only.
+- no arbitrary command execution.
+- explicit approval is mandatory for medium/high/strict risk.
+- EXECUTE ONE ACTION remains required.
+- strict_gate always requires explicit approval.
+- gate readiness does not execute automatically.
+- restore plan is required and must be valid.
+- restore remains manual-only.
+- automatic rollback requires a future explicit policy PR.
+- plan / intent summary, patch transaction manifest, dry-run result, execution result, verification plan, verification result, warnings and recovery instructions, and resolved data_root are required evidence classes.
+- artifact capture is metadata-only in PR-87 and does not execute actions.
+- artifact capture does not create fake execution results.
+- artifact capture does not create fake verification results.
+- missing references are recorded explicitly.
+- stop state must be visible in ThinUI/CLI.
+- stop metadata does not stop real jobs or kill processes.
+- metadata-only self-improvement gate is required; autonomous self-improvement remains disabled; automatic self-modification remains disabled; self-modification is strict-gate by default.
+- Level 1: Guarded single-step automation candidate.
+- Level 2: Guarded bounded loop candidate.
+- Level 3: Autonomous implementation loop candidate.
+- execute all remains forbidden.
+- auto continue remains forbidden.
+- automatic safe_apply, automatic verification, automatic retry, automatic rollback, and automatic patch generation remain disabled.
+- no git push, no git pull, no git clone, no git fetch, no git remote, no direct merge, and no automatic PR creation.
+- draft PR creation requires a future explicit policy PR.
+- max actions per loop, max retries, max runtime, max files changed, and max risk level are mandatory.
+- No unbounded autonomous loop.
+- Auto-continue remains disabled.
+- Execute-all remains forbidden.
 
 ## Non-negotiable safety invariants
 
