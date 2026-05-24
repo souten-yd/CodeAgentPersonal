@@ -44,3 +44,9 @@ def test_scale_112_label_conflict_resolution_ui_and_local_only_safety_contract()
     ]
     for token in forbidden:
         assert token not in text
+
+
+def test_scale_112_imported_diff_labels_are_restricted_to_known_options_only():
+    text = Path('web/atlas-next/src/components/Level1ReadinessPanel.vue').read_text(encoding='utf-8')
+    assert 'DIFF_LABEL_OPTIONS.includes(label as (typeof DIFF_LABEL_OPTIONS)[number])' in text
+    assert 'Imported ${result.importedCount} label(s); skipped ${result.skipped} invalid item(s) (${mode}).' in text
