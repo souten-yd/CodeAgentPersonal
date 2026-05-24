@@ -125,6 +125,15 @@
       </div>
       <div class="comparison-box">
         <p><b>local diff labels:</b> browser-local/display-only labels for diff rows; never uploaded.</p>
+        <div class="metadata-actions" role="group" aria-label="Readiness local history diff label filtering controls">
+          <label>Label filter:
+            <select v-model="activeDiffLabelFilter">
+              <option v-for="opt in labelFilterOptions" :key="`label-filter-${opt.value}`" :value="opt.value">{{ opt.label }}</option>
+            </select>
+          </label>
+          <button type="button" class="filter-btn" :disabled="activeDiffLabelFilter === 'all'" @click="clearDiffLabelFilter">Clear label filter</button>
+          <span class="metadata-status">{{ labelFilterStatusText }}</span>
+        </div>
         <div class="metadata-actions" role="group" aria-label="Readiness local history diff label actions">
           <button type="button" class="filter-btn" :disabled="!labeledDiffItems.length" @click="clearDiffLabels">Clear local labels</button>
           <span class="metadata-status">{{ diffLabelStatus }}</span>
@@ -133,6 +142,7 @@
           <li v-for="item in labeledDiffItems" :key="`label-${item.id}`">{{ item.label }} => {{ item.local_label }}</li>
         </ul>
         <p><b>label summary:</b> {{ labeledDiffSummaryText }}</p>
+        <p><b>label filter summary:</b> {{ labelFilterSummaryText }}</p>
       </div>
       <div class="comparison-box">
         <p><b>local diff annotation:</b> browser-local/display-only notes for current diff view; never uploaded.</p>
@@ -243,6 +253,8 @@ const diffBookmarkIds = ref<string[]>([])
 const diffBookmarkStatus = ref('Local diff bookmarks idle.')
 const diffLabelMap = ref<Record<string, string>>({})
 const diffLabelStatus = ref('Local diff labels idle.')
+type DiffLabelFilter = 'all' | 'unlabeled' | (typeof DIFF_LABEL_OPTIONS)[number]
+const activeDiffLabelFilter = ref<DiffLabelFilter>('all')
 
 
 const allDiffBookmarkItems = computed(() => {
@@ -259,6 +271,19 @@ const labeledDiffItems = computed(() => allDiffBookmarkItems.value
   .filter((item) => typeof diffLabelMap.value[item.id] === 'string' && diffLabelMap.value[item.id].trim())
   .map((item) => ({ ...item, local_label: diffLabelMap.value[item.id] })))
 const labeledDiffSummaryText = computed(() => labeledDiffItems.value.map((item) => `${item.local_label}:${item.id}`).join(' | ') || '-')
+const labelFilterOptions = computed(() => [
+  { value: 'all', label: 'Show all labels' },
+  { value: 'unlabeled', label: 'Show unlabeled only' },
+  ...DIFF_LABEL_OPTIONS.map((value) => ({ value, label: `Label: ${value}` })),
+])
+const visibleDiffItemsForLabelFilter = computed(() => {
+  if (activeDiffLabelFilter.value === 'all') return allDiffBookmarkItems.value
+  if (activeDiffLabelFilter.value === 'unlabeled') return allDiffBookmarkItems.value.filter((item) => !(diffLabelMap.value[item.id] || '').trim())
+  return allDiffBookmarkItems.value.filter((item) => diffLabelMap.value[item.id] === activeDiffLabelFilter.value)
+})
+const labelFilterSummaryText = computed(() => `visible_items=${visibleDiffItemsForLabelFilter.value.length}/${allDiffBookmarkItems.value.length}`)
+const labelFilterStatusText = computed(() => `Local label filter: ${activeDiffLabelFilter.value} (display-only)`)
+function clearDiffLabelFilter(): void { activeDiffLabelFilter.value = 'all' }
 function toggleDiffBookmark(id: string): void {
   diffBookmarkIds.value = diffBookmarkIds.value.includes(id) ? diffBookmarkIds.value.filter((v)=>v!==id) : [...diffBookmarkIds.value,id]
   saveDiffBookmarks()
@@ -319,6 +344,8 @@ function filteredDiffSummaryText(): string {
   if (labeledDiffItems.value.length) {
     lines.push('labels_local_only=' + labeledDiffSummaryText.value)
   }
+  lines.push('label_filter_local_only=' + activeDiffLabelFilter.value)
+  lines.push('label_filter_summary=' + labelFilterSummaryText.value)
   if (diffAnnotationText.value.trim()) {
     lines.push('annotation_local_only=' + diffAnnotationText.value.trim())
   }
@@ -336,6 +363,9 @@ function annotatedDiffExportJsonText(): Record<string, unknown> {
     local_diff_bookmarks_local_only: true,
     local_diff_labels: labeledDiffItems.value,
     local_diff_labels_local_only: true,
+    local_diff_label_filter: activeDiffLabelFilter.value,
+    local_diff_label_filter_local_only: true,
+    local_diff_label_filter_summary: labelFilterSummaryText.value,
   }
 }
 
