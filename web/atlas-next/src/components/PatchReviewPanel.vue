@@ -7,6 +7,14 @@
         <dd>{{ candidateState }}</dd>
       </div>
       <div>
+        <dt>Preview status</dt>
+        <dd>{{ previewStatus }}</dd>
+      </div>
+      <div>
+        <dt>Risk class</dt>
+        <dd>{{ riskClass }}</dd>
+      </div>
+      <div>
         <dt>Apply readiness</dt>
         <dd>{{ applyReadiness }}</dd>
       </div>
@@ -20,6 +28,7 @@
       </div>
     </dl>
     <p class="backend-note"><b>Patch transaction source:</b> {{ snapshot.patchTransaction.source }}</p>
+    <p v-if="warningSummary" class="backend-note"><b>Preview warnings:</b> {{ warningSummary }}</p>
   </StatusCard>
 </template>
 
@@ -40,6 +49,10 @@ const candidateState = computed(() => {
   return 'Waiting for Start Atlas and Plan Review metadata.'
 })
 
+const previewStatus = computed(() => props.snapshot.patchTransaction.previewStatus)
+const riskClass = computed(() => props.snapshot.patchTransaction.riskClass)
+const warningSummary = computed(() => props.snapshot.patchTransaction.warnings.join(' / '))
+
 const applyReadiness = computed(() => {
   const gates = props.snapshot.guardedExecutionReview.reviewItems
   const ready = gates.filter((item) => item.ready).length
@@ -47,7 +60,7 @@ const applyReadiness = computed(() => {
 })
 
 const verificationEvidence = computed(() => props.snapshot.patchTransaction.verificationEnabled === false ? 'Verification remains disabled; evidence is display-only.' : 'Unexpected verification capability metadata.')
-const rollbackEvidence = computed(() => props.snapshot.patchTransaction.rollbackEnabled === false ? 'Rollback remains disabled; readiness is display-only.' : 'Unexpected rollback capability metadata.')
+const rollbackEvidence = computed(() => props.snapshot.patchTransaction.rollbackReady ? 'Rollback metadata is ready for manual review only.' : 'Rollback readiness metadata missing or not ready.')
 </script>
 
 <style scoped>
