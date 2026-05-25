@@ -11,6 +11,7 @@
         <RequirementInput />
         <ConversationWorkbench />
         <WorkflowReviewBoard :snapshot="snapshot" />
+        <PatchReviewPanel :snapshot="snapshot" />
         <WorkflowShell :snapshot="snapshot" />
         <SafetySummary :snapshot="snapshot" />
         <ExecutionSafetyBoundary :snapshot="snapshot" />
@@ -32,6 +33,7 @@ import { fetchAtlasWorkflowSnapshot, type AtlasWorkflowSnapshot } from '../api/a
 import ConversationWorkbench from './ConversationWorkbench.vue'
 import RequirementInput from './RequirementInput.vue'
 import WorkflowReviewBoard from './WorkflowReviewBoard.vue'
+import PatchReviewPanel from './PatchReviewPanel.vue'
 import WorkflowShell from './WorkflowShell.vue'
 import SafetySummary from './SafetySummary.vue'
 import ExecutionSafetyBoundary from './ExecutionSafetyBoundary.vue'
