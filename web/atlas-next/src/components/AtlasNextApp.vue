@@ -10,6 +10,7 @@
       <section class="conversation-column">
         <RequirementInput />
         <ConversationWorkbench />
+        <WorkflowReviewBoard :snapshot="snapshot" />
         <WorkflowShell :snapshot="snapshot" />
         <SafetySummary :snapshot="snapshot" />
         <ExecutionSafetyBoundary :snapshot="snapshot" />
@@ -30,6 +31,7 @@ import { onMounted, ref } from 'vue'
 import { fetchAtlasWorkflowSnapshot, type AtlasWorkflowSnapshot } from '../api/atlasClient'
 import ConversationWorkbench from './ConversationWorkbench.vue'
 import RequirementInput from './RequirementInput.vue'
+import WorkflowReviewBoard from './WorkflowReviewBoard.vue'
 import WorkflowShell from './WorkflowShell.vue'
 import SafetySummary from './SafetySummary.vue'
 import ExecutionSafetyBoundary from './ExecutionSafetyBoundary.vue'
