@@ -2,7 +2,7 @@
   <aside class="progress-rail" aria-label="Atlas progress">
     <header>
       <p class="eyebrow">Progress</p>
-      <h2>Atlas run path</h2>
+      <h2>Atlas workflow path</h2>
     </header>
 
     <ol>
@@ -45,35 +45,43 @@ const steps = computed(() => {
   const hasPlanPool = hasBackendSnapshot && props.snapshot.workflowMetadata.planPoolAvailable
   const hasPlan = hasBackendSnapshot && props.snapshot.workflowMetadata.activePlanAvailable
   const hasDryRun = hasBackendSnapshot && props.snapshot.artifacts.dryRun === true
+  const guardedReview = props.snapshot.guardedExecutionReview
+  const hasApprovalReview = hasPlan && guardedReview.reviewItems.length > 0
   return [
     {
-      id: 'requirement',
-      label: 'Requirement',
-      detail: hasRequirement ? 'Requirement metadata available' : 'Start Atlas captures the requirement',
+      id: 'start-atlas',
+      label: 'Start Atlas',
+      detail: hasRequirement ? 'Requirement metadata available' : 'Requirement input starts the backend-owned planning flow',
       state: hasRequirement ? 'done' : 'active'
     },
     {
-      id: 'plan',
-      label: 'Plan',
-      detail: hasPlanPool || hasPlan ? 'Plan metadata is available for review' : 'Plan generation waits for Start Atlas',
+      id: 'plan-review',
+      label: 'Plan Review',
+      detail: hasPlanPool || hasPlan ? 'Plan metadata is available for review' : 'Plan review waits for Start Atlas',
       state: hasPlanPool || hasPlan ? 'done' : 'waiting'
     },
     {
-      id: 'review',
-      label: 'Review',
-      detail: hasPlan ? 'Review the backend-owned plan' : 'Review begins after plan metadata exists',
-      state: hasPlan ? 'active' : 'waiting'
+      id: 'approval-review',
+      label: 'Approval Review',
+      detail: hasApprovalReview ? 'Approval context is visible for human review' : 'Approval remains review-only until backend metadata exists',
+      state: hasApprovalReview ? 'active' : 'waiting'
     },
     {
-      id: 'preview',
+      id: 'execute-preview',
       label: 'Execute Preview',
-      detail: hasDryRun ? 'Dry-run metadata available' : 'Dry-run remains gated',
+      detail: hasDryRun ? 'Dry-run metadata available' : 'Dry-run and execution preview remain gated',
       state: hasDryRun ? 'done' : 'waiting'
     },
     {
-      id: 'execute',
+      id: 'patch-review',
+      label: 'Patch Review',
+      detail: 'Patch candidates remain review-only; Vue does not apply changes',
+      state: 'locked'
+    },
+    {
+      id: 'guarded-execute',
       label: 'Guarded Execute',
-      detail: 'Requires explicit approval and backend gate evidence',
+      detail: 'Requires explicit approval, dry-run evidence, and backend gate checks',
       state: 'locked'
     }
   ]
