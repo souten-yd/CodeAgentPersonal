@@ -10,6 +10,10 @@ def test_atlas_next_patch_review_panel_uses_backend_transaction_metadata() -> No
         'transaction.available',
         'transaction.transactionId',
         'transaction.candidateCount',
+        'snapshot.patchTransaction.previewStatus',
+        'snapshot.patchTransaction.riskClass',
+        'snapshot.patchTransaction.rollbackReady',
+        'snapshot.patchTransaction.warnings',
         'display-only',
     ]:
         assert needle in panel
@@ -36,3 +40,14 @@ def test_atlas_next_patch_transaction_metadata_does_not_enable_actions() -> None
         'advisoryOnly: true',
     ]:
         assert needle in client
+
+
+def test_backend_workflow_state_contract_exposes_patch_preview_detail_fields() -> None:
+    text = Path('app/atlas/workflow_state_contract.py').read_text(encoding='utf-8')
+    for needle in [
+        '"preview_status": metadata_payload.get("patch_transaction_preview_status", "missing")',
+        '"risk_class": metadata_payload.get("patch_transaction_risk_class", "unknown")',
+        '"rollback_ready": bool(metadata_payload.get("patch_transaction_rollback_ready", False))',
+        '"warnings": _coerce_string_list(metadata_payload.get("patch_transaction_warnings"))',
+    ]:
+        assert needle in text
