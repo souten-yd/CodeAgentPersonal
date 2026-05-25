@@ -11,15 +11,15 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-122
-- Current automation track: PR-ATLAS-SCALE-123
-- Next automation track after this correction: PR-ATLAS-SCALE-123
+- Completed automation PR: PR-ATLAS-SCALE-123
+- Current automation track: PR-ATLAS-SCALE-124
+- Next automation track after this correction: PR-ATLAS-SCALE-124
 - Current level: Level 0 manual only
 - Target level: Level 1 guarded single-step automation
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
-PR-ATLAS-SCALE-122 added execution artifact capture v1 metadata. It records one-action execution artifact references while keeping execution disabled; it does not execute commands, authorize execution, mutate project files, continue autonomous loops, run verification, apply patches, rollback, retry, use remote git, or auto-continue.
+PR-ATLAS-SCALE-123 added stop / kill-switch runtime integration metadata. It links stop state to the one-action execution artifact track and blocks continuation after stop while keeping execution disabled; it does not kill processes, stop real jobs, execute commands, authorize execution, mutate project files, continue autonomous loops, run verification, apply patches, rollback, retry, use remote git, or auto-continue.
 
 Manual execution remains the only allowed execution mode until the explicit Level-1 runtime transition checkpoint.
 
