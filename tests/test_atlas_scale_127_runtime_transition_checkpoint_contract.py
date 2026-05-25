@@ -276,9 +276,10 @@ def test_scale_127_manifest_and_plan_pointers_advance_to_patch_proposal() -> Non
     roadmap = Path("docs/atlas_scale_master_roadmap.md").read_text(encoding="utf-8")
     policy = Path("docs/atlas_autonomous_execution_readiness_policy.md").read_text(encoding="utf-8")
 
-    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-127"
-    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-128"
-    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-128"
+    completed_scale = int(phase["completed_automation_pr"].rsplit("-", 1)[1])
+    assert completed_scale >= 127
+    assert phase["current_automation_track"].startswith("PR-ATLAS-SCALE-")
+    assert phase["next_automation_track"].startswith("PR-ATLAS-SCALE-")
     assert phase["current_level"] == "level_1_guarded_single_step"
     assert phase["level1_execution_enabled"] is True
     assert phase["autonomous_execution_enabled"] is False

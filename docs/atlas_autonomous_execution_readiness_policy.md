@@ -11,15 +11,17 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-127
-- Current automation track: PR-ATLAS-SCALE-128
-- Next automation track after this correction: PR-ATLAS-SCALE-128
+- Completed automation PR: PR-ATLAS-SCALE-128
+- Current automation track: PR-ATLAS-SCALE-129
+- Next automation track after this correction: PR-ATLAS-SCALE-129
 - Current level: Level 1 guarded single-step automation
 - Target level: Level 1 guarded single-step automation
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
 PR-ATLAS-SCALE-127 is the explicit Level-1 runtime transition checkpoint. Level-1 is limited to one low-risk allowlisted action after dry-run evidence and explicit approval; the checkpoint does not perform execution, mutate project files, add a public execution route, apply patches, rollback or restore automatically, use remote git, auto-continue, or enable Vue authority.
+
+PR-ATLAS-SCALE-128 adds metadata-only patch proposals. Patch proposals may record target files, rationale, questions, and acceptance criteria, but must not generate diff text, create patch transactions, apply patches, call safe_apply, use remote git, or enable autonomous execution.
 
 Autonomous execution remains disabled after the Level-1 transition checkpoint.
 

@@ -4,9 +4,9 @@
 
 This file is the single human-readable source of truth for Atlas automation planning.
 
-- Completed automation PR: PR-ATLAS-SCALE-127
-- Current automation track: PR-ATLAS-SCALE-128
-- Next automation track after this correction: PR-ATLAS-SCALE-128
+- Completed automation PR: PR-ATLAS-SCALE-128
+- Current automation track: PR-ATLAS-SCALE-129
+- Next automation track after this correction: PR-ATLAS-SCALE-129
 - Current runtime level: level_1_guarded_single_step
 - Target runtime level: level_1_guarded_single_step
 - Final goal: fully_autonomous_code_agent
@@ -64,7 +64,8 @@ SCALE-113 starts the Level-1 Advancement Preparation phase. The purpose of this 
 - SCALE-125 completed: Level-1 guarded single-step endpoint contract added as dry-run and approval gated metadata; callable execution route remains disabled until the explicit runtime transition.
 - SCALE-126 completed: Vue guarded execution review panel added as display-only metadata review; Vue remains non-authoritative and cannot approve, execute, apply, verify, rollback, retry, or continue.
 - SCALE-127 completed: explicit Level-1 runtime transition checkpoint added. Runtime policy is now level_1_guarded_single_step for one low-risk allowlisted action after dry-run evidence and explicit approval; autonomous loop, patch apply, rollback/restore automation, remote git, and Vue authority remain disabled.
-Next PRs must advance the patch / branch / draft PR pipeline without bypassing Level-1 gates.
+- SCALE-128 completed: metadata-only patch proposal generator added. It records proposed target files, rationale, questions, and acceptance criteria without generating diff text, creating patch transactions, applying patches, using safe_apply, running git, or enabling autonomous execution.
+Next PRs must advance patch transaction preview without bypassing Level-1 gates.
 
 They must not add another local-only diff label/bookmark/annotation UX unless explicitly approved as a PR-B drift repair or a user-requested exception.
 
