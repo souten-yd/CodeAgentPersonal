@@ -46,6 +46,19 @@ export type AtlasWorkflowDiagnosticsState = {
   warnings: string[]
 }
 
+export type AtlasPatchTransactionMetadata = {
+  available: boolean
+  transactionId?: string
+  candidateCount: number
+  source: string
+  generationEnabled: false
+  applyEnabled: false
+  safeApplyEnabled: false
+  verificationEnabled: false
+  rollbackEnabled: false
+  advisoryOnly: true
+}
+
 export type AtlasWorkflowSnapshot = {
   goal?: string
   projectPath?: string
@@ -61,6 +74,7 @@ export type AtlasWorkflowSnapshot = {
   diagnostics: AtlasWorkflowDiagnosticsState
   workflowMetadata: AtlasWorkflowRealDataMetadata
   guardedExecutionReview: AtlasGuardedExecutionReviewState
+  patchTransaction: AtlasPatchTransactionMetadata
 }
 
 export type AtlasGuardedExecutionReviewState = {
@@ -125,6 +139,7 @@ export type AtlasBackendWorkflowStateContract = {
   }
   workflow_state_metadata?: Record<string, unknown>
   guarded_execution_review?: Record<string, unknown>
+  patch_transaction_metadata?: Record<string, unknown>
 }
 
 // Safe GET-only backend workflow_state contract endpoint binding.
@@ -138,12 +153,25 @@ const PLACEHOLDER_SNAPSHOT: AtlasBackendWorkflowStateContract = {
   readiness_level: 'Level 0 metadata-only readiness complete',
   runtime_level: 'level_0_manual_only',
   artifacts: { rollup: true, dryRun: true, snapshot: true, allowlist: true, risk: true },
+  patch_transaction_metadata: { available: false, candidate_count: 0, source: 'backend_contract_metadata_only', advisory_only: true },
   available_actions: [{ id: 'inspect_workflow_state', label: 'Inspect workflow state payload', kind: 'read_only' }],
   diagnostics: {
     source: 'placeholder',
     backend_contract_ready: false,
     warnings: ['Using placeholder read-only snapshot when safe GET adapter endpoint is unavailable or invalid.']
   }
+}
+
+const DEFAULT_PATCH_TRANSACTION_METADATA: AtlasPatchTransactionMetadata = {
+  available: false,
+  candidateCount: 0,
+  source: 'backend_contract_metadata_only',
+  generationEnabled: false,
+  applyEnabled: false,
+  safeApplyEnabled: false,
+  verificationEnabled: false,
+  rollbackEnabled: false,
+  advisoryOnly: true
 }
 
 const DEFAULT_GUARDED_EXECUTION_REVIEW: AtlasGuardedExecutionReviewState = {
@@ -250,7 +278,30 @@ function normalizeWorkflowState(payload: AtlasBackendWorkflowStateContract): Atl
     artifacts: payload.artifacts ?? {},
     diagnostics,
     workflowMetadata: normalizeWorkflowMetadata(payload.workflow_state_metadata),
-    guardedExecutionReview: normalizeGuardedExecutionReview(payload.guarded_execution_review)
+    guardedExecutionReview: normalizeGuardedExecutionReview(payload.guarded_execution_review),
+    patchTransaction: normalizePatchTransactionMetadata(payload.patch_transaction_metadata)
+  }
+}
+
+function normalizePatchTransactionMetadata(value: unknown): AtlasPatchTransactionMetadata {
+  const item = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+  const candidateCount = typeof item.candidate_count === 'number' && Number.isFinite(item.candidate_count)
+    ? Math.max(0, Math.floor(item.candidate_count))
+    : DEFAULT_PATCH_TRANSACTION_METADATA.candidateCount
+  const transactionId = typeof item.transaction_id === 'string' && item.transaction_id.trim() ? item.transaction_id : undefined
+  const source = typeof item.source === 'string' && item.source.trim() ? item.source : DEFAULT_PATCH_TRANSACTION_METADATA.source
+
+  return {
+    available: item.available === true,
+    transactionId,
+    candidateCount,
+    source,
+    generationEnabled: false,
+    applyEnabled: false,
+    safeApplyEnabled: false,
+    verificationEnabled: false,
+    rollbackEnabled: false,
+    advisoryOnly: true
   }
 }
 
