@@ -1,8 +1,11 @@
 <template>
   <main class="atlas-next-root">
-    <h1>Atlas Next (Parallel Read-only Shell)</h1>
-    <p class="headline">Read-only supervision UI. Existing ui.html remains default. Guarded /atlas-next preview route mounted (non-default).</p>
-    <p class="headline">Level 0 manual-only runtime. Backend workflow state remains authoritative.</p>
+    <header class="workbench-header">
+      <p class="eyebrow">Atlas Workbench</p>
+      <h1>Start, review, then execute through guarded steps.</h1>
+      <p class="headline">Vue is available on the guarded preview route. Existing ui.html remains default and backend workflow state remains authoritative.</p>
+      <p class="runtime-note">Runtime: {{ snapshot.safety.runtimeLevel }} / Vue execution controls: disabled</p>
+    </header>
     <RequirementInput />
     <WorkflowShell :snapshot="snapshot" />
     <SafetySummary :snapshot="snapshot" />
@@ -93,6 +96,42 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.atlas-next-root { max-width: 960px; margin: 0 auto; padding: 8px 12px 24px; }
-.headline { margin: 4px 0; color: #334155; }
+:global(body) {
+  margin: 0;
+  background: #e8edf4;
+  color: #0f172a;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.atlas-next-root {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 16px 16px 32px;
+}
+.workbench-header {
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  padding: 18px;
+  background: #f8fbff;
+}
+.eyebrow {
+  margin: 0 0 6px;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+h1 {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.15;
+}
+.headline,
+.runtime-note {
+  margin: 8px 0 0;
+  color: #334155;
+}
+.runtime-note {
+  font-size: 13px;
+}
 </style>

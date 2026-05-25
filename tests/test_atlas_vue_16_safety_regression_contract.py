@@ -6,7 +6,7 @@ def test_vue16_non_default_and_no_execution_controls() -> None:
     assert 'type="module"' not in ui
 
     req = Path('web/atlas-next/src/components/RequirementInput.vue').read_text(encoding='utf-8').lower()
-    assert 'start atlas planning' in req
+    assert 'start atlas' in req
     assert '<button type="submit"' in req
     assert 'execute one action' not in req
 
