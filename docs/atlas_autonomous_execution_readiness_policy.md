@@ -11,15 +11,15 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-125
-- Current automation track: PR-ATLAS-SCALE-126
-- Next automation track after this correction: PR-ATLAS-SCALE-126
+- Completed automation PR: PR-ATLAS-SCALE-126
+- Current automation track: PR-ATLAS-SCALE-127
+- Next automation track after this correction: PR-ATLAS-SCALE-127
 - Current level: Level 0 manual only
 - Target level: Level 1 guarded single-step automation
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
-PR-ATLAS-SCALE-125 added Level-1 guarded single-step endpoint contract metadata. It requires dry-run artifact evidence, explicit approval token validation, allowlisted single-action runner metadata, execution artifact metadata, stop-runtime integration, and rollback readiness verification while keeping the callable execution route disabled until the explicit runtime transition; it does not execute commands, authorize execution in the current runtime, mutate project files, continue autonomous loops, run verification commands, apply patches, rollback, restore, retry, use remote git, or auto-continue.
+PR-ATLAS-SCALE-126 added the Vue guarded execution review panel. Vue can review backend-owned guarded execution metadata, but Vue remains non-authoritative and cannot approve, start dry-runs, execute, apply, verify, rollback, restore, retry, continue, mutate project files, use remote git, or auto-continue.
 
 Manual execution remains the only allowed execution mode until the explicit Level-1 runtime transition checkpoint.
 

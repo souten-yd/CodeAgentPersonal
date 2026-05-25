@@ -60,6 +60,29 @@ export type AtlasWorkflowSnapshot = {
   artifacts: AtlasWorkflowArtifactState
   diagnostics: AtlasWorkflowDiagnosticsState
   workflowMetadata: AtlasWorkflowRealDataMetadata
+  guardedExecutionReview: AtlasGuardedExecutionReviewState
+}
+
+export type AtlasGuardedExecutionReviewState = {
+  checkpoint: 'PR-ATLAS-SCALE-126'
+  displayOnly: true
+  backendAuthoritative: true
+  vueAuthoritative: false
+  callableExecutionRouteEnabled: false
+  executionEnabled: false
+  approvalActionEnabled: false
+  dryRunActionEnabled: false
+  executeActionEnabled: false
+  applyActionEnabled: false
+  verifyActionEnabled: false
+  rollbackActionEnabled: false
+  retryContinueActionEnabled: false
+  requiresDryRun: true
+  requiresApproval: true
+  requiresRuntimeTransition: true
+  endpointContractStatus: string
+  reviewItems: Array<{ label: string; ready: boolean; source: string }>
+  blockedReasons: string[]
 }
 export type AtlasWorkflowRealDataMetadata = {
   latestPoolId?: string
@@ -101,6 +124,7 @@ export type AtlasBackendWorkflowStateContract = {
     warnings?: unknown
   }
   workflow_state_metadata?: Record<string, unknown>
+  guarded_execution_review?: Record<string, unknown>
 }
 
 // Safe GET-only backend workflow_state contract endpoint binding.
@@ -120,6 +144,34 @@ const PLACEHOLDER_SNAPSHOT: AtlasBackendWorkflowStateContract = {
     backend_contract_ready: false,
     warnings: ['Using placeholder read-only snapshot when safe GET adapter endpoint is unavailable or invalid.']
   }
+}
+
+const DEFAULT_GUARDED_EXECUTION_REVIEW: AtlasGuardedExecutionReviewState = {
+  checkpoint: 'PR-ATLAS-SCALE-126',
+  displayOnly: true,
+  backendAuthoritative: true,
+  vueAuthoritative: false,
+  callableExecutionRouteEnabled: false,
+  executionEnabled: false,
+  approvalActionEnabled: false,
+  dryRunActionEnabled: false,
+  executeActionEnabled: false,
+  applyActionEnabled: false,
+  verifyActionEnabled: false,
+  rollbackActionEnabled: false,
+  retryContinueActionEnabled: false,
+  requiresDryRun: true,
+  requiresApproval: true,
+  requiresRuntimeTransition: true,
+  endpointContractStatus: 'metadata_unavailable',
+  reviewItems: [
+    { label: 'Dry-run artifact', ready: false, source: 'backend metadata' },
+    { label: 'Approval token', ready: false, source: 'backend metadata' },
+    { label: 'Allowlisted single action', ready: false, source: 'backend metadata' },
+    { label: 'Stop gate', ready: false, source: 'backend metadata' },
+    { label: 'Rollback readiness', ready: false, source: 'backend metadata' }
+  ],
+  blockedReasons: ['Runtime transition PR-ATLAS-SCALE-127 is required before execution can be callable.']
 }
 
 function getReadOnlySafetyState(runtimeLevel?: string): AtlasReadOnlySafetyState {
@@ -197,7 +249,49 @@ function normalizeWorkflowState(payload: AtlasBackendWorkflowStateContract): Atl
     availableActions: toReadOnlyAvailableActions(payload.available_actions),
     artifacts: payload.artifacts ?? {},
     diagnostics,
-    workflowMetadata: normalizeWorkflowMetadata(payload.workflow_state_metadata)
+    workflowMetadata: normalizeWorkflowMetadata(payload.workflow_state_metadata),
+    guardedExecutionReview: normalizeGuardedExecutionReview(payload.guarded_execution_review)
+  }
+}
+
+function normalizeGuardedExecutionReview(value: unknown): AtlasGuardedExecutionReviewState {
+  const item = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+  const reviewItems = Array.isArray(item.review_items)
+    ? item.review_items.map((raw, index) => {
+      const row = typeof raw === 'object' && raw !== null ? raw as Record<string, unknown> : {}
+      return {
+        label: typeof row.label === 'string' && row.label.trim() ? row.label : `Review item ${index + 1}`,
+        ready: row.ready === true,
+        source: typeof row.source === 'string' && row.source.trim() ? row.source : 'backend metadata'
+      }
+    }).slice(0, 8)
+    : DEFAULT_GUARDED_EXECUTION_REVIEW.reviewItems
+  const blockedReasons = Array.isArray(item.blocked_reasons)
+    ? item.blocked_reasons.filter((raw): raw is string => typeof raw === 'string' && Boolean(raw.trim())).slice(0, 6)
+    : DEFAULT_GUARDED_EXECUTION_REVIEW.blockedReasons
+
+  return {
+    ...DEFAULT_GUARDED_EXECUTION_REVIEW,
+    callableExecutionRouteEnabled: false,
+    executionEnabled: false,
+    approvalActionEnabled: false,
+    dryRunActionEnabled: false,
+    executeActionEnabled: false,
+    applyActionEnabled: false,
+    verifyActionEnabled: false,
+    rollbackActionEnabled: false,
+    retryContinueActionEnabled: false,
+    endpointContractStatus: typeof item.endpoint_contract_status === 'string' && item.endpoint_contract_status.trim()
+      ? item.endpoint_contract_status
+      : DEFAULT_GUARDED_EXECUTION_REVIEW.endpointContractStatus,
+    reviewItems,
+    blockedReasons,
+    displayOnly: true,
+    backendAuthoritative: true,
+    vueAuthoritative: false,
+    requiresDryRun: true,
+    requiresApproval: true,
+    requiresRuntimeTransition: true
   }
 }
 
