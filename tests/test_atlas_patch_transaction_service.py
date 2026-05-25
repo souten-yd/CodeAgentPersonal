@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app.atlas.patch_transaction import (
     SCHEMA_VERSION,
+    build_latest_patch_transaction_workflow_metadata,
     create_patch_transaction,
     read_patch_transaction_manifest,
     summarize_patch_transaction,
@@ -85,6 +86,39 @@ def test_validate_and_summary_read_only_and_flags(tmp_path: Path) -> None:
     summary = summarize_patch_transaction(manifest, validation)
     assert summary["transaction_id"] == manifest["transaction_id"]
     assert summary["apply_supported"] is False
+
+
+def test_latest_patch_transaction_workflow_metadata_is_read_only_preview(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    data_root = tmp_path / "data"
+    project.mkdir()
+    (project / "a.txt").write_text("x", encoding="utf-8")
+    txn = create_patch_transaction(
+        project_path=project,
+        data_root=data_root,
+        snapshot_id="snap_1",
+        proposed_files=[{"relative_path": "a.txt", "change_type": "modify"}],
+        risk_class="low",
+    )
+
+    metadata = build_latest_patch_transaction_workflow_metadata(data_root=data_root, project_path=project)
+
+    assert metadata["patch_transaction_available"] is True
+    assert metadata["latest_patch_transaction_id"] == txn["transaction_id"]
+    assert metadata["patch_candidate_count"] == 1
+    assert metadata["patch_transaction_source"] == "latest_patch_transaction_manifest"
+    assert metadata["patch_transaction_risk_class"] == "low"
+    assert metadata["patch_transaction_apply_supported"] is False
+    assert metadata["patch_transaction_automatic_apply_enabled"] is False
+    assert metadata["patch_transaction_automatic_rollback_enabled"] is False
+
+
+def test_latest_patch_transaction_workflow_metadata_empty_state(tmp_path: Path) -> None:
+    metadata = build_latest_patch_transaction_workflow_metadata(data_root=tmp_path)
+    assert metadata["patch_transaction_available"] is False
+    assert metadata["latest_patch_transaction_id"] is None
+    assert metadata["patch_candidate_count"] == 0
+    assert metadata["patch_transaction_source"] == "no_patch_transactions_found"
 
 
 def test_no_direct_ca_data_writes_in_patch_transaction_source() -> None:

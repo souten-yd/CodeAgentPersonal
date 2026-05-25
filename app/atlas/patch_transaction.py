@@ -294,3 +294,57 @@ def summarize_patch_transaction(manifest: dict[str, Any], validation: dict[str, 
         "automatic_apply_enabled": bool(manifest.get("automatic_apply_enabled", False)),
         "automatic_rollback_enabled": bool(manifest.get("automatic_rollback_enabled", False)),
     }
+
+
+def build_latest_patch_transaction_workflow_metadata(*, data_root: str | Path, project_path: str | Path | None = None) -> dict[str, Any]:
+    root = Path(data_root).expanduser().resolve()
+    transaction_root = root / "atlas" / "patch_transactions"
+    base = {
+        "patch_transaction_available": False,
+        "latest_patch_transaction_id": None,
+        "patch_candidate_count": 0,
+        "patch_transaction_source": "patch_transaction_preview_unavailable",
+        "patch_transaction_preview_status": "missing",
+        "patch_transaction_risk_class": "unknown",
+        "patch_transaction_rollback_ready": False,
+        "patch_transaction_apply_supported": False,
+        "patch_transaction_automatic_apply_enabled": False,
+        "patch_transaction_automatic_rollback_enabled": False,
+        "patch_transaction_warnings": [],
+    }
+    try:
+        _ensure_under(root, transaction_root, "transaction_root_outside_data_root")
+    except ValueError as exc:
+        return {**base, "patch_transaction_warnings": [str(exc)]}
+    if not transaction_root.exists():
+        return {**base, "patch_transaction_source": "no_patch_transactions_found"}
+
+    project_filter = Path(project_path).expanduser().resolve() if project_path else None
+    warnings: list[str] = []
+    manifests = sorted(transaction_root.glob("*/manifest.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for manifest_path in manifests:
+        try:
+            _ensure_under(transaction_root, manifest_path, "manifest_outside_patch_transaction_root")
+            parsed = read_patch_transaction_manifest(manifest_path=manifest_path, data_root=root)
+            manifest = parsed["manifest"]
+            if project_filter is not None and Path(str(manifest.get("project_path", ""))).expanduser().resolve() != project_filter:
+                continue
+            validation = validate_patch_transaction(manifest_path=manifest_path, data_root=root, project_path=project_filter)
+            summary = summarize_patch_transaction(manifest, validation)
+            return {
+                **base,
+                "patch_transaction_available": True,
+                "latest_patch_transaction_id": summary["transaction_id"],
+                "patch_candidate_count": summary["file_count"],
+                "patch_transaction_source": "latest_patch_transaction_manifest",
+                "patch_transaction_preview_status": summary["status"],
+                "patch_transaction_risk_class": summary["risk_class"],
+                "patch_transaction_rollback_ready": summary["rollback_ready"],
+                "patch_transaction_apply_supported": False,
+                "patch_transaction_automatic_apply_enabled": False,
+                "patch_transaction_automatic_rollback_enabled": False,
+                "patch_transaction_warnings": summary["warnings"],
+            }
+        except Exception as exc:
+            warnings.append(str(exc) or exc.__class__.__name__)
+    return {**base, "patch_transaction_warnings": warnings[:5]}
