@@ -32,5 +32,9 @@ def test_vue_15_client_patch_transaction_normalization_stays_display_only() -> N
         'available: item.available === true',
         'candidateCount',
         'transactionId',
+        'previewStatus',
+        'riskClass',
+        'rollbackReady: item.rollback_ready === true',
+        'warnings.filter',
     ]:
         assert needle in text

@@ -51,6 +51,10 @@ export type AtlasPatchTransactionMetadata = {
   transactionId?: string
   candidateCount: number
   source: string
+  previewStatus: string
+  riskClass: string
+  rollbackReady: boolean
+  warnings: string[]
   generationEnabled: false
   applyEnabled: false
   safeApplyEnabled: false
@@ -153,7 +157,7 @@ const PLACEHOLDER_SNAPSHOT: AtlasBackendWorkflowStateContract = {
   readiness_level: 'Level 0 metadata-only readiness complete',
   runtime_level: 'level_0_manual_only',
   artifacts: { rollup: true, dryRun: true, snapshot: true, allowlist: true, risk: true },
-  patch_transaction_metadata: { available: false, candidate_count: 0, source: 'backend_contract_metadata_only', advisory_only: true },
+  patch_transaction_metadata: { available: false, candidate_count: 0, source: 'backend_contract_metadata_only', preview_status: 'missing', risk_class: 'unknown', rollback_ready: false, warnings: [], advisory_only: true },
   available_actions: [{ id: 'inspect_workflow_state', label: 'Inspect workflow state payload', kind: 'read_only' }],
   diagnostics: {
     source: 'placeholder',
@@ -166,6 +170,10 @@ const DEFAULT_PATCH_TRANSACTION_METADATA: AtlasPatchTransactionMetadata = {
   available: false,
   candidateCount: 0,
   source: 'backend_contract_metadata_only',
+  previewStatus: 'missing',
+  riskClass: 'unknown',
+  rollbackReady: false,
+  warnings: [],
   generationEnabled: false,
   applyEnabled: false,
   safeApplyEnabled: false,
@@ -290,12 +298,21 @@ function normalizePatchTransactionMetadata(value: unknown): AtlasPatchTransactio
     : DEFAULT_PATCH_TRANSACTION_METADATA.candidateCount
   const transactionId = typeof item.transaction_id === 'string' && item.transaction_id.trim() ? item.transaction_id : undefined
   const source = typeof item.source === 'string' && item.source.trim() ? item.source : DEFAULT_PATCH_TRANSACTION_METADATA.source
+  const previewStatus = typeof item.preview_status === 'string' && item.preview_status.trim() ? item.preview_status : DEFAULT_PATCH_TRANSACTION_METADATA.previewStatus
+  const riskClass = typeof item.risk_class === 'string' && item.risk_class.trim() ? item.risk_class : DEFAULT_PATCH_TRANSACTION_METADATA.riskClass
+  const warnings = Array.isArray(item.warnings)
+    ? item.warnings.filter((raw): raw is string => typeof raw === 'string' && Boolean(raw.trim())).slice(0, 8)
+    : []
 
   return {
     available: item.available === true,
     transactionId,
     candidateCount,
     source,
+    previewStatus,
+    riskClass,
+    rollbackReady: item.rollback_ready === true,
+    warnings,
     generationEnabled: false,
     applyEnabled: false,
     safeApplyEnabled: false,
