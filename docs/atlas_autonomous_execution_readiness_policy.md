@@ -11,21 +11,21 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-126
-- Current automation track: PR-ATLAS-SCALE-127
-- Next automation track after this correction: PR-ATLAS-SCALE-127
-- Current level: Level 0 manual only
+- Completed automation PR: PR-ATLAS-SCALE-127
+- Current automation track: PR-ATLAS-SCALE-128
+- Next automation track after this correction: PR-ATLAS-SCALE-128
+- Current level: Level 1 guarded single-step automation
 - Target level: Level 1 guarded single-step automation
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
-PR-ATLAS-SCALE-126 added the Vue guarded execution review panel. Vue can review backend-owned guarded execution metadata, but Vue remains non-authoritative and cannot approve, start dry-runs, execute, apply, verify, rollback, restore, retry, continue, mutate project files, use remote git, or auto-continue.
+PR-ATLAS-SCALE-127 is the explicit Level-1 runtime transition checkpoint. Level-1 is limited to one low-risk allowlisted action after dry-run evidence and explicit approval; the checkpoint does not perform execution, mutate project files, add a public execution route, apply patches, rollback or restore automatically, use remote git, auto-continue, or enable Vue authority.
 
-Manual execution remains the only allowed execution mode until the explicit Level-1 runtime transition checkpoint.
+Autonomous execution remains disabled after the Level-1 transition checkpoint.
 
 ## Contract phrase lock
 
-This policy does not enable autonomous execution. Current Atlas state remains Level 0. Future PRs must explicitly move levels.
+This policy does not enable autonomous execution. Current Atlas state is Level 1 guarded single-step. Future PRs must explicitly move levels.
 
 - Backend workflow state is authoritative.
 - ThinUI remains supervision layer.
@@ -63,10 +63,10 @@ This policy does not enable autonomous execution. Current Atlas state remains Le
 
 ## Non-negotiable safety invariants
 
-Until an explicit level-transition PR changes these values:
+After PR-ATLAS-SCALE-127:
 
-- runtime remains level_0_manual_only
-- Level-1 execution remains disabled
+- runtime is level_1_guarded_single_step
+- Level-1 execution remains single-action, low-risk, allowlisted, dry-run-first, and explicit-approval-gated
 - autonomous execution remains disabled
 - backend workflow_state remains authoritative
 - Vue remains non-authoritative and display-only

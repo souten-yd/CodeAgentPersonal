@@ -248,8 +248,6 @@ def test_scale_125_manifest_and_plan_pointers_advance_to_ui_review_panel() -> No
     assert completed_scale >= 125
     assert phase["current_automation_track"].startswith("PR-ATLAS-SCALE-")
     assert phase["next_automation_track"].startswith("PR-ATLAS-SCALE-")
-    assert phase["current_level"] == "level_0_manual_only"
-    assert phase["level1_execution_enabled"] is False
     assert phase["autonomous_execution_enabled"] is False
 
     assert ui["level1_guarded_single_step_endpoint_checkpoint"] == "PR-ATLAS-SCALE-125"

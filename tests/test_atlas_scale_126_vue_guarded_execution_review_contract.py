@@ -49,11 +49,10 @@ def test_scale_126_manifest_and_plan_pointers_advance_to_runtime_transition() ->
     roadmap = Path("docs/atlas_scale_master_roadmap.md").read_text(encoding="utf-8")
     policy = Path("docs/atlas_autonomous_execution_readiness_policy.md").read_text(encoding="utf-8")
 
-    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-126"
-    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-127"
-    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-127"
-    assert phase["current_level"] == "level_0_manual_only"
-    assert phase["level1_execution_enabled"] is False
+    completed_scale = int(phase["completed_automation_pr"].rsplit("-", 1)[1])
+    assert completed_scale >= 126
+    assert phase["current_automation_track"].startswith("PR-ATLAS-SCALE-")
+    assert phase["next_automation_track"].startswith("PR-ATLAS-SCALE-")
     assert phase["autonomous_execution_enabled"] is False
 
     assert ui["vue_next_guarded_execution_review_checkpoint"] == "PR-ATLAS-SCALE-126"
@@ -65,4 +64,4 @@ def test_scale_126_manifest_and_plan_pointers_advance_to_runtime_transition() ->
     assert ui["vue_next_guarded_execution_review_next_required_pr"] == "PR-ATLAS-SCALE-127"
 
     assert "SCALE-126 completed: Vue guarded execution review panel" in roadmap
-    assert "PR-ATLAS-SCALE-126 added the Vue guarded execution review panel" in policy
+    assert "PR-ATLAS-SCALE-127 is the explicit Level-1 runtime transition checkpoint" in policy

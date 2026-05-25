@@ -4,10 +4,10 @@
 
 This file is the single human-readable source of truth for Atlas automation planning.
 
-- Completed automation PR: PR-ATLAS-SCALE-126
-- Current automation track: PR-ATLAS-SCALE-127
-- Next automation track after this correction: PR-ATLAS-SCALE-127
-- Current runtime level: level_0_manual_only
+- Completed automation PR: PR-ATLAS-SCALE-127
+- Current automation track: PR-ATLAS-SCALE-128
+- Next automation track after this correction: PR-ATLAS-SCALE-128
+- Current runtime level: level_1_guarded_single_step
 - Target runtime level: level_1_guarded_single_step
 - Final goal: fully_autonomous_code_agent
 - Self-improvement goal: self_improving_codeagentpersonal_kasanecore
@@ -44,7 +44,7 @@ This phase delivered local-only, display-only operator review capabilities: snap
 
 This phase intentionally did not add execution capability. Runtime remains level_0_manual_only, Level-1/autonomous execution remain disabled, and Vue remains non-authoritative.
 
-## Current phase: Level-1 Advancement Preparation
+## Current phase: Patch, Branch, And Draft PR Pipeline
 
 SCALE-113 starts the Level-1 Advancement Preparation phase. The purpose of this phase is to move away from more local-only review UX and toward the evidence generation needed for guarded single-step automation.
 
@@ -63,7 +63,8 @@ SCALE-113 starts the Level-1 Advancement Preparation phase. The purpose of this 
 - SCALE-124 completed: rollback readiness verification added as verify-only metadata, no automatic rollback or restore.
 - SCALE-125 completed: Level-1 guarded single-step endpoint contract added as dry-run and approval gated metadata; callable execution route remains disabled until the explicit runtime transition.
 - SCALE-126 completed: Vue guarded execution review panel added as display-only metadata review; Vue remains non-authoritative and cannot approve, execute, apply, verify, rollback, retry, or continue.
-Next PRs must advance Level-1 readiness evidence or the roadmap/validator itself.
+- SCALE-127 completed: explicit Level-1 runtime transition checkpoint added. Runtime policy is now level_1_guarded_single_step for one low-risk allowlisted action after dry-run evidence and explicit approval; autonomous loop, patch apply, rollback/restore automation, remote git, and Vue authority remain disabled.
+Next PRs must advance the patch / branch / draft PR pipeline without bypassing Level-1 gates.
 
 They must not add another local-only diff label/bookmark/annotation UX unless explicitly approved as a PR-B drift repair or a user-requested exception.
 
@@ -167,10 +168,10 @@ When checking a PR, verify all of the following against this master plan and the
 
 ## Safety invariants
 
-Until the explicit transition PR says otherwise:
+After PR-ATLAS-SCALE-127:
 
-- runtime_level remains level_0_manual_only
-- Level-1 execution remains disabled
+- runtime_level is level_1_guarded_single_step
+- Level-1 execution is limited to one low-risk allowlisted action after dry-run evidence and explicit approval
 - autonomous execution remains disabled
 - automatic verification remains disabled
 - automatic patch generation remains disabled
