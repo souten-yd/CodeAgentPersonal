@@ -570,6 +570,13 @@ PY
 # Copy full application source at runtime tail to avoid invalidating SBV2/HF/GGUF heavy layers.
 COPY . /app
 
+RUN set -eux; \
+    if [ -f /app/web/atlas-next/package.json ]; then \
+      cd /app/web/atlas-next; \
+      npm ci; \
+      npm run build; \
+    fi
+
 COPY docker/start-services.sh /usr/local/bin/start-services.sh
 RUN chmod +x /usr/local/bin/start-services.sh
 
