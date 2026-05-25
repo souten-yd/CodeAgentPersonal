@@ -39,6 +39,12 @@ def _coerce_non_negative_int(value: Any) -> int:
         return 0
 
 
+def _coerce_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item.strip()][:8]
+
+
 def build_read_only_workflow_state(
     *,
     goal: str,
@@ -112,6 +118,10 @@ def build_read_only_workflow_state(
             "transaction_id": metadata_payload.get("latest_patch_transaction_id"),
             "candidate_count": _coerce_non_negative_int(metadata_payload.get("patch_candidate_count")),
             "source": metadata_payload.get("patch_transaction_source", "backend_contract_metadata_only"),
+            "preview_status": metadata_payload.get("patch_transaction_preview_status", "missing"),
+            "risk_class": metadata_payload.get("patch_transaction_risk_class", "unknown"),
+            "rollback_ready": bool(metadata_payload.get("patch_transaction_rollback_ready", False)),
+            "warnings": _coerce_string_list(metadata_payload.get("patch_transaction_warnings")),
             "generation_enabled": False,
             "apply_enabled": False,
             "safe_apply_enabled": False,
