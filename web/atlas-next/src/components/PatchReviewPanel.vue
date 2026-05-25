@@ -19,7 +19,7 @@
         <dd>{{ rollbackEvidence }}</dd>
       </div>
     </dl>
-    <p class="backend-note"><b>Backend-owned source:</b> {{ snapshot.workflowMetadata.sourceDetail }}</p>
+    <p class="backend-note"><b>Patch transaction source:</b> {{ snapshot.patchTransaction.source }}</p>
   </StatusCard>
 </template>
 
@@ -31,8 +31,12 @@ import type { AtlasWorkflowSnapshot } from '../api/atlasClient'
 const props = defineProps<{ snapshot: AtlasWorkflowSnapshot }>()
 
 const candidateState = computed(() => {
-  if (props.snapshot.artifacts.transaction === true) return 'Patch transaction metadata is available for review.'
-  if (props.snapshot.workflowMetadata.activePlanAvailable) return 'No patch candidate metadata yet; review plan items first.'
+  const transaction = props.snapshot.patchTransaction
+  if (transaction.available) {
+    const id = transaction.transactionId ? ` id=${transaction.transactionId}` : ''
+    return `${transaction.candidateCount} backend candidate(s) available for review.${id}`
+  }
+  if (props.snapshot.workflowMetadata.activePlanAvailable) return 'No patch transaction metadata yet; review plan items first.'
   return 'Waiting for Start Atlas and Plan Review metadata.'
 })
 
@@ -42,8 +46,8 @@ const applyReadiness = computed(() => {
   return gates.length > 0 ? `${ready}/${gates.length} guarded gate items ready` : 'No guarded apply metadata available.'
 })
 
-const verificationEvidence = computed(() => props.snapshot.artifacts.allowlist === true ? 'Allowlisted verification metadata exists.' : 'Allowlisted verification metadata missing.')
-const rollbackEvidence = computed(() => props.snapshot.artifacts.rollback === true ? 'Rollback readiness metadata exists.' : 'Rollback readiness metadata missing.')
+const verificationEvidence = computed(() => props.snapshot.patchTransaction.verificationEnabled === false ? 'Verification remains disabled; evidence is display-only.' : 'Unexpected verification capability metadata.')
+const rollbackEvidence = computed(() => props.snapshot.patchTransaction.rollbackEnabled === false ? 'Rollback remains disabled; readiness is display-only.' : 'Unexpected rollback capability metadata.')
 </script>
 
 <style scoped>

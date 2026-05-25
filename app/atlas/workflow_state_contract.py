@@ -30,6 +30,15 @@ def normalize_read_only_available_actions(actions: list[dict[str, Any]] | None =
     return normalized
 
 
+def _coerce_non_negative_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def build_read_only_workflow_state(
     *,
     goal: str,
@@ -44,6 +53,9 @@ def build_read_only_workflow_state(
 ) -> dict[str, Any]:
     artifacts_payload = artifacts or {}
     metadata_payload = workflow_metadata or {}
+    patch_transaction_available = bool(
+        metadata_payload.get("patch_transaction_available", artifacts_payload.get("transaction", False))
+    )
     return {
         "schema_version": "atlas.workflow_state.v1",
         "contract": "read_only_workflow_state",
@@ -94,6 +106,18 @@ def build_read_only_workflow_state(
             "remote_git": bool(artifacts_payload.get("remote_git", False)),
             "self_improvement": bool(artifacts_payload.get("self_improvement", False)),
             "rollup": bool(artifacts_payload.get("rollup", False)),
+        },
+        "patch_transaction_metadata": {
+            "available": patch_transaction_available,
+            "transaction_id": metadata_payload.get("latest_patch_transaction_id"),
+            "candidate_count": _coerce_non_negative_int(metadata_payload.get("patch_candidate_count")),
+            "source": metadata_payload.get("patch_transaction_source", "backend_contract_metadata_only"),
+            "generation_enabled": False,
+            "apply_enabled": False,
+            "safe_apply_enabled": False,
+            "verification_enabled": False,
+            "rollback_enabled": False,
+            "advisory_only": True,
         },
         "diagnostics": {
             "static_mount_deferred": False,
