@@ -1,4 +1,4 @@
-## Latest Atlas SCALE Status (PR-ATLAS-SCALE-127)
+## Latest Atlas SCALE Status (PR-ATLAS-SCALE-128)
 
 Canonical active/current/next pointers live in `docs/atlas_scale_master_roadmap.md` and `docs/atlas_automation_phase_manifest.json`.
 
@@ -7,8 +7,11 @@ Latest verified state for the next PR:
 - Runtime policy has advanced from `level_0_manual_only` to `level_1_guarded_single_step`.
 - Level-1 is limited to one low-risk allowlisted action after dry-run evidence and explicit approval.
 - The checkpoint does not perform execution, mutate files, add a public execution route, apply patches, rollback/restore automatically, use remote git, auto-continue, or enable Vue authority.
+- PR-ATLAS-SCALE-128 adds `app/atlas/level1_patch_proposal_generator.py`.
+- Patch proposals are metadata-only and can record target files, rationale, questions, and acceptance criteria.
+- SCALE-128 does not generate diff text, create patch transactions, apply patches, call safe_apply, use git, or enable autonomous execution.
 - Vue remains non-authoritative; `ui.html` default is unchanged.
-- Next implementation PR is PR-ATLAS-SCALE-128: patch proposal generator under the Level-1 gates.
+- Next implementation PR is PR-ATLAS-SCALE-129: patch transaction preview under the Level-1 gates.
 
 ## Active PR Pointer (Updated)
 

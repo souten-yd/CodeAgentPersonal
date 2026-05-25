@@ -31,10 +31,10 @@ def validate() -> None:
 
     assert phase["canonical_human_plan"] == "docs/atlas_scale_master_roadmap.md"
     assert phase["canonical_safety_policy"] == "docs/atlas_autonomous_execution_readiness_policy.md"
-    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-127"
-    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-128"
-    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-128"
-    assert phase["completed_phase"] == "level_1_guarded_single_step_transition"
+    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-128"
+    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-129"
+    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-129"
+    assert phase["completed_phase"] == "patch_proposal_generator"
     assert phase["automation_phase"] == "patch_branch_draft_pr_pipeline"
     assert phase["current_level"] == "level_1_guarded_single_step"
     assert phase["target_level"] == "level_1_guarded_single_step"
@@ -66,6 +66,12 @@ def validate() -> None:
     assert ui_manifest["level1_runtime_transition_level1_execution_enabled"] is True
     assert ui_manifest["level1_runtime_transition_autonomous_execution_enabled"] is False
     assert ui_manifest["level1_runtime_transition_next_required_pr"] == "PR-ATLAS-SCALE-128"
+    assert ui_manifest["level1_patch_proposal_generator_checkpoint"] == "PR-ATLAS-SCALE-128"
+    assert ui_manifest["level1_patch_proposal_generator_patch_transaction_created"] is False
+    assert ui_manifest["level1_patch_proposal_generator_patch_apply_enabled"] is False
+    assert ui_manifest["level1_patch_proposal_generator_safe_apply_enabled"] is False
+    assert ui_manifest["level1_patch_proposal_generator_autonomous_execution_enabled"] is False
+    assert ui_manifest["level1_patch_proposal_generator_next_required_pr"] == "PR-ATLAS-SCALE-129"
 
     for path in DELETED_DUPLICATE_DOCS:
         assert not path.exists(), f"duplicate planning doc must stay deleted: {path}"
@@ -80,6 +86,7 @@ def validate() -> None:
         "PR-ATLAS-SCALE-122",
         "PR-ATLAS-SCALE-123",
         "PR-ATLAS-SCALE-127",
+        "PR-ATLAS-SCALE-128",
         "Level-1 Advancement Preparation",
         "Patch, Branch, And Draft PR Pipeline",
         "PR-B is allowed only when",
@@ -110,6 +117,7 @@ def validate() -> None:
 
     assert planned["PR-ATLAS-SCALE-114"]["outcome"] == "advisory readiness rollup and gate evidence summary"
     assert planned["PR-ATLAS-SCALE-127"]["runtime_change_allowed"] is True
+    assert planned["PR-ATLAS-SCALE-128"]["runtime_change_allowed"] is False
     assert planned["PR-ATLAS-SCALE-146"]["runtime_change_allowed"] is True
 
 
