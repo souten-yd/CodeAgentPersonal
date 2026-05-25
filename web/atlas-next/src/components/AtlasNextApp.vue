@@ -7,6 +7,7 @@
     <WorkflowShell :snapshot="snapshot" />
     <SafetySummary :snapshot="snapshot" />
     <ExecutionSafetyBoundary :snapshot="snapshot" />
+    <GuardedExecutionReviewPanel :review="snapshot.guardedExecutionReview" />
     <DefaultReadinessPreflight />
     <Level1ReadinessPanel />
     <DryRunResultViewer :snapshot="snapshot" />
@@ -22,6 +23,7 @@ import RequirementInput from './RequirementInput.vue'
 import WorkflowShell from './WorkflowShell.vue'
 import SafetySummary from './SafetySummary.vue'
 import ExecutionSafetyBoundary from './ExecutionSafetyBoundary.vue'
+import GuardedExecutionReviewPanel from './GuardedExecutionReviewPanel.vue'
 import ArtifactSummary from './ArtifactSummary.vue'
 import DiagnosticsNotice from './DiagnosticsNotice.vue'
 import DefaultReadinessPreflight from './DefaultReadinessPreflight.vue'
@@ -60,6 +62,27 @@ const snapshot = ref<AtlasWorkflowSnapshot>({
     dataFreshness: 'unknown',
     sourceDetail: 'placeholder',
     workflowSnapshotAvailable: false
+  },
+  guardedExecutionReview: {
+    checkpoint: 'PR-ATLAS-SCALE-126',
+    displayOnly: true,
+    backendAuthoritative: true,
+    vueAuthoritative: false,
+    callableExecutionRouteEnabled: false,
+    executionEnabled: false,
+    approvalActionEnabled: false,
+    dryRunActionEnabled: false,
+    executeActionEnabled: false,
+    applyActionEnabled: false,
+    verifyActionEnabled: false,
+    rollbackActionEnabled: false,
+    retryContinueActionEnabled: false,
+    requiresDryRun: true,
+    requiresApproval: true,
+    requiresRuntimeTransition: true,
+    endpointContractStatus: 'placeholder',
+    reviewItems: [],
+    blockedReasons: ['Runtime transition PR-ATLAS-SCALE-127 is required before execution can be callable.']
   },
   backendAuthorityNote: 'Backend workflow state remains authoritative. Vue Next does not compute execution eligibility.'
 })
