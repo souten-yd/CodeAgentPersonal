@@ -6,22 +6,29 @@
       <p class="headline">Vue is available on the guarded preview route. Existing ui.html remains default and backend workflow state remains authoritative.</p>
       <p class="runtime-note">Runtime: {{ snapshot.safety.runtimeLevel }} / Vue execution controls: disabled</p>
     </header>
-    <RequirementInput />
-    <WorkflowShell :snapshot="snapshot" />
-    <SafetySummary :snapshot="snapshot" />
-    <ExecutionSafetyBoundary :snapshot="snapshot" />
-    <GuardedExecutionReviewPanel :review="snapshot.guardedExecutionReview" />
-    <DefaultReadinessPreflight />
-    <Level1ReadinessPanel />
-    <DryRunResultViewer :snapshot="snapshot" />
-    <ArtifactSummary :snapshot="snapshot" />
-    <DiagnosticsNotice :snapshot="snapshot" />
+    <div class="workbench-layout">
+      <section class="conversation-column">
+        <RequirementInput />
+        <ConversationWorkbench />
+        <WorkflowShell :snapshot="snapshot" />
+        <SafetySummary :snapshot="snapshot" />
+        <ExecutionSafetyBoundary :snapshot="snapshot" />
+        <GuardedExecutionReviewPanel :review="snapshot.guardedExecutionReview" />
+        <DefaultReadinessPreflight />
+        <Level1ReadinessPanel />
+        <DryRunResultViewer :snapshot="snapshot" />
+        <ArtifactSummary :snapshot="snapshot" />
+        <DiagnosticsNotice :snapshot="snapshot" />
+      </section>
+      <ProgressRail :snapshot="snapshot" />
+    </div>
   </main>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { fetchAtlasWorkflowSnapshot, type AtlasWorkflowSnapshot } from '../api/atlasClient'
+import ConversationWorkbench from './ConversationWorkbench.vue'
 import RequirementInput from './RequirementInput.vue'
 import WorkflowShell from './WorkflowShell.vue'
 import SafetySummary from './SafetySummary.vue'
@@ -32,6 +39,7 @@ import DiagnosticsNotice from './DiagnosticsNotice.vue'
 import DefaultReadinessPreflight from './DefaultReadinessPreflight.vue'
 import Level1ReadinessPanel from './Level1ReadinessPanel.vue'
 import DryRunResultViewer from './DryRunResultViewer.vue'
+import ProgressRail from './ProgressRail.vue'
 
 const snapshot = ref<AtlasWorkflowSnapshot>({
   safety: {
@@ -133,5 +141,19 @@ h1 {
 }
 .runtime-note {
   font-size: 13px;
+}
+.workbench-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  gap: 14px;
+  align-items: start;
+}
+.conversation-column {
+  min-width: 0;
+}
+@media (max-width: 860px) {
+  .workbench-layout {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
