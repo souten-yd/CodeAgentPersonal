@@ -31,9 +31,9 @@ def validate() -> None:
 
     assert phase["canonical_human_plan"] == "docs/atlas_scale_master_roadmap.md"
     assert phase["canonical_safety_policy"] == "docs/atlas_autonomous_execution_readiness_policy.md"
-    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-123"
-    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-124"
-    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-124"
+    assert phase["completed_automation_pr"] == "PR-ATLAS-SCALE-124"
+    assert phase["current_automation_track"] == "PR-ATLAS-SCALE-125"
+    assert phase["next_automation_track"] == "PR-ATLAS-SCALE-125"
     assert phase["completed_phase"] == "readiness_metadata_review"
     assert phase["automation_phase"] == "level_1_advancement_preparation"
     assert phase["current_level"] == "level_0_manual_only"
