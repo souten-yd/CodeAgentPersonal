@@ -1,16 +1,28 @@
 <template>
-  <StatusCard title="Workflow (Read-only)">
-    <p><b>Goal:</b> {{ snapshot.goal || 'N/A' }}</p>
-    <p><b>Project path:</b> {{ snapshot.projectPath || 'N/A' }}</p>
-    <p><b>Phase:</b> {{ snapshot.phase || 'unknown' }}</p>
-    <p><b>Status:</b> {{ snapshot.status || 'unknown' }}</p>
-    <p><b>Primary CTA:</b> {{ snapshot.primaryCtaLabel || 'Read-only preview' }} ({{ snapshot.primaryCtaState || 'read_only' }})</p>
-    <p><b>Backend authority:</b> {{ snapshot.backendAuthorityNote }}</p>
-    <button disabled aria-disabled="true">Read-only preview (not wired)</button>
+  <StatusCard title="Current Atlas State">
+    <dl class="workflow-grid">
+      <div>
+        <dt>Goal</dt>
+        <dd>{{ snapshot.goal || 'Not started' }}</dd>
+      </div>
+      <div>
+        <dt>Phase</dt>
+        <dd>{{ snapshot.phase || snapshot.workflowMetadata.currentPhase || 'idle' }}</dd>
+      </div>
+      <div>
+        <dt>Status</dt>
+        <dd>{{ snapshot.status || snapshot.workflowMetadata.latestStatus || 'waiting for Start Atlas' }}</dd>
+      </div>
+      <div>
+        <dt>Project</dt>
+        <dd>{{ snapshot.projectPath || 'Default workspace' }}</dd>
+      </div>
+    </dl>
+    <p class="authority">{{ snapshot.backendAuthorityNote }}</p>
   </StatusCard>
 
-  <StatusCard title="Available Actions (metadata only)">
-    <p><b>Metadata-only badge:</b> Every action is read-only and disabled in Vue Next.</p>
+  <StatusCard title="Backend Action Metadata">
+    <p class="metadata-note">These are backend-reported actions for review only. Start Atlas is the single Vue entry point on this screen.</p>
     <ul>
       <li v-for="action in snapshot.availableActions" :key="action.id">
         <b>{{ action.label }}</b> [{{ action.kind || 'read_only' }}] - {{ action.reason }}
@@ -33,3 +45,33 @@ import type { AtlasWorkflowSnapshot } from '../api/atlasClient'
 
 defineProps<{ snapshot: AtlasWorkflowSnapshot }>()
 </script>
+
+<style scoped>
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.workflow-grid div {
+  min-width: 0;
+  border-left: 3px solid #0f766e;
+  padding: 8px 10px;
+  background: #ffffff;
+}
+dt {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.authority,
+.metadata-note {
+  color: #475569;
+  font-size: 13px;
+}
+</style>

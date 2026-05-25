@@ -16,7 +16,7 @@ defineProps<{ title: string }>()
 .card {
   border: 1px solid #d8e0ea;
   padding: 14px;
-  border-radius: 10px;
+  border-radius: 8px;
   margin: 10px 0;
   background: #f9fbff;
 }

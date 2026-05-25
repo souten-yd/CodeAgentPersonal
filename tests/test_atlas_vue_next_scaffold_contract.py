@@ -23,4 +23,4 @@ def test_package_contract_and_classic_non_module():
     text = Path('web/atlas-next/package.json').read_text().lower()
     assert 'nuxt' not in text and 'next.js' not in text and '"next"' not in text
     for f in ['ui.html', 'web/js/atlas_dashboard.js', 'web/js/atlas_pipeline_api.js']:
-        assert 'type="module"' not in Path(f).read_text()
+        assert 'type="module"' not in Path(f).read_text(encoding='utf-8')
