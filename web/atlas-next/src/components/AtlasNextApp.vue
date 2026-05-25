@@ -2,8 +2,8 @@
   <main class="atlas-next-root">
     <header class="workbench-header">
       <p class="eyebrow">Atlas Workbench</p>
-      <h1>Start, review, then execute through guarded steps.</h1>
-      <p class="headline">Vue is available on the guarded preview route. Existing ui.html remains default and backend workflow state remains authoritative.</p>
+      <h1>Start Atlas, then review the plan.</h1>
+      <p class="headline">Use the Start Atlas flow to define requirements, create planning metadata, and review backend-owned progress before any guarded execution step.</p>
       <p class="runtime-note">Runtime: {{ snapshot.safety.runtimeLevel }} / Vue execution controls: disabled</p>
     </header>
     <div class="workbench-layout">
