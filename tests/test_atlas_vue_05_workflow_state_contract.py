@@ -29,7 +29,7 @@ def test_workflow_state_contract_helpers_emit_read_only_metadata_only() -> None:
     assert payload["vue_source_of_truth"] is False
     assert payload["autonomous_execution_enabled"] is False
     assert payload["level1_execution_enabled"] is False
-    assert payload["diagnostics"]["route_mounted"] is False
+    assert payload["diagnostics"]["route_mounted"] is True
     summary = summarize_workflow_state_contract(payload)
     assert summary["manual_only"] is True
     assert summary["available_action_count"] == 1
@@ -51,6 +51,14 @@ def test_workflow_state_read_only_route_contract() -> None:
     assert payload['primary_cta']['state'] == 'read_only'
     assert payload['primary_cta']['enabled'] is False
     assert payload['diagnostics']['backend_contract_ready'] is True
-    assert payload['diagnostics']['route_mounted'] is False
-    assert payload['diagnostics']['static_mount_deferred'] is True
+    assert payload['diagnostics']['route_mounted'] is True
+    assert payload['diagnostics']['static_mount_deferred'] is False
     assert all(a['enabled'] is False and a['read_only'] is True for a in payload['available_actions'])
+    patch = payload['patch_transaction_metadata']
+    assert patch['available'] is False
+    assert patch['generation_enabled'] is False
+    assert patch['apply_enabled'] is False
+    assert patch['safe_apply_enabled'] is False
+    assert patch['verification_enabled'] is False
+    assert patch['rollback_enabled'] is False
+    assert patch['advisory_only'] is True
