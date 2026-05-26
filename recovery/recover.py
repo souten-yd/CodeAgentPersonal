@@ -217,7 +217,7 @@ def _utc_now() -> str:
 
 def _is_relative_to(child: Path, parent: Path) -> bool:
     try:
-        os.path.commonpath([str(parent.resolve()), str(child.resolve())]) == str(parent.resolve())
-        return os.path.commonpath([str(parent.resolve()), str(child.resolve())]) == str(parent.resolve())
+        resolved_parent = str(parent.resolve())
+        return os.path.commonpath([resolved_parent, str(child.resolve())]) == resolved_parent
     except ValueError:
         return False
