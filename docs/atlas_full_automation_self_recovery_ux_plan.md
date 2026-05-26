@@ -28,6 +28,7 @@ This document must not be used to bypass PR-144 through PR-146 gates. Full autom
 6. Never mutate the stable runtime directly during self-improvement.
 7. Add a recovery path that does not depend on the LLM, the modified application code, FastAPI, or the target code being healthy.
 8. Move the Atlas UI toward a simple conversational UX while preserving advanced diagnostics behind an explicit drawer or mode.
+9. Make the default conversational Atlas shell buildless: no npm install, no Vite build, no runtime build, and no required Vue compilation for ordinary development or startup.
 
 ## Automation safety profiles
 
@@ -268,6 +269,22 @@ If the web UI is unavailable, the same recovery path must work from command line
 
 Atlas should move toward a Codex-like conversational shell while keeping backend state authoritative.
 
+### Buildless UI policy
+
+The default conversational Atlas shell must be buildless.
+
+Required constraints:
+
+- No npm install is required for the default Atlas shell.
+- No Vite build is required for the default Atlas shell.
+- No Vue single-file component compilation is required for ordinary Atlas development.
+- Runtime/server startup must not run npm build.
+- RunPod startup must not run npm build.
+- Docker image builds may still build optional Atlas Next preview assets, but the default conversational Atlas shell must work without those assets.
+- Atlas Next / Vue may remain as an optional preview or child view, but it must not be required for the default conversational UX.
+- The buildless shell should use existing `ui.html`, static CSS, and vanilla ES modules under `web/js/`.
+- If a lightweight reactive helper is used later, it must be vendored as static browser JS and must not introduce a mandatory build step.
+
 ### UX principles
 
 1. One primary conversation input.
@@ -276,7 +293,7 @@ Atlas should move toward a Codex-like conversational shell while keeping backend
 4. Advanced diagnostics remain available but hidden by default.
 5. The user can ask what Atlas is doing, why it is blocked, what will change, and how to recover.
 6. Every action must map to a backend workflow state and artifact chain.
-7. Vue or Atlas Next may render the shell, but must not become the source of truth.
+7. Vue or Atlas Next may render an optional child view, but must not become the source of truth or a build requirement for the default shell.
 
 ### Primary conversational states
 
@@ -341,8 +358,8 @@ The following PRs extend the roadmap after PR-ATLAS-SCALE-146.
 | PR-ATLAS-SCALE-148 | External recovery supervisor foundation | no app dependency | recovery must not import app/ |
 | PR-ATLAS-SCALE-149 | Candidate workspace manager | no stable mutation | self-improvement uses candidate only |
 | PR-ATLAS-SCALE-150 | Boot self-diagnosis and stable checkpoint | no autonomous loop | startup health artifact only |
-| PR-ATLAS-SCALE-151 | Conversational Atlas shell contract | UI/UX only | backend workflow state remains authoritative |
-| PR-ATLAS-SCALE-152 | Conversational shell implementation | display/supervision only | one primary CTA, no authority shift |
+| PR-ATLAS-SCALE-151 | Buildless conversational Atlas shell contract | UI/UX only | backend workflow state remains authoritative; no npm/Vite build required |
+| PR-ATLAS-SCALE-152 | Buildless conversational shell implementation | display/supervision only | one primary CTA, no authority shift, no required Vue build |
 | PR-ATLAS-SCALE-153 | Self-improvement candidate apply | candidate mutation only | stable runtime untouched |
 | PR-ATLAS-SCALE-154 | Candidate verification gate | allowlisted verification only | no promote without evidence |
 | PR-ATLAS-SCALE-155 | Promotion gate and release pointer switch | controlled promotion | rollback-ready pointer required |
@@ -367,4 +384,5 @@ Atlas can be considered a fully autonomous code agent only when all of the follo
 - Draft PR creation and update are available within configured limits.
 - Direct merge remains forbidden unless a future explicit policy changes it.
 - Stop, rollback, and recovery paths are tested.
+- Buildless conversational Atlas shell works without npm install, Vite build, Vue SFC compilation, or Atlas Next dist assets.
 - Conversational UX can explain state, risk, next action, and recovery.
