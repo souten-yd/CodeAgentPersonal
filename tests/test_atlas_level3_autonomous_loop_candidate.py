@@ -126,10 +126,18 @@ def test_create_level3_autonomous_loop_candidate_blocks_unsafe_bounds(tmp_path: 
     assert "draft_pr_only_required" in candidate["blocking_reasons"]
 
 
-def test_create_level3_autonomous_loop_candidate_blocks_untrusted_level2_checkpoint(tmp_path: Path) -> None:
+def test_create_level3_autonomous_loop_candidate_blocks_unapproved_level2_checkpoint(tmp_path: Path) -> None:
     data_root, checkpoint_path = _write_level2_checkpoint(
         tmp_path,
-        overrides={"autonomous_execution_enabled": True, "direct_merge_enabled": True},
+        overrides={
+            "transition_authorized": False,
+            "transition_blocked": True,
+            "runtime_level": "level_1_guarded_single_step",
+            "level2_guarded_bounded_loop_enabled": False,
+            "bounded_loop_execution_allowed": False,
+            "bounded_retry_candidate_allowed": False,
+            "blocking_reasons": ["fixture_blocked"],
+        },
     )
 
     candidate = create_level3_autonomous_loop_candidate(
@@ -140,8 +148,9 @@ def test_create_level3_autonomous_loop_candidate_blocks_untrusted_level2_checkpo
     )
 
     assert candidate["candidate_authorized"] is False
-    assert "autonomous_execution_enabled_must_be_false" in candidate["blocking_reasons"]
-    assert "direct_merge_enabled_must_be_false" in candidate["blocking_reasons"]
+    assert "level2_transition_authorization_required" in candidate["blocking_reasons"]
+    assert "level2_runtime_level_required" in candidate["blocking_reasons"]
+    assert "level2_guarded_bounded_loop_required" in candidate["blocking_reasons"]
 
 
 def test_create_level3_autonomous_loop_candidate_blocks_unallowlisted_verification(tmp_path: Path) -> None:
