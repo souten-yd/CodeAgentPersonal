@@ -191,7 +191,7 @@ def validate_self_improvement_candidate_verification_gate(result: dict[str, Any]
         or (0 < len(command_results) <= _MAX_COMMANDS and all(entry.get("allowed") for entry in command_results)),
         "allowed_commands": (not is_ready) or bool(result.get("allowed_commands")),
         "blocked_commands": (not is_ready) or not result.get("blocked_commands"),
-        "verification_evidence_refs": bool(result.get("verification_evidence_refs")),
+        "verification_evidence_refs": (not is_ready) or bool(result.get("verification_evidence_refs")),
         "candidate_verification_gate_enabled": result.get("candidate_verification_gate_enabled") is is_ready,
         "candidate_verification_ready": result.get("candidate_verification_ready") is is_ready,
         "allowlisted_verification_only": result.get("allowlisted_verification_only") is True,
