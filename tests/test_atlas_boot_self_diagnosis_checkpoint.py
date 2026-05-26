@@ -81,7 +81,7 @@ def test_boot_checkpoint_blocks_missing_required_checks_and_bad_hashes(tmp_path:
         release_pointer_path=tmp_path / "wrong.json",
         checkpoint_store=store,
         boot_checks=[{"name": CHECK_HEALTH_PROBE, "status": "pass", "summary": "missing evidence"}],
-        artifact_hashes={"../outside": "bad"},
+        artifact_hashes={"../outside": "bad", "nested/..": "0" * 64, "C:/abs": "1" * 64},
     )
 
     assert checkpoint["status"] == "blocked"
