@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-134 backend-only manually approved draft PR creation helper.
+Updated after the PR-ATLAS-SCALE-135 backend-only manually approved draft PR update helper.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -28,16 +28,17 @@ Updated after the PR-ATLAS-SCALE-134 backend-only manually approved draft PR cre
 - PR-ATLAS-SCALE-132 adds a backend-only `create_approved_local_branch` helper that creates a local branch ref from a proposal artifact after explicit approval and exact `CREATE LOCAL BRANCH` confirmation.
 - PR-ATLAS-SCALE-133 adds backend-only `create_draft_pr_policy_metadata`, producing policy metadata for a created local branch while keeping PR creation disabled.
 - PR-ATLAS-SCALE-134 adds backend-only `create_manually_approved_draft_pr`, using an injected draft PR client after explicit approval and exact `CREATE DRAFT PR` confirmation.
+- PR-ATLAS-SCALE-135 adds backend-only `create_manually_approved_pr_update`, using an injected update client after explicit approval and exact `UPDATE DRAFT PR` confirmation.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
-- Vue execution, autonomous execution, automatic patch generation, automatic patch apply, safe apply controls, verification execution, rollback execution, retry, auto-continue, execute-all, PR update, and remote git push operations remain disabled.
-- Draft PR creation is backend-only, manually approved, confirmation-gated, and requires an injected PR client; no network library, public route, Vue control, push, or PR update path is introduced by SCALE-134.
+- Vue execution, autonomous execution, automatic patch generation, automatic patch apply, safe apply controls, verification execution, rollback execution, retry, auto-continue, execute-all, and remote git push operations remain disabled.
+- Draft PR creation and PR update are backend-only, manually approved, confirmation-gated, and require injected clients; no network library, public route, Vue control, push, or autonomous update path is introduced by SCALE-135.
 - Atlas Next uses safe GET workflow state metadata plus the explicit PlanPool create endpoint only.
 - Patch Review, Guarded Execution Preparation, right-rail diagnostics, conversation requirement summary, guided flow grouping, plan lifecycle strip, and PlanPool item summary are display-only and do not expose patch generation, apply, safe_apply, verification execution, rollback execution, retry, autonomous continuation, approval, dry-run, branch creation, draft PR, or PR update controls.
-- SCALE-134 does not add a public route, add a Vue control, push a branch, update a PR, add autonomous continuation, or change runtime level; it only records a manually approved draft PR creation result through an injected backend client.
+- SCALE-135 does not add a public route, add a Vue control, push a branch, add autonomous continuation, or change runtime level; it only records a manually approved draft PR update result through an injected backend client.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-135: add manually approved PR update from an approved patch transaction / draft PR creation result.
-- Keep it backend-only and manually gated; do not add Vue execution controls, autonomous continuation, runtime escalation, default UI changes, or remote git push operations.
+- PR-ATLAS-SCALE-136: add bounded loop policy v1 for the next automation phase.
+- Keep it policy-first and backend-authoritative; do not add Vue execution controls, autonomous continuation, runtime escalation, default UI changes, or remote git push operations.
