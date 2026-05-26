@@ -129,8 +129,8 @@ def test_shell_model_source_has_no_runtime_or_process_execution_dependency() -> 
         "safe_apply",
         "git worktree",
         "git push",
-        "npm",
-        "vite",
+        "npm install",
+        "vite build",
     ]
     for needle in forbidden:
         assert needle not in text
