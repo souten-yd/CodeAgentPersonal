@@ -112,6 +112,23 @@ def test_validate_rejects_stable_runtime_mutation(tmp_path: Path) -> None:
         validate_candidate_workspace_plan(plan)
 
 
+def test_validate_rejects_ready_plan_with_candidate_root_inside_repo(tmp_path: Path) -> None:
+    plan = create_candidate_workspace_plan(
+        target_repo=tmp_path / "repo",
+        candidate_root=tmp_path / "candidates",
+        allowed_paths=["app/atlas"],
+        blocked_paths=["main.py"],
+        stable_checkpoint_id="stable_001",
+        max_files=3,
+        max_risk_level="low",
+        self_improvement_scope="atlas_non_runtime",
+    )
+    plan["candidate_root"] = str((tmp_path / "repo" / "nested_candidate").resolve())
+
+    with pytest.raises(ValueError, match="candidate_root"):
+        validate_candidate_workspace_plan(plan)
+
+
 def test_write_and_load_candidate_workspace_plan(tmp_path: Path) -> None:
     plan = create_candidate_workspace_plan(
         target_repo=tmp_path / "repo",
