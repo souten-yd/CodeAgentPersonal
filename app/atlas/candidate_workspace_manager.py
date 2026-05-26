@@ -85,8 +85,8 @@ def create_candidate_workspace_plan(
     overlap = sorted(set(_normalize_pattern(path) for path in allowed_paths) & set(_normalize_pattern(path) for path in blocked_paths))
     if overlap:
         blocked.append("allowed_and_blocked_path_overlap")
-    if root == repo or _is_relative_to(repo, root):
-        blocked.append("candidate_root_must_not_contain_target_repo")
+    if root == repo or _is_relative_to(root, repo):
+        blocked.append("candidate_root_must_not_be_inside_target_repo")
 
     plan = {
         "schema_version": SCHEMA_VERSION,
