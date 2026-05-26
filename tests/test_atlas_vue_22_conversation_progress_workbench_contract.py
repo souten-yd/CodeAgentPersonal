@@ -9,8 +9,12 @@ def test_vue_conversation_workbench_components_are_mounted() -> None:
         "ProgressRail",
         "workbench-layout",
         "conversation-column",
+        "guided-flow",
+        "Guided Atlas requirement flow",
     ]:
         assert marker in app
+    assert app.index("<RequirementInput />") < app.index("<ConversationWorkbench />")
+    assert app.index("<section class=\"guided-flow\"") < app.index("<WorkflowReviewBoard :snapshot=\"snapshot\" />")
 
 
 def test_conversation_workbench_supports_plan_operation_questions_and_details() -> None:
