@@ -42,6 +42,20 @@ Settings should start collapsed.
 - Use a smooth lightweight transition.
 - Keep advanced items grouped.
 - Keep theme entry points available.
+- Include a backend-owned work target mode selector with two choices: software development/repair and platform self-improvement.
+- Treat the work target mode selector as workflow intent only; it must not authorize self-improvement, self-apply, execution, direct merge, remote git push, or Vue authority without backend gates.
+
+## Work Target Mode
+
+Later FastUI work should let the user choose whether Atlas is improving the platform itself or developing/repairing ordinary software.
+
+Required behavior:
+
+- Present the choice as a compact button group, segmented control, or equivalent setting.
+- Map choices to backend workflow state such as `software_development_or_repair` and `platform_self_improvement`.
+- Keep backend workflow state authoritative for eligibility, profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
+- Do not let the UI choice bypass strict self-improvement gates or enable stable-runtime mutation.
+- Keep this planned for PR-ATLAS-SCALE-151 / PR-ATLAS-SCALE-152 or a directly adjacent UI/UX PR after Level-4 gates.
 
 ## Lightweight client
 
@@ -72,5 +86,5 @@ Effects must respect reduced-motion settings and must not hide errors.
 
 Use this direction for the post-Level-4 UX work.
 
-- PR-ATLAS-SCALE-151: FastUI shell contract
-- PR-ATLAS-SCALE-152: FastUI shell implementation
+- PR-ATLAS-SCALE-151: FastUI shell contract, including backend-owned work target mode contract.
+- PR-ATLAS-SCALE-152: FastUI shell implementation, including a compact mode selector for software development/repair versus platform self-improvement.
