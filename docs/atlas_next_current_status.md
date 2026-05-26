@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-136 backend-only bounded loop policy v1 helper.
+Updated after the PR-ATLAS-SCALE-137 backend-only bounded retry and failure recovery metadata helper.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -23,6 +23,7 @@ Updated after the PR-ATLAS-SCALE-136 backend-only bounded loop policy v1 helper.
 - The read-only PlanPool item summary PR makes generated plan candidates easier to scan inside the Start Atlas result review panel.
 
 ## Completed in latest automation roadmap track
+- PR-ATLAS-SCALE-129 adds patch transaction preview with rollback metadata required and no apply.
 - PR-ATLAS-SCALE-130 adds a backend-only `apply_patch_transaction_one_action` helper for a single low-risk patch transaction.
 - PR-ATLAS-SCALE-131 adds a backend-only `create_local_branch_proposal` helper for writing a proposal artifact after an approved patch transaction apply.
 - PR-ATLAS-SCALE-132 adds a backend-only `create_approved_local_branch` helper that creates a local branch ref from a proposal artifact after explicit approval and exact `CREATE LOCAL BRANCH` confirmation.
@@ -30,17 +31,18 @@ Updated after the PR-ATLAS-SCALE-136 backend-only bounded loop policy v1 helper.
 - PR-ATLAS-SCALE-134 adds backend-only `create_manually_approved_draft_pr`, using an injected draft PR client after explicit approval and exact `CREATE DRAFT PR` confirmation.
 - PR-ATLAS-SCALE-135 adds backend-only `create_manually_approved_pr_update`, using an injected update client after explicit approval and exact `UPDATE DRAFT PR` confirmation.
 - PR-ATLAS-SCALE-136 adds backend-only `create_bounded_loop_policy_v1`, producing a policy-only bounded loop artifact while keeping loop execution disabled.
+- PR-ATLAS-SCALE-137 adds backend-only `create_bounded_retry_recovery_metadata`, producing metadata-only bounded retry and failure recovery policy while keeping retry execution disabled.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
 - Vue execution, autonomous execution, automatic patch generation, automatic patch apply, safe apply controls, verification execution, rollback execution, retry execution, auto-continue, execute-all, and remote git push operations remain disabled.
-- Bounded loop policy is backend-only, manually approved, policy-only, and caps planned iterations at three; it does not execute a loop or enable retry.
-- Draft PR creation and PR update are backend-only, manually approved, confirmation-gated, and require injected clients; no network library, public route, Vue control, push, or autonomous update path is introduced by SCALE-136.
+- Bounded loop policy and bounded retry recovery metadata are backend-only, manually approved, metadata-only, and capped; they do not execute a loop or retry.
+- Draft PR creation and PR update are backend-only, manually approved, confirmation-gated, and require injected clients; no network library, public route, Vue control, push, or autonomous update path is introduced by SCALE-137.
 - Atlas Next uses safe GET workflow state metadata plus the explicit PlanPool create endpoint only.
 - Patch Review, Guarded Execution Preparation, right-rail diagnostics, conversation requirement summary, guided flow grouping, plan lifecycle strip, and PlanPool item summary are display-only and do not expose patch generation, apply, safe_apply, verification execution, rollback execution, retry, autonomous continuation, approval, dry-run, branch creation, draft PR, or PR update controls.
-- SCALE-136 does not add a public route, add a Vue control, push a branch, add autonomous continuation, execute retries, or change runtime level; it only records a manually approved bounded loop policy artifact.
+- SCALE-137 does not add a public route, add a Vue control, push a branch, add autonomous continuation, execute retries, or change runtime level; it only records manually approved bounded retry/failure recovery metadata.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-137: add bounded retry and failure recovery metadata from the bounded loop policy.
-- Keep it policy/metadata-first and backend-authoritative; do not add Vue execution controls, autonomous continuation, runtime escalation, default UI changes, or remote git push operations.
+- PR-ATLAS-SCALE-138: explicit Level-2 guarded bounded loop checkpoint.
+- This is a runtime advancement candidate and must verify the bounded loop policy, retry/failure metadata, stop gate, hard bounds, and safety invariants before changing level.
