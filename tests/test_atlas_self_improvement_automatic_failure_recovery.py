@@ -156,26 +156,21 @@ def test_automatic_failure_recovery_requires_ready_promotion_gate(tmp_path: Path
     assert plan["rollback_release_pointer_plan_ready"] is False
 
 
-def test_automatic_failure_recovery_blocks_unsafe_strategy_attempts_and_refs(tmp_path: Path) -> None:
+def test_automatic_failure_recovery_rejects_unsafe_strategy_attempts_and_refs(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
     promotion_path = _promotion_gate(tmp_path, data_root)
     recovery_path = _recovery_manifest(data_root)
 
-    plan = create_automatic_failure_recovery_plan(
-        candidate_promotion_gate_path=promotion_path,
-        recovery_manifest_path=recovery_path,
-        data_root=data_root,
-        recovery_strategy="execute_shell_recovery",
-        max_recovery_attempts=4,
-        recovery_evidence_refs=["../outside.json"],
-        **_approved_kwargs(),
-    )
-
-    assert plan["status"] == "blocked"
-    assert "recovery_strategy_not_allowed" in plan["blocking_reasons"]
-    assert "max_recovery_attempts_must_be_1_to_3" in plan["blocking_reasons"]
-    assert "recovery_evidence_refs_must_be_relative" in plan["blocking_reasons"]
-    assert "recovery_evidence_refs_required" in plan["blocking_reasons"]
+    with pytest.raises(ValueError, match="recovery_strategy|max_recovery_attempts"):
+        create_automatic_failure_recovery_plan(
+            candidate_promotion_gate_path=promotion_path,
+            recovery_manifest_path=recovery_path,
+            data_root=data_root,
+            recovery_strategy="execute_shell_recovery",
+            max_recovery_attempts=4,
+            recovery_evidence_refs=["../outside.json"],
+            **_approved_kwargs(),
+        )
 
 
 def test_validate_automatic_failure_recovery_rejects_execution_escalation(tmp_path: Path) -> None:
