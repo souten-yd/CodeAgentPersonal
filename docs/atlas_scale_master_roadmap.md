@@ -4,11 +4,11 @@
 
 This file is the single human-readable source of truth for Atlas automation planning.
 
-- Completed automation PR: PR-ATLAS-SCALE-136
-- Current automation track: PR-ATLAS-SCALE-137
-- Next automation track: PR-ATLAS-SCALE-137
-- Current runtime level: level_1_guarded_single_step
-- Target runtime level: level_1_guarded_single_step
+- Completed automation PR: PR-ATLAS-SCALE-138
+- Current automation track: PR-ATLAS-SCALE-139
+- Next automation track: PR-ATLAS-SCALE-139
+- Current runtime level: level_2_guarded_bounded_loop
+- Target runtime level: level_2_guarded_bounded_loop
 - Final goal: fully_autonomous_code_agent
 - Self-improvement goal: self_improving_codeagentpersonal_kasanecore
 - Backend workflow_state remains authoritative.
@@ -46,7 +46,7 @@ This phase intentionally did not add execution capability. At that time runtime 
 
 ## Current phase: Bounded Autonomous Loop
 
-SCALE-113 through SCALE-136 moved Atlas from Level-1 preparation through the patch, branch, draft PR, and bounded loop policy pipeline. SCALE-137 is now the active next PR and must add bounded retry and failure recovery metadata without enabling unbounded retry or autonomous continuation.
+SCALE-113 through SCALE-138 moved Atlas from Level-1 preparation through the patch, branch, draft PR, bounded-loop policy, bounded retry metadata, and explicit Level-2 checkpoint pipeline. SCALE-139 is now the active next PR and must introduce only a Level-3 autonomous implementation loop candidate, with draft PR only and no direct merge.
 
 ### Direction lock
 
@@ -63,7 +63,7 @@ SCALE-113 through SCALE-136 moved Atlas from Level-1 preparation through the pat
 - SCALE-124 completed: rollback readiness verification added as verify-only metadata, no automatic rollback or restore.
 - SCALE-125 completed: Level-1 guarded single-step endpoint contract added as dry-run and approval gated metadata.
 - SCALE-126 completed: Vue guarded execution review panel added as display-only metadata review; Vue remains non-authoritative and cannot approve, execute, apply, verify, rollback, retry, or continue.
-- SCALE-127 completed: explicit Level-1 runtime transition checkpoint added. Runtime policy is now level_1_guarded_single_step for one low-risk allowlisted action after dry-run evidence and explicit approval; autonomous loop, rollback/restore automation, remote git push, and Vue authority remain disabled.
+- SCALE-127 completed: explicit Level-1 runtime transition checkpoint added. Runtime policy became level_1_guarded_single_step for one low-risk allowlisted action after dry-run evidence and explicit approval; autonomous loop, rollback/restore automation, remote git push, and Vue authority remained disabled.
 - SCALE-128 completed: metadata-only patch proposal generator added. It records proposed target files, rationale, questions, and acceptance criteria without generating diff text, creating patch transactions, applying patches, using safe_apply, running git, or enabling autonomous execution.
 - SCALE-129 completed: patch transaction preview added with rollback metadata requirement and no apply.
 - SCALE-130 completed: human-approved patch apply one action added for a single low-risk transaction with snapshot requirements.
@@ -72,30 +72,32 @@ SCALE-113 through SCALE-136 moved Atlas from Level-1 preparation through the pat
 - SCALE-133 completed: draft PR policy metadata added without PR creation.
 - SCALE-134 completed: manually approved draft PR creation result added through an injected client.
 - SCALE-135 completed: manually approved draft PR update result added through an injected update client.
-- SCALE-136 completed: bounded loop policy v1 added as a policy-only artifact; loop execution and retry execution remain disabled.
+- SCALE-136 completed: bounded loop policy v1 added as a policy-only artifact; loop execution and retry execution remained disabled.
+- SCALE-137 completed: bounded retry and failure recovery metadata added as metadata-only policy; retry execution remained disabled.
+- SCALE-138 completed: explicit Level-2 guarded bounded loop checkpoint added. Runtime policy is now level_2_guarded_bounded_loop only when bounded policy, retry metadata, stop gate, verification allowlist, artifact capture, and explicit approval are present. Autonomous execution, execute-all, direct merge, remote git push, self-modification, and Vue authority remain disabled.
 
-Next PRs must advance bounded retry and failure recovery metadata without bypassing Level-1 gates or enabling runtime Level 2 before SCALE-138.
+Next PRs must advance the Level-3 autonomous implementation loop candidate without bypassing Level-2 gates, direct merge restrictions, or draft-PR-only constraints.
 
 Allowed PR-B additions:
 
 - PR-B is allowed only when a required implementation is incomplete, broken, or unsafe.
 - PR-B must keep the same phase and goal as its parent PR.
-- PR-B must not introduce a new feature family that delays Level-1 or bounded-loop advancement.
+- PR-B must not introduce a new feature family that delays Level-2 or Level-3 advancement.
 - PR-B must explicitly state which parent PR acceptance criteria it fixes.
 
 Disallowed drift:
 
 - new local-only metadata decoration as the mainline next work
 - Vue becoming authoritative
-- runtime level change before the explicit transition checkpoint PR
+- runtime level change outside an explicit transition checkpoint PR
 - unbounded retry, auto-continue, execute-all, direct merge, or self-modification before their planned PRs
 - remote git push before a dedicated policy and implementation gate
 
 ## Level roadmap
 
 - Level 0: Manual only. Historical baseline. No autonomous execution.
-- Level 1: Guarded single-step automation. Current state. One low-risk, allowlisted action at a time. Dry-run first. Explicit approval token required. No auto-continue.
-- Level 2: Guarded bounded loop. Limited low-risk sequence. Hard bounds. Stop gate. Allowlisted verification. Captured artifacts.
+- Level 1: Guarded single-step automation. One low-risk, allowlisted action at a time. Dry-run first. Explicit approval token required. No auto-continue.
+- Level 2: Guarded bounded loop. Current state. Limited low-risk sequence. Hard bounds. Stop gate. Allowlisted verification. Captured artifacts. Human approval remains required.
 - Level 3: Autonomous implementation loop. Plan, patch, dry-run, apply, verify, bounded fix loop, draft PR only. No direct merge.
 - Level 4: Self-improvement platform. Atlas may improve CodeAgentPersonal / KasaneCore itself under strict self-modification gates, draft PR only, no direct merge.
 
@@ -176,16 +178,16 @@ When checking a PR, verify all of the following against this master plan and the
 
 ## Safety invariants
 
-After PR-ATLAS-SCALE-127:
+After PR-ATLAS-SCALE-138:
 
-- runtime_level is level_1_guarded_single_step
-- Level-1 execution is limited to one low-risk allowlisted action after dry-run evidence and explicit approval
-- autonomous execution remains disabled
+- runtime_level is level_2_guarded_bounded_loop
+- Level-2 execution is limited to bounded low-risk sequences with hard iteration and retry limits
+- dry-run and explicit approval remain required for each iteration
+- stop gate, verification allowlist, and artifact capture are required
+- autonomous execution remains disabled until a future explicit transition
 - automatic verification remains disabled
 - automatic patch generation remains disabled
-- automatic patch apply remains disabled
 - automatic rollback remains disabled
-- automatic retry remains disabled
 - execute-all remains disabled
 - auto-continue remains disabled
 - direct merge remains forbidden
