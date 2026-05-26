@@ -22,6 +22,11 @@ def test_conversation_workbench_supports_plan_operation_questions_and_details() 
         "Operation setting",
         "Questions for Atlas",
         "Detailed definition",
+        "Requirement summary",
+        "planModeLabel",
+        "operationModeLabel",
+        "questionsSummary",
+        "detailsSummary",
         "Plan metadata only",
         "Backend authoritative",
         "Vue execution disabled",
@@ -35,6 +40,8 @@ def test_conversation_workbench_supports_plan_operation_questions_and_details() 
         "approvalactionenabled: true",
         "safe_apply(",
         "@router.post",
+        "fetch(",
+        "@click",
     ]:
         assert token not in forbidden
 
@@ -54,7 +61,7 @@ def test_progress_rail_tracks_workflow_without_enabling_execution() -> None:
     ]:
         assert marker in text
 
-    assert "Requires explicit approval and backend gate evidence" in text
+    assert "Requires explicit approval, dry-run evidence, and backend gate checks" in text
     assert "diagnostics.source === 'safe_get_adapter'" in text
     assert "latestRequirementId" in text
     assert "executionEnabled: true" not in text
