@@ -29,6 +29,21 @@ def test_progress_rail_surfaces_guarded_execution_readiness_metadata() -> None:
         assert marker in text
 
 
+def test_progress_rail_surfaces_backend_data_freshness_metadata() -> None:
+    text = Path('web/atlas-next/src/components/ProgressRail.vue').read_text(encoding='utf-8')
+    for marker in [
+        'Backend data',
+        'dataSourceLabel',
+        'Safe backend workflow_state',
+        'Placeholder fallback snapshot',
+        'dataFreshness',
+        'sourceDetail',
+        'lastUpdatedAt',
+        'dataWarningSummary',
+    ]:
+        assert marker in text
+
+
 def test_progress_rail_remains_display_only_and_backend_owned() -> None:
     text = Path('web/atlas-next/src/components/ProgressRail.vue').read_text(encoding='utf-8')
     assert '<button' not in text
