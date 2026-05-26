@@ -9,7 +9,6 @@ from app.atlas.automation_safety_profile import (
     PROFILE_REVIEW_ONLY,
     PROFILE_SUPERVISED_BOUNDED_AUTO,
     SELF_SCOPE_ATLAS_NON_RUNTIME,
-    SELF_SCOPE_NONE,
     create_automation_safety_profile,
     load_automation_safety_profile,
     validate_automation_safety_profile,
@@ -202,17 +201,17 @@ def test_validate_rejects_forbidden_direct_merge() -> None:
         validate_automation_safety_profile(profile)
 
 
-def test_validate_rejects_scope_without_self_improvement() -> None:
+def test_create_blocks_scope_without_self_improvement() -> None:
     profile = create_automation_safety_profile(
         profile=PROFILE_REVIEW_ONLY,
         self_improvement_enabled=False,
-        self_improvement_scope=SELF_SCOPE_NONE,
+        self_improvement_scope=SELF_SCOPE_ATLAS_NON_RUNTIME,
         explicit_profile_selection=True,
     )
-    profile["self_improvement_scope"] = SELF_SCOPE_ATLAS_NON_RUNTIME
 
-    with pytest.raises(ValueError, match="self_improvement_scope"):
-        validate_automation_safety_profile(profile)
+    assert profile["status"] == "blocked"
+    assert profile["self_improvement_enabled"] is False
+    assert "self_improvement_enabled_required_for_scope" in profile["blocking_reasons"]
 
 
 def test_write_and_load_automation_safety_profile(tmp_path: Path) -> None:
