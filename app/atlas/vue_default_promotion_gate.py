@@ -71,14 +71,17 @@ def create_vue_default_promotion_gate(
     blocked.extend(_validate_milestone_for_vue_gate(milestone))
     smoke_refs = _safe_refs_or_block(smoke_evidence_refs or [], "smoke_evidence_refs", blocked)
     rollback_refs = _safe_refs_or_block(rollback_evidence_refs or [], "rollback_evidence_refs", blocked)
+    try:
+        dist_ref = _safe_ref(dist_artifact_path, allow_plain=True)
+    except ValueError:
+        dist_ref = str(dist_artifact_path)
+        blocked.append("dist_artifact_path_invalid")
     if current_default_route not in {"/", "ui.html", "/ui/"}:
         blocked.append("current_default_route_unexpected")
     if candidate_default_route.rstrip("/") != "/atlas-next":
         blocked.append("candidate_default_route_must_be_atlas_next")
     if legacy_ui_route.rstrip("/") not in {"/ui", "ui.html"}:
         blocked.append("legacy_ui_route_required")
-    if not _safe_ref(dist_artifact_path, allow_plain=True):
-        blocked.append("dist_artifact_path_invalid")
     if not smoke_refs:
         blocked.append("smoke_evidence_refs_required")
     if not rollback_refs:
@@ -121,7 +124,7 @@ def create_vue_default_promotion_gate(
         "current_default_route": current_default_route,
         "candidate_default_route": candidate_default_route,
         "legacy_ui_route": legacy_ui_route,
-        "dist_artifact_path": dist_artifact_path,
+        "dist_artifact_path": dist_ref,
         "smoke_evidence_refs": smoke_refs if ready else [],
         "rollback_evidence_refs": rollback_refs if ready else [],
         "vue_default_promotion_gate_enabled": ready,
