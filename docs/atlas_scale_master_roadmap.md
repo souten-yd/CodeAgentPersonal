@@ -36,12 +36,35 @@ The following redundant planning files are removed from the active docs set:
 
 Future PRs must not reintroduce duplicated active/current/next automation pointers in replacement files. If a handoff summary is required, it must reference this master plan instead of copying the PR table.
 
+## Completed phase: Readiness Metadata Review Phase
+
+SCALE-100 through SCALE-112 are complete and are now closed as the Readiness Metadata Review Phase.
+
+This phase delivered local-only, display-only operator review capabilities: snapshot comparison, local history, import/export, diff view, filtering/grouping, export/copy, annotations, bookmarks, labels, label filtering, label export/import, and label conflict resolution.
+
+This phase intentionally did not add execution capability. At that time runtime remained level_0_manual_only, Level-1/autonomous execution remained disabled, and Vue remained non-authoritative.
+
 ## Current phase: Self-Improving Platform Preparation
 
-SCALE-113 through SCALE-141 moved Atlas from Level-1 preparation through patch/branch/draft PR policy, bounded-loop policy, Level-2 and Level-3 checkpoints, self-improvement proposal mode, and strict self-modification risk classification. SCALE-142 is now the active next PR and must introduce only self-improvement patch preview, with no apply, no self-apply, no direct merge, and no Vue authority.
+SCALE-113 through SCALE-141 moved Atlas from Level-1 preparation through the patch, branch, draft PR, bounded-loop policy, bounded retry metadata, explicit Level-2 checkpoint, Level-3 autonomous implementation loop candidate, self-improvement proposal mode, and strict self-modification risk classifier. SCALE-142 is now the active next PR and must introduce only self-improvement patch preview, with no apply, no self-apply, no direct merge, and no Vue authority.
 
 ### Direction lock
 
+- SCALE-114 completed: advisory readiness rollup and gate evidence summary captured (advisory-only, no execution enablement).
+- SCALE-115 completed: dry-run artifact schema v1 added as schema-only metadata infrastructure, no execution enablement.
+- SCALE-116 completed: verification allowlist resolver added as metadata-only resolver, no command execution.
+- SCALE-117 completed: dry-run-only backend endpoint skeleton added as non-mutating metadata-only endpoint, no execution enablement.
+- SCALE-118 completed: dry-run-only result artifact capture added under resolved data_root, no project mutation or execution enablement.
+- SCALE-119 completed: approval token backend contract added as digest-only metadata, no execution or autonomous authorization.
+- SCALE-120 completed: Vue dry-run result viewer added as display-only backend-owned metadata view, no dry-run start or execution capability.
+- SCALE-121 completed: disabled single allowlisted command runner contract added as default-disabled metadata, no command execution.
+- SCALE-122 completed: execution artifact capture v1 schema added as one-action metadata capture, no loop or execution enablement.
+- SCALE-123 completed: stop / kill-switch runtime integration added as metadata-only continuation blocking, no process kill or execution enablement.
+- SCALE-124 completed: rollback readiness verification added as verify-only metadata, no automatic rollback or restore.
+- SCALE-125 completed: Level-1 guarded single-step endpoint contract added as dry-run and approval gated metadata.
+- SCALE-126 completed: Vue guarded execution review panel added as display-only metadata review; Vue remains non-authoritative and cannot approve, execute, apply, verify, rollback, retry, or continue.
+- SCALE-127 completed: explicit Level-1 runtime transition checkpoint added. Runtime policy became level_1_guarded_single_step for one low-risk allowlisted action after dry-run evidence and explicit approval; autonomous loop, rollback/restore automation, remote git push, and Vue authority remained disabled.
+- SCALE-128 completed: metadata-only patch proposal generator added. It records proposed target files, rationale, questions, and acceptance criteria without generating diff text, creating patch transactions, applying patches, using safe_apply, running git, or enabling autonomous execution.
 - SCALE-129 completed: patch transaction preview added with rollback metadata requirement and no apply.
 - SCALE-130 completed: human-approved patch apply one action added for a single low-risk transaction with snapshot requirements.
 - SCALE-131 completed: local branch proposal artifact added without git mutation.
@@ -52,11 +75,11 @@ SCALE-113 through SCALE-141 moved Atlas from Level-1 preparation through patch/b
 - SCALE-136 completed: bounded loop policy v1 added as a policy-only artifact; loop execution and retry execution remained disabled.
 - SCALE-137 completed: bounded retry and failure recovery metadata added as metadata-only policy; retry execution remained disabled.
 - SCALE-138 completed: explicit Level-2 guarded bounded loop checkpoint added. Runtime policy became level_2_guarded_bounded_loop only when bounded policy, retry metadata, stop gate, verification allowlist, artifact capture, and explicit approval are present.
-- SCALE-139 completed: Level-3 autonomous implementation loop candidate added. It records a draft-PR-only, single-file, bounded, low-risk candidate contract while keeping autonomous loop execution, automatic patch generation, automatic apply, automatic verification, direct merge, remote git push, self-modification, and Vue authority disabled.
-- SCALE-140 completed: self-improvement proposal mode added. It records proposal-only intent while keeping self-apply, self-modification, patch generation, patch apply, verification execution, direct merge, remote git push, and Vue authority disabled.
+- SCALE-139 completed: Level-3 autonomous implementation loop candidate added. It records a draft-PR-only, single-file, bounded, low-risk candidate contract from an approved Level-2 checkpoint while keeping autonomous loop execution, automatic patch generation, automatic apply, automatic verification, direct merge, remote git push, self-modification, and Vue authority disabled.
+- SCALE-140 completed: self-improvement proposal mode added. It records proposal-only intent for CodeAgentPersonal / KasaneCore self-improvement while keeping self-apply, self-modification, patch generation, patch apply, verification execution, direct merge, remote git push, and Vue authority disabled.
 - SCALE-141 completed: strict self-modification risk classifier added. It records classification-only risk metadata and required next gates while keeping patch preview, self-apply, self-modification, execution, direct merge, remote git push, and Vue authority disabled.
 
-Next PRs must advance self-improvement patch preview without bypassing classification-only limits, proposal traceability, direct merge restrictions, or draft-PR-only constraints.
+Next PRs must advance the self-improving platform phase without bypassing classification-only limits, proposal traceability, direct merge restrictions, or draft-PR-only constraints.
 
 Allowed PR-B additions:
 
@@ -78,10 +101,48 @@ Disallowed drift:
 - Level 0: Manual only. Historical baseline. No autonomous execution.
 - Level 1: Guarded single-step automation. One low-risk, allowlisted action at a time. Dry-run first. Explicit approval token required. No auto-continue.
 - Level 2: Guarded bounded loop. Limited low-risk sequence. Hard bounds. Stop gate. Allowlisted verification. Captured artifacts. Human approval remains required.
-- Level 3: Autonomous implementation loop candidate. Current state. Candidate contract can plan, propose, request dry-run, evaluate artifacts, prepare draft PR update metadata, record self-improvement proposals, and classify self-modification risk. Execution, patch apply, verification, retry, PR updates, and direct merge remain disabled until future gated PRs.
+- Level 3: Autonomous implementation loop candidate. Current state. Candidate contract can plan, propose, request dry-run, evaluate artifacts, prepare draft PR update metadata, record self-improvement proposals, and classify self-modification risk, but execution, patch apply, verification, retry, PR updates, and direct merge remain disabled until future gated PRs.
 - Level 4: Self-improvement platform. Atlas may improve CodeAgentPersonal / KasaneCore itself under strict self-modification gates, draft PR only, no direct merge.
 
 ## PR-by-PR implementation plan
+
+### Phase 1: Level-1 readiness evidence generation
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-113 | Consolidate master plan, remove duplicate plan docs, add phase manifest and drift validator | no runtime change | canonical plan only |
+| PR-ATLAS-SCALE-114 | Advisory readiness rollup and gate evidence summary | no execution | advisory-only, not eligibility |
+| PR-ATLAS-SCALE-115 | Dry-run artifact schema v1 | no execution | schema only |
+| PR-ATLAS-SCALE-116 | Verification allowlist resolver | no command execution | resolver only |
+| PR-ATLAS-SCALE-117 | Dry-run-only backend endpoint skeleton | no mutation | no patch apply, no git |
+| PR-ATLAS-SCALE-118 | Dry-run result artifact capture | no mutation | captures real dry-run output only |
+| PR-ATLAS-SCALE-119 | Approval token backend contract | no execution | token does not authorize autonomous loop |
+| PR-ATLAS-SCALE-120 | UI dry-run result viewer | Vue display-only | Vue remains non-authoritative |
+
+### Phase 2: Level-1 guarded single-step enablement
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-121 | Disabled single allowlisted command runner | default disabled | allowlisted only |
+| PR-ATLAS-SCALE-122 | Execution artifact capture v1 | no loop | one action only |
+| PR-ATLAS-SCALE-123 | Stop / kill-switch runtime integration | no auto-continue | stop blocks continuation |
+| PR-ATLAS-SCALE-124 | Rollback readiness verification | no automatic rollback | verify only |
+| PR-ATLAS-SCALE-125 | Level-1 guarded single-step endpoint | limited execution | dry-run + approval required |
+| PR-ATLAS-SCALE-126 | UI guarded execution review panel | Vue still non-authoritative | backend executes, Vue reviews |
+| PR-ATLAS-SCALE-127 | Explicit Level-1 runtime transition checkpoint | runtime may become level_1_guarded_single_step | only if all gates pass |
+
+### Phase 3: Patch, branch, and draft PR pipeline
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-128 | Patch proposal generator | no apply | proposal only |
+| PR-ATLAS-SCALE-129 | Patch transaction preview | no apply | rollback metadata required |
+| PR-ATLAS-SCALE-130 | Human-approved patch apply one action | single mutation | snapshot required |
+| PR-ATLAS-SCALE-131 | Local branch proposal artifact | no git mutation | proposal only |
+| PR-ATLAS-SCALE-132 | Approved local branch creation | local git only | no remote push |
+| PR-ATLAS-SCALE-133 | Draft PR policy | no PR creation | policy only |
+| PR-ATLAS-SCALE-134 | Draft PR creation | remote service via injected client | draft only, no merge |
+| PR-ATLAS-SCALE-135 | PR update from approved patch transaction | draft PR update only | no direct merge |
 
 ### Phase 4: Bounded autonomous loop
 
