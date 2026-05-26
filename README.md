@@ -1,438 +1,561 @@
-# KasaneCore (CodeAgent Personal)
+<p align="center">
+  <img src="assets/kasane-core-logo.svg" width="120" alt="KasaneCore logo" />
+</p>
 
-KasaneCoreは、ローカルLLM（llama.cpp / GGUF）とFastAPIバックエンドを組み合わせた、個人向け自律型AIコーディングエージェント基盤です。
-チャット、タスク実行、Atlasワークフロー、音声I/O（Echo）、文書調査（Nexus）を一つのUIに統合し、Windows・Linux・Runpod・Docker環境で動作します。
+<h1 align="center">KasaneCore (CodeAgent Personal)</h1>
 
----
+<p align="center">
+  <strong>完全ローカル動作・クラウド非依存のAIコーディングエージェント基盤</strong><br>
+  llama.cpp × FastAPI × Vue3 で、要件定義からパッチ適用・ロールバックまで一気通貫
+</p>
 
-## アーキテクチャ概要
-
-```
-ブラウザ UI (ui.html / web/atlas-next Vue3)
-        │
-        ▼
-FastAPI バックエンド (main.py)
-        │
-   ┌────┴────────────────────────────────────┐
-   │                                         │
-AgentLoop                               Nexus Router
-(Planner / Executor / Evaluator)        (文書・Web調査)
-   │
-ToolRegistry
-(read_file / write_file / apply_patch /
- run_command / run_tests / nexus_* ...)
-   │
-llama-server (llama.cpp / GGUF)
-```
-
-### Atlas とは
-
-**Atlas** はKasaneCoreにおけるコーディングワークフロー全体を管掌する中枢コンポーネントです。単なるチャットではなく、要件定義→計画→実行→検証→パッチ適用→ロールバックまでを一貫して管理します。
-
-```
-ユーザー入力 (要件)
-    ↓
-RequirementAnalyzer → ClarificationService (不明点の確認)
-    ↓
-DeepPlanner → PlanPoolBuilder (Program/Epic/Task 三層計画)
-    ↓
-PlanReviewer → PlanApprovalManager (承認ゲート)
-    ↓
-AtlasPipelineRunner
-  ├─ AutopilotPolicyGate (リスク評価・ブロック判定)
-  ├─ ImplementationExecutor (ファイル編集・コマンド実行)
-  ├─ AtlasFileSafeApplyExecutor (パッチ安全適用)
-  ├─ VerificationRunner (テスト実行・検証)
-  └─ BoundedRetryService (上限付き再試行)
-    ↓
-AtlasLLMEvaluatorService (LLMによる結果評価)
-    ↓
-ChangeSnapshotService → RollbackReadiness (スナップショット・ロールバック)
-    ↓
-AtlasJournal (全イベント永続化)
-```
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11-blue" />
+  <img src="https://img.shields.io/badge/FastAPI-0.110+-green" />
+  <img src="https://img.shields.io/badge/llama.cpp-CUDA%2012.8-orange" />
+  <img src="https://img.shields.io/badge/Vue-3.5-brightgreen" />
+  <img src="https://img.shields.io/badge/license-see%20repo-lightgrey" />
+</p>
 
 ---
 
-## 主なコンポーネント
+## KasaneCoreとは
 
-### agent/ — エージェントコア
+KasaneCoreは、ローカルLLM（llama.cpp / GGUF）を中核に、**コーディングエージェント・音声I/O・Web調査・文書RAG**を単一のFastAPIバックエンドに統合した個人向けAI開発環境です。
 
-| モジュール | 役割 |
+OpenAIのAPIキーもクラウドサービスも必要ありません。RTX 3070やM5 Macがあれば、すべてオフラインで動きます。
+
+### 他のコードエージェントとの違い
+
+| 機能 | **KasaneCore** | Claude Code | GitHub Copilot Agent | Cursor Agent | Devin |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **完全ローカル動作** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **ローカルGGUF/llama.cpp** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Planner/Executor/Evaluator分離** | ✅ | ❌ | ❌ | ❌ | △ |
+| **ロール別LLM割当 (9種)** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **明示的承認ゲート (17項目)** | ✅ | △ | △ | △ | △ |
+| **スナップショット+ロールバック** | ✅ | ❌ | △ | ❌ | △ |
+| **LLMによる自動評価 (Evaluator)** | ✅ | ❌ | ❌ | ❌ | ✅ |
+| **SQLite永続メモリ** | ✅ | ❌ | ❌ | ❌ | △ |
+| **文書RAG + Web調査 (Nexus)** | ✅ | ❌ | ❌ | △ | ❌ |
+| **音声I/O (Echo)** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **天気・ニュース (Lumen)** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Self-improvement (Level 4)** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Draft PR自動生成** | ✅ | ❌ | ✅ | ❌ | ✅ |
+| **SearXNG統合 (プライベート検索)** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **月額費用** | $0 | 従量課金 | $10〜/月 | $20/月 | $500/月〜 |
+
+---
+
+## アーキテクチャ全体図
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ブラウザ UI                                    │
+│   ui.html (Vanilla JS)  +  web/atlas-next/ (Vue3 + Vite)       │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ HTTP / SSE / WebSocket
+┌───────────────────────────────▼─────────────────────────────────┐
+│               FastAPI バックエンド (main.py)                      │
+│                     145 エンドポイント                            │
+│  ┌──────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────────┐  │
+│  │  Lumen   │ │ Atlas  │ │  Echo  │ │ Nexus  │ │   Models   │  │
+│  │  (Chat)  │ │(Coding)│ │(Voice) │ │ (RAG)  │ │(llama.cpp) │  │
+│  └──────────┘ └────────┘ └────────┘ └────────┘ └────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                   ┌────────────▼────────────┐
+                   │   llama-server (GGUF)   │
+                   │  OpenAI互換 /v1/chat/   │
+                   │  completions API        │
+                   └─────────────────────────┘
+```
+
+---
+
+## 🧠 Atlas — コーディングワークフローエンジン
+
+Atlasは、KasaneCoreの心臓部です。「ただのチャット」ではなく、**要件定義から実装・検証・パッチ適用・ロールバックまで**を段階的な安全ゲートで制御しながら自律実行します。
+
+### Atlasのワークフロー全体
+
+```
+ユーザー入力 (自然言語の要件)
+         │
+         ▼
+┌─────────────────────────────────────────┐
+│ RequirementAnalyzer                      │
+│ → 要件を構造化し、あいまい点を洗い出す     │
+└──────────────────┬──────────────────────┘
+                   │ 不明点あり → ClarificationService (ユーザーへ質問)
+                   │ 明確 ↓
+┌──────────────────▼──────────────────────┐
+│ DeepPlanner                              │
+│ → 3つのアーキテクチャ案 (A/B/C) を生成   │
+│ → 最適案を選択し、実装フェーズに分解       │
+│ → Nexusコンテキスト + リポジトリ構造考慮  │
+└──────────────────┬──────────────────────┘
+                   ↓
+┌──────────────────▼──────────────────────┐
+│ AtlasPlanPoolBuilder                     │
+│ → Program / Epic / Task の三層計画を構築  │
+│ → 各アイテムにリスクレベルを付与          │
+└──────────────────┬──────────────────────┘
+                   ↓
+┌──────────────────▼──────────────────────┐
+│ PlanReviewer → PlanApprovalManager       │
+│ → 計画レビュー・ユーザー承認ゲート        │
+└──────────────────┬──────────────────────┘
+                   ↓ 承認後
+┌──────────────────▼──────────────────────┐
+│ AtlasPipelineRunner                      │
+│                                          │
+│  ┌─────────────────────────────────┐    │
+│  │ AutopilotPolicyGate              │    │
+│  │ リスク評価 → allow/approve/block  │    │
+│  └────────────────┬────────────────┘    │
+│                   ↓ allow               │
+│  ┌─────────────────────────────────┐    │
+│  │ AtlasChangeSnapshotService       │    │
+│  │ 変更前ファイルのSHA256スナップショット│   │
+│  └────────────────┬────────────────┘    │
+│                   ↓                     │
+│  ┌─────────────────────────────────┐    │
+│  │ ImplementationExecutor           │    │
+│  │ ファイル編集 / コマンド実行        │    │
+│  └────────────────┬────────────────┘    │
+│                   ↓                     │
+│  ┌─────────────────────────────────┐    │
+│  │ AtlasFileSafeApplyExecutor       │    │
+│  │ パッチの安全適用                  │    │
+│  └────────────────┬────────────────┘    │
+│                   ↓                     │
+│  ┌─────────────────────────────────┐    │
+│  │ VerificationRunner               │    │
+│  │ テスト実行・検証                  │    │
+│  └────────────────┬────────────────┘    │
+│                   ↓                     │
+│  ┌─────────────────────────────────┐    │
+│  │ AtlasLLMEvaluatorService         │    │
+│  │ LLMによる実行結果の自動評価        │    │
+│  └────────────────┬────────────────┘    │
+│                   ↓ 失敗時              │
+│  ┌─────────────────────────────────┐    │
+│  │ BoundedRetryService              │    │
+│  │ 上限付き再試行 (policy制御)        │    │
+│  └─────────────────────────────────┘    │
+└──────────────────┬──────────────────────┘
+                   ↓ 成功 / ロールバック
+┌──────────────────▼──────────────────────┐
+│ AtlasJournal                             │
+│ → 全イベント・成果物の永続化              │
+│ → 中断からの再開 (ContinuationService)   │
+└──────────────────────────────────────────┘
+```
+
+### Atlasの実行安全モデル (Level 0〜4)
+
+Atlasは**段階的な権限昇格モデル**を採用しています。現在のランタイムは `level_4_self_improvement_platform` まで到達済みです。
+
+| Level | 名称 | 実行できること |
+|---|---|---|
+| **0** | Manual Only | 計画・プレビューのみ。ファイル変更なし |
+| **1** | Guarded Single Step | dry_run証明 + 明示的承認後、1アクションのみ実行 |
+| **2** | Guarded Bounded Loop | 上限付きループ。各ステップで承認ゲート |
+| **3** | Autonomous Loop Candidate | ドラフトPR生成まで。自動マージ禁止 |
+| **4** | Self-Improvement Platform | 自己改善パッチ提案・ローカルブランチ作成まで |
+
+**Level 1 承認ゲート (17項目)** — 以下が全て揃わないと実行できません：
+
+```
+snapshot_restore        / patch_transaction       / risk_classification
+dry_run_proof           / explicit_approval_token / allowlisted_verification
+rollback_readiness      / artifact_capture        / stop_kill_switch
+loop_bounds             / remote_git_restriction  / self_improvement_gate
+audit_log               / data_root_path_safety   / forbidden_command_policy
+backend_authority       / ui_non_authority
+```
+
+### リスクレベルによる自動判定
+
+| リスク | 動作 | 例 |
+|---|---|---|
+| `low` | 自動実行可 | ドキュメント更新、テスト追加 |
+| `medium` | ポリシー依存 | 通常のコード変更 |
+| `high` | 承認必須 | APIの変更、設定ファイル変更 |
+| `critical` | **ブロック** | `main.py`, `Dockerfile`, ワークフロー系 |
+
+**保護ファイル** (変更に必ず承認が必要):
+```
+app/api/**  /  app/atlas/**  /  agent/**
+main.py  /  Dockerfile  /  requirements*.txt
+web/js/atlas_dashboard.js  /  docs/atlas_development_constitution.md
+```
+
+### Atlas CodeIntel — コードインテリジェンス
+
+Atlasは静的解析でコードベースを理解します：
+
+- **シンボルインデックス** — Python AST解析でクラス・関数・メソッドを全列挙
+- **依存グラフ** — モジュール間のimport関係を自動追跡
+- **関連テストの自動発見** — 変更ファイルに対応するテストを自動特定
+- **除外パス** — `.git` / `__pycache__` / `node_modules` / `ca_data` を自動スキップ
+
+### Atlas自動化ロードマップ
+
+現在 PR-ATLAS-SCALE-147 完了、最終目標は `fully_autonomous_code_agent` です。
+
+```
+SCALE-100〜112: 読み取り専用オペレーターレビュー機能 ✅
+SCALE-113〜127: Level-1 ガード付き実行 ✅
+SCALE-128〜132: パッチ提案・トランザクション・ローカルブランチ ✅
+SCALE-133〜135: Draft PR生成・更新 ✅
+SCALE-136〜138: 上限付きループ (Level-2) ✅
+SCALE-139〜143: 自律実装ループ候補 (Level-3) ✅
+SCALE-144〜147: Self-improvement + Level-4 ✅
+SCALE-148〜:    外部リカバリースーパーバイザー・完全自律化 🚧
+```
+
+---
+
+## 💬 Lumen — インテリジェントチャット
+
+Lumenは、日常会話からWeb検索・天気・ニュースまでを扱う**チャットサーフェス**です。
+
+### インテント自動分類
+
+メッセージを受け取ると、Lumenは即座に意図を検出します：
+
+| インテント | トリガーキーワード | 動作 |
+|---|---|---|
+| `chat` | (その他) | ローカルLLMとの通常会話 |
+| `weather` | 天気 / 気温 / 雨 / forecast / temperature | Open-Meteo天気取得 |
+| `news` | ニュース / 速報 / headlines / latest news | 軽量ニュースダイジェスト |
+| `web` | 検索 / 調べて / URL / https:// | SearXNG経由のWeb検索 |
+| `nexus_deep_research_suggestion` | 詳しく調査 / レポート / 深掘り | Nexus Deep Researchへ誘導 |
+
+### 天気機能 (Open-Meteo / APIキー不要)
+
+```
+「明日の横浜の天気は？」
+    ↓
+位置情報を自動抽出 ("横浜")
+    ↓
+Open-Meteo Geocoding → 座標解決
+    ↓
+Open-Meteo Forecast → 3日間予報取得
+    ↓
+LLMへ圧縮コンテキストを渡して自然言語回答生成
+```
+
+**日本語の時制も理解します：**
+`今日` / `明日` / `明後日` / `今夜` / `今朝` / `週末` / `来週`
+
+### ニュース機能 (マルチソース)
+
+SearXNG・GDELT DOC 2.0・RSSフィードを統合したニュースダイジェスト。Yahoo!ニュースRSSは `personal_use_only` フラグ付きで自動通知。証拠保存なし・Nexus Deep Research自動起動なしの**軽量モード**で動作します。
+
+### Lumenの境界設計
+
+Lumenは意図的に**軽量**に設計されています：
+
+```
+Lumenが担当 ✅         Lumenが担当しない ❌
+─────────────────────  ──────────────────────────────
+通常チャット             ファイル編集・コマンド実行
+天気 (Open-Meteo)       Deep Research (Nexus管轄)
+ニュースダイジェスト       自律ループ・自動継続
+1回限りのWeb検索         承認済みタスク実行
+会話履歴の継続           モデル切替オーケストレーション
+```
+
+### 検索ポリシー制御
+
+```python
+tool_policy  = "off" | "auto" | "on"   # ツール使用方針
+search_policy = "off" | "auto" | "on"  # Web検索方針
+```
+
+**予算上限 (ハードキャップ):**
+
+| バジェット | 既定 | 最大 |
+|---|---|---|
+| Web検索: クエリ数 | 3 | 5 |
+| Web検索: 1クエリ結果数 | 5 | 10 |
+| Web検索: 取得文字数 | 12,000 | 30,000 |
+| Web検索: タイムアウト | 20秒 | 60秒 |
+| 天気: 予報日数 | 3 | 7 |
+
+---
+
+## 🎙️ Echo — 音声I/Oシステム
+
+EchoはリアルタイムASR（音声認識）・翻訳・TTS（音声合成）を統合した**音声ワークベンチ**です。
+
+### サポートする音声エンジン
+
+**ASRエンジン (自動選択):**
+
+| エンジン | バックエンド | 用途 |
+|---|---|---|
+| `faster-whisper` | CUDA / CPU | Runpod推奨。large-v3-turboをバンドル |
+| `whisper.cpp` | Vulkan | **Windows AMD GPU対応**。RX 9070 XT等で動作 |
+| `auto` | 環境検出 | OS・GPU・Runpod判定で自動選択 |
+
+**Windowsでのwhisper.cpp Vulkan自動セットアップ:**
+```bat
+setup_whisper_cpp_vulkan_windows.bat
+```
+→ `ca_data/bin/whisper.cpp-vulkan/` と `ggml-large-v3-turbo.bin` を自動取得
+
+**TTSエンジン:**
+
+| エンジン | 特徴 |
 |---|---|
-| `loop.py` | AgentLoop: Planner/Executor/Evaluatorを疎結合で接続する基本ループ |
-| `planner.py` | Program/Epic/Task 三層計画インターフェース |
-| `evaluator.py` | 実行結果をDoDで評価し再計画レベル (task/epic/program) を判定 |
-| `executor.py` | Action実行 + エラー分類テーブル (timeout/json_output_failed 等) |
-| `memory.py` | HybridMemoryStore: 短期(deque) + 長期(SQLite) + TaskOutcome記録 |
-| `context_builder.py` | プロジェクトコンテキスト構築 |
-| `policy.py` | ExecutionPolicy: human gate / autostop / capability check |
-| `safety.py` | autostop通知生成 |
-| `clarification_manager.py` | ユーザーへの確認フロー管理 |
-| `deep_planner.py` | DeepPlanner: アーキテクチャ選択・実装フェーズ分解 |
-| `task_planning_runner.py` | タスク計画実行ランナー |
-| `tools/registry.py` | ToolRegistry: ツール名と実行関数の登録・呼び出し |
-| `tools/builtin.py` | read_file / write_file / apply_patch / search_code / run_command / run_tests / get_error_trace |
-| `tools/nexus_tools.py` | nexus_search_library / nexus_web_search / nexus_build_report / nexus_upload_document / nexus_news_scan / nexus_market_research / nexus_export_bundle |
+| **Style-Bert-VITS2** | 高品質日本語TTS。koharune-amiモデルをDockerにバンドル |
+| **Qwen3-TTS** | 多言語対応TTS (要requirements-tts.txt) |
 
-### agent/atlas_* — Atlasサービス群 (140ファイル超)
+### Echo言語ルーター
 
-主要なものを抜粋:
-
-| モジュール | 役割 |
-|---|---|
-| `atlas_autopilot.py` | AtlasAutopilot: DeepPlanner + TaskDecomposer によるプレビュープラン生成 |
-| `atlas_autopilot_policy.py` | AutopilotPolicyGate: リスクレベル(low/medium/high/critical)評価・承認要否判定 |
-| `atlas_pipeline_runner.py` | AtlasPipelineRunner: PlanPool実行制御 (dry_run/policy評価/item処理) |
-| `atlas_plan_pool_builder.py` | PlanPool構築 (要件→アイテム分解) |
-| `atlas_plan_pool_storage.py` | PlanPool JSON永続化 |
-| `atlas_journal.py` | AtlasJournal: 全イベント・成果物の永続化 |
-| `atlas_continuation_service.py` | セッション継続: 中断したワークフローの再開サポート |
-| `atlas_llm_evaluator_service.py` | LLMによる実行結果評価 (policy制御・フォールバックルール付き) |
-| `atlas_code_intel_service.py` | Pythonシンボルインデックス / 依存グラフ / 関連テスト探索 |
-| `atlas_context_refresh_service.py` | コンテキスト自動更新 |
-| `atlas_patch_proposal_service.py` | パッチ提案生成 |
-| `atlas_patch_candidate_approval_service.py` | パッチ候補の承認フロー |
-| `atlas_patch_regen_from_recommendation_service.py` | 推奨事項からパッチ再生成 |
-| `atlas_file_safe_apply_executor.py` | ファイルへの安全なパッチ適用 |
-| `atlas_change_snapshot_service.py` | 変更前スナップショット取得 |
-| `atlas_change_snapshot_restore_service.py` | スナップショットからのロールバック |
-| `atlas_bounded_retry_service.py` | 上限付き再試行 |
-| `atlas_guarded_operator_loop_service.py` | 確認トークン付き人間監視実行ループ |
-| `atlas_next_action_orchestrator_service.py` | 次アクション選択・オーケストレーション |
-| `atlas_multi_item_autopilot_service.py` | 複数アイテムの自動実行 |
-| `atlas_manual_next_action_executor_service.py` | dry_run / 実行 の手動ステップ実行 |
-| `atlas_debug_review_service.py` | デバッグレビュー |
-| `atlas_recovery_service.py` | 最新実行状態からの復旧 |
-
-### app/ — アプリケーション層
-
-| パス | 役割 |
-|---|---|
-| `app/api/atlas_*.py` | Atlas APIエンドポイント群 (workflow-state / pipeline / guarded-loop 等) |
-| `app/atlas/` | 実行安全性ゲート群 (level1〜level4, rollback, self-improvement 等) |
-| `app/nexus/` | 文書調査: ingest / search / evidence / report / web_scout / market / news |
-| `app/asr/` | ASR: faster-whisper / whisper.cpp ランタイム |
-| `app/tts/` | TTS: Style-Bert-VITS2 / Qwen3-TTS エンジン + 言語ルーター |
-| `app/audio/` | オーディオランタイム設定 |
-| `app/lumen/` | Lumen: チャット用インテント検出 (weather/news/web/nexus_research) |
-| `app/services/` | jobs / system_usage / audio_runtime 等のサービス層 |
-| `app/api/` | runtime_controls / settings / system / echo / projects 等のルーター |
-| `app/server.py` | static assets / workspace mount / router登録 |
-
-### web/atlas-next/ — Atlasフロントエンド (Vue3 + Vite)
-
-| コンポーネント | 役割 |
-|---|---|
-| `WorkflowShell.vue` | Atlasワークフロー全体のシェル |
-| `RequirementInput.vue` | 要件入力 / Atlas Start |
-| `PlanReviewPanel.vue` | 計画レビュー・承認 |
-| `PlanLifecycleStrip.vue` | 計画進捗ストリップ |
-| `GuardedExecutionPreparationPanel.vue` | 実行前ガード確認 |
-| `GuardedExecutionReviewPanel.vue` | 実行確認・承認パネル |
-| `ApprovalDryRunPreview.vue` | dry_run結果プレビュー |
-| `PatchReviewPanel.vue` | パッチ差分レビュー |
-| `Level1ReadinessPanel.vue` | Level1ゲート確認 (17項目) |
-| `ExecutionSafetyBoundary.vue` | 実行安全境界 |
-| `WorkflowReviewBoard.vue` | ワークフロー状態ボード |
-| `ConversationWorkbench.vue` | 会話ワークベンチ |
-| `ProgressRail.vue` | 進捗レール |
-
----
-
-## ディレクトリ構成
+ASR言語とTTS言語を独立して制御できます：
 
 ```
-KasaneCore/
-├── main.py                        # FastAPIバックエンド (145エンドポイント)
-├── agent/
-│   ├── loop.py                    # AgentLoop
-│   ├── planner.py / evaluator.py / executor.py
-│   ├── memory.py                  # HybridMemoryStore
-│   ├── tools/                     # ToolRegistry + builtin + nexus_tools
-│   ├── atlas_*.py                 # Atlasサービス群 (140ファイル超)
-│   └── ...
-├── app/
-│   ├── api/                       # APIルーター群
-│   ├── atlas/                     # 実行安全ゲート (level1〜4等)
-│   ├── asr/                       # faster-whisper / whisper.cpp
-│   ├── tts/                       # Style-Bert-VITS2 / Qwen3-TTS
-│   ├── audio/                     # オーディオランタイム
-│   ├── nexus/                     # 文書調査システム
-│   ├── lumen/                     # インテント検出
-│   ├── services/                  # jobs / system_usage 等
-│   └── server.py
-├── web/
-│   ├── atlas-next/                # Vue3 + Vite (Atlasフロントエンド)
-│   └── js/ css/                   # メインUIアセット
-├── tests/                         # contractテスト群 (phase2〜phase31)
-├── scripts/
-│   ├── start_codeagent.py         # クロスプラットフォームランチャー
-│   ├── runpod_start.sh            # Runpod起動
-│   ├── setup_llama_runpod.sh      # llama.cppセットアップ
-│   ├── smoke_ui_modes_playwright.py # UIスモークテスト
-│   └── ...
-├── docker/
-│   └── start-services.sh          # Docker起動スクリプト
-├── ca_data/                       # 永続データ (gitignore対象)
-├── ui.html                        # メインUI
-├── Dockerfile                     # マルチステージビルド
-├── requirements.txt
-├── requirements-tts.txt           # TTS用 (CUDA依存分離)
-└── start.bat                      # Windowsランチャー
+入力音声 (ASR: ja) → 認識テキスト (日本語)
+                           ↓
+                    LLM翻訳 (ja → en) ← output_language="en" の場合
+                           ↓
+                    TTS合成 (Style-Bert-VITS2)
+                           ↓
+                    音声出力 (英語読み上げ)
 ```
+
+**jp_extra モデル** では入力がどの言語でも日本語音声に自動変換されます。
+
+### WebSocket リアルタイムストリーム
+
+`/echo/stream` はWebSocketベースのリアルタイム音声セッションで、ASRチャンク処理・TTS応答・EchoVaultへの自動保存を同時並行で処理します。
 
 ---
 
-## 主要APIエンドポイント
+## 🔍 Nexus — 知識調査システム
 
-### Chat / Task
+Nexusは、PDFやWebページの取り込みから、証拠収集・Deep Research・レポート生成まで担う**知識調査エンジン**です。
 
-| Method | Path | 説明 |
-|---|---|---|
-| `POST` | `/chat` | チャット (chat/taskモード切替可) |
-| `POST` | `/task/stream` | タスク実行 SSEストリーム |
-| `POST` | `/llm/test` | LLM接続テスト |
-| `POST` | `/api/task/plan` | プラン生成のみ |
-
-### Atlas ワークフロー
-
-| Method | Path | 説明 |
-|---|---|---|
-| `POST` | `/api/atlas/autopilot/preview` | Autopilotプレビュープラン生成 |
-| `GET` | `/api/atlas/autopilot/{id}` | Autopilot状態取得 |
-| `POST` | `/api/atlas/autopilot/{id}/tasks/{task_id}/plan` | タスクプラン生成 |
-| `GET` | `/api/atlas/runs` | Atlas実行一覧 |
-| `GET` | `/api/atlas/workflow-state/read-only` | ワークフロー状態 (読み取り専用) |
-| `GET` | `/api/plans/{plan_id}` | プラン取得 |
-| `GET` | `/api/plans/{plan_id}/approval` | 承認状態確認 |
-| `POST` | `/api/plans/{plan_id}/approve` | プラン承認 |
-| `POST` | `/api/plans/{plan_id}/execute` | プラン実行 |
-| `POST` | `/api/plans/{plan_id}/request-revision` | 修正要求 |
-| `POST` | `/api/plans/{plan_id}/reject` | プラン却下 |
-| `GET` | `/api/runs/{run_id}` | 実行詳細 |
-| `GET` | `/api/runs/{run_id}/log` | 実行ログ |
-| `GET` | `/api/runs/{run_id}/patches` | パッチ一覧 |
-| `GET` | `/api/runs/{run_id}/patch-dashboard` | パッチダッシュボード |
-| `POST` | `/api/runs/{run_id}/patches/{patch_id}/approve` | パッチ承認 |
-| `POST` | `/api/runs/{run_id}/patches/{patch_id}/apply` | パッチ適用 |
-| `GET` | `/api/runs/{run_id}/verification/{id}` | 検証結果 |
-| `GET` | `/api/runs/{run_id}/llm-telemetry` | LLMテレメトリ |
-
-### モデル管理
-
-| Method | Path | 説明 |
-|---|---|---|
-| `POST` | `/models/db` | モデル登録 |
-| `GET` | `/models/hardware` | ハードウェア情報 |
-| `GET` | `/models/gguf/search` | GGUFモデル検索 |
-| `POST` | `/models/gguf/download` | GGUFダウンロード |
-| `POST` | `/models/db/scan` | モデルスキャン |
-| `POST` | `/models/roles` | ロール割当 |
-| `POST` | `/models/orchestration` | モデルオーケストレーション設定 |
-| `GET` | `/ensemble/settings` | アンサンブル設定 |
-| `POST` | `/model/switch` | モデル切替 |
-| `POST` | `/model/auto-load` | 自動ロード |
-
-### メモリ / スキル / Git
-
-| Method | Path | 説明 |
-|---|---|---|
-| `GET` | `/memory` | メモリ一覧 |
-| `POST` | `/memory` | メモリ登録 |
-| `PUT` | `/memory/{mid}` | メモリ更新 |
-| `DELETE` | `/memory/{mid}` | メモリ削除 |
-| `POST` | `/memory/analyze/{job_id}` | メモリ解析 |
-| `GET` | `/skills` | スキル一覧 |
-| `POST` | `/skills` | スキル登録 |
-| `DELETE` | `/skills/{name}` | スキル削除 |
-| `POST` | `/skills/reload` | スキルリロード |
-| `GET` | `/git/status` | Git状態 |
-| `POST` | `/git/commit` | Gitコミット |
-| `GET` | `/git/diff` | Git差分 |
-| `GET` | `/git/log` | Gitログ |
-
-### ASR / TTS / Echo
-
-| Method | Path | 説明 |
-|---|---|---|
-| `GET` | `/asr/status` | ASR状態 |
-| `POST` | `/asr/load` | ASRモデルロード |
-| `POST` | `/asr/unload` | ASRアンロード |
-| `GET` | `/api/echo/status` (等) | Echo / TTS / ASR 各種 |
-
-### Nexus (`/nexus/` prefix)
-
-主要のみ:
-
-| Method | Path | 説明 |
-|---|---|---|
-| `POST` | `/nexus/upload` | 文書アップロード |
-| `POST` | `/nexus/search` | ライブラリ検索 |
-| `POST` | `/nexus/ask` | 検索結果ベース回答 |
-| `POST` | `/nexus/web/search` | Web検索 |
-| `POST` | `/nexus/web/research` | Web調査ジョブ |
-| `POST` | `/nexus/research/run` | Researchジョブ開始 |
-| `GET` | `/nexus/research/jobs/{id}/answer` | Research回答 |
-| `GET` | `/nexus/research/jobs/{id}/bundle` | 結果バンドル |
-| `POST` | `/nexus/news/scan` | ニューススキャン |
-| `POST` | `/nexus/market/research` | マーケット調査 |
-| `POST` | `/nexus/report/build` | レポート生成 |
-
-### システム / デバッグ
-
-| Method | Path | 説明 |
-|---|---|---|
-| `GET` | `/health` | FastAPI疎通確認 |
-| `GET` | `/system/usage` | CPU/RAM/GPU/VRAM情報 |
-| `GET` | `/debug/llama` | llama-serverデバッグ |
-| `GET` | `/debug/tests` | デバッグテストハーネス UI (KASANE_DEBUG_TEST_HARNESS=1 時のみ) |
-| `POST` | `/api/debug/tests/run-all` | テスト一括実行 |
-
----
-
-## Atlasの実行安全モデル
-
-Atlasは段階的な安全ゲートで実行を制御します。
+### リサーチフロー
 
 ```
-Level 0: dry_run のみ (実ファイル変更なし)
-Level 1: ガード付き実行 (17項目のゲート確認)
-  - snapshot_restore / patch_transaction / risk_classification
-  - dry_run_proof / explicit_approval_token
-  - rollback_readiness / artifact_capture
-  - stop_kill_switch / loop_bounds / remote_git_restriction
-  - self_improvement_gate / audit_log 等
-Level 2: ランタイム遷移チェックポイント
-Level 3: 自律ループ候補
-Level 4: Self-improvement チェックポイント
+クエリ入力
+  │
+  ▼
+ResearchPlanner
+  → 意図推定 (infer_research_intent)
+  → ソースミックス設計 (官公庁/論文/ニュース/企業/一般)
+  → カバレッジマトリクス構築
+  │
+  ▼
+plan_web_queries (SearXNG)
+  → 並行マルチクエリ実行 (ThreadPoolExecutor)
+  → エンジンヘルストラッキング + フォールバック
+  │
+  ▼
+source_collector
+  → ランキング・重複排除・ソースミックス最適化
+  │
+  ▼
+Downloader (並行)
+  → PDF / HTML 取得 (上限: 20MB/ファイル, 100MB合計)
+  → PyMuPDF テキスト抽出
+  │
+  ▼
+Evidence構築
+  → チャンキング・インデックス化
+  → evidence.db 保存
+  │
+  ▼
+AnswerBuilder
+  → 証拠付き回答生成
+  → 引用マッピング (citation_mapper)
+  │
+  ▼
+GapAnalysis (recursive/deepモード)
+  → カバレッジ不足の自動検出
+  → フォローアップクエリ生成
+  │
+  ▼
+ReportBuilder
+  → Markdown レポート生成
+  → エクスポートバンドル (.zip)
 ```
 
-**リスクレベルによる自動判定:**
+### リサーチモード
 
-| リスクレベル | 動作 |
+| モード | 説明 |
 |---|---|
-| `low` | 自動実行可 |
-| `medium` | ポリシー依存 |
-| `high` | 承認必須 |
-| `critical` | ブロック (実行不可) |
+| `standard` | 標準調査。単一ラウンド |
+| `deep` | 深度優先。ギャップ分析 + フォローアップ付き |
+| `recursive` | 再帰的調査。最大ダウンロード予算を自動拡張 |
+| `news` | ニュース特化。GDELT / SearXNG / RSS統合 |
+| `market` | 市場調査特化。企業情報・投資・規制を優先収集 |
+| `official` | 公的機関特化。`.gov` / `.go.jp` / `.ac.jp` 優先 |
+| `academic` | 学術特化。arXiv / DOI / IEEE 優先 |
+
+### ソース自動分類
+
+ResearchPlannerは取得したURLを自動分類します：
+
+```
+官公庁  → .gov / .go.jp / .europa.eu / .mil / .ac.jp
+学術    → arxiv.org / doi.org / ieee.org / nature.com / sciencedirect.com
+ニュース → reuters / bloomberg / nikkei / nhk / bbc
+企業IR  → ir. / investor / annual / company / corp
+レポート → white paper / PDF / 調査 / 報告書 / 白書
+```
+
+### Nexusカバレッジマトリクス
+
+調査の「穴」を自動検出する10次元マトリクス：
+
+```
+市場規模 / キープレイヤー / 技術トレンド / 規制
+サプライチェーン / リスク / タイムライン / 投資
+公的政策 / 学術的根拠
+```
+
+### Agentツールとして呼び出せるNexus機能
+
+```python
+nexus_search_library      # 文書ライブラリ内検索 (Evidence)
+nexus_web_search          # Web検索 → Evidence自動保存 → job_id返却
+nexus_build_report        # Evidence → Markdownレポート生成
+nexus_upload_document     # PDFアップロード → テキスト抽出 → インデックス化
+nexus_news_scan           # ニューススキャン
+nexus_market_research     # マーケット調査
+nexus_export_bundle       # 全成果物をZIPエクスポート
+```
 
 ---
 
-## LLMロール設定
+## 🤖 AgentLoop — コア実行エンジン
 
-| 環境変数 | 既定値 | 用途 |
+### 三層計画構造
+
+```
+ProgramPlan (プログラム全体目標)
+    └── EpicPlan (機能エリア)
+            └── ExecutableTask (実行可能なアクション)
+                    └── DefinitionOfDone (完了条件チェックリスト)
+```
+
+各タスクは完了条件を持ち、Evaluatorが自動評価します：
+
+```
+implementation フェーズ → ["構文OK", "必須関数存在", "参照ファイル整合"]
+execution_verification  → ["実行時エラーなし", "期待挙動確認"]
+```
+
+### ExecutionPolicy — 実行制御
+
+AgentLoopは以下のゲートを通過しないとアクションを実行できません：
+
+```python
+capability_decision = policy.check_action(action)    # ツール使用可否
+human_gate = policy.assess_human_gate(action)        # 人間確認要否
+autostop = policy.evaluate_autostop(evaluation)      # 自動停止判定
+```
+
+### Executorのエラー分類テーブル
+
+失敗時に自動でエラー種別を特定し、再試行戦略を決定します：
+
+| エラー種別 | 最大再試行 | フォールバック戦略 |
 |---|---|---|
-| `LLM_URL` | `http://localhost:8080/v1/chat/completions` | 既定LLM |
-| `CODEAGENT_LLM_PLANNER` | `LLM_URL` | Planner / Verifier |
-| `CODEAGENT_LLM_EXECUTOR` | `LLM_URL` | Executor |
-| `CODEAGENT_LLM_CHAT` | `LLM_URL` | Chat / Clarify |
-| `CODEAGENT_LLM_LIGHT` | `LLM_URL` | 軽量処理 |
-| `CODEAGENT_LLM_MODE` | `single` | LLM実行モード |
+| `json_output_failed` | 2 | 最小JSONプロンプトで再計画 |
+| `target_closed` | 1 | 静的HTML検証に切替 |
+| `edit_old_str_not_found` | 1 | ファイル再読込して小パッチ適用 |
+| `command_not_found` | 1 | ランタイム検査して代替ツール使用 |
+| `timeout` | 2 | タスク分割またはスコープ縮小 |
+| `not_found` | 0 | サポートツールセットで再計画 |
 
-モデルDBでロールを個別に割り当て可能:
+### HybridMemoryStore
 
-`plan` / `chat` / `search` / `verify` / `code` / `complex` / `reason` / `multi` (VLM) / `translate`
+```
+短期メモリ (deque)
+  → ステップ実行結果の即時保持
+  → 直近N件のToolResult
+
+長期メモリ (SQLite)
+  → エラー解決策 (error_solution)
+  → 環境固有の知識 (env_knowledge)
+  → 作業手順 (workflow)
+  → TaskOutcome記録
+  → ArchitectureDecision記録
+  → RiskRegister
+```
+
+### SKILLシステム
+
+`ca_data/skills/<name>/SKILL.md` を置くだけでAgentの能力を拡張：
+
+```markdown
+# ログ解析スキル
+
+## Purpose
+サーバーログからエラー原因を特定する
+
+## When to use
+- ERROR / WARN / Traceback を含むログを解析するとき
+
+## Steps
+1. read_file でログ全体を取得
+2. search_code で "ERROR\|WARN\|Traceback" を抽出
+3. 発生時刻順に整理し、原因候補と修正案を提示
+```
+
+ホットリロード対応。再起動不要でAgentが即座に参照します。
 
 ---
 
-## 環境変数一覧
+## 🛠️ BuiltinツールとNexusツール
 
-### コア
+### Builtinツール
 
-| 変数 | 既定値 | 説明 |
-|---|---|---|
-| `LLAMA_SERVER_PATH` | 自動検出 | llama-server実行ファイルパス |
-| `LLAMA_ROOT_DIR` | `./llama` / Runpod: `/workspace/llama` | llama.cpp配置先 |
-| `CODEAGENT_RUNTIME` | 自動判定 | `runpod` / `local` / `docker` |
-| `CODEAGENT_CA_DATA_DIR` | `./ca_data` / Runpod: `/workspace/ca_data` | 永続データ保存先 |
-| `CODEAGENT_WORK_DIR` | `ca_data/workspace` | プロジェクト作業ディレクトリ |
-| `CODEAGENT_SKILLS_DIR` | `ca_data/skills` | SKILL保存先 |
-| `CODEAGENT_MODEL_DB_PATH` | `ca_data/model_db.db` | モデルDB |
-| `CODEAGENT_SYS_VENV_DIR` | `venv_sys` | ローカル起動用venv |
-| `CODEAGENT_TEST_CMD` | 自動推定 | run_testsの既定コマンド |
-| `KASANE_DEBUG_TEST_HARNESS` | `0` | デバッグテストハーネス有効化 (Docker: 1) |
-| `CODEAGENT_HOST` | `0.0.0.0` | FastAPIホスト |
-| `CODEAGENT_PORT` | `8000` | FastAPIポート |
-| `LLAMA_PORT` | `8080` | llama-serverポート |
-
-### llama-server / VRAM
-
-| 変数 | 既定値 | 説明 |
-|---|---|---|
-| `LLAMA_CACHE_TYPE_K` | `q8_0` | KVキャッシュ型 (K) |
-| `LLAMA_CACHE_TYPE_V` | `q8_0` | KVキャッシュ型 (V) |
-| `DEFAULT_LLM_CTX_SIZE` | `16384` | デフォルトコンテキスト長 |
-
-### ASR / TTS
-
-| 変数 | 既定値 | 説明 |
-|---|---|---|
-| `CODEAGENT_ASR_DEFAULT_MODEL` | `large-v3-turbo` | faster-whisperモデル |
-| `CODEAGENT_ASR_MODEL_PATH` | `/opt/asr_models/large-v3-turbo` | ASRモデルパス |
-| `CODEAGENT_ASR_LOCAL_FILES_ONLY` | `1` | ローカルのみ使用 |
-| `CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR` | `/workspace/ca_data/tts/style_bert_vits2/models` | SBV2モデルパス |
-| `CODEAGENT_STYLE_BERT_VITS2_VENV_DIR` | `/opt/style-bert-vits2-venv` | SBV2 venv |
-| `ECHO_UPLOAD_MAX_BYTES` | `104857600` | Echo音声アップロード上限 |
-
-### Nexus / SearXNG
-
-| 変数 | 既定値 | 説明 |
-|---|---|---|
-| `NEXUS_ENABLE_WEB` | `true` | Web検索有効化 |
-| `NEXUS_ENABLE_NEWS` | `true` | ニュース機能 |
-| `NEXUS_ENABLE_MARKET` | `true` | マーケット機能 |
-| `NEXUS_WEB_SEARCH_PROVIDER` | `searxng` | 検索プロバイダ |
-| `NEXUS_SEARXNG_URL` | Runpod: `http://127.0.0.1:8088` / 他: `http://searxng:8080` | SearXNG URL |
-| `NEXUS_SEARCH_FREE_ONLY` | `true` | 無料プロバイダのみ |
-| `BRAVE_SEARCH_API_KEY` | 空 | Brave Search APIキー |
-| `NEXUS_MAX_UPLOAD_MB` | `200` | 最大アップロードサイズ |
-| `AUTO_START_SEARXNG` | Runpod: `true` / 他: `false` | SearXNG自動起動 |
-
-### Runpod
-
-| 変数 | 説明 |
+| ツール | 説明 |
 |---|---|
-| `RUNPOD_POD_ID` | Runpod環境判定に使用 |
-| `RUNPOD_API_KEY` | Runpod環境判定に使用 |
-| `RUNPOD_AUTO_SETUP_LLAMA` | llama-server自動セットアップ |
+| `read_file` | ファイル読み込み |
+| `write_file` | ファイル書き込み |
+| `apply_patch` | Git unified diff形式でパッチ適用 |
+| `search_code` | プロジェクト内コード/テキスト検索 |
+| `run_command` | 任意コマンド実行 |
+| `run_tests` | テストコマンド実行 (`CODEAGENT_TEST_CMD`) |
+| `get_error_trace` | 直近の失敗情報・エラートレース取得 |
+
+### LLMロール別エンドポイント
+
+```python
+LLM_URL_PLANNER  = CODEAGENT_LLM_PLANNER   # 計画立案
+LLM_URL_EXECUTOR = CODEAGENT_LLM_EXECUTOR  # 実行判断
+LLM_URL_CHAT     = CODEAGENT_LLM_CHAT      # 通常会話・明確化
+LLM_URL_LIGHT    = CODEAGENT_LLM_LIGHT     # 軽量処理
+```
+
+モデルDBでロールを個別割当 (9種類)：
+```
+plan / chat / search / verify / code / complex / reason / multi / translate
+```
 
 ---
 
-## 必要環境
+## 📦 セットアップ
+
+### 必要環境
 
 | 項目 | 推奨 |
 |---|---|
-| OS | Windows 10/11, Linux, Runpod |
+| OS | Windows 10/11 · Linux · Runpod |
 | Python | 3.11 |
 | RAM | 32GB以上 |
 | VRAM | 16GB以上 (RTX 3070等) |
-| GPU | NVIDIA CUDA / AMD Vulkan / CPU fallback |
-
-### 依存関係 (requirements.txt)
-
-```
-fastapi>=0.110
-python-multipart>=0.0.9
-uvicorn>=0.27
-websockets>=12.0
-requests>=2.31
-certifi>=2024.0.0
-PyMuPDF>=1.24.0
-pydantic>=2.6
-psutil>=5.9
-faster-whisper>=1.0
-```
-
-TTS依存 (requirements-tts.txt) は依存衝突回避のため分離:
-```
-torch==2.11.0+cu128
-torchaudio==2.11.0+cu128
-```
-
----
-
-## セットアップ
+| GPU | NVIDIA CUDA · AMD Vulkan · CPU fallback |
 
 ### Windows ローカル
 
@@ -440,14 +563,14 @@ torchaudio==2.11.0+cu128
 git clone https://github.com/souten-yd/KasaneCore.git
 cd KasaneCore
 
-# llama-serverを配置またはパス指定
+# llama-server を配置、またはパス指定
 set LLAMA_SERVER_PATH=C:\path\to\llama-server.exe
 
 start.bat
 # → http://localhost:8000
 ```
 
-初回起動時に `venv_sys/` が自動作成され `requirements.txt` がインストールされます。
+初回起動で `venv_sys/` が自動作成されます。
 
 ### Linux / Runpod
 
@@ -458,17 +581,14 @@ python scripts/start_codeagent.py
 # Runpod専用
 bash scripts/runpod_start.sh
 
-# オプション指定
-python scripts/start_codeagent.py --host 0.0.0.0 --port 8000 --primary-port 8080
+# オプション
+python scripts/start_codeagent.py \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --primary-port 8080 \
+  --api-timeout 120 \
+  --llm-timeout 180
 ```
-
-| オプション | 既定値 | 説明 |
-|---|---|---|
-| `--host` | `0.0.0.0` | FastAPIホスト |
-| `--port` | `8000` | FastAPIポート |
-| `--primary-port` | `8080` | llama-serverポート |
-| `--api-timeout` | `120` | FastAPI起動待ち秒数 |
-| `--llm-timeout` | `180` | LLM起動待ち秒数 |
 
 ### Docker (Runpod推奨)
 
@@ -480,68 +600,153 @@ docker run -p 8000:8000 -p 8080:8080 \
   kasanecore
 ```
 
-Dockerイメージには以下がバンドルされています:
-
-- llama.cpp CUDA 12.8バイナリ (ai-dock/llama.cpp-cudaより自動取得)
-- faster-whisper large-v3-turbo モデル
-- Style-Bert-VITS2 (koharune-amiモデル込み)
-- Gemma-4-E4B-it-Q4_K_M.gguf (デフォルトLLM)
-- SearXNG (Runpod時に自動起動)
-
----
-
-## Runpod 永続化パス
-
-| パス | 内容 |
-|---|---|
-| `/workspace/ca_data` | 全永続データ (必ず永続化推奨) |
-| `/workspace/ca_data/memory.db` | エージェントメモリ |
-| `/workspace/ca_data/model_db.db` | モデルDB |
-| `/workspace/ca_data/skills/` | SKILLファイル |
-| `/workspace/ca_data/workspace/` | プロジェクト作業ディレクトリ |
-| `/workspace/ca_data/nexus/` | Nexus文書・レポート |
-| `/workspace/ca_data/EchoVault/` | Echo録音・文字起こし |
-| `/workspace/ca_data/tts/style_bert_vits2/models/` | SBV2モデル |
-| `/workspace/LLMs` | GGUFモデル |
-| `/workspace/llama` | llama.cpバイナリ |
+**Dockerイメージにバンドルされているもの：**
+- llama.cpp CUDA 12.8バイナリ (`ai-dock/llama.cpp-cuda` より自動取得)
+- faster-whisper `large-v3-turbo` モデル
+- Style-Bert-VITS2 (`koharune-ami` モデル込み)
+- `Gemma-4-E4B-it-Q4_K_M.gguf` (デフォルトLLM)
+- SearXNG (Runpod時は自動起動)
 
 ---
 
-## SKILL拡張
+## ⚙️ 環境変数一覧
 
-`ca_data/skills/` 以下に `SKILL.md` を置くことでAgentの能力を拡張できます。
+### LLMエンドポイント
+
+| 変数 | 既定値 | 説明 |
+|---|---|---|
+| `LLM_URL` | `http://localhost:8080/v1/chat/completions` | 共通LLM |
+| `CODEAGENT_LLM_PLANNER` | `LLM_URL` | Planner / Verifier用 |
+| `CODEAGENT_LLM_EXECUTOR` | `LLM_URL` | Executor用 |
+| `CODEAGENT_LLM_CHAT` | `LLM_URL` | Chat / Clarify用 |
+| `CODEAGENT_LLM_LIGHT` | `LLM_URL` | 軽量処理用 |
+| `CODEAGENT_LLM_MODE` | `single` | LLM実行モード |
+
+### コア
+
+| 変数 | 既定値 | 説明 |
+|---|---|---|
+| `LLAMA_SERVER_PATH` | 自動検出 | llama-server実行ファイル |
+| `LLAMA_ROOT_DIR` | `./llama` (Runpod: `/workspace/llama`) | llama.cpp配置先 |
+| `CODEAGENT_RUNTIME` | 自動判定 | `runpod` / `local` / `docker` |
+| `CODEAGENT_CA_DATA_DIR` | `./ca_data` (Runpod: `/workspace/ca_data`) | 永続データ |
+| `CODEAGENT_WORK_DIR` | `ca_data/workspace` | プロジェクト作業ディレクトリ |
+| `CODEAGENT_SKILLS_DIR` | `ca_data/skills` | SKILLファイル |
+| `CODEAGENT_TEST_CMD` | 自動推定 | テスト実行コマンド |
+| `KASANE_DEBUG_TEST_HARNESS` | `0` (Docker: `1`) | デバッグテストハーネス |
+
+### llama-server / VRAM
+
+| 変数 | 既定値 | 説明 |
+|---|---|---|
+| `LLAMA_CACHE_TYPE_K` | `q8_0` | KVキャッシュ型(K) |
+| `LLAMA_CACHE_TYPE_V` | `q8_0` | KVキャッシュ型(V) |
+| `DEFAULT_LLM_CTX_SIZE` | `16384` | デフォルトコンテキスト長 |
+
+### ASR / TTS / Echo
+
+| 変数 | 既定値 | 説明 |
+|---|---|---|
+| `CODEAGENT_ASR_DEFAULT_MODEL` | `large-v3-turbo` | faster-whisperモデル |
+| `CODEAGENT_ASR_ENGINE` | `auto` | `faster_whisper` / `whisper_cpp` / `auto` |
+| `CODEAGENT_WHISPER_CPP_BACKEND` | `vulkan` (Win) / `cpu` | whisper.cppバックエンド |
+| `CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR` | `/workspace/ca_data/tts/style_bert_vits2/models` | SBV2モデル |
+| `CODEAGENT_STYLE_BERT_VITS2_ENABLE_ONNX_MODEL` | `1` (Win自動) | ONNXモデル使用 |
+| `ECHO_UPLOAD_MAX_BYTES` | `104857600` (100MB) | Echo音声アップロード上限 |
+
+### Nexus / SearXNG
+
+| 変数 | 既定値 | 説明 |
+|---|---|---|
+| `NEXUS_WEB_SEARCH_PROVIDER` | `searxng` | 検索プロバイダ |
+| `NEXUS_SEARXNG_URL` | Runpod: `:8088` / 他: `http://searxng:8080` | SearXNG URL |
+| `NEXUS_SEARCH_FREE_ONLY` | `true` | 無料プロバイダのみ |
+| `BRAVE_SEARCH_API_KEY` | 空 | Brave Search (オプション) |
+| `NEXUS_MAX_UPLOAD_MB` | `200` | 最大アップロードサイズ |
+| `AUTO_START_SEARXNG` | Runpod: `true` / 他: `false` | SearXNG自動起動 |
+| `SEARXNG_ENGINE_PROFILE` | `adaptive_broad_research` | SearXNGエンジンプロファイル |
+
+---
+
+## 📁 ディレクトリ構成
 
 ```
-ca_data/skills/
-└── my_skill/
-    └── SKILL.md
-```
-
-`SKILL.md` の例:
-
-```markdown
-# ログ解析スキル
-
-## Purpose
-サーバーログからエラー原因を特定する。
-
-## When to use
-- ログファイルを解析するとき
-- エラー原因を分類するとき
-
-## Steps
-1. ログ全体を read_file で読む
-2. ERROR / WARN / Traceback を search_code で抽出
-3. 発生時刻順に整理
-4. 原因候補と修正案を提示
+KasaneCore/
+├── main.py                     # FastAPIバックエンド (145エンドポイント)
+├── agent/
+│   ├── loop.py                 # AgentLoop (Planner/Executor/Evaluator統合)
+│   ├── planner.py              # Program/Epic/Task 三層計画
+│   ├── evaluator.py            # DoD評価 + 再計画レベル判定
+│   ├── executor.py             # Action実行 + エラー分類テーブル
+│   ├── memory.py               # HybridMemoryStore (短期deque + 長期SQLite)
+│   ├── context_builder.py      # プロジェクトコンテキスト構築
+│   ├── deep_planner.py         # アーキテクチャ3案生成 + 選択
+│   ├── tools/
+│   │   ├── registry.py         # ToolRegistry
+│   │   ├── builtin.py          # read/write/patch/search/run/tests
+│   │   └── nexus_tools.py      # Nexus連携7ツール
+│   └── atlas_*.py              # Atlasサービス群 (140ファイル超)
+├── app/
+│   ├── api/                    # APIルーター群
+│   ├── atlas/                  # 実行安全ゲート (Level1〜Level4)
+│   ├── asr/                    # faster-whisper / whisper.cpp
+│   ├── tts/                    # Style-Bert-VITS2 / Qwen3-TTS
+│   ├── audio/                  # オーディオランタイム設定
+│   ├── nexus/                  # RAG・Deep Research・レポート
+│   ├── lumen/                  # インテント検出・天気・ニュース
+│   └── services/               # jobs / system_usage / audio_runtime
+├── web/
+│   ├── atlas-next/             # Vue3 + Vite (Atlasワークフロー UI)
+│   │   └── src/components/     # WorkflowShell / PlanReview / PatchReview...
+│   └── js/ css/               # メインUIアセット
+├── docs/                       # 設計ドキュメント・ロードマップ
+├── tests/                      # contractテスト (Phase2〜Phase31, 200件超)
+├── scripts/
+│   ├── start_codeagent.py      # クロスプラットフォームランチャー
+│   ├── runpod_start.sh         # Runpod起動
+│   ├── setup_llama_runpod.sh   # llama.cppセットアップ
+│   ├── setup_whisper_cpp_vulkan_windows.bat  # AMD Vulkan ASRセットアップ
+│   └── smoke_ui_modes_playwright.py          # UIスモークテスト
+├── docker/
+│   └── start-services.sh       # SBV2モデル検証 + SearXNG + FastAPI起動
+├── ca_data/                    # 永続データ (gitignore対象)
+├── ui.html                     # メインUI (824KB)
+├── Dockerfile                  # マルチステージビルド (CUDA 12.8)
+├── requirements.txt            # コア依存
+├── requirements-tts.txt        # TTS依存 (PyTorch cu128 分離)
+└── start.bat                   # Windowsランチャー
 ```
 
 ---
 
-## テスト
+## 💾 永続データ
+
+```
+ca_data/
+├── memory.db              # HybridMemoryStore (短期+長期)
+├── model_db.db            # GGUFモデルDB + ロール割当
+├── skills/                # SKILL.mdファイル (ホットリロード)
+├── workspace/             # プロジェクト作業ディレクトリ
+├── EchoVault/             # Echo録音・文字起こし・成果物
+└── nexus/
+    ├── nexus.db           # Evidenceインデックス
+    ├── uploads/           # アップロード文書
+    ├── extracted/         # 抽出テキスト
+    ├── reports/           # 生成レポート
+    └── exports/           # ZIPエクスポート
+```
+
+**Runpod永続化推奨パス:**
+```
+/workspace/ca_data   /workspace/LLMs   /workspace/llama
+```
+
+---
+
+## 🧪 テスト
 
 ```bash
-# 全テスト
+# 全contractテスト
 pytest -q
 
 # TTS回帰テスト
@@ -550,24 +755,25 @@ pytest -q tests/test_style_bert_vits2_tts_contract_regression.py \
           tests/test_tts_language_router.py \
           tests/test_text_normalizer_jp_extra.py
 
-# UIスモーク (Playwright)
+# UIスモーク (Playwright / mock-backed / 9シナリオ)
 python scripts/smoke_ui_modes_playwright.py
 
-# バックエンドpreflight確認 (バックエンド起動済み前提)
+# バックエンド preflight確認 (バックエンド起動済み前提)
 PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 \
 RUN_ATLAS_BACKEND_PREFLIGHT=1 \
 python scripts/smoke_ui_modes_playwright.py
 
-# バックエンドE2E (dry-run、実行/apply/approveは行わない)
+# Atlas E2E dry-run (approve/execute/apply は実行しない)
 PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 \
 RUN_ATLAS_BACKEND_E2E=1 \
 python scripts/smoke_ui_modes_playwright.py
 
-# デバッグテストハーネス (KASANE_DEBUG_TEST_HARNESS=1 時)
+# デバッグテストハーネス (KASANE_DEBUG_TEST_HARNESS=1)
 python scripts/run_debug_test_matrix.py
+# → http://localhost:8000/debug/tests でGUI確認
 ```
 
-Playwright未導入時:
+**Playwright導入:**
 ```bash
 python -m pip install playwright
 python -m playwright install chromium
@@ -575,48 +781,27 @@ python -m playwright install chromium
 
 ---
 
-## データ保存先 (ローカル)
+## 🗺️ 実装状況
 
-```
-ca_data/
-├── memory.db          # エージェントメモリ (HybridMemoryStore)
-├── model_db.db        # GGUFモデルDB
-├── skills/            # SKILL.mdファイル
-├── workspace/         # プロジェクト作業ディレクトリ
-├── EchoVault/         # Echo録音・文字起こし・成果物
-└── nexus/
-    ├── nexus.db
-    ├── uploads/
-    ├── extracted/
-    ├── reports/
-    └── exports/
-```
-
-`.gitignore` 対象: `ca_data/` / `.codeagent/` / `venv_sys/` / `.venv/` / `__pycache__/` / `*.db`
-
----
-
-## 実装状況
-
-| 機能 | 状態 | 備考 |
-|---|---|---|
-| Chat | Stable | LLM直接呼び出し / エージェントループ切替可 |
-| Task (SSEストリーム) | Stable | plan → タスク実行 → 結果配信 |
-| Atlas ワークフロー | Experimental | Plan/Approve/Execute/Patch/Rollback |
-| Atlas Autopilot | Experimental | DeepPlanner + TaskDecomposer |
-| Guarded Operator Loop | Experimental | 確認トークン付き人間監視実行 |
-| モデル管理 | Stable | GGUF/llama-server/ロール割当 |
-| Memory | Stable | SQLite永続化 / 短期・長期ハイブリッド |
-| SKILL | Stable | SKILL.mdベース / ホットリロード |
-| Nexus (文書調査) | Experimental | Web/PDF/ニュース/マーケット/レポート |
-| Echo (音声I/O) | Experimental | ASR/TTS/翻訳連携 |
-| Style-Bert-VITS2 | Experimental | モデル配置・依存環境に注意 |
-| Qwen3-TTS | Experimental | requirements-tts.txt 分離インストール必要 |
-| Runpod / Docker | Stable | Gemma+SBV2+Whisperバンドルイメージ |
-| Atlas Next (Vue3) | Experimental | Workflow Workbench UI |
+| 機能 | 状態 |
+|---|---|
+| Lumen (チャット・天気・ニュース) | Stable |
+| Task SSEストリーム | Stable |
+| モデル管理 (GGUF/llama-server) | Stable |
+| SQLite永続メモリ | Stable |
+| SKILLシステム | Stable |
+| Runpod / Docker | Stable |
+| Atlas ワークフロー (Plan→Approve→Execute) | Experimental |
+| Atlas Guarded Operator Loop | Experimental |
+| Atlas Self-Improvement (Level 4) | Experimental |
+| Nexus Deep/Recursive Research | Experimental |
+| Echo (ASR/TTS/翻訳) | Experimental |
+| Style-Bert-VITS2 | Experimental |
+| Qwen3-TTS | Experimental |
+| Atlas Next (Vue3 UI) | Experimental |
 
 ---
 
 ## ライセンス
 
-ライセンスファイルが存在する場合はその内容に従ってください。未設定の場合、利用・再配布条件は明示されていません。
+ライセンスファイルが存在する場合はその内容に従ってください。
