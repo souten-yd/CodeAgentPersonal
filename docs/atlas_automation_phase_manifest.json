@@ -18,7 +18,11 @@
   "backend_workflow_state_authoritative": true,
   "vue_source_of_truth": false,
   "vue_execution_capability": "none",
-  "conversational_ux_goal": "codex_like_simple_conversation_shell_with_backend_authoritative_state",
+  "conversational_ux_goal": "buildless_codex_like_simple_conversation_shell_with_backend_authoritative_state",
+  "default_conversational_shell_requires_build": false,
+  "default_conversational_shell_requires_vue": false,
+  "default_conversational_shell_requires_vite": false,
+  "atlas_next_vue_preview_optional": true,
   "level1_execution_enabled": true,
   "level2_guarded_bounded_loop_enabled": true,
   "level3_autonomous_loop_candidate_enabled": true,
@@ -53,7 +57,8 @@
     "unbounded autonomous loop before planned policy gate",
     "self-modification before planned self-improvement phase",
     "conversational UI becoming authoritative instead of backend workflow state",
-    "full automation before recovery supervisor and candidate workspace gates"
+    "full automation before recovery supervisor and candidate workspace gates",
+    "default conversational shell requiring npm install, Vite build, Vue compilation, or Atlas Next dist assets"
   ],
   "planned_prs": [
     {"pr": "PR-ATLAS-SCALE-113", "phase": "level_1_advancement_preparation", "outcome": "consolidate master plan, remove duplicate plan docs, add phase manifest and drift validator", "runtime_change_allowed": false},
@@ -94,8 +99,8 @@
     {"pr": "PR-ATLAS-SCALE-148", "phase": "post_level4_full_automation_foundation", "outcome": "external recovery supervisor foundation", "runtime_change_allowed": false},
     {"pr": "PR-ATLAS-SCALE-149", "phase": "post_level4_full_automation_foundation", "outcome": "candidate workspace manager", "runtime_change_allowed": false},
     {"pr": "PR-ATLAS-SCALE-150", "phase": "post_level4_full_automation_foundation", "outcome": "boot self-diagnosis and stable checkpoint", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-151", "phase": "conversational_atlas_ux", "outcome": "conversational Atlas shell contract", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-152", "phase": "conversational_atlas_ux", "outcome": "conversational shell implementation", "runtime_change_allowed": false},
+    {"pr": "PR-ATLAS-SCALE-151", "phase": "conversational_atlas_ux", "outcome": "buildless conversational Atlas shell contract", "runtime_change_allowed": false},
+    {"pr": "PR-ATLAS-SCALE-152", "phase": "conversational_atlas_ux", "outcome": "buildless conversational shell implementation", "runtime_change_allowed": false},
     {"pr": "PR-ATLAS-SCALE-153", "phase": "self_improvement_candidate_execution", "outcome": "self-improvement candidate apply", "runtime_change_allowed": false},
     {"pr": "PR-ATLAS-SCALE-154", "phase": "self_improvement_candidate_execution", "outcome": "candidate verification gate", "runtime_change_allowed": false},
     {"pr": "PR-ATLAS-SCALE-155", "phase": "self_improvement_candidate_execution", "outcome": "promotion gate and release pointer switch", "runtime_change_allowed": false},
