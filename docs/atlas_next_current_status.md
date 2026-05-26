@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the read-only PlanPool item summary PR.
+Updated after the PR-ATLAS-SCALE-130 backend-only human-approved patch apply helper.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -22,13 +22,19 @@ Updated after the read-only PlanPool item summary PR.
 - #1408 ties Start Atlas, Plan Review, Approval Review, Execute Preview, and Patch Review into one visible sequence.
 - The read-only PlanPool item summary PR makes generated plan candidates easier to scan inside the Start Atlas result review panel.
 
+## Completed in latest automation roadmap track
+- PR-ATLAS-SCALE-130 adds a backend-only `apply_patch_transaction_one_action` helper for a single low-risk patch transaction.
+- The helper requires valid transaction metadata, snapshot reference, rollback readiness, dry-run gate readiness, explicit human approval, a confirmation token, and exact `EXECUTE ONE ACTION` text before it mutates a file.
+- The helper writes an `apply_result.json` under the transaction directory after an approved apply, but does not enable automatic apply, automatic rollback, autonomous execution, retry, or continuation.
+
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
-- Vue execution, autonomous execution, patch generation, patch apply, safe apply, verification, rollback, retry, auto-continue, execute-all, and remote git operations remain disabled.
+- Vue execution, autonomous execution, automatic patch generation, automatic patch apply, safe apply controls, verification execution, rollback execution, retry, auto-continue, execute-all, and remote git operations remain disabled.
 - Atlas Next uses safe GET workflow state metadata plus the explicit PlanPool create endpoint only.
 - Patch Review, Guarded Execution Preparation, right-rail diagnostics, conversation requirement summary, guided flow grouping, plan lifecycle strip, and PlanPool item summary are display-only and do not expose patch generation, apply, safe_apply, verification execution, rollback execution, retry, autonomous continuation, approval, dry-run, or execute controls.
+- SCALE-130 does not add a public apply route or Vue apply control; the new mutation path is backend-only and manually gated.
 
 ## Next narrow PR
-- Add a read-only approval readiness summary near Plan Review so human approval prerequisites are visible before any execution gate work.
-- Keep the surface display-only except for the existing explicit PlanPool create endpoint; do not expose execute, approve, dry-run, safe_apply, verification execution, rollback execution, retry, or autonomous continuation controls.
+- PR-ATLAS-SCALE-131: add a local branch proposal artifact for an approved patch transaction.
+- Keep it proposal-only: no local branch creation, no git mutation, no draft PR creation, no public apply route, no Vue execution controls, and no autonomous continuation.
