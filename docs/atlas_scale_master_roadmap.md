@@ -4,9 +4,9 @@
 
 This file is the single human-readable source of truth for Atlas automation planning.
 
-- Completed automation PR: PR-ATLAS-SCALE-139
-- Current automation track: PR-ATLAS-SCALE-140
-- Next automation track: PR-ATLAS-SCALE-140
+- Completed automation PR: PR-ATLAS-SCALE-140
+- Current automation track: PR-ATLAS-SCALE-141
+- Next automation track: PR-ATLAS-SCALE-141
 - Current runtime level: level_3_autonomous_implementation_loop_candidate
 - Target runtime level: level_3_autonomous_implementation_loop_candidate
 - Final goal: fully_autonomous_code_agent
@@ -46,7 +46,7 @@ This phase intentionally did not add execution capability. At that time runtime 
 
 ## Current phase: Self-Improving Platform Preparation
 
-SCALE-113 through SCALE-139 moved Atlas from Level-1 preparation through the patch, branch, draft PR, bounded-loop policy, bounded retry metadata, explicit Level-2 checkpoint, and Level-3 autonomous implementation loop candidate. SCALE-140 is now the active next PR and must introduce only self-improvement proposal mode, with no self-apply, no direct merge, and no Vue authority.
+SCALE-113 through SCALE-140 moved Atlas from Level-1 preparation through the patch, branch, draft PR, bounded-loop policy, bounded retry metadata, explicit Level-2 checkpoint, Level-3 autonomous implementation loop candidate, and self-improvement proposal mode. SCALE-141 is now the active next PR and must introduce only a strict self-modification risk classifier, with no patch preview, self-apply, direct merge, or Vue authority.
 
 ### Direction lock
 
@@ -76,8 +76,9 @@ SCALE-113 through SCALE-139 moved Atlas from Level-1 preparation through the pat
 - SCALE-137 completed: bounded retry and failure recovery metadata added as metadata-only policy; retry execution remained disabled.
 - SCALE-138 completed: explicit Level-2 guarded bounded loop checkpoint added. Runtime policy became level_2_guarded_bounded_loop only when bounded policy, retry metadata, stop gate, verification allowlist, artifact capture, and explicit approval are present.
 - SCALE-139 completed: Level-3 autonomous implementation loop candidate added. It records a draft-PR-only, single-file, bounded, low-risk candidate contract from an approved Level-2 checkpoint while keeping autonomous loop execution, automatic patch generation, automatic apply, automatic verification, direct merge, remote git push, self-modification, and Vue authority disabled.
+- SCALE-140 completed: self-improvement proposal mode added. It records proposal-only intent for CodeAgentPersonal / KasaneCore self-improvement while keeping self-apply, self-modification, patch generation, patch apply, verification execution, direct merge, remote git push, and Vue authority disabled.
 
-Next PRs must advance the self-improving platform phase without bypassing Level-3 candidate limits, direct merge restrictions, or draft-PR-only constraints.
+Next PRs must advance the self-improving platform phase without bypassing proposal-only limits, direct merge restrictions, or draft-PR-only constraints.
 
 Allowed PR-B additions:
 
@@ -179,19 +180,20 @@ When checking a PR, verify all of the following against this master plan and the
 
 ## Safety invariants
 
-After PR-ATLAS-SCALE-139:
+After PR-ATLAS-SCALE-140:
 
-- runtime_level is level_3_autonomous_implementation_loop_candidate
-- Level-3 candidate remains draft-PR-only, single-file, low-risk, bounded, dry-run-first, approval-gated, stop-gated, verification-allowlisted, and artifact-captured
+- runtime_level remains level_3_autonomous_implementation_loop_candidate
+- self-improvement proposal mode is proposal-only
+- self-modification remains disabled
+- self-apply remains disabled
+- automatic patch generation remains disabled
+- automatic patch apply remains disabled
+- automatic verification remains disabled
 - autonomous loop execution remains disabled
 - autonomous execution remains disabled
-- automatic patch generation remains disabled
-- automatic patch apply remains manually gated and disabled for the candidate
-- automatic verification remains disabled
-- automatic rollback remains disabled
 - execute-all remains disabled
 - auto-continue remains disabled
 - direct merge remains forbidden
 - remote git push remains forbidden
-- self-modification remains disabled until the self-improvement phase gates are complete
+- Vue remains non-authoritative
 - draft PR creation and PR update remain manually gated through dedicated backend helpers; automatic PR creation, automatic PR update, and direct merge remain forbidden
