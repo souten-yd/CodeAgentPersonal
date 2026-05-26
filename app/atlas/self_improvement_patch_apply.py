@@ -134,7 +134,6 @@ def apply_self_improvement_patch_one_action(
     result_path = root / "atlas" / "self_improvement_patch_applies" / apply_id / "manifest.json"
     _ensure_under(root, result_path, "apply_result_outside_data_root")
     result_path.parent.mkdir(parents=True, exist_ok=True)
-    result.write_text if False else None
     result["apply_result_path"] = str(result_path)
     result_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
     return validate_self_improvement_patch_apply(result)
