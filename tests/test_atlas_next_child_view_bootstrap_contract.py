@@ -19,7 +19,7 @@ def test_main_shell_loads_child_view_bootstrap_without_default_redirect():
     assert 'RedirectResponse("/atlas-next")' not in main
 
 
-def test_child_view_hides_legacy_atlas_surfaces_but_keeps_root_shell():
+def test_child_view_hides_legacy_atlas_surfaces_but_keeps_root_shell_fallback():
     bootstrap = (ROOT / "web" / "js" / "app.js").read_text(encoding="utf-8")
     main = (ROOT / "main.py").read_text(encoding="utf-8")
 
@@ -33,4 +33,6 @@ def test_child_view_hides_legacy_atlas_surfaces_but_keeps_root_shell():
     for selector in hidden_surfaces:
         assert selector in bootstrap
     assert "return serve_existing_ui_index()" in main
-    assert "ATLAS_NEXT_DEFAULT_ENABLED = False" in main
+    assert "ATLAS_NEXT_DEFAULT_ENABLED = True" in main
+    assert "can_serve_atlas_next_default()" in main
+    assert "validate_atlas_next_dist()" in main
