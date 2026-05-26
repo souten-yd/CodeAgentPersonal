@@ -12,6 +12,7 @@
         <ConversationWorkbench />
         <WorkflowReviewBoard :snapshot="snapshot" />
         <PatchReviewPanel :snapshot="snapshot" />
+        <GuardedExecutionPreparationPanel :review="snapshot.guardedExecutionReview" />
         <WorkflowShell :snapshot="snapshot" />
         <SafetySummary :snapshot="snapshot" />
         <ExecutionSafetyBoundary :snapshot="snapshot" />
@@ -34,6 +35,7 @@ import ConversationWorkbench from './ConversationWorkbench.vue'
 import RequirementInput from './RequirementInput.vue'
 import WorkflowReviewBoard from './WorkflowReviewBoard.vue'
 import PatchReviewPanel from './PatchReviewPanel.vue'
+import GuardedExecutionPreparationPanel from './GuardedExecutionPreparationPanel.vue'
 import WorkflowShell from './WorkflowShell.vue'
 import SafetySummary from './SafetySummary.vue'
 import ExecutionSafetyBoundary from './ExecutionSafetyBoundary.vue'
@@ -98,6 +100,21 @@ const snapshot = ref<AtlasWorkflowSnapshot>({
     endpointContractStatus: 'placeholder',
     reviewItems: [],
     blockedReasons: ['Runtime transition PR-ATLAS-SCALE-127 is required before execution can be callable.']
+  },
+  patchTransaction: {
+    available: false,
+    candidateCount: 0,
+    source: 'placeholder',
+    previewStatus: 'missing',
+    riskClass: 'unknown',
+    rollbackReady: false,
+    warnings: [],
+    generationEnabled: false,
+    applyEnabled: false,
+    safeApplyEnabled: false,
+    verificationEnabled: false,
+    rollbackEnabled: false,
+    advisoryOnly: true
   },
   backendAuthorityNote: 'Backend workflow state remains authoritative. Vue Next does not compute execution eligibility.'
 })
