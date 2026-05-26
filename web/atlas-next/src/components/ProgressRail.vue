@@ -23,6 +23,15 @@
       <p v-if="guardedReview.blockedReasons.length"><b>Blocked:</b> {{ guardedBlockedSummary }}</p>
     </section>
 
+    <section class="rail-panel data-panel">
+      <h3>Backend data</h3>
+      <p><b>Source:</b> {{ dataSourceLabel }}</p>
+      <p><b>Freshness:</b> {{ snapshot.workflowMetadata.dataFreshness || 'unknown' }}</p>
+      <p><b>Detail:</b> {{ snapshot.workflowMetadata.sourceDetail || 'No source detail reported.' }}</p>
+      <p v-if="snapshot.workflowMetadata.lastUpdatedAt"><b>Updated:</b> {{ snapshot.workflowMetadata.lastUpdatedAt }}</p>
+      <p v-if="dataWarningSummary"><b>Warnings:</b> {{ dataWarningSummary }}</p>
+    </section>
+
     <section class="rail-panel">
       <h3>Current state</h3>
       <p><b>Phase:</b> {{ snapshot.phase || snapshot.workflowMetadata.currentPhase || 'idle' }}</p>
@@ -55,6 +64,11 @@ const guardedMissingSummary = computed(() => {
   return missing.length ? missing.slice(0, 3).join(' | ') : 'No missing gate metadata reported.'
 })
 const guardedBlockedSummary = computed(() => guardedReview.value.blockedReasons.slice(0, 2).join(' | '))
+const dataSourceLabel = computed(() => {
+  if (props.snapshot.diagnostics.source === 'safe_get_adapter') return 'Safe backend workflow_state'
+  return 'Placeholder fallback snapshot'
+})
+const dataWarningSummary = computed(() => props.snapshot.diagnostics.warnings.slice(0, 2).join(' | '))
 
 const steps = computed(() => {
   const hasBackendSnapshot = props.snapshot.diagnostics.source === 'safe_get_adapter'
@@ -187,6 +201,15 @@ li {
 }
 .readiness-panel h3 {
   color: #0f5132;
+}
+.data-panel {
+  background: #f6f8fb;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  padding: 12px;
+}
+.data-panel h3 {
+  color: #334155;
 }
 @media (max-width: 860px) {
   .progress-rail {
