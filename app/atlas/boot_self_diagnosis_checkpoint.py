@@ -268,7 +268,10 @@ def _hashes_are_valid(hashes: dict[str, str]) -> bool:
 
 def _is_repo_relative(path: str) -> bool:
     normalized = str(path).strip().replace("\\", "/").strip("/")
-    return bool(normalized) and not Path(normalized).is_absolute() and not normalized.startswith("../") and "/../" not in normalized
+    if not normalized:
+        return False
+    parts = normalized.split("/")
+    return ":" not in parts[0] and all(part not in {"", ".", ".."} for part in parts)
 
 
 def _checkpoint_id(created_at: str) -> str:
