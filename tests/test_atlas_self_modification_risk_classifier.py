@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from app.atlas.self_modification_risk_classifier import (
     classify_self_modification_risk,
     load_self_modification_risk_classification,
@@ -118,17 +120,14 @@ def test_classify_self_modification_risk_blocks_untrusted_proposal(tmp_path: Pat
     assert "self_improvement_proposal_authorization_required" in result["blocking_reasons"]
 
 
-def test_classify_self_modification_risk_blocks_mutating_proposal_flags(tmp_path: Path) -> None:
+def test_mutating_proposal_flags_are_rejected_before_classification(tmp_path: Path) -> None:
     data_root, proposal_path = _write_proposal(
         tmp_path,
         overrides={"patch_generated": True, "self_apply_enabled": True},
     )
 
-    result = classify_self_modification_risk(proposal_path=proposal_path, data_root=data_root)
-
-    assert result["classification_authorized"] is False
-    assert "patch_generated_must_be_false" in result["blocking_reasons"]
-    assert "self_apply_enabled_must_be_false" in result["blocking_reasons"]
+    with pytest.raises(ValueError, match="invariant_violation"):
+        classify_self_modification_risk(proposal_path=proposal_path, data_root=data_root)
 
 
 def test_write_and_load_self_modification_risk_classification(tmp_path: Path) -> None:
