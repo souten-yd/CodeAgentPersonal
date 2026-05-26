@@ -7,6 +7,7 @@ def test_vue_conversation_workbench_components_are_mounted() -> None:
     for marker in [
         "ConversationWorkbench",
         "ProgressRail",
+        "PlanLifecycleStrip",
         "workbench-layout",
         "conversation-column",
         "guided-flow",
@@ -14,7 +15,7 @@ def test_vue_conversation_workbench_components_are_mounted() -> None:
     ]:
         assert marker in app
     assert app.index("<RequirementInput />") < app.index("<ConversationWorkbench />")
-    assert app.index("<section class=\"guided-flow\"") < app.index("<WorkflowReviewBoard :snapshot=\"snapshot\" />")
+    assert app.index("<PlanLifecycleStrip :snapshot=\"snapshot\" />") < app.index("<WorkflowReviewBoard :snapshot=\"snapshot\" />")
 
 
 def test_conversation_workbench_supports_plan_operation_questions_and_details() -> None:
@@ -48,6 +49,29 @@ def test_conversation_workbench_supports_plan_operation_questions_and_details() 
         "@click",
     ]:
         assert token not in forbidden
+
+
+def test_plan_lifecycle_strip_tracks_review_sequence_without_actions() -> None:
+    text = Path("web/atlas-next/src/components/PlanLifecycleStrip.vue").read_text(encoding="utf-8")
+
+    for marker in [
+        "Plan Lifecycle",
+        "Read-only Atlas plan lifecycle",
+        "Start Atlas",
+        "Plan Review",
+        "Approval Review",
+        "Execute Preview",
+        "Patch Review",
+        "workflowMetadata.planPoolAvailable",
+        "guardedExecutionReview.reviewItems",
+        "patchTransaction.candidateCount",
+        "Vue does not approve, dry-run, execute, apply, verify, rollback, retry, or continue actions.",
+    ]:
+        assert marker in text
+
+    lowered = text.lower()
+    for forbidden in ['<button', '@click', 'fetch(', 'createplanpool', 'approve(', 'execute(', 'safeapply', 'rollback(', 'retry(']:
+        assert forbidden not in lowered
 
 
 def test_progress_rail_tracks_workflow_without_enabling_execution() -> None:
