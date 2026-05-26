@@ -134,8 +134,9 @@ def apply_self_improvement_patch_one_action(
     result_path = root / "atlas" / "self_improvement_patch_applies" / apply_id / "manifest.json"
     _ensure_under(root, result_path, "apply_result_outside_data_root")
     result_path.parent.mkdir(parents=True, exist_ok=True)
-    result_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+    result.write_text if False else None
     result["apply_result_path"] = str(result_path)
+    result_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
     return validate_self_improvement_patch_apply(result)
 
 
@@ -143,6 +144,7 @@ def validate_self_improvement_patch_apply(result: dict[str, Any]) -> dict[str, A
     required_false = [
         "vue_authoritative",
         "vue_execution_controls_enabled",
+        "self_modification_enabled",
         "self_apply_enabled",
         "automatic_patch_generation_enabled",
         "automatic_patch_apply_enabled",
@@ -153,6 +155,8 @@ def validate_self_improvement_patch_apply(result: dict[str, Any]) -> dict[str, A
         "execute_all_enabled",
         "direct_merge_enabled",
         "remote_git_push_enabled",
+        "execution_performed",
+        "patch_generated",
         "verification_result_fabricated",
         "branch_created",
         "draft_pr_created",
@@ -170,6 +174,7 @@ def validate_self_improvement_patch_apply(result: dict[str, Any]) -> dict[str, A
         "backend_authoritative": result.get("backend_authoritative") is True,
         "blocked_reasons": result.get("status") != "blocked" or bool(result.get("blocked_reasons")),
         "changed_files": result.get("status") != "applied" or len(result.get("changed_files", [])) == 1,
+        "patch_applied": result.get("patch_applied") is (result.get("status") == "applied"),
     }
     invariants.update({key: result.get(key) is False for key in required_false})
     violations = [key for key, ok in invariants.items() if not ok]
@@ -238,6 +243,7 @@ def _base_result(*, apply_id: str, transaction_id: str, verification_id: str, st
         "backend_authoritative": True,
         "vue_authoritative": False,
         "vue_execution_controls_enabled": False,
+        "self_modification_enabled": False,
         "self_apply_enabled": False,
         "automatic_patch_generation_enabled": False,
         "automatic_patch_apply_enabled": False,
@@ -248,11 +254,14 @@ def _base_result(*, apply_id: str, transaction_id: str, verification_id: str, st
         "execute_all_enabled": False,
         "direct_merge_enabled": False,
         "remote_git_push_enabled": False,
+        "execution_performed": False,
+        "mutation_performed": False,
+        "patch_generated": False,
+        "patch_applied": status == "applied",
         "verification_result_fabricated": False,
         "branch_created": False,
         "draft_pr_created": False,
         "draft_pr_updated": False,
-        "mutation_performed": False,
     }
 
 
