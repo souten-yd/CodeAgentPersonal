@@ -11,19 +11,20 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-128
-- Current automation track: PR-ATLAS-SCALE-129
-- Next automation track after this correction: PR-ATLAS-SCALE-129
+- Completed automation PR: PR-ATLAS-SCALE-136
+- Current automation track: PR-ATLAS-SCALE-137
+- Next automation track: PR-ATLAS-SCALE-137
 - Current level: Level 1 guarded single-step automation
 - Target level: Level 1 guarded single-step automation
+- Next level advancement checkpoint: PR-ATLAS-SCALE-138
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
 PR-ATLAS-SCALE-127 is the explicit Level-1 runtime transition checkpoint. Level-1 is limited to one low-risk allowlisted action after dry-run evidence and explicit approval; the checkpoint does not perform execution, mutate project files, add a public execution route, apply patches, rollback or restore automatically, use remote git, auto-continue, or enable Vue authority.
 
-PR-ATLAS-SCALE-128 adds metadata-only patch proposals. Patch proposals may record target files, rationale, questions, and acceptance criteria, but must not generate diff text, create patch transactions, apply patches, call safe_apply, use remote git, or enable autonomous execution.
+PR-ATLAS-SCALE-128 through PR-ATLAS-SCALE-136 completed the patch proposal, patch transaction preview, approved single patch apply, local branch artifact, local branch creation, draft PR policy, manually approved draft PR creation, manually approved PR update, and bounded loop policy-only steps. These steps do not enable autonomous execution, unbounded retry, execute-all, direct merge, Vue authority, or runtime Level 2.
 
-Autonomous execution remains disabled after the Level-1 transition checkpoint.
+Autonomous execution remains disabled after the Level-1 transition checkpoint and after the bounded loop policy artifact.
 
 ## Contract phrase lock
 
@@ -43,21 +44,21 @@ This policy does not enable autonomous execution. Current Atlas state is Level 1
 - restore remains manual-only.
 - automatic rollback requires a future explicit policy PR.
 - plan / intent summary, patch transaction manifest, dry-run result, execution result, verification plan, verification result, warnings and recovery instructions, and resolved data_root are required evidence classes.
-- artifact capture is metadata-only in PR-87 and does not execute actions.
+- artifact capture does not execute actions.
 - artifact capture does not create fake execution results.
 - artifact capture does not create fake verification results.
 - missing references are recorded explicitly.
 - stop state must be visible in ThinUI/CLI.
 - stop metadata does not stop real jobs or kill processes.
 - metadata-only self-improvement gate is required; autonomous self-improvement remains disabled; automatic self-modification remains disabled; self-modification is strict-gate by default.
-- Level 1: Guarded single-step automation candidate.
+- Level 1: Guarded single-step automation.
 - Level 2: Guarded bounded loop candidate.
 - Level 3: Autonomous implementation loop candidate.
 - execute all remains forbidden.
 - auto continue remains forbidden.
 - automatic safe_apply, automatic verification, automatic retry, automatic rollback, and automatic patch generation remain disabled.
 - no git push, no git pull, no git clone, no git fetch, no git remote, no direct merge, and no automatic PR creation.
-- draft PR creation requires a future explicit policy PR.
+- draft PR creation and PR update remain manually gated through dedicated backend helpers; automatic PR creation, automatic PR update, and direct merge remain forbidden.
 - max actions per loop, max retries, max runtime, max files changed, and max risk level are mandatory.
 - No unbounded autonomous loop.
 - Auto-continue remains disabled.
@@ -84,14 +85,14 @@ After PR-ATLAS-SCALE-127:
 - auto-continue remains forbidden
 - git push/pull/clone remains forbidden
 - direct merge remains forbidden
-- draft PR creation remains forbidden until the dedicated draft PR policy and creation PRs
+- automatic PR creation and automatic PR update remain forbidden
 - self-modification remains strict-gate and disabled until the self-improvement phase
 
 ## Completed Readiness Metadata Review Phase
 
 SCALE-100 through SCALE-112 completed the local-only readiness metadata review phase. That phase is now closed.
 
-Those PRs may remain as operator review tools, but they are not the mainline path to complete automation. Future mainline work must advance Level-1 readiness evidence generation unless the user explicitly authorizes a PR-B repair or a narrowly scoped exception.
+Those PRs may remain as operator review tools, but they are not the mainline path to complete automation. Future mainline work must advance the canonical automation track unless the user explicitly authorizes a PR-B repair or a narrowly scoped exception.
 
 ## Readiness gates before autonomous execution
 
@@ -147,9 +148,9 @@ Autonomous execution remains forbidden until the relevant gates pass.
    - no unbounded autonomous loop
 
 10. Remote Git Gate
-   - no git push/pull/clone before the planned git phase
+   - no git push/pull/clone before a dedicated policy and implementation gate
    - no direct merge
-   - draft PR creation requires dedicated policy and implementation PRs
+   - draft PR creation and PR update remain manually gated until later automation levels explicitly expand them
 
 11. Self-Improvement Gate
    - CodeAgentPersonal / KasaneCore self-modification is stricter than ordinary repo work
@@ -159,11 +160,11 @@ Autonomous execution remains forbidden until the relevant gates pass.
 
 ### Level 0: Manual only
 
-Current state. No autonomous execution.
+Historical baseline. No autonomous execution.
 
 ### Level 1: Guarded single-step automation
 
-One low-risk, allowlisted action at a time. Dry-run first. Explicit approval token required. No auto-continue.
+Current state. One low-risk, allowlisted action at a time. Dry-run first. Explicit approval token required. No auto-continue.
 
 Required transition evidence:
 
@@ -199,7 +200,7 @@ Every future automation PR must prove the following:
 - It does not add another local-only readiness decoration as mainline work after SCALE-113.
 - It does not recreate deleted duplicate planning files.
 - It does not change runtime level before the planned transition PR.
-- It does not add execution, mutation, patch apply, git, autonomous loop, PR creation, or self-modification before the scheduled PR.
+- It does not add execution, mutation, patch apply, remote git push, autonomous loop, automatic PR creation, direct merge, or self-modification before the scheduled PR.
 - PR-B changes are repair-only and point back to the parent PR acceptance criteria.
 
 ## Confirmation checklist
