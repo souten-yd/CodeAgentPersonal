@@ -12,6 +12,7 @@
           <RequirementInput />
           <ConversationWorkbench />
         </section>
+        <PlanLifecycleStrip :snapshot="snapshot" />
         <WorkflowReviewBoard :snapshot="snapshot" />
         <PatchReviewPanel :snapshot="snapshot" />
         <GuardedExecutionPreparationPanel :review="snapshot.guardedExecutionReview" />
@@ -35,6 +36,7 @@ import { onMounted, ref } from 'vue'
 import { fetchAtlasWorkflowSnapshot, type AtlasWorkflowSnapshot } from '../api/atlasClient'
 import ConversationWorkbench from './ConversationWorkbench.vue'
 import RequirementInput from './RequirementInput.vue'
+import PlanLifecycleStrip from './PlanLifecycleStrip.vue'
 import WorkflowReviewBoard from './WorkflowReviewBoard.vue'
 import PatchReviewPanel from './PatchReviewPanel.vue'
 import GuardedExecutionPreparationPanel from './GuardedExecutionPreparationPanel.vue'
