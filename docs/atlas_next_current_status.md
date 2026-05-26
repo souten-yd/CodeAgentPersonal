@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the read-only plan lifecycle strip PR.
+Updated after the read-only PlanPool item summary PR.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -19,15 +19,16 @@ Updated after the read-only plan lifecycle strip PR.
 - #1405 shows whether Atlas Next is rendering safe backend workflow_state metadata or placeholder fallback data.
 - #1406 summarizes selected plan mode, operation mode, questions, and detailed definition in the main pane.
 - #1407 visually connects Start Atlas input and the conversation summary before review panels.
-- The read-only plan lifecycle strip PR ties Start Atlas, Plan Review, Approval Review, Execute Preview, and Patch Review into one visible sequence.
+- #1408 ties Start Atlas, Plan Review, Approval Review, Execute Preview, and Patch Review into one visible sequence.
+- The read-only PlanPool item summary PR makes generated plan candidates easier to scan inside the Start Atlas result review panel.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
 - Vue execution, autonomous execution, patch generation, patch apply, safe apply, verification, rollback, retry, auto-continue, execute-all, and remote git operations remain disabled.
 - Atlas Next uses safe GET workflow state metadata plus the explicit PlanPool create endpoint only.
-- Patch Review, Guarded Execution Preparation, right-rail diagnostics, conversation requirement summary, guided flow grouping, and plan lifecycle strip are display-only and do not expose patch generation, apply, safe_apply, verification execution, rollback execution, retry, autonomous continuation, approval, dry-run, or execute controls.
+- Patch Review, Guarded Execution Preparation, right-rail diagnostics, conversation requirement summary, guided flow grouping, plan lifecycle strip, and PlanPool item summary are display-only and do not expose patch generation, apply, safe_apply, verification execution, rollback execution, retry, autonomous continuation, approval, dry-run, or execute controls.
 
 ## Next narrow PR
-- Add a read-only PlanPool item summary in the main pane so generated plan candidates are easier to scan before approval review.
+- Add a read-only approval readiness summary near Plan Review so human approval prerequisites are visible before any execution gate work.
 - Keep the surface display-only except for the existing explicit PlanPool create endpoint; do not expose execute, approve, dry-run, safe_apply, verification execution, rollback execution, retry, or autonomous continuation controls.
