@@ -11,6 +11,16 @@
     </ul>
     <p v-if="requirementSummary"><b>Requirement summary:</b> {{ requirementSummary }}</p>
     <p v-if="planSummary"><b>Plan summary:</b> {{ planSummary }}</p>
+    <section v-if="planPoolItems.length" class="planpool-summary" aria-label="Read-only PlanPool item summary">
+      <p><b>PlanPool item summary:</b></p>
+      <div class="planpool-grid">
+        <article v-for="item in planPoolItems" :key="item.id" class="planpool-item">
+          <p class="item-title">{{ item.title }}</p>
+          <p class="item-meta">{{ item.id }} | status={{ item.status }}</p>
+          <p class="item-meta">phase={{ item.phase }} | risk={{ item.risk }} | type={{ item.type }}</p>
+        </article>
+      </div>
+    </section>
     <p v-if="items.length"><b>PlanPool item metadata:</b></p>
     <ul v-if="items.length" class="compact-list">
       <li v-for="(item, i) in items" :key="i">{{ item }}</li>
@@ -60,25 +70,55 @@ const planSummary = computed(() => {
   return String((plan.summary ?? plan.plan_summary ?? '')).slice(0, 300)
 })
 
-const items = computed(() => {
+const rawPlanPoolItems = computed(() => {
   const root = props.result as unknown as Record<string, unknown>
   const fromPlanPool = root.plan_pool && typeof root.plan_pool === 'object' ? (root.plan_pool as Record<string, unknown>).items : undefined
   const fromPlan = props.result.plan && typeof props.result.plan === 'object' ? (props.result.plan as Record<string, unknown>).items : undefined
-  const raw = Array.isArray(fromPlanPool) ? fromPlanPool : (Array.isArray(fromPlan) ? fromPlan : [])
-  return raw.slice(0, 10).map((it, i) => {
-    const item = (it && typeof it === 'object') ? it as Record<string, unknown> : {}
-    const id = String(item.item_id ?? item.id ?? `item-${i + 1}`)
-    const title = String(item.title ?? item.label ?? 'untitled')
-    const status = String(item.status ?? 'unknown')
-    const phase = item.phase ? ` phase=${String(item.phase)}` : ''
-    const risk = item.risk ? ` risk=${String(item.risk)}` : ''
-    const type = item.type ? ` type=${String(item.type)}` : ''
-    return `${id}: ${title} [status=${status}${phase}${risk}${type}]`
-  })
+  return Array.isArray(fromPlanPool) ? fromPlanPool : (Array.isArray(fromPlan) ? fromPlan : [])
 })
+
+const planPoolItems = computed(() => rawPlanPoolItems.value.slice(0, 6).map((it, i) => {
+  const item = (it && typeof it === 'object') ? it as Record<string, unknown> : {}
+  return {
+    id: String(item.item_id ?? item.id ?? `item-${i + 1}`),
+    title: String(item.title ?? item.label ?? 'untitled'),
+    status: String(item.status ?? 'unknown'),
+    phase: String(item.phase ?? 'unknown'),
+    risk: String(item.risk ?? 'unknown'),
+    type: String(item.type ?? 'unknown')
+  }
+}))
+
+const items = computed(() => planPoolItems.value.map((item) => {
+  return `${item.id}: ${item.title} [status=${item.status} phase=${item.phase} risk=${item.risk} type=${item.type}]`
+}))
 </script>
 
 <style scoped>
 .compact-list { margin: 4px 0 8px 16px; }
 .error { color: #b91c1c; }
+.planpool-summary {
+  margin: 10px 0;
+}
+.planpool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+.planpool-item {
+  border: 1px solid #d8e0ea;
+  border-radius: 6px;
+  padding: 10px;
+  background: #ffffff;
+}
+.item-title {
+  margin: 0;
+  font-weight: 800;
+}
+.item-meta {
+  margin: 4px 0 0;
+  color: #475569;
+  font-size: 13px;
+}
 </style>
