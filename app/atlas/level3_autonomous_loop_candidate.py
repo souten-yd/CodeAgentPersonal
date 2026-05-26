@@ -192,6 +192,7 @@ def validate_level3_autonomous_loop_candidate(candidate: dict[str, Any]) -> dict
         raise ValueError(f"missing_required_fields:{','.join(missing)}")
 
     authorized = bool(candidate.get("candidate_authorized"))
+    command_errors = _validate_verification_commands(list(candidate.get("verification_commands", [])))
     invariants = {
         "schema_version": candidate.get("schema_version") == SCHEMA_VERSION,
         "transition_pr": candidate.get("transition_pr") == TRANSITION_PR,
@@ -220,11 +221,12 @@ def validate_level3_autonomous_loop_candidate(candidate: dict[str, Any]) -> dict
         "stop_gate_required": candidate.get("stop_gate_required") is True,
         "artifact_capture_required": candidate.get("artifact_capture_required") is True,
         "verification_allowlist_required": candidate.get("verification_allowlist_required") is True,
-        "max_iterations": int(candidate.get("max_iterations") or 0) >= 1 and int(candidate.get("max_iterations") or 0) <= MAX_ALLOWED_ITERATIONS,
-        "max_retries": int(candidate.get("max_retries") if candidate.get("max_retries") is not None else -1) >= 0 and int(candidate.get("max_retries") if candidate.get("max_retries") is not None else -1) <= MAX_ALLOWED_RETRIES,
-        "max_changed_files": candidate.get("max_changed_files") == 1,
-        "max_runtime_minutes": int(candidate.get("max_runtime_minutes") or 0) >= 1 and int(candidate.get("max_runtime_minutes") or 0) <= MAX_ALLOWED_RUNTIME_MINUTES,
-        "max_risk_level": candidate.get("max_risk_level") in _ALLOWED_RISK_LEVELS,
+        "max_iterations": (not authorized) or (int(candidate.get("max_iterations") or 0) >= 1 and int(candidate.get("max_iterations") or 0) <= MAX_ALLOWED_ITERATIONS),
+        "max_retries": (not authorized) or (int(candidate.get("max_retries") if candidate.get("max_retries") is not None else -1) >= 0 and int(candidate.get("max_retries") if candidate.get("max_retries") is not None else -1) <= MAX_ALLOWED_RETRIES),
+        "max_changed_files": (not authorized) or candidate.get("max_changed_files") == 1,
+        "max_runtime_minutes": (not authorized) or (int(candidate.get("max_runtime_minutes") or 0) >= 1 and int(candidate.get("max_runtime_minutes") or 0) <= MAX_ALLOWED_RUNTIME_MINUTES),
+        "max_risk_level": (not authorized) or candidate.get("max_risk_level") in _ALLOWED_RISK_LEVELS,
+        "verification_commands": (not authorized) or not command_errors,
         "execution_performed": candidate.get("execution_performed") is False,
         "mutation_performed": candidate.get("mutation_performed") is False,
         "verification_performed": candidate.get("verification_performed") is False,
@@ -234,9 +236,6 @@ def validate_level3_autonomous_loop_candidate(candidate: dict[str, Any]) -> dict
         "draft_pr_created": candidate.get("draft_pr_created") is False,
         "draft_pr_updated": candidate.get("draft_pr_updated") is False,
     }
-    command_errors = _validate_verification_commands(list(candidate.get("verification_commands", [])))
-    if command_errors:
-        raise ValueError(f"invariant_violation:{','.join(sorted(set(command_errors)))}")
     violations = [key for key, ok in invariants.items() if not ok]
     if violations:
         raise ValueError(f"invariant_violation:{','.join(sorted(violations))}")
