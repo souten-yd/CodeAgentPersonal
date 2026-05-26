@@ -81,6 +81,24 @@ def test_create_level2_runtime_transition_checkpoint_authorizes_with_all_gates(t
     assert checkpoint["execution_performed"] is False
 
 
+def test_create_level2_runtime_transition_checkpoint_allows_zero_retry_policy(tmp_path: Path) -> None:
+    data_root, policy_path, retry_path = _write_inputs(tmp_path, retry_overrides={"max_retries": 0})
+
+    checkpoint = create_level2_runtime_transition_checkpoint(
+        bounded_loop_policy_path=policy_path,
+        retry_recovery_metadata_path=retry_path,
+        data_root=data_root,
+        approval_status="approved",
+        explicit_decision="approve",
+        stop_gate_ready=True,
+        verification_allowlist_ready=True,
+        artifact_capture_ready=True,
+    )
+
+    assert checkpoint["transition_authorized"] is True
+    assert checkpoint["max_retries"] == 0
+
+
 def test_create_level2_runtime_transition_checkpoint_blocks_without_gates(tmp_path: Path) -> None:
     data_root, policy_path, retry_path = _write_inputs(tmp_path)
 
