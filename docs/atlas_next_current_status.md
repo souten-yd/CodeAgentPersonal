@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-145 self-improvement draft PR creation helper.
+Updated after the PR-ATLAS-SCALE-146 Level-4 self-improvement checkpoint helper.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -40,19 +40,20 @@ Updated after the PR-ATLAS-SCALE-145 self-improvement draft PR creation helper.
 - PR-ATLAS-SCALE-143 adds backend-only `create_self_improvement_dry_run_verification`, recording allowlist-classified verification metadata from an approved patch preview while keeping command execution disabled.
 - PR-ATLAS-SCALE-144 adds backend-only `apply_self_improvement_patch_one_action`, allowing one manually approved self-improvement patch apply after SCALE-143 verification, snapshot, rollback, strict gate, explicit approval, and exact confirmation text.
 - PR-ATLAS-SCALE-145 adds backend-only `create_self_improvement_draft_pr_one_action`, using an injected draft PR client after a validated SCALE-144 apply artifact, branch readiness, strict gate approval, explicit approval, and exact confirmation text.
+- PR-ATLAS-SCALE-146 adds backend-only `create_level4_self_improvement_checkpoint`, authorizing the Level-4 self-improvement platform checkpoint only after Level-3 candidate and SCALE-145 draft PR evidence, strict self-improvement gates, explicit approval, and exact confirmation text.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
-- Current runtime level remains `level_3_autonomous_implementation_loop_candidate`; SCALE-145 does not advance runtime.
-- Self-improvement draft PR creation is backend-authoritative and single-action only. It can create a draft PR result only through an injected client after an applied SCALE-144 artifact, branch readiness, strict gate approval, explicit approval, and exact `CREATE SELF IMPROVEMENT DRAFT PR` confirmation.
+- Current runtime level is `level_4_self_improvement_platform` only as a checkpointed self-improvement platform state; autonomous execution remains disabled.
+- The Level-4 checkpoint is backend-authoritative and draft-PR-only. It records eligibility for self-improvement platform work after strict gates and evidence, but it does not execute commands, apply patches automatically, mutate the stable runtime, push branches, or merge PRs.
 - Vue execution, autonomous loop execution, autonomous execution, command execution, automatic patch generation, automatic patch apply, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, self-apply, branch creation, and remote git push operations remain disabled.
-- SCALE-145 does not add a public route, add a Vue control, push a branch, create a branch, add autonomous continuation, execute retries, run verification commands, generate patches, update PRs, self-apply, self-modify, direct merge, or perform command execution.
+- SCALE-146 does not add a public route, add a Vue control, push a branch, create a branch, add autonomous continuation, execute retries, run verification commands, generate patches, update PRs, self-apply, self-modify, direct merge, or perform command execution.
 
 ## Later UI/UX planning note
 - Later conversational/FastUI work must expose a backend-owned work target mode selector for ordinary software development/repair versus platform self-improvement.
 - That selector is a UI intent control only; it must not authorize self-improvement, self-apply, execution, direct merge, or Vue authority without the backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-146: Level-4 self-improvement checkpoint.
-- Keep it an explicit runtime/checkpoint decision only after SCALE-140 through SCALE-145 evidence is present; do not add direct merge, Vue authority, default UI promotion, unbounded autonomous execution, self-apply, or stable-runtime mutation.
+- PR-ATLAS-SCALE-147: automation safety profile framework.
+- Keep it a policy/profile framework only; do not add direct merge, Vue authority, default UI promotion, unbounded autonomous execution, self-apply, stable-runtime mutation, or command execution.
