@@ -163,7 +163,7 @@ def validate_self_improvement_candidate_apply(result: dict[str, Any]) -> dict[st
         "status": result.get("status") in {"blocked", "planned", "applied"},
         "blocked_reasons": not is_blocked or bool(result.get("blocking_reasons")),
         "backend_authoritative": result.get("backend_authoritative") is True,
-        "candidate_root_not_target_repo": candidate_root != target_repo and not _is_relative_to(candidate_root, target_repo),
+        "candidate_root_not_target_repo": is_blocked or (candidate_root != target_repo and not _is_relative_to(candidate_root, target_repo)),
         "candidate_apply_enabled": result.get("candidate_apply_enabled") is (result.get("status") in {"planned", "applied"}),
         "candidate_apply_performed": result.get("candidate_apply_performed") is (result.get("status") == "applied"),
         "candidate_workspace_mutation_performed": result.get("candidate_workspace_mutation_performed") is (result.get("status") == "applied"),
