@@ -85,7 +85,7 @@ def create_candidate_workspace_plan(
     overlap = sorted(set(_normalize_pattern(path) for path in allowed_paths) & set(_normalize_pattern(path) for path in blocked_paths))
     if overlap:
         blocked.append("allowed_and_blocked_path_overlap")
-    if root == repo or _is_relative_to(root, repo):
+    if _candidate_root_is_inside_target_repo(root, repo):
         blocked.append("candidate_root_must_not_be_inside_target_repo")
 
     plan = {
@@ -182,6 +182,8 @@ def validate_candidate_workspace_plan(plan: dict[str, Any]) -> dict[str, Any]:
 
     allowed_paths = list(plan.get("allowed_paths", []))
     blocked_paths = list(plan.get("blocked_paths", []))
+    target_repo = Path(str(plan.get("target_repo", ""))).expanduser().resolve()
+    candidate_root = Path(str(plan.get("candidate_root", ""))).expanduser().resolve()
     invariants = {
         "schema_version": plan.get("schema_version") == SCHEMA_VERSION,
         "track_pr": plan.get("track_pr") == TRACK_PR,
@@ -202,6 +204,7 @@ def validate_candidate_workspace_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "blocked_paths": not _validate_path_patterns("blocked_path", blocked_paths),
         "max_files": isinstance(plan.get("max_files"), int) and plan.get("max_files", 0) > 0,
         "max_risk_level": plan.get("max_risk_level") in RISK_LEVELS,
+        "candidate_root": not _candidate_root_is_inside_target_repo(candidate_root, target_repo),
     }
     invariants.update({key: plan.get(key) is False for key in _REQUIRED_FALSE_FLAGS})
     violations = [key for key, ok in invariants.items() if not ok]
@@ -247,6 +250,10 @@ def _workspace_plan_id(created_at: str) -> str:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _candidate_root_is_inside_target_repo(candidate_root: Path, target_repo: Path) -> bool:
+    return candidate_root == target_repo or _is_relative_to(candidate_root, target_repo)
 
 
 def _is_relative_to(child: Path, parent: Path) -> bool:
