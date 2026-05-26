@@ -180,6 +180,7 @@ def validate_candidate_workspace_plan(plan: dict[str, Any]) -> dict[str, Any]:
     if missing:
         raise ValueError(f"missing_required_fields:{','.join(missing)}")
 
+    is_blocked = plan.get("status") == "blocked"
     allowed_paths = list(plan.get("allowed_paths", []))
     blocked_paths = list(plan.get("blocked_paths", []))
     target_repo = Path(str(plan.get("target_repo", ""))).expanduser().resolve()
@@ -189,22 +190,22 @@ def validate_candidate_workspace_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "track_pr": plan.get("track_pr") == TRACK_PR,
         "next_required_pr": plan.get("next_required_pr") == NEXT_REQUIRED_PR,
         "status": plan.get("status") in {"ready", "blocked"},
-        "blocked_reasons": plan.get("status") != "blocked" or bool(plan.get("blocking_reasons")),
+        "blocked_reasons": not is_blocked or bool(plan.get("blocking_reasons")),
         "runtime_level": plan.get("runtime_level") == CURRENT_RUNTIME_LEVEL,
         "candidate_workspace_manager_enabled": plan.get("candidate_workspace_manager_enabled") is (plan.get("status") == "ready"),
         "backend_authoritative": plan.get("backend_authoritative") is True,
-        "workspace_strategy": plan.get("workspace_strategy") in STRATEGIES,
-        "fallback_strategy": plan.get("fallback_strategy") in STRATEGIES,
+        "workspace_strategy": is_blocked or plan.get("workspace_strategy") in STRATEGIES,
+        "fallback_strategy": is_blocked or plan.get("fallback_strategy") in STRATEGIES,
         "stable_checkpoint_required": plan.get("stable_checkpoint_required") is True,
-        "stable_checkpoint_id": bool(plan.get("stable_checkpoint_id")),
+        "stable_checkpoint_id": is_blocked or bool(plan.get("stable_checkpoint_id")),
         "recovery_manifest_required": plan.get("recovery_manifest_required") is True,
         "safety_profile_required": plan.get("safety_profile_required") is True,
-        "self_improvement_scope": plan.get("self_improvement_scope") in SELF_IMPROVEMENT_SCOPES,
-        "allowed_paths": bool(allowed_paths) and not _validate_path_patterns("allowed_path", allowed_paths),
-        "blocked_paths": not _validate_path_patterns("blocked_path", blocked_paths),
-        "max_files": isinstance(plan.get("max_files"), int) and plan.get("max_files", 0) > 0,
-        "max_risk_level": plan.get("max_risk_level") in RISK_LEVELS,
-        "candidate_root": not _candidate_root_is_inside_target_repo(candidate_root, target_repo),
+        "self_improvement_scope": is_blocked or plan.get("self_improvement_scope") in SELF_IMPROVEMENT_SCOPES,
+        "allowed_paths": is_blocked or (bool(allowed_paths) and not _validate_path_patterns("allowed_path", allowed_paths)),
+        "blocked_paths": is_blocked or not _validate_path_patterns("blocked_path", blocked_paths),
+        "max_files": is_blocked or (isinstance(plan.get("max_files"), int) and plan.get("max_files", 0) > 0),
+        "max_risk_level": is_blocked or plan.get("max_risk_level") in RISK_LEVELS,
+        "candidate_root": is_blocked or not _candidate_root_is_inside_target_repo(candidate_root, target_repo),
     }
     invariants.update({key: plan.get(key) is False for key in _REQUIRED_FALSE_FLAGS})
     violations = [key for key, ok in invariants.items() if not ok]
