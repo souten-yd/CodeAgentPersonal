@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-141 strict self-modification risk classifier helper.
+Updated after the PR-ATLAS-SCALE-142 self-improvement patch preview helper.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -36,16 +36,17 @@ Updated after the PR-ATLAS-SCALE-141 strict self-modification risk classifier he
 - PR-ATLAS-SCALE-139 adds backend-only `create_level3_autonomous_loop_candidate`, authorizing a Level-3 candidate only from an approved Level-2 checkpoint while keeping execution disabled.
 - PR-ATLAS-SCALE-140 adds backend-only `create_self_improvement_proposal`, recording proposal-only self-improvement intent for CodeAgentPersonal / KasaneCore while keeping self-apply disabled.
 - PR-ATLAS-SCALE-141 adds backend-only `classify_self_modification_risk`, recording classification-only strict self-modification risk metadata while keeping patch preview disabled.
+- PR-ATLAS-SCALE-142 adds backend-only `create_self_improvement_patch_preview`, recording preview-only changed-path metadata from an approved risk classification while keeping patch generation and apply disabled.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
-- Current runtime level remains `level_3_autonomous_implementation_loop_candidate`; SCALE-141 does not advance runtime.
-- Strict self-modification risk classifier is backend-authoritative and classification-only. It can read an approved self-improvement proposal, classify risk, and record required next gates.
-- Vue execution, autonomous loop execution, autonomous execution, automatic patch generation, patch preview, automatic patch apply, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, self-apply, and remote git push operations remain disabled.
-- Draft PR creation and PR update are backend-only, manually approved, confirmation-gated, and require injected clients; no network library, public route, Vue control, push, or autonomous update path is introduced by SCALE-141.
-- SCALE-141 does not add a public route, add a Vue control, push a branch, add autonomous continuation, execute retries, run verification, generate patches, preview patches, apply patches, update PRs, self-apply, self-modify, or perform execution; it only records and validates the classification-only contract.
+- Current runtime level remains `level_3_autonomous_implementation_loop_candidate`; SCALE-142 does not advance runtime.
+- Self-improvement patch preview is backend-authoritative and preview-only. It can read an approved self-modification risk classification, normalize proposed changed paths, and record a preview manifest.
+- Vue execution, autonomous loop execution, autonomous execution, automatic patch generation, automatic patch apply, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, self-apply, and remote git push operations remain disabled.
+- Draft PR creation and PR update are backend-only, manually approved, confirmation-gated, and require injected clients; no network library, public route, Vue control, push, or autonomous update path is introduced by SCALE-142.
+- SCALE-142 does not add a public route, add a Vue control, push a branch, add autonomous continuation, execute retries, run verification, generate patches, apply patches, update PRs, self-apply, self-modify, or perform execution; it only records and validates the preview-only contract.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-142: self-improvement patch preview.
-- Keep it preview-only; do not add apply, self-apply, direct merge, Vue authority, default UI promotion, or unbounded autonomous execution.
+- PR-ATLAS-SCALE-143: self-improvement dry-run verification.
+- Keep it verification-planning/dry-run only; do not add apply, self-apply, direct merge, Vue authority, default UI promotion, or unbounded autonomous execution.
