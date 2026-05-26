@@ -14,6 +14,7 @@ This file is the single human-readable source of truth for Atlas automation plan
 - Backend workflow_state remains authoritative.
 - Vue remains display-only and non-authoritative.
 - `ui.html` remains the default root UI; Atlas Next is available as an embedded child view / explicit route, not the default root.
+- Post-Level-4 full automation, self-recovery, and conversational UX plan: `docs/atlas_full_automation_self_recovery_ux_plan.md`.
 
 Machine-readable phase and anti-drift rules are recorded in `docs/atlas_automation_phase_manifest.json`.
 Execution readiness policy is recorded in `docs/atlas_autonomous_execution_readiness_policy.md`.
@@ -27,6 +28,7 @@ Canonical planning is now consolidated as follows:
 - `docs/atlas_scale_master_roadmap.md`: canonical human roadmap and PR-by-PR execution plan.
 - `docs/atlas_autonomous_execution_readiness_policy.md`: canonical safety and level advancement policy.
 - `docs/atlas_automation_phase_manifest.json`: machine-readable current phase, goals, forbidden drift classes, and PR plan.
+- `docs/atlas_full_automation_self_recovery_ux_plan.md`: post-Level-4 extension plan for safety profiles, non-LLM recovery, candidate workspaces, and conversational Atlas UX.
 
 The following redundant planning files are removed from the active docs set:
 
@@ -97,6 +99,8 @@ Disallowed drift:
 - runtime level change outside an explicit transition checkpoint PR
 - unbounded retry, auto-continue, execute-all, direct merge, or self-modification before their planned PRs
 - remote git push before a dedicated policy and implementation gate
+- conversational Atlas UX becoming the source of truth instead of backend workflow_state
+- full automation before recovery supervisor, candidate workspace, checkpoint, and promotion gates exist
 
 ## Level roadmap
 
@@ -105,6 +109,42 @@ Disallowed drift:
 - Level 2: Guarded bounded loop. Limited low-risk sequence. Hard bounds. Stop gate. Allowlisted verification. Captured artifacts. Human approval remains required.
 - Level 3: Autonomous implementation loop candidate. Current state. Candidate contract can plan, propose, request dry-run, evaluate artifacts, prepare draft PR update metadata, record self-improvement proposals, classify self-modification risk, preview self-improvement changed paths, and plan dry-run verification, but execution, patch apply, verification execution, retry, PR updates, and direct merge remain disabled until future gated PRs.
 - Level 4: Self-improvement platform. Atlas may improve CodeAgentPersonal / KasaneCore itself under strict self-modification gates, draft PR only, no direct merge.
+- Post-Level-4 Full Automation: future explicit phase. Atlas may progress toward Codex/Claude-like autonomous coding under user-selectable safety profiles, candidate workspaces, non-LLM recovery, and conversational supervision UX. Direct merge remains forbidden unless a future explicit policy changes it.
+
+## Conversational Atlas UX target
+
+Atlas should move toward a simple Codex-like conversation shell while keeping backend workflow_state authoritative.
+
+Default visible UI should contain:
+
+- conversation transcript
+- goal input
+- current phase card
+- next action card
+- safety profile badge
+- changed files summary
+- verification summary
+- recovery status
+- one primary CTA
+
+Diagnostics, raw JSON, low-level IDs, direct subsystem controls, and internal manifests must remain hidden by default and available only through explicit diagnostics mode. Vue or Atlas Next may render the shell, but must not approve, execute, apply, verify, rollback, retry, continue, or become the source of truth.
+
+Primary conversational states:
+
+- idle
+- understanding_goal
+- planning
+- needs_scope_confirmation
+- previewing_changes
+- awaiting_approval
+- running_dry_run
+- applying_candidate
+- verifying_candidate
+- promoting_candidate
+- draft_pr_ready
+- blocked
+- recoverable_failure
+- recovered
 
 ## PR-by-PR implementation plan
 
@@ -167,6 +207,42 @@ Disallowed drift:
 | PR-ATLAS-SCALE-145 | Self-improvement draft PR creation | draft PR only | no direct merge |
 | PR-ATLAS-SCALE-146 | Level-4 self-improvement checkpoint | explicit transition | all self gates required |
 
+### Phase 6: Post-Level-4 full automation foundation
+
+Detailed requirements are recorded in `docs/atlas_full_automation_self_recovery_ux_plan.md`.
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-147 | Automation safety profile framework | no new execution | profile selection only |
+| PR-ATLAS-SCALE-148 | External recovery supervisor foundation | no app dependency | recovery must not import app/ |
+| PR-ATLAS-SCALE-149 | Candidate workspace manager | no stable mutation | self-improvement uses candidate only |
+| PR-ATLAS-SCALE-150 | Boot self-diagnosis and stable checkpoint | no autonomous loop | startup health artifact only |
+
+### Phase 7: Conversational Atlas UX
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-151 | Conversational Atlas shell contract | UI/UX only | backend workflow_state remains authoritative |
+| PR-ATLAS-SCALE-152 | Conversational shell implementation | display/supervision only | one primary CTA, no authority shift |
+
+### Phase 8: Self-improvement candidate execution and recovery
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-153 | Self-improvement candidate apply | candidate mutation only | stable runtime untouched |
+| PR-ATLAS-SCALE-154 | Candidate verification gate | allowlisted verification only | no promote without evidence |
+| PR-ATLAS-SCALE-155 | Promotion gate and release pointer switch | controlled promotion | rollback-ready pointer required |
+| PR-ATLAS-SCALE-156 | Automatic failure recovery v1 | recovery automation | no LLM or app import required |
+
+### Phase 9: Full automation execution
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| PR-ATLAS-SCALE-157 | Autonomous loop execution v1 | bounded execution | draft PR only, no direct merge |
+| PR-ATLAS-SCALE-158 | Full automation mode checkpoint | explicit transition | Safety Profile 3 gates required |
+| PR-ATLAS-SCALE-159 | Self-improvement autonomous candidate loop | candidate-only self automation | no direct stable mutation |
+| PR-ATLAS-SCALE-160 | Fully autonomous code agent milestone | final checkpoint | goal to draft PR E2E, no direct merge |
+
 ## Required checks for every future confirmation
 
 When checking a PR, verify all of the following against this master plan and the actual codebase:
@@ -178,7 +254,9 @@ When checking a PR, verify all of the following against this master plan and the
 - Runtime level remains unchanged unless the planned transition PR explicitly allows it.
 - Backend workflow_state remains authoritative.
 - Vue remains non-authoritative.
+- Conversational UI does not approve, execute, apply, verify, rollback, retry, continue, or become authoritative unless a future explicit policy changes it.
 - No execution, mutation, patch apply, git, autonomous loop execution, direct merge, or self-modification is added before its scheduled PR.
+- No full automation mode is enabled before safety profiles, recovery supervisor, candidate workspace, boot checkpoints, and promotion gates exist.
 - Tests cover the planned acceptance criteria and drift checks.
 
 ## Safety invariants
@@ -201,3 +279,18 @@ After PR-ATLAS-SCALE-143:
 - remote git push remains forbidden
 - Vue remains non-authoritative
 - draft PR creation and PR update remain manually gated through dedicated backend helpers; automatic PR creation, automatic PR update, and direct merge remain forbidden
+
+## Full automation invariants after future PR-ATLAS-SCALE-160
+
+PR-ATLAS-SCALE-160 may mark Atlas as a fully autonomous code agent only if all of the following are true under an explicit safety profile:
+
+- `autonomous_execution_enabled` is true.
+- `autonomous_loop_execution_enabled` is true.
+- Safety Profile 3 gates are explicit and audited.
+- Direct merge remains forbidden unless a later explicit policy changes it.
+- Self-improvement uses candidate workspaces and never mutates stable runtime directly.
+- Recovery supervisor works without LLM, FastAPI, `main.py`, or `app/` imports.
+- Stable checkpoint exists before mutation.
+- Boot health checkpoint exists after promotion.
+- Stop, rollback, and recovery paths are tested.
+- Conversational UX can explain state, risk, next action, changed files, verification, and recovery.
