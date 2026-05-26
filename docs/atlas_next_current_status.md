@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-152 conversational shell model.
+Updated after the PR-ATLAS-SCALE-153 self-improvement candidate apply helper.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -47,20 +47,21 @@ Updated after the PR-ATLAS-SCALE-152 conversational shell model.
 - PR-ATLAS-SCALE-150 adds backend-only `create_boot_self_diagnosis_checkpoint`, recording stable release metadata, boot health check evidence, artifact hashes, recovery manifest reference, and candidate workspace plan reference without running probes, importing app runtime, mutating stable runtime, creating candidate workspaces, promoting, pushing, or merging.
 - PR-ATLAS-SCALE-151 adds backend-only `create_conversational_shell_contract`, defining the buildless conversational shell regions and backend-owned work target mode selector without requiring npm/Vite/Vue runtime, promoting Atlas Next, executing commands, applying candidates, self-applying, self-modifying, pushing, or merging.
 - PR-ATLAS-SCALE-152 adds backend-only `create_conversational_shell_model`, turning the SCALE-151 contract into a buildless display/supervision model with transcript, goal input, phase, next action, safety profile, work target selector, changed files, verification, recovery, and one primary CTA while keeping authority and execution disabled.
+- PR-ATLAS-SCALE-153 adds backend-only `apply_self_improvement_candidate_patch_one_action`, allowing one manually approved patch apply inside the candidate workspace root only after candidate plan, dry-run verification, rollback, strict gate, explicit approval, and exact candidate confirmation text.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
 - Current runtime level remains `level_4_self_improvement_platform`; autonomous execution remains disabled.
-- Conversational shell model is backend-owned, metadata-only, and buildless. It provides display/supervision data only and does not create a public route, require npm/Vite/Vue runtime, or promote Atlas Next.
+- Candidate apply is candidate-workspace-only. It may mutate the candidate root after all gates, but it must not mutate the stable target repo, self-apply to the running runtime, promote candidates, push branches, merge, or enable Vue authority.
 - Work target mode selection can distinguish ordinary software development/repair from platform self-improvement intent, but it does not authorize self-improvement, self-apply, execution, direct merge, or Vue authority without later backend gates.
-- Vue execution, autonomous loop execution, autonomous execution, command execution, automatic patch generation, automatic patch apply, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, self-apply, branch creation, and remote git push operations remain disabled.
-- SCALE-152 does not add a public route, add a Vue control, push a branch, create a branch, add autonomous continuation, execute retries, run verification commands, run boot probes, generate patches, update PRs, self-apply, self-modify, direct merge, perform command execution, perform recovery execution, create a candidate workspace, promote a candidate, or require npm/Vite build for the default shell.
+- Vue execution, autonomous loop execution, autonomous execution, command execution, automatic patch generation, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, self-apply, branch creation, remote git push, and candidate promotion remain disabled.
+- SCALE-153 does not add a public route, add a Vue control, push a branch, create a branch, add autonomous continuation, execute retries, run verification commands, run boot probes, generate patches, update PRs, self-apply, self-modify, direct merge, perform command execution, perform recovery execution, promote a candidate, or require npm/Vite build for the default shell.
 
 ## Later UI/UX planning note
 - Later conversational/FastUI work must expose a backend-owned work target mode selector for ordinary software development/repair versus platform self-improvement.
 - That selector is a UI intent control only; it must not authorize self-improvement, self-apply, execution, direct merge, or Vue authority without the backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-153: self-improvement candidate apply.
-- Keep it candidate-only and stable-runtime-safe; do not add direct merge, Vue authority, default UI promotion, unbounded autonomous execution, self-apply, stable-runtime mutation, remote push, or promotion.
+- PR-ATLAS-SCALE-154: candidate verification gate.
+- Keep it allowlisted verification only; do not add direct merge, Vue authority, default UI promotion, unbounded autonomous execution, self-apply, stable-runtime mutation, remote push, or promotion.
