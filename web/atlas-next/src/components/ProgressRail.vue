@@ -15,6 +15,14 @@
       </li>
     </ol>
 
+    <section class="rail-panel readiness-panel">
+      <h3>Guarded readiness</h3>
+      <p><b>Gates:</b> {{ guardedReadyCount }}/{{ guardedTotalCount }} ready</p>
+      <p><b>Endpoint:</b> {{ guardedReview.endpointContractStatus }}</p>
+      <p><b>Missing:</b> {{ guardedMissingSummary }}</p>
+      <p v-if="guardedReview.blockedReasons.length"><b>Blocked:</b> {{ guardedBlockedSummary }}</p>
+    </section>
+
     <section class="rail-panel">
       <h3>Current state</h3>
       <p><b>Phase:</b> {{ snapshot.phase || snapshot.workflowMetadata.currentPhase || 'idle' }}</p>
@@ -39,14 +47,23 @@ import type { AtlasWorkflowSnapshot } from '../api/atlasClient'
 
 const props = defineProps<{ snapshot: AtlasWorkflowSnapshot }>()
 
+const guardedReview = computed(() => props.snapshot.guardedExecutionReview)
+const guardedTotalCount = computed(() => guardedReview.value.reviewItems.length)
+const guardedReadyCount = computed(() => guardedReview.value.reviewItems.filter((item) => item.ready).length)
+const guardedMissingSummary = computed(() => {
+  const missing = guardedReview.value.reviewItems.filter((item) => !item.ready).map((item) => item.label)
+  return missing.length ? missing.slice(0, 3).join(' | ') : 'No missing gate metadata reported.'
+})
+const guardedBlockedSummary = computed(() => guardedReview.value.blockedReasons.slice(0, 2).join(' | '))
+
 const steps = computed(() => {
   const hasBackendSnapshot = props.snapshot.diagnostics.source === 'safe_get_adapter'
   const hasRequirement = hasBackendSnapshot && Boolean(props.snapshot.workflowMetadata.latestRequirementId || props.snapshot.goal)
   const hasPlanPool = hasBackendSnapshot && props.snapshot.workflowMetadata.planPoolAvailable
   const hasPlan = hasBackendSnapshot && props.snapshot.workflowMetadata.activePlanAvailable
   const hasDryRun = hasBackendSnapshot && props.snapshot.artifacts.dryRun === true
-  const guardedReview = props.snapshot.guardedExecutionReview
-  const hasApprovalReview = hasPlan && guardedReview.reviewItems.length > 0
+  const review = guardedReview.value
+  const hasApprovalReview = hasPlan && review.reviewItems.length > 0
   return [
     {
       id: 'start-atlas',
@@ -81,8 +98,8 @@ const steps = computed(() => {
     {
       id: 'guarded-execute',
       label: 'Guarded Execute',
-      detail: 'Requires explicit approval, dry-run evidence, and backend gate checks',
-      state: 'locked'
+      detail: review.executionEnabled ? 'Backend reports guarded execution ready' : 'Requires explicit approval, dry-run evidence, and backend gate checks',
+      state: review.executionEnabled ? 'active' : 'locked'
     }
   ]
 })
@@ -161,6 +178,15 @@ li {
 }
 .rail-panel ul {
   padding-left: 18px;
+}
+.readiness-panel {
+  background: #eef6f2;
+  border: 1px solid #c7ddd3;
+  border-radius: 8px;
+  padding: 12px;
+}
+.readiness-panel h3 {
+  color: #0f5132;
 }
 @media (max-width: 860px) {
   .progress-rail {
