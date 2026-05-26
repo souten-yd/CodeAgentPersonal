@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the POST-SCALE-160 Vue default promotion apply alignment.
+Updated after the POST-SCALE-160 stable runtime mutation gate.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -20,6 +20,7 @@ Updated after the POST-SCALE-160 Vue default promotion apply alignment.
 - PR-ATLAS-SCALE-130 through PR-ATLAS-SCALE-160 reach the backend fully autonomous code agent milestone.
 - POST-SCALE-160-VUE-DEFAULT-PROMOTION-GATE prepared Vue default promotion readiness after the backend milestone.
 - POST-SCALE-160-VUE-DEFAULT-PROMOTION-APPLY records the guarded Vue default route as applied without expanding Vue authority or runtime mutation.
+- POST-SCALE-160-STABLE-RUNTIME-MUTATION-GATE adds a backend-only gate for future stable runtime mutation or release pointer behavior.
 
 ## Current safety boundaries
 - `/` selects Atlas Next only through `can_serve_atlas_next_default()` after `validate_atlas_next_dist()` passes.
@@ -27,13 +28,14 @@ Updated after the POST-SCALE-160 Vue default promotion apply alignment.
 - Vue remains non-authoritative for workflow eligibility and approval; backend workflow state remains authoritative.
 - Current runtime level is `level_8_fully_autonomous_code_agent` for the backend automation milestone.
 - Fully autonomous code agent milestone remains backend-authoritative and requires a ready SCALE-159 candidate loop, milestone evidence, rollback evidence, strict gate approval, and exact confirmation text.
-- Stable runtime mutation, direct merge, remote push, self-apply, pointer switching, execute-all, Vue authority, and recovery execution remain disabled unless a later dedicated gate proves the needed evidence and rollback path.
-- The default apply state does not add redirects, bypass fallback behavior, serve raw Vue source, run npm at server startup, add Vue authority, or enable Vue execution controls.
+- Stable runtime mutation gate readiness now requires a verified candidate workspace, stable runtime snapshot, rollback evidence, verification evidence, recovery evidence, release pointer plan, strict approval, and exact confirmation text.
+- Stable runtime mutation, direct merge, remote push, self-apply, pointer switching, execute-all, Vue authority, and recovery execution remain disabled unless a later dedicated apply PR proves the needed evidence and rollback path.
+- The stable mutation gate does not mutate the stable runtime, switch pointers, execute recovery, perform git operations, serve raw Vue source, run npm at server startup, add Vue authority, or enable Vue execution controls.
 
 ## Later UI/UX planning note
 - Later conversational/FastUI work must expose a backend-owned work target mode selector for ordinary software development/repair versus platform self-improvement.
 - That selector is a UI intent control only; it must not authorize self-apply, direct merge, stable runtime mutation, or Vue authority without the backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
 
 ## Next narrow work
-- POST-SCALE-160-STABLE-RUNTIME-MUTATION-GATE: add an explicit gate for any future stable runtime mutation or release pointer behavior.
-- Direct merge, stable runtime mutation, self-apply, remote push, arbitrary command execution, and Vue authority must remain separate gated changes.
+- POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY: apply stable runtime mutation or release pointer behavior only if the gate output, candidate workspace, stable snapshot, rollback, verification, recovery, strict approval, and exact confirmation are present.
+- Direct merge, self-apply, remote push, arbitrary command execution, and Vue authority must remain separate gated changes.
