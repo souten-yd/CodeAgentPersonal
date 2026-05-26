@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 from app.atlas.patch_transaction import read_patch_transaction_manifest, validate_patch_transaction
 
 CONFIRMATION_TEXT = "EXECUTE ONE ACTION"
+_HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
 def _utc_now() -> str:
@@ -40,37 +42,67 @@ def _ensure_under(root: Path, target: Path, code: str) -> Path:
     return tt
 
 
-def _content_from_unified_diff(diff_text: str) -> str | None:
-    lines = diff_text.splitlines()
-    out: list[str] = []
-    in_hunk = False
+def _line_body(value: str) -> str:
+    return value.rstrip("\r\n")
+
+
+def _apply_unified_diff(original_text: str, diff_text: str) -> str | None:
+    original = original_text.splitlines(keepends=True)
+    result: list[str] = []
+    cursor = 0
     saw_hunk = False
-    for line in lines:
-        if line.startswith(("diff --git ", "index ", "new file mode ", "deleted file mode ")):
+    lines = diff_text.splitlines()
+    index = 0
+
+    while index < len(lines):
+        line = lines[index]
+        match = _HUNK_RE.match(line)
+        if not match:
+            index += 1
             continue
-        if line.startswith("--- ") or line.startswith("+++ "):
-            continue
-        if line.startswith("@@"):
-            in_hunk = True
-            saw_hunk = True
-            continue
-        if line.startswith("\\"):
-            continue
-        if not in_hunk:
-            if not line.strip():
+
+        saw_hunk = True
+        old_start = int(match.group(1))
+        old_count = int(match.group(2) or "1")
+        old_index = max(old_start - 1, 0)
+        if old_start == 0 and old_count == 0:
+            old_index = 0
+        if old_index < cursor or old_index > len(original):
+            return None
+        result.extend(original[cursor:old_index])
+        cursor = old_index
+        index += 1
+
+        while index < len(lines):
+            hunk_line = lines[index]
+            if _HUNK_RE.match(hunk_line):
+                break
+            if hunk_line.startswith(("diff --git ", "--- ", "+++ ", "index ")):
+                break
+            if hunk_line.startswith("\\"):
+                index += 1
                 continue
-            return None
-        if line.startswith("+"):
-            out.append(line[1:])
-        elif line.startswith(" "):
-            out.append(line[1:])
-        elif line.startswith("-"):
-            continue
-        else:
-            return None
+            if hunk_line.startswith(" "):
+                if cursor >= len(original) or _line_body(original[cursor]) != hunk_line[1:]:
+                    return None
+                result.append(original[cursor])
+                cursor += 1
+            elif hunk_line.startswith("-"):
+                if cursor >= len(original) or _line_body(original[cursor]) != hunk_line[1:]:
+                    return None
+                cursor += 1
+            elif hunk_line.startswith("+"):
+                result.append(hunk_line[1:] + "\n")
+            elif not hunk_line.strip():
+                return None
+            else:
+                return None
+            index += 1
+
     if not saw_hunk:
         return None
-    return "\n".join(out) + "\n"
+    result.extend(original[cursor:])
+    return "".join(result)
 
 
 def _select_single_entry(entries: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, list[str]]:
@@ -165,10 +197,6 @@ def apply_patch_transaction_one_action(
         except ValueError as exc:
             blocked.append(str(exc))
 
-    final_content = _content_from_unified_diff(diff_text) if diff_text else None
-    if final_content is None:
-        blocked.append("diff_parse_failed")
-
     project_root = Path(project_path if project_path is not None else manifest.get("project_path", "")).expanduser().resolve()
     target: Path | None = None
     if entry is not None:
@@ -183,6 +211,14 @@ def apply_patch_transaction_one_action(
         except ValueError as exc:
             blocked.append(str(exc))
 
+    before = ""
+    final_content: str | None = None
+    if not blocked and target is not None:
+        before = target.read_text(encoding="utf-8") if target.exists() else ""
+        final_content = _apply_unified_diff(before, diff_text)
+        if final_content is None:
+            blocked.append("diff_parse_failed")
+
     if blocked:
         return _base_result(transaction_id=txn_id, blocked_reasons=list(dict.fromkeys(blocked)))
 
@@ -195,7 +231,6 @@ def apply_patch_transaction_one_action(
 
     assert target is not None
     assert final_content is not None
-    before = target.read_text(encoding="utf-8") if target.exists() else None
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(final_content, encoding="utf-8")
     actual_changed = before != final_content
