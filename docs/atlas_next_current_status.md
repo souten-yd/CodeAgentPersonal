@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-158 full automation mode checkpoint.
+Updated after the PR-ATLAS-SCALE-159 self-improvement autonomous candidate loop.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -19,23 +19,24 @@ Updated after the PR-ATLAS-SCALE-158 full automation mode checkpoint.
 - PR-ATLAS-SCALE-147 through PR-ATLAS-SCALE-156 add automation safety profile, external recovery, candidate workspace, boot diagnosis, conversational shell, candidate apply, verification, promotion readiness, and automatic failure recovery plan metadata.
 - PR-ATLAS-SCALE-157 adds backend-only autonomous loop execution v1 session metadata, bounded by allowlisted loop actions, maximum iterations, stop-on-failure, and recovery plan requirements.
 - PR-ATLAS-SCALE-158 adds backend-only full automation mode checkpoint metadata from a ready SCALE-157 session while keeping arbitrary command execution, stable runtime mutation, self-apply, direct merge, remote push, pointer switching, default UI promotion, and Vue authority disabled.
+- PR-ATLAS-SCALE-159 adds backend-only self-improvement autonomous candidate loop metadata from a ready SCALE-158 checkpoint. It enables candidate-workspace-only autonomous loop readiness for patch preview, verification-gate request, promotion-gate request, recovery-plan request, and progress reporting while keeping stable runtime mutation, self-apply, direct merge, remote push, pointer switching, default UI promotion, and Vue authority disabled.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
-- Current runtime level is `level_6_full_automation_mode_checkpoint`.
-- Full automation mode checkpoint is backend-authoritative and proves readiness only from a ready bounded SCALE-157 autonomous loop session plus explicit evidence, strict gate approval, and exact confirmation text.
-- Autonomous loop execution remains bounded to allowlisted loop actions, at most three iterations, stop-on-failure, and a recovery plan requirement before each iteration.
-- Candidate apply is candidate-workspace-only. It may mutate the candidate root after all gates, but it must not mutate the stable target repo, self-apply to the running runtime, promote candidates, push branches, merge, or enable Vue authority.
+- Current runtime level is `level_7_self_improvement_autonomous_candidate_loop`.
+- Self-improvement autonomous candidate loop is backend-authoritative and candidate-workspace-only.
+- Candidate loop actions are bounded to allowlisted candidate actions, at most three iterations, stop-on-gate-failure, and recovery-plan-before-promotion.
+- Candidate apply may mutate the candidate root after all gates, but it must not mutate the stable target repo, self-apply to the running runtime, promote candidates, push branches, merge, or enable Vue authority.
 - External recovery supervisor use remains application-runtime-independent and bounded to manifest validation and plan-only recovery metadata.
-- Work target mode selection can distinguish ordinary software development/repair from platform self-improvement intent, but it does not authorize self-improvement, self-apply, direct merge, stable runtime mutation, or Vue authority without backend gates.
+- Work target mode selection can distinguish ordinary software development/repair from platform self-improvement intent, but it does not authorize self-apply, direct merge, stable runtime mutation, or Vue authority without backend gates.
 - Arbitrary command execution, automatic rollback execution, execute-all, direct merge, self-modification, self-apply, remote git push, pointer switching, promotion execution, default UI promotion, Vue authority, and stable runtime mutation remain disabled.
-- SCALE-158 does not add a public route, add a Vue control, push a branch, create a branch, run verification commands, run boot probes, generate patches, update PRs, self-apply, self-modify, direct merge, perform command execution, perform recovery execution, switch release pointers, promote a candidate, mutate stable runtime, or require npm/Vite build for the default shell.
+- SCALE-159 does not add a public route, add a Vue control, push a branch, create a branch, run verification commands, run boot probes, update PRs, self-apply, self-modify, direct merge, perform command execution, perform recovery execution, switch release pointers, promote a candidate, mutate stable runtime, or require npm/Vite build for the default shell.
 
 ## Later UI/UX planning note
 - Later conversational/FastUI work must expose a backend-owned work target mode selector for ordinary software development/repair versus platform self-improvement.
-- That selector is a UI intent control only; it must not authorize self-improvement, self-apply, direct merge, stable runtime mutation, or Vue authority without the backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
+- That selector is a UI intent control only; it must not authorize self-apply, direct merge, stable runtime mutation, or Vue authority without the backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-159: self-improvement autonomous candidate loop.
-- Keep it dependent on SCALE-158 checkpoint metadata and do not add direct merge, stable runtime mutation, self-apply, remote push, default UI promotion, arbitrary command execution, or Vue authority in the candidate-loop PR.
+- PR-ATLAS-SCALE-160: fully autonomous code agent milestone.
+- Keep it dependent on SCALE-159 candidate-loop metadata and do not add direct merge, stable runtime mutation, self-apply, remote push, default UI promotion, arbitrary command execution, or Vue authority unless the milestone helper explicitly proves every gate and keeps a rollback path.
