@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-154 self-improvement candidate verification gate helper.
+Updated after the PR-ATLAS-SCALE-155 self-improvement candidate promotion gate helper.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -49,6 +49,7 @@ Updated after the PR-ATLAS-SCALE-154 self-improvement candidate verification gat
 - PR-ATLAS-SCALE-152 adds backend-only `create_conversational_shell_model`, turning the SCALE-151 contract into a buildless display/supervision model with transcript, goal input, phase, next action, safety profile, work target selector, changed files, verification, recovery, and one primary CTA while keeping authority and execution disabled.
 - PR-ATLAS-SCALE-153 adds backend-only `apply_self_improvement_candidate_patch_one_action`, allowing one manually approved patch apply inside the candidate workspace root only after candidate plan, dry-run verification, rollback, strict gate, explicit approval, and exact candidate confirmation text.
 - PR-ATLAS-SCALE-154 adds backend-only `create_self_improvement_candidate_verification_gate`, requiring an applied candidate result, allowlisted verification commands, and evidence references while keeping command execution, fabricated verification, promotion, stable runtime mutation, push, merge, self-apply, and Vue authority disabled.
+- PR-ATLAS-SCALE-155 adds backend-only `create_self_improvement_candidate_promotion_gate`, preparing a rollback-ready release pointer switch gate from a ready candidate verification gate while keeping pointer switching, promotion execution, stable runtime mutation, push, merge, self-apply, and Vue authority disabled.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
@@ -56,14 +57,15 @@ Updated after the PR-ATLAS-SCALE-154 self-improvement candidate verification gat
 - Current runtime level remains `level_4_self_improvement_platform`; autonomous execution remains disabled.
 - Candidate apply is candidate-workspace-only. It may mutate the candidate root after all gates, but it must not mutate the stable target repo, self-apply to the running runtime, promote candidates, push branches, merge, or enable Vue authority.
 - Candidate verification gate is backend-only and metadata-only. It may mark candidate verification ready only from an applied candidate result, allowlisted commands, and relative evidence references, but it must not execute commands or fabricate verification results.
+- Candidate promotion gate is backend-only and metadata-only. It may mark release pointer switching ready only from a ready candidate verification gate, rollback pointer path, stable checkpoint ref, recovery manifest ref, strict approval, and exact confirmation text, but it must not switch pointers or mutate the stable runtime.
 - Work target mode selection can distinguish ordinary software development/repair from platform self-improvement intent, but it does not authorize self-improvement, self-apply, execution, direct merge, or Vue authority without later backend gates.
-- Vue execution, autonomous loop execution, autonomous execution, command execution, automatic patch generation, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, self-apply, branch creation, remote git push, and candidate promotion remain disabled.
-- SCALE-154 does not add a public route, add a Vue control, push a branch, create a branch, add autonomous continuation, execute retries, run verification commands, run boot probes, generate patches, update PRs, self-apply, self-modify, direct merge, perform command execution, perform recovery execution, promote a candidate, or require npm/Vite build for the default shell.
+- Vue execution, autonomous loop execution, autonomous execution, command execution, automatic patch generation, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, self-apply, branch creation, remote git push, pointer switching, promotion execution, and stable runtime mutation remain disabled.
+- SCALE-155 does not add a public route, add a Vue control, push a branch, create a branch, add autonomous continuation, execute retries, run verification commands, run boot probes, generate patches, update PRs, self-apply, self-modify, direct merge, perform command execution, perform recovery execution, switch release pointers, promote a candidate, mutate stable runtime, or require npm/Vite build for the default shell.
 
 ## Later UI/UX planning note
 - Later conversational/FastUI work must expose a backend-owned work target mode selector for ordinary software development/repair versus platform self-improvement.
 - That selector is a UI intent control only; it must not authorize self-improvement, self-apply, execution, direct merge, or Vue authority without the backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-155: promotion gate and release pointer switch.
-- Keep it controlled-promotion metadata only unless all rollback-ready pointer requirements are present; do not add direct merge, Vue authority, default UI promotion, unbounded autonomous execution, self-apply, stable-runtime mutation outside the explicit pointer gate, remote push, or automatic promotion.
+- PR-ATLAS-SCALE-156: automatic failure recovery v1.
+- Keep it external-recovery-supervisor bounded and independent from app runtime; do not add direct merge, Vue authority, default UI promotion, unbounded autonomous execution, self-apply, remote push, arbitrary command execution, or LLM-dependent recovery.
