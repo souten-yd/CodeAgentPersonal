@@ -4,9 +4,9 @@
 
 This file is the single human-readable source of truth for Atlas automation planning.
 
-- Completed automation PR: PR-ATLAS-SCALE-142
-- Current automation track: PR-ATLAS-SCALE-143
-- Next automation track: PR-ATLAS-SCALE-143
+- Completed automation PR: PR-ATLAS-SCALE-143
+- Current automation track: PR-ATLAS-SCALE-144
+- Next automation track: PR-ATLAS-SCALE-144
 - Current runtime level: level_3_autonomous_implementation_loop_candidate
 - Target runtime level: level_3_autonomous_implementation_loop_candidate
 - Final goal: fully_autonomous_code_agent
@@ -46,7 +46,7 @@ This phase intentionally did not add execution capability. At that time runtime 
 
 ## Current phase: Self-Improving Platform Preparation
 
-SCALE-113 through SCALE-142 moved Atlas from Level-1 preparation through the patch, branch, draft PR, bounded-loop policy, bounded retry metadata, explicit Level-2 checkpoint, Level-3 autonomous implementation loop candidate, self-improvement proposal mode, strict self-modification risk classifier, and self-improvement patch preview. SCALE-143 is now the active next PR and must introduce only self-improvement dry-run verification, with no apply, no self-apply, no direct merge, and no Vue authority.
+SCALE-113 through SCALE-143 moved Atlas from Level-1 preparation through the patch, branch, draft PR, bounded-loop policy, bounded retry metadata, explicit Level-2 checkpoint, Level-3 autonomous implementation loop candidate, self-improvement proposal mode, strict self-modification risk classifier, self-improvement patch preview, and self-improvement dry-run verification planning. SCALE-144 is now the active next PR and must introduce only approved self-improvement patch apply, with snapshot and rollback gates, no self-apply, no direct merge, and no Vue authority.
 
 ### Direction lock
 
@@ -79,8 +79,9 @@ SCALE-113 through SCALE-142 moved Atlas from Level-1 preparation through the pat
 - SCALE-140 completed: self-improvement proposal mode added. It records proposal-only intent for CodeAgentPersonal / KasaneCore self-improvement while keeping self-apply, self-modification, patch generation, patch apply, verification execution, direct merge, remote git push, and Vue authority disabled.
 - SCALE-141 completed: strict self-modification risk classifier added. It records classification-only risk metadata and required next gates while keeping patch preview, self-apply, self-modification, execution, direct merge, remote git push, and Vue authority disabled.
 - SCALE-142 completed: self-improvement patch preview added. It records preview-only changed-path metadata from an approved risk classification while keeping patch generation, patch apply, verification execution, self-apply, direct merge, remote git push, and Vue authority disabled.
+- SCALE-143 completed: self-improvement dry-run verification added. It records allowlist-classified verification metadata from an approved patch preview while keeping command execution, verification result creation, patch apply, self-apply, direct merge, remote git push, and Vue authority disabled.
 
-Next PRs must advance the self-improving platform phase without bypassing preview-only limits, proposal traceability, direct merge restrictions, or draft-PR-only constraints.
+Next PRs must advance the self-improving platform phase without bypassing dry-run verification, snapshot and rollback requirements, direct merge restrictions, or draft-PR-only constraints.
 
 Allowed PR-B additions:
 
@@ -102,7 +103,7 @@ Disallowed drift:
 - Level 0: Manual only. Historical baseline. No autonomous execution.
 - Level 1: Guarded single-step automation. One low-risk, allowlisted action at a time. Dry-run first. Explicit approval token required. No auto-continue.
 - Level 2: Guarded bounded loop. Limited low-risk sequence. Hard bounds. Stop gate. Allowlisted verification. Captured artifacts. Human approval remains required.
-- Level 3: Autonomous implementation loop candidate. Current state. Candidate contract can plan, propose, request dry-run, evaluate artifacts, prepare draft PR update metadata, record self-improvement proposals, classify self-modification risk, and preview self-improvement changed paths, but execution, patch apply, verification, retry, PR updates, and direct merge remain disabled until future gated PRs.
+- Level 3: Autonomous implementation loop candidate. Current state. Candidate contract can plan, propose, request dry-run, evaluate artifacts, prepare draft PR update metadata, record self-improvement proposals, classify self-modification risk, preview self-improvement changed paths, and plan dry-run verification, but execution, patch apply, verification execution, retry, PR updates, and direct merge remain disabled until future gated PRs.
 - Level 4: Self-improvement platform. Atlas may improve CodeAgentPersonal / KasaneCore itself under strict self-modification gates, draft PR only, no direct merge.
 
 ## PR-by-PR implementation plan
@@ -182,11 +183,12 @@ When checking a PR, verify all of the following against this master plan and the
 
 ## Safety invariants
 
-After PR-ATLAS-SCALE-142:
+After PR-ATLAS-SCALE-143:
 
 - runtime_level remains level_3_autonomous_implementation_loop_candidate
-- self-improvement patch preview is preview-only
-- patch generation remains disabled
+- self-improvement dry-run verification is verification-plan-only
+- verification commands are classified through the allowlist but not executed
+- verification results are not fabricated
 - patch apply remains disabled until PR-ATLAS-SCALE-144
 - self-modification remains disabled
 - self-apply remains disabled
