@@ -4,9 +4,9 @@
 
 This file is the single human-readable source of truth for Atlas automation planning.
 
-- Completed automation PR: PR-ATLAS-SCALE-149
-- Current automation track: PR-ATLAS-SCALE-150
-- Next automation track: PR-ATLAS-SCALE-150
+- Completed automation PR: PR-ATLAS-SCALE-150
+- Current automation track: PR-ATLAS-SCALE-151
+- Next automation track: PR-ATLAS-SCALE-151
 - Current runtime level: level_4_self_improvement_platform
 - Target runtime level: level_4_self_improvement_platform
 - Final goal: fully_autonomous_code_agent
@@ -46,9 +46,9 @@ This phase delivered local-only, display-only operator review capabilities: snap
 
 This phase intentionally did not add execution capability. At that time runtime remained level_0_manual_only, Level-1/autonomous execution remained disabled, and Vue remained non-authoritative.
 
-## Current phase: Post-Level-4 Full Automation Foundation
+## Current phase: Conversational Atlas UX
 
-SCALE-113 through SCALE-149 moved Atlas from Level-1 preparation through the patch, branch, draft PR, bounded-loop policy, bounded retry metadata, explicit Level-2 checkpoint, Level-3 autonomous implementation loop candidate, self-improvement proposal mode, strict self-modification risk classifier, self-improvement patch preview, self-improvement dry-run verification planning, one manually approved self-improvement patch apply, one manually approved self-improvement draft PR creation through an injected client, the explicit Level-4 self-improvement platform checkpoint, backend-owned automation safety profile framework, external recovery supervisor foundation, and candidate workspace manager foundation. SCALE-150 is now the active next PR and must introduce only boot self-diagnosis and stable checkpoint artifacts with no autonomous loop, stable runtime mutation, execution authority, direct merge, remote push, self-apply, or Vue authority.
+SCALE-113 through SCALE-150 moved Atlas from Level-1 preparation through the patch, branch, draft PR, bounded-loop policy, bounded retry metadata, explicit Level-2 checkpoint, Level-3 autonomous implementation loop candidate, self-improvement proposal mode, strict self-modification risk classifier, self-improvement patch preview, self-improvement dry-run verification planning, one manually approved self-improvement patch apply, one manually approved self-improvement draft PR creation through an injected client, the explicit Level-4 self-improvement platform checkpoint, backend-owned automation safety profile framework, external recovery supervisor foundation, candidate workspace manager foundation, and boot self-diagnosis/stable checkpoint foundation. SCALE-151 is now the active next PR and must introduce only a buildless conversational Atlas shell contract with work target mode selector and no npm/Vite build dependency, autonomous loop, stable runtime mutation, execution authority, direct merge, remote push, self-apply, or Vue authority.
 
 ### Direction lock
 
@@ -88,8 +88,9 @@ SCALE-113 through SCALE-149 moved Atlas from Level-1 preparation through the pat
 - SCALE-147 completed: automation safety profile framework added. It records backend-owned review_only, guarded_single_action, supervised_bounded_auto, and autonomous_dev_agent profile metadata plus a separate gated self-improvement axis while keeping actual command execution, automatic apply, stable runtime mutation, self-apply, direct merge, remote push, and Vue authority disabled.
 - SCALE-148 completed: external recovery supervisor foundation added under `recovery/`. It can validate recovery manifests, read release pointers, hash files, and plan pointer switches without importing target runtime modules or performing command execution, restore, file copy, pointer switch, stable runtime mutation, direct merge, remote push, self-apply, or Vue authority.
 - SCALE-149 completed: candidate workspace manager foundation added. It records target repo, candidate root, allowed/blocked paths, checkpoint and recovery references, max files, max risk, and strategy metadata without creating worktrees, copying files, applying patches, running verification, promoting candidates, mutating stable runtime, direct merge, remote push, self-apply, or Vue authority.
+- SCALE-150 completed: boot self-diagnosis and stable checkpoint foundation added. It records caller-supplied stable release metadata, required boot check evidence, artifact hashes, recovery manifest reference, and candidate workspace plan reference without executing boot probes, importing app runtime, creating candidate workspaces, promoting candidates, mutating stable runtime, direct merge, remote push, self-apply, or Vue authority.
 
-Next PRs must advance the post-Level-4 full automation foundation without bypassing safety profiles, candidate workspace requirements, recovery supervisor boundaries, draft-PR-only constraints, direct merge restrictions, or stable runtime mutation restrictions.
+Next PRs must advance the conversational Atlas UX foundation without bypassing backend authority, safety profiles, candidate workspace requirements, recovery supervisor boundaries, boot checkpoint evidence requirements, draft-PR-only constraints, direct merge restrictions, or stable runtime mutation restrictions.
 
 Allowed PR-B additions:
 
@@ -115,7 +116,7 @@ Disallowed drift:
 - Level 1: Guarded single-step automation. One low-risk, allowlisted action at a time. Dry-run first. Explicit approval token required. No auto-continue.
 - Level 2: Guarded bounded loop. Limited low-risk sequence. Hard bounds. Stop gate. Allowlisted verification. Captured artifacts. Human approval remains required.
 - Level 3: Autonomous implementation loop candidate. Candidate contract can plan, propose, request dry-run, evaluate artifacts, prepare draft PR update metadata, record self-improvement proposals, classify self-modification risk, preview self-improvement changed paths, plan dry-run verification, perform one manually approved self-improvement patch apply, and create one manually approved self-improvement draft PR through an injected client, but command execution, automatic patch generation, automatic apply, verification execution, retry, PR updates, direct merge, self-apply, self-modification, branch push, and remote git push remain disabled until future gated PRs.
-- Level 4: Self-improvement platform. Current state. Atlas may improve CodeAgentPersonal / KasaneCore itself only under strict self-modification gates, candidate workspace planning, draft PR only, no direct merge, no stable runtime mutation, no remote push, and no Vue authority.
+- Level 4: Self-improvement platform. Current state. Atlas may improve CodeAgentPersonal / KasaneCore itself only under strict self-modification gates, candidate workspace planning, boot self-diagnosis checkpoint metadata, draft PR only, no direct merge, no stable runtime mutation, no remote push, and no Vue authority.
 - Post-Level-4 Full Automation: future explicit phase. Atlas may progress toward Codex/Claude-like autonomous coding under user-selectable safety profiles, candidate workspaces, non-LLM recovery, and conversational supervision UX. Direct merge remains forbidden unless a future explicit policy changes it.
 
 ## Conversational Atlas UX target
