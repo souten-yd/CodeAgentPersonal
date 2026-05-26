@@ -11,26 +11,26 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-147
-- Current automation track: PR-ATLAS-SCALE-148
-- Next automation track: PR-ATLAS-SCALE-148
+- Completed automation PR: PR-ATLAS-SCALE-148
+- Current automation track: PR-ATLAS-SCALE-149
+- Next automation track: PR-ATLAS-SCALE-149
 - Current level: Level 4 self-improvement platform checkpoint
 - Target level: Level 4 self-improvement platform checkpoint
 - Next level advancement checkpoint: PR-ATLAS-SCALE-157
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
-PR-ATLAS-SCALE-147 adds the backend-owned automation safety profile framework. It records the `review_only`, `guarded_single_action`, `supervised_bounded_auto`, and `autonomous_dev_agent` profile metadata plus a separate self-improvement axis that requires Level-4 checkpoint evidence and strict gates.
+PR-ATLAS-SCALE-148 adds an external recovery supervisor foundation under `recovery/`. It can build and validate recovery manifests, inspect a release pointer JSON payload, calculate file hashes, write recovery metadata, and create a plan-only release pointer switch description.
 
-The safety profile framework does not execute commands, generate patches, run verification commands, create branches, push branches, update PRs, rollback or restore automatically, use remote git, auto-continue, execute-all, direct merge, self-apply to the stable runtime, self-modify the stable runtime, add a public execution route, or enable Vue authority.
+The recovery supervisor is intentionally independent from the application runtime. It must not import `app/`, `main.py`, FastAPI application code, Atlas runtime modules, model providers, or process execution helpers. It does not execute commands, restore files, switch release pointers, copy files, use the network, mutate the stable runtime, run verification commands, create branches, push branches, update PRs, merge, auto-continue, execute-all, or enable Vue authority.
 
-PR-ATLAS-SCALE-128 through PR-ATLAS-SCALE-147 completed the patch proposal, patch transaction preview, approved single patch apply, local branch artifact, local branch creation, draft PR policy, manually approved draft PR creation, manually approved PR update, bounded loop policy, bounded retry/failure metadata, explicit Level-2 checkpoint, Level-3 candidate contract, self-improvement proposal mode, strict self-modification risk classifier, self-improvement patch preview, self-improvement dry-run verification planning, self-improvement approved patch apply, self-improvement draft PR creation, explicit Level-4 self-improvement checkpoint, and automation safety profile framework. These steps do not enable unbounded autonomous execution, execute-all, direct merge, Vue authority, automatic self-modification, self-apply to the stable runtime, branch push, or remote git push.
+PR-ATLAS-SCALE-128 through PR-ATLAS-SCALE-148 completed the patch proposal, patch transaction preview, approved single patch apply, local branch artifact, local branch creation, draft PR policy, manually approved draft PR creation, manually approved PR update, bounded loop policy, bounded retry/failure metadata, explicit Level-2 checkpoint, Level-3 candidate contract, self-improvement proposal mode, strict self-modification risk classifier, self-improvement patch preview, self-improvement dry-run verification planning, self-improvement approved patch apply, self-improvement draft PR creation, explicit Level-4 self-improvement checkpoint, automation safety profile framework, and external recovery supervisor foundation. These steps do not enable unbounded autonomous execution, execute-all, direct merge, Vue authority, automatic self-modification, self-apply to the stable runtime, branch push, or remote git push.
 
-Actual verification execution, candidate workspace execution, autonomous loop execution, and full automation remain disabled after PR-ATLAS-SCALE-147.
+Actual verification execution, candidate workspace execution, autonomous loop execution, automatic recovery execution, and full automation remain disabled after PR-ATLAS-SCALE-148.
 
 ## Contract phrase lock
 
-This policy does not enable unbounded autonomous execution. Current Atlas state is Level 4 self-improvement platform checkpoint with proposal-only self-improvement metadata, classification-only self-modification risk metadata, preview-only self-improvement patch metadata, verification-plan-only self-improvement dry-run metadata, manually approved one-action self-improvement patch apply, manually approved injected-client self-improvement draft PR creation, checkpoint-only Level-4 authorization, and backend-owned automation safety profile metadata. Future PRs must explicitly move levels or execution authority.
+This policy does not enable unbounded autonomous execution. Current Atlas state is Level 4 self-improvement platform checkpoint with proposal-only self-improvement metadata, classification-only self-modification risk metadata, preview-only self-improvement patch metadata, verification-plan-only self-improvement dry-run metadata, manually approved one-action self-improvement patch apply, manually approved injected-client self-improvement draft PR creation, checkpoint-only Level-4 authorization, backend-owned automation safety profile metadata, and external recovery supervisor metadata. Future PRs must explicitly move levels or execution authority.
 
 - Backend workflow state is authoritative.
 - ThinUI remains supervision layer.
@@ -44,6 +44,10 @@ This policy does not enable unbounded autonomous execution. Current Atlas state 
 - gate readiness does not execute automatically.
 - restore plan is required and must be valid.
 - restore remains manual-only.
+- external recovery supervisor remains application-runtime independent.
+- external recovery supervisor may produce metadata and plans only.
+- external recovery supervisor must not import app runtime, web runtime, model providers, or process execution helpers.
+- automatic recovery execution requires a future explicit policy PR.
 - automatic rollback requires a future explicit policy PR.
 - plan / intent summary, patch transaction manifest, dry-run result, execution result, verification plan, verification result, warnings and recovery instructions, and resolved data_root are required evidence classes.
 - artifact capture does not create fake execution results.
@@ -51,14 +55,14 @@ This policy does not enable unbounded autonomous execution. Current Atlas state 
 - missing references are recorded explicitly.
 - stop state must be visible in ThinUI/CLI.
 - stop metadata does not stop real jobs or kill processes.
-- self-improvement proposal, risk classifier, patch preview, dry-run verification, approved apply, draft PR creation, Level-4 checkpoint, and automation safety profile modes remain backend-gated; automatic self-improvement remains disabled; automatic self-modification remains disabled; self-modification is strict-gate by default.
+- self-improvement proposal, risk classifier, patch preview, dry-run verification, approved apply, draft PR creation, Level-4 checkpoint, automation safety profile, and external recovery supervisor modes remain backend-gated; automatic self-improvement remains disabled; automatic self-modification remains disabled; self-modification is strict-gate by default.
 - Level 1: Guarded single-step automation.
 - Level 2: Guarded bounded loop.
 - Level 3: Autonomous implementation loop candidate.
 - Level 4: Self-improvement platform checkpoint.
 - execute all remains forbidden.
 - auto continue remains forbidden.
-- automatic safe_apply, automatic verification, automatic retry, automatic rollback, and automatic patch generation remain disabled.
+- automatic safe_apply, automatic verification, automatic retry, automatic rollback, automatic recovery execution, and automatic patch generation remain disabled.
 - no git push, no git pull, no git clone, no git fetch, no git remote, no direct merge, and no automatic PR creation.
 - draft PR creation and PR update remain manually gated through dedicated backend helpers; automatic PR creation, automatic PR update, and direct merge remain forbidden.
 - automation safety profiles are metadata/policy only until later execution PRs explicitly consume them.
@@ -69,10 +73,13 @@ This policy does not enable unbounded autonomous execution. Current Atlas state 
 
 ## Non-negotiable safety invariants
 
-After PR-ATLAS-SCALE-147:
+After PR-ATLAS-SCALE-148:
 
 - runtime remains level_4_self_improvement_platform
 - autonomous execution remains disabled
+- external recovery supervisor foundation is metadata/plan-only
+- external recovery supervisor remains independent from app runtime imports
+- external recovery supervisor does not execute commands, restore files, switch pointers, copy files, or use network access
 - automation safety profile selection is backend-owned metadata only
 - self-improvement profile activation requires Level-4 checkpoint evidence and strict gate approval
 - self-improvement platform work remains draft-PR-only
@@ -81,7 +88,7 @@ After PR-ATLAS-SCALE-147:
 - draft PR creation uses an injected client only
 - branch creation and remote push remain disabled
 - command execution remains disabled
-- verification commands are not executed by the safety profile helper
+- verification commands are not executed by the safety profile helper or recovery supervisor
 - verification results are not fabricated
 - automatic patch generation remains disabled
 - automatic patch apply remains disabled
@@ -95,6 +102,7 @@ After PR-ATLAS-SCALE-147:
 - automatic verification remains disabled
 - automatic retry remains disabled
 - automatic rollback remains disabled
+- automatic recovery execution remains disabled
 - execute-all remains forbidden
 - auto-continue remains forbidden
 - git push/pull/clone remains forbidden
@@ -170,6 +178,12 @@ Autonomous execution remains forbidden until the relevant gates pass.
    - launcher, Docker, runtime, UI, execution APIs, data_root, and policy docs are strict-gate by default
    - UI work target mode selection must not authorize self-improvement without backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates
 
+12. External Recovery Supervisor Gate
+   - recovery supervisor must remain outside app runtime dependencies
+   - recovery supervisor must not import app runtime, web runtime, model providers, or process execution helpers
+   - recovery supervisor may only read manifests, validate metadata/hashes, and produce recovery plans until a later explicit recovery execution PR
+   - pointer switches, file restores, file copies, command execution, network access, and automatic recovery remain disabled
+
 ## Readiness levels
 
 ### Level 0: Manual only
@@ -190,7 +204,7 @@ Candidate metadata can describe plan, patch proposal, dry-run request, artifact 
 
 ### Level 4: Self-improvement platform checkpoint
 
-Current state. Atlas may prepare CodeAgentPersonal / KasaneCore self-improvement work under stricter self-modification gates and draft-PR-only boundaries. It cannot directly merge, mutate the stable runtime, push branches, self-apply, or enable Vue authority.
+Current state. Atlas may prepare CodeAgentPersonal / KasaneCore self-improvement work under stricter self-modification gates, draft-PR-only boundaries, automation safety profile metadata, and external recovery supervisor metadata. It cannot directly merge, mutate the stable runtime, push branches, self-apply, self-modify, execute recovery, or enable Vue authority.
 
 ## Anti-drift requirements
 
@@ -200,7 +214,7 @@ Every future automation PR must prove the following:
 - It does not add another local-only readiness decoration as mainline work after SCALE-113.
 - It does not recreate deleted duplicate planning files.
 - It does not change runtime level before the planned transition PR.
-- It does not add execution, mutation, patch apply, remote git push, autonomous loop execution, automatic PR creation, direct merge, or self-modification before the scheduled PR.
+- It does not add execution, mutation, patch apply, remote git push, autonomous loop execution, automatic PR creation, direct merge, recovery execution, or self-modification before the scheduled PR.
 - PR-B changes are repair-only and point back to the parent PR acceptance criteria.
 
 ## Confirmation checklist
