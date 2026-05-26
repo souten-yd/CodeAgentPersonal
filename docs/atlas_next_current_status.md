@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-130 backend-only human-approved patch apply helper.
+Updated after the PR-ATLAS-SCALE-131 backend-only local branch proposal artifact.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -24,17 +24,17 @@ Updated after the PR-ATLAS-SCALE-130 backend-only human-approved patch apply hel
 
 ## Completed in latest automation roadmap track
 - PR-ATLAS-SCALE-130 adds a backend-only `apply_patch_transaction_one_action` helper for a single low-risk patch transaction.
-- The helper requires valid transaction metadata, snapshot reference, rollback readiness, dry-run gate readiness, explicit human approval, a confirmation token, and exact `EXECUTE ONE ACTION` text before it mutates a file.
-- The helper writes an `apply_result.json` under the transaction directory after an approved apply, but does not enable automatic apply, automatic rollback, autonomous execution, retry, or continuation.
+- PR-ATLAS-SCALE-131 adds a backend-only `create_local_branch_proposal` helper for writing a proposal artifact after an approved patch transaction apply.
+- Branch proposal artifacts are stored under `data_root/atlas/branch_proposals/<proposal_id>/manifest.json` and keep branch creation, git mutation, draft PR creation, and autonomous execution disabled.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
-- Vue execution, autonomous execution, automatic patch generation, automatic patch apply, safe apply controls, verification execution, rollback execution, retry, auto-continue, execute-all, and remote git operations remain disabled.
+- Vue execution, autonomous execution, automatic patch generation, automatic patch apply, safe apply controls, verification execution, rollback execution, retry, auto-continue, execute-all, branch creation, draft PR creation, and remote git operations remain disabled.
 - Atlas Next uses safe GET workflow state metadata plus the explicit PlanPool create endpoint only.
-- Patch Review, Guarded Execution Preparation, right-rail diagnostics, conversation requirement summary, guided flow grouping, plan lifecycle strip, and PlanPool item summary are display-only and do not expose patch generation, apply, safe_apply, verification execution, rollback execution, retry, autonomous continuation, approval, dry-run, or execute controls.
-- SCALE-130 does not add a public apply route or Vue apply control; the new mutation path is backend-only and manually gated.
+- Patch Review, Guarded Execution Preparation, right-rail diagnostics, conversation requirement summary, guided flow grouping, plan lifecycle strip, and PlanPool item summary are display-only and do not expose patch generation, apply, safe_apply, verification execution, rollback execution, retry, autonomous continuation, approval, dry-run, branch creation, or draft PR controls.
+- SCALE-131 does not create a branch and does not add a public route or Vue control; it only writes a backend proposal artifact after explicit approval and an applied patch transaction.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-131: add a local branch proposal artifact for an approved patch transaction.
-- Keep it proposal-only: no local branch creation, no git mutation, no draft PR creation, no public apply route, no Vue execution controls, and no autonomous continuation.
+- PR-ATLAS-SCALE-132: add approved local branch creation from a local branch proposal artifact.
+- Keep it manually gated and backend-only; do not add draft PR creation, PR update, Vue execution controls, autonomous continuation, runtime escalation, or default UI changes.
