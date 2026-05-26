@@ -22,6 +22,23 @@ def test_vue_15_backend_workflow_state_real_data_contract() -> None:
     assert patch['rollback_enabled'] is False
     assert patch['advisory_only'] is True
 
+    review = payload['guarded_execution_review']
+    assert review['display_only'] is True
+    assert review['backend_authoritative'] is True
+    assert review['vue_authoritative'] is False
+    assert review['callable_execution_route_enabled'] is False
+    assert review['execution_enabled'] is False
+    assert review['approval_action_enabled'] is False
+    assert review['dry_run_action_enabled'] is False
+    assert review['execute_action_enabled'] is False
+    assert review['apply_action_enabled'] is False
+    assert review['verify_action_enabled'] is False
+    assert review['rollback_action_enabled'] is False
+    assert review['retry_continue_action_enabled'] is False
+    assert review['endpoint_contract_status'] == 'disabled_metadata_only'
+    assert review['review_items']
+    assert review['blocked_reasons']
+
 
 def test_vue_15_backend_patch_transaction_metadata_is_display_only() -> None:
     payload = build_read_only_workflow_state(
