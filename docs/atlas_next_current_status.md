@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-144 self-improvement approved patch apply helper.
+Updated after the PR-ATLAS-SCALE-145 self-improvement draft PR creation helper.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -39,20 +39,20 @@ Updated after the PR-ATLAS-SCALE-144 self-improvement approved patch apply helpe
 - PR-ATLAS-SCALE-142 adds backend-only `create_self_improvement_patch_preview`, recording preview-only changed-path metadata from an approved risk classification while keeping patch generation and apply disabled.
 - PR-ATLAS-SCALE-143 adds backend-only `create_self_improvement_dry_run_verification`, recording allowlist-classified verification metadata from an approved patch preview while keeping command execution disabled.
 - PR-ATLAS-SCALE-144 adds backend-only `apply_self_improvement_patch_one_action`, allowing one manually approved self-improvement patch apply after SCALE-143 verification, snapshot, rollback, strict gate, explicit approval, and exact confirmation text.
+- PR-ATLAS-SCALE-145 adds backend-only `create_self_improvement_draft_pr_one_action`, using an injected draft PR client after a validated SCALE-144 apply artifact, branch readiness, strict gate approval, explicit approval, and exact confirmation text.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
-- Current runtime level remains `level_3_autonomous_implementation_loop_candidate`; SCALE-144 does not advance runtime.
-- Self-improvement approved patch apply is backend-authoritative and single-action only. It can apply one approved create/modify patch from a validated transaction only after SCALE-143 dry-run verification, snapshot reference, rollback readiness, dry-run gate, strict gate approval, explicit approval, and exact `APPLY SELF IMPROVEMENT PATCH` confirmation.
-- Vue execution, autonomous loop execution, autonomous execution, command execution, automatic patch generation, automatic patch apply, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, self-apply, and remote git push operations remain disabled.
-- Draft PR creation and PR update remain backend-only, manually approved, confirmation-gated, and require injected clients; no network library, public route, Vue control, push, or autonomous update path is introduced by SCALE-144.
-- SCALE-144 does not add a public route, add a Vue control, push a branch, add autonomous continuation, execute retries, run verification commands, generate patches, update PRs, self-apply, self-modify, direct merge, or perform command execution.
+- Current runtime level remains `level_3_autonomous_implementation_loop_candidate`; SCALE-145 does not advance runtime.
+- Self-improvement draft PR creation is backend-authoritative and single-action only. It can create a draft PR result only through an injected client after an applied SCALE-144 artifact, branch readiness, strict gate approval, explicit approval, and exact `CREATE SELF IMPROVEMENT DRAFT PR` confirmation.
+- Vue execution, autonomous loop execution, autonomous execution, command execution, automatic patch generation, automatic patch apply, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, self-apply, branch creation, and remote git push operations remain disabled.
+- SCALE-145 does not add a public route, add a Vue control, push a branch, create a branch, add autonomous continuation, execute retries, run verification commands, generate patches, update PRs, self-apply, self-modify, direct merge, or perform command execution.
 
 ## Later UI/UX planning note
 - Later conversational/FastUI work must expose a backend-owned work target mode selector for ordinary software development/repair versus platform self-improvement.
 - That selector is a UI intent control only; it must not authorize self-improvement, self-apply, execution, direct merge, or Vue authority without the backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-145: self-improvement draft PR creation.
-- Keep it draft-PR-only and confirmation-gated; do not add direct merge, remote git push beyond the planned injected draft PR operation, Vue authority, default UI promotion, or unbounded autonomous execution.
+- PR-ATLAS-SCALE-146: Level-4 self-improvement checkpoint.
+- Keep it an explicit runtime/checkpoint decision only after SCALE-140 through SCALE-145 evidence is present; do not add direct merge, Vue authority, default UI promotion, unbounded autonomous execution, self-apply, or stable-runtime mutation.
