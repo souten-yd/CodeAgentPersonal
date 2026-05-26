@@ -75,7 +75,7 @@ def test_candidate_workspace_plan_blocks_invalid_scope_and_paths(tmp_path: Path)
     assert "allowed_path_too_broad" in plan["blocking_reasons"]
     assert "allowed_path_must_be_repo_relative" in plan["blocking_reasons"]
     assert "blocked_path_must_be_repo_relative" in plan["blocking_reasons"]
-    assert "candidate_root_must_not_contain_target_repo" in plan["blocking_reasons"]
+    assert "candidate_root_must_not_be_inside_target_repo" in plan["blocking_reasons"]
 
 
 def test_validate_rejects_workspace_creation_enablement(tmp_path: Path) -> None:
