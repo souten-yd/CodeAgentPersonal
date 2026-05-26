@@ -4,9 +4,9 @@
 
 This file is the single human-readable source of truth for Atlas automation planning.
 
-- Completed automation PR: PR-ATLAS-SCALE-143
-- Current automation track: PR-ATLAS-SCALE-144
-- Next automation track: PR-ATLAS-SCALE-144
+- Completed automation PR: PR-ATLAS-SCALE-144
+- Current automation track: PR-ATLAS-SCALE-145
+- Next automation track: PR-ATLAS-SCALE-145
 - Current runtime level: level_3_autonomous_implementation_loop_candidate
 - Target runtime level: level_3_autonomous_implementation_loop_candidate
 - Final goal: fully_autonomous_code_agent
@@ -48,7 +48,7 @@ This phase intentionally did not add execution capability. At that time runtime 
 
 ## Current phase: Self-Improving Platform Preparation
 
-SCALE-113 through SCALE-143 moved Atlas from Level-1 preparation through the patch, branch, draft PR, bounded-loop policy, bounded retry metadata, explicit Level-2 checkpoint, Level-3 autonomous implementation loop candidate, self-improvement proposal mode, strict self-modification risk classifier, self-improvement patch preview, and self-improvement dry-run verification planning. SCALE-144 is now the active next PR and must introduce only approved self-improvement patch apply, with snapshot and rollback gates, no self-apply, no direct merge, and no Vue authority.
+SCALE-113 through SCALE-144 moved Atlas from Level-1 preparation through the patch, branch, draft PR, bounded-loop policy, bounded retry metadata, explicit Level-2 checkpoint, Level-3 autonomous implementation loop candidate, self-improvement proposal mode, strict self-modification risk classifier, self-improvement patch preview, self-improvement dry-run verification planning, and one manually approved self-improvement patch apply. SCALE-145 is now the active next PR and must introduce only self-improvement draft PR creation, with draft-only behavior, injected clients, explicit approval, no direct merge, no remote push expansion beyond the planned gate, and no Vue authority.
 
 ### Direction lock
 
@@ -82,6 +82,7 @@ SCALE-113 through SCALE-143 moved Atlas from Level-1 preparation through the pat
 - SCALE-141 completed: strict self-modification risk classifier added. It records classification-only risk metadata and required next gates while keeping patch preview, self-apply, self-modification, execution, direct merge, remote git push, and Vue authority disabled.
 - SCALE-142 completed: self-improvement patch preview added. It records preview-only changed-path metadata from an approved risk classification while keeping patch generation, patch apply, verification execution, self-apply, direct merge, remote git push, and Vue authority disabled.
 - SCALE-143 completed: self-improvement dry-run verification added. It records allowlist-classified verification metadata from an approved patch preview while keeping command execution, verification result creation, patch apply, self-apply, direct merge, remote git push, and Vue authority disabled.
+- SCALE-144 completed: self-improvement approved patch apply added. It allows one manually approved create/modify patch from a validated transaction after SCALE-143 verification, snapshot reference, rollback readiness, dry-run gate, strict gate approval, explicit approval, and exact confirmation text while keeping command execution, automatic apply, self-apply, self-modification, direct merge, remote git push, and Vue authority disabled.
 
 Next PRs must advance the self-improving platform phase without bypassing dry-run verification, snapshot and rollback requirements, direct merge restrictions, or draft-PR-only constraints.
 
@@ -101,13 +102,14 @@ Disallowed drift:
 - remote git push before a dedicated policy and implementation gate
 - conversational Atlas UX becoming the source of truth instead of backend workflow_state
 - full automation before recovery supervisor, candidate workspace, checkpoint, and promotion gates exist
+- work target mode selection enabling platform self-improvement without backend gates
 
 ## Level roadmap
 
 - Level 0: Manual only. Historical baseline. No autonomous execution.
 - Level 1: Guarded single-step automation. One low-risk, allowlisted action at a time. Dry-run first. Explicit approval token required. No auto-continue.
 - Level 2: Guarded bounded loop. Limited low-risk sequence. Hard bounds. Stop gate. Allowlisted verification. Captured artifacts. Human approval remains required.
-- Level 3: Autonomous implementation loop candidate. Current state. Candidate contract can plan, propose, request dry-run, evaluate artifacts, prepare draft PR update metadata, record self-improvement proposals, classify self-modification risk, preview self-improvement changed paths, and plan dry-run verification, but execution, patch apply, verification execution, retry, PR updates, and direct merge remain disabled until future gated PRs.
+- Level 3: Autonomous implementation loop candidate. Current state. Candidate contract can plan, propose, request dry-run, evaluate artifacts, prepare draft PR update metadata, record self-improvement proposals, classify self-modification risk, preview self-improvement changed paths, plan dry-run verification, and perform one manually approved self-improvement patch apply, but command execution, automatic patch generation, automatic apply, verification execution, retry, PR updates, direct merge, self-apply, self-modification, and remote git push remain disabled until future gated PRs.
 - Level 4: Self-improvement platform. Atlas may improve CodeAgentPersonal / KasaneCore itself under strict self-modification gates, draft PR only, no direct merge.
 - Post-Level-4 Full Automation: future explicit phase. Atlas may progress toward Codex/Claude-like autonomous coding under user-selectable safety profiles, candidate workspaces, non-LLM recovery, and conversational supervision UX. Direct merge remains forbidden unless a future explicit policy changes it.
 
@@ -122,12 +124,13 @@ Default visible UI should contain:
 - current phase card
 - next action card
 - safety profile badge
+- work target mode badge / selector for software development/repair versus platform self-improvement
 - changed files summary
 - verification summary
 - recovery status
 - one primary CTA
 
-Diagnostics, raw JSON, low-level IDs, direct subsystem controls, and internal manifests must remain hidden by default and available only through explicit diagnostics mode. Vue or Atlas Next may render the shell, but must not approve, execute, apply, verify, rollback, retry, continue, or become the source of truth.
+Diagnostics, raw JSON, low-level IDs, direct subsystem controls, and internal manifests must remain hidden by default and available only through explicit diagnostics mode. Vue or Atlas Next may render the shell, but must not approve, execute, apply, verify, rollback, retry, continue, authorize platform self-improvement, or become the source of truth.
 
 Primary conversational states:
 
@@ -222,8 +225,8 @@ Detailed requirements are recorded in `docs/atlas_full_automation_self_recovery_
 
 | PR | Required outcome | Runtime impact | Drift check |
 | --- | --- | --- | --- |
-| PR-ATLAS-SCALE-151 | Conversational Atlas shell contract | UI/UX only | backend workflow_state remains authoritative |
-| PR-ATLAS-SCALE-152 | Conversational shell implementation | display/supervision only | one primary CTA, no authority shift |
+| PR-ATLAS-SCALE-151 | Conversational Atlas shell contract with work target mode selector | UI/UX only | backend workflow_state remains authoritative |
+| PR-ATLAS-SCALE-152 | Conversational shell implementation with backend-owned mode selector | display/supervision only | one primary CTA, no authority shift |
 
 ### Phase 8: Self-improvement candidate execution and recovery
 
@@ -254,43 +257,7 @@ When checking a PR, verify all of the following against this master plan and the
 - Runtime level remains unchanged unless the planned transition PR explicitly allows it.
 - Backend workflow_state remains authoritative.
 - Vue remains non-authoritative.
-- Conversational UI does not approve, execute, apply, verify, rollback, retry, continue, or become authoritative unless a future explicit policy changes it.
+- Conversational UI does not approve, execute, apply, verify, rollback, retry, continue, authorize platform self-improvement, or become authoritative unless a future explicit policy changes it.
 - No execution, mutation, patch apply, git, autonomous loop execution, direct merge, or self-modification is added before its scheduled PR.
 - No full automation mode is enabled before safety profiles, recovery supervisor, candidate workspace, boot checkpoints, and promotion gates exist.
 - Tests cover the planned acceptance criteria and drift checks.
-
-## Safety invariants
-
-After PR-ATLAS-SCALE-143:
-
-- runtime_level remains level_3_autonomous_implementation_loop_candidate
-- self-improvement dry-run verification is verification-plan-only
-- verification commands are classified through the allowlist but not executed
-- verification results are not fabricated
-- patch apply remains disabled until PR-ATLAS-SCALE-144
-- self-modification remains disabled
-- self-apply remains disabled
-- automatic verification remains disabled
-- autonomous loop execution remains disabled
-- autonomous execution remains disabled
-- execute-all remains disabled
-- auto-continue remains disabled
-- direct merge remains forbidden
-- remote git push remains forbidden
-- Vue remains non-authoritative
-- draft PR creation and PR update remain manually gated through dedicated backend helpers; automatic PR creation, automatic PR update, and direct merge remain forbidden
-
-## Full automation invariants after future PR-ATLAS-SCALE-160
-
-PR-ATLAS-SCALE-160 may mark Atlas as a fully autonomous code agent only if all of the following are true under an explicit safety profile:
-
-- `autonomous_execution_enabled` is true.
-- `autonomous_loop_execution_enabled` is true.
-- Safety Profile 3 gates are explicit and audited.
-- Direct merge remains forbidden unless a later explicit policy changes it.
-- Self-improvement uses candidate workspaces and never mutates stable runtime directly.
-- Recovery supervisor works without LLM, FastAPI, `main.py`, or `app/` imports.
-- Stable checkpoint exists before mutation.
-- Boot health checkpoint exists after promotion.
-- Stop, rollback, and recovery paths are tested.
-- Conversational UX can explain state, risk, next action, changed files, verification, and recovery.
