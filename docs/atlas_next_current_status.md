@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-138 explicit Level-2 guarded bounded loop checkpoint helper.
+Updated after the PR-ATLAS-SCALE-139 Level-3 autonomous implementation loop candidate helper.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -33,18 +33,19 @@ Updated after the PR-ATLAS-SCALE-138 explicit Level-2 guarded bounded loop check
 - PR-ATLAS-SCALE-136 adds backend-only `create_bounded_loop_policy_v1`, producing a policy-only bounded loop artifact while keeping loop execution disabled.
 - PR-ATLAS-SCALE-137 adds backend-only `create_bounded_retry_recovery_metadata`, producing metadata-only bounded retry and failure recovery policy while keeping retry execution disabled.
 - PR-ATLAS-SCALE-138 adds backend-only `create_level2_runtime_transition_checkpoint`, authorizing Level-2 only when bounded loop policy, retry recovery metadata, stop gate, verification allowlist, artifact capture, and explicit approval are present.
+- PR-ATLAS-SCALE-139 adds backend-only `create_level3_autonomous_loop_candidate`, authorizing a Level-3 candidate only from an approved Level-2 checkpoint while keeping execution disabled.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
-- Current runtime level is `level_2_guarded_bounded_loop` only through the explicit checkpoint; autonomous execution remains disabled.
-- Level-2 is bounded, backend-authoritative, low-risk, dry-run-first, explicit-approval-per-iteration, stop-gated, verification-allowlisted, and artifact-captured.
-- Vue execution, autonomous execution, automatic patch generation, automatic patch apply, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, and remote git push operations remain disabled.
-- Draft PR creation and PR update are backend-only, manually approved, confirmation-gated, and require injected clients; no network library, public route, Vue control, push, or autonomous update path is introduced by SCALE-138.
+- Current runtime level is `level_3_autonomous_implementation_loop_candidate`; this is a candidate metadata state, not autonomous execution enablement.
+- Level-3 candidate is backend-authoritative, draft-PR-only, low-risk, single-file, bounded by max iterations/retries/runtime, dry-run-first, explicit-approval-gated, stop-gated, verification-allowlisted, and artifact-captured.
+- Vue execution, autonomous loop execution, autonomous execution, automatic patch generation, automatic patch apply, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, and remote git push operations remain disabled.
+- Draft PR creation and PR update are backend-only, manually approved, confirmation-gated, and require injected clients; no network library, public route, Vue control, push, or autonomous update path is introduced by SCALE-139.
 - Atlas Next uses safe GET workflow state metadata plus the explicit PlanPool create endpoint only.
 - Patch Review, Guarded Execution Preparation, right-rail diagnostics, conversation requirement summary, guided flow grouping, plan lifecycle strip, and PlanPool item summary are display-only and do not expose patch generation, apply, safe_apply, verification execution, rollback execution, retry, autonomous continuation, approval, dry-run, branch creation, draft PR, or PR update controls.
-- SCALE-138 does not add a public route, add a Vue control, push a branch, add autonomous continuation, execute retries, or perform execution; it only records and validates the Level-2 transition checkpoint.
+- SCALE-139 does not add a public route, add a Vue control, push a branch, add autonomous continuation, execute retries, run verification, apply patches, update PRs, or perform execution; it only records and validates the Level-3 candidate contract.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-139: Level-3 autonomous implementation loop candidate.
-- Keep it candidate-gated and draft-PR-only; do not add direct merge, self-modification, Vue authority, default UI promotion, or unbounded autonomous execution.
+- PR-ATLAS-SCALE-140: self-improvement proposal mode.
+- Keep it proposal-only; do not add self-apply, direct merge, Vue authority, default UI promotion, or unbounded autonomous execution.
