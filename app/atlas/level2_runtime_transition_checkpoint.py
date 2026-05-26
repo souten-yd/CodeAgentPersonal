@@ -29,6 +29,7 @@ def create_level2_runtime_transition_checkpoint(
     artifact_capture_ready: bool = False,
     created_at: str | None = None,
 ) -> dict[str, Any]:
+    created = created_at or _utc_now()
     loop_policy = read_bounded_loop_policy_v1(policy_path=bounded_loop_policy_path, data_root=data_root)["policy"]
     retry_metadata = read_bounded_retry_recovery_metadata(metadata_path=retry_recovery_metadata_path, data_root=data_root)["metadata"]
     root = Path(data_root if data_root is not None else Path(bounded_loop_policy_path).expanduser().resolve().parent).expanduser().resolve()
@@ -53,8 +54,8 @@ def create_level2_runtime_transition_checkpoint(
     transition_authorized = not blocked
     checkpoint = {
         "schema_version": SCHEMA_VERSION,
-        "checkpoint_id": _checkpoint_id(created_at or _utc_now()),
-        "created_at": created_at or _utc_now(),
+        "checkpoint_id": _checkpoint_id(created),
+        "created_at": created,
         "transition_pr": TRANSITION_PR,
         "next_required_pr": NEXT_REQUIRED_PR,
         "previous_runtime_level": PREVIOUS_RUNTIME_LEVEL,
@@ -70,7 +71,7 @@ def create_level2_runtime_transition_checkpoint(
         "bounded_loop_execution_allowed": transition_authorized,
         "bounded_retry_candidate_allowed": transition_authorized,
         "max_iterations": int(loop_policy.get("max_iterations") or 0),
-        "max_retries": int(retry_metadata.get("max_retries") or 0),
+        "max_retries": int(retry_metadata.get("max_retries") if retry_metadata.get("max_retries") is not None else -1),
         "single_changed_file_only": True,
         "low_risk_only": True,
         "dry_run_required_each_iteration": True,
@@ -225,7 +226,8 @@ def _validate_retry_metadata(metadata: dict[str, Any], policy: dict[str, Any]) -
             blocked.append(f"{key}_must_be_false")
     if metadata.get("requires_human_approval_before_retry") is not True:
         blocked.append("human_approval_before_retry_required")
-    if int(metadata.get("max_retries") or -1) < 0 or int(metadata.get("max_retries") or -1) > 2:
+    max_retries = int(metadata.get("max_retries") if metadata.get("max_retries") is not None else -1)
+    if max_retries < 0 or max_retries > 2:
         blocked.append("max_retries_invalid")
     return blocked
 
