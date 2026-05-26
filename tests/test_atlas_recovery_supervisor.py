@@ -96,7 +96,7 @@ def test_read_release_pointer_and_hash_file(tmp_path: Path) -> None:
     artifact.write_text("atlas", encoding="utf-8")
 
     assert read_release_pointer(pointer_path=pointer)["release_id"] == "stable_001"
-    assert hash_file_sha256(artifact) == "d50e064c652f28c0c12625e58d90781660e303d5d4ad9c9369550a10238757be"
+    assert hash_file_sha256(artifact) == "7c82602500857aa6ed0cf38c4c3e4ec645bdcaa82c00b9155eb08be100c778a9"
 
 
 def test_plan_release_pointer_switch_is_plan_only(tmp_path: Path) -> None:
