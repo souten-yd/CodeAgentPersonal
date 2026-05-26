@@ -11,26 +11,26 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-145
-- Current automation track: PR-ATLAS-SCALE-146
-- Next automation track: PR-ATLAS-SCALE-146
-- Current level: Level 3 autonomous implementation loop candidate
-- Target level: Level 3 autonomous implementation loop candidate
-- Next level advancement checkpoint: PR-ATLAS-SCALE-146
+- Completed automation PR: PR-ATLAS-SCALE-146
+- Current automation track: PR-ATLAS-SCALE-147
+- Next automation track: PR-ATLAS-SCALE-147
+- Current level: Level 4 self-improvement platform checkpoint
+- Target level: Level 4 self-improvement platform checkpoint
+- Next level advancement checkpoint: PR-ATLAS-SCALE-157
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
-PR-ATLAS-SCALE-145 adds backend-only self-improvement draft PR creation. It is limited to one manually approved draft PR result through an injected client after an applied SCALE-144 artifact, branch readiness, strict gate approval, explicit approval, and exact confirmation text.
+PR-ATLAS-SCALE-146 adds the backend-only Level-4 self-improvement checkpoint. It authorizes the self-improvement platform checkpoint only after Level-3 candidate evidence, SCALE-145 self-improvement draft PR evidence, strict self-improvement gates, explicit approval, and exact confirmation text.
 
-The self-improvement draft PR helper does not execute commands, generate patches, run verification commands, create branches, push branches, update PRs, rollback or restore automatically, use remote git, auto-continue, execute-all, direct merge, self-apply, self-modify, add a public execution route, or enable Vue authority.
+The Level-4 checkpoint does not execute commands, generate patches, run verification commands, create branches, push branches, update PRs, rollback or restore automatically, use remote git, auto-continue, execute-all, direct merge, self-apply to the stable runtime, self-modify the stable runtime, add a public execution route, or enable Vue authority.
 
-PR-ATLAS-SCALE-128 through PR-ATLAS-SCALE-145 completed the patch proposal, patch transaction preview, approved single patch apply, local branch artifact, local branch creation, draft PR policy, manually approved draft PR creation, manually approved PR update, bounded loop policy, bounded retry/failure metadata, explicit Level-2 checkpoint, Level-3 candidate contract, self-improvement proposal mode, strict self-modification risk classifier, self-improvement patch preview, self-improvement dry-run verification planning, self-improvement approved patch apply, and self-improvement draft PR creation. These steps do not enable unbounded autonomous execution, execute-all, direct merge, Vue authority, self-modification, self-apply, branch push, or remote git push.
+PR-ATLAS-SCALE-128 through PR-ATLAS-SCALE-146 completed the patch proposal, patch transaction preview, approved single patch apply, local branch artifact, local branch creation, draft PR policy, manually approved draft PR creation, manually approved PR update, bounded loop policy, bounded retry/failure metadata, explicit Level-2 checkpoint, Level-3 candidate contract, self-improvement proposal mode, strict self-modification risk classifier, self-improvement patch preview, self-improvement dry-run verification planning, self-improvement approved patch apply, self-improvement draft PR creation, and explicit Level-4 self-improvement checkpoint. These steps do not enable unbounded autonomous execution, execute-all, direct merge, Vue authority, automatic self-modification, self-apply to the stable runtime, branch push, or remote git push.
 
-Actual verification execution, Level-4 self-improvement checkpoint, candidate workspace execution, and full automation remain disabled after PR-ATLAS-SCALE-145.
+Actual verification execution, candidate workspace execution, autonomous loop execution, and full automation remain disabled after PR-ATLAS-SCALE-146.
 
 ## Contract phrase lock
 
-This policy does not enable unbounded autonomous execution. Current Atlas state is Level 3 autonomous implementation loop candidate with proposal-only self-improvement metadata, classification-only self-modification risk metadata, preview-only self-improvement patch metadata, verification-plan-only self-improvement dry-run metadata, manually approved one-action self-improvement patch apply, and manually approved injected-client self-improvement draft PR creation. Future PRs must explicitly move levels.
+This policy does not enable unbounded autonomous execution. Current Atlas state is Level 4 self-improvement platform checkpoint with proposal-only self-improvement metadata, classification-only self-modification risk metadata, preview-only self-improvement patch metadata, verification-plan-only self-improvement dry-run metadata, manually approved one-action self-improvement patch apply, manually approved injected-client self-improvement draft PR creation, and checkpoint-only Level-4 authorization. Future PRs must explicitly move levels or execution authority.
 
 - Backend workflow state is authoritative.
 - ThinUI remains supervision layer.
@@ -51,10 +51,11 @@ This policy does not enable unbounded autonomous execution. Current Atlas state 
 - missing references are recorded explicitly.
 - stop state must be visible in ThinUI/CLI.
 - stop metadata does not stop real jobs or kill processes.
-- self-improvement proposal, risk classifier, patch preview, dry-run verification, approved apply, and draft PR creation modes remain backend-gated; autonomous self-improvement remains disabled; automatic self-modification remains disabled; self-modification is strict-gate by default.
+- self-improvement proposal, risk classifier, patch preview, dry-run verification, approved apply, draft PR creation, and Level-4 checkpoint modes remain backend-gated; automatic self-improvement remains disabled; automatic self-modification remains disabled; self-modification is strict-gate by default.
 - Level 1: Guarded single-step automation.
 - Level 2: Guarded bounded loop.
 - Level 3: Autonomous implementation loop candidate.
+- Level 4: Self-improvement platform checkpoint.
 - execute all remains forbidden.
 - auto continue remains forbidden.
 - automatic safe_apply, automatic verification, automatic retry, automatic rollback, and automatic patch generation remain disabled.
@@ -67,23 +68,25 @@ This policy does not enable unbounded autonomous execution. Current Atlas state 
 
 ## Non-negotiable safety invariants
 
-After PR-ATLAS-SCALE-145:
+After PR-ATLAS-SCALE-146:
 
-- runtime remains level_3_autonomous_implementation_loop_candidate
-- self-improvement draft PR creation is one-action and manually approved
+- runtime is level_4_self_improvement_platform only as a checkpointed self-improvement platform state
+- autonomous execution remains disabled
+- self-improvement platform work remains draft-PR-only
+- stable runtime mutation remains disabled
+- self-improvement draft PR creation remains one-action and manually approved
 - self-improvement draft PR creation requires an applied SCALE-144 result artifact
 - self-improvement draft PR creation requires branch readiness, strict gate approval, explicit approval, and exact confirmation text
 - draft PR creation uses an injected client only
 - branch creation and remote push remain disabled
 - command execution remains disabled
-- verification commands are not executed by the draft PR helper
+- verification commands are not executed by the Level-4 checkpoint helper
 - verification results are not fabricated
 - automatic patch generation remains disabled
 - automatic patch apply remains disabled
 - self-modification remains disabled
 - self-apply remains disabled
 - autonomous loop execution remains disabled
-- autonomous execution remains disabled
 - backend workflow_state remains authoritative
 - Vue remains non-authoritative and display-only
 - suggested commands are not executed automatically
@@ -182,11 +185,11 @@ Limited low-risk sequence with hard loop bounds, captured artifacts, allowlisted
 
 ### Level 3: Autonomous implementation loop candidate
 
-Current state. Candidate metadata can describe plan, patch proposal, dry-run request, artifact evaluation, draft PR update metadata, human approval requests, self-improvement proposals, self-modification risk classification, self-improvement patch preview, self-improvement dry-run verification planning, one manually approved self-improvement patch apply, and one manually approved self-improvement draft PR creation through an injected client. It cannot execute commands, generate patches, run verification commands, retry, update PRs, push branches, merge, self-apply, self-modify, or let Vue authorize workflow state.
+Candidate metadata can describe plan, patch proposal, dry-run request, artifact evaluation, draft PR update metadata, human approval requests, self-improvement proposals, self-modification risk classification, self-improvement patch preview, self-improvement dry-run verification planning, one manually approved self-improvement patch apply, and one manually approved self-improvement draft PR creation through an injected client. It cannot execute commands, generate patches, run verification commands, retry, update PRs, push branches, merge, self-apply, self-modify, or let Vue authorize workflow state.
 
-### Level 4: Self-improvement candidate
+### Level 4: Self-improvement platform checkpoint
 
-Atlas may improve CodeAgentPersonal / KasaneCore itself under stricter self-modification gates, draft PR only, no direct merge.
+Current state. Atlas may prepare CodeAgentPersonal / KasaneCore self-improvement work under stricter self-modification gates and draft-PR-only boundaries. It cannot directly merge, mutate the stable runtime, push branches, self-apply, or enable Vue authority.
 
 ## Anti-drift requirements
 
