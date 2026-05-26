@@ -11,26 +11,26 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-149
-- Current automation track: PR-ATLAS-SCALE-150
-- Next automation track: PR-ATLAS-SCALE-150
+- Completed automation PR: PR-ATLAS-SCALE-150
+- Current automation track: PR-ATLAS-SCALE-151
+- Next automation track: PR-ATLAS-SCALE-151
 - Current level: Level 4 self-improvement platform checkpoint
 - Target level: Level 4 self-improvement platform checkpoint
 - Next level advancement checkpoint: PR-ATLAS-SCALE-157
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
-PR-ATLAS-SCALE-149 adds a backend-owned candidate workspace manager foundation. It can build and validate a candidate workspace plan that declares target repo, candidate root, allowed paths, blocked paths, stable checkpoint reference, recovery manifest reference, safety profile reference, max files, max risk, and strategy metadata.
+PR-ATLAS-SCALE-150 adds a boot self-diagnosis and stable checkpoint foundation. It can record caller-supplied stable release metadata, required boot check evidence, artifact hashes, recovery manifest references, and candidate workspace plan references for later startup/recovery supervision.
 
-The candidate workspace manager is intentionally metadata/plan-only. It does not create git worktrees, copy workspaces, execute commands, apply patches, run verification, promote candidates, mutate the stable runtime, push branches, update PRs, merge, auto-continue, execute-all, self-apply, self-modify, or enable Vue authority.
+The boot self-diagnosis checkpoint is intentionally artifact-only. It does not execute boot probes, import app runtime modules, start FastAPI or Vue, run commands, create candidate workspaces, apply patches, run verification, promote candidates, mutate the stable runtime, push branches, update PRs, merge, auto-continue, execute-all, self-apply, self-modify, or enable Vue authority.
 
-PR-ATLAS-SCALE-128 through PR-ATLAS-SCALE-149 completed the patch proposal, patch transaction preview, approved single patch apply, local branch artifact, local branch creation, draft PR policy, manually approved draft PR creation, manually approved PR update, bounded loop policy, bounded retry/failure metadata, explicit Level-2 checkpoint, Level-3 candidate contract, self-improvement proposal mode, strict self-modification risk classifier, self-improvement patch preview, self-improvement dry-run verification planning, self-improvement approved patch apply, self-improvement draft PR creation, explicit Level-4 self-improvement checkpoint, automation safety profile framework, external recovery supervisor foundation, and candidate workspace manager foundation. These steps do not enable unbounded autonomous execution, execute-all, direct merge, Vue authority, automatic self-modification, self-apply to the stable runtime, branch push, or remote git push.
+PR-ATLAS-SCALE-128 through PR-ATLAS-SCALE-150 completed the patch proposal, patch transaction preview, approved single patch apply, local branch artifact, local branch creation, draft PR policy, manually approved draft PR creation, manually approved PR update, bounded loop policy, bounded retry/failure metadata, explicit Level-2 checkpoint, Level-3 candidate contract, self-improvement proposal mode, strict self-modification risk classifier, self-improvement patch preview, self-improvement dry-run verification planning, self-improvement approved patch apply, self-improvement draft PR creation, explicit Level-4 self-improvement checkpoint, automation safety profile framework, external recovery supervisor foundation, candidate workspace manager foundation, and boot self-diagnosis/stable checkpoint foundation. These steps do not enable unbounded autonomous execution, execute-all, direct merge, Vue authority, automatic self-modification, self-apply to the stable runtime, branch push, or remote git push.
 
-Actual verification execution, candidate workspace creation, candidate apply, autonomous loop execution, automatic recovery execution, and full automation remain disabled after PR-ATLAS-SCALE-149.
+Actual boot probe execution, verification execution, candidate workspace creation, candidate apply, autonomous loop execution, automatic recovery execution, and full automation remain disabled after PR-ATLAS-SCALE-150.
 
 ## Contract Phrase Lock
 
-This policy does not enable unbounded autonomous execution. Current Atlas state is Level 4 self-improvement platform checkpoint with proposal-only self-improvement metadata, classification-only self-modification risk metadata, preview-only self-improvement patch metadata, verification-plan-only self-improvement dry-run metadata, manually approved one-action self-improvement patch apply, manually approved injected-client self-improvement draft PR creation, checkpoint-only Level-4 authorization, backend-owned automation safety profile metadata, external recovery supervisor metadata, and candidate workspace plan metadata. Future PRs must explicitly move levels or execution authority.
+This policy does not enable unbounded autonomous execution. Current Atlas state is Level 4 self-improvement platform checkpoint with proposal-only self-improvement metadata, classification-only self-modification risk metadata, preview-only self-improvement patch metadata, verification-plan-only self-improvement dry-run metadata, manually approved one-action self-improvement patch apply, manually approved injected-client self-improvement draft PR creation, checkpoint-only Level-4 authorization, backend-owned automation safety profile metadata, external recovery supervisor metadata, candidate workspace plan metadata, and boot self-diagnosis checkpoint metadata. Future PRs must explicitly move levels or execution authority.
 
 - Backend workflow state is authoritative.
 - ThinUI remains supervision layer.
@@ -48,6 +48,8 @@ This policy does not enable unbounded autonomous execution. Current Atlas state 
 - external recovery supervisor may produce metadata and plans only.
 - candidate workspace manager may produce metadata and plans only.
 - candidate workspace manager must not create worktrees, copy files, apply patches, verify, promote, or mutate stable runtime until later explicit PRs.
+- boot self-diagnosis checkpoint may record stable release metadata, required check evidence, artifact hashes, recovery manifest references, and candidate workspace plan references only.
+- boot self-diagnosis checkpoint must not run probes, import app runtime, execute commands, create candidate workspaces, apply patches, verify, promote, or mutate stable runtime until later explicit PRs.
 - automatic recovery execution requires a future explicit policy PR.
 - automatic rollback requires a future explicit policy PR.
 - plan / intent summary, patch transaction manifest, dry-run result, execution result, verification plan, verification result, warnings and recovery instructions, and resolved data_root are required evidence classes.
@@ -56,14 +58,14 @@ This policy does not enable unbounded autonomous execution. Current Atlas state 
 - missing references are recorded explicitly.
 - stop state must be visible in ThinUI/CLI.
 - stop metadata does not stop real jobs or kill processes.
-- self-improvement proposal, risk classifier, patch preview, dry-run verification, approved apply, draft PR creation, Level-4 checkpoint, automation safety profile, external recovery supervisor, and candidate workspace manager modes remain backend-gated; automatic self-improvement remains disabled; automatic self-modification remains disabled; self-modification is strict-gate by default.
+- self-improvement proposal, risk classifier, patch preview, dry-run verification, approved apply, draft PR creation, Level-4 checkpoint, automation safety profile, external recovery supervisor, candidate workspace manager, and boot self-diagnosis checkpoint modes remain backend-gated; automatic self-improvement remains disabled; automatic self-modification remains disabled; self-modification is strict-gate by default.
 - Level 1: Guarded single-step automation.
 - Level 2: Guarded bounded loop.
 - Level 3: Autonomous implementation loop candidate.
 - Level 4: Self-improvement platform checkpoint.
 - execute all remains forbidden.
 - auto continue remains forbidden.
-- automatic safe_apply, automatic verification, automatic retry, automatic rollback, automatic recovery execution, candidate workspace creation, candidate apply, promotion, and automatic patch generation remain disabled.
+- automatic safe_apply, automatic verification, automatic retry, automatic rollback, automatic recovery execution, boot probe execution, candidate workspace creation, candidate apply, promotion, and automatic patch generation remain disabled.
 - no git push, no git pull, no git clone, no git fetch, no git remote, no direct merge, and no automatic PR creation.
 - draft PR creation and PR update remain manually gated through dedicated backend helpers; automatic PR creation, automatic PR update, and direct merge remain forbidden.
 - automation safety profiles are metadata/policy only until later execution PRs explicitly consume them.
@@ -74,12 +76,14 @@ This policy does not enable unbounded autonomous execution. Current Atlas state 
 
 ## Non-Negotiable Safety Invariants
 
-After PR-ATLAS-SCALE-149:
+After PR-ATLAS-SCALE-150:
 
 - runtime remains level_4_self_improvement_platform
 - autonomous execution remains disabled
 - external recovery supervisor foundation is metadata/plan-only
 - candidate workspace manager foundation is metadata/plan-only
+- boot self-diagnosis checkpoint foundation is artifact-only
+- boot self-diagnosis checkpoint does not run probes, import app runtime, execute commands, start services, create candidate workspaces, apply patches, verify candidates, promote candidates, or mutate stable runtime
 - candidate workspace manager does not create worktrees, copy workspaces, execute commands, apply patches, verify candidates, promote candidates, or mutate stable runtime
 - automation safety profile selection is backend-owned metadata only
 - self-improvement profile activation requires Level-4 checkpoint evidence and strict gate approval
@@ -89,7 +93,7 @@ After PR-ATLAS-SCALE-149:
 - draft PR creation uses an injected client only
 - branch creation and remote push remain disabled
 - command execution remains disabled
-- verification commands are not executed by the safety profile helper, recovery supervisor, or candidate workspace manager
+- verification commands are not executed by the safety profile helper, recovery supervisor, candidate workspace manager, or boot self-diagnosis checkpoint
 - verification results are not fabricated
 - automatic patch generation remains disabled
 - automatic patch apply remains disabled
@@ -194,6 +198,11 @@ Autonomous execution remains forbidden until the relevant gates pass.
    - candidate root must not be inside the stable target repo
    - worktree creation, copy fallback, candidate patch apply, verification, promotion, and stable runtime mutation remain disabled until later explicit PRs
 
+14. Boot Self-Diagnosis / Stable Checkpoint Gate
+   - boot self-diagnosis checkpoint must record stable release id, source commit, release pointer, artifact hashes, required check evidence, recovery manifest reference, and candidate workspace plan reference before later startup/recovery execution PRs consume it
+   - boot checks are evidence references only until a future execution PR explicitly permits probe execution
+   - boot self-diagnosis checkpoint must not import app runtime, start services, run commands, execute probes, create candidate workspaces, apply patches, promote candidates, switch release pointers, or mutate stable runtime
+
 ## Readiness Levels
 
 ### Level 0: Manual Only
@@ -214,7 +223,7 @@ Candidate metadata can describe plan, patch proposal, dry-run request, artifact 
 
 ### Level 4: Self-Improvement Platform Checkpoint
 
-Current state. Atlas may prepare CodeAgentPersonal / KasaneCore self-improvement work under stricter self-modification gates, draft-PR-only boundaries, automation safety profile metadata, external recovery supervisor metadata, and candidate workspace plan metadata. It cannot directly merge, mutate the stable runtime, push branches, self-apply, self-modify, execute recovery, create candidate workspaces, or enable Vue authority.
+Current state. Atlas may prepare CodeAgentPersonal / KasaneCore self-improvement work under stricter self-modification gates, draft-PR-only boundaries, automation safety profile metadata, external recovery supervisor metadata, candidate workspace plan metadata, and boot self-diagnosis checkpoint metadata. It cannot directly merge, mutate the stable runtime, push branches, self-apply, self-modify, execute boot probes, execute recovery, create candidate workspaces, or enable Vue authority.
 
 ## Anti-Drift Requirements
 
@@ -224,7 +233,7 @@ Every future automation PR must prove the following:
 - It does not add another local-only readiness decoration as mainline work after SCALE-113.
 - It does not recreate deleted duplicate planning files.
 - It does not change runtime level before the planned transition PR.
-- It does not add execution, mutation, patch apply, remote git push, autonomous loop execution, automatic PR creation, direct merge, recovery execution, candidate workspace creation, candidate apply, candidate promotion, or self-modification before the scheduled PR.
+- It does not add execution, mutation, patch apply, remote git push, autonomous loop execution, automatic PR creation, direct merge, recovery execution, boot probe execution, candidate workspace creation, candidate apply, candidate promotion, stable checkpoint promotion, or self-modification before the scheduled PR.
 - PR-B changes are repair-only and point back to the parent PR acceptance criteria.
 
 ## Confirmation Checklist
