@@ -45,6 +45,49 @@ def _coerce_string_list(value: Any) -> list[str]:
     return [item for item in value if isinstance(item, str) and item.strip()][:8]
 
 
+def _build_guarded_execution_review() -> dict[str, Any]:
+    contract = Level1GuardedExecutionSkeleton.build_disabled_level1_contract()
+    gate_source_map = contract.get("gate_source_map") if isinstance(contract.get("gate_source_map"), list) else []
+    review_items = []
+    for index, raw in enumerate(gate_source_map[:8]):
+        item = raw if isinstance(raw, dict) else {}
+        review_items.append(
+            {
+                "label": str(item.get("label") or item.get("gate_id") or f"Gate {index + 1}"),
+                "ready": bool(item.get("evidence_available", False)),
+                "source": str(item.get("source") or item.get("owner") or "backend metadata"),
+            }
+        )
+    blockers = contract.get("blockers") if isinstance(contract.get("blockers"), list) else []
+    blocked_reasons = []
+    for raw in blockers[:6]:
+        item = raw if isinstance(raw, dict) else {}
+        gate = str(item.get("gate") or "guarded_execution_gate")
+        blocker = str(item.get("blocker") or "missing evidence")
+        blocked_reasons.append(f"{gate}: {blocker}")
+    return {
+        "checkpoint": "PR-ATLAS-SCALE-126",
+        "display_only": True,
+        "backend_authoritative": True,
+        "vue_authoritative": False,
+        "callable_execution_route_enabled": False,
+        "execution_enabled": False,
+        "approval_action_enabled": False,
+        "dry_run_action_enabled": False,
+        "execute_action_enabled": False,
+        "apply_action_enabled": False,
+        "verify_action_enabled": False,
+        "rollback_action_enabled": False,
+        "retry_continue_action_enabled": False,
+        "requires_dry_run": True,
+        "requires_approval": True,
+        "requires_runtime_transition": True,
+        "endpoint_contract_status": "disabled_metadata_only",
+        "review_items": review_items,
+        "blocked_reasons": blocked_reasons,
+    }
+
+
 def build_read_only_workflow_state(
     *,
     goal: str,
@@ -129,6 +172,7 @@ def build_read_only_workflow_state(
             "rollback_enabled": False,
             "advisory_only": True,
         },
+        "guarded_execution_review": _build_guarded_execution_review(),
         "diagnostics": {
             "static_mount_deferred": False,
             "route_mounted": True,
