@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-147 automation safety profile framework helper.
+Updated after the PR-ATLAS-SCALE-148 external recovery supervisor foundation.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -42,19 +42,20 @@ Updated after the PR-ATLAS-SCALE-147 automation safety profile framework helper.
 - PR-ATLAS-SCALE-145 adds backend-only `create_self_improvement_draft_pr_one_action`, using an injected draft PR client after a validated SCALE-144 apply artifact, branch readiness, strict gate approval, explicit approval, and exact confirmation text.
 - PR-ATLAS-SCALE-146 adds backend-only `create_level4_self_improvement_checkpoint`, authorizing the Level-4 self-improvement platform checkpoint only after Level-3 candidate and SCALE-145 draft PR evidence, strict self-improvement gates, explicit approval, and exact confirmation text.
 - PR-ATLAS-SCALE-147 adds backend-only `create_automation_safety_profile`, defining review_only, guarded_single_action, supervised_bounded_auto, and autonomous_dev_agent profile metadata plus a separate gated self-improvement axis without enabling execution.
+- PR-ATLAS-SCALE-148 adds an external `recovery/` supervisor foundation that can validate recovery manifests, read release pointers, hash files, and plan pointer switches without importing target runtime modules or executing recovery.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
 - Current runtime level remains `level_4_self_improvement_platform`; autonomous execution remains disabled.
-- Automation safety profiles are backend-owned metadata only. They describe requested capability profiles and self-improvement scope gates, but do not execute commands, apply patches automatically, mutate the stable runtime, push branches, or merge PRs.
+- Recovery supervisor foundation is external and plan-only. It does not execute commands, restore files, switch release pointers, import target runtime modules, mutate the stable runtime, push branches, or merge PRs.
 - Vue execution, autonomous loop execution, autonomous execution, command execution, automatic patch generation, automatic patch apply, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, self-apply, branch creation, and remote git push operations remain disabled.
-- SCALE-147 does not add a public route, add a Vue control, push a branch, create a branch, add autonomous continuation, execute retries, run verification commands, generate patches, update PRs, self-apply, self-modify, direct merge, or perform command execution.
+- SCALE-148 does not add a public route, add a Vue control, push a branch, create a branch, add autonomous continuation, execute retries, run verification commands, generate patches, update PRs, self-apply, self-modify, direct merge, perform command execution, or perform recovery execution.
 
 ## Later UI/UX planning note
 - Later conversational/FastUI work must expose a backend-owned work target mode selector for ordinary software development/repair versus platform self-improvement.
 - That selector is a UI intent control only; it must not authorize self-improvement, self-apply, execution, direct merge, or Vue authority without the backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-148: external recovery supervisor foundation.
-- Keep it a recovery foundation only; do not add direct merge, Vue authority, default UI promotion, unbounded autonomous execution, self-apply, stable-runtime mutation, command execution, or app/ imports in the supervisor foundation.
+- PR-ATLAS-SCALE-149: candidate workspace manager.
+- Keep it candidate-workspace metadata/foundation only; do not add direct merge, Vue authority, default UI promotion, unbounded autonomous execution, self-apply, stable-runtime mutation, command execution, or actual candidate apply.

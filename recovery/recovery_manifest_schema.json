@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "atlas.recovery_supervisor_manifest.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "track_pr",
+    "next_required_pr",
+    "status",
+    "external_supervisor",
+    "checkpoint_store",
+    "release_pointer_path",
+    "recovery_reports_dir",
+    "stable_release_id",
+    "allowed_actions",
+    "manual_operation_required",
+    "application_runtime_independent",
+    "command_execution_enabled",
+    "restore_execution_enabled",
+    "pointer_switch_execution_enabled",
+    "network_access_required"
+  ],
+  "properties": {
+    "schema_version": {"const": "atlas.recovery_supervisor_manifest.v1"},
+    "track_pr": {"const": "PR-ATLAS-SCALE-148"},
+    "next_required_pr": {"const": "PR-ATLAS-SCALE-149"},
+    "status": {"enum": ["ready", "blocked"]},
+    "external_supervisor": {"const": true},
+    "checkpoint_store": {"type": "string", "minLength": 1},
+    "release_pointer_path": {"type": "string", "minLength": 1},
+    "recovery_reports_dir": {"type": "string", "minLength": 1},
+    "stable_release_id": {"type": "string", "minLength": 1},
+    "allowed_actions": {
+      "type": "array",
+      "items": {"enum": ["inspect", "validate_pointer", "plan_pointer_switch", "record_report"]},
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "manual_operation_required": {"const": true},
+    "application_runtime_independent": {"const": true},
+    "command_execution_enabled": {"const": false},
+    "restore_execution_enabled": {"const": false},
+    "pointer_switch_execution_enabled": {"const": false},
+    "network_access_required": {"const": false}
+  },
+  "additionalProperties": true
+}
