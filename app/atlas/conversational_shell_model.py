@@ -73,7 +73,8 @@ def create_conversational_shell_model(
 ) -> dict[str, Any]:
     validated_contract = validate_conversational_shell_contract(deepcopy(contract))
     state = str(validated_contract["conversation_state"])
-    mode = str(validated_contract["work_target_mode"])
+    raw_mode = str(validated_contract["work_target_mode"])
+    mode = raw_mode if raw_mode in WORK_TARGET_MODES else WORK_TARGET_SOFTWARE_DEVELOPMENT_REPAIR
     messages = [_normalize_message(message) for message in conversation_messages or []]
     files = [_normalize_repo_path(path) for path in changed_files or []]
 
