@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the PR-ATLAS-SCALE-150 boot self-diagnosis and stable checkpoint foundation.
+Updated after the PR-ATLAS-SCALE-151 conversational shell contract.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -45,19 +45,21 @@ Updated after the PR-ATLAS-SCALE-150 boot self-diagnosis and stable checkpoint f
 - PR-ATLAS-SCALE-148 adds an external `recovery/` supervisor foundation that can validate recovery manifests, read release pointers, hash files, and plan pointer switches without importing target runtime modules or executing recovery.
 - PR-ATLAS-SCALE-149 adds backend-only `create_candidate_workspace_plan`, defining target repo, candidate root, path bounds, checkpoint references, recovery references, and safety limits without creating worktrees, copying files, applying patches, verifying, promoting, mutating stable runtime, pushing branches, or merging.
 - PR-ATLAS-SCALE-150 adds backend-only `create_boot_self_diagnosis_checkpoint`, recording stable release metadata, boot health check evidence, artifact hashes, recovery manifest reference, and candidate workspace plan reference without running probes, importing app runtime, mutating stable runtime, creating candidate workspaces, promoting, pushing, or merging.
+- PR-ATLAS-SCALE-151 adds backend-only `create_conversational_shell_contract`, defining the buildless conversational shell regions and backend-owned work target mode selector without requiring npm/Vite/Vue runtime, promoting Atlas Next, executing commands, applying candidates, self-applying, self-modifying, pushing, or merging.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
 - Current runtime level remains `level_4_self_improvement_platform`; autonomous execution remains disabled.
-- Boot self-diagnosis checkpoint foundation is artifact-only. It records caller-supplied check evidence and stable checkpoint metadata, but does not execute boot checks, import application runtime, run health probes, mutate stable runtime, create candidate workspaces, promote candidates, push branches, or merge PRs.
+- Conversational shell contract is metadata-only and buildless. It records required visible regions, conversation state, safety profile label, and work target mode intent, but it does not render or authorize execution by itself.
+- Work target mode selection can distinguish ordinary software development/repair from platform self-improvement intent, but it does not authorize self-improvement, self-apply, execution, direct merge, or Vue authority without later backend gates.
 - Vue execution, autonomous loop execution, autonomous execution, command execution, automatic patch generation, automatic patch apply, automatic verification, automatic rollback, auto-continue, execute-all, direct merge, self-modification, self-apply, branch creation, and remote git push operations remain disabled.
-- SCALE-150 does not add a public route, add a Vue control, push a branch, create a branch, add autonomous continuation, execute retries, run verification commands, run boot probes, generate patches, update PRs, self-apply, self-modify, direct merge, perform command execution, perform recovery execution, create a candidate workspace, or promote a candidate.
+- SCALE-151 does not add a public route, add a Vue control, push a branch, create a branch, add autonomous continuation, execute retries, run verification commands, run boot probes, generate patches, update PRs, self-apply, self-modify, direct merge, perform command execution, perform recovery execution, create a candidate workspace, promote a candidate, or require npm/Vite build for the default shell.
 
 ## Later UI/UX planning note
 - Later conversational/FastUI work must expose a backend-owned work target mode selector for ordinary software development/repair versus platform self-improvement.
 - That selector is a UI intent control only; it must not authorize self-improvement, self-apply, execution, direct merge, or Vue authority without the backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
 
 ## Next narrow PR
-- PR-ATLAS-SCALE-151: buildless conversational Atlas shell contract with work target mode selector.
-- Keep it UI/UX contract only; do not add direct merge, Vue authority, default UI promotion, unbounded autonomous execution, self-apply, stable-runtime mutation, command execution, actual candidate apply, promotion, or mandatory npm/Vite build.
+- PR-ATLAS-SCALE-152: buildless conversational shell implementation with backend-owned mode selector.
+- Keep it display/supervision-only; do not add direct merge, Vue authority, default UI promotion, unbounded autonomous execution, self-apply, stable-runtime mutation, command execution, actual candidate apply, promotion, or mandatory npm/Vite build.
