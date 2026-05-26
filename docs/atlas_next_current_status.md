@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the guarded readiness progress rail PR.
+Updated after the backend data freshness progress rail PR.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -15,15 +15,16 @@ Updated after the guarded readiness progress rail PR.
 - #1400 carries patch preview status, risk class, rollback readiness, and warnings into Atlas Next Patch Review display.
 - #1402 adds a display-only Guarded Execution Preparation panel.
 - #1403 exposes backend-owned guarded execution review metadata through the read-only workflow state contract.
-- The guarded readiness progress rail PR summarizes gate readiness, endpoint contract status, missing gates, and blocked reasons in the right rail.
+- #1404 summarizes gate readiness, endpoint contract status, missing gates, and blocked reasons in the right rail.
+- The backend data freshness progress rail PR shows whether Atlas Next is rendering safe backend workflow_state metadata or placeholder fallback data.
 
 ## Current safety boundaries
 - `ui.html` remains the default root UI.
 - Vue remains non-authoritative for workflow eligibility.
 - Vue execution, autonomous execution, patch generation, patch apply, safe apply, verification, rollback, retry, auto-continue, execute-all, and remote git operations remain disabled.
 - Atlas Next uses safe GET workflow state metadata plus the explicit PlanPool create endpoint only.
-- Patch Review and Guarded Execution Preparation are display-only and do not expose patch generation, apply, safe_apply, verification execution, rollback execution, retry, autonomous continuation, approval, dry-run, or execute controls.
+- Patch Review, Guarded Execution Preparation, and right-rail diagnostics are display-only and do not expose patch generation, apply, safe_apply, verification execution, rollback execution, retry, autonomous continuation, approval, dry-run, or execute controls.
 
 ## Next narrow PR
-- Add a compact backend diagnostics/freshness indicator for the right rail so users can see whether the rail is using safe backend data or placeholder fallback data.
-- Keep the surface display-only; do not expose execute, approve, dry-run, safe_apply, verification execution, rollback execution, retry, or autonomous continuation controls.
+- Add a compact conversation-style requirement summary in Atlas Next so the main pane starts to feel like a guided workbench rather than separate panels.
+- Keep the surface display-only except for the existing explicit PlanPool create endpoint; do not expose execute, approve, dry-run, safe_apply, verification execution, rollback execution, retry, or autonomous continuation controls.
