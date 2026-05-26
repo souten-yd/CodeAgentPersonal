@@ -11,24 +11,26 @@ Do not duplicate active/current/next PR pointers in additional planning files. A
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-138
-- Current automation track: PR-ATLAS-SCALE-139
-- Next automation track: PR-ATLAS-SCALE-139
-- Current level: Level 2 guarded bounded loop
-- Target level: Level 2 guarded bounded loop
-- Next level advancement checkpoint: PR-ATLAS-SCALE-139
+- Completed automation PR: PR-ATLAS-SCALE-139
+- Current automation track: PR-ATLAS-SCALE-140
+- Next automation track: PR-ATLAS-SCALE-140
+- Current level: Level 3 autonomous implementation loop candidate
+- Target level: Level 3 autonomous implementation loop candidate
+- Next level advancement checkpoint: PR-ATLAS-SCALE-146
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
 
-PR-ATLAS-SCALE-138 is the explicit Level-2 runtime transition checkpoint. Level-2 is limited to bounded low-risk sequences after bounded loop policy, bounded retry/failure metadata, stop gate, verification allowlist, artifact capture, and explicit approval evidence. The checkpoint does not perform execution, mutate project files, add a public execution route, run retry, rollback or restore automatically, use remote git, auto-continue, execute-all, direct merge, or enable Vue authority.
+PR-ATLAS-SCALE-139 is the explicit Level-3 autonomous implementation loop candidate checkpoint. Level-3 candidate status is limited to backend-only candidate metadata after an approved Level-2 checkpoint and explicit approval. The candidate contract is draft-PR-only, single-file, low-risk, bounded by max iterations/retries/runtime, dry-run-first, stop-gated, verification-allowlisted, and artifact-captured.
 
-PR-ATLAS-SCALE-128 through PR-ATLAS-SCALE-138 completed the patch proposal, patch transaction preview, approved single patch apply, local branch artifact, local branch creation, draft PR policy, manually approved draft PR creation, manually approved PR update, bounded loop policy, bounded retry/failure metadata, and explicit Level-2 checkpoint steps. These steps do not enable unbounded autonomous execution, execute-all, direct merge, Vue authority, self-modification, or remote git push.
+The checkpoint does not perform execution, mutate project files, generate patches automatically, apply patches, run verification, run retry, rollback or restore automatically, update a PR, use remote git, auto-continue, execute-all, direct merge, self-modify, add a public execution route, or enable Vue authority.
 
-Autonomous execution remains disabled after the Level-2 transition checkpoint.
+PR-ATLAS-SCALE-128 through PR-ATLAS-SCALE-139 completed the patch proposal, patch transaction preview, approved single patch apply, local branch artifact, local branch creation, draft PR policy, manually approved draft PR creation, manually approved PR update, bounded loop policy, bounded retry/failure metadata, explicit Level-2 checkpoint, and Level-3 candidate contract. These steps do not enable unbounded autonomous execution, execute-all, direct merge, Vue authority, self-modification, or remote git push.
+
+Autonomous loop execution remains disabled after the Level-3 candidate checkpoint.
 
 ## Contract phrase lock
 
-This policy does not enable unbounded autonomous execution. Current Atlas state is Level 2 guarded bounded loop. Future PRs must explicitly move levels.
+This policy does not enable unbounded autonomous execution. Current Atlas state is Level 3 autonomous implementation loop candidate. Future PRs must explicitly move levels.
 
 - Backend workflow state is authoritative.
 - ThinUI remains supervision layer.
@@ -65,10 +67,11 @@ This policy does not enable unbounded autonomous execution. Current Atlas state 
 
 ## Non-negotiable safety invariants
 
-After PR-ATLAS-SCALE-138:
+After PR-ATLAS-SCALE-139:
 
-- runtime is level_2_guarded_bounded_loop
-- Level-2 remains bounded, low-risk, allowlisted, dry-run-first, explicit-approval-gated, stop-gated, and artifact-captured
+- runtime is level_3_autonomous_implementation_loop_candidate
+- Level-3 candidate remains draft-PR-only, single-file, low-risk, bounded, dry-run-first, explicit-approval-gated, stop-gated, verification-allowlisted, and artifact-captured
+- autonomous loop execution remains disabled
 - autonomous execution remains disabled
 - backend workflow_state remains authoritative
 - Vue remains non-authoritative and display-only
@@ -167,11 +170,11 @@ One low-risk, allowlisted action at a time. Dry-run first. Explicit approval tok
 
 ### Level 2: Guarded bounded loop
 
-Current state. Limited low-risk sequence with hard loop bounds, captured artifacts, allowlisted verification, stop gate, and human approval for each iteration.
+Limited low-risk sequence with hard loop bounds, captured artifacts, allowlisted verification, stop gate, and human approval for each iteration.
 
-### Level 3: Autonomous implementation loop
+### Level 3: Autonomous implementation loop candidate
 
-Plan, patch, dry-run, apply, verify, bounded fix loop, draft PR only, no direct merge.
+Current state. Candidate metadata can describe plan, patch proposal, dry-run request, artifact evaluation, draft PR update metadata, and human approval requests. It cannot execute commands, apply patches, run verification, retry, update PRs, push branches, merge, self-modify, or let Vue authorize workflow state.
 
 ### Level 4: Self-improvement candidate
 
@@ -185,7 +188,7 @@ Every future automation PR must prove the following:
 - It does not add another local-only readiness decoration as mainline work after SCALE-113.
 - It does not recreate deleted duplicate planning files.
 - It does not change runtime level before the planned transition PR.
-- It does not add execution, mutation, patch apply, remote git push, autonomous loop, automatic PR creation, direct merge, or self-modification before the scheduled PR.
+- It does not add execution, mutation, patch apply, remote git push, autonomous loop execution, automatic PR creation, direct merge, or self-modification before the scheduled PR.
 - PR-B changes are repair-only and point back to the parent PR acceptance criteria.
 
 ## Confirmation checklist
