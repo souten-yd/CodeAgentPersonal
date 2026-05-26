@@ -8,8 +8,10 @@
     </header>
     <div class="workbench-layout">
       <section class="conversation-column">
-        <RequirementInput />
-        <ConversationWorkbench />
+        <section class="guided-flow" aria-label="Guided Atlas requirement flow">
+          <RequirementInput />
+          <ConversationWorkbench />
+        </section>
         <WorkflowReviewBoard :snapshot="snapshot" />
         <PatchReviewPanel :snapshot="snapshot" />
         <GuardedExecutionPreparationPanel :review="snapshot.guardedExecutionReview" />
@@ -171,6 +173,16 @@ h1 {
 }
 .conversation-column {
   min-width: 0;
+}
+.guided-flow {
+  display: grid;
+  gap: 0;
+  margin: 10px 0 12px;
+  border-left: 4px solid #2563eb;
+  padding-left: 12px;
+}
+.guided-flow :deep(.card) {
+  margin: 0 0 10px;
 }
 @media (max-width: 860px) {
   .workbench-layout {
