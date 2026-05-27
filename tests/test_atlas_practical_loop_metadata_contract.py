@@ -59,13 +59,17 @@ def test_latest_practical_loop_artifact_discovery_is_safe_and_read_only(tmp_path
         'loop_run_id': 'guardloop_abc123',
         'mode': 'advance_to_confirmation',
         'status': 'dry_run_ready',
-        'post_refresh_run_id': '',
-        'dry_run_result': {'changed_file_count': 3},
+        'post_refresh_run_id': 'refresh_abc123',
+        'refresh_result': {'changed_file_count': 3},
+        'dry_run_result': {'changed_file_count': 2},
         'steps': [{'step': 'queue_built'}, {'step': 'dry_run_completed'}],
         'metadata': {
             'max_iterations': 5,
             'confirmed_action_executed': False,
-            'draft_pr_state': 'not_prepared',
+            'draft_pr_state': 'prepared',
+            'latest_draft_pr_artifact_id': 'draftpr_abc123',
+            'recovery_artifact_summary': 'recovery:refresh_abc123',
+            'draft_pr_artifact_summary': 'draft_pr:draftpr_abc123',
         },
         'errors': [],
     }), encoding='utf-8')
@@ -79,13 +83,19 @@ def test_latest_practical_loop_artifact_discovery_is_safe_and_read_only(tmp_path
     assert metadata['patch_candidate_count'] == 3
     assert metadata['verification_state'] == 'dry_run_metadata_available'
     assert metadata['recovery_state'] == 'not_started'
-    assert metadata['draft_pr_state'] == 'not_prepared'
+    assert metadata['draft_pr_state'] == 'prepared'
     assert metadata['latest_loop_run_id'] == 'guardloop_abc123'
+    assert metadata['latest_recovery_run_id'] == 'refresh_abc123'
+    assert metadata['latest_draft_pr_artifact_id'] == 'draftpr_abc123'
     assert metadata['latest_loop_pool_id'] == 'pool_1'
     assert metadata['latest_loop_mode'] == 'advance_to_confirmation'
     assert metadata['latest_loop_result_path'] == 'atlas/guarded_operator_loop/pool_1/guardloop_abc123.json'
     assert metadata['latest_loop_action_executed'] is False
     assert metadata['latest_loop_source_detail'] == 'safe_latest_guarded_loop_artifact'
+    assert metadata['recovery_artifact_available'] is True
+    assert metadata['recovery_artifact_summary'] == 'recovery:refresh_abc123'
+    assert metadata['draft_pr_artifact_available'] is True
+    assert metadata['draft_pr_artifact_summary'] == 'draft_pr:draftpr_abc123'
 
 
 def test_latest_practical_loop_artifact_discovery_empty_state(tmp_path: Path) -> None:
@@ -97,6 +107,10 @@ def test_latest_practical_loop_artifact_discovery_empty_state(tmp_path: Path) ->
     assert metadata['latest_loop_result_path'] == ''
     assert metadata['latest_loop_action_executed'] is False
     assert metadata['latest_loop_source_detail'] == 'no_guarded_loop_artifacts'
+    assert metadata['recovery_artifact_available'] is False
+    assert metadata['recovery_artifact_summary'] == 'not_available'
+    assert metadata['draft_pr_artifact_available'] is False
+    assert metadata['draft_pr_artifact_summary'] == 'not_available'
 
 
 def test_practical_loop_metadata_is_rendered_by_fastui_shell_and_client() -> None:
@@ -118,8 +132,15 @@ def test_practical_loop_metadata_is_rendered_by_fastui_shell_and_client() -> Non
         'latestLoopResultPath',
         'latestLoopSourceDetail',
         'latestLoopActionExecuted',
+        'recoveryArtifactAvailable',
+        'recoveryArtifactSummary',
+        'draftPrArtifactAvailable',
+        'draftPrArtifactSummary',
         'Action executed',
+        'Recovery artifact',
+        'Recovery summary',
         'Draft PR artifact',
+        'Draft PR summary',
     ]:
         assert term in shell
 
@@ -132,11 +153,17 @@ def test_practical_loop_metadata_is_rendered_by_fastui_shell_and_client() -> Non
         'latest_loop_result_path',
         'latest_loop_source_detail',
         'latest_loop_action_executed',
+        'recovery_artifact_available',
+        'recovery_artifact_summary',
+        'draft_pr_artifact_available',
+        'draft_pr_artifact_summary',
         'latestLoopPoolId',
         'latestLoopMode',
         'latestLoopResultPath',
         'latestLoopSourceDetail',
         'latestLoopActionExecuted: item.latest_loop_action_executed === true',
+        'recoveryArtifactAvailable: item.recovery_artifact_available === true',
+        'draftPrArtifactAvailable: item.draft_pr_artifact_available === true',
         'executionEnabled: false',
         'directMergeEnabled: false',
         'remoteGitPushEnabled: false',
