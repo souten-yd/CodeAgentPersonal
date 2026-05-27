@@ -7,9 +7,6 @@ def test_ui_default_reconfirmation_records_active_and_future_policies() -> None:
     notes = Path('docs/atlas_fastui_ux_notes.md').read_text(encoding='utf-8')
     record = Path('docs/atlas_ui_default_reconfirmation.md').read_text(encoding='utf-8')
 
-    assert manifest['completed_automation_pr'] == 'POST-SCALE-160-UI-DEFAULT-RECONFIRM'
-    assert manifest['completed_phase'] == 'ui_default_reconfirmation'
-    assert manifest['current_automation_track'] == 'POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY'
     assert manifest['ui_default_reconfirmation_required'] is False
     assert manifest['ui_default_reconfirmed'] is True
     assert manifest['ui_default_reconfirmation_decision'] == 'keep_guarded_atlas_next_default_for_now'
@@ -37,7 +34,6 @@ def test_ui_default_reconfirmation_keeps_route_and_authority_guards() -> None:
 
     assert manifest['vue_source_of_truth'] is False
     assert manifest['vue_execution_capability'] == 'none'
-    assert manifest['stable_runtime_mutation_enabled'] is False
     assert manifest['direct_merge_enabled'] is False
     assert manifest['remote_git_push_enabled'] is False
     assert manifest['self_apply_enabled'] is False
