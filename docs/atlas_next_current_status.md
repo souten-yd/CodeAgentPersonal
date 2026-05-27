@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after the POST-SCALE-160 stable runtime mutation gate.
+Updated after POST-SCALE-160 UI default reconfirmation.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -14,6 +14,7 @@ Updated after the POST-SCALE-160 stable runtime mutation gate.
 - The read-only PlanPool item summary PR makes generated plan candidates easier to scan inside the Start Atlas result review panel.
 - POST-SCALE-160-VUE-DEFAULT-PROMOTION-GATE adds a backend-only readiness gate for promoting `/atlas-next/` as the default route.
 - POST-SCALE-160-VUE-DEFAULT-PROMOTION-APPLY aligns docs, manifest, and route contracts with the existing guarded `/` default behavior.
+- POST-SCALE-160-UI-DEFAULT-RECONFIRM records that the current guarded Atlas Next root default stays active for now while buildless ThinUX / FastUI remains the preferred future default direction.
 
 ## Completed in latest automation roadmap track
 - PR-ATLAS-SCALE-129 remains planned and records patch transaction preview with rollback metadata required and no apply.
@@ -21,10 +22,13 @@ Updated after the POST-SCALE-160 stable runtime mutation gate.
 - POST-SCALE-160-VUE-DEFAULT-PROMOTION-GATE prepared Vue default promotion readiness after the backend milestone.
 - POST-SCALE-160-VUE-DEFAULT-PROMOTION-APPLY records the guarded Vue default route as applied without expanding Vue authority or runtime mutation.
 - POST-SCALE-160-STABLE-RUNTIME-MUTATION-GATE adds a backend-only gate for future stable runtime mutation or release pointer behavior.
+- POST-SCALE-160-UI-DEFAULT-RECONFIRM completes the UI default checkpoint required before stable runtime mutation apply.
 
 ## Current safety boundaries
 - `/` selects Atlas Next only through `can_serve_atlas_next_default()` after `validate_atlas_next_dist()` passes.
 - `/ui/` remains the legacy UI fallback route and root fails closed to legacy UI if the prebuilt Vue dist is missing or invalid.
+- Buildless ThinUX / FastUI conversational shell is the preferred future normal Atlas experience, but it is not switched to the default route in this checkpoint.
+- Any future FastUI default switch needs its own default-route PR with route contracts, tests, fallback behavior, and rollback evidence.
 - Vue remains non-authoritative for workflow eligibility and approval; backend workflow state remains authoritative.
 - Current runtime level is `level_8_fully_autonomous_code_agent` for the backend automation milestone.
 - Fully autonomous code agent milestone remains backend-authoritative and requires a ready SCALE-159 candidate loop, milestone evidence, rollback evidence, strict gate approval, and exact confirmation text.
