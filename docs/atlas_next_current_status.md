@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after POST-SCALE-160 practical loop artifact details.
+Updated after POST-SCALE-160 recovery and draft artifact summaries.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -19,6 +19,7 @@ Updated after POST-SCALE-160 practical loop artifact details.
 - POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP now has a read-only practical loop metadata bridge for bounded loop status, iteration count, stop condition, changed files, verification, recovery, and draft PR state.
 - POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP now reads the latest guarded operator loop artifact when available and summarizes it into the same read-only practical loop metadata surface.
 - POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP now surfaces the discovered guarded loop pool, run, mode, result path, source, action-executed flag, recovery run, and draft PR artifact identifiers in the FastUI shell as read-only detail metadata.
+- POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP now exposes recovery and draft-PR artifact availability plus short summaries in backend metadata and the FastUI shell, still read-only and advisory.
 
 ## Completed in latest automation roadmap track
 - PR-ATLAS-SCALE-129 remains planned and records patch transaction preview with rollback metadata required and no apply.
@@ -39,11 +40,11 @@ Updated after POST-SCALE-160 practical loop artifact details.
 - Current runtime level is `level_8_fully_autonomous_code_agent` for the backend automation milestone.
 - Stable runtime mutation apply remains tightly gated: ready gate, verified candidate workspace, stable snapshot, rollback evidence, recovery evidence, strict approval, and exact confirmation are required.
 - Direct merge, remote push, self-apply, pointer switching, execute-all, Vue authority, and recovery execution remain disabled unless a later dedicated PR proves the needed evidence and rollback path.
-- Practical loop artifact discovery and FastUI artifact detail display are read-only and advisory: they do not execute actions, call git, direct merge, remote push, self-apply, stable runtime mutation, or make Vue authoritative.
+- Practical loop artifact discovery, recovery/draft artifact summaries, and FastUI artifact detail display are read-only and advisory: they do not execute actions, call git, direct merge, remote push, self-apply, stable runtime mutation, or make Vue authoritative.
 
 ## Later UI/UX planning note
 - Later conversational/FastUI work must expose a backend-owned work target mode selector for ordinary software development/repair versus platform self-improvement.
 - That selector is a UI intent control only; it must not authorize self-apply, direct merge, stable runtime mutation, or Vue authority without the backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
 
 ## Next narrow work
-- POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP: connect recovery and draft-PR artifact summaries as read-only FastUI metadata, then add checkpoint evidence that the bounded loop experience remains advisory until backend authority gates explicitly permit execution.
+- POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP: add checkpoint evidence that the bounded loop FastUI experience remains advisory until backend authority gates explicitly permit execution, then prepare the next narrow UI step toward operator-reviewed patch application.

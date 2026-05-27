@@ -43,6 +43,11 @@ def build_latest_practical_loop_workflow_metadata(*, data_root: str | Path) -> d
     if payload.get("errors"):
         recovery_state = "needs_review"
 
+    latest_recovery_run_id = _text(payload.get("post_refresh_run_id"), "")
+    latest_draft_pr_artifact_id = _text(metadata.get("latest_draft_pr_artifact_id"), "")
+    recovery_artifact_available = bool(latest_recovery_run_id or refresh_result)
+    draft_pr_artifact_available = bool(latest_draft_pr_artifact_id)
+
     return {
         "practical_loop_status": status,
         "bounded_loop": True,
@@ -54,13 +59,29 @@ def build_latest_practical_loop_workflow_metadata(*, data_root: str | Path) -> d
         "recovery_state": recovery_state,
         "draft_pr_state": _text(metadata.get("draft_pr_state"), "not_prepared"),
         "latest_loop_run_id": _text(payload.get("loop_run_id"), ""),
-        "latest_recovery_run_id": _text(payload.get("post_refresh_run_id"), ""),
-        "latest_draft_pr_artifact_id": _text(metadata.get("latest_draft_pr_artifact_id"), ""),
+        "latest_recovery_run_id": latest_recovery_run_id,
+        "latest_draft_pr_artifact_id": latest_draft_pr_artifact_id,
         "latest_loop_pool_id": _text(payload.get("pool_id"), ""),
         "latest_loop_mode": _text(payload.get("mode"), ""),
         "latest_loop_result_path": str(latest.relative_to(root).as_posix()),
         "latest_loop_action_executed": executed,
         "latest_loop_source_detail": "safe_latest_guarded_loop_artifact",
+        "recovery_artifact_available": recovery_artifact_available,
+        "recovery_artifact_summary": _artifact_summary(
+            explicit=metadata.get("recovery_artifact_summary"),
+            available=recovery_artifact_available,
+            prefix="recovery",
+            identifier=latest_recovery_run_id,
+            state=recovery_state,
+        ),
+        "draft_pr_artifact_available": draft_pr_artifact_available,
+        "draft_pr_artifact_summary": _artifact_summary(
+            explicit=metadata.get("draft_pr_artifact_summary"),
+            available=draft_pr_artifact_available,
+            prefix="draft_pr",
+            identifier=latest_draft_pr_artifact_id,
+            state=_text(metadata.get("draft_pr_state"), "not_prepared"),
+        ),
     }
 
 
@@ -83,6 +104,10 @@ def _empty_metadata(*, source_detail: str) -> dict[str, Any]:
         "latest_loop_result_path": "",
         "latest_loop_action_executed": False,
         "latest_loop_source_detail": source_detail,
+        "recovery_artifact_available": False,
+        "recovery_artifact_summary": "not_available",
+        "draft_pr_artifact_available": False,
+        "draft_pr_artifact_summary": "not_available",
     }
 
 
@@ -108,3 +133,12 @@ def _first_int(*values: Any, default: int = 0) -> int:
         except (TypeError, ValueError):
             continue
     return default
+
+
+def _artifact_summary(*, explicit: Any, available: bool, prefix: str, identifier: str, state: str) -> str:
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit
+    if available:
+        suffix = identifier or state or "available"
+        return f"{prefix}:{suffix}"
+    return "not_available"

@@ -83,6 +83,10 @@ export type AtlasPracticalLoopMetadata = {
   latestLoopResultPath?: string
   latestLoopSourceDetail?: string
   latestLoopActionExecuted: boolean
+  recoveryArtifactAvailable: boolean
+  recoveryArtifactSummary: string
+  draftPrArtifactAvailable: boolean
+  draftPrArtifactSummary: string
   executionEnabled: false
   directMergeEnabled: false
   remoteGitPushEnabled: false
@@ -191,6 +195,10 @@ const DEFAULT_PRACTICAL_LOOP_METADATA: AtlasPracticalLoopMetadata = {
   recoveryState: 'unknown',
   draftPrState: 'not_prepared',
   latestLoopActionExecuted: false,
+  recoveryArtifactAvailable: false,
+  recoveryArtifactSummary: 'not_available',
+  draftPrArtifactAvailable: false,
+  draftPrArtifactSummary: 'not_available',
   executionEnabled: false,
   directMergeEnabled: false,
   remoteGitPushEnabled: false,
@@ -229,6 +237,10 @@ const PLACEHOLDER_SNAPSHOT: AtlasBackendWorkflowStateContract = {
     latest_loop_result_path: '',
     latest_loop_source_detail: 'placeholder',
     latest_loop_action_executed: false,
+    recovery_artifact_available: false,
+    recovery_artifact_summary: 'not_available',
+    draft_pr_artifact_available: false,
+    draft_pr_artifact_summary: 'not_available',
     advisory_only: true
   },
   available_actions: [{ id: 'inspect_workflow_state', label: 'Inspect workflow state payload', kind: 'read_only' }],
@@ -413,6 +425,10 @@ function normalizePracticalLoopMetadata(value: unknown): AtlasPracticalLoopMetad
     latestLoopResultPath,
     latestLoopSourceDetail,
     latestLoopActionExecuted: item.latest_loop_action_executed === true,
+    recoveryArtifactAvailable: item.recovery_artifact_available === true,
+    recoveryArtifactSummary: optionalText(item.recovery_artifact_summary, DEFAULT_PRACTICAL_LOOP_METADATA.recoveryArtifactSummary),
+    draftPrArtifactAvailable: item.draft_pr_artifact_available === true,
+    draftPrArtifactSummary: optionalText(item.draft_pr_artifact_summary, DEFAULT_PRACTICAL_LOOP_METADATA.draftPrArtifactSummary),
     executionEnabled: false,
     directMergeEnabled: false,
     remoteGitPushEnabled: false,
