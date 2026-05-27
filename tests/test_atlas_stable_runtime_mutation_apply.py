@@ -90,6 +90,28 @@ def _approved_gate(data_root: Path) -> dict[str, object]:
     )
 
 
+def _blocked_gate(data_root: Path) -> dict[str, object]:
+    return create_stable_runtime_mutation_gate(
+        fully_autonomous_milestone_path=_milestone(data_root),
+        data_root=data_root,
+        candidate_workspace_ref='atlas/candidates/workspace.json',
+        stable_runtime_ref='atlas/stable/runtime-snapshot.json',
+        rollback_evidence_refs=[],
+        verification_evidence_refs=['atlas/stable/verification.json'],
+        recovery_evidence_refs=['atlas/stable/recovery.json'],
+        candidate_workspace_verified=True,
+        stable_runtime_snapshot_ready=True,
+        rollback_plan_ready=False,
+        recovery_plan_ready=True,
+        release_pointer_plan_ready=True,
+        strict_gate_approved=True,
+        confirmation_token_present=True,
+        confirmation_text='PREPARE STABLE RUNTIME MUTATION GATE',
+        approval_status='approved',
+        explicit_decision='approve',
+    )
+
+
 def _approved_apply_kwargs() -> dict[str, object]:
     return {
         'strict_gate_approved': True,
@@ -126,13 +148,8 @@ def test_stable_runtime_mutation_apply_records_mutation_without_pointer_or_git_s
 
 
 def test_stable_runtime_mutation_apply_requires_ready_gate_and_exact_confirmation(tmp_path: Path) -> None:
-    gate = _approved_gate(tmp_path / 'data')
-    gate['status'] = 'blocked'
-    gate['stable_runtime_mutation_ready'] = False
-    gate['blocking_reasons'] = ['blocked_for_test']
-
     apply_record = create_stable_runtime_mutation_apply(
-        gate=gate,
+        gate=_blocked_gate(tmp_path / 'data'),
         strict_gate_approved=False,
         confirmation_token_present=False,
         confirmation_text='MUTATE',
