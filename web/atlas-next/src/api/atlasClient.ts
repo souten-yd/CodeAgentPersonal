@@ -63,6 +63,30 @@ export type AtlasPatchTransactionMetadata = {
   advisoryOnly: true
 }
 
+export type AtlasPracticalLoopMetadata = {
+  schemaVersion: 'atlas.practical_autonomous_dev_loop.v1'
+  status: string
+  boundedLoop: boolean
+  maxIterations: number
+  currentIteration: number
+  allowedActionsEnforced: true
+  stopCondition: string
+  changedFilesCount: number
+  verificationState: string
+  recoveryState: string
+  draftPrState: string
+  latestLoopRunId?: string
+  latestRecoveryRunId?: string
+  latestDraftPrArtifactId?: string
+  executionEnabled: false
+  directMergeEnabled: false
+  remoteGitPushEnabled: false
+  selfApplyEnabled: false
+  stableRuntimeMutationEnabled: false
+  vueAuthoritative: false
+  advisoryOnly: true
+}
+
 export type AtlasWorkflowSnapshot = {
   goal?: string
   projectPath?: string
@@ -79,6 +103,7 @@ export type AtlasWorkflowSnapshot = {
   workflowMetadata: AtlasWorkflowRealDataMetadata
   guardedExecutionReview: AtlasGuardedExecutionReviewState
   patchTransaction: AtlasPatchTransactionMetadata
+  practicalLoop: AtlasPracticalLoopMetadata
 }
 
 export type AtlasGuardedExecutionReviewState = {
@@ -131,6 +156,7 @@ export type AtlasBackendWorkflowStateContract = {
   status?: string
   primary_cta_label?: string
   primary_cta_state?: string
+  primary_cta?: { label?: unknown; state?: unknown }
   readiness_level?: string
   runtime_level?: string
   backend_workflow_state_authoritative?: boolean
@@ -144,9 +170,30 @@ export type AtlasBackendWorkflowStateContract = {
   workflow_state_metadata?: Record<string, unknown>
   guarded_execution_review?: Record<string, unknown>
   patch_transaction_metadata?: Record<string, unknown>
+  practical_loop_metadata?: Record<string, unknown>
 }
 
-// Safe GET-only backend workflow_state contract endpoint binding.
+const DEFAULT_PRACTICAL_LOOP_METADATA: AtlasPracticalLoopMetadata = {
+  schemaVersion: 'atlas.practical_autonomous_dev_loop.v1',
+  status: 'metadata_only',
+  boundedLoop: false,
+  maxIterations: 0,
+  currentIteration: 0,
+  allowedActionsEnforced: true,
+  stopCondition: 'manual_review_or_backend_gate',
+  changedFilesCount: 0,
+  verificationState: 'waiting_for_backend_checks',
+  recoveryState: 'unknown',
+  draftPrState: 'not_prepared',
+  executionEnabled: false,
+  directMergeEnabled: false,
+  remoteGitPushEnabled: false,
+  selfApplyEnabled: false,
+  stableRuntimeMutationEnabled: false,
+  vueAuthoritative: false,
+  advisoryOnly: true
+}
+
 const PLACEHOLDER_SNAPSHOT: AtlasBackendWorkflowStateContract = {
   goal: 'Atlas Next read-only supervision shell',
   project_path: 'Backend-provided project path when safe workflow_state is available',
@@ -158,6 +205,18 @@ const PLACEHOLDER_SNAPSHOT: AtlasBackendWorkflowStateContract = {
   runtime_level: 'level_0_manual_only',
   artifacts: { rollup: true, dryRun: true, snapshot: true, allowlist: true, risk: true },
   patch_transaction_metadata: { available: false, candidate_count: 0, source: 'backend_contract_metadata_only', preview_status: 'missing', risk_class: 'unknown', rollback_ready: false, warnings: [], advisory_only: true },
+  practical_loop_metadata: {
+    schema_version: 'atlas.practical_autonomous_dev_loop.v1',
+    status: 'metadata_only',
+    bounded_loop: false,
+    max_iterations: 0,
+    current_iteration: 0,
+    changed_files_count: 0,
+    verification_state: 'waiting_for_backend_checks',
+    recovery_state: 'unknown',
+    draft_pr_state: 'not_prepared',
+    advisory_only: true
+  },
   available_actions: [{ id: 'inspect_workflow_state', label: 'Inspect workflow state payload', kind: 'read_only' }],
   diagnostics: {
     source: 'placeholder',
@@ -252,9 +311,21 @@ async function fetchReadOnlyWorkflowState(): Promise<AtlasBackendWorkflowStateCo
   }
 }
 
+function optionalText(raw: unknown, fallback: string): string {
+  return typeof raw === 'string' && raw.trim() ? raw : fallback
+}
+
+function nonNegativeNumber(raw: unknown): number {
+  return typeof raw === 'number' && Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0
+}
+
 function normalizeWorkflowState(payload: AtlasBackendWorkflowStateContract): AtlasWorkflowSnapshot {
   const accepted = isValidWorkflowStateContract(payload)
   const runtimeLevel = typeof payload.runtime_level === 'string' ? payload.runtime_level : 'level_0_manual_only'
+  const primaryCtaLabel = typeof payload.primary_cta?.label === 'string' && payload.primary_cta.label.trim()
+    ? payload.primary_cta.label
+    : payload.primary_cta_label
+  const primaryCtaState = typeof payload.primary_cta?.state === 'string' ? payload.primary_cta.state : payload.primary_cta_state
   const diagnostics: AtlasWorkflowDiagnosticsState = {
     source: accepted ? 'safe_get_adapter' : 'placeholder',
     routeMounted: true,
@@ -277,8 +348,8 @@ function normalizeWorkflowState(payload: AtlasBackendWorkflowStateContract): Atl
     projectPath: payload.project_path,
     phase: payload.phase,
     status: payload.status,
-    primaryCtaLabel: payload.primary_cta_label,
-    primaryCtaState: payload.primary_cta_state === 'read_only' || payload.primary_cta_state === 'disabled' ? payload.primary_cta_state : 'unknown',
+    primaryCtaLabel,
+    primaryCtaState: primaryCtaState === 'read_only' || primaryCtaState === 'disabled' ? primaryCtaState : 'unknown',
     readinessLevel: payload.readiness_level,
     backendAuthorityNote: 'Backend workflow state remains authoritative. Vue Next does not compute execution eligibility.',
     safety: getReadOnlySafetyState(runtimeLevel),
@@ -287,7 +358,41 @@ function normalizeWorkflowState(payload: AtlasBackendWorkflowStateContract): Atl
     diagnostics,
     workflowMetadata: normalizeWorkflowMetadata(payload.workflow_state_metadata),
     guardedExecutionReview: normalizeGuardedExecutionReview(payload.guarded_execution_review),
-    patchTransaction: normalizePatchTransactionMetadata(payload.patch_transaction_metadata)
+    patchTransaction: normalizePatchTransactionMetadata(payload.patch_transaction_metadata),
+    practicalLoop: normalizePracticalLoopMetadata(payload.practical_loop_metadata)
+  }
+}
+
+function normalizePracticalLoopMetadata(value: unknown): AtlasPracticalLoopMetadata {
+  const item = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+  const latestLoopRunId = typeof item.latest_loop_run_id === 'string' && item.latest_loop_run_id.trim() ? item.latest_loop_run_id : undefined
+  const latestRecoveryRunId = typeof item.latest_recovery_run_id === 'string' && item.latest_recovery_run_id.trim() ? item.latest_recovery_run_id : undefined
+  const latestDraftPrArtifactId = typeof item.latest_draft_pr_artifact_id === 'string' && item.latest_draft_pr_artifact_id.trim() ? item.latest_draft_pr_artifact_id : undefined
+  return {
+    ...DEFAULT_PRACTICAL_LOOP_METADATA,
+    schemaVersion: item.schema_version === 'atlas.practical_autonomous_dev_loop.v1'
+      ? 'atlas.practical_autonomous_dev_loop.v1'
+      : DEFAULT_PRACTICAL_LOOP_METADATA.schemaVersion,
+    status: optionalText(item.status, DEFAULT_PRACTICAL_LOOP_METADATA.status),
+    boundedLoop: item.bounded_loop === true,
+    maxIterations: nonNegativeNumber(item.max_iterations),
+    currentIteration: nonNegativeNumber(item.current_iteration),
+    allowedActionsEnforced: true,
+    stopCondition: optionalText(item.stop_condition, DEFAULT_PRACTICAL_LOOP_METADATA.stopCondition),
+    changedFilesCount: nonNegativeNumber(item.changed_files_count),
+    verificationState: optionalText(item.verification_state, DEFAULT_PRACTICAL_LOOP_METADATA.verificationState),
+    recoveryState: optionalText(item.recovery_state, DEFAULT_PRACTICAL_LOOP_METADATA.recoveryState),
+    draftPrState: optionalText(item.draft_pr_state, DEFAULT_PRACTICAL_LOOP_METADATA.draftPrState),
+    latestLoopRunId,
+    latestRecoveryRunId,
+    latestDraftPrArtifactId,
+    executionEnabled: false,
+    directMergeEnabled: false,
+    remoteGitPushEnabled: false,
+    selfApplyEnabled: false,
+    stableRuntimeMutationEnabled: false,
+    vueAuthoritative: false,
+    advisoryOnly: true
   }
 }
 
@@ -390,8 +495,6 @@ export async function fetchAtlasWorkflowSnapshot(): Promise<AtlasWorkflowSnapsho
   const payload = await fetchReadOnlyWorkflowState()
   return normalizeWorkflowState(payload)
 }
-
-
 
 export type AtlasLevel1ReadinessGateSource = {
   gate_id: string
