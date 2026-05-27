@@ -5,14 +5,14 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="${ROOT_DIR}/llama"
 WORK_DIR="$(mktemp -d)"
 FORCE_PREBUILT_REFRESH=0
-GITHUB_API_URL="https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases/latest"
-ASSET_REGEX='^llama\.cpp-b[0-9]+-cuda-12\.8\.tar\.gz$'
+GITHUB_API_URL="https://api.github.com/repos/souten-yd/llama-builder/releases/latest"
+ASSET_REGEX='^llama-linux-cuda-b[0-9]+\.tar\.gz$'
 
 usage() {
   cat <<'USAGE'
 Usage: setup_llama_runpod.sh [--refresh-prebuilt] [--install-if-needed]
 
-  --refresh-prebuilt Re-download and reinstall the latest ai-dock prebuilt even when existing output is valid.
+  --refresh-prebuilt Re-download and reinstall the latest souten-yd/llama-builder prebuilt even when existing output is valid.
   --install-if-needed Preferred no-op alias for default behavior (install only when needed).
   --force-build      Backward-compatible alias for --refresh-prebuilt.
   --build-if-needed  Backward-compatible alias for --install-if-needed.
@@ -128,7 +128,7 @@ PY
 }
 
 install_latest_prebuilt() {
-  echo "[Runpod] Fetching latest ai-dock llama.cpp CUDA prebuilt..."
+  echo "[Runpod] Fetching latest souten-yd/llama-builder Linux amd64 CUDA prebuilt..."
 
   ensure_tool curl
   ensure_tool tar
