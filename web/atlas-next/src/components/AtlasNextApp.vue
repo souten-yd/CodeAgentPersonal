@@ -122,6 +122,26 @@ const snapshot = ref<AtlasWorkflowSnapshot>({
     rollbackEnabled: false,
     advisoryOnly: true
   },
+  practicalLoop: {
+    schemaVersion: 'atlas.practical_autonomous_dev_loop.v1',
+    status: 'metadata_only',
+    boundedLoop: false,
+    maxIterations: 0,
+    currentIteration: 0,
+    allowedActionsEnforced: true,
+    stopCondition: 'manual_review_or_backend_gate',
+    changedFilesCount: 0,
+    verificationState: 'waiting_for_backend_checks',
+    recoveryState: 'unknown',
+    draftPrState: 'not_prepared',
+    executionEnabled: false,
+    directMergeEnabled: false,
+    remoteGitPushEnabled: false,
+    selfApplyEnabled: false,
+    stableRuntimeMutationEnabled: false,
+    vueAuthoritative: false,
+    advisoryOnly: true
+  },
   backendAuthorityNote: 'Backend workflow state remains authoritative. Vue Next does not compute execution eligibility.'
 })
 

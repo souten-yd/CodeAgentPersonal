@@ -45,7 +45,11 @@
         </section>
       </div>
 
-      <div class="summary-grid" aria-label="Atlas evidence summary">
+      <div class="summary-grid" aria-label="Atlas practical loop summary">
+        <section class="summary-panel loop">
+          <p class="section-label">Loop</p>
+          <p>{{ loopSummary }}</p>
+        </section>
         <section class="summary-panel">
           <p class="section-label">Changed files</p>
           <p>{{ changedFilesSummary }}</p>
@@ -57,6 +61,10 @@
         <section class="summary-panel">
           <p class="section-label">Recovery</p>
           <p>{{ recoverySummary }}</p>
+        </section>
+        <section class="summary-panel">
+          <p class="section-label">Draft PR</p>
+          <p>{{ draftPrSummary }}</p>
         </section>
       </div>
 
@@ -108,13 +116,22 @@ const safetyProfile = computed(() => {
   const runtime = props.snapshot.safety.runtimeLevel || 'unknown'
   return `${runtime}; backend authoritative; Vue execution disabled`
 })
-const changedFilesSummary = computed(() => props.snapshot.patchTransaction.available
-  ? `${props.snapshot.patchTransaction.candidateCount} patch candidate file group(s) reported`
-  : 'No patch candidates reported yet')
-const verificationSummary = computed(() => props.snapshot.artifacts.dryRun
-  ? 'Dry-run metadata is available for review'
-  : 'Verification waits for backend dry-run or check metadata')
-const recoverySummary = computed(() => props.snapshot.workflowMetadata.recoveryState || 'No recovery state reported yet')
+const loopSummary = computed(() => {
+  const loop = props.snapshot.practicalLoop
+  const bound = loop.boundedLoop ? 'bounded' : 'not started'
+  return `${loop.status}; ${bound}; iteration ${loop.currentIteration}/${loop.maxIterations}; stop: ${loop.stopCondition}`
+})
+const changedFilesSummary = computed(() => {
+  if (props.snapshot.practicalLoop.changedFilesCount > 0) {
+    return `${props.snapshot.practicalLoop.changedFilesCount} changed file(s) reported by loop metadata`
+  }
+  return props.snapshot.patchTransaction.available
+    ? `${props.snapshot.patchTransaction.candidateCount} patch candidate file group(s) reported`
+    : 'No patch candidates reported yet'
+})
+const verificationSummary = computed(() => props.snapshot.practicalLoop.verificationState || 'Verification waits for backend dry-run or check metadata')
+const recoverySummary = computed(() => props.snapshot.practicalLoop.recoveryState || props.snapshot.workflowMetadata.recoveryState || 'No recovery state reported yet')
+const draftPrSummary = computed(() => props.snapshot.practicalLoop.draftPrState || 'not_prepared')
 
 function focusStartAtlas() {
   const target = document.getElementById('start-atlas-form')
@@ -204,7 +221,8 @@ function focusStartAtlas() {
   padding: 12px;
   background: #ffffff;
 }
-.summary-panel.safety {
+.summary-panel.safety,
+.summary-panel.loop {
   border-color: #a7f3d0;
   background: #ecfdf5;
 }
@@ -223,7 +241,8 @@ function focusStartAtlas() {
   color: #334155;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .summary-panel.safety {
+  .summary-panel.safety,
+  .summary-panel.loop {
     transition: border-color 160ms ease, background-color 160ms ease;
   }
 }
