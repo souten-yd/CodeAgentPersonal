@@ -4,14 +4,14 @@
   "canonical_safety_policy": "docs/atlas_autonomous_execution_readiness_policy.md",
   "post_level4_full_automation_plan": "docs/atlas_full_automation_self_recovery_ux_plan.md",
   "post_scale160_ui_notes": "docs/atlas_fastui_ux_notes.md",
-  "completed_automation_pr": "POST-SCALE-160-UI-DEFAULT-RECONFIRM",
-  "current_automation_track": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY",
-  "next_automation_track": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY",
-  "completed_phase": "ui_default_reconfirmation",
+  "completed_automation_pr": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY",
+  "current_automation_track": "POST-SCALE-160-DIRECT-MERGE-GATE",
+  "next_automation_track": "POST-SCALE-160-DIRECT-MERGE-GATE",
+  "completed_phase": "stable_runtime_mutation_apply",
   "automation_phase": "continuous_improvement",
   "current_level": "level_8_fully_autonomous_code_agent",
   "target_level": "level_8_fully_autonomous_code_agent",
-  "next_level_advancement_pr": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY",
+  "next_level_advancement_pr": "POST-SCALE-160-DIRECT-MERGE-GATE",
   "post_level4_target_level": "fully_autonomous_code_agent",
   "final_goal": "fully_autonomous_code_agent",
   "final_goal_backend_milestone_reached": true,
@@ -48,7 +48,10 @@
   "vue_default_fail_closed_to_legacy_ui": true,
   "stable_runtime_mutation_gate_enabled": true,
   "stable_runtime_mutation_ready": true,
-  "stable_runtime_mutation_apply_required": true,
+  "stable_runtime_mutation_apply_required": false,
+  "stable_runtime_mutation_apply_record_only": true,
+  "stable_runtime_mutation_enabled": true,
+  "stable_runtime_mutation_performed": true,
   "level1_execution_enabled": true,
   "level2_guarded_bounded_loop_enabled": true,
   "level3_autonomous_loop_candidate_enabled": true,
@@ -75,7 +78,7 @@
   "autonomous_execution_enabled": true,
   "self_modification_enabled": false,
   "direct_merge_enabled": false,
-  "stable_runtime_mutation_enabled": false,
+  "direct_merge_gate_required": true,
   "release_pointer_switch_performed": false,
   "pointer_switch_execution_enabled": false,
   "pointer_switched": false,
@@ -111,7 +114,8 @@
     "work target mode selector enabling self-improvement without backend gates",
     "Vue default route bypassing valid dist validation or legacy UI fallback",
     "stable runtime mutation without gate output, verified candidate workspace, stable snapshot, rollback, recovery, and exact approval",
-    "stable runtime mutation apply before UI default reconfirmation"
+    "stable runtime mutation apply before UI default reconfirmation",
+    "direct merge before dedicated direct merge gate"
   ],
   "planned_prs": [
     {"pr": "PR-ATLAS-SCALE-113", "phase": "level_1_advancement_preparation", "outcome": "consolidate master plan, remove duplicate plan docs, add phase manifest and drift validator", "runtime_change_allowed": false},
@@ -166,6 +170,7 @@
     {"pr": "POST-SCALE-160-VUE-DEFAULT-PROMOTION-APPLY", "phase": "vue_default_promotion", "outcome": "guarded Atlas Next root default with valid dist check and legacy UI fallback", "runtime_change_allowed": false},
     {"pr": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-GATE", "phase": "stable_runtime_mutation", "outcome": "backend-only stable runtime mutation readiness gate", "runtime_change_allowed": false},
     {"pr": "POST-SCALE-160-UI-DEFAULT-RECONFIRM", "phase": "planning_alignment", "outcome": "reconfirm UI default policy and roadmap freshness before stable runtime mutation apply", "runtime_change_allowed": false},
-    {"pr": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY", "phase": "stable_runtime_mutation", "outcome": "apply stable runtime mutation only after UI default reconfirmation and gate evidence", "runtime_change_allowed": true}
+    {"pr": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY", "phase": "stable_runtime_mutation", "outcome": "strictly approved stable runtime mutation apply record without direct merge, remote push, self-apply, or pointer switch", "runtime_change_allowed": true},
+    {"pr": "POST-SCALE-160-DIRECT-MERGE-GATE", "phase": "direct_merge_safety", "outcome": "prepare direct merge policy gate after stable mutation apply record", "runtime_change_allowed": false}
   ]
 }
