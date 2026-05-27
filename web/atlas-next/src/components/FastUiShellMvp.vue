@@ -68,6 +68,19 @@
         </section>
       </div>
 
+      <section class="artifact-details" aria-label="Loop artifact details">
+        <div>
+          <p class="section-label">Loop artifact</p>
+          <p class="section-copy">Read-only identifiers from the latest guarded operator loop artifact.</p>
+        </div>
+        <dl class="artifact-grid">
+          <div v-for="detail in loopArtifactDetails" :key="detail.label" class="artifact-row">
+            <dt>{{ detail.label }}</dt>
+            <dd>{{ detail.value }}</dd>
+          </div>
+        </dl>
+      </section>
+
       <div class="shell-actions">
         <button type="button" class="primary-action" @click="focusStartAtlas">Start Atlas</button>
         <button type="button" class="secondary-action" @click="settingsOpen = !settingsOpen">Settings</button>
@@ -132,6 +145,20 @@ const changedFilesSummary = computed(() => {
 const verificationSummary = computed(() => props.snapshot.practicalLoop.verificationState || 'Verification waits for backend dry-run or check metadata')
 const recoverySummary = computed(() => props.snapshot.practicalLoop.recoveryState || props.snapshot.workflowMetadata.recoveryState || 'No recovery state reported yet')
 const draftPrSummary = computed(() => props.snapshot.practicalLoop.draftPrState || 'not_prepared')
+const loopArtifactDetails = computed(() => {
+  const loop = props.snapshot.practicalLoop
+  const empty = 'not reported'
+  return [
+    { label: 'Pool', value: loop.latestLoopPoolId || empty },
+    { label: 'Run', value: loop.latestLoopRunId || empty },
+    { label: 'Mode', value: loop.latestLoopMode || empty },
+    { label: 'Result', value: loop.latestLoopResultPath || empty },
+    { label: 'Source', value: loop.latestLoopSourceDetail || props.snapshot.workflowMetadata.sourceDetail || empty },
+    { label: 'Action executed', value: loop.latestLoopActionExecuted ? 'true' : 'false' },
+    { label: 'Recovery run', value: loop.latestRecoveryRunId || empty },
+    { label: 'Draft PR artifact', value: loop.latestDraftPrArtifactId || empty }
+  ]
+})
 
 function focusStartAtlas() {
   const target = document.getElementById('start-atlas-form')
@@ -173,11 +200,13 @@ function focusStartAtlas() {
 .message-row p,
 .summary-panel p,
 .work-target p,
-.settings-drawer p {
+.settings-drawer p,
+.artifact-details p {
   margin: 0;
 }
 .work-target,
-.settings-drawer {
+.settings-drawer,
+.artifact-details {
   display: grid;
   gap: 10px;
   border: 1px solid #d8e0ea;
@@ -209,17 +238,33 @@ function focusStartAtlas() {
   background: #dff7ed;
   color: #064e3b;
 }
-.summary-grid {
+.summary-grid,
+.artifact-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
 }
-.summary-panel {
+.summary-panel,
+.artifact-row {
   min-width: 0;
   border: 1px solid #d8e0ea;
   border-radius: 8px;
   padding: 12px;
   background: #ffffff;
+}
+.artifact-grid {
+  margin: 0;
+}
+.artifact-row dt {
+  margin: 0 0 5px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.artifact-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 .summary-panel.safety,
 .summary-panel.loop {
