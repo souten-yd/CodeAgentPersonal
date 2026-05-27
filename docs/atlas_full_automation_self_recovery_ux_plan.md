@@ -386,3 +386,9 @@ Atlas can be considered a fully autonomous code agent only when all of the follo
 - Stop, rollback, and recovery paths are tested.
 - Buildless conversational Atlas shell works without npm install, Vite build, Vue SFC compilation, or Atlas Next dist assets.
 - Conversational UX can explain state, risk, next action, and recovery.
+
+## Backend milestone vs practical completion
+
+`PR-ATLAS-SCALE-160` and `final_goal_backend_milestone_reached = true` indicate backend autonomous milestone completion, but they do not by themselves indicate practical product completion.
+
+Practical full automation completion is tracked separately in `docs/atlas_practical_full_automation_experience_plan.md`, including FastUI usability, bounded end-to-end developer loop experience, candidate-first self-improvement flow, visible verification/recovery gates, and draft PR experience readiness.
