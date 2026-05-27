@@ -156,7 +156,11 @@ const loopArtifactDetails = computed(() => {
     { label: 'Source', value: loop.latestLoopSourceDetail || props.snapshot.workflowMetadata.sourceDetail || empty },
     { label: 'Action executed', value: loop.latestLoopActionExecuted ? 'true' : 'false' },
     { label: 'Recovery run', value: loop.latestRecoveryRunId || empty },
-    { label: 'Draft PR artifact', value: loop.latestDraftPrArtifactId || empty }
+    { label: 'Recovery artifact', value: loop.recoveryArtifactAvailable ? 'available' : 'not available' },
+    { label: 'Recovery summary', value: loop.recoveryArtifactSummary || empty },
+    { label: 'Draft PR artifact', value: loop.latestDraftPrArtifactId || empty },
+    { label: 'Draft PR artifact status', value: loop.draftPrArtifactAvailable ? 'available' : 'not available' },
+    { label: 'Draft PR summary', value: loop.draftPrArtifactSummary || empty }
   ]
 })
 
