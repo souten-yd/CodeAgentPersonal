@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from app.atlas.patch_transaction import build_latest_patch_transaction_workflow_metadata
+from app.atlas.practical_loop_metadata import build_latest_practical_loop_workflow_metadata
 from app.atlas.workflow_state_contract import build_read_only_workflow_state
 
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/api/atlas", tags=["atlas"])
 def atlas_workflow_state_read_only(request: Request) -> dict[str, Any]:
     ca_data_root = resolve_atlas_ca_data_root(request)
     patch_transaction_metadata = build_latest_patch_transaction_workflow_metadata(data_root=ca_data_root)
+    practical_loop_metadata = build_latest_practical_loop_workflow_metadata(data_root=ca_data_root)
     return build_read_only_workflow_state(
         goal="Atlas Next read-only supervision shell",
         project_path="Backend-provided project path when safe workflow_state is available",
@@ -28,7 +30,7 @@ def atlas_workflow_state_read_only(request: Request) -> dict[str, Any]:
             "snapshot": True,
             "allowlist": True,
             "risk": True,
-            "loop_bound": True,
+            "loop_bound": practical_loop_metadata["bounded_loop"],
             "transaction": patch_transaction_metadata["patch_transaction_available"],
         },
         warnings=[
@@ -37,29 +39,23 @@ def atlas_workflow_state_read_only(request: Request) -> dict[str, Any]:
             "Real-data workflow metadata is safe-if-available and may be unknown when backend state is unavailable.",
         ],
         workflow_metadata={
-            "latest_pool_id": None,
-            "latest_run_id": None,
+            "latest_pool_id": practical_loop_metadata["latest_loop_pool_id"] or None,
+            "latest_run_id": practical_loop_metadata["latest_loop_run_id"] or None,
             "latest_plan_id": None,
             "latest_requirement_id": None,
             "current_phase": "practical_loop_metadata_preview",
-            "latest_status": "metadata_only",
+            "latest_status": practical_loop_metadata["practical_loop_status"],
             "continuation_state": "waiting_for_backend_gate",
-            "recovery_state": "not_started",
+            "recovery_state": practical_loop_metadata["recovery_state"],
             "plan_pool_available": False,
             "active_plan_available": False,
-            "last_report_available": False,
+            "last_report_available": bool(practical_loop_metadata["latest_loop_result_path"]),
             "last_error_summary": None,
             "last_updated_at": None,
-            "data_freshness": "unknown",
-            "source_detail": "safe_read_only_backend_metadata",
-            "workflow_snapshot_available": False,
-            "practical_loop_status": "metadata_only",
-            "bounded_loop": True,
-            "max_iterations": 0,
-            "current_iteration": 0,
-            "stop_condition": "manual_review_or_backend_gate",
-            "verification_state": "waiting_for_backend_checks",
-            "draft_pr_state": "not_prepared",
+            "data_freshness": "latest_safe_artifact" if practical_loop_metadata["latest_loop_result_path"] else "unknown",
+            "source_detail": practical_loop_metadata["latest_loop_source_detail"],
+            "workflow_snapshot_available": bool(practical_loop_metadata["latest_loop_result_path"]),
+            **practical_loop_metadata,
             **patch_transaction_metadata,
         },
     )
