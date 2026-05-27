@@ -57,6 +57,20 @@ Required behavior:
 - Do not let the UI choice bypass strict self-improvement gates or enable stable-runtime mutation.
 - Keep this planned for PR-ATLAS-SCALE-151 / PR-ATLAS-SCALE-152 or a directly adjacent UI/UX PR after Level-4 gates.
 
+## UI Default Checkpoint
+
+Before changing the default Atlas route again, the project must explicitly confirm the intended default UI.
+
+Preferred direction:
+
+- Buildless ThinUX / FastUI conversational shell as the normal Atlas experience.
+- Existing KasaneCore theme and accent colors remain active.
+- Heavy work stays server-side.
+- Browser payloads stay small.
+- Atlas Next may remain available only when prepared assets are valid and fallback behavior is documented.
+
+This checkpoint should be read before any future UI default route change.
+
 ## Lightweight client
 
 The browser should stay light.
@@ -84,7 +98,8 @@ Effects must respect reduced-motion settings and must not hide errors.
 
 ## Implementation phase
 
-Use this direction for the post-Level-4 UX work.
+Use this direction for the post-Level-4 UX work and later UI default decisions.
 
 - PR-ATLAS-SCALE-151: FastUI shell contract, including backend-owned work target mode contract.
 - PR-ATLAS-SCALE-152: FastUI shell implementation, including a compact mode selector for software development/repair versus platform self-improvement.
+- POST-SCALE-160-UI-DEFAULT-RECONFIRM: confirm whether the default Atlas route should remain Atlas Next or return to the buildless ThinUX / FastUI shell.
