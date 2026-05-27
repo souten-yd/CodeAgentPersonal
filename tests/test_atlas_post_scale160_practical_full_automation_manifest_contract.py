@@ -24,11 +24,17 @@ def test_practical_full_automation_manifest_contract() -> None:
         assert required in planned_prs
 
     assert manifest['backend_workflow_state_authoritative'] is True
+    assert manifest['current_automation_track'] == 'POST-SCALE-160-FASTUI-SHELL-MVP'
+    assert manifest['next_automation_track'] == 'POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP'
+    assert manifest['next_level_advancement_pr'] == 'POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT'
     assert manifest['self_modification_enabled'] is False
     assert manifest['stable_runtime_mutation_enabled'] is False
+    assert manifest['stable_runtime_mutation_apply_record_only'] is True
+    assert manifest['stable_runtime_mutation_performed'] is False
     assert manifest['self_apply_enabled'] is False
     assert manifest['remote_git_push_enabled'] is False
     assert manifest['direct_merge_enabled'] is False
+    assert manifest['vue_source_of_truth'] is False
 
     plan_doc = Path(manifest['practical_full_automation_plan']).read_text(encoding='utf-8')
     assert 'POST-SCALE-160-FASTUI-SHELL-MVP' in plan_doc

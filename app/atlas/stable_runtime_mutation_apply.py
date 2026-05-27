@@ -83,6 +83,7 @@ def create_stable_runtime_mutation_apply(
         "verification_evidence_refs": list(valid_gate.get("verification_evidence_refs", [])) if ready else [],
         "recovery_evidence_refs": list(valid_gate.get("recovery_evidence_refs", [])) if ready else [],
         "stable_runtime_mutation_apply_record_ready": ready,
+        "stable_runtime_mutation_apply_record_accepted": ready,
         "stable_runtime_mutation_apply_record_written": False,
         "stable_runtime_mutation_enabled": False,
         "stable_runtime_mutation_performed": False,
@@ -139,6 +140,7 @@ def validate_stable_runtime_mutation_apply(apply_record: dict[str, Any]) -> dict
         "stable_runtime_mutation_enabled",
         "stable_runtime_mutation_performed",
         "stable_runtime_mutation_apply_record_ready",
+        "stable_runtime_mutation_apply_record_accepted",
         "stable_runtime_mutation_apply_record_written",
         "stable_runtime_mutation_apply_required",
         "stable_runtime_mutation_apply_record_only",
@@ -169,6 +171,8 @@ def validate_stable_runtime_mutation_apply(apply_record: dict[str, Any]) -> dict
         "stable_runtime_mutation_enabled": apply_record.get("stable_runtime_mutation_enabled") is False,
         "stable_runtime_mutation_performed": apply_record.get("stable_runtime_mutation_performed") is False,
         "stable_runtime_mutation_apply_record_ready": apply_record.get("stable_runtime_mutation_apply_record_ready") is applied,
+        "stable_runtime_mutation_apply_record_accepted": apply_record.get("stable_runtime_mutation_apply_record_accepted")
+        is applied,
         "stable_runtime_mutation_apply_record_written": apply_record.get("stable_runtime_mutation_apply_record_written")
         in {False, applied},
         "stable_runtime_mutation_apply_required": apply_record.get("stable_runtime_mutation_apply_required") is (not applied),

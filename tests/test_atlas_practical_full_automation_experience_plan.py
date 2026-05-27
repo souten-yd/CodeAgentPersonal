@@ -22,7 +22,9 @@ def test_practical_full_automation_plan_manifest_wiring() -> None:
 
     assert manifest['current_automation_track'] == 'POST-SCALE-160-FASTUI-SHELL-MVP'
     assert manifest['next_automation_track'] == 'POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP'
+    assert manifest['next_level_advancement_pr'] == 'POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT'
     assert manifest['direct_merge_enabled'] is False
     assert manifest['remote_git_push_enabled'] is False
     assert manifest['self_apply_enabled'] is False
+    assert manifest['self_modification_enabled'] is False
     assert manifest['vue_source_of_truth'] is False

@@ -132,6 +132,7 @@ def test_stable_runtime_mutation_apply_records_ready_apply_without_runtime_mutat
     assert apply_record['track_pr'] == 'POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY'
     assert apply_record['next_required_pr'] == 'POST-SCALE-160-DIRECT-MERGE-GATE'
     assert apply_record['stable_runtime_mutation_apply_record_ready'] is True
+    assert apply_record['stable_runtime_mutation_apply_record_accepted'] is True
     assert apply_record['stable_runtime_mutation_apply_record_written'] is False
     assert apply_record['stable_runtime_mutation_enabled'] is False
     assert apply_record['stable_runtime_mutation_performed'] is False
@@ -168,6 +169,7 @@ def test_stable_runtime_mutation_apply_requires_ready_gate_and_exact_confirmatio
     assert apply_record['stable_runtime_mutation_enabled'] is False
     assert apply_record['stable_runtime_mutation_performed'] is False
     assert apply_record['stable_runtime_mutation_apply_record_ready'] is False
+    assert apply_record['stable_runtime_mutation_apply_record_accepted'] is False
 
 
 def test_validate_stable_runtime_mutation_apply_rejects_forbidden_authority_escalation(tmp_path: Path) -> None:
