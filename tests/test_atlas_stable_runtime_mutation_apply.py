@@ -122,7 +122,7 @@ def _approved_apply_kwargs() -> dict[str, object]:
     }
 
 
-def test_stable_runtime_mutation_apply_records_mutation_without_pointer_or_git_side_effects(tmp_path: Path) -> None:
+def test_stable_runtime_mutation_apply_records_ready_apply_without_runtime_mutation(tmp_path: Path) -> None:
     apply_record = create_stable_runtime_mutation_apply(
         gate=_approved_gate(tmp_path / 'data'),
         **_approved_apply_kwargs(),
@@ -131,8 +131,10 @@ def test_stable_runtime_mutation_apply_records_mutation_without_pointer_or_git_s
     assert apply_record['status'] == 'applied'
     assert apply_record['track_pr'] == 'POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY'
     assert apply_record['next_required_pr'] == 'POST-SCALE-160-DIRECT-MERGE-GATE'
-    assert apply_record['stable_runtime_mutation_enabled'] is True
-    assert apply_record['stable_runtime_mutation_performed'] is True
+    assert apply_record['stable_runtime_mutation_apply_record_ready'] is True
+    assert apply_record['stable_runtime_mutation_apply_record_written'] is False
+    assert apply_record['stable_runtime_mutation_enabled'] is False
+    assert apply_record['stable_runtime_mutation_performed'] is False
     assert apply_record['stable_runtime_mutation_apply_required'] is False
     assert apply_record['stable_runtime_mutation_apply_record_only'] is True
     assert apply_record['stable_runtime_ref'] == 'atlas/stable/runtime-snapshot.json'
@@ -165,6 +167,7 @@ def test_stable_runtime_mutation_apply_requires_ready_gate_and_exact_confirmatio
     assert 'confirmation_text_mismatch' in apply_record['blocking_reasons']
     assert apply_record['stable_runtime_mutation_enabled'] is False
     assert apply_record['stable_runtime_mutation_performed'] is False
+    assert apply_record['stable_runtime_mutation_apply_record_ready'] is False
 
 
 def test_validate_stable_runtime_mutation_apply_rejects_forbidden_authority_escalation(tmp_path: Path) -> None:

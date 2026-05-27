@@ -32,6 +32,7 @@ Backend milestone completion is necessary but not sufficient. Practical completi
 - Self-improvement practical loop must be usable while remaining candidate-first.
 - Draft PR experience must be practical and user-visible in the normal flow.
 - FastUI / ThinUX shell must be usable as a practical coding-agent interface.
+- Direct merge gate is not part of the immediate practical completion path and remains a later, separately approved gate.
 
 ## 4) Practical completion criteria
 
@@ -149,7 +150,7 @@ Acceptance:
 
 Purpose:
 
-- Apply stable runtime mutation only through existing gate evidence.
+- Record stable-runtime-mutation apply readiness using existing gate evidence; this milestone may remain record-only.
 
 Acceptance:
 
@@ -159,6 +160,7 @@ Acceptance:
 - Requires rollback evidence.
 - Requires recovery evidence.
 - Requires exact approval text or explicit backend-approved policy.
+- If this milestone is record-only, `stable_runtime_mutation_apply_record_only = true` and runtime mutation remains not performed.
 - Does not enable direct merge or remote push.
 - Does not make UI authoritative.
 
