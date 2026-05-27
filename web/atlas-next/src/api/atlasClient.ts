@@ -78,6 +78,11 @@ export type AtlasPracticalLoopMetadata = {
   latestLoopRunId?: string
   latestRecoveryRunId?: string
   latestDraftPrArtifactId?: string
+  latestLoopPoolId?: string
+  latestLoopMode?: string
+  latestLoopResultPath?: string
+  latestLoopSourceDetail?: string
+  latestLoopActionExecuted: boolean
   executionEnabled: false
   directMergeEnabled: false
   remoteGitPushEnabled: false
@@ -185,6 +190,7 @@ const DEFAULT_PRACTICAL_LOOP_METADATA: AtlasPracticalLoopMetadata = {
   verificationState: 'waiting_for_backend_checks',
   recoveryState: 'unknown',
   draftPrState: 'not_prepared',
+  latestLoopActionExecuted: false,
   executionEnabled: false,
   directMergeEnabled: false,
   remoteGitPushEnabled: false,
@@ -215,6 +221,14 @@ const PLACEHOLDER_SNAPSHOT: AtlasBackendWorkflowStateContract = {
     verification_state: 'waiting_for_backend_checks',
     recovery_state: 'unknown',
     draft_pr_state: 'not_prepared',
+    latest_loop_run_id: '',
+    latest_recovery_run_id: '',
+    latest_draft_pr_artifact_id: '',
+    latest_loop_pool_id: '',
+    latest_loop_mode: '',
+    latest_loop_result_path: '',
+    latest_loop_source_detail: 'placeholder',
+    latest_loop_action_executed: false,
     advisory_only: true
   },
   available_actions: [{ id: 'inspect_workflow_state', label: 'Inspect workflow state payload', kind: 'read_only' }],
@@ -315,6 +329,10 @@ function optionalText(raw: unknown, fallback: string): string {
   return typeof raw === 'string' && raw.trim() ? raw : fallback
 }
 
+function optionalTextValue(raw: unknown): string | undefined {
+  return typeof raw === 'string' && raw.trim() ? raw : undefined
+}
+
 function nonNegativeNumber(raw: unknown): number {
   return typeof raw === 'number' && Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0
 }
@@ -365,9 +383,13 @@ function normalizeWorkflowState(payload: AtlasBackendWorkflowStateContract): Atl
 
 function normalizePracticalLoopMetadata(value: unknown): AtlasPracticalLoopMetadata {
   const item = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
-  const latestLoopRunId = typeof item.latest_loop_run_id === 'string' && item.latest_loop_run_id.trim() ? item.latest_loop_run_id : undefined
-  const latestRecoveryRunId = typeof item.latest_recovery_run_id === 'string' && item.latest_recovery_run_id.trim() ? item.latest_recovery_run_id : undefined
-  const latestDraftPrArtifactId = typeof item.latest_draft_pr_artifact_id === 'string' && item.latest_draft_pr_artifact_id.trim() ? item.latest_draft_pr_artifact_id : undefined
+  const latestLoopRunId = optionalTextValue(item.latest_loop_run_id)
+  const latestRecoveryRunId = optionalTextValue(item.latest_recovery_run_id)
+  const latestDraftPrArtifactId = optionalTextValue(item.latest_draft_pr_artifact_id)
+  const latestLoopPoolId = optionalTextValue(item.latest_loop_pool_id)
+  const latestLoopMode = optionalTextValue(item.latest_loop_mode)
+  const latestLoopResultPath = optionalTextValue(item.latest_loop_result_path)
+  const latestLoopSourceDetail = optionalTextValue(item.latest_loop_source_detail)
   return {
     ...DEFAULT_PRACTICAL_LOOP_METADATA,
     schemaVersion: item.schema_version === 'atlas.practical_autonomous_dev_loop.v1'
@@ -386,6 +408,11 @@ function normalizePracticalLoopMetadata(value: unknown): AtlasPracticalLoopMetad
     latestLoopRunId,
     latestRecoveryRunId,
     latestDraftPrArtifactId,
+    latestLoopPoolId,
+    latestLoopMode,
+    latestLoopResultPath,
+    latestLoopSourceDetail,
+    latestLoopActionExecuted: item.latest_loop_action_executed === true,
     executionEnabled: false,
     directMergeEnabled: false,
     remoteGitPushEnabled: false,

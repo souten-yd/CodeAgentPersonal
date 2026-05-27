@@ -104,13 +104,39 @@ def test_practical_loop_metadata_is_rendered_by_fastui_shell_and_client() -> Non
     client = Path('web/atlas-next/src/api/atlasClient.ts').read_text(encoding='utf-8')
     app = Path('web/atlas-next/src/components/AtlasNextApp.vue').read_text(encoding='utf-8')
 
-    for term in ['practicalLoop', 'Loop', 'Draft PR', 'verificationState', 'recoveryState', 'draftPrState']:
+    for term in [
+        'practicalLoop',
+        'Loop',
+        'Draft PR',
+        'verificationState',
+        'recoveryState',
+        'draftPrState',
+        'Loop artifact',
+        'loopArtifactDetails',
+        'latestLoopPoolId',
+        'latestLoopMode',
+        'latestLoopResultPath',
+        'latestLoopSourceDetail',
+        'latestLoopActionExecuted',
+        'Action executed',
+        'Draft PR artifact',
+    ]:
         assert term in shell
 
     for term in [
         'AtlasPracticalLoopMetadata',
         'practical_loop_metadata',
         'normalizePracticalLoopMetadata',
+        'latest_loop_pool_id',
+        'latest_loop_mode',
+        'latest_loop_result_path',
+        'latest_loop_source_detail',
+        'latest_loop_action_executed',
+        'latestLoopPoolId',
+        'latestLoopMode',
+        'latestLoopResultPath',
+        'latestLoopSourceDetail',
+        'latestLoopActionExecuted: item.latest_loop_action_executed === true',
         'executionEnabled: false',
         'directMergeEnabled: false',
         'remoteGitPushEnabled: false',
