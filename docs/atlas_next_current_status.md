@@ -1,6 +1,6 @@
 # Atlas Next Current Status
 
-Updated after POST-SCALE-160 FastUI shell MVP progress.
+Updated after POST-SCALE-160 practical loop metadata bridge.
 
 ## Completed in latest UI track
 - #1390 builds `web/atlas-next` during Docker image build.
@@ -16,6 +16,7 @@ Updated after POST-SCALE-160 FastUI shell MVP progress.
 - POST-SCALE-160-VUE-DEFAULT-PROMOTION-APPLY aligns docs, manifest, and route contracts with the existing guarded `/` default behavior.
 - POST-SCALE-160-UI-DEFAULT-RECONFIRM records that the current guarded Atlas Next root default stays active for now while buildless ThinUX / FastUI remains the preferred future default direction.
 - POST-SCALE-160-FASTUI-SHELL-MVP mounts the first conversation-first Atlas shell above the older detailed panels, including a backend-owned work target intent selector, current phase, next action, safety badge, changed files, verification, recovery, one Start Atlas CTA, and a collapsed settings drawer.
+- POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP now has a read-only practical loop metadata bridge for bounded loop status, iteration count, stop condition, changed files, verification, recovery, and draft PR state.
 
 ## Completed in latest automation roadmap track
 - PR-ATLAS-SCALE-129 remains planned and records patch transaction preview with rollback metadata required and no apply.
@@ -36,11 +37,11 @@ Updated after POST-SCALE-160 FastUI shell MVP progress.
 - Current runtime level is `level_8_fully_autonomous_code_agent` for the backend automation milestone.
 - Stable runtime mutation apply remains tightly gated: ready gate, verified candidate workspace, stable snapshot, rollback evidence, recovery evidence, strict approval, and exact confirmation are required.
 - Direct merge, remote push, self-apply, pointer switching, execute-all, Vue authority, and recovery execution remain disabled unless a later dedicated PR proves the needed evidence and rollback path.
-- The FastUI shell MVP does not serve raw Vue source, run npm at server startup, add Vue authority, or enable Vue execution controls.
+- Practical loop metadata is read-only and advisory: it does not enable arbitrary command execution, direct merge, remote push, self-apply, stable runtime mutation, or Vue authority.
 
 ## Later UI/UX planning note
 - Later conversational/FastUI work must expose a backend-owned work target mode selector for ordinary software development/repair versus platform self-improvement.
 - That selector is a UI intent control only; it must not authorize self-apply, direct merge, stable runtime mutation, or Vue authority without the backend profile, scope, checkpoint, candidate workspace, verification, and recovery gates.
 
 ## Next narrow work
-- POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP: connect the FastUI shell to bounded backend loop summaries and recovery/draft-PR progress artifacts while keeping direct merge, self-apply, remote push, arbitrary command execution, and Vue authority separate gated changes.
+- POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP: replace placeholder practical loop metadata with safe-if-available latest loop artifact discovery, then surface bounded iteration progress and recovery/draft-PR artifact links while preserving all authority gates.
