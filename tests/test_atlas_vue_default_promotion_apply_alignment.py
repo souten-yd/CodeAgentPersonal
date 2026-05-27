@@ -6,8 +6,15 @@ def test_vue_default_apply_manifest_matches_guarded_root_route() -> None:
     manifest = json.loads(Path('docs/atlas_automation_phase_manifest.json').read_text(encoding='utf-8'))
     main_text = Path('main.py').read_text(encoding='utf-8')
 
-    assert manifest['completed_automation_pr'] == 'POST-SCALE-160-VUE-DEFAULT-PROMOTION-APPLY'
-    assert manifest['current_automation_track'] == 'POST-SCALE-160-STABLE-RUNTIME-MUTATION-GATE'
+    assert manifest['completed_automation_pr'] == 'POST-SCALE-160-UI-DEFAULT-RECONFIRM'
+    assert manifest['current_automation_track'] == 'POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY'
+    assert manifest['ui_default_reconfirmation_required'] is False
+    assert manifest['ui_default_reconfirmed'] is True
+    assert manifest['ui_default_reconfirmation_decision'] == 'keep_guarded_atlas_next_default_for_now'
+    assert manifest['ui_default_reconfirmation_record'] == 'docs/atlas_ui_default_reconfirmation.md'
+    assert manifest['preferred_ui_default_policy'] == 'buildless_thinux_fastui_conversational_shell'
+    assert manifest['active_ui_default_policy'] == 'guarded_atlas_next_default_with_valid_dist_and_fallback'
+    assert manifest['future_fastui_default_gate_required'] is True
     assert manifest['vue_default_promotion_enabled'] is True
     assert manifest['vue_default_promotion_applied'] is True
     assert manifest['vue_default_promotion_apply_required'] is False
