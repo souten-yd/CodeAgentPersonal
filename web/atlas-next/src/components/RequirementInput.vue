@@ -1,7 +1,7 @@
 <template>
   <StatusCard title="Start Atlas">
-    <p class="safety-boundary"><b>Safety boundary:</b> Start Atlas creates planning metadata only. Execution/apply/approve/verify/rollback/retry/continue stay backend/manual. Execution controls are intentionally unavailable in VUE16.</p>
-    <form @submit.prevent="submitPlanning" class="requirement-form">
+    <p class="safety-boundary"><b>Safety boundary:</b> Start Atlas creates planning metadata only. Execution/apply/approve/verify/rollback/retry/continue stay backend/manual. Execution controls are intentionally unavailable in Atlas Next.</p>
+    <form id="start-atlas-form" @submit.prevent="submitPlanning" class="requirement-form">
       <label>
         Requirement
         <textarea v-model="form.input" rows="5" required placeholder="Describe the outcome Atlas should plan for."></textarea>
