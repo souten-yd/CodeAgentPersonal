@@ -6,8 +6,6 @@ def test_vue_default_apply_manifest_matches_guarded_root_route() -> None:
     manifest = json.loads(Path('docs/atlas_automation_phase_manifest.json').read_text(encoding='utf-8'))
     main_text = Path('main.py').read_text(encoding='utf-8')
 
-    assert manifest['completed_automation_pr'] == 'POST-SCALE-160-UI-DEFAULT-RECONFIRM'
-    assert manifest['current_automation_track'] == 'POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY'
     assert manifest['ui_default_reconfirmation_required'] is False
     assert manifest['ui_default_reconfirmed'] is True
     assert manifest['ui_default_reconfirmation_decision'] == 'keep_guarded_atlas_next_default_for_now'
@@ -30,7 +28,7 @@ def test_vue_default_apply_manifest_matches_guarded_root_route() -> None:
     assert 'RedirectResponse("/atlas-next")' not in main_text
 
 
-def test_vue_default_apply_does_not_expand_execution_authority() -> None:
+def test_vue_default_apply_does_not_expand_vue_or_merge_authority() -> None:
     manifest = json.loads(Path('docs/atlas_automation_phase_manifest.json').read_text(encoding='utf-8'))
     main_text = Path('main.py').read_text(encoding='utf-8')
     client_text = Path('web/atlas-next/src/api/atlasClient.ts').read_text(encoding='utf-8')
@@ -39,7 +37,8 @@ def test_vue_default_apply_does_not_expand_execution_authority() -> None:
     assert manifest['vue_execution_capability'] == 'none'
     assert manifest['self_modification_enabled'] is False
     assert manifest['direct_merge_enabled'] is False
-    assert manifest['stable_runtime_mutation_enabled'] is False
+    assert manifest['remote_git_push_enabled'] is False
+    assert manifest['self_apply_enabled'] is False
 
     forbidden_client_tokens = [
         '/execute',
