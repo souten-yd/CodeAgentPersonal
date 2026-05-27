@@ -601,7 +601,7 @@ docker run -p 8000:8000 -p 8080:8080 \
 ```
 
 **Dockerイメージにバンドルされているもの：**
-- llama.cpp CUDA 12.8バイナリ (`ai-dock/llama.cpp-cuda` より自動取得)
+- llama.cpp CUDA バイナリ (`souten-yd/llama-builder` の Linux amd64 CUDA リリースより自動取得)
 - faster-whisper `large-v3-turbo` モデル
 - Style-Bert-VITS2 (`koharune-ami` モデル込み)
 - `Gemma-4-E4B-it-Q4_K_M.gguf` (デフォルトLLM)

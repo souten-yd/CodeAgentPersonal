@@ -22,8 +22,8 @@ RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.lis
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
-    ASSET_REGEX='^llama\.cpp-b[0-9]+-cuda-12\.8\.tar\.gz$'; \
-    curl -fsSL https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases/latest -o /tmp/release.json; \
+    ASSET_REGEX='^llama-linux-cuda-b[0-9]+\.tar\.gz$'; \
+    curl -fsSL https://api.github.com/repos/souten-yd/llama-builder/releases/latest -o /tmp/release.json; \
     ASSET_URL="$(jq -r --arg re "${ASSET_REGEX}" '.assets[] | select(.name | test($re)) | .browser_download_url' /tmp/release.json | head -n1)"; \
     ASSET_NAME="$(jq -r --arg re "${ASSET_REGEX}" '.assets[] | select(.name | test($re)) | .name' /tmp/release.json | head -n1)"; \
     test "${ASSET_URL}" != "null"; \
