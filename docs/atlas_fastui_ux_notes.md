@@ -103,3 +103,9 @@ Use this direction for the post-Level-4 UX work and later UI default decisions.
 - PR-ATLAS-SCALE-151: FastUI shell contract, including backend-owned work target mode contract.
 - PR-ATLAS-SCALE-152: FastUI shell implementation, including a compact mode selector for software development/repair versus platform self-improvement.
 - POST-SCALE-160-UI-DEFAULT-RECONFIRM: confirm whether the default Atlas route should remain Atlas Next or return to the buildless ThinUX / FastUI shell.
+
+## Practical full automation requirement
+
+Practical full automation completion requirements are defined in `docs/atlas_practical_full_automation_experience_plan.md`.
+
+FastUI is a required delivery for practical full automation completion, not optional UI polish. Atlas is not practically complete at backend-milestone-only state.

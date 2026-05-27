@@ -5,8 +5,8 @@
   "post_level4_full_automation_plan": "docs/atlas_full_automation_self_recovery_ux_plan.md",
   "post_scale160_ui_notes": "docs/atlas_fastui_ux_notes.md",
   "completed_automation_pr": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY",
-  "current_automation_track": "POST-SCALE-160-DIRECT-MERGE-GATE",
-  "next_automation_track": "POST-SCALE-160-DIRECT-MERGE-GATE",
+  "current_automation_track": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY",
+  "next_automation_track": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY",
   "completed_phase": "stable_runtime_mutation_apply",
   "automation_phase": "continuous_improvement",
   "current_level": "level_8_fully_autonomous_code_agent",
@@ -50,8 +50,8 @@
   "stable_runtime_mutation_ready": true,
   "stable_runtime_mutation_apply_required": false,
   "stable_runtime_mutation_apply_record_only": true,
-  "stable_runtime_mutation_enabled": true,
-  "stable_runtime_mutation_performed": true,
+  "stable_runtime_mutation_enabled": false,
+  "stable_runtime_mutation_performed": false,
   "level1_execution_enabled": true,
   "level2_guarded_bounded_loop_enabled": true,
   "level3_autonomous_loop_candidate_enabled": true,
@@ -118,59 +118,371 @@
     "direct merge before dedicated direct merge gate"
   ],
   "planned_prs": [
-    {"pr": "PR-ATLAS-SCALE-113", "phase": "level_1_advancement_preparation", "outcome": "consolidate master plan, remove duplicate plan docs, add phase manifest and drift validator", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-114", "phase": "level_1_advancement_preparation", "outcome": "advisory readiness rollup and gate evidence summary", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-115", "phase": "level_1_advancement_preparation", "outcome": "dry-run artifact schema v1", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-116", "phase": "level_1_advancement_preparation", "outcome": "verification allowlist resolver", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-117", "phase": "level_1_advancement_preparation", "outcome": "dry-run-only backend endpoint skeleton", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-118", "phase": "level_1_advancement_preparation", "outcome": "dry-run result artifact capture", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-119", "phase": "level_1_advancement_preparation", "outcome": "approval token backend contract", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-120", "phase": "level_1_advancement_preparation", "outcome": "UI dry-run result viewer", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-121", "phase": "level_1_guarded_single_step_enablement", "outcome": "disabled single allowlisted command runner", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-122", "phase": "level_1_guarded_single_step_enablement", "outcome": "execution artifact capture v1", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-123", "phase": "level_1_guarded_single_step_enablement", "outcome": "stop / kill-switch runtime integration", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-124", "phase": "level_1_guarded_single_step_enablement", "outcome": "rollback readiness verification", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-125", "phase": "level_1_guarded_single_step_enablement", "outcome": "Level-1 guarded single-step endpoint", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-126", "phase": "level_1_guarded_single_step_enablement", "outcome": "UI guarded execution review panel", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-127", "phase": "level_1_guarded_single_step_enablement", "outcome": "explicit Level-1 runtime transition checkpoint", "runtime_change_allowed": true},
-    {"pr": "PR-ATLAS-SCALE-128", "phase": "patch_branch_draft_pr_pipeline", "outcome": "patch proposal generator", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-129", "phase": "patch_branch_draft_pr_pipeline", "outcome": "patch transaction preview", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-130", "phase": "patch_branch_draft_pr_pipeline", "outcome": "human-approved patch apply one action", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-131", "phase": "patch_branch_draft_pr_pipeline", "outcome": "local branch proposal artifact", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-132", "phase": "patch_branch_draft_pr_pipeline", "outcome": "approved local branch creation", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-133", "phase": "patch_branch_draft_pr_pipeline", "outcome": "draft PR policy", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-134", "phase": "patch_branch_draft_pr_pipeline", "outcome": "draft PR creation", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-135", "phase": "patch_branch_draft_pr_pipeline", "outcome": "PR update from approved patch transaction", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-136", "phase": "bounded_autonomous_loop", "outcome": "bounded loop policy v1", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-137", "phase": "bounded_autonomous_loop", "outcome": "bounded retry and failure recovery", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-138", "phase": "bounded_autonomous_loop", "outcome": "Level-2 guarded bounded loop checkpoint", "runtime_change_allowed": true},
-    {"pr": "PR-ATLAS-SCALE-139", "phase": "bounded_autonomous_loop", "outcome": "Level-3 autonomous implementation loop candidate", "runtime_change_allowed": true},
-    {"pr": "PR-ATLAS-SCALE-140", "phase": "self_improving_platform", "outcome": "self-improvement proposal mode", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-141", "phase": "self_improving_platform", "outcome": "strict self-modification risk classifier", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-142", "phase": "self_improving_platform", "outcome": "self-improvement patch preview", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-143", "phase": "self_improving_platform", "outcome": "self-improvement dry-run verification", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-144", "phase": "self_improving_platform", "outcome": "self-improvement approved patch apply", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-145", "phase": "self_improving_platform", "outcome": "self-improvement draft PR creation", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-146", "phase": "self_improving_platform", "outcome": "Level-4 self-improvement checkpoint", "runtime_change_allowed": true},
-    {"pr": "PR-ATLAS-SCALE-147", "phase": "post_level4_full_automation_foundation", "outcome": "automation safety profile framework", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-148", "phase": "post_level4_full_automation_foundation", "outcome": "external recovery supervisor foundation", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-149", "phase": "post_level4_full_automation_foundation", "outcome": "candidate workspace manager", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-150", "phase": "post_level4_full_automation_foundation", "outcome": "boot self-diagnosis and stable checkpoint", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-151", "phase": "conversational_atlas_ux", "outcome": "buildless conversational Atlas shell contract with work target mode selector", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-152", "phase": "conversational_atlas_ux", "outcome": "buildless conversational shell implementation with backend-owned mode selector", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-153", "phase": "self_improvement_candidate_execution", "outcome": "self-improvement candidate apply", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-154", "phase": "self_improvement_candidate_execution", "outcome": "candidate verification gate", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-155", "phase": "self_improvement_candidate_execution", "outcome": "promotion gate and release pointer switch", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-156", "phase": "self_improvement_candidate_execution", "outcome": "automatic failure recovery v1", "runtime_change_allowed": false},
-    {"pr": "PR-ATLAS-SCALE-157", "phase": "full_automation_execution", "outcome": "autonomous loop execution v1", "runtime_change_allowed": true},
-    {"pr": "PR-ATLAS-SCALE-158", "phase": "full_automation_execution", "outcome": "full automation mode checkpoint", "runtime_change_allowed": true},
-    {"pr": "PR-ATLAS-SCALE-159", "phase": "full_automation_execution", "outcome": "self-improvement autonomous candidate loop", "runtime_change_allowed": true},
-    {"pr": "PR-ATLAS-SCALE-160", "phase": "full_automation_execution", "outcome": "fully autonomous code agent milestone", "runtime_change_allowed": true},
-    {"pr": "POST-SCALE-160-VUE-DEFAULT-PROMOTION-GATE", "phase": "vue_default_promotion", "outcome": "backend-only Vue default promotion readiness gate", "runtime_change_allowed": false},
-    {"pr": "POST-SCALE-160-VUE-DEFAULT-PROMOTION-APPLY", "phase": "vue_default_promotion", "outcome": "guarded Atlas Next root default with valid dist check and legacy UI fallback", "runtime_change_allowed": false},
-    {"pr": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-GATE", "phase": "stable_runtime_mutation", "outcome": "backend-only stable runtime mutation readiness gate", "runtime_change_allowed": false},
-    {"pr": "POST-SCALE-160-UI-DEFAULT-RECONFIRM", "phase": "planning_alignment", "outcome": "reconfirm UI default policy and roadmap freshness before stable runtime mutation apply", "runtime_change_allowed": false},
-    {"pr": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY", "phase": "stable_runtime_mutation", "outcome": "strictly approved stable runtime mutation apply record without direct merge, remote push, self-apply, or pointer switch", "runtime_change_allowed": true},
-    {"pr": "POST-SCALE-160-DIRECT-MERGE-GATE", "phase": "direct_merge_safety", "outcome": "prepare direct merge policy gate after stable mutation apply record", "runtime_change_allowed": false}
-  ]
+    {
+      "pr": "PR-ATLAS-SCALE-113",
+      "phase": "level_1_advancement_preparation",
+      "outcome": "consolidate master plan, remove duplicate plan docs, add phase manifest and drift validator",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-114",
+      "phase": "level_1_advancement_preparation",
+      "outcome": "advisory readiness rollup and gate evidence summary",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-115",
+      "phase": "level_1_advancement_preparation",
+      "outcome": "dry-run artifact schema v1",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-116",
+      "phase": "level_1_advancement_preparation",
+      "outcome": "verification allowlist resolver",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-117",
+      "phase": "level_1_advancement_preparation",
+      "outcome": "dry-run-only backend endpoint skeleton",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-118",
+      "phase": "level_1_advancement_preparation",
+      "outcome": "dry-run result artifact capture",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-119",
+      "phase": "level_1_advancement_preparation",
+      "outcome": "approval token backend contract",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-120",
+      "phase": "level_1_advancement_preparation",
+      "outcome": "UI dry-run result viewer",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-121",
+      "phase": "level_1_guarded_single_step_enablement",
+      "outcome": "disabled single allowlisted command runner",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-122",
+      "phase": "level_1_guarded_single_step_enablement",
+      "outcome": "execution artifact capture v1",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-123",
+      "phase": "level_1_guarded_single_step_enablement",
+      "outcome": "stop / kill-switch runtime integration",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-124",
+      "phase": "level_1_guarded_single_step_enablement",
+      "outcome": "rollback readiness verification",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-125",
+      "phase": "level_1_guarded_single_step_enablement",
+      "outcome": "Level-1 guarded single-step endpoint",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-126",
+      "phase": "level_1_guarded_single_step_enablement",
+      "outcome": "UI guarded execution review panel",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-127",
+      "phase": "level_1_guarded_single_step_enablement",
+      "outcome": "explicit Level-1 runtime transition checkpoint",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-128",
+      "phase": "patch_branch_draft_pr_pipeline",
+      "outcome": "patch proposal generator",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-129",
+      "phase": "patch_branch_draft_pr_pipeline",
+      "outcome": "patch transaction preview",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-130",
+      "phase": "patch_branch_draft_pr_pipeline",
+      "outcome": "human-approved patch apply one action",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-131",
+      "phase": "patch_branch_draft_pr_pipeline",
+      "outcome": "local branch proposal artifact",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-132",
+      "phase": "patch_branch_draft_pr_pipeline",
+      "outcome": "approved local branch creation",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-133",
+      "phase": "patch_branch_draft_pr_pipeline",
+      "outcome": "draft PR policy",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-134",
+      "phase": "patch_branch_draft_pr_pipeline",
+      "outcome": "draft PR creation",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-135",
+      "phase": "patch_branch_draft_pr_pipeline",
+      "outcome": "PR update from approved patch transaction",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-136",
+      "phase": "bounded_autonomous_loop",
+      "outcome": "bounded loop policy v1",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-137",
+      "phase": "bounded_autonomous_loop",
+      "outcome": "bounded retry and failure recovery",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-138",
+      "phase": "bounded_autonomous_loop",
+      "outcome": "Level-2 guarded bounded loop checkpoint",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-139",
+      "phase": "bounded_autonomous_loop",
+      "outcome": "Level-3 autonomous implementation loop candidate",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-140",
+      "phase": "self_improving_platform",
+      "outcome": "self-improvement proposal mode",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-141",
+      "phase": "self_improving_platform",
+      "outcome": "strict self-modification risk classifier",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-142",
+      "phase": "self_improving_platform",
+      "outcome": "self-improvement patch preview",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-143",
+      "phase": "self_improving_platform",
+      "outcome": "self-improvement dry-run verification",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-144",
+      "phase": "self_improving_platform",
+      "outcome": "self-improvement approved patch apply",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-145",
+      "phase": "self_improving_platform",
+      "outcome": "self-improvement draft PR creation",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-146",
+      "phase": "self_improving_platform",
+      "outcome": "Level-4 self-improvement checkpoint",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-147",
+      "phase": "post_level4_full_automation_foundation",
+      "outcome": "automation safety profile framework",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-148",
+      "phase": "post_level4_full_automation_foundation",
+      "outcome": "external recovery supervisor foundation",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-149",
+      "phase": "post_level4_full_automation_foundation",
+      "outcome": "candidate workspace manager",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-150",
+      "phase": "post_level4_full_automation_foundation",
+      "outcome": "boot self-diagnosis and stable checkpoint",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-151",
+      "phase": "conversational_atlas_ux",
+      "outcome": "buildless conversational Atlas shell contract with work target mode selector",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-152",
+      "phase": "conversational_atlas_ux",
+      "outcome": "buildless conversational shell implementation with backend-owned mode selector",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-153",
+      "phase": "self_improvement_candidate_execution",
+      "outcome": "self-improvement candidate apply",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-154",
+      "phase": "self_improvement_candidate_execution",
+      "outcome": "candidate verification gate",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-155",
+      "phase": "self_improvement_candidate_execution",
+      "outcome": "promotion gate and release pointer switch",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-156",
+      "phase": "self_improvement_candidate_execution",
+      "outcome": "automatic failure recovery v1",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-157",
+      "phase": "full_automation_execution",
+      "outcome": "autonomous loop execution v1",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-158",
+      "phase": "full_automation_execution",
+      "outcome": "full automation mode checkpoint",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-159",
+      "phase": "full_automation_execution",
+      "outcome": "self-improvement autonomous candidate loop",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "PR-ATLAS-SCALE-160",
+      "phase": "full_automation_execution",
+      "outcome": "fully autonomous code agent milestone",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "POST-SCALE-160-VUE-DEFAULT-PROMOTION-GATE",
+      "phase": "vue_default_promotion",
+      "outcome": "backend-only Vue default promotion readiness gate",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "POST-SCALE-160-VUE-DEFAULT-PROMOTION-APPLY",
+      "phase": "vue_default_promotion",
+      "outcome": "guarded Atlas Next root default with valid dist check and legacy UI fallback",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-GATE",
+      "phase": "stable_runtime_mutation",
+      "outcome": "backend-only stable runtime mutation readiness gate",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "POST-SCALE-160-UI-DEFAULT-RECONFIRM",
+      "phase": "planning_alignment",
+      "outcome": "reconfirm UI default policy and roadmap freshness before stable runtime mutation apply",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY",
+      "phase": "stable_runtime_mutation",
+      "outcome": "strictly approved stable runtime mutation apply record without direct merge, remote push, self-apply, or pointer switch",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "POST-SCALE-160-PRACTICAL-AUTOMATION-PLAN",
+      "phase": "practical_full_automation_experience",
+      "outcome": "define practical full automation experience plan and manifest wiring without runtime change",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "POST-SCALE-160-FASTUI-SHELL-MVP",
+      "phase": "practical_full_automation_experience",
+      "outcome": "deliver practical buildless FastUI/ThinUX conversational shell MVP",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP",
+      "phase": "practical_full_automation_experience",
+      "outcome": "deliver bounded practical autonomous development loop with visible progress and recovery",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "POST-SCALE-160-SELF-IMPROVEMENT-PRACTICAL-LOOP",
+      "phase": "practical_full_automation_experience",
+      "outcome": "deliver candidate-first practical self-improvement loop with verification and promotion gates",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "POST-SCALE-160-DRAFT-PR-EXPERIENCE",
+      "phase": "practical_full_automation_experience",
+      "outcome": "deliver user-visible draft PR preparation/update experience artifacts",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT",
+      "phase": "practical_full_automation_experience",
+      "outcome": "checkpoint practical full automation completion with backend authority and safety invariants preserved",
+      "runtime_change_allowed": true
+    },
+    {
+      "pr": "POST-SCALE-160-DIRECT-MERGE-GATE",
+      "phase": "direct_merge_safety",
+      "outcome": "prepare direct merge policy gate after stable mutation apply record",
+      "runtime_change_allowed": false
+    }
+  ],
+  "practical_full_automation_plan": "docs/atlas_practical_full_automation_experience_plan.md",
+  "practical_full_automation_complete": false,
+  "ui_practical_experience_complete": false,
+  "stable_runtime_mutation_apply_complete": false,
+  "self_improvement_practical_loop_complete": false,
+  "draft_pr_experience_complete": false
 }
