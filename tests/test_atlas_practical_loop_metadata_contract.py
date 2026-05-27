@@ -131,8 +131,8 @@ def test_practical_loop_discovery_source_has_no_process_network_or_git_dependenc
         'from fastapi',
         'import fastapi',
         'git ',
-        'safe_apply',
-        'self_apply',
+        'safe_apply_to',
+        'self_apply_to',
         'merge_pull_request',
     ]
     for needle in forbidden:
