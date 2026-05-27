@@ -45,6 +45,10 @@ def _coerce_string_list(value: Any) -> list[str]:
     return [item for item in value if isinstance(item, str) and item.strip()][:8]
 
 
+def _optional_text(value: Any, fallback: str) -> str:
+    return value if isinstance(value, str) and value.strip() else fallback
+
+
 def _build_guarded_execution_review() -> dict[str, Any]:
     contract = Level1GuardedExecutionSkeleton.build_disabled_level1_contract()
     gate_source_map = contract.get("gate_source_map") if isinstance(contract.get("gate_source_map"), list) else []
@@ -88,6 +92,41 @@ def _build_guarded_execution_review() -> dict[str, Any]:
     }
 
 
+def _build_practical_loop_metadata(
+    *,
+    metadata_payload: dict[str, Any],
+    artifacts_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Build UI-safe practical loop progress metadata without execution authority."""
+
+    verification_state = _optional_text(metadata_payload.get("verification_state"), "waiting_for_backend_checks")
+    if bool(artifacts_payload.get("dry_run", False)):
+        verification_state = _optional_text(metadata_payload.get("verification_state"), "dry_run_metadata_available")
+    return {
+        "schema_version": "atlas.practical_autonomous_dev_loop.v1",
+        "status": _optional_text(metadata_payload.get("practical_loop_status"), "metadata_only"),
+        "bounded_loop": bool(metadata_payload.get("bounded_loop", artifacts_payload.get("loop_bound", False))),
+        "max_iterations": _coerce_non_negative_int(metadata_payload.get("max_iterations")),
+        "current_iteration": _coerce_non_negative_int(metadata_payload.get("current_iteration")),
+        "allowed_actions_enforced": True,
+        "stop_condition": _optional_text(metadata_payload.get("stop_condition"), "manual_review_or_backend_gate"),
+        "changed_files_count": _coerce_non_negative_int(metadata_payload.get("patch_candidate_count")),
+        "verification_state": verification_state,
+        "recovery_state": _optional_text(metadata_payload.get("recovery_state"), "unknown"),
+        "draft_pr_state": _optional_text(metadata_payload.get("draft_pr_state"), "not_prepared"),
+        "latest_loop_run_id": metadata_payload.get("latest_loop_run_id"),
+        "latest_recovery_run_id": metadata_payload.get("latest_recovery_run_id"),
+        "latest_draft_pr_artifact_id": metadata_payload.get("latest_draft_pr_artifact_id"),
+        "execution_enabled": False,
+        "direct_merge_enabled": False,
+        "remote_git_push_enabled": False,
+        "self_apply_enabled": False,
+        "stable_runtime_mutation_enabled": False,
+        "vue_authoritative": False,
+        "advisory_only": True,
+    }
+
+
 def build_read_only_workflow_state(
     *,
     goal: str,
@@ -104,6 +143,10 @@ def build_read_only_workflow_state(
     metadata_payload = workflow_metadata or {}
     patch_transaction_available = bool(
         metadata_payload.get("patch_transaction_available", artifacts_payload.get("transaction", False))
+    )
+    practical_loop_metadata = _build_practical_loop_metadata(
+        metadata_payload=metadata_payload,
+        artifacts_payload=artifacts_payload,
     )
     return {
         "schema_version": "atlas.workflow_state.v1",
@@ -172,6 +215,7 @@ def build_read_only_workflow_state(
             "rollback_enabled": False,
             "advisory_only": True,
         },
+        "practical_loop_metadata": practical_loop_metadata,
         "guarded_execution_review": _build_guarded_execution_review(),
         "diagnostics": {
             "static_mount_deferred": False,
@@ -208,6 +252,7 @@ def build_read_only_workflow_state(
 
 
 def summarize_workflow_state_contract(payload: dict[str, Any]) -> dict[str, Any]:
+    practical_loop = payload.get("practical_loop_metadata") or {}
     return {
         "schema_version": str(payload.get("schema_version", "")),
         "contract": str(payload.get("contract", "")),
@@ -215,4 +260,6 @@ def summarize_workflow_state_contract(payload: dict[str, Any]) -> dict[str, Any]
         "manual_only": bool((payload.get("safety") or {}).get("manual_only", True)),
         "available_action_count": len(payload.get("available_actions") or []),
         "backend_contract_ready": bool((payload.get("diagnostics") or {}).get("backend_contract_ready", False)),
+        "practical_loop_status": str(practical_loop.get("status", "metadata_only")),
+        "practical_loop_advisory_only": bool(practical_loop.get("advisory_only", True)),
     }
