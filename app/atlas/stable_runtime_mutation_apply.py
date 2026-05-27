@@ -82,8 +82,10 @@ def create_stable_runtime_mutation_apply(
         "rollback_evidence_refs": list(valid_gate.get("rollback_evidence_refs", [])) if ready else [],
         "verification_evidence_refs": list(valid_gate.get("verification_evidence_refs", [])) if ready else [],
         "recovery_evidence_refs": list(valid_gate.get("recovery_evidence_refs", [])) if ready else [],
-        "stable_runtime_mutation_enabled": ready,
-        "stable_runtime_mutation_performed": ready,
+        "stable_runtime_mutation_apply_record_ready": ready,
+        "stable_runtime_mutation_apply_record_written": False,
+        "stable_runtime_mutation_enabled": False,
+        "stable_runtime_mutation_performed": False,
         "stable_runtime_mutation_apply_required": False if ready else True,
         "stable_runtime_mutation_apply_record_only": True,
         "backend_remains_authoritative": True,
@@ -136,6 +138,8 @@ def validate_stable_runtime_mutation_apply(apply_record: dict[str, Any]) -> dict
         "recovery_evidence_refs",
         "stable_runtime_mutation_enabled",
         "stable_runtime_mutation_performed",
+        "stable_runtime_mutation_apply_record_ready",
+        "stable_runtime_mutation_apply_record_written",
         "stable_runtime_mutation_apply_required",
         "stable_runtime_mutation_apply_record_only",
         "backend_remains_authoritative",
@@ -162,8 +166,11 @@ def validate_stable_runtime_mutation_apply(apply_record: dict[str, Any]) -> dict
         "rollback_evidence_refs": (not applied) or bool(apply_record.get("rollback_evidence_refs")),
         "verification_evidence_refs": (not applied) or bool(apply_record.get("verification_evidence_refs")),
         "recovery_evidence_refs": (not applied) or bool(apply_record.get("recovery_evidence_refs")),
-        "stable_runtime_mutation_enabled": apply_record.get("stable_runtime_mutation_enabled") is applied,
-        "stable_runtime_mutation_performed": apply_record.get("stable_runtime_mutation_performed") is applied,
+        "stable_runtime_mutation_enabled": apply_record.get("stable_runtime_mutation_enabled") is False,
+        "stable_runtime_mutation_performed": apply_record.get("stable_runtime_mutation_performed") is False,
+        "stable_runtime_mutation_apply_record_ready": apply_record.get("stable_runtime_mutation_apply_record_ready") is applied,
+        "stable_runtime_mutation_apply_record_written": apply_record.get("stable_runtime_mutation_apply_record_written")
+        in {False, applied},
         "stable_runtime_mutation_apply_required": apply_record.get("stable_runtime_mutation_apply_required") is (not applied),
         "stable_runtime_mutation_apply_record_only": apply_record.get("stable_runtime_mutation_apply_record_only") is True,
         "backend_remains_authoritative": apply_record.get("backend_remains_authoritative") is True,
@@ -176,7 +183,10 @@ def validate_stable_runtime_mutation_apply(apply_record: dict[str, Any]) -> dict
 
 
 def write_stable_runtime_mutation_apply(*, data_root: str | Path, apply_record: dict[str, Any]) -> Path:
-    validated = validate_stable_runtime_mutation_apply(apply_record)
+    record_to_write = dict(apply_record)
+    if record_to_write.get("status") == "applied":
+        record_to_write["stable_runtime_mutation_apply_record_written"] = True
+    validated = validate_stable_runtime_mutation_apply(record_to_write)
     root = Path(data_root).expanduser().resolve()
     apply_id = str(validated.get("apply_id", _apply_id(_utc_now())))
     path = root / "atlas" / "stable_runtime_mutation_applies" / apply_id / "manifest.json"
