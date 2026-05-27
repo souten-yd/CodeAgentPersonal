@@ -8,6 +8,7 @@
     </header>
     <div class="workbench-layout">
       <section class="conversation-column">
+        <FastUiShellMvp :snapshot="snapshot" />
         <section class="guided-flow" aria-label="Guided Atlas requirement flow">
           <RequirementInput />
           <ConversationWorkbench />
@@ -34,6 +35,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { fetchAtlasWorkflowSnapshot, type AtlasWorkflowSnapshot } from '../api/atlasClient'
+import FastUiShellMvp from './FastUiShellMvp.vue'
 import ConversationWorkbench from './ConversationWorkbench.vue'
 import RequirementInput from './RequirementInput.vue'
 import PlanLifecycleStrip from './PlanLifecycleStrip.vue'
