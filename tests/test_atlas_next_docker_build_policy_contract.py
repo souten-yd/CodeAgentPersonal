@@ -3,22 +3,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_docker_build_compiles_atlas_next_after_copy():
+def test_docker_build_does_not_compile_atlas_next():
+    """POST-SCALE-160-UI-DEFAULT-RECONFIRM: the buildless ui.html shell is
+    the only Atlas default, so the optional Vue/atlas-next preview is no
+    longer built at image-build time. The forbidden tokens must NOT appear in
+    the Dockerfile."""
+
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
     copy_marker = "# Copy full application source at runtime tail to avoid invalidating SBV2/HF/GGUF heavy layers.\nCOPY . /app"
-    build_markers = [
+    assert copy_marker in dockerfile
+
+    forbidden_build_markers = [
         "if [ -f /app/web/atlas-next/package.json ]; then",
         "cd /app/web/atlas-next;",
         "npm ci;",
         "npm run build;",
     ]
-
-    assert copy_marker in dockerfile
-    copy_index = dockerfile.index(copy_marker)
-    for marker in build_markers:
-        assert marker in dockerfile
-        assert copy_index < dockerfile.index(marker)
+    for marker in forbidden_build_markers:
+        assert marker not in dockerfile, f"Dockerfile must not contain '{marker}' after UI default reconfirmation"
 
 
 def test_policy_keeps_vue_build_out_of_runtime_startup():

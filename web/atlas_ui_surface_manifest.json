@@ -130,15 +130,6 @@
       "safety_notes": "Buildless conversational Atlas shell; backend-authoritative; legacy panel preserved as fallback."
     },
     {
-      "id": "atlas-shell-select",
-      "label": "Atlas shell selector",
-      "category": "minimal_workflow",
-      "default_visible": true,
-      "reason": "Switch between Claude-style chat shell and legacy Atlas panel.",
-      "can_hide": false,
-      "safety_notes": "Selection persists in localStorage; fallback always reachable."
-    },
-    {
       "id": "atlas-claude-transcript",
       "label": "Atlas chat transcript",
       "category": "minimal_workflow",
@@ -217,7 +208,7 @@
       "default_visible": true,
       "reason": "Always-available exit to legacy Atlas panel.",
       "can_hide": false,
-      "safety_notes": "Hard-coded fallback path; sets atlas_shell_preference=legacy."
+      "safety_notes": "Hard-coded session-only fallback path; hides #atlas-claude-col and shows #atlas-panel-col without persistence."
     },
     {
       "id": "atlas-workflow-diagnostics-toggle",
@@ -1375,9 +1366,11 @@
   "level1_next_pr_may_add_metadata_snapshot_comparison": true,
   "claude_chat_panel_enabled": true,
   "claude_chat_panel_buildless": true,
-  "claude_chat_panel_replaces_legacy_atlas_panel": false,
-  "claude_chat_panel_legacy_fallback_enabled": true,
-  "claude_chat_panel_legacy_fallback_route": "data-atlas-shell=legacy",
+  "claude_chat_panel_always_default": true,
+  "claude_chat_panel_replaces_legacy_atlas_panel_visually": true,
+  "claude_chat_panel_legacy_dom_preserved_for_js_compat": true,
+  "claude_chat_panel_legacy_dom_user_visible_default": false,
+  "claude_chat_panel_emergency_legacy_fallback_button": true,
   "claude_chat_panel_default_automation_profile_preset": "review_only",
   "claude_chat_panel_self_improvement_default": false,
   "claude_chat_panel_explicit_profile_selection_required": true,

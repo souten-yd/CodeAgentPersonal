@@ -33,12 +33,7 @@ Forbidden:
 
 ## Layout
 
-Atlas mode renders one of two panels depending on `localStorage['atlas_shell_preference']`:
-
-- `claude` (default): `#atlas-claude-col`.
-- `legacy`: `#atlas-panel-col` (existing dashboard, unchanged).
-
-A small `<select id="atlas-shell-select">` near the Atlas mode button lets the user switch at any time. The selector persists into local storage and is hidden in non-Atlas modes.
+Atlas mode always renders the Claude chat shell (`#atlas-claude-col`). The legacy `#atlas-panel-col` DOM is preserved verbatim but hidden by default; it remains in the document so `AtlasDashboard` JS lookups (Stop, Recover, etc.) keep resolving. An emergency `Open legacy Atlas panel` button lives in the Diagnostics drawer for the current session only; the previous header dropdown and `localStorage['atlas_shell_preference']` toggle have been removed (POST-SCALE-160-UI-DEFAULT-RECONFIRM applied).
 
 ## DOM contract
 
@@ -64,9 +59,9 @@ Browser state is ephemeral:
 
 Persisted (localStorage) keys:
 
-- `atlas_shell_preference` — `"claude"` or `"legacy"`.
 - `atlas_claude_last_goal` — the most recent free-text goal.
-- `atlas_claude_transcript_window_index` — reserved for future rolling-window features.
+
+The previous `atlas_shell_preference` key has been removed; the Claude shell is the only Atlas shell after POST-SCALE-160-UI-DEFAULT-RECONFIRM.
 
 ## Automation Profile presets
 
@@ -111,13 +106,11 @@ Reused (unchanged): `POST /api/atlas/plan-pools`, `POST /api/atlas/pipeline/dry-
 
 ## Fallback policy
 
-Five layers of fallback to the legacy panel:
+Three layers of fallback to the legacy panel remain available even though the dropdown is gone:
 
-1. Per-user preference (`atlas_shell_preference = legacy`).
-2. CSS attribute `data-atlas-shell="legacy"` (visual switch only).
-3. Always-visible `Use legacy panel` button in the header.
-4. Diagnostics drawer `Open legacy Atlas panel` redundant entry.
-5. If `atlas_claude_panel.js` fails to load, the inline `setMode` script falls back to showing `#atlas-panel-col` directly.
+1. Diagnostics drawer `Open legacy Atlas panel` (session-only; no persistence).
+2. Header `Use legacy panel` ghost button (session-only).
+3. If `atlas_claude_panel.js` fails to load, the inline `setMode` script auto-flips to `#atlas-panel-col` after 5 seconds.
 
 Recovery, stop, and approval semantics continue to be owned by the legacy module; the new shell synthesises clicks on the legacy buttons.
 
@@ -127,7 +120,7 @@ Recovery, stop, and approval semantics continue to be owned by the legacy module
 - Backend endpoints live in `app/api/atlas_automation_safety_profile.py`; registered in `app/server.py` `include_routers`.
 - Envelope recipes live in `app/atlas/pre_authorized_bounded_dev_envelope.py`.
 - Autonomous loop session preparation lives in `app/atlas/autonomous_loop_envelope_runner.py`.
-- The legacy panel `#atlas-panel-col` and its inline JS remain unchanged; `setMode('atlas')` branches on `localStorage['atlas_shell_preference']`.
+- The legacy panel `#atlas-panel-col` and its inline JS remain unchanged; `setMode('atlas')` always shows the Claude shell and keeps the legacy panel hidden (in-DOM for `AtlasDashboard` JS compatibility).
 - The `automation_safety_profile.py` `_PROFILE_CAPABILITIES` matrix, `validate_automation_safety_profile` invariants, and `write_automation_safety_profile` schema are unchanged.
 
 ## Acceptance criteria

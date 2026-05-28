@@ -2,10 +2,10 @@
 /**
  * Atlas Claude-Code-style buildless conversational panel.
  *
- * Exposes window.AtlasClaudePanel. The shell is additive: it renders inside
- * #atlas-claude-col which lives next to the legacy #atlas-panel-col in
- * ui.html. setMode('atlas') chooses between the two based on
- * localStorage['atlas_shell_preference'] (default 'claude').
+ * Exposes window.AtlasClaudePanel. The shell renders inside #atlas-claude-col
+ * which is the only user-visible Atlas shell after POST-SCALE-160-UI-DEFAULT
+ * -RECONFIRM. The legacy #atlas-panel-col stays in DOM (hidden) so
+ * AtlasDashboard JS lookups still resolve.
  *
  * Backend authority is preserved: every action maps to an existing
  * AtlasPipelineAPI method or to a backend route. The shell does not bypass
@@ -16,9 +16,7 @@
 (function () {
   'use strict';
   const root = (typeof window !== 'undefined' ? window : globalThis);
-  const STORAGE_SHELL_KEY = 'atlas_shell_preference';
   const STORAGE_LAST_GOAL_KEY = 'atlas_claude_last_goal';
-  const STORAGE_TRANSCRIPT_KEY = 'atlas_claude_transcript_window_index';
   const TRANSCRIPT_MAX_MESSAGES = 200;
   const POLL_INTERVAL_MS = 8000;
   const CONFIRM_TEXT = 'SELECT AUTOMATION PROFILE';
@@ -493,7 +491,9 @@
   }
 
   function openLegacyShell() {
-    try { localStorage.setItem(STORAGE_SHELL_KEY, 'legacy'); } catch (_err) {}
+    // Emergency-only escape hatch. We do NOT persist shell preference; the
+    // Claude shell is the only Atlas shell going forward. Reopen by clicking
+    // the Atlas mode button again.
     const claudeCol = $('atlas-claude-col');
     const legacyCol = $('atlas-panel-col');
     if (claudeCol) claudeCol.style.display = 'none';

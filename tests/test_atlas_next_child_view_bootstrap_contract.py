@@ -33,6 +33,9 @@ def test_child_view_hides_legacy_atlas_surfaces_but_keeps_root_shell_fallback():
     for selector in hidden_surfaces:
         assert selector in bootstrap
     assert "return serve_existing_ui_index()" in main
-    assert "ATLAS_NEXT_DEFAULT_ENABLED = True" in main
+    # POST-SCALE-160-UI-DEFAULT-RECONFIRM applied: default flipped to the
+    # buildless ui.html + Claude chat panel; the guarded Atlas Next default
+    # remains code-reachable via the same helper but is now opt-in.
+    assert "ATLAS_NEXT_DEFAULT_ENABLED = False" in main
     assert "can_serve_atlas_next_default()" in main
     assert "validate_atlas_next_dist()" in main

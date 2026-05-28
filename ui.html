@@ -70,10 +70,6 @@
     <div class="mode-wrap">
       <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Lumen</button>
       <button class="mode-btn" id="btn-atlas" onclick="setMode('atlas')">Atlas</button>
-      <select id="atlas-shell-select" class="mode-shell-select" aria-label="Atlas shell" style="display:none;font-size:10px;background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:2px 4px;margin-left:4px">
-        <option value="claude">Chat (Claude-style)</option>
-        <option value="legacy">Legacy panel</option>
-      </select>
             <button class="mode-btn" id="btn-echo" onclick="setMode('echo')">Echo</button>
       <button class="mode-btn" id="btn-nexus" onclick="setMode('nexus')">Nexus</button>
     </div>
@@ -164,8 +160,8 @@
     </div>
   </div>
 
-  <!-- ATLAS CLAUDE SHELL (buildless conversational, default) -->
-  <div class="atlas-claude-col mob-hidden" id="atlas-claude-col" data-atlas-shell="claude" style="display:none" aria-label="Atlas conversational shell">
+  <!-- ATLAS CLAUDE SHELL (buildless conversational, always default) -->
+  <div class="atlas-claude-col" id="atlas-claude-col" data-atlas-shell="claude" style="display:none" aria-label="Atlas conversational shell">
     <header class="atlas-claude-header">
       <div class="atlas-claude-titles">
         <span class="atlas-claude-title">Atlas</span>
@@ -235,7 +231,7 @@
     <details class="atlas-claude-diagnostics-drawer">
       <summary>Diagnostics</summary>
       <button type="button" id="atlas-claude-open-legacy-btn" class="atlas-claude-ghost-btn">Open legacy Atlas panel</button>
-      <p class="atlas-claude-muted">The legacy Atlas dashboard remains available as a fallback. Toggle <code>localStorage['atlas_shell_preference']</code> back to <code>claude</code> to return to this shell.</p>
+      <p class="atlas-claude-muted">Emergency fallback only. The Claude shell is the standard Atlas surface; re-click the Atlas mode button to return to it (no persistence).</p>
     </details>
   </div>
 
@@ -6251,22 +6247,12 @@ function bindModeAndNexusTapHandlers() {
   ['dashboard','library','research','sources','evidence','reports','settings','news','market','web-scout','deep-research','compare','formula'].forEach((name) => {
     _bindTapClick(document.getElementById('nexus-btn-' + name), () => switchNexusTab(name));
   });
-  const atlasShellSelect = document.getElementById('atlas-shell-select');
-  if (atlasShellSelect) {
-    atlasShellSelect.addEventListener('change', (ev) => {
-      const value = ev.target && ev.target.value === 'legacy' ? 'legacy' : 'claude';
-      try { localStorage.setItem('atlas_shell_preference', value); } catch (_err) {}
-      if (typeof setMode === 'function') setMode('atlas');
-    });
-  }
 }
 
 function setMode(m, options = {}) {
   if (m === 'task') m = 'chat';
   if (!isValidUiMode(m)) m = 'chat';
   if (m !== 'atlas') {
-    const sel = document.getElementById('atlas-shell-select');
-    if (sel) sel.style.display = 'none';
     try { window.AtlasClaudePanel?.deactivate(); } catch (_err) {}
   }
   const shouldRestoreSubtab = options.restore !== false;
@@ -6333,55 +6319,43 @@ function setMode(m, options = {}) {
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     const atlasClaudeCol = document.getElementById('atlas-claude-col');
-    const atlasShellSelect = document.getElementById('atlas-shell-select');
-    let atlasShellPref = 'claude';
-    try { atlasShellPref = localStorage.getItem('atlas_shell_preference') || 'claude'; } catch (_e) {}
-    if (atlasShellSelect) {
-      atlasShellSelect.style.display = '';
-      atlasShellSelect.value = atlasShellPref;
-    }
-    if (atlasShellPref === 'legacy') {
-      if (atlasClaudeCol) atlasClaudeCol.style.display = 'none';
-      if (atlasPanelCol) atlasPanelCol.style.display = '';
-      try { window.AtlasClaudePanel?.deactivate(); } catch (_err) {}
-    } else {
-      if (atlasPanelCol) atlasPanelCol.style.display = 'none';
-      if (atlasClaudeCol) {
-        atlasClaudeCol.style.display = '';
-        if (window.AtlasClaudePanel && typeof window.AtlasClaudePanel.activate === 'function') {
-          try { window.AtlasClaudePanel.activate(); } catch (_err) {}
-        } else {
-          // atlas_claude_panel.js failed to load. Fall back to legacy after a short delay.
-          setTimeout(() => {
-            if (!window.AtlasClaudePanel) {
-              try { localStorage.setItem('atlas_shell_preference', 'legacy'); } catch (_err) {}
-              if (atlasClaudeCol) atlasClaudeCol.style.display = 'none';
-              if (atlasPanelCol) atlasPanelCol.style.display = '';
-              try {
-                restoreAtlasSubviewState();
-              } catch (_err) {
-                try { setAtlasSubview('start'); } catch (_e) {}
-                try { ensureAtlasWorkbenchHost(); } catch (_e) {}
-              }
+    // Claude shell is the only Atlas shell. Legacy #atlas-panel-col stays in
+    // DOM (hidden) so AtlasDashboard JS lookups still resolve.
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (atlasClaudeCol) {
+      atlasClaudeCol.style.display = '';
+      atlasClaudeCol.classList.remove('mob-hidden');
+      if (window.AtlasClaudePanel && typeof window.AtlasClaudePanel.activate === 'function') {
+        try { window.AtlasClaudePanel.activate(); } catch (err) { console.warn('Atlas Claude panel activate failed:', err); }
+      } else {
+        // atlas_claude_panel.js failed to load; fall back to legacy after a short delay.
+        setTimeout(() => {
+          if (!window.AtlasClaudePanel && atlasClaudeCol) {
+            atlasClaudeCol.style.display = 'none';
+            if (atlasPanelCol) atlasPanelCol.style.display = '';
+            try {
+              restoreAtlasSubviewState();
+            } catch (err) {
+              console.warn('Atlas legacy restore failed:', err);
+              try { setAtlasSubview('start'); } catch (_e) {}
+              try { ensureAtlasWorkbenchHost(); } catch (_e) {}
             }
-          }, 5000);
-        }
-      } else if (atlasPanelCol) {
-        atlasPanelCol.style.display = '';
+          }
+        }, 5000);
+      }
+    } else if (atlasPanelCol) {
+      atlasPanelCol.style.display = '';
+      try {
+        restoreAtlasSubviewState();
+      } catch (err) {
+        console.warn('Atlas legacy restore failed:', err);
+        try { setAtlasSubview('start'); } catch (_e) {}
+        try { ensureAtlasWorkbenchHost(); } catch (_e) {}
       }
     }
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
-    if (atlasShellPref === 'legacy') {
-      try {
-        restoreAtlasSubviewState();
-      } catch (err) {
-        console.warn('Atlas restore failed in setMode(atlas):', err);
-        try { setAtlasSubview('start'); } catch (_err) {}
-        try { ensureAtlasWorkbenchHost(); } catch (_err) {}
-      }
-    }
   } else if (m === 'nexus') {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -9604,8 +9578,16 @@ function mobSwitch(name, options = {}) {
     atc?.classList.add('mob-hidden');
   } else if (name === 'atlas') {
     if (mode !== 'atlas') { setMode('atlas'); return; }
-    restoreAtlasSubviewState();
-    atc?.classList.remove('mob-hidden');
+    const claudeCol = document.getElementById('atlas-claude-col');
+    if (claudeCol) {
+      claudeCol.classList.remove('mob-hidden');
+      claudeCol.style.display = '';
+      try { window.AtlasClaudePanel?.activate(); } catch (_err) {}
+      atc?.classList.add('mob-hidden');
+    } else {
+      restoreAtlasSubviewState();
+      atc?.classList.remove('mob-hidden');
+    }
     ap?.classList.add('mob-hidden');
     ac?.classList.add('mob-hidden');
     cc?.classList.add('mob-hidden');

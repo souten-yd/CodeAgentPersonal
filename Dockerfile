@@ -570,12 +570,10 @@ PY
 # Copy full application source at runtime tail to avoid invalidating SBV2/HF/GGUF heavy layers.
 COPY . /app
 
-RUN set -eux; \
-    if [ -f /app/web/atlas-next/package.json ]; then \
-      cd /app/web/atlas-next; \
-      npm ci; \
-      npm run build; \
-    fi
+# POST-SCALE-160-UI-DEFAULT-RECONFIRM: the buildless ui.html (with the Claude
+# chat panel) is the default Atlas UI. The optional Vue/atlas-next preview is
+# no longer built at runtime. Build it manually with `cd web/atlas-next && npm
+# ci && npm run build` only if you need the /atlas-next preview route.
 
 COPY docker/start-services.sh /usr/local/bin/start-services.sh
 RUN chmod +x /usr/local/bin/start-services.sh
