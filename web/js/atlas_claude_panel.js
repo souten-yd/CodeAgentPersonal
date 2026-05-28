@@ -398,9 +398,165 @@
       pushAtlasMessage('PlanPool created but no pool id was returned.');
       return;
     }
-    pushAtlasMessage(`PlanPool created: \`${poolId}\``);
+    pushAtlasMessage(`PlanPool 作成: \`${poolId}\``);
+    if (resp.data && resp.data.planner_status === 'fallback_used') {
+      pushSystemMessage('注意: LLM 未接続のため fallback プランです。実際のコード生成は LLM 起動が必要です。');
+    }
     await renderPlanPoolMarkdown(poolId);
     setBusy(false);
+
+    // If a full-automation preset is selected AND the envelope is active,
+    // offer the user a one-click approval that runs patch generation +
+    // approval + autopilot end-to-end without any further chat input.
+    const preset = state.presets.find((p) => p.id === state.selectedPresetId);
+    const envelope = state.latestEnvelope;
+    const envelopeActive = envelope && envelope.status === 'active' && envelope.envelope_id !== 'none';
+    if (preset && preset.enables_full_automation && envelopeActive) {
+      appendApprovalPrompt(poolId);
+    } else if (preset && preset.enables_full_automation && !envelopeActive) {
+      pushSystemMessage('Features → 「Apply」で Profile を確定するとここに「承認して実行」ボタンが出ます。');
+    } else {
+      pushSystemMessage('Profile 4 (Bounded Dev) / 5 (Self-Improvement) を Apply すると自動実行が可能になります。');
+    }
+  }
+
+  function appendApprovalPrompt(poolId) {
+    if (!dom.transcript) return;
+    const node = document.createElement('div');
+    node.className = 'atlas-claude-msg';
+    node.dataset.role = 'system';
+    node.style.flexDirection = 'column';
+    node.style.gap = '6px';
+    const text = document.createElement('div');
+    text.textContent = 'この Plan を実行しますか？';
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '6px';
+    const approve = document.createElement('button');
+    approve.type = 'button';
+    approve.className = 'atlas-claude-primary-btn';
+    approve.textContent = '承認して実行';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'atlas-claude-secondary-btn';
+    cancel.textContent = 'キャンセル';
+    approve.addEventListener('click', () => {
+      node.remove();
+      approveAndRunPipeline(poolId);
+    });
+    cancel.addEventListener('click', () => {
+      node.remove();
+      pushSystemMessage('キャンセルしました');
+    });
+    actions.appendChild(approve);
+    actions.appendChild(cancel);
+    node.appendChild(text);
+    node.appendChild(actions);
+    dom.transcript.appendChild(node);
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  async function approveAndRunPipeline(poolId) {
+    if (!root.AtlasPipelineAPI) return;
+    setBusy(true);
+    try {
+      // 1. Re-fetch the pool to get up-to-date items.
+      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
+      if (!pool.ok || !pool.data) {
+        pushAtlasMessage(`Plan 取得失敗: ${formatError(pool)}`);
+        return;
+      }
+      const items = pool.data.items || pool.data.plan_items || [];
+      if (!items.length) {
+        pushAtlasMessage('Plan にアイテムがありません。');
+        return;
+      }
+
+      // 2. Generate patch proposals for every item via the LLM.
+      pushSystemMessage(`Patch 生成中 (${items.length} items)...`);
+      let generated = 0;
+      const genFailures = [];
+      for (const it of items) {
+        const itemId = it.item_id || it.id;
+        if (!itemId) continue;
+        const r = await root.AtlasPipelineAPI.generatePatchProposal({
+          pool_id: poolId,
+          item_id: itemId,
+          workspace_id: 'default',
+        });
+        const okStatus = r && r.ok && r.data
+          && r.data.status && /(proposed|completed|approved)/i.test(String(r.data.status));
+        if (okStatus) {
+          generated += 1;
+        } else {
+          genFailures.push({ id: itemId, msg: formatError(r) });
+        }
+      }
+      pushSystemMessage(`Patch 生成: ${generated}/${items.length} success`);
+      if (genFailures.length) {
+        pushAtlasMessage(`一部失敗:\n${genFailures.map((f) => `- \`${f.id}\`: ${f.msg}`).join('\n')}`);
+      }
+
+      // 3. Approve each generated patch proposal so the autopilot will pick it up.
+      pushSystemMessage('アイテムを承認中...');
+      for (const it of items) {
+        const itemId = it.item_id || it.id;
+        if (!itemId) continue;
+        await root.AtlasPipelineAPI.decidePatchProposal({
+          pool_id: poolId,
+          item_id: itemId,
+          decision: 'approve',
+        });
+      }
+
+      // 4. Run the autopilot end-to-end. Envelope authorises require_approval=false.
+      const envelope = state.latestEnvelope || {};
+      const bounds = envelope.bounds || {};
+      pushSystemMessage('Autopilot 実行中...');
+      const result = await root.AtlasPipelineAPI.runMultiItemAutopilot({
+        pool_id: poolId,
+        policy_id: 'guarded_multi_item_v1',
+        max_items: Math.min(bounds.max_actions_per_loop || 12, items.length),
+        max_runtime_seconds: bounds.max_runtime_seconds || 1800,
+        max_changed_files_total: bounds.max_files_changed || 25,
+        dry_run: false,
+        require_approval: false,
+        include_context_refresh: true,
+        include_evaluator: true,
+        include_bounded_retry: true,
+        metadata: { ui: 'atlas_claude_panel', envelope_id: envelope.envelope_id },
+      });
+
+      if (!result.ok) {
+        pushAtlasMessage(`Autopilot 失敗: ${formatError(result)}`);
+        return;
+      }
+      renderAutopilotResult(result.data || {});
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderAutopilotResult(d) {
+    const lines = [
+      '# 実行完了',
+      `- status: \`${d.status || 'unknown'}\``,
+      `- 完了: ${d.completed_count || 0}`,
+      `- 失敗: ${d.failed_count || 0}`,
+      `- ブロック: ${d.blocked_count || 0}`,
+      `- スキップ: ${d.skipped_count || 0}`,
+    ];
+    if (d.stop_reason) lines.push(`- stop_reason: \`${d.stop_reason}\``);
+    const itemResults = d.item_results || [];
+    if (itemResults.length) {
+      lines.push('', '## アイテム別結果');
+      itemResults.forEach((r) => {
+        const status = r.status || '?';
+        const reason = r.reason ? ` (${r.reason})` : '';
+        lines.push(`- \`${r.item_id}\`: ${status}${reason}`);
+      });
+    }
+    pushAtlasMessage(lines.join('\n'));
   }
 
   async function renderPlanPoolMarkdown(poolId) {
