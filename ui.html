@@ -182,7 +182,7 @@
     <section class="atlas-claude-input-wrap">
       <textarea id="atlas-claude-input" class="atlas-claude-input" rows="1" placeholder="指示を入力..."></textarea>
       <div class="atlas-claude-input-actions">
-        <button type="button" id="atlas-claude-feature-btn" class="atlas-claude-ghost-btn" aria-haspopup="true">Features</button>
+        <button class="mic-btn atlas-claude-mic-btn" type="button" id="atlas-claude-mic-btn" onclick="toggleVoiceInput('atlas-claude')" title="音声入力 (Atlas)">🎙</button>
         <button type="button" id="atlas-claude-stop-btn" class="atlas-claude-secondary-btn" style="display:none">Stop</button>
         <button type="button" id="atlas-claude-send-btn" class="atlas-claude-primary-btn">Send</button>
       </div>
@@ -11131,7 +11131,9 @@ function cancelEdit(msgEl) {
 }
 
 function _micBtn(target='chat'){
-  return document.getElementById(target === 'agent' ? 'agent-mic-btn' : 'mic-btn');
+  if (target === 'agent') return document.getElementById('agent-mic-btn');
+  if (target === 'atlas-claude') return document.getElementById('atlas-claude-mic-btn');
+  return document.getElementById('mic-btn');
 }
 function _setMicState(recording=false, disabled=false, target='chat'){
   const btn = _micBtn(target);
@@ -11236,7 +11238,8 @@ async function toggleVoiceInput(target = 'chat', autoRestart = false){
       stream.getTracks().forEach(t => t.stop());
       _stopVoiceLevelMonitoring(voiceTarget);
       const blob = new Blob(voiceChunks, {type: mimeType});
-      await transcribeVoiceBlob(blob, {targetInputId: voiceTarget === 'agent' ? 'agent-input' : 'input', autoSendAfterAsr: true, target: voiceTarget});
+      const _targetInputId = voiceTarget === 'agent' ? 'agent-input' : (voiceTarget === 'atlas-claude' ? 'atlas-claude-input' : 'input');
+      await transcribeVoiceBlob(blob, {targetInputId: _targetInputId, autoSendAfterAsr: true, target: voiceTarget});
       voiceRecorder = null;
       voiceChunks = [];
       if (voiceContinuousEnabled) _maybeRestartContinuousVoice();
@@ -11338,6 +11341,9 @@ async function transcribeVoiceBlob(blob, opts = {}){
           } else if (shouldAutoSend && input?.id === 'agent-input') {
             addLog('info','voice','auto send after asr (agent)');
             sendAgentInput();
+          } else if (shouldAutoSend && input?.id === 'atlas-claude-input') {
+            addLog('info','voice','auto send after asr (atlas-claude)');
+            try { window.AtlasClaudePanel?.sendChatMessage(); } catch (_e) {}
           }
           if (statusFn) statusFn(`ASR入力完了 (${ev.language || lang})`);
           addLog('ok','voice',`transcribed (${ev.language || lang})`);
@@ -16297,7 +16303,7 @@ function testSkill(skillName) {
 <script src="/static/js/nexus.js"></script>
 <script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-40"></script>
 <script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-40"></script>
-<script src="/static/js/atlas_claude_panel.js?v=claude-chat-7"></script>
+<script src="/static/js/atlas_claude_panel.js?v=claude-chat-8"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

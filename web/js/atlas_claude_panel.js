@@ -53,7 +53,6 @@
     dom.input = $('atlas-claude-input');
     dom.sendBtn = $('atlas-claude-send-btn');
     dom.stopBtn = $('atlas-claude-stop-btn');
-    dom.featuresBtn = $('atlas-claude-feature-btn');
     dom.featuresDrawer = $('atlas-claude-features-drawer');
     dom.profileResult = $('atlas-claude-profile-result');
     dom.previewBtn = $('atlas-claude-preview-profile-btn');
@@ -83,11 +82,6 @@
     }
     if (dom.sendBtn) dom.sendBtn.addEventListener('click', () => sendChatMessage());
     if (dom.stopBtn) dom.stopBtn.addEventListener('click', () => onStop());
-    if (dom.featuresBtn && dom.featuresDrawer) {
-      dom.featuresBtn.addEventListener('click', () => {
-        dom.featuresDrawer.open = !dom.featuresDrawer.open;
-      });
-    }
     if (dom.previewBtn) dom.previewBtn.addEventListener('click', () => previewProfile());
     if (dom.selectBtn) dom.selectBtn.addEventListener('click', () => selectProfile());
     if (dom.confirmInput) dom.confirmInput.addEventListener('input', updateSelectButtonState);
@@ -559,7 +553,19 @@
         if (okStatus) {
           generated += 1;
         } else {
-          genFailures.push({ id: itemId, msg: formatError(r) });
+          // Build a richer error: include backend warnings, status, and the
+          // formatted HTTP-level error so the user can investigate.
+          let msg = formatError(r);
+          if (r && r.ok && r.data) {
+            const status = r.data.status || 'unknown';
+            const warnings = Array.isArray(r.data.warnings) ? r.data.warnings : [];
+            const errors = Array.isArray(r.data.errors) ? r.data.errors : [];
+            const parts = [`status=${status}`];
+            if (warnings.length) parts.push(`warnings=${warnings.join('; ')}`);
+            if (errors.length) parts.push(`errors=${errors.join('; ')}`);
+            msg = parts.join(' / ');
+          }
+          genFailures.push({ id: itemId, msg });
         }
         updateStage(stages, 'patch', 'running', `${i + 1}/${items.length}`);
       }
@@ -700,11 +706,46 @@
     if (!summary) return;
     summary.innerHTML = '';
 
+    const stopped = d.status === 'patch_generation_failed' || d.status === 'autopilot_failed';
+
+    // Counts: when autopilot did not run, the 0/0/0/0 line is misleading.
+    // Show an explicit "stopped" line with the upstream failure instead.
     const counts = document.createElement('div');
     counts.className = 'atlas-claude-summary-counts';
-    counts.textContent = `完了 ${d.completed_count || 0}  失敗 ${d.failed_count || 0}  ブロック ${d.blocked_count || 0}  スキップ ${d.skipped_count || 0}`;
+    if (d.status === 'patch_generation_failed') {
+      const n = (d.genFailures || []).length;
+      counts.textContent = `Patch 段階で停止 — ${n} 件の生成失敗。Autopilot は未実行。`;
+    } else if (d.status === 'autopilot_failed') {
+      counts.textContent = `Autopilot 起動失敗 — ${d.error || 'unknown'}`;
+    } else {
+      counts.textContent = `完了 ${d.completed_count || 0}  失敗 ${d.failed_count || 0}  ブロック ${d.blocked_count || 0}  スキップ ${d.skipped_count || 0}`;
+    }
     summary.appendChild(counts);
-    updateStage(block, 'summary', d.failed_count > 0 || d.status === 'autopilot_failed' || d.status === 'patch_generation_failed' ? 'failed' : 'done', d.stop_reason ? `stop: ${d.stop_reason}` : '');
+    updateStage(block, 'summary', (d.failed_count > 0 || stopped) ? 'failed' : 'done', d.stop_reason ? `stop: ${d.stop_reason}` : '');
+
+    // Patch-stage failure detail: surface per-item error messages so the user
+    // can investigate WHY generation failed (LLM down, missing fields, etc.).
+    if (d.status === 'patch_generation_failed' && d.genFailures && d.genFailures.length) {
+      const box = document.createElement('div');
+      box.className = 'atlas-claude-summary-recovery';
+      const head = document.createElement('div');
+      head.className = 'atlas-claude-summary-head';
+      head.textContent = `Patch 生成失敗の詳細 (${d.genFailures.length} 件)`;
+      box.appendChild(head);
+      const ul = document.createElement('ul');
+      d.genFailures.forEach((f) => {
+        const li = document.createElement('li');
+        const msg = String(f.msg || 'unknown').slice(0, 500);
+        li.textContent = `${f.id}: ${msg}`;
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+      const hint = document.createElement('div');
+      hint.className = 'atlas-claude-summary-pr-hint';
+      hint.innerHTML = '<strong>調査方法:</strong> ① LLM が起動しているか（ヘッダーの LLM ready 表示）/ ② 失敗した item の goal / target_files / description / done_definition が埋まっているか / ③ サーバ側ログで <code>patch_proposal</code> 関連スタックトレース';
+      box.appendChild(hint);
+      summary.appendChild(box);
+    }
 
     // Changed files (summary-first: list top 10, full list in <details>).
     const allChanged = collectChangedFiles(d.item_results || []);
