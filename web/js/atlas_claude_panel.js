@@ -28,8 +28,7 @@
     transcript: [],
     presets: [],
     envelopes: [],
-    selectedPresetId: 'review_only',
-    selfImprovementOverride: false,
+    selectedPresetId: 'autonomous_bounded_dev',
     workTarget: 'software_development_or_repair',
     latestSafetyProfile: null,
     latestEnvelope: null,
@@ -102,16 +101,19 @@
         updateSelectButtonState();
       });
     });
-    const selfImprovement = $('atlas-claude-self-improvement-override');
-    if (selfImprovement) {
-      selfImprovement.addEventListener('change', (ev) => {
-        state.selfImprovementOverride = !!ev.target.checked;
-      });
-    }
     document.querySelectorAll('input[name="atlas-claude-work-target"]').forEach((radio) => {
       radio.addEventListener('change', (ev) => {
         state.workTarget = ev.target.value;
         renderBadges();
+        renderPresetSummary();
+        updateSelectButtonState();
+        // When the user switches to self-improvement target on an autonomous
+        // preset, warn explicitly and require an explicit re-Apply (the auto-
+        // applied envelope is dev_envelope; self_improvement_envelope is more
+        // restrictive AND requires strict gate + Level-4 checkpoint backend-side).
+        if (ev.target.value === 'platform_self_improvement') {
+          pushSystemMessage('自己改修ターゲット: 影響範囲は app/atlas/, docs/, tests/ のみ。strict gate と Level-4 checkpoint が必須です。Features ドロワーで Apply を再実行してください。');
+        }
       });
     });
   }
@@ -161,6 +163,37 @@
     }
     const envResp = await root.AtlasPipelineAPI.getPreAuthorizedEnvelopes();
     if (envResp.ok) state.envelopes = envResp.data.envelopes || [];
+
+    // Auto-apply Profile 0 (Review Only) at startup if no profile is yet
+    // selected. This ensures Apply / Send work immediately without forcing
+    // the user to type confirmation text for the safe default.
+    const latest = state.latestSafetyProfile;
+    if (!latest || latest.status !== 'active') {
+      autoApplyDefaultProfile();
+    }
+  }
+
+  async function autoApplyDefaultProfile() {
+    // Default initial profile: Profile 4 (Autonomous) + Work target Dev/repair.
+    // This auto-applies the pre_authorized_bounded_dev_envelope so the user can
+    // send instructions and execute end-to-end without manually pressing Apply.
+    // Self-improvement target still requires an explicit re-Apply with warning.
+    if (!root.AtlasPipelineAPI) return;
+    const r = await root.AtlasPipelineAPI.selectAutomationProfile({
+      profile: 'autonomous_dev_agent',
+      envelope_id: 'pre_authorized_bounded_dev_envelope',
+      explicit_profile_selection: true,
+      self_improvement_enabled: false,
+      self_improvement_scope: 'none',
+      strict_gate_approved: false,
+      confirmation_text: 'SELECT AUTOMATION PROFILE',
+    });
+    if (r.ok && r.data && r.data.safety_profile) {
+      state.latestSafetyProfile = r.data.safety_profile;
+      state.latestEnvelope = r.data.envelope || null;
+      renderBadges();
+      pushSystemMessage('Profile 4 Autonomous + Dev/repair を初期適用しました');
+    }
   }
 
   async function refreshLatestProfile() {
@@ -245,6 +278,16 @@
 
   function updateSelectButtonState() {
     if (!dom.selectBtn) return;
+    // Profile 0-2 (Review / Single Action / Supervised) do not enable any
+    // autonomous execution, so Apply is one-click. Profile 3-5 require the
+    // explicit SELECT AUTOMATION PROFILE confirmation text.
+    const preset = state.presets.find((p) => p.id === state.selectedPresetId);
+    const rank = preset && typeof preset.rank === 'number' ? preset.rank : 0;
+    const requiresConfirmation = rank >= 3;
+    if (!requiresConfirmation) {
+      dom.selectBtn.disabled = false;
+      return;
+    }
     const text = dom.confirmInput ? String(dom.confirmInput.value || '').trim() : '';
     const matches = text === CONFIRM_TEXT || text === 'SELECT AUTOMATION SAFETY PROFILE';
     dom.selectBtn.disabled = !matches;
@@ -289,10 +332,14 @@
   async function selectProfile() {
     if (!root.AtlasPipelineAPI) return;
     const payload = buildSelectionPayload();
-    payload.confirmation_text = (dom.confirmInput && dom.confirmInput.value) || CONFIRM_TEXT;
+    // Profile 0-2 may apply with the canonical confirmation text auto-filled.
+    // Profile 3-5 use the user-typed text (the Apply button is disabled until
+    // they type it correctly via updateSelectButtonState).
+    payload.confirmation_text = (dom.confirmInput && dom.confirmInput.value.trim()) || CONFIRM_TEXT;
     const resp = await root.AtlasPipelineAPI.selectAutomationProfile(payload);
     if (resp.ok) {
-      pushAtlasMessage(`Automation profile selected: \`${payload.profile}\` (envelope \`${payload.envelope_id}\`).`);
+      const preset = state.presets.find((p) => p.id === state.selectedPresetId);
+      pushAtlasMessage(`Profile を Apply: **${preset ? preset.label : payload.profile}**`);
       if (resp.data && resp.data.envelope) {
         state.latestEnvelope = resp.data.envelope;
       }
@@ -308,13 +355,32 @@
   function buildSelectionPayload() {
     const preset = state.presets.find((p) => p.id === state.selectedPresetId) || state.presets[0];
     if (!preset) return {};
+    // Profile 4 selects envelope from Work target via work_target_envelope_map.
+    // Other presets use their fixed envelope_id.
+    let envelopeId = preset.envelope_id;
+    let selfImprovement = !!preset.self_improvement_enabled;
+    let selfImprovementScope = preset.self_improvement_scope || 'none';
+    let strictGate = !!preset.self_improvement_enabled;
+    const map = preset.work_target_envelope_map;
+    if (map && state.workTarget && map[state.workTarget]) {
+      envelopeId = map[state.workTarget];
+      if (state.workTarget === 'platform_self_improvement') {
+        selfImprovement = true;
+        selfImprovementScope = 'atlas_runtime_strict';
+        strictGate = true;
+      } else {
+        selfImprovement = false;
+        selfImprovementScope = 'none';
+        strictGate = false;
+      }
+    }
     return {
       profile: preset.safety_profile,
-      envelope_id: preset.envelope_id,
+      envelope_id: envelopeId,
       explicit_profile_selection: true,
-      self_improvement_enabled: preset.self_improvement_enabled || state.selfImprovementOverride,
-      self_improvement_scope: preset.self_improvement_scope || 'none',
-      strict_gate_approved: !!preset.self_improvement_enabled,
+      self_improvement_enabled: selfImprovement,
+      self_improvement_scope: selfImprovementScope,
+      strict_gate_approved: strictGate,
       level4_checkpoint_path: '',
     };
   }
@@ -459,24 +525,28 @@
   async function approveAndRunPipeline(poolId) {
     if (!root.AtlasPipelineAPI) return;
     setBusy(true);
+    const stages = appendStageBlock(poolId);
     try {
-      // 1. Re-fetch the pool to get up-to-date items.
+      // ── Stage 1: Plan ──
+      updateStage(stages, 'plan', 'running', 'fetching items');
       const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
       if (!pool.ok || !pool.data) {
-        pushAtlasMessage(`Plan 取得失敗: ${formatError(pool)}`);
+        updateStage(stages, 'plan', 'failed', formatError(pool));
         return;
       }
       const items = pool.data.items || pool.data.plan_items || [];
       if (!items.length) {
-        pushAtlasMessage('Plan にアイテムがありません。');
+        updateStage(stages, 'plan', 'failed', 'no items');
         return;
       }
+      updateStage(stages, 'plan', 'done', `${items.length} items`);
 
-      // 2. Generate patch proposals for every item via the LLM.
-      pushSystemMessage(`Patch 生成中 (${items.length} items)...`);
+      // ── Stage 2: Patch generation ──
+      updateStage(stages, 'patch', 'running', `0/${items.length}`);
       let generated = 0;
       const genFailures = [];
-      for (const it of items) {
+      for (let i = 0; i < items.length; i += 1) {
+        const it = items[i];
         const itemId = it.item_id || it.id;
         if (!itemId) continue;
         const r = await root.AtlasPipelineAPI.generatePatchProposal({
@@ -491,29 +561,35 @@
         } else {
           genFailures.push({ id: itemId, msg: formatError(r) });
         }
+        updateStage(stages, 'patch', 'running', `${i + 1}/${items.length}`);
       }
-      pushSystemMessage(`Patch 生成: ${generated}/${items.length} success`);
-      if (genFailures.length) {
-        pushAtlasMessage(`一部失敗:\n${genFailures.map((f) => `- \`${f.id}\`: ${f.msg}`).join('\n')}`);
+      if (generated === 0) {
+        updateStage(stages, 'patch', 'failed', `0/${items.length} (${genFailures.length} failures)`);
+        renderPipelineSummary(stages, { status: 'patch_generation_failed', genFailures });
+        return;
       }
+      updateStage(stages, 'patch', 'done', `${generated}/${items.length}`);
 
-      // 3. Approve each generated patch proposal so the autopilot will pick it up.
-      pushSystemMessage('アイテムを承認中...');
-      for (const it of items) {
-        const itemId = it.item_id || it.id;
+      // ── Stage 3: Approve items ──
+      updateStage(stages, 'approve', 'running', `0/${items.length}`);
+      for (let i = 0; i < items.length; i += 1) {
+        const itemId = items[i].item_id || items[i].id;
         if (!itemId) continue;
         await root.AtlasPipelineAPI.decidePatchProposal({
           pool_id: poolId,
           item_id: itemId,
           decision: 'approve',
         });
+        updateStage(stages, 'approve', 'running', `${i + 1}/${items.length}`);
       }
+      updateStage(stages, 'approve', 'done', `${items.length}/${items.length}`);
 
-      // 4. Run the autopilot end-to-end. Envelope authorises require_approval=false.
+      // ── Stage 4: Autopilot (apply + verify) ──
       const envelope = state.latestEnvelope || {};
       const bounds = envelope.bounds || {};
-      pushSystemMessage('Autopilot 実行中...');
-      const result = await root.AtlasPipelineAPI.runMultiItemAutopilot({
+      updateStage(stages, 'apply', 'running', 'starting');
+      updateStage(stages, 'verify', 'pending', '');
+      const autopilotPromise = root.AtlasPipelineAPI.runMultiItemAutopilot({
         pool_id: poolId,
         policy_id: 'guarded_multi_item_v1',
         max_items: Math.min(bounds.max_actions_per_loop || 12, items.length),
@@ -526,37 +602,264 @@
         include_bounded_retry: true,
         metadata: { ui: 'atlas_claude_panel', envelope_id: envelope.envelope_id },
       });
+      // Concurrent polling: peek at the persisted autopilot result every 1.5s
+      // and surface item-by-item progress while the synchronous run completes.
+      const pollTimer = setInterval(async () => {
+        try {
+          const peek = await root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult({ pool_id: poolId });
+          if (peek && peek.ok && peek.data) {
+            const processed = peek.data.processed_count || 0;
+            const completed = peek.data.completed_count || 0;
+            const failed = peek.data.failed_count || 0;
+            const total = items.length;
+            updateStage(stages, 'apply', processed >= total ? 'done' : 'running', `${processed}/${total}`);
+            if (completed + failed > 0) {
+              updateStage(stages, 'verify', processed >= total ? 'done' : 'running', `pass ${completed} / fail ${failed}`);
+            }
+          }
+        } catch (_e) {}
+      }, 1500);
+      const result = await autopilotPromise;
+      clearInterval(pollTimer);
 
       if (!result.ok) {
-        pushAtlasMessage(`Autopilot 失敗: ${formatError(result)}`);
+        updateStage(stages, 'apply', 'failed', formatError(result));
+        renderPipelineSummary(stages, { status: 'autopilot_failed', error: formatError(result) });
         return;
       }
-      renderAutopilotResult(result.data || {});
+      const d = result.data || {};
+      updateStage(stages, 'apply', 'done', `${d.processed_count || 0} processed`);
+      const verifyStatus = (d.failed_count || 0) === 0 ? 'done' : 'failed';
+      updateStage(stages, 'verify', verifyStatus, `pass ${d.completed_count || 0} / fail ${d.failed_count || 0}`);
+      renderPipelineSummary(stages, d);
     } finally {
       setBusy(false);
     }
   }
 
-  function renderAutopilotResult(d) {
-    const lines = [
-      '# 実行完了',
-      `- status: \`${d.status || 'unknown'}\``,
-      `- 完了: ${d.completed_count || 0}`,
-      `- 失敗: ${d.failed_count || 0}`,
-      `- ブロック: ${d.blocked_count || 0}`,
-      `- スキップ: ${d.skipped_count || 0}`,
-    ];
-    if (d.stop_reason) lines.push(`- stop_reason: \`${d.stop_reason}\``);
+  // ── Pipeline stage block helpers ──
+  const STAGE_DEFS = [
+    { id: 'plan', label: 'Plan' },
+    { id: 'patch', label: 'Patch' },
+    { id: 'approve', label: 'Approve' },
+    { id: 'apply', label: 'Apply' },
+    { id: 'verify', label: 'Verify' },
+    { id: 'summary', label: 'Summary' },
+  ];
+  const STATE_ICONS = { pending: '·', running: '⟳', done: '✓', failed: '✗' };
+
+  function appendStageBlock(poolId) {
+    if (!dom.transcript) return null;
+    const block = document.createElement('div');
+    block.className = 'atlas-claude-msg atlas-claude-stage-block';
+    block.dataset.role = 'atlas';
+    block.dataset.pool = poolId;
+    const list = document.createElement('div');
+    list.className = 'atlas-claude-stage-list';
+    STAGE_DEFS.forEach((def) => {
+      const row = document.createElement('div');
+      row.className = 'atlas-claude-stage-row';
+      row.dataset.stage = def.id;
+      row.dataset.state = 'pending';
+      const icon = document.createElement('span');
+      icon.className = 'atlas-claude-stage-icon';
+      icon.textContent = STATE_ICONS.pending;
+      const label = document.createElement('span');
+      label.className = 'atlas-claude-stage-label';
+      label.textContent = def.label;
+      const detail = document.createElement('span');
+      detail.className = 'atlas-claude-stage-detail';
+      detail.textContent = '';
+      row.append(icon, label, detail);
+      list.appendChild(row);
+    });
+    const summary = document.createElement('div');
+    summary.className = 'atlas-claude-summary-block';
+    summary.dataset.role = 'summary';
+    block.append(list, summary);
+    dom.transcript.appendChild(block);
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    return block;
+  }
+
+  function updateStage(block, stageId, stateName, detail) {
+    if (!block) return;
+    const row = block.querySelector(`.atlas-claude-stage-row[data-stage="${stageId}"]`);
+    if (!row) return;
+    row.dataset.state = stateName;
+    const icon = row.querySelector('.atlas-claude-stage-icon');
+    if (icon) icon.textContent = STATE_ICONS[stateName] || '·';
+    const det = row.querySelector('.atlas-claude-stage-detail');
+    if (det) det.textContent = detail || '';
+    if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  function renderPipelineSummary(block, d) {
+    if (!block) return;
+    const summary = block.querySelector('.atlas-claude-summary-block');
+    if (!summary) return;
+    summary.innerHTML = '';
+
+    const counts = document.createElement('div');
+    counts.className = 'atlas-claude-summary-counts';
+    counts.textContent = `完了 ${d.completed_count || 0}  失敗 ${d.failed_count || 0}  ブロック ${d.blocked_count || 0}  スキップ ${d.skipped_count || 0}`;
+    summary.appendChild(counts);
+    updateStage(block, 'summary', d.failed_count > 0 || d.status === 'autopilot_failed' || d.status === 'patch_generation_failed' ? 'failed' : 'done', d.stop_reason ? `stop: ${d.stop_reason}` : '');
+
+    // Changed files (summary-first: list top 10, full list in <details>).
+    const allChanged = collectChangedFiles(d.item_results || []);
+    if (allChanged.length) {
+      const filesBox = document.createElement('div');
+      filesBox.className = 'atlas-claude-summary-files';
+      const head = document.createElement('div');
+      head.className = 'atlas-claude-summary-head';
+      head.textContent = `変更ファイル ${allChanged.length} 件`;
+      filesBox.appendChild(head);
+      const top = allChanged.slice(0, 10);
+      const ul = document.createElement('ul');
+      top.forEach((f) => {
+        const li = document.createElement('li');
+        li.textContent = f;
+        ul.appendChild(li);
+      });
+      filesBox.appendChild(ul);
+      if (allChanged.length > 10) {
+        const det = document.createElement('details');
+        const sm = document.createElement('summary');
+        sm.textContent = `… 残り ${allChanged.length - 10} 件`;
+        det.appendChild(sm);
+        const ul2 = document.createElement('ul');
+        allChanged.slice(10).forEach((f) => {
+          const li = document.createElement('li');
+          li.textContent = f;
+          ul2.appendChild(li);
+        });
+        det.appendChild(ul2);
+        filesBox.appendChild(det);
+      }
+      summary.appendChild(filesBox);
+    }
+
+    // Per-item summary (status + reason).
     const itemResults = d.item_results || [];
     if (itemResults.length) {
-      lines.push('', '## アイテム別結果');
+      const det = document.createElement('details');
+      det.className = 'atlas-claude-summary-items';
+      const sm = document.createElement('summary');
+      sm.textContent = `アイテム別結果 (${itemResults.length})`;
+      det.appendChild(sm);
+      const ul = document.createElement('ul');
       itemResults.forEach((r) => {
-        const status = r.status || '?';
+        const li = document.createElement('li');
         const reason = r.reason ? ` (${r.reason})` : '';
-        lines.push(`- \`${r.item_id}\`: ${status}${reason}`);
+        li.textContent = `${r.item_id}: ${r.status}${reason}`;
+        ul.appendChild(li);
       });
+      det.appendChild(ul);
+      summary.appendChild(det);
     }
-    pushAtlasMessage(lines.join('\n'));
+
+    // Failure recovery suggestion.
+    const failuresWithSuggestion = (d.item_results || []).filter((r) => r.failure_stop_suggestion);
+    if (failuresWithSuggestion.length) {
+      const recovery = renderRecoverySection(failuresWithSuggestion);
+      summary.appendChild(recovery);
+    }
+
+    // Draft PR artifact.
+    const prInfo = extractDraftPr(d);
+    if (prInfo) {
+      const pr = document.createElement('div');
+      pr.className = 'atlas-claude-summary-pr';
+      if (prInfo.url) {
+        const a = document.createElement('a');
+        a.href = prInfo.url;
+        a.target = '_blank';
+        a.rel = 'noreferrer noopener';
+        a.textContent = `📦 Draft PR ${prInfo.number ? '#' + prInfo.number : ''}`.trim();
+        pr.appendChild(a);
+      } else if (prInfo.number) {
+        pr.textContent = `📦 Draft PR #${prInfo.number}`;
+      }
+      summary.appendChild(pr);
+    } else if ((d.completed_count || 0) > 0) {
+      // No PR yet, but applied changes succeeded — offer manual creation hint.
+      const hint = document.createElement('div');
+      hint.className = 'atlas-claude-summary-pr-hint';
+      hint.textContent = 'Draft PR 未作成。変更ファイルを確認してから手動で `gh pr create --draft` を実行してください。';
+      summary.appendChild(hint);
+    }
+
+    if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  function collectChangedFiles(itemResults) {
+    const set = new Set();
+    itemResults.forEach((r) => {
+      const sa = r.safe_apply_result || {};
+      (sa.changed_files || []).forEach((f) => set.add(f));
+      const stop = r.failure_stop_suggestion || {};
+      (stop.changed_files || []).forEach((f) => set.add(f));
+    });
+    return Array.from(set);
+  }
+
+  function extractDraftPr(d) {
+    // Look on the autopilot result first, then on item results.
+    if (d.draft_pr_url || d.draft_pr_number) {
+      return { url: d.draft_pr_url || '', number: d.draft_pr_number || 0 };
+    }
+    for (const r of (d.item_results || [])) {
+      const sa = r.safe_apply_result || {};
+      if (sa.draft_pr_url || sa.draft_pr_number) {
+        return { url: sa.draft_pr_url || '', number: sa.draft_pr_number || 0 };
+      }
+    }
+    return null;
+  }
+
+  function renderRecoverySection(failures) {
+    const box = document.createElement('div');
+    box.className = 'atlas-claude-summary-recovery';
+    const head = document.createElement('div');
+    head.className = 'atlas-claude-summary-head';
+    head.textContent = `失敗 ${failures.length} 件 — recovery 提案`;
+    box.appendChild(head);
+    const ul = document.createElement('ul');
+    failures.forEach((r) => {
+      const stop = r.failure_stop_suggestion || {};
+      const li = document.createElement('li');
+      const reason = stop.reason || r.reason || 'unknown';
+      const actions = (stop.suggested_manual_actions || []).join(', ');
+      li.textContent = `${r.item_id}: ${reason}${actions ? ' — ' + actions : ''}`;
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+    const actions = document.createElement('div');
+    actions.className = 'atlas-claude-summary-actions';
+    const rec = document.createElement('button');
+    rec.type = 'button';
+    rec.className = 'atlas-claude-secondary-btn';
+    rec.textContent = 'Recover (最新状態を再ロード)';
+    rec.addEventListener('click', () => delegateRecover());
+    actions.appendChild(rec);
+    const rollback = document.createElement('button');
+    rollback.type = 'button';
+    rollback.className = 'atlas-claude-secondary-btn';
+    rollback.textContent = 'Rollback 手順を表示';
+    rollback.addEventListener('click', () => {
+      const stops = failures.map((r) => r.failure_stop_suggestion).filter(Boolean);
+      const snapshots = stops
+        .map((s) => s.change_snapshot && s.change_snapshot.manifest_path)
+        .filter(Boolean);
+      const lines = snapshots.length
+        ? ['## Rollback 手順', '', '1. 以下の snapshot manifest を参照して手動 restore を実行してください:', ...snapshots.map((p) => `   - \`${p}\``), '', '2. Restore 完了後、再度 Plan を作り直して Send してください。']
+        : ['## Rollback 手順', '', 'Snapshot manifest が未生成のため手動 restore は不要です。元の Git 状態をご確認ください。'];
+      pushAtlasMessage(lines.join('\n'));
+    });
+    actions.appendChild(rollback);
+    box.appendChild(actions);
+    return box;
   }
 
   async function renderPlanPoolMarkdown(poolId) {

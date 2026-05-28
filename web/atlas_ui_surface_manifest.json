@@ -157,15 +157,6 @@
       "safety_notes": "Backend validates every preview/select; confirmation text required to commit."
     },
     {
-      "id": "atlas-claude-self-improvement-override",
-      "label": "Self-improvement override",
-      "category": "safety_always_visible",
-      "default_visible": true,
-      "reason": "Allows manual enabling of self-improvement scope outside Profile 5.",
-      "can_hide": false,
-      "safety_notes": "Backend still enforces strict gate and Level-4 checkpoint."
-    },
-    {
       "id": "atlas-claude-confirm-text",
       "label": "Automation Profile confirmation text",
       "category": "safety_always_visible",

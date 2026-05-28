@@ -95,19 +95,21 @@ def test_policies_returns_six_presets_and_capability_matrix(client: TestClient) 
 
     preset_ids = [p["id"] for p in data["automation_profile_presets"]]
     assert preset_ids == [p["id"] for p in AUTOMATION_PROFILE_PRESETS]
+    # UI consolidated to 5 presets (0-4). Profile 4 selects envelope from
+    # Work target (work_target_envelope_map): Dev/repair → bounded_dev,
+    # Self-improvement → self_improvement.
     assert preset_ids == [
         "review_only",
         "single_action",
         "supervised_auto",
         "autonomous_custom",
         "autonomous_bounded_dev",
-        "autonomous_self_improvement",
     ]
     full_auto_presets = [p for p in data["automation_profile_presets"] if p["enables_full_automation"]]
-    assert {p["id"] for p in full_auto_presets} == {
-        "autonomous_bounded_dev",
-        "autonomous_self_improvement",
-    }
+    assert {p["id"] for p in full_auto_presets} == {"autonomous_bounded_dev"}
+    profile4 = next(p for p in data["automation_profile_presets"] if p["id"] == "autonomous_bounded_dev")
+    assert profile4["work_target_envelope_map"]["software_development_or_repair"] == "pre_authorized_bounded_dev_envelope"
+    assert profile4["work_target_envelope_map"]["platform_self_improvement"] == "pre_authorized_self_improvement_envelope"
 
     capability_ids = [item["id"] for item in data["safety_profiles"]]
     assert capability_ids == [
