@@ -71,3 +71,10 @@ workspace/
 skills/
 memory.db
 model_db.db
+
+# ========== テスト/ランタイム生成物（pytest tmp + Atlas runtime data） ==========
+/atlas/
+ca_data/atlas/
+ca_data/plans/
+ca_data/requirements/
+ca_data/reviews/

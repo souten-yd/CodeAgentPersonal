@@ -164,7 +164,7 @@
     </div>
   </div>
 
-  <!-- ATLAS MODE — Claude-style buildless conversational shell (default) -->
+  <!-- ATLAS CLAUDE SHELL (buildless conversational, default) -->
   <div class="atlas-claude-col mob-hidden" id="atlas-claude-col" data-atlas-shell="claude" style="display:none" aria-label="Atlas conversational shell">
     <header class="atlas-claude-header">
       <div class="atlas-claude-titles">
@@ -239,7 +239,7 @@
     </details>
   </div>
 
-  <!-- ATLAS MODE — Legacy dashboard (fallback) -->
+  <!-- ATLAS MODE -->
   <div class="atlas-panel-col mob-hidden" id="atlas-panel-col" style="display:none">
     <section class="atlas-dashboard" id="atlas-dashboard" data-atlas-dashboard-root="true" data-atlas-ui-mode="minimal" aria-label="Atlas Dashboard">
       <div class="atlas-dashboard-shell plan-card" id="atlas-workbench-card" data-atlas-current-subview="dashboard">
@@ -6348,7 +6348,24 @@ function setMode(m, options = {}) {
       if (atlasPanelCol) atlasPanelCol.style.display = 'none';
       if (atlasClaudeCol) {
         atlasClaudeCol.style.display = '';
-        try { window.AtlasClaudePanel?.activate(); } catch (_err) {}
+        if (window.AtlasClaudePanel && typeof window.AtlasClaudePanel.activate === 'function') {
+          try { window.AtlasClaudePanel.activate(); } catch (_err) {}
+        } else {
+          // atlas_claude_panel.js failed to load. Fall back to legacy after a short delay.
+          setTimeout(() => {
+            if (!window.AtlasClaudePanel) {
+              try { localStorage.setItem('atlas_shell_preference', 'legacy'); } catch (_err) {}
+              if (atlasClaudeCol) atlasClaudeCol.style.display = 'none';
+              if (atlasPanelCol) atlasPanelCol.style.display = '';
+              try {
+                restoreAtlasSubviewState();
+              } catch (_err) {
+                try { setAtlasSubview('start'); } catch (_e) {}
+                try { ensureAtlasWorkbenchHost(); } catch (_e) {}
+              }
+            }
+          }, 5000);
+        }
       } else if (atlasPanelCol) {
         atlasPanelCol.style.display = '';
       }
