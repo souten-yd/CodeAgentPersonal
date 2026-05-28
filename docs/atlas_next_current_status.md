@@ -48,3 +48,13 @@ Updated after POST-SCALE-160 recovery and draft artifact summaries.
 
 ## Next narrow work
 - POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP: add checkpoint evidence that the bounded loop FastUI experience remains advisory until backend authority gates explicitly permit execution, then prepare the next narrow UI step toward operator-reviewed patch application.
+
+## Buildless chat panel track
+
+The buildless track now includes a Claude-Code-style conversational chat panel delivered as POST-SCALE-160-CLAUDE-CHAT-* PRs:
+
+- `POST-SCALE-160-CLAUDE-CHAT-PANEL`: buildless DOM, CSS, shell selector, read-only endpoints.
+- `POST-SCALE-160-CLAUDE-CHAT-PROFILE-CONTROLS`: unified Automation Profile preset selector and confirmation-gated preview/select endpoints.
+- `POST-SCALE-160-CLAUDE-CHAT-COMPLETE-AUTOMATION-PROFILE`: pre-authorised envelopes and chat-driven autonomous loop session preparation.
+
+The Vue Atlas Next surface remains optional preview; the buildless shell at `#atlas-claude-col` is the new default for Atlas mode in `ui.html`.

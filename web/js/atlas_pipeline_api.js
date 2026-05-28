@@ -335,6 +335,30 @@
         body: JSON.stringify(payload || {})
       });
     },
+    getAutomationProfilePolicies() {
+      return atlasFetch('/api/atlas/automation-safety-profile/policies');
+    },
+    getLatestAutomationProfile() {
+      return atlasFetch('/api/atlas/automation-safety-profile/latest');
+    },
+    previewAutomationProfile(payload) {
+      return atlasFetch('/api/atlas/automation-safety-profile/preview', {
+        method: 'POST', body: JSON.stringify(payload || {})
+      });
+    },
+    selectAutomationProfile(payload) {
+      return atlasFetch('/api/atlas/automation-safety-profile/select', {
+        method: 'POST', body: JSON.stringify(payload || {})
+      });
+    },
+    getPreAuthorizedEnvelopes() {
+      return atlasFetch('/api/atlas/automation-safety-profile/pre-authorized-envelopes');
+    },
+    startAutonomousLoopFromEnvelope(payload) {
+      return atlasFetch('/api/atlas/automation-safety-profile/start-autonomous-loop', {
+        method: 'POST', body: JSON.stringify(payload || {})
+      });
+    },
 
   };
 

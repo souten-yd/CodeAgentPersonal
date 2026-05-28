@@ -151,3 +151,11 @@ Planned PRs:
 | PR-ATLAS-SCALE-152 | Buildless themed ThinUI conversational shell implementation |
 
 PR-151 must define the backend state contract and UI data-loading contract before UI implementation. PR-152 must implement the shell without making the UI authoritative and without adding a required build step.
+
+## Implementation placement (POST-SCALE-160 buildless chat panel track)
+
+| PR | Surface | Files |
+| --- | --- | --- |
+| POST-SCALE-160-CLAUDE-CHAT-PANEL | `#atlas-claude-col` shell + chat transcript + input + shell selector | `ui.html`, `web/js/atlas_claude_panel.js`, `web/css/app.css`, `app/api/atlas_automation_safety_profile.py` |
+| POST-SCALE-160-CLAUDE-CHAT-PROFILE-CONTROLS | Features drawer, Automation Profile preset radios, confirmation-text-gated preview/select | `ui.html`, `web/js/atlas_claude_panel.js`, `app/api/atlas_automation_safety_profile.py` |
+| POST-SCALE-160-CLAUDE-CHAT-COMPLETE-AUTOMATION-PROFILE | Pre-authorised envelopes and chat-driven autonomous loop session preparation | `app/atlas/pre_authorized_bounded_dev_envelope.py`, `app/atlas/autonomous_loop_envelope_runner.py`, `app/api/atlas_automation_safety_profile.py` |

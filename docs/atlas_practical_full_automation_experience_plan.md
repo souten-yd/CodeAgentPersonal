@@ -272,3 +272,7 @@ Acceptance:
 - Do not require npm/Vite/Vue build chain for default practical FastUI shell.
 - Do not change default route or UI authority as part of planning-only milestones.
 - Manifest and policy remain authoritative over stale roadmap pointers when conflicts exist.
+
+## Buildless Claude chat panel as practical-experience milestone artefact
+
+The buildless Claude-Code-style chat panel at `#atlas-claude-col` (POST-SCALE-160-CLAUDE-CHAT-*) is a practical-experience milestone for the buildless track. It surfaces a single Automation Profile preset selector and pre-authorised envelopes that let the user pre-authorise the autonomous loop within a bounded scope without lifting the safety profile manifest invariants. See `docs/atlas_claude_chat_panel_ux_plan.md` for the canonical UX requirements.
