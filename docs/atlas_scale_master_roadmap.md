@@ -273,7 +273,7 @@ When checking a PR, verify all of the following against this master plan and the
 
 ## Buildless conversational chat panel additive track
 
-After PR-ATLAS-SCALE-160, the buildless Claude-Code-style Atlas chat panel is delivered as an additive POST-SCALE-160 series. This track does not modify the canonical SCALE Completed / Current pointers above. The chat panel is the default Atlas mode shell; the legacy `#atlas-panel-col` dashboard remains reachable via a per-user toggle stored in `localStorage['atlas_shell_preference']`. Detailed UX, layout, DOM contract, envelope recipes, and drift checks live in `docs/atlas_claude_chat_panel_ux_plan.md`.
+After PR-ATLAS-SCALE-160, the buildless Claude-Code-style Atlas chat panel is delivered as an additive POST-SCALE-160 series. This track does not modify the canonical SCALE Completed / Current pointers above. After POST-SCALE-160-UI-DEFAULT-RECONFIRM the chat panel is the only user-visible Atlas shell; the legacy `#atlas-panel-col` dashboard stays in DOM (hidden) for `AtlasDashboard` JS compatibility, with an emergency `Open legacy Atlas panel` button in the Diagnostics drawer for session-only fallback. Detailed UX, layout, DOM contract, envelope recipes, and drift checks live in `docs/atlas_claude_chat_panel_ux_plan.md`.
 
 | PR | Required outcome | Runtime impact | Drift check |
 | --- | --- | --- | --- |

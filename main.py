@@ -17711,7 +17711,7 @@ app.state.system_summary_provider = system_summary_payload
 # =========================
 
 
-ATLAS_NEXT_DEFAULT_ENABLED = True
+ATLAS_NEXT_DEFAULT_ENABLED = False
 ATLAS_NEXT_DEFAULT_ROUTE = "/"
 ATLAS_NEXT_LEGACY_UI_ROUTE = "/ui/"
 

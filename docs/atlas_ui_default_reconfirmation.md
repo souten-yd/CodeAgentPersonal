@@ -1,18 +1,16 @@
 # Atlas UI Default Reconfirmation
 
-Status: POST-SCALE-160-UI-DEFAULT-RECONFIRM completed.
+Status: POST-SCALE-160-UI-DEFAULT-RECONFIRM completed and re-applied for the buildless Claude chat panel.
 
 ## Decision
 
-Keep the current guarded Atlas Next root default for now.
+Revert the default `/` route to the buildless `ui.html` shell that hosts the Claude-Code-style conversational Atlas panel (POST-SCALE-160-CLAUDE-CHAT-PANEL track).
 
-The active default route remains `/`, backed by the prebuilt Atlas Next dist only when `validate_atlas_next_dist()` passes through `can_serve_atlas_next_default()`. The legacy `/ui/` route remains the fallback, and root falls back to the legacy UI when the Vue dist is missing or invalid.
+The active default route is `/`, served from `serve_existing_ui_index()` which returns `ui.html`. The guarded Atlas Next preview is still reachable at `/atlas-next/` for users who explicitly opt in by building the dist (`cd web/atlas-next && npm ci && npm run build`); `ATLAS_NEXT_DEFAULT_ENABLED` is now `False`, so even a valid Atlas Next dist no longer takes over `/`. `can_serve_atlas_next_default()`, `validate_atlas_next_dist()`, and the legacy `/ui/` route remain unchanged for code-reachability.
 
 ## Preferred Future UI
 
-The preferred future normal Atlas experience is still the buildless ThinUX / FastUI conversational shell described in `docs/atlas_fastui_ux_notes.md`.
-
-That future default switch requires a separate default-route PR. It must prove the buildless shell route, legacy fallback, route contracts, tests, and rollback behavior before replacing the current guarded Atlas Next default.
+The active normal Atlas experience is now the buildless ThinUX / FastUI conversational shell described in `docs/atlas_fastui_ux_notes.md` and embodied by `web/js/atlas_claude_panel.js` (DOM `#atlas-claude-col` in `ui.html`). Detailed UX requirements live in `docs/atlas_claude_chat_panel_ux_plan.md`.
 
 ## Scope Boundaries
 

@@ -11,8 +11,8 @@ This note fixes the integration boundary for the next Atlas UI implementation PR
 
 ## Build Policy
 
-- Docker image build may run `npm ci && npm run build` under `web/atlas-next` when the Vue package is present.
-- Runtime/server startup must not run npm build.
+- Docker image build does NOT run `npm ci` or `npm run build` for the optional Vue/atlas-next preview. After POST-SCALE-160-UI-DEFAULT-RECONFIRM the buildless `ui.html` (with the Claude chat panel) is the only Atlas default; the Vue preview is opt-in only and must be built manually outside the image (`cd web/atlas-next && npm ci && npm run build`).
+- Runtime/server startup must not run `npm install`, `npm ci`, or `npm run build`.
 - RunPod startup must use the prebuilt image dist or existing checked-out dist; it must not add a startup npm build fallback.
 
 ## Safety Constraints

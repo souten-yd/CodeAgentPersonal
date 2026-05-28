@@ -8,10 +8,13 @@ def test_vue_default_apply_manifest_matches_guarded_root_route() -> None:
 
     assert manifest['ui_default_reconfirmation_required'] is False
     assert manifest['ui_default_reconfirmed'] is True
-    assert manifest['ui_default_reconfirmation_decision'] == 'keep_guarded_atlas_next_default_for_now'
+    # POST-SCALE-160-UI-DEFAULT-RECONFIRM applied: the default is now the
+    # buildless ui.html shell hosting the Claude chat panel; the guarded
+    # Atlas Next default remains opt-in via /atlas-next.
+    assert manifest['ui_default_reconfirmation_decision'] == 'revert_default_to_buildless_thinux_with_claude_chat_panel'
     assert manifest['ui_default_reconfirmation_record'] == 'docs/atlas_ui_default_reconfirmation.md'
     assert manifest['preferred_ui_default_policy'] == 'buildless_thinux_fastui_conversational_shell'
-    assert manifest['active_ui_default_policy'] == 'guarded_atlas_next_default_with_valid_dist_and_fallback'
+    assert manifest['active_ui_default_policy'] == 'buildless_thinux_fastui_conversational_shell'
     assert manifest['future_fastui_default_gate_required'] is True
     assert manifest['vue_default_promotion_enabled'] is True
     assert manifest['vue_default_promotion_applied'] is True
@@ -21,7 +24,7 @@ def test_vue_default_apply_manifest_matches_guarded_root_route() -> None:
     assert manifest['vue_default_requires_valid_dist'] is True
     assert manifest['vue_default_fail_closed_to_legacy_ui'] is True
 
-    assert 'ATLAS_NEXT_DEFAULT_ENABLED = True' in main_text
+    assert 'ATLAS_NEXT_DEFAULT_ENABLED = False' in main_text
     assert 'def can_serve_atlas_next_default()' in main_text
     assert 'validation = validate_atlas_next_dist()' in main_text
     assert 'return serve_existing_ui_index()' in main_text
