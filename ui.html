@@ -6320,10 +6320,16 @@ function setMode(m, options = {}) {
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     const atlasClaudeCol = document.getElementById('atlas-claude-col');
     // Claude shell is the only Atlas shell. Legacy #atlas-panel-col stays in
-    // DOM (hidden) so AtlasDashboard JS lookups still resolve.
-    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    // DOM (hidden) so AtlasDashboard JS lookups still resolve. Use both an
+    // inline !important display:none AND the mob-hidden class so prior mobile
+    // sessions that stripped the class cannot leak the legacy panel onto the
+    // chat shell.
+    if (atlasPanelCol) {
+      atlasPanelCol.style.setProperty('display', 'none', 'important');
+      atlasPanelCol.classList.add('mob-hidden');
+    }
     if (atlasClaudeCol) {
-      atlasClaudeCol.style.display = '';
+      atlasClaudeCol.style.setProperty('display', 'flex', 'important');
       atlasClaudeCol.classList.remove('mob-hidden');
       if (window.AtlasClaudePanel && typeof window.AtlasClaudePanel.activate === 'function') {
         try { window.AtlasClaudePanel.activate(); } catch (err) { console.warn('Atlas Claude panel activate failed:', err); }
@@ -6331,8 +6337,12 @@ function setMode(m, options = {}) {
         // atlas_claude_panel.js failed to load; fall back to legacy after a short delay.
         setTimeout(() => {
           if (!window.AtlasClaudePanel && atlasClaudeCol) {
-            atlasClaudeCol.style.display = 'none';
-            if (atlasPanelCol) atlasPanelCol.style.display = '';
+            atlasClaudeCol.style.setProperty('display', 'none', 'important');
+            if (atlasPanelCol) {
+              atlasPanelCol.classList.remove('mob-hidden');
+              atlasPanelCol.style.setProperty('display', '', '');
+              atlasPanelCol.style.display = '';
+            }
             try {
               restoreAtlasSubviewState();
             } catch (err) {
@@ -6344,6 +6354,8 @@ function setMode(m, options = {}) {
         }, 5000);
       }
     } else if (atlasPanelCol) {
+      atlasPanelCol.classList.remove('mob-hidden');
+      atlasPanelCol.style.setProperty('display', '', '');
       atlasPanelCol.style.display = '';
       try {
         restoreAtlasSubviewState();
@@ -16319,7 +16331,7 @@ function testSkill(skillName) {
 <script src="/static/js/nexus.js"></script>
 <script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-40"></script>
 <script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-40"></script>
-<script src="/static/js/atlas_claude_panel.js?v=claude-chat-1"></script>
+<script src="/static/js/atlas_claude_panel.js?v=claude-chat-3"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

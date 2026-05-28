@@ -277,7 +277,7 @@
     if (resp.ok) {
       renderPreviewResult(resp.data);
     } else {
-      pushAtlasMessage(`Preview failed: ${resp.message || 'unknown error'}`);
+      pushAtlasMessage(`Preview failed: ${formatError(resp)}`);
     }
   }
 
@@ -321,8 +321,7 @@
       }
       renderBadges();
     } else {
-      const detail = resp.detail && resp.detail.detail ? resp.detail.detail : resp.message;
-      pushAtlasMessage(`Select failed: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`);
+      pushAtlasMessage(`Select failed: ${formatError(resp)}`);
     }
   }
 
@@ -389,13 +388,8 @@
       return;
     }
     if (intent === 'run_dry_run') {
-      const resp = await root.AtlasPipelineAPI.startDryRun ? root.AtlasPipelineAPI.startDryRun({}) : null;
-      if (resp && resp.then) {
-        const r = await resp;
-        pushAtlasMessage(r.ok ? 'Dry-run started.' : `Dry-run failed: ${r.message}`);
-      } else {
-        pushAtlasMessage('Dry-run trigger not available in this build.');
-      }
+      const r = await root.AtlasPipelineAPI.startPipelineDryRun({});
+      pushAtlasMessage(r && r.ok ? 'Dry-run started.' : `Dry-run failed: ${formatError(r)}`);
       return;
     }
     if (intent === 'show_changed_files') {
@@ -411,13 +405,38 @@
       return;
     }
     // free_text_goal: create a plan pool with the user's goal.
-    const resp = await root.AtlasPipelineAPI.createPlanPool({ goal: text });
+    const resp = await root.AtlasPipelineAPI.createPlanPool({ input: text });
     if (resp.ok) {
       const poolId = resp.data && (resp.data.pool_id || resp.data.id);
       pushAtlasMessage(`PlanPool created${poolId ? ` (\`${poolId}\`)` : ''}.`);
     } else {
-      pushAtlasMessage(`PlanPool creation failed: ${resp.message || 'unknown error'}`);
+      pushAtlasMessage(`PlanPool creation failed: ${formatError(resp)}`);
     }
+  }
+
+  function formatError(resp) {
+    if (!resp) return 'no response';
+    const detail = resp && resp.detail && resp.detail.detail !== undefined ? resp.detail.detail : resp.message;
+    if (detail == null) return resp.message || 'unknown error';
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      // FastAPI pydantic validation errors arrive as an array of {loc, msg, type}.
+      return detail.map((d) => {
+        if (d && typeof d === 'object') {
+          const loc = Array.isArray(d.loc) ? d.loc.join('.') : (d.loc || '');
+          const msg = d.msg || d.message || JSON.stringify(d);
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return String(d);
+      }).join('; ');
+    }
+    if (typeof detail === 'object') {
+      if (detail.error || detail.reason || detail.message) {
+        return [detail.error, detail.reason, detail.message].filter(Boolean).join(': ');
+      }
+      try { return JSON.stringify(detail); } catch (_e) { return String(detail); }
+    }
+    return String(detail);
   }
 
   async function startAutonomousLoop(text) {
@@ -449,7 +468,7 @@
     if (resp.ok && resp.data && resp.data.status === 'active') {
       pushAtlasMessage(`Autonomous loop session prepared (\`${resp.data.session_id}\`). Backend autopilot will progress within the envelope bounds.`);
     } else {
-      const reasons = resp.data && resp.data.blocking_reasons ? resp.data.blocking_reasons.join(', ') : (resp.message || 'unknown error');
+      const reasons = resp.data && resp.data.blocking_reasons ? resp.data.blocking_reasons.join(', ') : formatError(resp);
       pushAtlasMessage(`Autonomous loop blocked: ${reasons}`);
     }
   }
