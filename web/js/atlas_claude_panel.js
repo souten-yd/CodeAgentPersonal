@@ -54,28 +54,21 @@
     dom.input = $('atlas-claude-input');
     dom.sendBtn = $('atlas-claude-send-btn');
     dom.stopBtn = $('atlas-claude-stop-btn');
-    dom.primaryCta = $('atlas-claude-primary-cta');
     dom.featuresBtn = $('atlas-claude-feature-btn');
     dom.featuresDrawer = $('atlas-claude-features-drawer');
     dom.profileResult = $('atlas-claude-profile-result');
     dom.previewBtn = $('atlas-claude-preview-profile-btn');
     dom.selectBtn = $('atlas-claude-select-profile-btn');
     dom.confirmInput = $('atlas-claude-confirm-text');
-    dom.shellToggle = $('atlas-claude-shell-toggle');
     dom.recoveryBtn = $('atlas-claude-recovery-btn');
-    dom.openLegacyBtn = $('atlas-claude-open-legacy-btn');
     dom.badges = {
       safety: dom.col.querySelector('.atlas-claude-badge.safety'),
-      workTarget: dom.col.querySelector('.atlas-claude-badge.work-target'),
       phase: dom.col.querySelector('.atlas-claude-badge.phase'),
-      nextAction: dom.col.querySelector('.atlas-claude-badge.next-action'),
       changedFiles: dom.col.querySelector('.atlas-claude-badge.changed-files'),
-      verification: dom.col.querySelector('.atlas-claude-badge.verification'),
-      recovery: dom.col.querySelector('.atlas-claude-badge.recovery'),
     };
 
     bindInputs();
-    pushSystemMessage('Atlas conversational shell ready. Pick an Automation Profile and describe what you want Atlas to do.');
+    pushSystemMessage('指示を入力してください');
     refreshPolicies();
   }
 
@@ -90,7 +83,6 @@
       dom.input.addEventListener('input', () => autoResizeInput(dom.input));
     }
     if (dom.sendBtn) dom.sendBtn.addEventListener('click', () => sendChatMessage());
-    if (dom.primaryCta) dom.primaryCta.addEventListener('click', () => onPrimaryCta());
     if (dom.stopBtn) dom.stopBtn.addEventListener('click', () => onStop());
     if (dom.featuresBtn && dom.featuresDrawer) {
       dom.featuresBtn.addEventListener('click', () => {
@@ -100,8 +92,6 @@
     if (dom.previewBtn) dom.previewBtn.addEventListener('click', () => previewProfile());
     if (dom.selectBtn) dom.selectBtn.addEventListener('click', () => selectProfile());
     if (dom.confirmInput) dom.confirmInput.addEventListener('input', updateSelectButtonState);
-    if (dom.shellToggle) dom.shellToggle.addEventListener('click', () => openLegacyShell());
-    if (dom.openLegacyBtn) dom.openLegacyBtn.addEventListener('click', () => openLegacyShell());
     if (dom.recoveryBtn) dom.recoveryBtn.addEventListener('click', () => delegateRecover());
 
     document.querySelectorAll('input[name="atlas-claude-preset"]').forEach((radio) => {
@@ -211,26 +201,16 @@
       dom.badges.safety.textContent = `Profile: ${profileName} (Lv${rank})${automation}`;
       dom.badges.safety.dataset.profileRank = String(rank);
     }
-    if (dom.badges.workTarget) {
-      dom.badges.workTarget.textContent = `Target: ${state.workTarget}`;
-    }
     if (dom.badges.phase) {
-      const phase = meta.current_phase || wf.phase || 'unknown';
+      const phase = meta.current_phase || wf.phase || 'idle';
       dom.badges.phase.textContent = `Phase: ${phase}`;
-    }
-    if (dom.badges.nextAction) {
-      const cta = (wf.primary_cta && wf.primary_cta.label) || wf.primary_cta_label || 'Start Atlas';
-      dom.badges.nextAction.textContent = `Next: ${cta}`;
     }
     if (dom.badges.changedFiles) {
       const files = (meta.last_changed_files && meta.last_changed_files.length) || 0;
       dom.badges.changedFiles.textContent = `Files: ${files}`;
     }
-    if (dom.badges.verification) {
+    if (false && dom.badges.verification) {
       dom.badges.verification.textContent = `Verify: ${meta.last_verification_status || 'idle'}`;
-    }
-    if (dom.badges.recovery) {
-      dom.badges.recovery.textContent = `Recovery: ${meta.recovery_state || 'idle'}`;
     }
   }
 
@@ -349,7 +329,6 @@
     pushUserMessage(text);
 
     const intent = classifyIntent(text);
-    pushSystemMessage(`Intent: ${intent}`);
     await dispatchIntent(intent, text);
   }
 
@@ -404,14 +383,61 @@
       pushAtlasMessage(warnings.length ? `Backend warnings:\n${warnings.map((w) => `- ${w}`).join('\n')}` : 'No backend warnings.');
       return;
     }
-    // free_text_goal: create a plan pool with the user's goal.
+    // free_text_goal: create a plan pool with the user's goal, then render
+    // the generated plan in chat so the user can see what Atlas produced.
+    setBusy(true);
     const resp = await root.AtlasPipelineAPI.createPlanPool({ input: text });
-    if (resp.ok) {
-      const poolId = resp.data && (resp.data.pool_id || resp.data.id);
-      pushAtlasMessage(`PlanPool created${poolId ? ` (\`${poolId}\`)` : ''}.`);
-    } else {
+    if (!resp.ok) {
+      setBusy(false);
       pushAtlasMessage(`PlanPool creation failed: ${formatError(resp)}`);
+      return;
     }
+    const poolId = resp.data && (resp.data.pool_id || resp.data.id);
+    if (!poolId) {
+      setBusy(false);
+      pushAtlasMessage('PlanPool created but no pool id was returned.');
+      return;
+    }
+    pushAtlasMessage(`PlanPool created: \`${poolId}\``);
+    await renderPlanPoolMarkdown(poolId);
+    setBusy(false);
+  }
+
+  async function renderPlanPoolMarkdown(poolId) {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPlanPoolMarkdown) return;
+    const md = await root.AtlasPipelineAPI.getPlanPoolMarkdown(poolId, 'default');
+    if (md && md.ok) {
+      const text = typeof md.data === 'string'
+        ? md.data
+        : (md.data && (md.data.markdown || md.data.text)) || '';
+      if (text) {
+        pushAtlasMessage(text.length > 4000 ? text.slice(0, 4000) + '\n\n…(truncated)' : text);
+        return;
+      }
+    }
+    // Fallback: fetch raw plan pool and show item summaries.
+    const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
+    if (!pool || !pool.ok || !pool.data) {
+      pushAtlasMessage('Plan was created. Use Recover to view it.');
+      return;
+    }
+    const items = (pool.data.items || pool.data.plan_items || []);
+    if (!items.length) {
+      pushAtlasMessage('Plan was created but contains no items.');
+      return;
+    }
+    const lines = ['## Plan items'];
+    items.forEach((it, i) => {
+      const title = it.title || it.summary || it.input || `item ${i + 1}`;
+      lines.push(`${i + 1}. ${title}`);
+    });
+    pushAtlasMessage(lines.join('\n'));
+  }
+
+  function setBusy(busy) {
+    if (dom.stopBtn) dom.stopBtn.style.display = busy ? '' : 'none';
+    if (dom.sendBtn) dom.sendBtn.disabled = !!busy;
+    if (dom.input) dom.input.disabled = !!busy;
   }
 
   function formatError(resp) {
@@ -473,28 +499,11 @@
     }
   }
 
-  function onPrimaryCta() {
-    const text = (dom.input && dom.input.value && dom.input.value.trim()) || (() => {
-      try { return localStorage.getItem(STORAGE_LAST_GOAL_KEY) || ''; } catch (_e) { return ''; }
-    })();
-    if (!text) {
-      pushAtlasMessage('Describe what Atlas should do in the input box, then press Start.');
-      return;
-    }
-    if (dom.input) {
-      dom.input.value = text;
-      sendChatMessage();
-    }
-  }
-
   function onStop() {
+    setBusy(false);
     const legacy = document.getElementById('atlas-workflow-stop-btn');
-    if (legacy) {
-      legacy.click();
-      pushAtlasMessage('Stop signal delegated to backend workflow.');
-    } else {
-      pushAtlasMessage('Stop control unavailable.');
-    }
+    if (legacy) legacy.click();
+    pushSystemMessage('停止しました');
   }
 
   function delegateRecover() {
@@ -503,21 +512,10 @@
       if (typeof root.AtlasDashboard.refreshStatus === 'function') {
         root.AtlasDashboard.refreshStatus();
       }
-      pushAtlasMessage('Recovery requested from backend.');
+      pushAtlasMessage('前回の状態を読み込みました');
     } else {
-      pushAtlasMessage('Recovery handler unavailable.');
+      pushAtlasMessage('Recovery unavailable.');
     }
-  }
-
-  function openLegacyShell() {
-    // Emergency-only escape hatch. We do NOT persist shell preference; the
-    // Claude shell is the only Atlas shell going forward. Reopen by clicking
-    // the Atlas mode button again.
-    const claudeCol = $('atlas-claude-col');
-    const legacyCol = $('atlas-panel-col');
-    if (claudeCol) claudeCol.style.display = 'none';
-    if (legacyCol) legacyCol.style.display = '';
-    deactivate();
   }
 
   function pushUserMessage(text) { appendMessage('user', text); }
@@ -553,7 +551,6 @@
     previewProfile,
     selectProfile,
     startAutonomousLoop,
-    openLegacyShell,
     state,
   };
 

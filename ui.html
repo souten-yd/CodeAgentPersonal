@@ -165,73 +165,59 @@
     <header class="atlas-claude-header">
       <div class="atlas-claude-titles">
         <span class="atlas-claude-title">Atlas</span>
-        <span class="atlas-claude-subtitle">Conversational dev shell (buildless)</span>
       </div>
       <div class="atlas-claude-header-actions">
         <button type="button" id="atlas-claude-recovery-btn" class="atlas-claude-ghost-btn">Recover</button>
-        <button type="button" id="atlas-claude-shell-toggle" class="atlas-claude-ghost-btn">Use legacy panel</button>
       </div>
     </header>
 
     <section class="atlas-claude-status-row" aria-label="Atlas shell summary">
       <div class="atlas-claude-badge safety" data-profile-rank="0">Profile: review_only (Lv0)</div>
-      <div class="atlas-claude-badge work-target">Target: software_development_or_repair</div>
       <div class="atlas-claude-badge phase">Phase: -</div>
-      <div class="atlas-claude-badge next-action">Next: Start Atlas</div>
       <div class="atlas-claude-badge changed-files">Files: 0</div>
-      <div class="atlas-claude-badge verification">Verify: idle</div>
-      <div class="atlas-claude-badge recovery">Recovery: idle</div>
     </section>
 
     <section id="atlas-claude-transcript" class="atlas-claude-transcript" aria-live="polite" aria-label="Atlas conversation"></section>
 
     <section class="atlas-claude-input-wrap">
-      <textarea id="atlas-claude-input" class="atlas-claude-input" rows="1" placeholder="例: PlanPool進捗UIを改善し、リロード後の状態復元を確実にして。"></textarea>
+      <textarea id="atlas-claude-input" class="atlas-claude-input" rows="1" placeholder="指示を入力..."></textarea>
       <div class="atlas-claude-input-actions">
         <button type="button" id="atlas-claude-feature-btn" class="atlas-claude-ghost-btn" aria-haspopup="true">Features</button>
-        <button type="button" id="atlas-claude-primary-cta" class="atlas-claude-primary-btn">Start Atlas</button>
-        <button type="button" id="atlas-claude-stop-btn" class="atlas-claude-secondary-btn">Stop</button>
+        <button type="button" id="atlas-claude-stop-btn" class="atlas-claude-secondary-btn" style="display:none">Stop</button>
         <button type="button" id="atlas-claude-send-btn" class="atlas-claude-primary-btn">Send</button>
       </div>
     </section>
 
     <details id="atlas-claude-features-drawer" class="atlas-claude-features-drawer">
-      <summary class="atlas-claude-features-summary">Features — Automation Profile &amp; self-improvement</summary>
+      <summary class="atlas-claude-features-summary">Features</summary>
       <fieldset class="atlas-claude-feature-group" aria-label="Automation Profile">
         <legend>Automation Profile</legend>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="review_only" checked> <b>0 · Review Only</b> — proposals only, no mutation.</label>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="single_action"> <b>1 · Single Action</b> — one mutation per human approval.</label>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="supervised_auto"> <b>2 · Supervised Auto</b> — supervised mutation, no autonomous loop.</label>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_custom"> <b>3 · Autonomous (custom bounds)</b> — full autonomy, bounds per request.</label>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_bounded_dev"> <b>4 · Autonomous Bounded Dev</b> — full automatic code generation within the dev envelope.</label>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_self_improvement"> <b>5 · Autonomous Self-Improvement</b> — full self-improvement loop; strict gate + Level-4 checkpoint required.</label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="review_only" checked> <b>0 Review</b></label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="single_action"> <b>1 Single Action</b></label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="supervised_auto"> <b>2 Supervised</b></label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_custom"> <b>3 Autonomous</b></label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_bounded_dev"> <b>4 Bounded Dev</b></label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_self_improvement"> <b>5 Self-Improvement</b></label>
       </fieldset>
 
       <fieldset class="atlas-claude-feature-group" aria-label="Self-improvement override">
-        <legend>Self-improvement override</legend>
-        <label class="atlas-claude-checkbox"><input type="checkbox" id="atlas-claude-self-improvement-override"> Enable self-improvement scope manually (Profile 2-4 only; requires strict gate &amp; Level-4 checkpoint).</label>
+        <legend>Self-improvement</legend>
+        <label class="atlas-claude-checkbox"><input type="checkbox" id="atlas-claude-self-improvement-override"> Enable (Profile 2-4)</label>
       </fieldset>
 
       <fieldset class="atlas-claude-feature-group" aria-label="Work target">
         <legend>Work target</legend>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="software_development_or_repair" checked> Software development or repair</label>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="platform_self_improvement"> Platform self-improvement</label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="software_development_or_repair" checked> Dev / repair</label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="platform_self_improvement"> Self-improvement</label>
       </fieldset>
 
       <div class="atlas-claude-feature-actions">
-        <label class="atlas-claude-confirm-label" for="atlas-claude-confirm-text">Type <code>SELECT AUTOMATION PROFILE</code> to confirm</label>
         <input type="text" id="atlas-claude-confirm-text" class="atlas-claude-confirm-text" placeholder="SELECT AUTOMATION PROFILE" autocomplete="off">
         <button type="button" id="atlas-claude-preview-profile-btn" class="atlas-claude-secondary-btn">Preview</button>
-        <button type="button" id="atlas-claude-select-profile-btn" class="atlas-claude-primary-btn" disabled>Select profile</button>
+        <button type="button" id="atlas-claude-select-profile-btn" class="atlas-claude-primary-btn" disabled>Apply</button>
       </div>
 
       <pre id="atlas-claude-profile-result" class="atlas-claude-profile-result" aria-live="polite" hidden></pre>
-    </details>
-
-    <details class="atlas-claude-diagnostics-drawer">
-      <summary>Diagnostics</summary>
-      <button type="button" id="atlas-claude-open-legacy-btn" class="atlas-claude-ghost-btn">Open legacy Atlas panel</button>
-      <p class="atlas-claude-muted">Emergency fallback only. The Claude shell is the standard Atlas surface; re-click the Atlas mode button to return to it (no persistence).</p>
     </details>
   </div>
 
@@ -6334,26 +6320,12 @@ function setMode(m, options = {}) {
       if (window.AtlasClaudePanel && typeof window.AtlasClaudePanel.activate === 'function') {
         try { window.AtlasClaudePanel.activate(); } catch (err) { console.warn('Atlas Claude panel activate failed:', err); }
       } else {
-        // atlas_claude_panel.js failed to load; fall back to legacy after a short delay.
-        setTimeout(() => {
-          if (!window.AtlasClaudePanel && atlasClaudeCol) {
-            atlasClaudeCol.style.setProperty('display', 'none', 'important');
-            if (atlasPanelCol) {
-              atlasPanelCol.classList.remove('mob-hidden');
-              atlasPanelCol.style.setProperty('display', '', '');
-              atlasPanelCol.style.display = '';
-            }
-            try {
-              restoreAtlasSubviewState();
-            } catch (err) {
-              console.warn('Atlas legacy restore failed:', err);
-              try { setAtlasSubview('start'); } catch (_e) {}
-              try { ensureAtlasWorkbenchHost(); } catch (_e) {}
-            }
-          }
-        }, 5000);
+        // atlas_claude_panel.js will activate itself on DOMContentLoaded / load.
+        // No legacy fallback: the Claude shell is the only Atlas surface.
+        console.warn('AtlasClaudePanel not yet ready when Atlas mode was entered.');
       }
     } else if (atlasPanelCol) {
+      // Defensive: should never happen — Claude shell DOM is always present.
       atlasPanelCol.classList.remove('mob-hidden');
       atlasPanelCol.style.setProperty('display', '', '');
       atlasPanelCol.style.display = '';
@@ -16331,7 +16303,7 @@ function testSkill(skillName) {
 <script src="/static/js/nexus.js"></script>
 <script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-40"></script>
 <script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-40"></script>
-<script src="/static/js/atlas_claude_panel.js?v=claude-chat-3"></script>
+<script src="/static/js/atlas_claude_panel.js?v=claude-chat-5"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

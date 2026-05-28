@@ -175,15 +175,6 @@
       "safety_notes": "Mirrors the explicit-confirmation pattern used by legacy execute-one flow."
     },
     {
-      "id": "atlas-claude-primary-cta",
-      "label": "Primary CTA (Start Atlas)",
-      "category": "minimal_workflow",
-      "default_visible": true,
-      "reason": "Triggers chat send with the most recent input or persisted goal.",
-      "can_hide": false,
-      "safety_notes": "Delegates to backend; respects current Automation Profile."
-    },
-    {
       "id": "atlas-claude-stop-btn",
       "label": "Stop button",
       "category": "safety_always_visible",
@@ -200,15 +191,6 @@
       "reason": "Delegates to AtlasDashboard.loadRecoveredPlan + refreshStatus.",
       "can_hide": false,
       "safety_notes": "Recovery semantics owned by legacy module."
-    },
-    {
-      "id": "atlas-claude-shell-toggle",
-      "label": "Legacy fallback toggle",
-      "category": "minimal_workflow",
-      "default_visible": true,
-      "reason": "Always-available exit to legacy Atlas panel.",
-      "can_hide": false,
-      "safety_notes": "Hard-coded session-only fallback path; hides #atlas-claude-col and shows #atlas-panel-col without persistence."
     },
     {
       "id": "atlas-workflow-diagnostics-toggle",
