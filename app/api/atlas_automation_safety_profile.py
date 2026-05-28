@@ -131,8 +131,8 @@ AUTOMATION_PROFILE_PRESETS: list[dict[str, Any]] = [
     {
         "id": "autonomous_bounded_dev",
         "rank": 4,
-        "label": "Autonomous Bounded Dev",
-        "description": "Full automatic code generation within the bounded dev envelope.",
+        "label": "Autonomous",
+        "description": "Full automatic code generation within a pre-authorised envelope. Envelope is selected by Work target: Dev/repair uses pre_authorized_bounded_dev_envelope; Self-improvement uses pre_authorized_self_improvement_envelope (requires strict gate + Level-4 checkpoint).",
         "safety_profile": PROFILE_AUTONOMOUS_DEV_AGENT,
         "envelope_id": ENVELOPE_BOUNDED_DEV,
         "self_improvement_enabled": False,
@@ -140,19 +140,10 @@ AUTOMATION_PROFILE_PRESETS: list[dict[str, Any]] = [
         "strict_gate_approved": False,
         "level4_checkpoint_required": False,
         "enables_full_automation": True,
-    },
-    {
-        "id": "autonomous_self_improvement",
-        "rank": 5,
-        "label": "Autonomous Self-Improvement",
-        "description": "Full automatic self-improvement within the self-improvement envelope; strict gate + Level-4 checkpoint required.",
-        "safety_profile": PROFILE_AUTONOMOUS_DEV_AGENT,
-        "envelope_id": ENVELOPE_SELF_IMPROVEMENT,
-        "self_improvement_enabled": True,
-        "self_improvement_scope": SELF_SCOPE_ATLAS_RUNTIME_STRICT,
-        "strict_gate_approved": False,
-        "level4_checkpoint_required": True,
-        "enables_full_automation": True,
+        "work_target_envelope_map": {
+            "software_development_or_repair": ENVELOPE_BOUNDED_DEV,
+            "platform_self_improvement": ENVELOPE_SELF_IMPROVEMENT,
+        },
     },
 ]
 
