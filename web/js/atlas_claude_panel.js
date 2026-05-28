@@ -54,28 +54,21 @@
     dom.input = $('atlas-claude-input');
     dom.sendBtn = $('atlas-claude-send-btn');
     dom.stopBtn = $('atlas-claude-stop-btn');
-    dom.primaryCta = $('atlas-claude-primary-cta');
     dom.featuresBtn = $('atlas-claude-feature-btn');
     dom.featuresDrawer = $('atlas-claude-features-drawer');
     dom.profileResult = $('atlas-claude-profile-result');
     dom.previewBtn = $('atlas-claude-preview-profile-btn');
     dom.selectBtn = $('atlas-claude-select-profile-btn');
     dom.confirmInput = $('atlas-claude-confirm-text');
-    dom.shellToggle = $('atlas-claude-shell-toggle');
     dom.recoveryBtn = $('atlas-claude-recovery-btn');
-    dom.openLegacyBtn = $('atlas-claude-open-legacy-btn');
     dom.badges = {
       safety: dom.col.querySelector('.atlas-claude-badge.safety'),
-      workTarget: dom.col.querySelector('.atlas-claude-badge.work-target'),
       phase: dom.col.querySelector('.atlas-claude-badge.phase'),
-      nextAction: dom.col.querySelector('.atlas-claude-badge.next-action'),
       changedFiles: dom.col.querySelector('.atlas-claude-badge.changed-files'),
-      verification: dom.col.querySelector('.atlas-claude-badge.verification'),
-      recovery: dom.col.querySelector('.atlas-claude-badge.recovery'),
     };
 
     bindInputs();
-    pushSystemMessage('Atlas conversational shell ready. Pick an Automation Profile and describe what you want Atlas to do.');
+    pushSystemMessage('指示を入力してください');
     refreshPolicies();
   }
 
@@ -90,7 +83,6 @@
       dom.input.addEventListener('input', () => autoResizeInput(dom.input));
     }
     if (dom.sendBtn) dom.sendBtn.addEventListener('click', () => sendChatMessage());
-    if (dom.primaryCta) dom.primaryCta.addEventListener('click', () => onPrimaryCta());
     if (dom.stopBtn) dom.stopBtn.addEventListener('click', () => onStop());
     if (dom.featuresBtn && dom.featuresDrawer) {
       dom.featuresBtn.addEventListener('click', () => {
@@ -100,8 +92,6 @@
     if (dom.previewBtn) dom.previewBtn.addEventListener('click', () => previewProfile());
     if (dom.selectBtn) dom.selectBtn.addEventListener('click', () => selectProfile());
     if (dom.confirmInput) dom.confirmInput.addEventListener('input', updateSelectButtonState);
-    if (dom.shellToggle) dom.shellToggle.addEventListener('click', () => openLegacyShell());
-    if (dom.openLegacyBtn) dom.openLegacyBtn.addEventListener('click', () => openLegacyShell());
     if (dom.recoveryBtn) dom.recoveryBtn.addEventListener('click', () => delegateRecover());
 
     document.querySelectorAll('input[name="atlas-claude-preset"]').forEach((radio) => {
@@ -211,26 +201,16 @@
       dom.badges.safety.textContent = `Profile: ${profileName} (Lv${rank})${automation}`;
       dom.badges.safety.dataset.profileRank = String(rank);
     }
-    if (dom.badges.workTarget) {
-      dom.badges.workTarget.textContent = `Target: ${state.workTarget}`;
-    }
     if (dom.badges.phase) {
-      const phase = meta.current_phase || wf.phase || 'unknown';
+      const phase = meta.current_phase || wf.phase || 'idle';
       dom.badges.phase.textContent = `Phase: ${phase}`;
-    }
-    if (dom.badges.nextAction) {
-      const cta = (wf.primary_cta && wf.primary_cta.label) || wf.primary_cta_label || 'Start Atlas';
-      dom.badges.nextAction.textContent = `Next: ${cta}`;
     }
     if (dom.badges.changedFiles) {
       const files = (meta.last_changed_files && meta.last_changed_files.length) || 0;
       dom.badges.changedFiles.textContent = `Files: ${files}`;
     }
-    if (dom.badges.verification) {
+    if (false && dom.badges.verification) {
       dom.badges.verification.textContent = `Verify: ${meta.last_verification_status || 'idle'}`;
-    }
-    if (dom.badges.recovery) {
-      dom.badges.recovery.textContent = `Recovery: ${meta.recovery_state || 'idle'}`;
     }
   }
 
@@ -349,7 +329,6 @@
     pushUserMessage(text);
 
     const intent = classifyIntent(text);
-    pushSystemMessage(`Intent: ${intent}`);
     await dispatchIntent(intent, text);
   }
 
@@ -404,14 +383,217 @@
       pushAtlasMessage(warnings.length ? `Backend warnings:\n${warnings.map((w) => `- ${w}`).join('\n')}` : 'No backend warnings.');
       return;
     }
-    // free_text_goal: create a plan pool with the user's goal.
+    // free_text_goal: create a plan pool with the user's goal, then render
+    // the generated plan in chat so the user can see what Atlas produced.
+    setBusy(true);
     const resp = await root.AtlasPipelineAPI.createPlanPool({ input: text });
-    if (resp.ok) {
-      const poolId = resp.data && (resp.data.pool_id || resp.data.id);
-      pushAtlasMessage(`PlanPool created${poolId ? ` (\`${poolId}\`)` : ''}.`);
-    } else {
+    if (!resp.ok) {
+      setBusy(false);
       pushAtlasMessage(`PlanPool creation failed: ${formatError(resp)}`);
+      return;
     }
+    const poolId = resp.data && (resp.data.pool_id || resp.data.id);
+    if (!poolId) {
+      setBusy(false);
+      pushAtlasMessage('PlanPool created but no pool id was returned.');
+      return;
+    }
+    pushAtlasMessage(`PlanPool 作成: \`${poolId}\``);
+    if (resp.data && resp.data.planner_status === 'fallback_used') {
+      pushSystemMessage('注意: LLM 未接続のため fallback プランです。実際のコード生成は LLM 起動が必要です。');
+    }
+    await renderPlanPoolMarkdown(poolId);
+    setBusy(false);
+
+    // If a full-automation preset is selected AND the envelope is active,
+    // offer the user a one-click approval that runs patch generation +
+    // approval + autopilot end-to-end without any further chat input.
+    const preset = state.presets.find((p) => p.id === state.selectedPresetId);
+    const envelope = state.latestEnvelope;
+    const envelopeActive = envelope && envelope.status === 'active' && envelope.envelope_id !== 'none';
+    if (preset && preset.enables_full_automation && envelopeActive) {
+      appendApprovalPrompt(poolId);
+    } else if (preset && preset.enables_full_automation && !envelopeActive) {
+      pushSystemMessage('Features → 「Apply」で Profile を確定するとここに「承認して実行」ボタンが出ます。');
+    } else {
+      pushSystemMessage('Profile 4 (Bounded Dev) / 5 (Self-Improvement) を Apply すると自動実行が可能になります。');
+    }
+  }
+
+  function appendApprovalPrompt(poolId) {
+    if (!dom.transcript) return;
+    const node = document.createElement('div');
+    node.className = 'atlas-claude-msg';
+    node.dataset.role = 'system';
+    node.style.flexDirection = 'column';
+    node.style.gap = '6px';
+    const text = document.createElement('div');
+    text.textContent = 'この Plan を実行しますか？';
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '6px';
+    const approve = document.createElement('button');
+    approve.type = 'button';
+    approve.className = 'atlas-claude-primary-btn';
+    approve.textContent = '承認して実行';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'atlas-claude-secondary-btn';
+    cancel.textContent = 'キャンセル';
+    approve.addEventListener('click', () => {
+      node.remove();
+      approveAndRunPipeline(poolId);
+    });
+    cancel.addEventListener('click', () => {
+      node.remove();
+      pushSystemMessage('キャンセルしました');
+    });
+    actions.appendChild(approve);
+    actions.appendChild(cancel);
+    node.appendChild(text);
+    node.appendChild(actions);
+    dom.transcript.appendChild(node);
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  async function approveAndRunPipeline(poolId) {
+    if (!root.AtlasPipelineAPI) return;
+    setBusy(true);
+    try {
+      // 1. Re-fetch the pool to get up-to-date items.
+      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
+      if (!pool.ok || !pool.data) {
+        pushAtlasMessage(`Plan 取得失敗: ${formatError(pool)}`);
+        return;
+      }
+      const items = pool.data.items || pool.data.plan_items || [];
+      if (!items.length) {
+        pushAtlasMessage('Plan にアイテムがありません。');
+        return;
+      }
+
+      // 2. Generate patch proposals for every item via the LLM.
+      pushSystemMessage(`Patch 生成中 (${items.length} items)...`);
+      let generated = 0;
+      const genFailures = [];
+      for (const it of items) {
+        const itemId = it.item_id || it.id;
+        if (!itemId) continue;
+        const r = await root.AtlasPipelineAPI.generatePatchProposal({
+          pool_id: poolId,
+          item_id: itemId,
+          workspace_id: 'default',
+        });
+        const okStatus = r && r.ok && r.data
+          && r.data.status && /(proposed|completed|approved)/i.test(String(r.data.status));
+        if (okStatus) {
+          generated += 1;
+        } else {
+          genFailures.push({ id: itemId, msg: formatError(r) });
+        }
+      }
+      pushSystemMessage(`Patch 生成: ${generated}/${items.length} success`);
+      if (genFailures.length) {
+        pushAtlasMessage(`一部失敗:\n${genFailures.map((f) => `- \`${f.id}\`: ${f.msg}`).join('\n')}`);
+      }
+
+      // 3. Approve each generated patch proposal so the autopilot will pick it up.
+      pushSystemMessage('アイテムを承認中...');
+      for (const it of items) {
+        const itemId = it.item_id || it.id;
+        if (!itemId) continue;
+        await root.AtlasPipelineAPI.decidePatchProposal({
+          pool_id: poolId,
+          item_id: itemId,
+          decision: 'approve',
+        });
+      }
+
+      // 4. Run the autopilot end-to-end. Envelope authorises require_approval=false.
+      const envelope = state.latestEnvelope || {};
+      const bounds = envelope.bounds || {};
+      pushSystemMessage('Autopilot 実行中...');
+      const result = await root.AtlasPipelineAPI.runMultiItemAutopilot({
+        pool_id: poolId,
+        policy_id: 'guarded_multi_item_v1',
+        max_items: Math.min(bounds.max_actions_per_loop || 12, items.length),
+        max_runtime_seconds: bounds.max_runtime_seconds || 1800,
+        max_changed_files_total: bounds.max_files_changed || 25,
+        dry_run: false,
+        require_approval: false,
+        include_context_refresh: true,
+        include_evaluator: true,
+        include_bounded_retry: true,
+        metadata: { ui: 'atlas_claude_panel', envelope_id: envelope.envelope_id },
+      });
+
+      if (!result.ok) {
+        pushAtlasMessage(`Autopilot 失敗: ${formatError(result)}`);
+        return;
+      }
+      renderAutopilotResult(result.data || {});
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderAutopilotResult(d) {
+    const lines = [
+      '# 実行完了',
+      `- status: \`${d.status || 'unknown'}\``,
+      `- 完了: ${d.completed_count || 0}`,
+      `- 失敗: ${d.failed_count || 0}`,
+      `- ブロック: ${d.blocked_count || 0}`,
+      `- スキップ: ${d.skipped_count || 0}`,
+    ];
+    if (d.stop_reason) lines.push(`- stop_reason: \`${d.stop_reason}\``);
+    const itemResults = d.item_results || [];
+    if (itemResults.length) {
+      lines.push('', '## アイテム別結果');
+      itemResults.forEach((r) => {
+        const status = r.status || '?';
+        const reason = r.reason ? ` (${r.reason})` : '';
+        lines.push(`- \`${r.item_id}\`: ${status}${reason}`);
+      });
+    }
+    pushAtlasMessage(lines.join('\n'));
+  }
+
+  async function renderPlanPoolMarkdown(poolId) {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPlanPoolMarkdown) return;
+    const md = await root.AtlasPipelineAPI.getPlanPoolMarkdown(poolId, 'default');
+    if (md && md.ok) {
+      const text = typeof md.data === 'string'
+        ? md.data
+        : (md.data && (md.data.markdown || md.data.text)) || '';
+      if (text) {
+        pushAtlasMessage(text.length > 4000 ? text.slice(0, 4000) + '\n\n…(truncated)' : text);
+        return;
+      }
+    }
+    // Fallback: fetch raw plan pool and show item summaries.
+    const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
+    if (!pool || !pool.ok || !pool.data) {
+      pushAtlasMessage('Plan was created. Use Recover to view it.');
+      return;
+    }
+    const items = (pool.data.items || pool.data.plan_items || []);
+    if (!items.length) {
+      pushAtlasMessage('Plan was created but contains no items.');
+      return;
+    }
+    const lines = ['## Plan items'];
+    items.forEach((it, i) => {
+      const title = it.title || it.summary || it.input || `item ${i + 1}`;
+      lines.push(`${i + 1}. ${title}`);
+    });
+    pushAtlasMessage(lines.join('\n'));
+  }
+
+  function setBusy(busy) {
+    if (dom.stopBtn) dom.stopBtn.style.display = busy ? '' : 'none';
+    if (dom.sendBtn) dom.sendBtn.disabled = !!busy;
+    if (dom.input) dom.input.disabled = !!busy;
   }
 
   function formatError(resp) {
@@ -473,28 +655,11 @@
     }
   }
 
-  function onPrimaryCta() {
-    const text = (dom.input && dom.input.value && dom.input.value.trim()) || (() => {
-      try { return localStorage.getItem(STORAGE_LAST_GOAL_KEY) || ''; } catch (_e) { return ''; }
-    })();
-    if (!text) {
-      pushAtlasMessage('Describe what Atlas should do in the input box, then press Start.');
-      return;
-    }
-    if (dom.input) {
-      dom.input.value = text;
-      sendChatMessage();
-    }
-  }
-
   function onStop() {
+    setBusy(false);
     const legacy = document.getElementById('atlas-workflow-stop-btn');
-    if (legacy) {
-      legacy.click();
-      pushAtlasMessage('Stop signal delegated to backend workflow.');
-    } else {
-      pushAtlasMessage('Stop control unavailable.');
-    }
+    if (legacy) legacy.click();
+    pushSystemMessage('停止しました');
   }
 
   function delegateRecover() {
@@ -503,21 +668,10 @@
       if (typeof root.AtlasDashboard.refreshStatus === 'function') {
         root.AtlasDashboard.refreshStatus();
       }
-      pushAtlasMessage('Recovery requested from backend.');
+      pushAtlasMessage('前回の状態を読み込みました');
     } else {
-      pushAtlasMessage('Recovery handler unavailable.');
+      pushAtlasMessage('Recovery unavailable.');
     }
-  }
-
-  function openLegacyShell() {
-    // Emergency-only escape hatch. We do NOT persist shell preference; the
-    // Claude shell is the only Atlas shell going forward. Reopen by clicking
-    // the Atlas mode button again.
-    const claudeCol = $('atlas-claude-col');
-    const legacyCol = $('atlas-panel-col');
-    if (claudeCol) claudeCol.style.display = 'none';
-    if (legacyCol) legacyCol.style.display = '';
-    deactivate();
   }
 
   function pushUserMessage(text) { appendMessage('user', text); }
@@ -553,7 +707,6 @@
     previewProfile,
     selectProfile,
     startAutonomousLoop,
-    openLegacyShell,
     state,
   };
 
