@@ -123,7 +123,7 @@
     {
       "id": "atlas-claude-col",
       "label": "Atlas Claude chat shell root",
-      "category": "claude_chat_panel",
+      "category": "minimal_workflow",
       "default_visible": true,
       "reason": "POST-SCALE-160-CLAUDE-CHAT-PANEL buildless conversational shell.",
       "can_hide": true,
@@ -132,7 +132,7 @@
     {
       "id": "atlas-shell-select",
       "label": "Atlas shell selector",
-      "category": "claude_chat_panel",
+      "category": "minimal_workflow",
       "default_visible": true,
       "reason": "Switch between Claude-style chat shell and legacy Atlas panel.",
       "can_hide": false,
@@ -141,7 +141,7 @@
     {
       "id": "atlas-claude-transcript",
       "label": "Atlas chat transcript",
-      "category": "claude_chat_panel",
+      "category": "minimal_workflow",
       "default_visible": true,
       "reason": "Conversational message log; aria-live=polite.",
       "can_hide": false,
@@ -150,7 +150,7 @@
     {
       "id": "atlas-claude-input",
       "label": "Atlas chat input",
-      "category": "claude_chat_panel",
+      "category": "minimal_workflow",
       "default_visible": true,
       "reason": "Free-text goal and intent input.",
       "can_hide": false,
@@ -159,7 +159,7 @@
     {
       "id": "atlas-claude-features-drawer",
       "label": "Automation Profile features drawer",
-      "category": "claude_chat_panel",
+      "category": "minimal_workflow",
       "default_visible": true,
       "reason": "Hosts Automation Profile preset radios, self-improvement override, work target, confirmation, and Preview/Select actions.",
       "can_hide": false,
@@ -186,7 +186,7 @@
     {
       "id": "atlas-claude-primary-cta",
       "label": "Primary CTA (Start Atlas)",
-      "category": "claude_chat_panel",
+      "category": "minimal_workflow",
       "default_visible": true,
       "reason": "Triggers chat send with the most recent input or persisted goal.",
       "can_hide": false,
@@ -213,7 +213,7 @@
     {
       "id": "atlas-claude-shell-toggle",
       "label": "Legacy fallback toggle",
-      "category": "claude_chat_panel",
+      "category": "minimal_workflow",
       "default_visible": true,
       "reason": "Always-available exit to legacy Atlas panel.",
       "can_hide": false,
