@@ -115,7 +115,9 @@
     "Vue default route bypassing valid dist validation or legacy UI fallback",
     "stable runtime mutation without gate output, verified candidate workspace, stable snapshot, rollback, recovery, and exact approval",
     "stable runtime mutation apply before UI default reconfirmation",
-    "direct merge before dedicated direct merge gate"
+    "direct merge before dedicated direct merge gate",
+    "claude chat panel becoming authoritative for execution, approval, apply, or self-modification without backend gates",
+    "claude chat panel hiding legacy fallback irrecoverably"
   ],
   "planned_prs": [
     {
@@ -477,6 +479,24 @@
       "phase": "direct_merge_safety",
       "outcome": "prepare direct merge policy gate after stable mutation apply record",
       "runtime_change_allowed": false
+    },
+    {
+      "pr": "POST-SCALE-160-CLAUDE-CHAT-PANEL",
+      "phase": "buildless_conversational_chat_panel",
+      "outcome": "deliver buildless Claude-Code-style Atlas chat panel as additive shell above legacy atlas-panel-col; backend-authoritative; legacy fallback preserved",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "POST-SCALE-160-CLAUDE-CHAT-PROFILE-CONTROLS",
+      "phase": "buildless_conversational_chat_panel",
+      "outcome": "surface unified Automation Profile preset selector (6 presets), self-improvement toggle, and confirmation-text-gated /preview and /select endpoints over existing automation_safety_profile module",
+      "runtime_change_allowed": false
+    },
+    {
+      "pr": "POST-SCALE-160-CLAUDE-CHAT-COMPLETE-AUTOMATION-PROFILE",
+      "phase": "buildless_conversational_chat_panel",
+      "outcome": "introduce pre-authorized bounded dev and self-improvement envelopes that pre-authorise the autonomous loop within bounded scope; the safety profile manifest invariants stay locked and derived activation flags live on the envelope manifest",
+      "runtime_change_allowed": false
     }
   ],
   "practical_full_automation_plan": "docs/atlas_practical_full_automation_experience_plan.md",
@@ -484,5 +504,17 @@
   "ui_practical_experience_complete": false,
   "stable_runtime_mutation_apply_complete": false,
   "self_improvement_practical_loop_complete": false,
-  "draft_pr_experience_complete": false
+  "draft_pr_experience_complete": false,
+  "claude_chat_panel_buildless_enabled": true,
+  "claude_chat_panel_additive_only": true,
+  "claude_chat_panel_replaces_legacy_atlas_panel": false,
+  "claude_chat_panel_requires_build": false,
+  "claude_chat_panel_self_improvement_toggle_default": false,
+  "claude_chat_panel_default_automation_profile_preset": "review_only",
+  "claude_chat_panel_legacy_fallback_route": "data-atlas-shell=legacy",
+  "pre_authorized_bounded_dev_envelope_defined": true,
+  "pre_authorized_self_improvement_envelope_defined": true,
+  "pre_authorized_envelope_track_pr": "POST-SCALE-160-CLAUDE-CHAT-COMPLETE-AUTOMATION-PROFILE",
+  "pre_authorized_envelope_lifts_safety_profile_invariants": false,
+  "pre_authorized_envelope_carries_derived_activation_flags": true
 }

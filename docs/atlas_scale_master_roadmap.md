@@ -269,3 +269,15 @@ When checking a PR, verify all of the following against this master plan and the
 - No execution, mutation, patch apply, git, autonomous loop execution, direct merge, or self-modification is added before its scheduled PR.
 - No full automation mode is enabled before safety profiles, recovery supervisor, candidate workspace, boot checkpoints, and promotion gates exist.
 - Tests cover the planned acceptance criteria and drift checks.
+
+
+## Buildless conversational chat panel additive track
+
+After PR-ATLAS-SCALE-160, the buildless Claude-Code-style Atlas chat panel is delivered as an additive POST-SCALE-160 series. This track does not modify the canonical SCALE Completed / Current pointers above. The chat panel is the default Atlas mode shell; the legacy `#atlas-panel-col` dashboard remains reachable via a per-user toggle stored in `localStorage['atlas_shell_preference']`. Detailed UX, layout, DOM contract, envelope recipes, and drift checks live in `docs/atlas_claude_chat_panel_ux_plan.md`.
+
+| PR | Required outcome | Runtime impact | Drift check |
+| --- | --- | --- | --- |
+| POST-SCALE-160-CLAUDE-CHAT-PANEL | Buildless DOM, CSS, shell selector, and read-only policies/latest/envelopes endpoints | none | legacy panel preserved; UI never authoritative for execution |
+| POST-SCALE-160-CLAUDE-CHAT-PROFILE-CONTROLS | Single "Automation Profile" preset selector (6 presets), self-improvement override, confirmation-text-gated preview and select endpoints | none beyond writing safety profile manifest | explicit_profile_selection_required and SELECT AUTOMATION PROFILE confirmation enforced |
+| POST-SCALE-160-CLAUDE-CHAT-COMPLETE-AUTOMATION-PROFILE | Pre-authorised bounded dev and self-improvement envelopes; chat-driven autonomous loop session preparation bounded by envelope | none beyond writing envelope manifest; safety profile manifest invariants unchanged | _PROFILE_CAPABILITIES untouched; derived activation flags live only on envelope manifest; bound violations rejected backend-side |
+

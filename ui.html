@@ -70,6 +70,10 @@
     <div class="mode-wrap">
       <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')">Lumen</button>
       <button class="mode-btn" id="btn-atlas" onclick="setMode('atlas')">Atlas</button>
+      <select id="atlas-shell-select" class="mode-shell-select" aria-label="Atlas shell" style="display:none;font-size:10px;background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:2px 4px;margin-left:4px">
+        <option value="claude">Chat (Claude-style)</option>
+        <option value="legacy">Legacy panel</option>
+      </select>
             <button class="mode-btn" id="btn-echo" onclick="setMode('echo')">Echo</button>
       <button class="mode-btn" id="btn-nexus" onclick="setMode('nexus')">Nexus</button>
     </div>
@@ -160,7 +164,82 @@
     </div>
   </div>
 
-  <!-- ATLAS MODE -->
+  <!-- ATLAS MODE — Claude-style buildless conversational shell (default) -->
+  <div class="atlas-claude-col mob-hidden" id="atlas-claude-col" data-atlas-shell="claude" style="display:none" aria-label="Atlas conversational shell">
+    <header class="atlas-claude-header">
+      <div class="atlas-claude-titles">
+        <span class="atlas-claude-title">Atlas</span>
+        <span class="atlas-claude-subtitle">Conversational dev shell (buildless)</span>
+      </div>
+      <div class="atlas-claude-header-actions">
+        <button type="button" id="atlas-claude-recovery-btn" class="atlas-claude-ghost-btn">Recover</button>
+        <button type="button" id="atlas-claude-shell-toggle" class="atlas-claude-ghost-btn">Use legacy panel</button>
+      </div>
+    </header>
+
+    <section class="atlas-claude-status-row" aria-label="Atlas shell summary">
+      <div class="atlas-claude-badge safety" data-profile-rank="0">Profile: review_only (Lv0)</div>
+      <div class="atlas-claude-badge work-target">Target: software_development_or_repair</div>
+      <div class="atlas-claude-badge phase">Phase: -</div>
+      <div class="atlas-claude-badge next-action">Next: Start Atlas</div>
+      <div class="atlas-claude-badge changed-files">Files: 0</div>
+      <div class="atlas-claude-badge verification">Verify: idle</div>
+      <div class="atlas-claude-badge recovery">Recovery: idle</div>
+    </section>
+
+    <section id="atlas-claude-transcript" class="atlas-claude-transcript" aria-live="polite" aria-label="Atlas conversation"></section>
+
+    <section class="atlas-claude-input-wrap">
+      <textarea id="atlas-claude-input" class="atlas-claude-input" rows="1" placeholder="例: PlanPool進捗UIを改善し、リロード後の状態復元を確実にして。"></textarea>
+      <div class="atlas-claude-input-actions">
+        <button type="button" id="atlas-claude-feature-btn" class="atlas-claude-ghost-btn" aria-haspopup="true">Features</button>
+        <button type="button" id="atlas-claude-primary-cta" class="atlas-claude-primary-btn">Start Atlas</button>
+        <button type="button" id="atlas-claude-stop-btn" class="atlas-claude-secondary-btn">Stop</button>
+        <button type="button" id="atlas-claude-send-btn" class="atlas-claude-primary-btn">Send</button>
+      </div>
+    </section>
+
+    <details id="atlas-claude-features-drawer" class="atlas-claude-features-drawer">
+      <summary class="atlas-claude-features-summary">Features — Automation Profile &amp; self-improvement</summary>
+      <fieldset class="atlas-claude-feature-group" aria-label="Automation Profile">
+        <legend>Automation Profile</legend>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="review_only" checked> <b>0 · Review Only</b> — proposals only, no mutation.</label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="single_action"> <b>1 · Single Action</b> — one mutation per human approval.</label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="supervised_auto"> <b>2 · Supervised Auto</b> — supervised mutation, no autonomous loop.</label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_custom"> <b>3 · Autonomous (custom bounds)</b> — full autonomy, bounds per request.</label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_bounded_dev"> <b>4 · Autonomous Bounded Dev</b> — full automatic code generation within the dev envelope.</label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_self_improvement"> <b>5 · Autonomous Self-Improvement</b> — full self-improvement loop; strict gate + Level-4 checkpoint required.</label>
+      </fieldset>
+
+      <fieldset class="atlas-claude-feature-group" aria-label="Self-improvement override">
+        <legend>Self-improvement override</legend>
+        <label class="atlas-claude-checkbox"><input type="checkbox" id="atlas-claude-self-improvement-override"> Enable self-improvement scope manually (Profile 2-4 only; requires strict gate &amp; Level-4 checkpoint).</label>
+      </fieldset>
+
+      <fieldset class="atlas-claude-feature-group" aria-label="Work target">
+        <legend>Work target</legend>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="software_development_or_repair" checked> Software development or repair</label>
+        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="platform_self_improvement"> Platform self-improvement</label>
+      </fieldset>
+
+      <div class="atlas-claude-feature-actions">
+        <label class="atlas-claude-confirm-label" for="atlas-claude-confirm-text">Type <code>SELECT AUTOMATION PROFILE</code> to confirm</label>
+        <input type="text" id="atlas-claude-confirm-text" class="atlas-claude-confirm-text" placeholder="SELECT AUTOMATION PROFILE" autocomplete="off">
+        <button type="button" id="atlas-claude-preview-profile-btn" class="atlas-claude-secondary-btn">Preview</button>
+        <button type="button" id="atlas-claude-select-profile-btn" class="atlas-claude-primary-btn" disabled>Select profile</button>
+      </div>
+
+      <pre id="atlas-claude-profile-result" class="atlas-claude-profile-result" aria-live="polite" hidden></pre>
+    </details>
+
+    <details class="atlas-claude-diagnostics-drawer">
+      <summary>Diagnostics</summary>
+      <button type="button" id="atlas-claude-open-legacy-btn" class="atlas-claude-ghost-btn">Open legacy Atlas panel</button>
+      <p class="atlas-claude-muted">The legacy Atlas dashboard remains available as a fallback. Toggle <code>localStorage['atlas_shell_preference']</code> back to <code>claude</code> to return to this shell.</p>
+    </details>
+  </div>
+
+  <!-- ATLAS MODE — Legacy dashboard (fallback) -->
   <div class="atlas-panel-col mob-hidden" id="atlas-panel-col" style="display:none">
     <section class="atlas-dashboard" id="atlas-dashboard" data-atlas-dashboard-root="true" data-atlas-ui-mode="minimal" aria-label="Atlas Dashboard">
       <div class="atlas-dashboard-shell plan-card" id="atlas-workbench-card" data-atlas-current-subview="dashboard">
@@ -6172,11 +6251,24 @@ function bindModeAndNexusTapHandlers() {
   ['dashboard','library','research','sources','evidence','reports','settings','news','market','web-scout','deep-research','compare','formula'].forEach((name) => {
     _bindTapClick(document.getElementById('nexus-btn-' + name), () => switchNexusTab(name));
   });
+  const atlasShellSelect = document.getElementById('atlas-shell-select');
+  if (atlasShellSelect) {
+    atlasShellSelect.addEventListener('change', (ev) => {
+      const value = ev.target && ev.target.value === 'legacy' ? 'legacy' : 'claude';
+      try { localStorage.setItem('atlas_shell_preference', value); } catch (_err) {}
+      if (typeof setMode === 'function') setMode('atlas');
+    });
+  }
 }
 
 function setMode(m, options = {}) {
   if (m === 'task') m = 'chat';
   if (!isValidUiMode(m)) m = 'chat';
+  if (m !== 'atlas') {
+    const sel = document.getElementById('atlas-shell-select');
+    if (sel) sel.style.display = 'none';
+    try { window.AtlasClaudePanel?.deactivate(); } catch (_err) {}
+  }
   const shouldRestoreSubtab = options.restore !== false;
   const shouldPersistMode = options.persist !== false;
   const prevMode = mode;
@@ -6240,16 +6332,38 @@ function setMode(m, options = {}) {
     panelCol.style.display = 'none';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
-    if (atlasPanelCol) atlasPanelCol.style.display = '';
+    const atlasClaudeCol = document.getElementById('atlas-claude-col');
+    const atlasShellSelect = document.getElementById('atlas-shell-select');
+    let atlasShellPref = 'claude';
+    try { atlasShellPref = localStorage.getItem('atlas_shell_preference') || 'claude'; } catch (_e) {}
+    if (atlasShellSelect) {
+      atlasShellSelect.style.display = '';
+      atlasShellSelect.value = atlasShellPref;
+    }
+    if (atlasShellPref === 'legacy') {
+      if (atlasClaudeCol) atlasClaudeCol.style.display = 'none';
+      if (atlasPanelCol) atlasPanelCol.style.display = '';
+      try { window.AtlasClaudePanel?.deactivate(); } catch (_err) {}
+    } else {
+      if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+      if (atlasClaudeCol) {
+        atlasClaudeCol.style.display = '';
+        try { window.AtlasClaudePanel?.activate(); } catch (_err) {}
+      } else if (atlasPanelCol) {
+        atlasPanelCol.style.display = '';
+      }
+    }
     if (nexusCol) nexusCol.style.display = 'none';
     if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
-    try {
-      restoreAtlasSubviewState();
-    } catch (err) {
-      console.warn('Atlas restore failed in setMode(atlas):', err);
-      try { setAtlasSubview('start'); } catch (_err) {}
-      try { ensureAtlasWorkbenchHost(); } catch (_err) {}
+    if (atlasShellPref === 'legacy') {
+      try {
+        restoreAtlasSubviewState();
+      } catch (err) {
+        console.warn('Atlas restore failed in setMode(atlas):', err);
+        try { setAtlasSubview('start'); } catch (_err) {}
+        try { ensureAtlasWorkbenchHost(); } catch (_err) {}
+      }
     }
   } else if (m === 'nexus') {
     appBody?.classList.remove('echo-active');
@@ -16206,6 +16320,7 @@ function testSkill(skillName) {
 <script src="/static/js/nexus.js"></script>
 <script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-40"></script>
 <script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-40"></script>
+<script src="/static/js/atlas_claude_panel.js?v=claude-chat-1"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

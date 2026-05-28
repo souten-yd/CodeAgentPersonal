@@ -109,3 +109,7 @@ Use this direction for the post-Level-4 UX work and later UI default decisions.
 Practical full automation completion requirements are defined in `docs/atlas_practical_full_automation_experience_plan.md`.
 
 FastUI is a required delivery for practical full automation completion, not optional UI polish. Atlas is not practically complete at backend-milestone-only state.
+
+## Buildless Claude Chat Panel in ui.html
+
+The buildless track gains a delivered shell artefact distinct from `web/atlas-next/src/components/FastUiShellMvp.vue` (which lives in the Vue preview track). The buildless conversational shell lives at `web/js/atlas_claude_panel.js` and renders inside `#atlas-claude-col` in `ui.html` (additive sibling of the legacy `#atlas-panel-col`). It is the default Atlas mode shell; the legacy panel remains reachable via the `atlas-shell-select` dropdown and is preserved verbatim. Detailed UX is documented at `docs/atlas_claude_chat_panel_ux_plan.md`.

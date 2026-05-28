@@ -121,6 +121,105 @@
   "level1_next_pr_must_not_enable_execution": true,
   "surfaces": [
     {
+      "id": "atlas-claude-col",
+      "label": "Atlas Claude chat shell root",
+      "category": "claude_chat_panel",
+      "default_visible": true,
+      "reason": "POST-SCALE-160-CLAUDE-CHAT-PANEL buildless conversational shell.",
+      "can_hide": true,
+      "safety_notes": "Buildless conversational Atlas shell; backend-authoritative; legacy panel preserved as fallback."
+    },
+    {
+      "id": "atlas-shell-select",
+      "label": "Atlas shell selector",
+      "category": "claude_chat_panel",
+      "default_visible": true,
+      "reason": "Switch between Claude-style chat shell and legacy Atlas panel.",
+      "can_hide": false,
+      "safety_notes": "Selection persists in localStorage; fallback always reachable."
+    },
+    {
+      "id": "atlas-claude-transcript",
+      "label": "Atlas chat transcript",
+      "category": "claude_chat_panel",
+      "default_visible": true,
+      "reason": "Conversational message log; aria-live=polite.",
+      "can_hide": false,
+      "safety_notes": "Display only; transcript is not persisted across reloads."
+    },
+    {
+      "id": "atlas-claude-input",
+      "label": "Atlas chat input",
+      "category": "claude_chat_panel",
+      "default_visible": true,
+      "reason": "Free-text goal and intent input.",
+      "can_hide": false,
+      "safety_notes": "Local intent classifier maps text to backend API calls; UI never bypasses backend."
+    },
+    {
+      "id": "atlas-claude-features-drawer",
+      "label": "Automation Profile features drawer",
+      "category": "claude_chat_panel",
+      "default_visible": true,
+      "reason": "Hosts Automation Profile preset radios, self-improvement override, work target, confirmation, and Preview/Select actions.",
+      "can_hide": false,
+      "safety_notes": "Backend validates every preview/select; confirmation text required to commit."
+    },
+    {
+      "id": "atlas-claude-self-improvement-override",
+      "label": "Self-improvement override",
+      "category": "safety_always_visible",
+      "default_visible": true,
+      "reason": "Allows manual enabling of self-improvement scope outside Profile 5.",
+      "can_hide": false,
+      "safety_notes": "Backend still enforces strict gate and Level-4 checkpoint."
+    },
+    {
+      "id": "atlas-claude-confirm-text",
+      "label": "Automation Profile confirmation text",
+      "category": "safety_always_visible",
+      "default_visible": true,
+      "reason": "User must type SELECT AUTOMATION PROFILE before committing a preset.",
+      "can_hide": false,
+      "safety_notes": "Mirrors the explicit-confirmation pattern used by legacy execute-one flow."
+    },
+    {
+      "id": "atlas-claude-primary-cta",
+      "label": "Primary CTA (Start Atlas)",
+      "category": "claude_chat_panel",
+      "default_visible": true,
+      "reason": "Triggers chat send with the most recent input or persisted goal.",
+      "can_hide": false,
+      "safety_notes": "Delegates to backend; respects current Automation Profile."
+    },
+    {
+      "id": "atlas-claude-stop-btn",
+      "label": "Stop button",
+      "category": "safety_always_visible",
+      "default_visible": true,
+      "reason": "Delegates to legacy atlas-workflow-stop-btn so the existing kill switch remains authoritative.",
+      "can_hide": false,
+      "safety_notes": "No new stop path; legacy handler executes."
+    },
+    {
+      "id": "atlas-claude-recovery-btn",
+      "label": "Recover button",
+      "category": "safety_always_visible",
+      "default_visible": true,
+      "reason": "Delegates to AtlasDashboard.loadRecoveredPlan + refreshStatus.",
+      "can_hide": false,
+      "safety_notes": "Recovery semantics owned by legacy module."
+    },
+    {
+      "id": "atlas-claude-shell-toggle",
+      "label": "Legacy fallback toggle",
+      "category": "claude_chat_panel",
+      "default_visible": true,
+      "reason": "Always-available exit to legacy Atlas panel.",
+      "can_hide": false,
+      "safety_notes": "Hard-coded fallback path; sets atlas_shell_preference=legacy."
+    },
+    {
       "id": "atlas-workflow-diagnostics-toggle",
       "label": "Workflow diagnostics toggle",
       "category": "minimal_workflow",
@@ -1273,5 +1372,19 @@
   "level1_readiness_metadata_export_execution_enabled": false,
   "level1_readiness_metadata_export_decides_readiness": false,
   "level1_readiness_metadata_export_computes_execution_eligibility": false,
-  "level1_next_pr_may_add_metadata_snapshot_comparison": true
+  "level1_next_pr_may_add_metadata_snapshot_comparison": true,
+  "claude_chat_panel_enabled": true,
+  "claude_chat_panel_buildless": true,
+  "claude_chat_panel_replaces_legacy_atlas_panel": false,
+  "claude_chat_panel_legacy_fallback_enabled": true,
+  "claude_chat_panel_legacy_fallback_route": "data-atlas-shell=legacy",
+  "claude_chat_panel_default_automation_profile_preset": "review_only",
+  "claude_chat_panel_self_improvement_default": false,
+  "claude_chat_panel_explicit_profile_selection_required": true,
+  "claude_chat_panel_expected_confirmation_text": "SELECT AUTOMATION PROFILE",
+  "claude_chat_panel_legacy_confirmation_text_accepted": "SELECT AUTOMATION SAFETY PROFILE",
+  "claude_chat_panel_envelope_track_pr": "POST-SCALE-160-CLAUDE-CHAT-COMPLETE-AUTOMATION-PROFILE",
+  "claude_chat_panel_full_automation_via_envelope_enabled": true,
+  "claude_chat_panel_backend_authoritative": true,
+  "claude_chat_panel_ui_executes_mutations": false
 }

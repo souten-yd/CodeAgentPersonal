@@ -392,3 +392,33 @@ Atlas can be considered a fully autonomous code agent only when all of the follo
 `PR-ATLAS-SCALE-160` and `final_goal_backend_milestone_reached = true` indicate backend autonomous milestone completion, but they do not by themselves indicate practical product completion.
 
 Practical full automation completion is tracked separately in `docs/atlas_practical_full_automation_experience_plan.md`, including FastUI usability, bounded end-to-end developer loop experience, candidate-first self-improvement flow, visible verification/recovery gates, and draft PR experience readiness.
+
+## Claude Code-style buildless conversational chat panel
+
+After backend milestone completion, the Atlas mode pane in `ui.html` is refreshed into a Claude-Code-style conversational chat panel as an additive POST-SCALE-160 deliverable. The new shell is the default; the existing `#atlas-panel-col` dashboard remains reachable via a per-user toggle. Detailed UX requirements live in `docs/atlas_claude_chat_panel_ux_plan.md`.
+
+Allowed:
+
+- Single "Automation Profile" preset selector that unifies the 4 capability tiers and the new pre-authorised envelopes into 6 user-visible presets.
+- Pre-authorised bounded dev and self-improvement envelopes that pre-authorise the autonomous loop within a bounded scope (paths, commands, action count, runtime, files, risk).
+- Chat-driven plan pool creation, dry-run trigger, recovery delegation, and autonomous loop session preparation.
+- Always-available legacy fallback through both the shell selector and dedicated buttons.
+
+Forbidden:
+
+- New capability tiers in `_PROFILE_CAPABILITIES`.
+- Bypassing backend gates from the UI.
+- Hiding the legacy panel irrecoverably.
+- Loosening `automation_safety_profile.py` invariants. Derived activation flags such as `autonomous_loop_execution_enabled` live on the envelope manifest under `<data_root>/atlas/pre_authorized_envelopes/`, not on the safety profile manifest.
+
+Required:
+
+- Backend authority preserved for all mutation, approval, apply, and self-modification.
+- `SELECT AUTOMATION PROFILE` confirmation text required for `select`; the legacy `SELECT AUTOMATION SAFETY PROFILE` text is accepted for backward compatibility.
+- Self-improvement preset requires `strict_gate_approved` and a Level-4 self-improvement checkpoint at the backend.
+
+| PR | Outcome | Drift check |
+| --- | --- | --- |
+| POST-SCALE-160-CLAUDE-CHAT-PANEL | Buildless DOM/CSS/shell selector and read-only safety profile + envelope endpoints | legacy `#atlas-panel-col` preserved; no execution authority shift |
+| POST-SCALE-160-CLAUDE-CHAT-PROFILE-CONTROLS | Automation Profile preset radios, self-improvement override, preview/select endpoints with confirmation text | explicit_profile_selection_required preserved; backend validates every preview/select |
+| POST-SCALE-160-CLAUDE-CHAT-COMPLETE-AUTOMATION-PROFILE | Pre-authorised envelopes and chat-driven `start-autonomous-loop` session preparation | `_PROFILE_CAPABILITIES` unchanged; derived activation lives on envelope manifest only |
