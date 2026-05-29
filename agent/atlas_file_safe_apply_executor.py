@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent.atlas_action_type import normalize_action_type
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 
 _MAX_CONTENT_BYTES = 1024 * 1024
+
+# Back-compat alias retained for callers that import the original name.
+normalize_safe_apply_action_type = normalize_action_type
 
 
 class AtlasFileSafeApplyExecutor:

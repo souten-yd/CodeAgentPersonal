@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+from agent.atlas_action_type import normalize_action_type
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 
 
@@ -77,15 +78,26 @@ def is_test_command_action(action_type: Any, title: Any, description: Any) -> bo
     )
 
 
-def infer_item_type(action_type: Any, title: Any, description: Any) -> str:
+def infer_item_type(action_type: Any, title: Any, description: Any, target_files: Any = None) -> str:
     action = str(action_type or "").strip().lower()
     searchable = f"{title or ''} {description or ''}".lower()
+    has_target_files = bool(target_files)
+    # Explicit code actions and steps that name concrete files to change are implementation work,
+    # even if a weak planner mislabels them (e.g. action_type="research" on every step). This is the
+    # deterministic guard that keeps dev goals from collapsing into non-applicable research items.
+    if action in {"create", "update", "write", "implement", "implementation", "code", "modify", "edit", "add"}:
+        return "implementation"
     if action == "inspect":
         return "research"
     if is_test_command_action(action, title, description):
         return "verification"
     if action in {"research", "planning", "documentation", "nexus_save", "verification"}:
+        # A step that points at concrete target files is implementation regardless of a generic label.
+        if has_target_files and action in {"research", "planning"}:
+            return "implementation"
         return action
+    if has_target_files:
+        return "implementation"
     if any(keyword in searchable for keyword in ("research", "investigate", "inspect")):
         return "research"
     if any(keyword in searchable for keyword in ("plan", "design")):
@@ -205,6 +217,15 @@ class AtlasPlanPoolBuilder:
             if is_test_command_action(action_type, title, description) and step.get("command"):
                 test_commands.append(str(step["command"]))
 
+            step_target_files = coerce_list(step.get("target_files"))
+            item_type = infer_item_type(action_type, title, description, target_files=step_target_files)
+            # For applicable code work, normalize action_type to the canonical {create, update}
+            # vocabulary the safe-apply executor uses; leave non-implementation items untouched.
+            if item_type in {"implementation", "documentation"}:
+                stored_action_type = normalize_action_type(action_type)
+            else:
+                stored_action_type = action_type or ""
+
             item = AtlasPlanItem(
                 item_id=item_id,
                 pool_id=effective_pool_id,
@@ -212,12 +233,12 @@ class AtlasPlanPoolBuilder:
                 goal=goal,
                 parent_plan_id=linked_plan_id,
                 description=description,
-                item_type=infer_item_type(action_type, title, description),
+                item_type=item_type,
                 status=status,
                 priority=normalize_priority(step.get("priority")),
                 risk_level=risk_level,
                 depends_on=depends_on,
-                target_files=coerce_list(step.get("target_files")),
+                target_files=step_target_files,
                 expected_changes=coerce_list(step.get("expected_changes") or step.get("changes")),
                 test_commands=test_commands,
                 done_definition=coerce_list(
@@ -229,7 +250,7 @@ class AtlasPlanPoolBuilder:
                 linked_requirement_id=linked_requirement_id,
                 linked_plan_id=linked_plan_id,
                 metadata={
-                    "action_type": action_type or "",
+                    "action_type": stored_action_type,
                     "original_step_index": index - 1,
                     "original_step_payload": _compact_payload_summary(step),
                 },

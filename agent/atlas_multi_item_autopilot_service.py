@@ -13,6 +13,7 @@ from agent.atlas_bounded_retry_schema import AtlasBoundedRetryRequest
 from agent.atlas_bounded_retry_service import AtlasBoundedRetryService
 from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_failure_stop_service import AtlasFailureStopService
+from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
 from agent.atlas_llm_evaluator_schema import AtlasEvaluatorRequest
 from agent.atlas_multi_item_autopilot_policies import get_multi_item_policy
 from agent.atlas_multi_item_supervised_status_schema import AtlasMultiItemSupervisedStatusRequest
@@ -89,6 +90,11 @@ class AtlasMultiItemAutopilotService:
                     self.emit("multi_item_autopilot_safe_apply_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=safe.status)
                     if safe.status != "applied":
                         result.status, result.reason = "failed", "safe_apply_not_applied"
+                    else:
+                        # Clear the pessimistic "failed" default so the verification stage runs.
+                        # (Previously this path was never reached because items were skipped at
+                        # eligibility / blocked for a missing executor, leaving the bug latent.)
+                        result.status, result.reason = "applied", ""
                 if result.status not in {"blocked", "failed"}:
                     if changed_total + len(target_files) > min(request.max_changed_files_total, policy.max_changed_files_total):
                         result.status, result.reason = "stopped", "max_changed_files_total_exceeded_pre_apply"
@@ -111,8 +117,20 @@ class AtlasMultiItemAutopilotService:
                             ev = self.evaluator_service.evaluate(AtlasEvaluatorRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, trigger="verification_failure" if vr.status == "failed" else "post_verification", context_bundle_id=result.context_bundle_id, use_latest_context_bundle=False, project_path=self.resolve_project_path(request, pool, item), changed_files=target_files, verification_result=vr.model_dump(), safe_apply_result=result.safe_apply_result, failure_stop_suggestion=result.failure_stop_suggestion, policy_id=request.evaluator_policy_id, metadata={"autopilot_run_id": autopilot_run_id, "item_index": idx}))
                             result.evaluator_result_id = str((ev.metadata or {}).get("eval_id") or "")
                             result.evaluator_decision = ev.decision.model_dump()
-                        if vr.status in {"blocked", "skipped"}:
-                            result.status, result.reason = "blocked", f"verification_{vr.status}"
+                        vr_warnings = list(getattr(vr, "warnings", []) or [])
+                        # No verification command / no tests configured means there was nothing to
+                        # verify — not a failure or a block. The change was applied successfully, so
+                        # report it as completed (with a reason that documents the caveat) instead of
+                        # leaving a successful write looking blocked/failed to the user.
+                        no_verification_configured = any(
+                            w in vr_warnings for w in ("verification_command_missing", "no_test_commands")
+                        )
+                        if vr.status in {"blocked", "skipped"} and no_verification_configured:
+                            result.status, result.reason = "completed", "applied_no_verification"
+                        elif vr.status == "blocked":
+                            result.status, result.reason = "blocked", "verification_blocked"
+                        elif vr.status == "skipped":
+                            result.status, result.reason = "completed", "verification_skipped"
                         elif vr.status == "failed":
                             result.status, result.reason = "failed", "verification_failed"
                         else:
@@ -180,12 +198,26 @@ class AtlasMultiItemAutopilotService:
         if not target_files:
             return {"status": "ineligible", "reason": "missing_target_files", "planned_steps": planned_steps}
         md = item.metadata or {}
-        if not ((md.get("patch") or "") or (md.get("content") or "") or ((md.get("safe_apply") or {}).get("patch") or "")):
+        # Content keys the file executor (AtlasFileSafeApplyExecutor._resolve_content) actually
+        # reads: proposed_content / patch_proposal.proposed_content / patch / unified_diff_preview.
+        # "content" is kept for back-compat with older proposals.
+        patch_proposal = md.get("patch_proposal") or {}
+        if not (
+            (md.get("patch") or "")
+            or (md.get("content") or "")
+            or (md.get("proposed_content") or "")
+            or (md.get("unified_diff_preview") or "")
+            or (patch_proposal.get("proposed_content") or "")
+            or (patch_proposal.get("unified_diff_preview") or "")
+            or ((md.get("safe_apply") or {}).get("patch") or "")
+        ):
             return {"status": "ineligible", "reason": "missing_patch_or_content", "planned_steps": planned_steps}
         if (changed_total + len(target_files)) > min(request.max_changed_files_total, policy.max_changed_files_total):
             return {"status": "ineligible", "reason": "budget_exceeded", "planned_steps": planned_steps}
-        action_type = str(md.get("action_type") or "patch")
-        if action_type not in {"patch", "write"}:
+        # Canonical action_type is {create, update} (what the executor applies). Accept the legacy
+        # {patch, write} vocabulary for back-compat; empty defaults to create (greenfield write).
+        action_type = normalize_safe_apply_action_type(md.get("action_type"))
+        if action_type not in {"create", "update"}:
             return {"status": "ineligible", "reason": "unsupported_action_type", "planned_steps": planned_steps}
         preset = atlas_auto_policy_presets().get("guarded_low_risk")
         if preset is not None:
