@@ -117,11 +117,19 @@ class AtlasMultiItemAutopilotService:
                             ev = self.evaluator_service.evaluate(AtlasEvaluatorRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, trigger="verification_failure" if vr.status == "failed" else "post_verification", context_bundle_id=result.context_bundle_id, use_latest_context_bundle=False, project_path=self.resolve_project_path(request, pool, item), changed_files=target_files, verification_result=vr.model_dump(), safe_apply_result=result.safe_apply_result, failure_stop_suggestion=result.failure_stop_suggestion, policy_id=request.evaluator_policy_id, metadata={"autopilot_run_id": autopilot_run_id, "item_index": idx}))
                             result.evaluator_result_id = str((ev.metadata or {}).get("eval_id") or "")
                             result.evaluator_decision = ev.decision.model_dump()
-                        if vr.status == "blocked":
+                        vr_warnings = list(getattr(vr, "warnings", []) or [])
+                        # No verification command / no tests configured means there was nothing to
+                        # verify — not a failure or a block. The change was applied successfully, so
+                        # report it as completed (with a reason that documents the caveat) instead of
+                        # leaving a successful write looking blocked/failed to the user.
+                        no_verification_configured = any(
+                            w in vr_warnings for w in ("verification_command_missing", "no_test_commands")
+                        )
+                        if vr.status in {"blocked", "skipped"} and no_verification_configured:
+                            result.status, result.reason = "completed", "applied_no_verification"
+                        elif vr.status == "blocked":
                             result.status, result.reason = "blocked", "verification_blocked"
                         elif vr.status == "skipped":
-                            # The change was applied; there were simply no tests to run. Report the
-                            # work as completed (honest) rather than blocking a successful apply.
                             result.status, result.reason = "completed", "verification_skipped"
                         elif vr.status == "failed":
                             result.status, result.reason = "failed", "verification_failed"
