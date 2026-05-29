@@ -139,8 +139,19 @@ class AtlasPatchProposalService:
 
     def generate_proposal_with_llm(self, input_payload: dict) -> AtlasPatchProposal:
         assert self.llm_json_fn is not None
-        system_prompt = "You generate advisory patch proposals only. Return JSON only. Do not claim changes were applied."
-        user_prompt = json.dumps({"task": "Generate a safe patch proposal. For source_type=plan_item, include target_files and either proposed_content or unified_diff_preview when possible.", "input": input_payload}, ensure_ascii=False)
+        system_prompt = (
+            "You generate advisory patch proposals only. Return a single JSON object only, no prose, "
+            "no markdown fences. Do not claim changes were applied."
+        )
+        user_prompt = json.dumps({
+            "task": (
+                "Generate a safe patch proposal as JSON. For source_type=plan_item that lists target_files, "
+                "you MUST return a non-empty \"proposed_content\" string containing the COMPLETE file text for the "
+                "first target file (this is a new/overwritten file write, not a diff). "
+                "Example: {\"target_files\":[\"index.html\"],\"proposed_content\":\"<!doctype html>\\n<html>...\",\"risk_level\":\"low\"}"
+            ),
+            "input": input_payload,
+        }, ensure_ascii=False)
         try:
             output = self.llm_json_fn(system_prompt, user_prompt) or {}
             if not isinstance(output, dict):
@@ -171,6 +182,15 @@ class AtlasPatchProposalService:
             if len(proposed_content) > self.MAX_PROPOSED_CONTENT_CHARS:
                 proposed_content = proposed_content[: self.MAX_PROPOSED_CONTENT_CHARS]
                 warnings.append("proposed_content_truncated")
+
+            # Deterministic safety net: a weak model may return JSON with no usable content. For a
+            # single-file plan_item create/update, synthesize minimal valid file content so a trivial
+            # "create X" goal still yields an applicable patch instead of a silent skip.
+            if not proposed_content and not diff_preview:
+                scaffold = self._scaffold_content_for_plan_item(input_payload)
+                if scaffold:
+                    proposed_content = scaffold[: self.MAX_PROPOSED_CONTENT_CHARS]
+                    warnings.append("scaffolded_minimal_content")
 
             metadata = {
                 "source_type": str(input_payload.get("source_type") or "debug_review"),
@@ -228,6 +248,40 @@ class AtlasPatchProposalService:
             warnings.append("unsafe_target_files_ignored")
         return safe_files or list(fallback_target_files)
 
+    def _scaffold_content_for_plan_item(self, input_payload: dict) -> str | None:
+        # Synthesize minimal valid file content for a single-file plan_item create/update so a
+        # trivial dev goal still produces an applicable patch when the LLM yields no content. Gated
+        # to keep it safe and honest (callers add a "scaffolded_minimal_content" warning).
+        if str(input_payload.get("source_type") or "") != "plan_item":
+            return None
+        item = input_payload.get("item") or {}
+        target_files = [str(p).strip() for p in (item.get("target_files") or []) if str(p).strip()]
+        if len(target_files) != 1:
+            return None
+        if str(item.get("action_type") or "").lower() in {"delete", "run_command"}:
+            return None
+        if str(item.get("risk_level") or "medium").lower() not in {"low", "medium"}:
+            return None
+        goal = str(item.get("goal") or item.get("title") or item.get("description") or "Generated file").strip()
+        title = str(item.get("title") or goal).strip()
+        ext = Path(target_files[0]).suffix.lower()
+        if ext == ".html":
+            return (
+                "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
+                f"<title>{title}</title>\n</head>\n<body>\n<h1>{goal}</h1>\n</body>\n</html>\n"
+            )
+        if ext == ".md":
+            return f"# {title}\n\n{goal}\n"
+        if ext == ".py":
+            return f"\"\"\"{goal}\"\"\"\n\n\ndef main() -> None:\n    print({goal!r})\n\n\nif __name__ == \"__main__\":\n    main()\n"
+        if ext == ".js":
+            return f"// {goal}\nfunction main() {{\n  console.log({goal!r});\n}}\n\nmain();\n"
+        if ext == ".json":
+            return json.dumps({"goal": goal, "title": title}, ensure_ascii=False, indent=2) + "\n"
+        if ext in {".txt", ""}:
+            return f"{title}\n\n{goal}\n"
+        return f"{goal}\n"
+
     def generate_fallback_proposal(self, input_payload: dict) -> AtlasPatchProposal:
         source_type = str(input_payload.get("source_type") or "debug_review")
         debug = input_payload.get("debug_review") or {}
@@ -235,6 +289,11 @@ class AtlasPatchProposalService:
         warnings = ["llm_unavailable_fallback_proposal"]
         if source_type == "plan_item":
             warnings.append("plan_item_patch_content_missing")
+        scaffold = self._scaffold_content_for_plan_item(input_payload)
+        metadata = {"source_type": source_type, "patch_content_available": bool(scaffold)}
+        if scaffold:
+            metadata["proposed_content"] = scaffold[: self.MAX_PROPOSED_CONTENT_CHARS]
+            warnings.append("scaffolded_minimal_content")
         return AtlasPatchProposal(
             proposal_id=f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid4().hex[:8]}",
             pool_id=str(input_payload.get("pool_id") or ""),
@@ -252,7 +311,7 @@ class AtlasPatchProposalService:
             rollback_plan=["Revert proposed edits if regressions are detected."],
             assumptions=["Patch proposal has not been applied."],
             warnings=warnings,
-            metadata={"source_type": source_type, "patch_content_available": False},
+            metadata=metadata,
         )
 
     def save_patch_proposal_record(self, pool_id: str, item_id: str, proposal: AtlasPatchProposal) -> tuple[str, str]:
