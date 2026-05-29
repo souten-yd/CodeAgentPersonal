@@ -189,6 +189,7 @@ html.logo-svg-ready .logo-text{display:none}
 .mob-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 @media(max-width:768px){
   .mob-tabs{display:flex}
+  .mob-tabs.atlas-mode{display:none}
   .mob-tabs.chat-task-mode .mob-tab{padding:10px 4px;font-size:10px}
   .mob-tabs.echo-mode .mob-tab{padding:11px 4px;font-size:10px}
   .panel-tabs{display:none !important}
