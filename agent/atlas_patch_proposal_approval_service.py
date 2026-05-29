@@ -124,6 +124,16 @@ class AtlasPatchProposalApprovalService:
             "approval_json_path": str((result.metadata or {}).get("approval_json_path") or ""),
             "approval_md_path": str((result.metadata or {}).get("approval_md_path") or ""),
         })
+        if result.status == "approved":
+            approval = (item.metadata or {}).setdefault("approval", {})
+            approval.update({
+                "decision": "approved",
+                "approval_id": result.approval_record.approval_id if result.approval_record else "",
+                "source": "patch_proposal_approval",
+                "source_proposal_id": source_proposal_id,
+                "approved_at": result.approval_record.decided_at if result.approval_record else datetime.now(timezone.utc).isoformat(),
+                "manual_only": True,
+            })
         patch["status"] = result.status
 
     def _append_event(self, pool_id: str, run_id: str, event_type: str, item_id: str, status: str, warnings: list[str] | None = None, errors: list[str] | None = None) -> None:
