@@ -8,6 +8,8 @@ from typing import Callable
 
 from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_llm_json_adapter import call_llm_json
+from agent.atlas_llm_schemas import patch_proposal_json_schema
 from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProposalRequest, AtlasPatchProposalResult
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
@@ -165,6 +167,7 @@ class AtlasPatchProposalService:
             "Example: {\"target_files\":[\"index.html\"],\"proposed_content\":\"<!doctype html>\\n<html>...\",\"risk_level\":\"low\"}"
         )
         content_required = self._plan_item_requires_content(input_payload)
+        output_schema = patch_proposal_json_schema(require_content=content_required)
         last_failure = "llm_no_output"
         parse_failures = 0
         empty_content_attempts = 0
@@ -178,7 +181,7 @@ class AtlasPatchProposalService:
                     "non-empty \"proposed_content\" containing the COMPLETE file text."
                 )
             try:
-                output = self.llm_json_fn(system_prompt, json.dumps(user_obj, ensure_ascii=False)) or {}
+                output = call_llm_json(self.llm_json_fn, system_prompt, json.dumps(user_obj, ensure_ascii=False), json_schema=output_schema) or {}
                 if not isinstance(output, dict):
                     raise ValueError("llm_output_not_dict")
                 proposal, has_content = self._build_proposal_from_output(output, input_payload)

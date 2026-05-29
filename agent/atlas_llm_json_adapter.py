@@ -5,11 +5,41 @@ import logging
 import os
 import re
 from typing import Callable
+from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from agent.atlas_llm_json_adapter_schema import AtlasLLMJsonRequest, AtlasLLMJsonResult
 
 logger = logging.getLogger(__name__)
+
+
+def call_llm_json(
+    fn: Callable[[str, str], dict | None] | None,
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    json_schema: dict | None = None,
+) -> dict | None:
+    """Call an llm_json_fn, threading a JSON schema through when the target supports it.
+
+    The historical interface is a plain ``Callable[[str, str], dict | None]`` (used by tests with
+    lambdas). Only the real ``AtlasLLMJsonAdapter`` exposes ``generate_json``; for it we pass the
+    schema so llama-server can constrain decoding (and we also inject the schema as a prompt hint,
+    since a GBNF/grammar constraint alone does not tell the model the field meanings). Any other
+    callable falls back to the 2-arg call unchanged — keeping backward compatibility.
+    """
+    if fn is None:
+        return None
+    if json_schema and hasattr(fn, "generate_json"):
+        req = AtlasLLMJsonRequest(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            json_schema=json_schema,
+            schema_hint=json.dumps(json_schema, ensure_ascii=False),
+        )
+        result = fn.generate_json(req)
+        return result.data if result.ok else None
+    return fn(system_prompt, user_prompt)
 
 
 class AtlasLLMJsonAdapter:
@@ -47,10 +77,11 @@ class AtlasLLMJsonAdapter:
 
             raw_text = self.call_openai_compatible(request)
             parsed = self.parse_json_response(raw_text)
+            structured = bool(request.json_schema or request.grammar)
             if parsed is None:
                 logger.warning("llm_json_parse_failed backend=openai_compatible model=%s raw=%r", model_name, raw_text[:500])
-                return AtlasLLMJsonResult(ok=False, raw_text=raw_text, model=model_name, backend="openai_compatible", error="llm_json_parse_failed")
-            return AtlasLLMJsonResult(ok=True, data=parsed, raw_text=raw_text, model=model_name, backend="openai_compatible")
+                return AtlasLLMJsonResult(ok=False, raw_text=raw_text, model=model_name, backend="openai_compatible", structured=structured, error="llm_json_parse_failed")
+            return AtlasLLMJsonResult(ok=True, data=parsed, raw_text=raw_text, model=model_name, backend="openai_compatible", structured=structured)
         except Exception as exc:  # noqa: BLE001
             return AtlasLLMJsonResult(ok=False, model=model_name, error=f"llm_backend_error:{exc}", used_fallback=True)
 
@@ -144,14 +175,37 @@ class AtlasLLMJsonAdapter:
         ]
 
     def call_openai_compatible(self, request: AtlasLLMJsonRequest) -> str:
+        # Prefer a structured-output constraint (json_schema / GBNF grammar) so a weak local model
+        # cannot emit broken JSON. If the server rejects the param (older llama-server, or a model
+        # that does not support it), fall back to plain json_object so we never hard-fail on it.
+        try:
+            return self._post_chat(request, structured=True)
+        except urllib_error.HTTPError as exc:
+            if (request.json_schema or request.grammar) and exc.code in (400, 404, 422, 501):
+                logger.warning(
+                    "structured_output_rejected code=%s; retrying with response_format=json_object", exc.code
+                )
+                return self._post_chat(request, structured=False)
+            raise
+
+    def _post_chat(self, request: AtlasLLMJsonRequest, *, structured: bool) -> str:
         endpoint = f"{self.base_url.rstrip('/')}/v1/chat/completions"
-        payload = {
+        payload: dict = {
             "model": request.model or self.model or "local-llm",
             "messages": self.build_messages(request),
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
-            "response_format": {"type": "json_object"},
         }
+        if structured and request.json_schema:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "atlas_output", "schema": request.json_schema, "strict": True},
+            }
+        elif structured and request.grammar:
+            payload["grammar"] = request.grammar
+            payload["response_format"] = {"type": "json_object"}
+        else:
+            payload["response_format"] = {"type": "json_object"}
         data = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         api_key = str(os.environ.get("OPENAI_API_KEY", "")).strip()

@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from typing import Callable
 
+from agent.atlas_llm_json_adapter import call_llm_json
+from agent.atlas_llm_schemas import plan_generation_json_schema
 from agent.plan_schema import ImplementationStep, Plan
 from agent.requirement_schema import RequirementCategoryScores, RequirementDefinition
 
@@ -93,7 +95,7 @@ class PlannerPhase1:
             f"Repository Context:\n{repository_context}",
             f"Planning Mode: {planning_mode or 'standard'}",
         ])
-        raw_payload = self.llm_json_fn(prompt, planner_input)
+        raw_payload = call_llm_json(self.llm_json_fn, prompt, planner_input, json_schema=plan_generation_json_schema())
         if raw_payload is None:
             warnings.append("Plan generation LLM output could not be parsed. Fallback plan was generated.")
             payload: dict = {}
