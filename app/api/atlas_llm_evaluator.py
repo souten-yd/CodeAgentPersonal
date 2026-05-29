@@ -3,16 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from app.api.atlas_root import resolve_atlas_ca_data_root
 from agent.atlas_dev_tool_path import validate_relative_path
+from agent.atlas_journal import AtlasJournal
 from agent.atlas_llm_evaluator_policies import list_evaluator_policies
 from agent.atlas_llm_evaluator_schema import AtlasEvaluatorRequest
 from agent.atlas_llm_evaluator_service import AtlasLLMEvaluatorService
 
 router = APIRouter(prefix="/api/atlas/evaluator", tags=["atlas-evaluator"])
-_svc = AtlasLLMEvaluatorService()
 
 
 class AtlasEvaluatorLatestRequest(BaseModel):
@@ -32,14 +33,16 @@ def get_policies():
 
 
 @router.post("/evaluate")
-def evaluate(payload: AtlasEvaluatorRequest):
+def evaluate(payload: AtlasEvaluatorRequest, request: Request):
     try:
         payload.pool_id = _validate_id(payload.pool_id, "pool_id")
         if payload.item_id:
             payload.item_id = _validate_id(payload.item_id, "item_id")
         if payload.run_id:
             payload.run_id = _validate_id(payload.run_id, "run_id")
-        return _svc.evaluate(payload).model_dump()
+        root = resolve_atlas_ca_data_root(request)
+        journal = AtlasJournal(root, workspace_id=payload.workspace_id or "default")
+        return AtlasLLMEvaluatorService(journal=journal).evaluate(payload).model_dump()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"error": "invalid_request", "reason": str(exc)}) from exc
 

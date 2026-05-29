@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-dashboard-42">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-project-picker-1">
 
 <style>
   .atlas-surface-hidden { display: none !important; }
@@ -11239,7 +11239,8 @@ async function toggleVoiceInput(target = 'chat', autoRestart = false){
       _stopVoiceLevelMonitoring(voiceTarget);
       const blob = new Blob(voiceChunks, {type: mimeType});
       const _targetInputId = voiceTarget === 'agent' ? 'agent-input' : (voiceTarget === 'atlas-claude' ? 'atlas-claude-input' : 'input');
-      await transcribeVoiceBlob(blob, {targetInputId: _targetInputId, autoSendAfterAsr: true, target: voiceTarget});
+      // Atlas: ASR result only populates the input (user reviews/edits, then sends).
+      await transcribeVoiceBlob(blob, {targetInputId: _targetInputId, autoSendAfterAsr: voiceTarget !== 'atlas-claude', target: voiceTarget});
       voiceRecorder = null;
       voiceChunks = [];
       if (voiceContinuousEnabled) _maybeRestartContinuousVoice();
@@ -11258,6 +11259,7 @@ async function toggleVoiceInput(target = 'chat', autoRestart = false){
 
 async function transcribeVoiceBlob(blob, opts = {}){
   let downloadMsgEl = null;
+  const isAtlasTarget = opts.target === 'atlas-claude' || (opts.targetInputId || 'input') === 'atlas-claude-input';
   try {
     voiceRecording = false;
     _setMicState(false, true);
@@ -11312,16 +11314,16 @@ async function transcribeVoiceBlob(blob, opts = {}){
         let ev;
         try { ev = JSON.parse(jsonStr); } catch { continue; }
         if (ev.type === 'downloading') {
-          // ダウンロード中メッセージをチャットに表示
-          if (downloadMsgEl) { downloadMsgEl.remove(); }
-          downloadMsgEl = addMsg('system', ev.message);
+          // Atlas: show progress on the title; Lumen: in the message list.
+          if (isAtlasTarget) { try { window.AtlasClaudePanel?.setTranscribingStatus?.(true); } catch (_e) {} }
+          else { if (downloadMsgEl) { downloadMsgEl.remove(); } downloadMsgEl = addMsg('system', ev.message); }
           addLog('info','voice','model downloading...');
         } else if (ev.type === 'transcribing') {
-          // 文字変換中メッセージに差し替え
-          if (downloadMsgEl) { downloadMsgEl.remove(); }
-          downloadMsgEl = addMsg('system', ev.message);
+          if (isAtlasTarget) { try { window.AtlasClaudePanel?.setTranscribingStatus?.(true); } catch (_e) {} }
+          else { if (downloadMsgEl) { downloadMsgEl.remove(); } downloadMsgEl = addMsg('system', ev.message); }
           addLog('info','voice','transcribing...');
         } else if (ev.type === 'result') {
+          if (isAtlasTarget) { try { window.AtlasClaudePanel?.setTranscribingStatus?.(false); } catch (_e) {} }
           if (downloadMsgEl) { downloadMsgEl.remove(); downloadMsgEl = null; }
           const t = (ev.text || '').trim();
           if (!t) {
@@ -11353,11 +11355,13 @@ async function transcribeVoiceBlob(blob, opts = {}){
       }
     }
   } catch (e) {
+    if (isAtlasTarget) { try { window.AtlasClaudePanel?.setTranscribingStatus?.(false); } catch (_e) {} }
     if (downloadMsgEl) { downloadMsgEl.remove(); downloadMsgEl = null; }
     if (!opts.skipChatError) addMsg('error', '音声認識に失敗: ' + (e.message || String(e)));
     if (statusFn) statusFn('音声認識に失敗: ' + (e.message || String(e)), true);
     addLog('err','voice', e.message || String(e));
   } finally {
+    if (isAtlasTarget) { try { window.AtlasClaudePanel?.setTranscribingStatus?.(false); } catch (_e) {} }
     if (!opts.skipMainMicState) _setMicState(false, false, opts.target || voiceTarget);
     if (voiceContinuousEnabled && !opts.skipMainMicState) {
       _scheduleContinuousVoiceRestart('asr_finally', 500);
@@ -16293,7 +16297,7 @@ function testSkill(skillName) {
 }
 
 </script>
-<script src="/static/js/app.js"></script>
+<script src="/static/js/app.js?v=atlas-project-picker-1"></script>
 <script src="/static/js/settings.js"></script>
 <script src="/static/js/skills_memory.js"></script>
 <script src="/static/js/panels.js"></script>
@@ -16303,7 +16307,7 @@ function testSkill(skillName) {
 <script src="/static/js/nexus.js"></script>
 <script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-40"></script>
 <script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-40"></script>
-<script src="/static/js/atlas_claude_panel.js?v=claude-chat-8"></script>
+<script src="/static/js/atlas_claude_panel.js?v=atlas-project-picker-1"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

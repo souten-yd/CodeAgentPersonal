@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from app.api.atlas_root import resolve_atlas_ca_data_root
 from agent.atlas_dev_tool_path import validate_relative_path
+from agent.atlas_journal import AtlasJournal
 from agent.atlas_patch_regen_from_recommendation_policies import list_patch_regen_from_recommendation_policies
 from agent.atlas_patch_regen_from_recommendation_schema import AtlasPatchRegenFromRecommendationRequest
 from agent.atlas_patch_regen_from_recommendation_service import AtlasPatchRegenFromRecommendationService
+from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 
 
 router = APIRouter(prefix="/api/atlas/patch-regen-from-recommendation", tags=["atlas-patch-regen-from-recommendation"])
@@ -35,13 +38,16 @@ def policies():
 
 
 @router.post("/run")
-def run(payload: AtlasPatchRegenFromRecommendationRequest):
+def run(payload: AtlasPatchRegenFromRecommendationRequest, request: Request):
     payload.pool_id = _v(payload.pool_id, "pool_id")
     payload.item_id = _v(payload.item_id, "item_id")
     payload.recommendation_run_id = _v(payload.recommendation_run_id, "recommendation_run_id", "regenrec_")
     if payload.run_id:
         payload.run_id = _v(payload.run_id, "run_id")
-    return AtlasPatchRegenFromRecommendationService().run(payload).model_dump()
+    root = resolve_atlas_ca_data_root(request)
+    storage = AtlasPlanPoolStorage(root)
+    journal = AtlasJournal(root, workspace_id=payload.workspace_id or "default")
+    return AtlasPatchRegenFromRecommendationService(storage=storage, journal=journal).run(payload).model_dump()
 
 
 @router.get("/results/{pool_id}/{recommendation_exec_id}")
