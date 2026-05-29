@@ -9,6 +9,7 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from agent.atlas_llm_json_adapter_schema import AtlasLLMJsonRequest, AtlasLLMJsonResult
+from agent.atlas_llm_model_profiles import resolve_structured_mode
 
 logger = logging.getLogger(__name__)
 
@@ -167,8 +168,12 @@ class AtlasLLMJsonAdapter:
 
     def build_messages(self, request: AtlasLLMJsonRequest) -> list[dict]:
         user_prompt = request.user_prompt
-        if request.schema_hint:
-            user_prompt = f"{user_prompt}\n\nJSON schema hint:\n{request.schema_hint}"
+        # Always convey the schema in-prompt when one is present. For models that don't use strict
+        # json_schema decoding (e.g. Gemma -> json_object mode), the prompt hint is the ONLY thing that
+        # tells the model the field meanings, so fall back to the json_schema if no explicit hint was set.
+        hint = request.schema_hint or (json.dumps(request.json_schema, ensure_ascii=False) if request.json_schema else "")
+        if hint:
+            user_prompt = f"{user_prompt}\n\nJSON schema hint:\n{hint}"
         return [
             {"role": "system", "content": request.system_prompt},
             {"role": "user", "content": user_prompt},
@@ -196,15 +201,23 @@ class AtlasLLMJsonAdapter:
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
         }
-        if structured and request.json_schema:
+        # Per-model structured-output mode: a strict json_schema grammar collapses some models
+        # (notably Gemma 4), so the preferred mode is resolved from the model id. We still only apply
+        # a constraint when the caller asked for structured output (structured=True).
+        mode = resolve_structured_mode(request.model or self.model) if structured else "json_object"
+        if mode == "json_schema" and request.json_schema:
             payload["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {"name": "atlas_output", "schema": request.json_schema, "strict": True},
             }
-        elif structured and request.grammar:
+        elif mode == "grammar" and request.grammar:
             payload["grammar"] = request.grammar
             payload["response_format"] = {"type": "json_object"}
+        elif mode == "off":
+            pass  # prompt-only; schema is still injected as a prompt hint via build_messages
         else:
+            # "json_object" (incl. Gemma default) and any mode whose required input is absent: ask for
+            # syntactically valid JSON and rely on the in-prompt schema hint + parser backstop.
             payload["response_format"] = {"type": "json_object"}
         data = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
