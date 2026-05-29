@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from app.api.atlas_root import resolve_atlas_ca_data_root
 from agent.atlas_auto_safe_apply_service import AtlasAutoSafeApplyService
 from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_automation_gate_service import AtlasAutomationGateService
@@ -38,9 +39,10 @@ def _validate_id(value: str, field: str, prefix: str = "") -> str:
     return safe
 
 
-def _service() -> AtlasMultiItemAutopilotService:
-    storage = AtlasPlanPoolStorage("ca_data")
-    journal = AtlasJournal("ca_data")
+def _service(request: Request | None = None, workspace_id: str = "default") -> AtlasMultiItemAutopilotService:
+    root = resolve_atlas_ca_data_root(request)
+    storage = AtlasPlanPoolStorage(root)
+    journal = AtlasJournal(root, workspace_id=workspace_id or "default")
     return AtlasMultiItemAutopilotService(
         storage=storage,
         journal=journal,
@@ -59,12 +61,12 @@ def get_policies():
 
 
 @router.post("/run")
-def run(payload: AtlasMultiItemAutopilotRequest):
+def run(payload: AtlasMultiItemAutopilotRequest, request: Request):
     payload.pool_id = _validate_id(payload.pool_id, "pool_id")
     if payload.run_id:
         payload.run_id = _validate_id(payload.run_id, "run_id")
     payload.item_ids = [_validate_id(v, "item_id") for v in (payload.item_ids or [])]
-    return _service().run(payload).model_dump()
+    return _service(request, payload.workspace_id).run(payload).model_dump()
 
 
 @router.get("/results/{pool_id}/{autopilot_run_id}")

@@ -1,9 +1,12 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from app.api.atlas_root import resolve_atlas_ca_data_root
 from agent.atlas_dev_tool_path import validate_relative_path
+from agent.atlas_journal import AtlasJournal
+from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_supervised_item_status_policies import list_supervised_item_status_policies
 from agent.atlas_supervised_item_status_schema import AtlasSupervisedItemStatusFinalizeRequest
 from agent.atlas_supervised_item_status_service import AtlasSupervisedItemStatusService
@@ -21,11 +24,14 @@ def policies():
     return {"policies":[p.model_dump() for p in list_supervised_item_status_policies()]}
 
 @router.post("/finalize")
-def finalize(payload: AtlasSupervisedItemStatusFinalizeRequest):
+def finalize(payload: AtlasSupervisedItemStatusFinalizeRequest, request: Request):
     payload.pool_id=_v(payload.pool_id,"pool_id"); payload.item_id=_v(payload.item_id,"item_id")
     if payload.run_id: payload.run_id=_v(payload.run_id,"run_id")
     if payload.source_run_id: payload.source_run_id=_v(payload.source_run_id,"source_run_id")
-    return AtlasSupervisedItemStatusService().finalize(payload).model_dump()
+    root = resolve_atlas_ca_data_root(request)
+    storage = AtlasPlanPoolStorage(root)
+    journal = AtlasJournal(root, workspace_id=payload.workspace_id or "default")
+    return AtlasSupervisedItemStatusService(storage=storage, journal=journal).finalize(payload).model_dump()
 
 @router.get("/results/{pool_id}/{finalize_run_id}")
 def result(pool_id: str, finalize_run_id: str):

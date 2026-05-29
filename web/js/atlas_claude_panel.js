@@ -34,12 +34,145 @@
     latestEnvelope: null,
     workflowState: null,
     activePresetActive: false,
+    // Active Atlas project. name doubles as the workspace_id; projectPath is the
+    // working dir the autopilot operates on. Set by app.js's project picker.
+    activeProject: { name: '', projectPath: '', workspaceId: 'default' },
+    provisional: false,
+    loadedProject: '',
   };
 
   const dom = {};
 
   function $(id) {
     return document.getElementById(id);
+  }
+
+  // ── Project / persistence helpers ──
+  function workspaceId() {
+    return (state.activeProject && state.activeProject.workspaceId) || 'default';
+  }
+
+  function projectName() {
+    return (state.activeProject && state.activeProject.name) || '';
+  }
+
+  // Called by app.js's picker when a project is selected / created / renamed.
+  function setActiveProject(project) {
+    if (!project) return;
+    const name = project.name || '';
+    state.activeProject = {
+      name,
+      projectPath: project.projectPath || project.project_path || state.activeProject.projectPath || '',
+      workspaceId: project.workspaceId || project.workspace_id || name || 'default',
+    };
+    if (Object.prototype.hasOwnProperty.call(project, 'provisional')) {
+      state.provisional = !!project.provisional;
+    }
+  }
+
+  async function persistMessage(role, text, meta) {
+    const name = projectName();
+    if (!name) return;
+    try {
+      await fetch('/api/atlas/projects/' + encodeURIComponent(name) + '/conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role, text: String(text == null ? '' : text), meta: meta || null }),
+      });
+    } catch (_err) { /* persistence is best-effort */ }
+  }
+
+  function persistMeta(meta) {
+    // Update server-side meta (active_pool_id / latest_autopilot_run_id) without
+    // a visible transcript line. Empty-text messages are skipped on reload.
+    if (!meta) return;
+    persistMessage('system', '', meta);
+  }
+
+  function slugifyGoal(text) {
+    let s = String(text || '').trim().toLowerCase();
+    // Keep unicode letters/digits (so Japanese goals stay identifiable),
+    // collapse everything else to '-'. Mirrors the backend _normalize_name.
+    s = s.replace(/[^\p{L}\p{N}_-]+/gu, '-').replace(/-{2,}/g, '-').replace(/^[-_]+|[-_]+$/g, '');
+    if (s.length > 16) s = s.slice(0, 16).replace(/[-_]+$/, '');
+    return s || 'task';
+  }
+
+  // B: rename the provisional project to a short slug derived from the first
+  // real instruction. Runs once (while provisional), retries on name conflict.
+  async function maybeAutoRename(text) {
+    if (!state.provisional) return;
+    const current = projectName();
+    if (!current) return;
+    const slug = slugifyGoal(text);
+    if (!slug || slug === current) { state.provisional = false; return; }
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const target = attempt === 0 ? slug : `${slug}-${attempt + 1}`;
+      try {
+        const resp = await fetch('/api/atlas/projects/' + encodeURIComponent(current) + '/rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ new_name: target }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          state.provisional = false;
+          setActiveProject(data);
+          try { root.KASANE_ATLAS_PROJECT_PATH?.applyRenamed?.(data); } catch (_err) {}
+          return;
+        }
+        if (resp.status === 409) continue;
+        return;
+      } catch (_err) { return; }
+    }
+  }
+
+  // C: thin-client restore — fetch the persisted transcript + meta for a project
+  // and re-render plan/run state so a browser reload loses nothing.
+  async function loadProject(name) {
+    const target = name || projectName();
+    if (!target) return;
+    state.loadedProject = target;
+    state.activeProject.name = target;
+    if (!state.activeProject.workspaceId) state.activeProject.workspaceId = target;
+    if (dom.transcript) dom.transcript.innerHTML = '';
+    state.transcript = [];
+    let restored = false;
+    try {
+      const resp = await fetch('/api/atlas/projects/' + encodeURIComponent(target) + '/conversation', { headers: { 'Content-Type': 'application/json' } });
+      if (resp.ok) {
+        const data = await resp.json();
+        state.provisional = !!(data.meta && data.meta.provisional);
+        (data.messages || []).forEach((m) => {
+          if (m && m.text) { appendMessage(m.role, m.text, false); restored = true; }
+        });
+        const poolId = data.meta && data.meta.active_pool_id;
+        if (poolId) {
+          await renderPlanPoolMarkdown(poolId);
+          await restoreLatestRun(poolId);
+          restored = true;
+        }
+      }
+    } catch (_err) { /* network errors are non-fatal */ }
+    if (!restored) pushSystemMessage('指示を入力してください');
+  }
+
+  async function restoreLatestRun(poolId) {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult) return;
+    try {
+      const peek = await root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult({ pool_id: poolId });
+      if (peek && peek.ok && peek.data) {
+        const d = peek.data;
+        const stages = appendStageBlock(poolId);
+        if (stages) {
+          ['plan', 'patch', 'approve'].forEach((s) => updateStage(stages, s, 'done', ''));
+          updateStage(stages, 'apply', 'done', `${d.processed_count || 0} processed`);
+          const verifyStatus = (d.failed_count || 0) === 0 ? 'done' : 'failed';
+          updateStage(stages, 'verify', verifyStatus, `pass ${d.completed_count || 0} / fail ${d.failed_count || 0}`);
+          renderPipelineSummary(stages, d);
+        }
+      }
+    } catch (_err) { /* no prior run to restore */ }
   }
 
   function init() {
@@ -66,7 +199,7 @@
     };
 
     bindInputs();
-    pushSystemMessage('指示を入力してください');
+    appendMessage('system', '指示を入力してください', false);
     refreshPolicies();
   }
 
@@ -126,6 +259,17 @@
     refreshLatestProfile();
     refreshWorkflowState();
     startPolling();
+    // The picker (app.js) may have resolved the active project before this panel
+    // initialized, so pull it on activation if our own state is still empty.
+    if (!projectName()) {
+      try {
+        const ap = root.KASANE_ATLAS_PROJECT_PATH && root.KASANE_ATLAS_PROJECT_PATH.getActive();
+        if (ap && ap.name) setActiveProject(ap);
+      } catch (_err) { /* picker not ready yet */ }
+    }
+    // Thin client: re-fetch the active project's persisted transcript + state so
+    // entering Atlas (or reloading the page) restores everything.
+    if (projectName()) loadProject(projectName());
   }
 
   function deactivate() {
@@ -186,7 +330,7 @@
       state.latestSafetyProfile = r.data.safety_profile;
       state.latestEnvelope = r.data.envelope || null;
       renderBadges();
-      pushSystemMessage('Profile 4 Autonomous + Dev/repair を初期適用しました');
+      appendMessage('system', 'Profile 4 Autonomous + Dev/repair を初期適用しました', false);
     }
   }
 
@@ -458,7 +602,11 @@
       pushAtlasMessage('PlanPool created but no pool id was returned.');
       return;
     }
-    pushAtlasMessage(`PlanPool 作成: \`${poolId}\``);
+    // Persist the active pool pointer (rides along with this message's meta) so
+    // a reload can re-render the plan, then auto-name the provisional project
+    // from this first instruction before any further workspace-scoped calls.
+    appendMessage('atlas', `PlanPool 作成: \`${poolId}\``, true, { active_pool_id: poolId });
+    if (state.provisional) await maybeAutoRename(text);
     if (resp.data && resp.data.planner_status === 'fallback_used') {
       pushSystemMessage('注意: LLM 未接続のため fallback プランです。実際のコード生成は LLM 起動が必要です。');
     }
@@ -546,7 +694,7 @@
         const r = await root.AtlasPipelineAPI.generatePatchProposal({
           pool_id: poolId,
           item_id: itemId,
-          workspace_id: 'default',
+          workspace_id: workspaceId(),
         });
         const okStatus = r && r.ok && r.data
           && r.data.status && /(proposed|completed|approved)/i.test(String(r.data.status));
@@ -638,6 +786,8 @@
       const verifyStatus = (d.failed_count || 0) === 0 ? 'done' : 'failed';
       updateStage(stages, 'verify', verifyStatus, `pass ${d.completed_count || 0} / fail ${d.failed_count || 0}`);
       renderPipelineSummary(stages, d);
+      // Persist run pointer so the result block re-renders after a reload.
+      persistMeta({ active_pool_id: poolId, latest_autopilot_run_id: d.autopilot_run_id || '' });
     } finally {
       setBusy(false);
     }
@@ -905,7 +1055,7 @@
 
   async function renderPlanPoolMarkdown(poolId) {
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPlanPoolMarkdown) return;
-    const md = await root.AtlasPipelineAPI.getPlanPoolMarkdown(poolId, 'default');
+    const md = await root.AtlasPipelineAPI.getPlanPoolMarkdown(poolId, workspaceId());
     if (md && md.ok) {
       const text = typeof md.data === 'string'
         ? md.data
@@ -938,6 +1088,22 @@
     if (dom.stopBtn) dom.stopBtn.style.display = busy ? '' : 'none';
     if (dom.sendBtn) dom.sendBtn.disabled = !!busy;
     if (dom.input) dom.input.disabled = !!busy;
+  }
+
+  // E: surface ASR transcription progress on the Atlas title (the transcribing
+  // SSE events would otherwise only land in the hidden Lumen message list).
+  function setTranscribingStatus(on) {
+    const titleEl = dom.col ? dom.col.querySelector('.atlas-claude-title') : null;
+    if (!titleEl) return;
+    if (on) {
+      if (!titleEl.dataset.origText) titleEl.dataset.origText = titleEl.textContent;
+      titleEl.textContent = '変換中…';
+      titleEl.classList.add('atlas-claude-title-transcribing');
+    } else {
+      titleEl.textContent = titleEl.dataset.origText || 'Atlas';
+      delete titleEl.dataset.origText;
+      titleEl.classList.remove('atlas-claude-title-transcribing');
+    }
   }
 
   function formatError(resp) {
@@ -1022,10 +1188,11 @@
   function pushAtlasMessage(text) { appendMessage('atlas', text); }
   function pushSystemMessage(text) { appendMessage('system', text); }
 
-  function appendMessage(role, text) {
+  function appendMessage(role, text, persist = true, meta = null) {
     if (!dom.transcript) return;
     state.transcript.push({ role, text, ts: Date.now() });
     while (state.transcript.length > TRANSCRIPT_MAX_MESSAGES) state.transcript.shift();
+    if (persist) persistMessage(role, text, meta);
 
     const node = document.createElement('div');
     node.className = 'atlas-claude-msg';
@@ -1051,6 +1218,9 @@
     previewProfile,
     selectProfile,
     startAutonomousLoop,
+    setActiveProject,
+    loadProject,
+    setTranscribingStatus,
     state,
   };
 

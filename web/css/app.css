@@ -1602,7 +1602,11 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .atlas-claude-input-wrap{display:flex;flex-direction:column;gap:6px;padding:10px 14px;border-top:1px solid var(--border);background:var(--bg1)}
 .atlas-claude-input{width:100%;min-height:38px;max-height:200px;resize:none;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--font-mono);font-size:13px;padding:8px 10px;outline:none;line-height:1.5}
 .atlas-claude-input:focus{border-color:var(--accent-border)}
-.atlas-claude-input-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.atlas-claude-input-actions{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:flex-end}
+/* The global .mic-btn is position:absolute (it overlays the Lumen textarea).
+   Inside the Atlas action row the mic must sit in normal flow so the DOM order
+   [mic][Stop][Send] renders on one row with the mic immediately left of Stop. */
+.atlas-claude-mic-btn{position:static;right:auto;bottom:auto;flex:0 0 auto}
 .atlas-claude-features-drawer{border-top:1px solid var(--border);background:var(--bg1);padding:0 14px 10px}
 .atlas-claude-features-summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);padding:8px 0;font-family:var(--font-mono)}
 .atlas-claude-features-summary:hover{color:var(--text)}

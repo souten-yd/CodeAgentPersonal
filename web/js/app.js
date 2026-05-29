@@ -67,10 +67,10 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
   window.addEventListener('load', ensureAtlasNextChildView, { once: true });
 })();
 
-(function installAtlasClaudeProjectPathControl() {
+(function installAtlasClaudeProjectPicker() {
   const root = (typeof window !== 'undefined' ? window : globalThis);
-  const STORAGE_KEY = 'kasane.atlas.project_path';
-  const STYLE_ID = 'atlas-claude-project-path-style';
+  const STORAGE_KEY = 'kasane.atlas.active_project';
+  const STYLE_ID = 'atlas-claude-project-picker-style';
   const PATCHED_FLAG = '__atlasProjectPathPatched';
   const payloadMethods = [
     'createPlanPool',
@@ -100,30 +100,56 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
     'getRepoContextImpactedTests',
   ];
 
-  let hydrationStarted = false;
   let patchTimer = null;
+  let bootstrapped = false;
+  // The currently selected Atlas project. Its name doubles as the Atlas
+  // workspace_id, and projectPath is the working dir the autopilot operates on.
+  let activeProject = { name: '', projectPath: '', workspaceId: '' };
+  let projectsCache = [];
 
-  function isUsableProjectPath(value) {
-    const text = String(value || '').trim();
-    if (!text) return false;
-    const lower = text.toLowerCase();
-    return !lower.includes('backend-provided project path') && lower !== 'default workspace';
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[ch]));
   }
 
-  function readStoredProjectPath() {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return isUsableProjectPath(stored) ? stored.trim() : '';
-    } catch (_err) {
-      return '';
-    }
+  function readStoredName() {
+    try { return (localStorage.getItem(STORAGE_KEY) || '').trim(); } catch (_err) { return ''; }
   }
 
-  function writeStoredProjectPath(value) {
-    const text = String(value || '').trim();
+  function writeStoredName(name) {
+    const text = String(name || '').trim();
     if (!text) return;
     try { localStorage.setItem(STORAGE_KEY, text); } catch (_err) {}
   }
+
+  function setActiveProject(project) {
+    if (!project || !project.name) return;
+    activeProject = {
+      name: project.name,
+      projectPath: project.project_path || project.projectPath || '',
+      workspaceId: project.workspace_id || project.workspaceId || project.name,
+    };
+    writeStoredName(activeProject.name);
+    updateButtonLabel();
+    // Mirror onto the panel so its API calls use the selected workspace.
+    try { root.AtlasClaudePanel?.setActiveProject?.(activeProject); } catch (_err) {}
+  }
+
+  // Used after an auto-rename (B): keep the same working dir, swap name/workspace.
+  function setActive(name) {
+    const found = projectsCache.find((p) => p.name === name);
+    if (found) { setActiveProject(found); }
+    else {
+      activeProject = { name, projectPath: activeProject.projectPath, workspaceId: name };
+      writeStoredName(name);
+      updateButtonLabel();
+      try { root.AtlasClaudePanel?.setActiveProject?.(activeProject); } catch (_err) {}
+    }
+    loadProjects().catch(() => {});
+  }
+
+  function getActiveProject() { return { ...activeProject }; }
 
   function ensureStyle() {
     if (document.getElementById(STYLE_ID)) return;
@@ -134,183 +160,263 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
         align-items: center;
         justify-content: flex-end;
         gap: 6px;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         margin-left: auto;
         min-width: 0;
       }
-      .atlas-claude-project-path-control {
+      .atlas-claude-proj-wrap {
+        position: relative;
+        min-width: 0;
+        max-width: min(60vw, 260px);
+      }
+      .atlas-claude-proj-btn {
         display: flex;
         align-items: center;
-        justify-content: flex-end;
         gap: 6px;
-        min-width: min(100%, 260px);
-        max-width: min(48vw, 520px);
-      }
-      .atlas-claude-project-path-label {
-        color: var(--text3);
-        font-family: var(--font-mono);
-        font-size: 10px;
-        white-space: nowrap;
-      }
-      .atlas-claude-project-path-input {
-        width: clamp(180px, 26vw, 420px);
-        min-width: 0;
+        max-width: 100%;
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: 8px;
         background: var(--bg2);
         color: var(--text);
         font-family: var(--font-mono);
-        font-size: 11px;
-        padding: 4px 8px;
-        outline: none;
+        font-size: 12px;
+        padding: 5px 10px;
+        cursor: pointer;
       }
-      .atlas-claude-project-path-input:focus {
-        border-color: var(--accent-border);
+      .atlas-claude-proj-btn .atlas-claude-proj-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 160px;
       }
-      .atlas-claude-project-path-input[aria-invalid="true"] {
-        border-color: var(--red);
+      .atlas-claude-proj-btn .atlas-claude-proj-caret { color: var(--text3); font-size: 9px; }
+      .atlas-claude-proj-dropdown {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        z-index: 1000;
+        width: max-content;
+        min-width: 240px;
+        max-width: min(92vw, 360px);
+        max-height: min(60vh, 420px);
+        overflow-y: auto;
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+        padding: 6px;
       }
-      .atlas-claude-project-path-error {
-        flex-basis: 100%;
-        color: var(--red);
-        font-family: var(--font-mono);
-        font-size: 10px;
-        text-align: right;
+      .atlas-claude-proj-dropdown[hidden] { display: none; }
+      .atlas-claude-proj-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 8px;
+        border-radius: 8px;
+        cursor: pointer;
       }
-      @media (max-width: 700px) {
-        .atlas-claude-header {
-          align-items: flex-start;
-          flex-wrap: wrap;
-        }
-        .atlas-claude-header-actions {
-          width: 100%;
-        }
-        .atlas-claude-project-path-control {
-          flex: 1 1 100%;
-          max-width: 100%;
-        }
-        .atlas-claude-project-path-input {
-          flex: 1 1 auto;
-          width: auto;
-        }
+      .atlas-claude-proj-item:hover { background: var(--bg3, rgba(255,255,255,0.05)); }
+      .atlas-claude-proj-item.active { outline: 1px solid var(--accent-border, var(--accent)); }
+      .atlas-claude-proj-item .atlas-claude-proj-iname {
+        flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        font-size: 12px; color: var(--text);
+      }
+      .atlas-claude-proj-item .atlas-claude-proj-icount { font-size: 10px; color: var(--text3); }
+      .atlas-claude-proj-item button {
+        flex: 0 0 auto; border: 1px solid var(--border); border-radius: 6px;
+        background: transparent; color: var(--text2); font-size: 10px; padding: 3px 7px; cursor: pointer;
+      }
+      .atlas-claude-proj-item button.atlas-claude-proj-del { color: var(--red); }
+      .atlas-claude-proj-new {
+        display: flex; gap: 6px; padding: 6px 4px 2px; border-top: 1px solid var(--border); margin-top: 4px;
+      }
+      .atlas-claude-proj-new input {
+        flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 6px;
+        background: var(--bg); color: var(--text); font-size: 11px; padding: 5px 8px; outline: none;
+      }
+      .atlas-claude-proj-new button {
+        flex: 0 0 auto; border: 1px solid var(--border); border-radius: 6px;
+        background: var(--accent); color: var(--bg, #000); font-size: 11px; padding: 5px 10px; cursor: pointer;
       }
     `;
     document.head.appendChild(style);
   }
 
-  function ensureControl() {
+  function ensurePicker() {
     const actions = document.querySelector('.atlas-claude-header-actions');
     const recover = document.getElementById('atlas-claude-recovery-btn');
-    if (!actions || !recover) return false;
-    if (document.getElementById('atlas-claude-project-path-input')) return true;
+    if (!actions) return false;
+    if (document.getElementById('atlas-claude-proj-wrap')) return true;
 
-    const control = document.createElement('label');
-    control.className = 'atlas-claude-project-path-control';
-    control.setAttribute('for', 'atlas-claude-project-path-input');
+    const wrap = document.createElement('div');
+    wrap.className = 'atlas-claude-proj-wrap';
+    wrap.id = 'atlas-claude-proj-wrap';
 
-    const label = document.createElement('span');
-    label.className = 'atlas-claude-project-path-label';
-    label.textContent = 'Project path';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'atlas-claude-proj-btn';
+    btn.id = 'atlas-claude-proj-btn';
+    btn.innerHTML = '<span>◈</span><span class="atlas-claude-proj-name" id="atlas-claude-proj-name">default</span><span class="atlas-claude-proj-caret">▼</span>';
+    btn.addEventListener('click', (ev) => { ev.stopPropagation(); toggleDropdown(); });
 
-    const input = document.createElement('input');
-    input.id = 'atlas-claude-project-path-input';
-    input.className = 'atlas-claude-project-path-input';
-    input.type = 'text';
-    input.placeholder = 'Backend project path';
-    input.autocomplete = 'off';
-    input.spellcheck = false;
-    input.value = readStoredProjectPath();
+    const dropdown = document.createElement('div');
+    dropdown.className = 'atlas-claude-proj-dropdown';
+    dropdown.id = 'atlas-claude-proj-dropdown';
+    dropdown.hidden = true;
+    dropdown.addEventListener('click', (ev) => ev.stopPropagation());
+    dropdown.innerHTML = '<div class="atlas-claude-proj-list" id="atlas-claude-proj-list"></div>'
+      + '<div class="atlas-claude-proj-new">'
+      + '<input id="atlas-claude-proj-new-input" type="text" placeholder="新規プロジェクト名" autocomplete="off" spellcheck="false">'
+      + '<button type="button" id="atlas-claude-proj-new-btn">作成</button></div>';
 
-    const error = document.createElement('span');
-    error.id = 'atlas-claude-project-path-error';
-    error.className = 'atlas-claude-project-path-error';
-    error.hidden = true;
+    wrap.append(btn, dropdown);
+    if (recover && recover.parentElement === actions) actions.insertBefore(wrap, recover);
+    else actions.insertBefore(wrap, actions.firstChild);
 
-    input.addEventListener('input', () => {
-      const value = input.value.trim();
-      if (value) writeStoredProjectPath(value);
-      input.removeAttribute('aria-invalid');
-      error.hidden = true;
-      error.textContent = '';
+    dropdown.querySelector('#atlas-claude-proj-new-btn').addEventListener('click', () => {
+      const inp = dropdown.querySelector('#atlas-claude-proj-new-input');
+      const name = inp ? inp.value.trim() : '';
+      createProject(name);
+      if (inp) inp.value = '';
+    });
+    dropdown.querySelector('#atlas-claude-proj-new-input').addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); dropdown.querySelector('#atlas-claude-proj-new-btn').click(); }
     });
 
-    control.append(label, input, error);
-    actions.insertBefore(control, recover);
+    if (!root.__atlasProjPickerOutsideClick) {
+      root.__atlasProjPickerOutsideClick = true;
+      document.addEventListener('click', () => closeDropdown());
+    }
     return true;
   }
 
-  async function hydrateDefaultProjectPath() {
-    if (hydrationStarted) return;
-    hydrationStarted = true;
-    if (!ensureControl()) return;
-    const input = document.getElementById('atlas-claude-project-path-input');
-    if (!input || input.value.trim()) return;
-    const stored = readStoredProjectPath();
-    if (stored) {
-      input.value = stored;
+  function toggleDropdown() {
+    const dd = document.getElementById('atlas-claude-proj-dropdown');
+    if (!dd) return;
+    if (dd.hidden) { dd.hidden = false; loadProjects().catch(() => {}); }
+    else { dd.hidden = true; }
+  }
+
+  function closeDropdown() {
+    const dd = document.getElementById('atlas-claude-proj-dropdown');
+    if (dd) dd.hidden = true;
+  }
+
+  function updateButtonLabel() {
+    const el = document.getElementById('atlas-claude-proj-name');
+    if (el) el.textContent = activeProject.name || 'default';
+  }
+
+  function renderProjects() {
+    const list = document.getElementById('atlas-claude-proj-list');
+    if (!list) return;
+    if (!projectsCache.length) {
+      list.innerHTML = '<div class="atlas-claude-proj-icount" style="padding:8px">プロジェクトがありません</div>';
       return;
     }
+    list.innerHTML = projectsCache.map((p) => {
+      const active = p.name === activeProject.name ? ' active' : '';
+      const count = `${p.file_count || 0} file${(p.file_count === 1) ? '' : 's'}`;
+      return `<div class="atlas-claude-proj-item${active}" data-name="${escapeHtml(p.name)}">`
+        + '<span>◈</span>'
+        + `<div style="flex:1;min-width:0"><div class="atlas-claude-proj-iname">${escapeHtml(p.name)}</div>`
+        + `<div class="atlas-claude-proj-icount">${escapeHtml(count)}</div></div>`
+        + `<button type="button" class="atlas-claude-proj-dl" data-name="${escapeHtml(p.name)}">DL</button>`
+        + `<button type="button" class="atlas-claude-proj-del" data-name="${escapeHtml(p.name)}">✕</button>`
+        + '</div>';
+    }).join('');
+    list.querySelectorAll('.atlas-claude-proj-item').forEach((item) => {
+      item.addEventListener('click', (ev) => {
+        if (ev.target.closest('button')) return;
+        selectProject(item.dataset.name);
+      });
+    });
+    list.querySelectorAll('.atlas-claude-proj-dl').forEach((b) => {
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); downloadProject(b.dataset.name); });
+    });
+    list.querySelectorAll('.atlas-claude-proj-del').forEach((b) => {
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); deleteProject(b.dataset.name); });
+    });
+  }
+
+  async function loadProjects() {
     try {
-      const response = await fetch('/api/atlas/workflow-state/read-only', { headers: { 'Content-Type': 'application/json' } });
-      if (!response.ok) return;
-      const payload = await response.json();
-      const projectPath = payload && payload.project_path;
-      if (isUsableProjectPath(projectPath)) {
-        input.value = String(projectPath).trim();
-        writeStoredProjectPath(input.value);
-      }
-    } catch (_err) {
-      // Keep the field editable; backend remains authoritative when a request is made.
+      const resp = await fetch('/api/atlas/projects', { headers: { 'Content-Type': 'application/json' } });
+      if (!resp.ok) return projectsCache;
+      const data = await resp.json();
+      projectsCache = (data && data.projects) || [];
+      renderProjects();
+    } catch (_err) { /* non-fatal */ }
+    return projectsCache;
+  }
+
+  function selectProject(name) {
+    const found = projectsCache.find((p) => p.name === name);
+    if (!found) return;
+    setActiveProject(found);
+    renderProjects();
+    closeDropdown();
+    try { root.AtlasClaudePanel?.loadProject?.(found.name); } catch (_err) {}
+  }
+
+  async function createProject(name) {
+    try {
+      const resp = await fetch('/api/atlas/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name || '' }),
+      });
+      if (!resp.ok) return;
+      const created = await resp.json();
+      await loadProjects();
+      if (created && created.name) selectProject(created.name);
+    } catch (_err) { /* non-fatal */ }
+  }
+
+  async function deleteProject(name) {
+    if (typeof confirm === 'function' && !confirm(`プロジェクト "${name}" を削除しますか？`)) return;
+    try {
+      await fetch('/api/atlas/projects/' + encodeURIComponent(name), { method: 'DELETE' });
+    } catch (_err) { /* non-fatal */ }
+    await loadProjects();
+    if (activeProject.name === name) {
+      if (projectsCache.length) selectProject(projectsCache[0].name);
+      else createProject('');
     }
   }
 
-  function pushValidationMessage(message) {
-    const transcript = document.getElementById('atlas-claude-transcript');
-    if (!transcript) return;
-    const previous = document.getElementById('atlas-claude-project-path-validation-msg');
-    if (previous) previous.remove();
-    const node = document.createElement('div');
-    node.id = 'atlas-claude-project-path-validation-msg';
-    node.className = 'atlas-claude-msg';
-    node.dataset.role = 'system';
-    node.textContent = message;
-    transcript.appendChild(node);
-    transcript.scrollTop = transcript.scrollHeight;
+  function downloadProject(name) {
+    const a = document.createElement('a');
+    a.href = '/api/atlas/projects/' + encodeURIComponent(name) + '/download';
+    a.download = `${name}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 
-  function showValidation(message) {
-    ensureControl();
-    const input = document.getElementById('atlas-claude-project-path-input');
-    const error = document.getElementById('atlas-claude-project-path-error');
-    if (input) input.setAttribute('aria-invalid', 'true');
-    if (error) {
-      error.textContent = message;
-      error.hidden = false;
-    }
-    pushValidationMessage(message);
+  async function bootstrapProjects() {
+    if (bootstrapped) return;
+    bootstrapped = true;
+    if (!ensurePicker()) { bootstrapped = false; return; }
+    const list = await loadProjects();
+    if (!list.length) { await createProject(''); return; }
+    const stored = readStoredName();
+    const chosen = (stored && list.find((p) => p.name === stored)) || list[0];
+    setActiveProject(chosen);
+    renderProjects();
   }
 
-  function getProjectPath() {
-    ensureControl();
-    const input = document.getElementById('atlas-claude-project-path-input');
-    const value = input ? String(input.value || '').trim() : '';
-    return isUsableProjectPath(value) ? value : readStoredProjectPath();
-  }
-
-  function requireProjectPath() {
-    const projectPath = getProjectPath();
-    if (!projectPath) {
-      showValidation('Project path is required.');
-      return '';
-    }
-    writeStoredProjectPath(projectPath);
-    return projectPath;
-  }
+  // Backwards-compatible accessors: the selected project's working dir IS the
+  // project path. Returns '' when no project is selected yet.
+  function getProjectPath() { return activeProject.projectPath || ''; }
+  function requireProjectPath() { return activeProject.projectPath || ''; }
 
   function withProjectPath(payload) {
-    const projectPath = requireProjectPath();
     const base = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
-    return projectPath ? { ...base, project_path: projectPath } : base;
+    const out = { ...base };
+    if (activeProject.projectPath) out.project_path = activeProject.projectPath;
+    if (activeProject.workspaceId) out.workspace_id = activeProject.workspaceId;
+    return out;
   }
 
   function patchAtlasPipelineAPI() {
@@ -349,14 +455,14 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
 
   function install() {
     ensureStyle();
-    ensureControl();
-    hydrateDefaultProjectPath();
+    ensurePicker();
+    bootstrapProjects();
     const apiReady = patchAtlasPipelineAPI();
     const recoverReady = patchAtlasDashboardRecover();
     if (apiReady && recoverReady) return;
     if (patchTimer) return;
     patchTimer = setInterval(() => {
-      ensureControl();
+      ensurePicker();
       const patchedApi = patchAtlasPipelineAPI();
       const patchedRecover = patchAtlasDashboardRecover();
       if (patchedApi && patchedRecover) {
@@ -378,6 +484,11 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
     require: requireProjectPath,
     withProjectPath,
     install,
+    setActive,
+    getActive: getActiveProject,
+    selectProject,
+    reloadProjects: loadProjects,
+    applyRenamed: (payload) => { setActiveProject(payload); loadProjects().catch(() => {}); },
   };
 
   if (document.readyState === 'loading') {
