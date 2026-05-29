@@ -1549,7 +1549,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 @media (max-width: 768px){.atlas-automation-extension-grid{grid-template-columns:1fr}.atlas-automation-extension-card,.atlas-extension-details{width:100%;max-width:100%}}
 
 /* Atlas Claude-style buildless conversational shell */
-.atlas-claude-col{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--bg);color:var(--text);font-family:var(--font-ui);overflow:hidden;border-left:1px solid var(--border);flex:1 1 auto;width:100%;min-width:0;max-width:100%}
+.atlas-claude-col{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--bg);color:var(--text);font-family:var(--font-ui);overflow:visible;border-left:1px solid var(--border);flex:1 1 auto;width:100%;min-width:0;max-width:100%}
 @media(min-width:769px){.atlas-claude-col{flex:1 1 auto;width:100%;max-width:100%}}
 .atlas-claude-muted-inline{font-size:10.5px;color:var(--text3);font-family:var(--font-mono);font-weight:400;margin-left:4px}
 /* Pipeline progress stage block */
@@ -1577,7 +1577,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .atlas-claude-summary-pr a{color:var(--accent);text-decoration:none}
 .atlas-claude-summary-pr a:hover{text-decoration:underline}
 .atlas-claude-summary-pr-hint{font-size:11px;color:var(--text3);font-family:var(--font-mono)}
-.atlas-claude-header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--bg1)}
+.atlas-claude-header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--bg1);position:relative;z-index:20}
 .atlas-claude-titles{display:flex;flex-direction:column;gap:1px}
 .atlas-claude-title{font-size:15px;font-weight:600;color:var(--text);letter-spacing:.02em}
 .atlas-claude-subtitle{font-size:10px;color:var(--text3);font-family:var(--font-mono)}

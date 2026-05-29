@@ -82,22 +82,21 @@ def infer_item_type(action_type: Any, title: Any, description: Any, target_files
     action = str(action_type or "").strip().lower()
     searchable = f"{title or ''} {description or ''}".lower()
     has_target_files = bool(target_files)
-    # Explicit code actions and steps that name concrete files to change are implementation work,
-    # even if a weak planner mislabels them (e.g. action_type="research" on every step). This is the
-    # deterministic guard that keeps dev goals from collapsing into non-applicable research items.
+    # Verification/test steps win first regardless of files (a "run pytest" step is not a write).
+    if is_test_command_action(action, title, description):
+        return "verification"
+    # Explicit code actions are implementation work.
     if action in {"create", "update", "write", "implement", "implementation", "code", "modify", "edit", "add"}:
+        return "implementation"
+    # A step that points at concrete target files is implementation regardless of a generic/inspect
+    # label: for a dev/create goal the planner names the files it intends to write (e.g. a weak model
+    # mislabels "create index.html" as action_type="inspect"/"research" but still lists target_files).
+    if has_target_files and action != "verification":
         return "implementation"
     if action == "inspect":
         return "research"
-    if is_test_command_action(action, title, description):
-        return "verification"
     if action in {"research", "planning", "documentation", "nexus_save", "verification"}:
-        # A step that points at concrete target files is implementation regardless of a generic label.
-        if has_target_files and action in {"research", "planning"}:
-            return "implementation"
         return action
-    if has_target_files:
-        return "implementation"
     if any(keyword in searchable for keyword in ("research", "investigate", "inspect")):
         return "research"
     if any(keyword in searchable for keyword in ("plan", "design")):

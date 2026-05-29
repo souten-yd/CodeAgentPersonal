@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from typing import Callable
 from urllib import request as urllib_request
 
 from agent.atlas_llm_json_adapter_schema import AtlasLLMJsonRequest, AtlasLLMJsonResult
+
+logger = logging.getLogger(__name__)
 
 
 class AtlasLLMJsonAdapter:
@@ -35,6 +38,7 @@ class AtlasLLMJsonAdapter:
                 raw = self.backend_fn(request.system_prompt, request.user_prompt)
                 parsed = self.parse_json_response(raw)
                 if parsed is None:
+                    logger.warning("llm_json_parse_failed backend=backend_fn model=%s raw=%r", model_name, str(raw or "")[:500])
                     return AtlasLLMJsonResult(ok=False, raw_text=str(raw or ""), model=model_name, backend="backend_fn", error="llm_json_parse_failed")
                 return AtlasLLMJsonResult(ok=True, data=parsed, raw_text=str(raw) if isinstance(raw, str) else "", model=model_name, backend="backend_fn")
 
@@ -44,6 +48,7 @@ class AtlasLLMJsonAdapter:
             raw_text = self.call_openai_compatible(request)
             parsed = self.parse_json_response(raw_text)
             if parsed is None:
+                logger.warning("llm_json_parse_failed backend=openai_compatible model=%s raw=%r", model_name, raw_text[:500])
                 return AtlasLLMJsonResult(ok=False, raw_text=raw_text, model=model_name, backend="openai_compatible", error="llm_json_parse_failed")
             return AtlasLLMJsonResult(ok=True, data=parsed, raw_text=raw_text, model=model_name, backend="openai_compatible")
         except Exception as exc:  # noqa: BLE001
@@ -55,32 +60,79 @@ class AtlasLLMJsonAdapter:
         text = str(text_or_obj or "").strip()
         if not text:
             return None
-        try:
-            payload = json.loads(text)
-            return payload if isinstance(payload, dict) else None
-        except Exception:
-            pass
-
+        # 1. Direct JSON object.
+        obj = self._loads_object(text)
+        if obj is not None:
+            return obj
+        # 2. A labeled ```json fenced block.
         fenced = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", text, flags=re.IGNORECASE)
         if fenced:
-            try:
-                payload = json.loads(fenced.group(1))
-                return payload if isinstance(payload, dict) else None
-            except Exception:
-                pass
+            obj = self._loads_object(fenced.group(1))
+            if obj is not None:
+                return obj
+        # 3. Strip ANY fences (plain ``` or ```<lang>) and retry whole-body + brace scan.
+        unfenced = self._strip_code_fences(text)
+        obj = self._loads_object(unfenced)
+        if obj is not None:
+            return obj
+        obj = self.extract_json_object(unfenced)
+        if obj is not None:
+            return obj
+        # 4. Last resort: the model returned a fenced CODE block but no JSON object. Wrap the first
+        #    fenced block body as proposed_content so a "write a file" response is still usable.
+        code = self._first_fenced_block_body(text)
+        if code:
+            return {"proposed_content": code}
+        return None
 
-        return self.extract_json_object(text)
-
-    def extract_json_object(self, text: str) -> dict | None:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start < 0 or end < 0 or end <= start:
-            return None
+    def _loads_object(self, candidate: str) -> dict | None:
         try:
-            payload = json.loads(text[start : end + 1])
+            payload = json.loads(candidate)
             return payload if isinstance(payload, dict) else None
         except Exception:
             return None
+
+    def _strip_code_fences(self, text: str) -> str:
+        # Remove a single wrapping ```/```lang ... ``` if present; otherwise return text unchanged.
+        m = re.match(r"\s*```[a-zA-Z0-9_-]*\s*\n?([\s\S]*?)\n?```\s*$", text)
+        return m.group(1).strip() if m else text
+
+    def _first_fenced_block_body(self, text: str) -> str:
+        m = re.search(r"```[a-zA-Z0-9_-]*\s*\n?([\s\S]*?)```", text)
+        return m.group(1).strip() if m else ""
+
+    def extract_json_object(self, text: str) -> dict | None:
+        # Balanced-brace scan: find the first '{' whose matching '}' yields valid JSON. Tolerant of
+        # nested braces and trailing prose where naive find/rfind fails.
+        n = len(text)
+        for start in range(n):
+            if text[start] != "{":
+                continue
+            depth = 0
+            in_str = False
+            esc = False
+            for end in range(start, n):
+                ch = text[end]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif ch == "\\":
+                        esc = True
+                    elif ch == '"':
+                        in_str = False
+                    continue
+                if ch == '"':
+                    in_str = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        obj = self._loads_object(text[start : end + 1])
+                        if obj is not None:
+                            return obj
+                        break  # this {...} span is not valid JSON; try the next '{'
+        return None
 
     def build_messages(self, request: AtlasLLMJsonRequest) -> list[dict]:
         user_prompt = request.user_prompt
