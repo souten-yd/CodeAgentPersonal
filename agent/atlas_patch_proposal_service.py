@@ -13,11 +13,12 @@ from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 
 
 class AtlasPatchProposalService:
-    ALLOWED_SOURCE_TYPES = {"debug_review"}
-    LLM_ALLOWED_FIELDS = {"title", "summary", "root_cause", "proposed_fix", "target_files", "suggested_changes", "unified_diff_preview", "risk_level", "verification_plan", "rollback_plan", "assumptions"}
+    ALLOWED_SOURCE_TYPES = {"debug_review", "plan_item"}
+    LLM_ALLOWED_FIELDS = {"title", "summary", "root_cause", "proposed_fix", "target_files", "suggested_changes", "unified_diff_preview", "proposed_content", "risk_level", "verification_plan", "rollback_plan", "assumptions"}
     LLM_UNTRUSTED_FIELDS = {"status", "pool_id", "item_id", "run_id", "proposal_id", "metadata", "warnings", "errors", "proposal_json_path", "proposal_md_path", "created_at"}
     ALLOWED_RISK_LEVELS = {"low", "medium", "high", "critical"}
     MAX_DIFF_PREVIEW_CHARS = 12000
+    MAX_PROPOSED_CONTENT_CHARS = 200000
 
     def __init__(self, *, journal: AtlasJournal, storage: AtlasPlanPoolStorage, llm_json_fn: Callable[[str, str], dict | None] | None = None):
         self.journal = journal
@@ -57,13 +58,22 @@ class AtlasPatchProposalService:
 
     def validate_item_for_patch_proposal(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> tuple[bool, list[str]]:
         warnings = []
+        source_type = self._effective_source_type(item, request)
         debug_review = (item.metadata or {}).get("debug_review") or {}
-        if str(debug_review.get("status") or "").lower() != "analyzed":
-            warnings.append("debug_review_not_analyzed")
-        if not str(debug_review.get("proposed_fix") or "").strip() and not str(debug_review.get("root_cause_category") or "").strip():
-            warnings.append("proposed_fix_missing")
         if request.source_type not in self.ALLOWED_SOURCE_TYPES:
             warnings.append("source_type_not_allowed")
+        if source_type == "debug_review":
+            if str(debug_review.get("status") or "").lower() != "analyzed":
+                warnings.append("debug_review_not_analyzed")
+            if not str(debug_review.get("proposed_fix") or "").strip() and not str(debug_review.get("root_cause_category") or "").strip():
+                warnings.append("proposed_fix_missing")
+        elif source_type == "plan_item":
+            if not (str(item.title or "").strip() or str(item.goal or "").strip() or str(item.description or "").strip()):
+                warnings.append("plan_item_goal_missing")
+            if str((item.metadata or {}).get("action_type") or "").lower() in {"delete", "run_command"}:
+                warnings.append("forbidden_action_type")
+            if any(Path(str(p)).is_absolute() or ".." in Path(str(p)).parts for p in list(item.target_files or [])):
+                warnings.append("unsafe_target_files")
         patch_status = str(((item.metadata or {}).get("patch_proposal") or {}).get("status") or "").lower()
         if patch_status == "approved":
             warnings.append("patch_proposal_already_approved")
@@ -73,25 +83,42 @@ class AtlasPatchProposalService:
             warnings.append("patch_proposal_blocked")
         return len(warnings) == 0, warnings
 
-    def build_proposal_input(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
+    def _effective_source_type(self, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> str:
+        requested = str(request.source_type or "debug_review").strip().lower() or "debug_review"
+        if requested != "debug_review":
+            return requested
         debug_review = (item.metadata or {}).get("debug_review") or {}
+        if not request.run_id and str(debug_review.get("status") or "").lower() != "analyzed":
+            return "plan_item"
+        return "debug_review"
+
+    def build_proposal_input(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
+        source_type = self._effective_source_type(item, request)
+        debug_review = (item.metadata or {}).get("debug_review") or {}
+        item_metadata = item.metadata or {}
         return {
             "pool_id": pool.pool_id,
             "item_id": item.item_id,
             "run_id": request.run_id,
             "workspace_id": request.workspace_id,
-            "source_type": request.source_type,
+            "source_type": source_type,
+            "requested_source_type": request.source_type,
             "proposal_mode": request.proposal_mode,
             "item": {
                 "title": item.title,
                 "description": item.description,
                 "goal": item.goal,
+                "done_definition": list(item.done_definition or []),
                 "target_files": list(item.target_files or []),
                 "risk_level": item.risk_level,
+                "item_type": item.item_type,
+                "action_type": str(item_metadata.get("action_type") or ""),
+                "existing_patch": str(item_metadata.get("patch") or ""),
+                "existing_content": str(item_metadata.get("content") or item_metadata.get("proposed_content") or ""),
             },
             "debug_review": {
-                "root_cause_category": str(debug_review.get("root_cause_category") or ""),
-                "proposed_fix": str(debug_review.get("proposed_fix") or ""),
+                "root_cause_category": str(debug_review.get("root_cause_category") or ("plan_item" if source_type == "plan_item" else "")),
+                "proposed_fix": str(debug_review.get("proposed_fix") or (item.description or item.goal or item.title if source_type == "plan_item" else "")),
                 "retry_recommended": bool(debug_review.get("retry_recommended", False)),
                 "debug_notes_path": str(debug_review.get("debug_notes_path") or ""),
             },
@@ -107,8 +134,8 @@ class AtlasPatchProposalService:
 
     def generate_proposal_with_llm(self, input_payload: dict) -> AtlasPatchProposal:
         assert self.llm_json_fn is not None
-        system_prompt = "You generate advisory patch proposals only. Never execute commands; return JSON only."
-        user_prompt = json.dumps(input_payload, ensure_ascii=False)
+        system_prompt = "You generate advisory patch proposals only. Return JSON only. Do not claim changes were applied."
+        user_prompt = json.dumps({"task": "Generate a safe patch proposal. For source_type=plan_item, include target_files and either proposed_content or unified_diff_preview when possible.", "input": input_payload}, ensure_ascii=False)
         try:
             output = self.llm_json_fn(system_prompt, user_prompt) or {}
             if not isinstance(output, dict):
@@ -135,6 +162,19 @@ class AtlasPatchProposalService:
                 diff_preview = diff_preview[: self.MAX_DIFF_PREVIEW_CHARS]
                 warnings.append("diff_preview_truncated")
 
+            proposed_content = str(llm_allowed.get("proposed_content") or "")
+            if len(proposed_content) > self.MAX_PROPOSED_CONTENT_CHARS:
+                proposed_content = proposed_content[: self.MAX_PROPOSED_CONTENT_CHARS]
+                warnings.append("proposed_content_truncated")
+
+            metadata = {
+                "source_type": str(input_payload.get("source_type") or "debug_review"),
+                "requested_source_type": str(input_payload.get("requested_source_type") or ""),
+                "patch_content_available": bool(proposed_content or diff_preview),
+            }
+            if proposed_content:
+                metadata["proposed_content"] = proposed_content
+
             normalized = AtlasPatchProposal.model_validate({
                 "proposal_id": f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid4().hex[:8]}",
                 "pool_id": str(input_payload.get("pool_id") or ""),
@@ -142,8 +182,8 @@ class AtlasPatchProposalService:
                 "run_id": str(input_payload.get("run_id") or ""),
                 "status": "proposed",
                 "title": str(llm_allowed.get("title") or f"Patch proposal for {item.get('title') or input_payload.get('item_id') or ''}"),
-                "summary": str(llm_allowed.get("summary") or debug.get("proposed_fix") or ""),
-                "proposed_fix": str(llm_allowed.get("proposed_fix") or debug.get("proposed_fix") or ""),
+                "summary": str(llm_allowed.get("summary") or debug.get("proposed_fix") or item.get("description") or ""),
+                "proposed_fix": str(llm_allowed.get("proposed_fix") or debug.get("proposed_fix") or item.get("description") or item.get("goal") or ""),
                 "root_cause": str(llm_allowed.get("root_cause") or debug.get("root_cause_category") or ""),
                 "target_files": target_files,
                 "suggested_changes": list(llm_allowed.get("suggested_changes") or []),
@@ -153,6 +193,7 @@ class AtlasPatchProposalService:
                 "rollback_plan": list(llm_allowed.get("rollback_plan") or []),
                 "assumptions": list(llm_allowed.get("assumptions") or []),
                 "warnings": warnings,
+                "metadata": metadata,
             })
             return normalized
         except Exception:
@@ -183,25 +224,30 @@ class AtlasPatchProposalService:
         return safe_files or list(fallback_target_files)
 
     def generate_fallback_proposal(self, input_payload: dict) -> AtlasPatchProposal:
+        source_type = str(input_payload.get("source_type") or "debug_review")
         debug = input_payload.get("debug_review") or {}
         item = input_payload.get("item") or {}
+        warnings = ["llm_unavailable_fallback_proposal"]
+        if source_type == "plan_item":
+            warnings.append("plan_item_patch_content_missing")
         return AtlasPatchProposal(
             proposal_id=f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid4().hex[:8]}",
             pool_id=str(input_payload.get("pool_id") or ""),
             item_id=str(input_payload.get("item_id") or ""),
             run_id=str(input_payload.get("run_id") or ""),
             title=f"Patch proposal for {item.get('title') or input_payload.get('item_id')}",
-            summary=str(debug.get("proposed_fix") or "Use debug review guidance to update target files."),
-            root_cause=str(debug.get("root_cause_category") or "unknown"),
-            proposed_fix=str(debug.get("proposed_fix") or "Investigate and apply safe code-level fixes manually."),
+            summary=str(debug.get("proposed_fix") or item.get("description") or item.get("goal") or "Use available guidance to update target files."),
+            root_cause=str(debug.get("root_cause_category") or ("plan_item" if source_type == "plan_item" else "unknown")),
+            proposed_fix=str(debug.get("proposed_fix") or item.get("description") or item.get("goal") or "Investigate and apply safe code-level fixes manually."),
             target_files=list(item.get("target_files") or []),
-            suggested_changes=[{"type": "advisory", "detail": str(debug.get("proposed_fix") or "Apply minimal focused patch around root cause.")}],
+            suggested_changes=[{"type": "advisory", "detail": str(debug.get("proposed_fix") or item.get("description") or "Apply minimal focused patch around root cause.")}],
             unified_diff_preview="",
             risk_level=str(item.get("risk_level") or "medium"),
             verification_plan=["Run targeted tests manually after human review."],
             rollback_plan=["Revert proposed edits if regressions are detected."],
-            assumptions=["Debug review findings are accurate."],
-            warnings=["llm_unavailable_fallback_proposal"],
+            assumptions=["Patch proposal has not been applied."],
+            warnings=warnings,
+            metadata={"source_type": source_type, "patch_content_available": False},
         )
 
     def save_patch_proposal_record(self, pool_id: str, item_id: str, proposal: AtlasPatchProposal) -> tuple[str, str]:
@@ -211,7 +257,7 @@ class AtlasPatchProposalService:
         json_path = out_dir / f"{item_id}_{ts}.json"
         md_path = out_dir / f"{item_id}_{ts}.md"
         json_path.write_text(json.dumps(proposal.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
-        md = f"# Atlas Patch Proposal\n\n- Pool ID: {pool_id}\n- Item ID: {item_id}\n- Source type: debug_review\n- Status: {proposal.status}\n- Root cause: {proposal.root_cause}\n- Proposed fix: {proposal.proposed_fix}\n- Target files: {', '.join(proposal.target_files)}\n- Suggested changes: {json.dumps(proposal.suggested_changes, ensure_ascii=False)}\n- Unified diff preview:\n\n```diff\n{proposal.unified_diff_preview}\n```\n\n- Risk level: {proposal.risk_level}\n- Verification plan: {json.dumps(proposal.verification_plan, ensure_ascii=False)}\n- Rollback plan: {json.dumps(proposal.rollback_plan, ensure_ascii=False)}\n\n- No patch was applied.\n- No safe_apply was run.\n- No verification rerun was performed.\n"
+        md = f"# Atlas Patch Proposal\n\n- Pool ID: {pool_id}\n- Item ID: {item_id}\n- Source type: {proposal.metadata.get('source_type', 'debug_review')}\n- Status: {proposal.status}\n- Root cause: {proposal.root_cause}\n- Proposed fix: {proposal.proposed_fix}\n- Target files: {', '.join(proposal.target_files)}\n- Suggested changes: {json.dumps(proposal.suggested_changes, ensure_ascii=False)}\n- Proposed content available: {bool((proposal.metadata or {}).get('proposed_content'))}\n- Unified diff preview:\n\n```diff\n{proposal.unified_diff_preview}\n```\n\n- Risk level: {proposal.risk_level}\n- Verification plan: {json.dumps(proposal.verification_plan, ensure_ascii=False)}\n- Rollback plan: {json.dumps(proposal.rollback_plan, ensure_ascii=False)}\n\n- No patch was applied.\n- No safe_apply was run.\n- No verification rerun was performed.\n"
         md_path.write_text(md, encoding="utf-8")
         return str(json_path), str(md_path)
 
@@ -229,10 +275,13 @@ class AtlasPatchProposalService:
         } if previous else item.metadata.get("patch_proposal_previous")
         item.metadata["patch_proposal_revision_count"] = revision_count
         debug_review = (item.metadata or {}).get("debug_review") or {}
-        source = str(debug_review.get("source") or "")
+        proposal_metadata = dict(proposal.metadata or {})
+        source_type = str(proposal_metadata.get("source_type") or "debug_review")
+        source = str(debug_review.get("source") or ("plan_item" if source_type == "plan_item" else ""))
         source_proposal_id = str(debug_review.get("source_proposal_id") or item.metadata.get("source_proposal_id") or "")
-        root_cause_category = str(debug_review.get("root_cause_category") or "")
-        proposed_fix = str(debug_review.get("proposed_fix") or "")
+        root_cause_category = str(debug_review.get("root_cause_category") or ("plan_item" if source_type == "plan_item" else ""))
+        proposed_fix = str(debug_review.get("proposed_fix") or proposal.proposed_fix or "")
+        proposed_content = str(proposal_metadata.get("proposed_content") or "")
         item.metadata["patch_proposal"].update({
             "status": result.status,
             "proposal_id": proposal.proposal_id,
@@ -241,9 +290,15 @@ class AtlasPatchProposalService:
             "summary": proposal.summary,
             "risk_level": proposal.risk_level,
             "target_files": list(proposal.target_files),
+            "suggested_changes": list(proposal.suggested_changes),
+            "unified_diff_preview": proposal.unified_diff_preview,
+            "verification_plan": list(proposal.verification_plan),
+            "rollback_plan": list(proposal.rollback_plan),
+            "metadata": proposal_metadata,
             "proposed_at": datetime.now(timezone.utc).isoformat(),
             "revision_count": revision_count,
             "source": source or "patch_proposal_planitem_draft",
+            "source_type": source_type,
             "source_proposal_id": source_proposal_id,
             "debug_review_status": str(debug_review.get("status") or ""),
             "root_cause_category": root_cause_category,
@@ -253,6 +308,14 @@ class AtlasPatchProposalService:
             "auto_safe_apply": False,
             "auto_verification": False,
         })
+        if proposed_content:
+            item.metadata["patch_proposal"]["proposed_content"] = proposed_content
+            item.metadata["proposed_content"] = proposed_content
+            item.metadata["content"] = proposed_content
+        if proposal.unified_diff_preview:
+            item.metadata["patch_proposal"]["patch"] = proposal.unified_diff_preview
+            item.metadata["unified_diff_preview"] = proposal.unified_diff_preview
+            item.metadata["patch"] = proposal.unified_diff_preview
 
     def _append_event(self, pool_id: str, run_id: str, event_type: str, item: AtlasPlanItem | None, status: str, warnings: list[str] | None = None, errors: list[str] | None = None) -> None:
         if not run_id:
