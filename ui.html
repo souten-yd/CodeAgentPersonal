@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-project-picker-1">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-ui-fix-1">
 
 <style>
   .atlas-surface-hidden { display: none !important; }
@@ -163,12 +163,7 @@
   <!-- ATLAS CLAUDE SHELL (buildless conversational, always default) -->
   <div class="atlas-claude-col" id="atlas-claude-col" data-atlas-shell="claude" style="display:none" aria-label="Atlas conversational shell">
     <header class="atlas-claude-header">
-      <div class="atlas-claude-titles">
-        <span class="atlas-claude-title">Atlas</span>
-      </div>
-      <div class="atlas-claude-header-actions">
-        <button type="button" id="atlas-claude-recovery-btn" class="atlas-claude-ghost-btn">Recover</button>
-      </div>
+      <div class="atlas-claude-header-actions"></div>
     </header>
 
     <section class="atlas-claude-status-row" aria-label="Atlas shell summary">
@@ -209,6 +204,7 @@
         <input type="text" id="atlas-claude-confirm-text" class="atlas-claude-confirm-text" placeholder="Profile 3-5 のみ要確認: SELECT AUTOMATION PROFILE" autocomplete="off">
         <button type="button" id="atlas-claude-preview-profile-btn" class="atlas-claude-secondary-btn">Preview</button>
         <button type="button" id="atlas-claude-select-profile-btn" class="atlas-claude-primary-btn">Apply</button>
+        <button type="button" id="atlas-claude-recovery-btn" class="atlas-claude-ghost-btn">Recover</button>
       </div>
 
       <pre id="atlas-claude-profile-result" class="atlas-claude-profile-result" aria-live="polite" hidden></pre>
@@ -6091,6 +6087,9 @@ function _updateMobTabs(m) {
   const isChatTask = !isEcho && !isAgent && !isNexus && !isAtlas;
   mobTabs?.classList.toggle('echo-mode', isEcho);
   mobTabs?.classList.toggle('chat-task-mode', isChatTask);
+  // Atlas has no mobile sub-tabs, so the lone "Atlas" tab (rendered active = green
+  // text + full-width green underline) is redundant. Hide the whole row in Atlas mode.
+  mobTabs?.classList.toggle('atlas-mode', isAtlas);
 
   _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isChatTask ? '' : 'none'; });
   _AGENT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAgent ? '' : 'none'; });
@@ -16297,7 +16296,7 @@ function testSkill(skillName) {
 }
 
 </script>
-<script src="/static/js/app.js?v=atlas-project-picker-1"></script>
+<script src="/static/js/app.js?v=atlas-ui-fix-1"></script>
 <script src="/static/js/settings.js"></script>
 <script src="/static/js/skills_memory.js"></script>
 <script src="/static/js/panels.js"></script>
@@ -16307,7 +16306,7 @@ function testSkill(skillName) {
 <script src="/static/js/nexus.js"></script>
 <script src="/static/js/atlas_pipeline_api.js?v=atlas-dashboard-40"></script>
 <script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-40"></script>
-<script src="/static/js/atlas_claude_panel.js?v=atlas-project-picker-1"></script>
+<script src="/static/js/atlas_claude_panel.js?v=atlas-ui-fix-1"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

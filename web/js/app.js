@@ -158,10 +158,9 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
     style.textContent = `
       .atlas-claude-header-actions {
         align-items: center;
-        justify-content: flex-end;
+        justify-content: flex-start;
         gap: 6px;
         flex-wrap: nowrap;
-        margin-left: auto;
         min-width: 0;
       }
       .atlas-claude-proj-wrap {
@@ -193,7 +192,7 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
       .atlas-claude-proj-dropdown {
         position: absolute;
         top: calc(100% + 6px);
-        right: 0;
+        left: 0;
         z-index: 1000;
         width: max-content;
         min-width: 240px;

@@ -951,7 +951,14 @@
     }
 
     // Failure recovery suggestion.
-    const failuresWithSuggestion = (d.item_results || []).filter((r) => r.failure_stop_suggestion);
+    // NOTE: failure_stop_suggestion defaults to an empty object {} on every item
+    // (backend pydantic default). An empty {} is truthy in JS, so a bare truthy
+    // check would wrongly include skipped items (e.g. missing_patch_or_content)
+    // and render them as failures. Only items with a *populated* suggestion are
+    // real verification failures, so require a non-empty object here.
+    const failuresWithSuggestion = (d.item_results || []).filter(
+      (r) => r.failure_stop_suggestion && Object.keys(r.failure_stop_suggestion).length > 0
+    );
     if (failuresWithSuggestion.length) {
       const recovery = renderRecoverySection(failuresWithSuggestion);
       summary.appendChild(recovery);
@@ -1090,19 +1097,20 @@
     if (dom.input) dom.input.disabled = !!busy;
   }
 
-  // E: surface ASR transcription progress on the Atlas title (the transcribing
-  // SSE events would otherwise only land in the hidden Lumen message list).
+  // E: surface ASR transcription progress on the Atlas input placeholder (the
+  // transcribing SSE events would otherwise only land in the hidden Lumen message
+  // list). The old header title was removed, so the input is the visible anchor.
   function setTranscribingStatus(on) {
-    const titleEl = dom.col ? dom.col.querySelector('.atlas-claude-title') : null;
-    if (!titleEl) return;
+    const inputEl = dom.input;
+    if (!inputEl) return;
     if (on) {
-      if (!titleEl.dataset.origText) titleEl.dataset.origText = titleEl.textContent;
-      titleEl.textContent = '変換中…';
-      titleEl.classList.add('atlas-claude-title-transcribing');
+      if (!inputEl.dataset.origPlaceholder) inputEl.dataset.origPlaceholder = inputEl.placeholder || '';
+      inputEl.placeholder = '変換中…';
+      inputEl.classList.add('atlas-claude-title-transcribing');
     } else {
-      titleEl.textContent = titleEl.dataset.origText || 'Atlas';
-      delete titleEl.dataset.origText;
-      titleEl.classList.remove('atlas-claude-title-transcribing');
+      inputEl.placeholder = inputEl.dataset.origPlaceholder || '指示を入力...';
+      delete inputEl.dataset.origPlaceholder;
+      inputEl.classList.remove('atlas-claude-title-transcribing');
     }
   }
 
