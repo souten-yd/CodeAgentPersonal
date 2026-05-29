@@ -6,6 +6,7 @@ from uuid import uuid4
 from pathlib import Path
 from typing import Callable
 
+from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProposalRequest, AtlasPatchProposalResult
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
@@ -44,7 +45,11 @@ class AtlasPatchProposalService:
             proposal.item_id = item.item_id
             proposal.run_id = request.run_id
             json_path, md_path = self.save_patch_proposal_record(pool.pool_id, item.item_id, proposal)
-            result = AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="proposed", proposal=proposal, proposal_json_path=json_path, proposal_md_path=md_path)
+            # Honest signal: a proposal can be "proposed" yet carry NO applicable content (weak/absent
+            # LLM, or fallback). Surface that explicitly so the UI does not report fake success and the
+            # autopilot does not silently skip with "missing_patch_or_content".
+            has_content = bool(proposal.unified_diff_preview or (proposal.metadata or {}).get("proposed_content"))
+            result = AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="proposed", proposal=proposal, proposal_json_path=json_path, proposal_md_path=md_path, metadata={"patch_content_available": has_content})
             self.mark_item_from_patch_proposal(pool, item, result)
             self.storage.save_pool(pool)
             self.journal.save_plan_pool(pool)
@@ -316,6 +321,15 @@ class AtlasPatchProposalService:
             item.metadata["patch_proposal"]["patch"] = proposal.unified_diff_preview
             item.metadata["unified_diff_preview"] = proposal.unified_diff_preview
             item.metadata["patch"] = proposal.unified_diff_preview
+        # When real patch content was produced, wire the item into the canonical safe-apply
+        # vocabulary so the autopilot can actually apply it: action_type must be {create, update}
+        # and item_type must be implementation/documentation (the executor + adapter reject others).
+        # Empty/unknown action_type defaults to create (greenfield write); an existing action_type
+        # is preserved (e.g. an LLM-specified "update" for edits) via normalization.
+        if proposed_content or proposal.unified_diff_preview:
+            item.metadata["action_type"] = normalize_safe_apply_action_type(item.metadata.get("action_type"))
+            if str(getattr(item, "item_type", "") or "") not in {"implementation", "documentation"}:
+                item.item_type = "implementation"
 
     def _append_event(self, pool_id: str, run_id: str, event_type: str, item: AtlasPlanItem | None, status: str, warnings: list[str] | None = None, errors: list[str] | None = None) -> None:
         if not run_id:

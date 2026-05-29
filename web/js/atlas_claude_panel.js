@@ -684,9 +684,13 @@
       updateStage(stages, 'plan', 'done', `${items.length} items`);
 
       // ── Stage 2: Patch generation ──
+      // A proposal can return status="proposed" yet carry NO applicable content (weak/absent LLM
+      // or fallback). Only items with real patch content can actually be applied, so count and
+      // approve ONLY those — otherwise the UI shows fake "4/4 success" and Apply silently skips all.
       updateStage(stages, 'patch', 'running', `0/${items.length}`);
       let generated = 0;
       const genFailures = [];
+      const appliableIds = [];
       for (let i = 0; i < items.length; i += 1) {
         const it = items[i];
         const itemId = it.item_id || it.id;
@@ -696,19 +700,27 @@
           item_id: itemId,
           workspace_id: workspaceId(),
         });
-        const okStatus = r && r.ok && r.data
-          && r.data.status && /(proposed|completed|approved)/i.test(String(r.data.status));
-        if (okStatus) {
+        const prop = r && r.ok && r.data ? r.data.proposal : null;
+        const propMeta = (prop && prop.metadata) || {};
+        const resultMeta = (r && r.ok && r.data && r.data.metadata) || {};
+        const hasContent = !!(
+          (prop && prop.unified_diff_preview)
+          || propMeta.proposed_content
+          || propMeta.patch_content_available === true
+          || resultMeta.patch_content_available === true
+        );
+        if (hasContent) {
           generated += 1;
+          appliableIds.push(itemId);
         } else {
-          // Build a richer error: include backend warnings, status, and the
-          // formatted HTTP-level error so the user can investigate.
+          // Build a richer error: distinguish "no patch content" from HTTP/backend errors so the
+          // user understands WHY an item will be skipped instead of seeing a cryptic skip later.
           let msg = formatError(r);
           if (r && r.ok && r.data) {
             const status = r.data.status || 'unknown';
             const warnings = Array.isArray(r.data.warnings) ? r.data.warnings : [];
             const errors = Array.isArray(r.data.errors) ? r.data.errors : [];
-            const parts = [`status=${status}`];
+            const parts = [`status=${status}`, 'LLMがパッチ内容を生成できませんでした'];
             if (warnings.length) parts.push(`warnings=${warnings.join('; ')}`);
             if (errors.length) parts.push(`errors=${errors.join('; ')}`);
             msg = parts.join(' / ');
@@ -718,35 +730,35 @@
         updateStage(stages, 'patch', 'running', `${i + 1}/${items.length}`);
       }
       if (generated === 0) {
-        updateStage(stages, 'patch', 'failed', `0/${items.length} (${genFailures.length} failures)`);
+        updateStage(stages, 'patch', 'failed', `0/${items.length} (${genFailures.length} 件パッチ内容なし)`);
         renderPipelineSummary(stages, { status: 'patch_generation_failed', genFailures });
         return;
       }
       updateStage(stages, 'patch', 'done', `${generated}/${items.length}`);
 
-      // ── Stage 3: Approve items ──
-      updateStage(stages, 'approve', 'running', `0/${items.length}`);
-      for (let i = 0; i < items.length; i += 1) {
-        const itemId = items[i].item_id || items[i].id;
-        if (!itemId) continue;
+      // ── Stage 3: Approve items (only those with real patch content) ──
+      updateStage(stages, 'approve', 'running', `0/${appliableIds.length}`);
+      for (let i = 0; i < appliableIds.length; i += 1) {
         await root.AtlasPipelineAPI.decidePatchProposal({
           pool_id: poolId,
-          item_id: itemId,
+          item_id: appliableIds[i],
           decision: 'approve',
         });
-        updateStage(stages, 'approve', 'running', `${i + 1}/${items.length}`);
+        updateStage(stages, 'approve', 'running', `${i + 1}/${appliableIds.length}`);
       }
-      updateStage(stages, 'approve', 'done', `${items.length}/${items.length}`);
+      updateStage(stages, 'approve', 'done', `${appliableIds.length}/${appliableIds.length}`);
 
-      // ── Stage 4: Autopilot (apply + verify) ──
+      // ── Stage 4: Autopilot (apply + verify) — only appliable items ──
       const envelope = state.latestEnvelope || {};
       const bounds = envelope.bounds || {};
+      const applyTotal = appliableIds.length;
       updateStage(stages, 'apply', 'running', 'starting');
       updateStage(stages, 'verify', 'pending', '');
       const autopilotPromise = root.AtlasPipelineAPI.runMultiItemAutopilot({
         pool_id: poolId,
+        item_ids: appliableIds,
         policy_id: 'guarded_multi_item_v1',
-        max_items: Math.min(bounds.max_actions_per_loop || 12, items.length),
+        max_items: Math.min(bounds.max_actions_per_loop || 12, applyTotal),
         max_runtime_seconds: bounds.max_runtime_seconds || 1800,
         max_changed_files_total: bounds.max_files_changed || 25,
         dry_run: false,
@@ -765,10 +777,9 @@
             const processed = peek.data.processed_count || 0;
             const completed = peek.data.completed_count || 0;
             const failed = peek.data.failed_count || 0;
-            const total = items.length;
-            updateStage(stages, 'apply', processed >= total ? 'done' : 'running', `${processed}/${total}`);
+            updateStage(stages, 'apply', processed >= applyTotal ? 'done' : 'running', `${processed}/${applyTotal}`);
             if (completed + failed > 0) {
-              updateStage(stages, 'verify', processed >= total ? 'done' : 'running', `pass ${completed} / fail ${failed}`);
+              updateStage(stages, 'verify', processed >= applyTotal ? 'done' : 'running', `pass ${completed} / fail ${failed}`);
             }
           }
         } catch (_e) {}
@@ -778,10 +789,12 @@
 
       if (!result.ok) {
         updateStage(stages, 'apply', 'failed', formatError(result));
-        renderPipelineSummary(stages, { status: 'autopilot_failed', error: formatError(result) });
+        renderPipelineSummary(stages, { status: 'autopilot_failed', error: formatError(result), genFailures });
         return;
       }
       const d = result.data || {};
+      // Surface items that had no patch content so the summary explains why they were not applied.
+      if (genFailures.length) d.no_content_failures = genFailures;
       updateStage(stages, 'apply', 'done', `${d.processed_count || 0} processed`);
       const verifyStatus = (d.failed_count || 0) === 0 ? 'done' : 'failed';
       updateStage(stages, 'verify', verifyStatus, `pass ${d.completed_count || 0} / fail ${d.failed_count || 0}`);
@@ -893,6 +906,29 @@
       const hint = document.createElement('div');
       hint.className = 'atlas-claude-summary-pr-hint';
       hint.innerHTML = '<strong>調査方法:</strong> ① LLM が起動しているか（ヘッダーの LLM ready 表示）/ ② 失敗した item の goal / target_files / description / done_definition が埋まっているか / ③ サーバ側ログで <code>patch_proposal</code> 関連スタックトレース';
+      box.appendChild(hint);
+      summary.appendChild(box);
+    }
+
+    // Items that produced no patch content (so they were NOT approved/applied). This makes the
+    // "why was nothing applied" explicit instead of a silent skip.
+    if (Array.isArray(d.no_content_failures) && d.no_content_failures.length) {
+      const box = document.createElement('div');
+      box.className = 'atlas-claude-summary-recovery';
+      const head = document.createElement('div');
+      head.className = 'atlas-claude-summary-head';
+      head.textContent = `パッチ内容なしで未適用 (${d.no_content_failures.length} 件)`;
+      box.appendChild(head);
+      const ul = document.createElement('ul');
+      d.no_content_failures.forEach((f) => {
+        const li = document.createElement('li');
+        li.textContent = `${f.id}: ${String(f.msg || 'no_patch_content').slice(0, 300)}`;
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+      const hint = document.createElement('div');
+      hint.className = 'atlas-claude-summary-pr-hint';
+      hint.innerHTML = '<strong>対処:</strong> ① より高性能な LLM を選択 / ② item の target_files と done_definition を具体化 / ③ ゴールをファイル単位の具体タスクに分解して再実行';
       box.appendChild(hint);
       summary.appendChild(box);
     }
@@ -1061,34 +1097,96 @@
   }
 
   async function renderPlanPoolMarkdown(poolId) {
-    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPlanPoolMarkdown) return;
-    const md = await root.AtlasPipelineAPI.getPlanPoolMarkdown(poolId, workspaceId());
-    if (md && md.ok) {
-      const text = typeof md.data === 'string'
-        ? md.data
-        : (md.data && (md.data.markdown || md.data.text)) || '';
-      if (text) {
-        pushAtlasMessage(text.length > 4000 ? text.slice(0, 4000) + '\n\n…(truncated)' : text);
-        return;
-      }
+    if (!root.AtlasPipelineAPI) return;
+    // Primary view: a concise structured list of the plan items. The verbose raw markdown
+    // (Status / Planning Depth / Items table / Warnings / Errors) is tucked into a collapsible
+    // <details> so the execution steps are readable at a glance.
+    let items = [];
+    try {
+      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
+      if (pool && pool.ok && pool.data) items = pool.data.items || pool.data.plan_items || [];
+    } catch (_e) { items = []; }
+
+    let rawMarkdown = '';
+    if (root.AtlasPipelineAPI.getPlanPoolMarkdown) {
+      try {
+        const md = await root.AtlasPipelineAPI.getPlanPoolMarkdown(poolId, workspaceId());
+        if (md && md.ok) rawMarkdown = typeof md.data === 'string' ? md.data : (md.data && (md.data.markdown || md.data.text)) || '';
+      } catch (_e) { rawMarkdown = ''; }
     }
-    // Fallback: fetch raw plan pool and show item summaries.
-    const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
-    if (!pool || !pool.ok || !pool.data) {
+
+    if (!items.length && !rawMarkdown) {
       pushAtlasMessage('Plan was created. Use Recover to view it.');
       return;
     }
-    const items = (pool.data.items || pool.data.plan_items || []);
-    if (!items.length) {
-      pushAtlasMessage('Plan was created but contains no items.');
+    if (!dom.transcript) {
+      pushAtlasMessage(rawMarkdown ? rawMarkdown.slice(0, 4000) : 'Plan was created.');
       return;
     }
-    const lines = ['## Plan items'];
-    items.forEach((it, i) => {
-      const title = it.title || it.summary || it.input || `item ${i + 1}`;
-      lines.push(`${i + 1}. ${title}`);
-    });
-    pushAtlasMessage(lines.join('\n'));
+    appendPlanCard(items, rawMarkdown);
+  }
+
+  function appendPlanCard(items, rawMarkdown) {
+    const card = document.createElement('div');
+    card.className = 'atlas-claude-msg atlas-claude-stage-block';
+    card.dataset.role = 'atlas';
+
+    const head = document.createElement('div');
+    head.className = 'atlas-claude-summary-head';
+    head.textContent = `プラン — 実行ステップ ${items.length} 件`;
+    card.appendChild(head);
+
+    if (items.length) {
+      const list = document.createElement('div');
+      list.className = 'atlas-claude-stage-list';
+      items.forEach((it, i) => {
+        const id = it.item_id || it.id || `item_${i + 1}`;
+        const title = it.title || it.summary || it.goal || `step ${i + 1}`;
+        const type = it.item_type || '-';
+        const status = it.status || '-';
+        const files = Array.isArray(it.target_files) ? it.target_files : [];
+        const row = document.createElement('div');
+        row.style.padding = '3px 0';
+        const line1 = document.createElement('div');
+        line1.innerHTML = `<strong>${escapeText(id)}</strong> · ${escapeText(title)}`;
+        const line2 = document.createElement('div');
+        line2.className = 'atlas-claude-stage-detail';
+        line2.style.whiteSpace = 'normal';
+        const filesText = files.length ? ` · files: ${files.map(escapeText).join(', ')}` : ' · files: —';
+        line2.innerHTML = `type: ${escapeText(type)} · status: ${escapeText(status)}${filesText}`;
+        row.append(line1, line2);
+        list.appendChild(row);
+      });
+      card.appendChild(list);
+    }
+
+    if (rawMarkdown) {
+      const det = document.createElement('details');
+      det.className = 'atlas-claude-summary-items';
+      const sm = document.createElement('summary');
+      sm.textContent = '詳細（生のプラン情報）';
+      det.appendChild(sm);
+      const body = document.createElement('div');
+      const trimmed = rawMarkdown.length > 8000 ? rawMarkdown.slice(0, 8000) + '\n\n…(truncated)' : rawMarkdown;
+      if (root.marked && typeof root.marked.parse === 'function') {
+        body.innerHTML = root.marked.parse(trimmed);
+      } else {
+        const pre = document.createElement('pre');
+        pre.textContent = trimmed;
+        body.appendChild(pre);
+      }
+      det.appendChild(body);
+      card.appendChild(det);
+    }
+
+    dom.transcript.appendChild(card);
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  function escapeText(value) {
+    const div = document.createElement('div');
+    div.textContent = String(value == null ? '' : value);
+    return div.innerHTML;
   }
 
   function setBusy(busy) {
