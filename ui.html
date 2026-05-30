@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/app.css?v=atlas-ui-fix-3">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-ui-fix-5">
 
 <style>
   .atlas-surface-hidden { display: none !important; }
@@ -171,38 +171,39 @@
     <section class="atlas-claude-input-wrap">
       <textarea id="atlas-claude-input" class="atlas-claude-input" rows="1" placeholder="指示を入力..."></textarea>
       <div class="atlas-claude-input-actions">
+        <details id="atlas-claude-features-drawer" class="atlas-claude-features-drawer">
+          <summary class="atlas-claude-features-summary">Features</summary>
+          <div class="atlas-claude-features-body">
+            <fieldset class="atlas-claude-feature-group" aria-label="Automation Profile">
+              <legend>Automation Profile</legend>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="review_only"> <b>0 Review</b> <span class="atlas-claude-muted-inline">(提案のみ)</span></label>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="single_action"> <b>1 Single Action</b> <span class="atlas-claude-muted-inline">(1操作毎承認)</span></label>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="supervised_auto"> <b>2 Supervised</b> <span class="atlas-claude-muted-inline">(監督下で実行)</span></label>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_custom"> <b>3 Autonomous</b> <span class="atlas-claude-muted-inline">(自律、bound 都度指定)</span></label>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_bounded_dev" checked> <b>4 Autonomous</b> <span class="atlas-claude-muted-inline">(完全自動、Work target で envelope 選択)</span></label>
+            </fieldset>
+
+            <fieldset class="atlas-claude-feature-group" aria-label="Work target">
+              <legend>Work target</legend>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="software_development_or_repair" checked> Dev / repair</label>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="platform_self_improvement"> Self-improvement (自己改修)</label>
+            </fieldset>
+
+            <div class="atlas-claude-feature-actions">
+              <input type="text" id="atlas-claude-confirm-text" class="atlas-claude-confirm-text" placeholder="Profile 3-5 のみ要確認: SELECT AUTOMATION PROFILE" autocomplete="off">
+              <button type="button" id="atlas-claude-preview-profile-btn" class="atlas-claude-secondary-btn">Preview</button>
+              <button type="button" id="atlas-claude-select-profile-btn" class="atlas-claude-primary-btn">Apply</button>
+              <button type="button" id="atlas-claude-recovery-btn" class="atlas-claude-ghost-btn">Recover</button>
+            </div>
+
+            <pre id="atlas-claude-profile-result" class="atlas-claude-profile-result" aria-live="polite" hidden></pre>
+          </div>
+        </details>
         <button class="mic-btn atlas-claude-mic-btn" type="button" id="atlas-claude-mic-btn" onclick="toggleVoiceInput('atlas-claude')" title="音声入力 (Atlas)">🎙</button>
         <button type="button" id="atlas-claude-stop-btn" class="atlas-claude-secondary-btn" style="display:none">Stop</button>
         <button type="button" id="atlas-claude-send-btn" class="atlas-claude-primary-btn">Send</button>
       </div>
     </section>
-
-    <details id="atlas-claude-features-drawer" class="atlas-claude-features-drawer">
-      <summary class="atlas-claude-features-summary">Features</summary>
-      <fieldset class="atlas-claude-feature-group" aria-label="Automation Profile">
-        <legend>Automation Profile</legend>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="review_only"> <b>0 Review</b> <span class="atlas-claude-muted-inline">(提案のみ)</span></label>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="single_action"> <b>1 Single Action</b> <span class="atlas-claude-muted-inline">(1操作毎承認)</span></label>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="supervised_auto"> <b>2 Supervised</b> <span class="atlas-claude-muted-inline">(監督下で実行)</span></label>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_custom"> <b>3 Autonomous</b> <span class="atlas-claude-muted-inline">(自律、bound 都度指定)</span></label>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_bounded_dev" checked> <b>4 Autonomous</b> <span class="atlas-claude-muted-inline">(完全自動、Work target で envelope 選択)</span></label>
-      </fieldset>
-
-      <fieldset class="atlas-claude-feature-group" aria-label="Work target">
-        <legend>Work target</legend>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="software_development_or_repair" checked> Dev / repair</label>
-        <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="platform_self_improvement"> Self-improvement (自己改修)</label>
-      </fieldset>
-
-      <div class="atlas-claude-feature-actions">
-        <input type="text" id="atlas-claude-confirm-text" class="atlas-claude-confirm-text" placeholder="Profile 3-5 のみ要確認: SELECT AUTOMATION PROFILE" autocomplete="off">
-        <button type="button" id="atlas-claude-preview-profile-btn" class="atlas-claude-secondary-btn">Preview</button>
-        <button type="button" id="atlas-claude-select-profile-btn" class="atlas-claude-primary-btn">Apply</button>
-        <button type="button" id="atlas-claude-recovery-btn" class="atlas-claude-ghost-btn">Recover</button>
-      </div>
-
-      <pre id="atlas-claude-profile-result" class="atlas-claude-profile-result" aria-live="polite" hidden></pre>
-    </details>
   </div>
 
   <!-- ATLAS MODE -->
@@ -16290,7 +16291,7 @@ function testSkill(skillName) {
 }
 
 </script>
-<script src="/static/js/app.js?v=atlas-ui-fix-1"></script>
+<script src="/static/js/app.js?v=atlas-ui-fix-5"></script>
 <script src="/static/js/settings.js"></script>
 <script src="/static/js/skills_memory.js"></script>
 <script src="/static/js/panels.js"></script>
@@ -16300,7 +16301,7 @@ function testSkill(skillName) {
 <script src="/static/js/nexus.js"></script>
 <script src="/static/js/atlas_pipeline_api.js?v=atlas-ui-fix-4"></script>
 <script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-40"></script>
-<script src="/static/js/atlas_claude_panel.js?v=atlas-ui-fix-4"></script>
+<script src="/static/js/atlas_claude_panel.js?v=atlas-ui-fix-5"></script>
 <script src="/static/js/echo.js"></script>
 </body>
 </html>

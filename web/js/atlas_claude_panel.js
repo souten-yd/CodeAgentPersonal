@@ -742,7 +742,7 @@
         await root.AtlasPipelineAPI.decidePatchProposal({
           pool_id: poolId,
           item_id: appliableIds[i],
-          decision: 'approve',
+          decision: 'approved',
         });
         updateStage(stages, 'approve', 'running', `${i + 1}/${appliableIds.length}`);
       }
