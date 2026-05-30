@@ -1604,6 +1604,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .atlas-claude-input{width:100%;min-height:38px;max-height:200px;resize:none;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--font-mono);font-size:13px;padding:8px 10px;outline:none;line-height:1.5}
 .atlas-claude-input:focus{border-color:var(--accent-border)}
 .atlas-claude-input-actions{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:flex-end}
+/* Features lives at the LEFT end of the action row; mic+Send stay at the right. */
+.atlas-claude-input-actions .atlas-claude-features-drawer{margin-right:auto;position:relative;border-top:none;background:transparent;padding:0}
+.atlas-claude-input-actions .atlas-claude-features-summary{padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);white-space:nowrap;list-style:none}
+.atlas-claude-input-actions .atlas-claude-features-summary::-webkit-details-marker{display:none}
+/* When open, the panel pops up ABOVE the row instead of pushing the layout. */
+.atlas-claude-input-actions .atlas-claude-features-body{position:absolute;bottom:calc(100% + 8px);left:0;z-index:1100;width:min(92vw,360px);max-height:min(60vh,460px);overflow-y:auto;background:var(--bg1);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,0.45);padding:10px}
 /* The global .mic-btn is position:absolute (it overlays the Lumen textarea).
    Inside the Atlas action row the mic must sit in normal flow so the DOM order
    [mic][Stop][Send] renders on one row with the mic immediately left of Stop. */

@@ -12,7 +12,7 @@ CSS = (ROOT / "web" / "css" / "app.css").read_text(encoding="utf-8")
 # Per-asset cache-bust versions, kept in sync with the live <link>/<script> tags in ui.html.
 # app.css and the atlas claude panel advance on their own UI-fix cadence, while the dashboard
 # assets share the atlas-dashboard-* line.
-APP_CSS_VERSION = "atlas-ui-fix-3"
+APP_CSS_VERSION = "atlas-ui-fix-5"
 DASHBOARD_ASSET_VERSION = "atlas-dashboard-40"
 
 

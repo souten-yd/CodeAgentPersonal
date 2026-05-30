@@ -206,6 +206,32 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
         padding: 6px;
       }
       .atlas-claude-proj-dropdown[hidden] { display: none; }
+      .atlas-claude-proj-overlay {
+        position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 1200;
+        display: none; backdrop-filter: blur(2px);
+      }
+      .atlas-claude-proj-overlay.open { display: block; }
+      .atlas-claude-proj-drawer {
+        position: fixed; top: 0; left: 0; bottom: 0; width: min(86vw, 300px);
+        background: var(--bg1); border-right: 1px solid var(--border); z-index: 1201;
+        display: flex; flex-direction: column;
+        transform: translateX(-100%); transition: transform .22s ease;
+      }
+      .atlas-claude-proj-drawer.open { transform: none; }
+      .atlas-claude-proj-drawer-hdr {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+      }
+      .atlas-claude-proj-drawer-title { font-size: 14px; font-weight: 700; letter-spacing: .05em; color: var(--text); }
+      .atlas-claude-proj-drawer-close {
+        width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border);
+        background: var(--bg2); color: var(--text2); cursor: pointer; font-size: 15px;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .atlas-claude-proj-drawer .atlas-claude-proj-list { flex: 1; overflow-y: auto; padding: 8px; }
+      .atlas-claude-proj-drawer .atlas-claude-proj-new {
+        padding: 10px; border-top: 1px solid var(--border); flex-shrink: 0; display: flex; gap: 6px;
+      }
       .atlas-claude-proj-item {
         display: flex;
         align-items: center;
@@ -247,6 +273,8 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
     if (!actions) return false;
     if (document.getElementById('atlas-claude-proj-wrap')) return true;
 
+    // Header button only — opens a left slide-in drawer (mirrors the Lumen project drawer) instead of
+    // an absolutely-positioned dropdown that got clipped by the panel's bounds.
     const wrap = document.createElement('div');
     wrap.className = 'atlas-claude-proj-wrap';
     wrap.id = 'atlas-claude-proj-wrap';
@@ -258,47 +286,67 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
     btn.innerHTML = '<span>◈</span><span class="atlas-claude-proj-name" id="atlas-claude-proj-name">default</span><span class="atlas-claude-proj-caret">▼</span>';
     btn.addEventListener('click', (ev) => { ev.stopPropagation(); toggleDropdown(); });
 
-    const dropdown = document.createElement('div');
-    dropdown.className = 'atlas-claude-proj-dropdown';
-    dropdown.id = 'atlas-claude-proj-dropdown';
-    dropdown.hidden = true;
-    dropdown.addEventListener('click', (ev) => ev.stopPropagation());
-    dropdown.innerHTML = '<div class="atlas-claude-proj-list" id="atlas-claude-proj-list"></div>'
-      + '<div class="atlas-claude-proj-new">'
-      + '<input id="atlas-claude-proj-new-input" type="text" placeholder="新規プロジェクト名" autocomplete="off" spellcheck="false">'
-      + '<button type="button" id="atlas-claude-proj-new-btn">作成</button></div>';
-
-    wrap.append(btn, dropdown);
+    wrap.append(btn);
     if (recover && recover.parentElement === actions) actions.insertBefore(wrap, recover);
     else actions.insertBefore(wrap, actions.firstChild);
 
-    dropdown.querySelector('#atlas-claude-proj-new-btn').addEventListener('click', () => {
-      const inp = dropdown.querySelector('#atlas-claude-proj-new-input');
+    ensureProjectDrawer();
+    return true;
+  }
+
+  function ensureProjectDrawer() {
+    if (document.getElementById('atlas-claude-proj-drawer')) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'atlas-claude-proj-overlay';
+    overlay.id = 'atlas-claude-proj-overlay';
+    overlay.addEventListener('click', () => closeDropdown());
+
+    const drawer = document.createElement('div');
+    drawer.className = 'atlas-claude-proj-drawer';
+    drawer.id = 'atlas-claude-proj-drawer';
+    drawer.innerHTML = ''
+      + '<div class="atlas-claude-proj-drawer-hdr">'
+      + '<span class="atlas-claude-proj-drawer-title">プロジェクト</span>'
+      + '<button type="button" class="atlas-claude-proj-drawer-close" id="atlas-claude-proj-drawer-close" aria-label="閉じる">✕</button>'
+      + '</div>'
+      + '<div class="atlas-claude-proj-list" id="atlas-claude-proj-list"></div>'
+      + '<div class="atlas-claude-proj-new">'
+      + '<input id="atlas-claude-proj-new-input" type="text" placeholder="新規プロジェクト名" autocomplete="off" spellcheck="false">'
+      + '<button type="button" id="atlas-claude-proj-new-btn">作成</button></div>';
+    drawer.addEventListener('click', (ev) => ev.stopPropagation());
+
+    document.body.append(overlay, drawer);
+
+    drawer.querySelector('#atlas-claude-proj-drawer-close').addEventListener('click', () => closeDropdown());
+    drawer.querySelector('#atlas-claude-proj-new-btn').addEventListener('click', () => {
+      const inp = drawer.querySelector('#atlas-claude-proj-new-input');
       const name = inp ? inp.value.trim() : '';
       createProject(name);
       if (inp) inp.value = '';
     });
-    dropdown.querySelector('#atlas-claude-proj-new-input').addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') { ev.preventDefault(); dropdown.querySelector('#atlas-claude-proj-new-btn').click(); }
+    drawer.querySelector('#atlas-claude-proj-new-input').addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); drawer.querySelector('#atlas-claude-proj-new-btn').click(); }
     });
-
-    if (!root.__atlasProjPickerOutsideClick) {
-      root.__atlasProjPickerOutsideClick = true;
-      document.addEventListener('click', () => closeDropdown());
-    }
-    return true;
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeDropdown(); });
   }
 
   function toggleDropdown() {
-    const dd = document.getElementById('atlas-claude-proj-dropdown');
-    if (!dd) return;
-    if (dd.hidden) { dd.hidden = false; loadProjects().catch(() => {}); }
-    else { dd.hidden = true; }
+    const drawer = document.getElementById('atlas-claude-proj-drawer');
+    if (!drawer) return;
+    if (drawer.classList.contains('open')) { closeDropdown(); }
+    else {
+      drawer.classList.add('open');
+      const ov = document.getElementById('atlas-claude-proj-overlay');
+      if (ov) ov.classList.add('open');
+      loadProjects().catch(() => {});
+    }
   }
 
   function closeDropdown() {
-    const dd = document.getElementById('atlas-claude-proj-dropdown');
-    if (dd) dd.hidden = true;
+    const drawer = document.getElementById('atlas-claude-proj-drawer');
+    const ov = document.getElementById('atlas-claude-proj-overlay');
+    if (drawer) drawer.classList.remove('open');
+    if (ov) ov.classList.remove('open');
   }
 
   function updateButtonLabel() {

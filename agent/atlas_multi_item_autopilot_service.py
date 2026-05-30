@@ -238,7 +238,12 @@ class AtlasMultiItemAutopilotService:
         preset = atlas_auto_policy_presets().get("guarded_low_risk")
         if preset is not None:
             decision = self.automation_gate.decide_pre_safe_apply(self.storage.load_pool(request.pool_id), item, preset)
-            if str(getattr(decision, "decision", "")).lower() in {"block", "require_manual"}:
+            gate = str(getattr(decision, "decision", "")).lower()
+            # A hard "block" (security/policy violation) always stops the item. A soft "require_manual"
+            # (e.g. approval bookkeeping) only stops when the caller actually wants an approval gate;
+            # for an opted-in full-automation run (require_approval=False) it proceeds.
+            blocked = gate == "block" or (gate == "require_manual" and getattr(request, "require_approval", True))
+            if blocked:
                 reason = str((getattr(decision, "reasons", []) or ["automation_gate_blocked"])[0])
                 return {"status": "ineligible", "reason": "automation_gate_blocked", "planned_steps": planned_steps, "gate_reason": reason}
         return {"status": "eligible", "planned_steps": planned_steps}
