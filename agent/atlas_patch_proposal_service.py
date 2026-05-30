@@ -18,7 +18,8 @@ from agent.atlas_workspace_root import resolve_atlas_workspace_root
 
 class AtlasPatchProposalService:
     ALLOWED_SOURCE_TYPES = {"debug_review", "plan_item"}
-    LLM_ALLOWED_FIELDS = {"title", "summary", "root_cause", "proposed_fix", "target_files", "suggested_changes", "unified_diff_preview", "proposed_content", "risk_level", "verification_plan", "rollback_plan", "assumptions"}
+    LLM_ALLOWED_FIELDS = {"title", "summary", "root_cause", "proposed_fix", "target_files", "suggested_changes", "unified_diff_preview", "proposed_content", "edits", "risk_level", "verification_plan", "rollback_plan", "assumptions"}
+    MAX_EDITS = 20
     LLM_UNTRUSTED_FIELDS = {"status", "pool_id", "item_id", "run_id", "proposal_id", "metadata", "warnings", "errors", "proposal_json_path", "proposal_md_path", "created_at"}
     ALLOWED_RISK_LEVELS = {"low", "medium", "high", "critical"}
     MAX_DIFF_PREVIEW_CHARS = 12000
@@ -57,7 +58,8 @@ class AtlasPatchProposalService:
             # Honest signal: a proposal can be "proposed" yet carry NO applicable content (weak/absent
             # LLM, or fallback). Surface that explicitly so the UI does not report fake success and the
             # autopilot does not silently skip with "missing_patch_or_content".
-            has_content = bool(proposal.unified_diff_preview or (proposal.metadata or {}).get("proposed_content"))
+            _pmeta = proposal.metadata or {}
+            has_content = bool(proposal.unified_diff_preview or _pmeta.get("proposed_content") or _pmeta.get("edits"))
             result = AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="proposed", proposal=proposal, proposal_json_path=json_path, proposal_md_path=md_path, metadata={"patch_content_available": has_content})
             self.mark_item_from_patch_proposal(pool, item, result)
             self.storage.save_pool(pool)
@@ -266,12 +268,14 @@ class AtlasPatchProposalService:
         if target_exists:
             base_task = (
                 "Generate a safe patch proposal as JSON. The target file ALREADY EXISTS; its current "
-                "content is provided in input.item.current_file_content. You MUST return a non-empty "
-                "\"proposed_content\" containing the COMPLETE updated file text that PRESERVES the existing "
-                "code and applies ONLY the change required by the goal. Do NOT discard or rewrite unrelated "
-                "parts of the file. If input.item.current_file_truncated is true, keep the unseen remainder "
-                "intact by making a minimal, localized edit. "
-                "Example: {\"target_files\":[\"app.py\"],\"proposed_content\":\"<full updated file>\",\"risk_level\":\"low\"}"
+                "content is provided in input.item.current_file_content. Apply ONLY the change required by "
+                "the goal and PRESERVE all unrelated code. "
+                "PREFERRED: return \"edits\" — a list of {\"old_string\",\"new_string\"} where each "
+                "old_string is an EXACT, UNIQUE snippet copied from the current content (include enough "
+                "surrounding context to be unique). This is safest for existing files. "
+                "Example: {\"target_files\":[\"app.py\"],\"edits\":[{\"old_string\":\"def foo():\\n    return 1\",\"new_string\":\"def foo():\\n    return 2\"}],\"risk_level\":\"low\"} "
+                "ALTERNATIVELY, if a localized edit is impractical, return \"proposed_content\" with the "
+                "COMPLETE updated file text. Use input.item.project_symbols to reuse existing functions."
             )
         else:
             base_task = (
@@ -358,7 +362,10 @@ class AtlasPatchProposalService:
             proposed_content = proposed_content[: self.MAX_PROPOSED_CONTENT_CHARS]
             warnings.append("proposed_content_truncated")
 
-        has_content = bool(proposed_content or diff_preview)
+        # Pillar B: surgical string-replacement edits the executor can apply against the current file.
+        edits = self._normalize_edits(llm_allowed.get("edits"), warnings)
+
+        has_content = bool(proposed_content or diff_preview or edits)
         metadata = {
             "source_type": str(input_payload.get("source_type") or "debug_review"),
             "requested_source_type": str(input_payload.get("requested_source_type") or ""),
@@ -366,6 +373,8 @@ class AtlasPatchProposalService:
         }
         if proposed_content:
             metadata["proposed_content"] = proposed_content
+        if edits:
+            metadata["edits"] = edits
 
         normalized = AtlasPatchProposal.model_validate({
             "proposal_id": f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid4().hex[:8]}",
@@ -430,6 +439,27 @@ class AtlasPatchProposalService:
                 "generation_empty_content_attempts": empty_content_attempts,
             },
         )
+
+    def _normalize_edits(self, raw_edits: object, warnings: list[str]) -> list[dict]:
+        """Validate LLM-proposed surgical edits: a list of {old_string, new_string} with non-empty
+        old_string. Caps the count; drops malformed entries. Returns [] if none usable."""
+        if not isinstance(raw_edits, list) or not raw_edits:
+            return []
+        out: list[dict] = []
+        dropped = False
+        for e in raw_edits[: self.MAX_EDITS]:
+            if not isinstance(e, dict):
+                dropped = True
+                continue
+            old = str(e.get("old_string", ""))
+            new = str(e.get("new_string", ""))
+            if old == "":
+                dropped = True
+                continue
+            out.append({"old_string": old, "new_string": new})
+        if dropped:
+            warnings.append("some_edits_dropped")
+        return out
 
     def _normalize_target_files(self, raw_target_files: object, fallback_target_files: list[str], warnings: list[str]) -> list[str]:
         if not isinstance(raw_target_files, list):
@@ -548,13 +578,21 @@ class AtlasPatchProposalService:
             item.metadata["patch_proposal"]["patch"] = proposal.unified_diff_preview
             item.metadata["unified_diff_preview"] = proposal.unified_diff_preview
             item.metadata["patch"] = proposal.unified_diff_preview
+        proposal_edits = proposal_metadata.get("edits") if isinstance(proposal_metadata.get("edits"), list) else []
+        if proposal_edits:
+            item.metadata["patch_proposal"]["edits"] = proposal_edits
+            item.metadata["edits"] = proposal_edits
         # When real patch content was produced, wire the item into the canonical safe-apply
         # vocabulary so the autopilot can actually apply it: action_type must be {create, update}
         # and item_type must be implementation/documentation (the executor + adapter reject others).
         # Empty/unknown action_type defaults to create (greenfield write); an existing action_type
-        # is preserved (e.g. an LLM-specified "update" for edits) via normalization.
-        if proposed_content or proposal.unified_diff_preview:
-            item.metadata["action_type"] = normalize_safe_apply_action_type(item.metadata.get("action_type"))
+        # is preserved (e.g. an LLM-specified "update" for edits) via normalization. Surgical edits
+        # always target an existing file, so force update.
+        if proposed_content or proposal.unified_diff_preview or proposal_edits:
+            if proposal_edits and not proposed_content:
+                item.metadata["action_type"] = "update"
+            else:
+                item.metadata["action_type"] = normalize_safe_apply_action_type(item.metadata.get("action_type"))
             if str(getattr(item, "item_type", "") or "") not in {"implementation", "documentation"}:
                 item.item_type = "implementation"
 

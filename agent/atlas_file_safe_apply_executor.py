@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from agent.atlas_action_type import normalize_action_type
@@ -29,14 +30,24 @@ class AtlasFileSafeApplyExecutor:
         if target is None:
             return self._blocked("unsafe_target_path")
 
-        parse = self._resolve_content(item)
+        existed = target.exists()
+        current_text = ""
+        if existed:
+            try:
+                current_text = target.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                return self._blocked("target_unreadable")
+
+        # Resolve the final file content. Supports full-file (proposed_content), surgical string
+        # replacements (edits: old->new), append, and hunk-aware unified-diff — all computed against
+        # the file's CURRENT content so a patch connects to existing code instead of overwriting it.
+        parse = self._resolve_content(item, current_text=current_text, target_exists=existed)
         if parse["status"] != "ok":
             return self._blocked(parse["reason"])
         content = parse["content"]
         if len(content.encode("utf-8")) > _MAX_CONTENT_BYTES:
             return self._blocked("content_too_large")
 
-        existed = target.exists()
         effective_action = action_type
         if action_type == "update":
             if not existed:
@@ -48,13 +59,16 @@ class AtlasFileSafeApplyExecutor:
             if existed:
                 effective_action = "update"
 
+        if existed and content == current_text:
+            return self._blocked("no_effective_change")
+
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         return {
             "status": "applied",
             "actual_file_changed": True,
             "changed_files": [rel_target],
-            "summary": f"{effective_action} applied to {rel_target}",
+            "summary": f"{effective_action} ({parse.get('mode', 'content')}) applied to {rel_target}",
         }
 
     def _safe_target_path(self, rel_path: str) -> Path | None:
@@ -70,39 +84,123 @@ class AtlasFileSafeApplyExecutor:
             return None
         return resolved
 
-    def _resolve_content(self, item: AtlasPlanItem) -> dict:
+    def _resolve_content(self, item: AtlasPlanItem, *, current_text: str = "", target_exists: bool = False) -> dict:
         metadata = item.metadata or {}
-        patch = metadata.get("patch")
+        patch_proposal = metadata.get("patch_proposal") if isinstance(metadata.get("patch_proposal"), dict) else {}
+
+        # 1. Surgical string-replacement edits (old -> new), like Claude Code's Edit. Applied against
+        #    the CURRENT file content; each old_string must appear exactly once. Preferred for existing
+        #    files because it cannot clobber unrelated code.
+        edits = metadata.get("edits") or patch_proposal.get("edits")
+        if isinstance(edits, list) and edits:
+            if not target_exists:
+                return {"status": "blocked", "reason": "edits_require_existing_file"}
+            applied = self._apply_string_edits(current_text, edits)
+            if applied is None:
+                return {"status": "blocked", "reason": "edit_not_applicable"}
+            return {"status": "ok", "content": applied, "mode": "edits"}
+
+        # 2. Append a block to the end of an existing file.
+        append_text = metadata.get("append_content") or patch_proposal.get("append_content")
+        if isinstance(append_text, str) and append_text:
+            if not target_exists:
+                return {"status": "blocked", "reason": "append_requires_existing_file"}
+            sep = "" if current_text.endswith("\n") or not current_text else "\n"
+            return {"status": "ok", "content": current_text + sep + append_text, "mode": "append"}
+
+        # 3. Full-file content (greenfield write or full overwrite).
         proposed = metadata.get("proposed_content")
         if isinstance(proposed, str) and proposed:
-            return {"status": "ok", "content": proposed}
-
-        patch_proposal = metadata.get("patch_proposal") or {}
+            return {"status": "ok", "content": proposed, "mode": "full_content"}
         proposal_content = patch_proposal.get("proposed_content") if isinstance(patch_proposal, dict) else None
         if isinstance(proposal_content, str) and proposal_content:
-            return {"status": "ok", "content": proposal_content}
+            return {"status": "ok", "content": proposal_content, "mode": "full_content"}
 
-        if isinstance(patch, str) and patch:
-            parsed = self._content_from_unified_diff(patch)
-            if parsed is None:
-                return {"status": "blocked", "reason": "unsupported_patch_format"}
-            return {"status": "ok", "content": parsed}
-
-        unified_diff_preview = metadata.get("unified_diff_preview")
-        if isinstance(unified_diff_preview, str) and unified_diff_preview:
-            parsed = self._content_from_unified_diff(unified_diff_preview)
-            if parsed is None:
-                return {"status": "blocked", "reason": "unsupported_patch_format"}
-            return {"status": "ok", "content": parsed}
-
-        proposal_diff = patch_proposal.get("unified_diff_preview") if isinstance(patch_proposal, dict) else None
-        if isinstance(proposal_diff, str) and proposal_diff:
-            parsed = self._content_from_unified_diff(proposal_diff)
-            if parsed is None:
-                return {"status": "blocked", "reason": "unsupported_patch_format"}
-            return {"status": "ok", "content": parsed}
+        # 4. Unified diff — applied hunk-by-hunk against the current content when the file exists
+        #    (precise, preserves unrelated lines); falls back to full-content extraction otherwise.
+        for diff in (metadata.get("patch"), metadata.get("unified_diff_preview"),
+                     patch_proposal.get("unified_diff_preview") if isinstance(patch_proposal, dict) else None):
+            if isinstance(diff, str) and diff:
+                if target_exists:
+                    applied = self._apply_unified_diff_to_text(current_text, diff)
+                    if applied is not None:
+                        return {"status": "ok", "content": applied, "mode": "unified_diff"}
+                parsed = self._content_from_unified_diff(diff)
+                if parsed is None:
+                    return {"status": "blocked", "reason": "unsupported_patch_format"}
+                return {"status": "ok", "content": parsed, "mode": "diff_extract"}
 
         return {"status": "blocked", "reason": "content_missing"}
+
+    def _apply_string_edits(self, text: str, edits: list) -> str | None:
+        """Apply a list of {old_string, new_string} replacements. Each old_string must match exactly
+        once (uniqueness guard, like Claude Code's Edit). Returns None if any edit is not applicable."""
+        result = text
+        for edit in edits:
+            if not isinstance(edit, dict):
+                return None
+            old = str(edit.get("old_string", ""))
+            new = str(edit.get("new_string", ""))
+            if old == "":
+                return None
+            count = result.count(old)
+            if count != 1:
+                return None
+            result = result.replace(old, new, 1)
+        return result
+
+    def _apply_unified_diff_to_text(self, original_text: str, diff_text: str) -> str | None:
+        """Hunk-aware unified-diff application that PRESERVES lines outside the hunks. Validates context
+        and deletion lines against the original; returns None on any mismatch (caller falls back)."""
+        original = original_text.splitlines(keepends=True)
+        result: list[str] = []
+        cursor = 0
+        saw_hunk = False
+        lines = diff_text.splitlines()
+        i = 0
+        hunk_re = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+        while i < len(lines):
+            m = hunk_re.match(lines[i])
+            if not m:
+                i += 1
+                continue
+            saw_hunk = True
+            old_start = int(m.group(1))
+            old_count = int(m.group(2) or "1")
+            old_index = max(old_start - 1, 0)
+            if old_start == 0 and old_count == 0:
+                old_index = 0
+            if old_index < cursor or old_index > len(original):
+                return None
+            result.extend(original[cursor:old_index])
+            cursor = old_index
+            i += 1
+            while i < len(lines):
+                hl = lines[i]
+                if hunk_re.match(hl) or hl.startswith(("diff --git ", "--- ", "+++ ", "index ")):
+                    break
+                if hl.startswith("\\"):
+                    i += 1
+                    continue
+                if hl.startswith(" "):
+                    if cursor >= len(original) or original[cursor].rstrip("\r\n") != hl[1:]:
+                        return None
+                    result.append(original[cursor]); cursor += 1
+                elif hl.startswith("-"):
+                    if cursor >= len(original) or original[cursor].rstrip("\r\n") != hl[1:]:
+                        return None
+                    cursor += 1
+                elif hl.startswith("+"):
+                    result.append(hl[1:] + "\n")
+                elif not hl.strip():
+                    return None
+                else:
+                    return None
+                i += 1
+        if not saw_hunk:
+            return None
+        result.extend(original[cursor:])
+        return "".join(result)
 
     def _content_from_unified_diff(self, patch: str) -> str | None:
         lines = patch.splitlines()

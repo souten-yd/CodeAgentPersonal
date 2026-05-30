@@ -1,0 +1,101 @@
+"""Pillar B: partial-edit primitives wired into the autopilot's safe-apply executor.
+
+Covers surgical string edits (old->new, unique), append, hunk-aware unified diff (preserving lines
+outside the hunk), no-op detection, and the full proposal->executor edits flow.
+"""
+from __future__ import annotations
+
+import tempfile
+from pathlib import Path
+
+from agent.atlas_file_safe_apply_executor import AtlasFileSafeApplyExecutor
+from agent.atlas_journal import AtlasJournal
+from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
+from agent.atlas_patch_proposal_service import AtlasPatchProposalService
+from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
+from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+
+
+def _apply(ws, target, metadata, seed=None):
+    if seed is not None:
+        (ws / target).write_text(seed, encoding="utf-8")
+    item = AtlasPlanItem(item_id="i", pool_id="p", title="t", goal="g", item_type="implementation",
+                         status="ready", risk_level="low", target_files=[target], metadata=metadata)
+    pool = AtlasPlanPool(pool_id="p", root_goal="g", project_path=str(ws), items=[item])
+    return AtlasFileSafeApplyExecutor(workspace_root=ws).apply_plan_item_safe(item=item, pool=pool)
+
+
+def test_string_edits_apply_and_preserve_surroundings():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(ws, "a.py", {"action_type": "update", "edits": [{"old_string": "return 1", "new_string": "return 100"}]},
+               seed="def foo():\n    return 1\n\ndef bar():\n    return 2\n")
+    assert r["status"] == "applied" and "(edits)" in r["summary"]
+    final = (ws / "a.py").read_text()
+    assert "return 100" in final and "def bar" in final and "return 1\n" not in final
+
+
+def test_string_edit_non_unique_is_blocked():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(ws, "b.py", {"action_type": "update", "edits": [{"old_string": "x=1", "new_string": "x=2"}]},
+               seed="x=1\nx=1\n")
+    assert r["status"] == "blocked" and "edit_not_applicable" in r["reasons"]
+
+
+def test_edits_require_existing_file():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(ws, "missing.py", {"action_type": "update", "edits": [{"old_string": "a", "new_string": "b"}]})
+    assert r["status"] == "blocked" and "edits_require_existing_file" in r["reasons"]
+
+
+def test_append_to_existing_file():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(ws, "c.txt", {"action_type": "update", "append_content": "line2\n"}, seed="line1\n")
+    assert r["status"] == "applied" and "(append)" in r["summary"]
+    assert (ws / "c.txt").read_text() == "line1\nline2\n"
+
+
+def test_hunk_aware_diff_preserves_unrelated_lines():
+    ws = Path(tempfile.mkdtemp())
+    diff = "@@ -2,1 +2,1 @@\n-b\n+B\n"
+    r = _apply(ws, "d.py", {"action_type": "update", "unified_diff_preview": diff}, seed="a\nb\nc\nd\n")
+    assert r["status"] == "applied" and "(unified_diff)" in r["summary"]
+    assert (ws / "d.py").read_text() == "a\nB\nc\nd\n"
+
+
+def test_no_effective_change_blocked():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(ws, "e.txt", {"action_type": "update", "proposed_content": "same\n"}, seed="same\n")
+    assert r["status"] == "blocked" and "no_effective_change" in r["reasons"]
+
+
+def test_full_content_create_still_works():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(ws, "new.html", {"action_type": "create", "proposed_content": "<h1>hi</h1>"})
+    assert r["status"] == "applied" and "(full_content)" in r["summary"]
+    assert (ws / "new.html").read_text() == "<h1>hi</h1>"
+
+
+def test_proposal_to_executor_edits_flow():
+    tmp = Path(tempfile.mkdtemp()); ca = tmp / "ca"; ca.mkdir(); ws = tmp / "ws"; ws.mkdir()
+    (ws / "app.py").write_text("def foo():\n    return 1\n\ndef bar():\n    return 2\n", encoding="utf-8")
+    storage = AtlasPlanPoolStorage(ca); journal = AtlasJournal(ca, workspace_id="default")
+    item = AtlasPlanItem(item_id="s1", pool_id="p", title="t", goal="make foo return 100",
+                         item_type="implementation", status="ready", risk_level="low",
+                         target_files=["app.py"], metadata={"action_type": "update"})
+    pool = AtlasPlanPool(pool_id="p", root_goal="g", project_path=str(ws), items=[item])
+    storage.save_pool(pool)
+
+    def llm(s, u):
+        return {"edits": [{"old_string": "def foo():\n    return 1", "new_string": "def foo():\n    return 100"}],
+                "risk_level": "low", "target_files": ["app.py"]}
+
+    svc = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm)
+    res = svc.propose_for_item(AtlasPatchProposalRequest(pool_id="p", item_id="s1", source_type="plan_item"))
+    assert res.metadata.get("patch_content_available") is True
+
+    reloaded = storage.load_pool("p"); it = reloaded.get_item("s1")
+    assert it.metadata.get("edits") and it.metadata.get("action_type") == "update"
+    r = AtlasFileSafeApplyExecutor(workspace_root=ws).apply_plan_item_safe(item=it, pool=reloaded)
+    assert r["status"] == "applied"
+    final = (ws / "app.py").read_text()
+    assert "return 100" in final and "def bar" in final

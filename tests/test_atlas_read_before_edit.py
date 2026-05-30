@@ -72,7 +72,7 @@ def test_mislabeled_create_on_existing_file_applies_as_update():
     result = executor.apply_plan_item_safe(item=item, pool=pool)
 
     assert result["status"] == "applied"
-    assert "update applied" in result["summary"]  # create -> update on existing file
+    assert result["summary"].startswith("update")  # create -> update on existing file
     final = (ws / "app.py").read_text(encoding="utf-8")
     assert "def existing" in final and "def greet" in final
 
