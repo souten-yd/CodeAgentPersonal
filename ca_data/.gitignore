@@ -17,6 +17,9 @@ workspace/**/dist/
 workspace/**/build/
 workspace/**/*.log
 
+# ========== ランタイム生成データ（リサーチ/パイプライン出力は管理対象外） ==========
+nexus/
+
 # ========== DB ジャーナルファイル ==========
 *.db-journal
 *.db-shm

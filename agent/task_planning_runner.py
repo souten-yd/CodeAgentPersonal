@@ -4,12 +4,14 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
+from agent.adversarial_plan_critic import AdversarialPlanCritic
 from agent.agent_prompts import DEEP_PLAN_GENERATION_PROMPT, PLAN_GENERATION_PROMPT, REQUIREMENT_ANALYSIS_PROMPT
 from agent.clarification_manager import ClarificationManager
 from agent.deep_planner import DeepPlanner
 from agent.clarification_policy import ClarificationPolicy
 from agent.nexus_context_builder import NexusContextBuilder
 from agent.plan_reviewer import PlanReviewer
+from agent.research_conductor import ResearchConductor
 from agent.plan_storage import PlanStorage
 from agent.planner_phase1 import PlannerPhase1
 from agent.requirement_analyzer import RequirementAnalyzer
@@ -56,6 +58,8 @@ class TaskPlanningRunner:
         self.deep_planner = DeepPlanner(llm_json_fn=llm_json_fn)
         self.requirement_analyzer = RequirementAnalyzer(llm_json_fn=llm_json_fn)
         self.plan_reviewer = PlanReviewer()
+        self.research_conductor = ResearchConductor(llm_json_fn=llm_json_fn)
+        self.adversarial_critic = AdversarialPlanCritic(llm_json_fn=llm_json_fn)
         self.clarification_manager = ClarificationManager()
         self.clarification_policy = ClarificationPolicy()
         self.nexus_builder = NexusContextBuilder(
@@ -261,6 +265,23 @@ class TaskPlanningRunner:
             elif repository_context.startswith("Repository scan warning:"):
                 warnings.append("Repository scan failed partially. Repository context fallback was used.")
 
+        # Research-first: survey the codebase before planning so the planner works from grounded
+        # evidence (Claude Code's "explore before you plan"). Findings are injected into the planner's
+        # repository_context as a Research Evidence section. Degrades to empty when no LLM.
+        nexus_text_for_research = ""
+        if isinstance(nexus_context, dict):
+            nexus_text_for_research = str(nexus_context.get("compact_text") or nexus_context.get("summary") or "")
+        research_findings = self.research_conductor.conduct(
+            user_input=requirement.user_input,
+            interpreted_goal=requirement.interpreted_goal,
+            repository_context=repository_context,
+            nexus_text=nexus_text_for_research,
+        )
+        warnings.extend(research_findings.warnings)
+        research_text = research_findings.to_prompt_text()
+        if research_text:
+            repository_context = f"{repository_context}\n\n=== Research Evidence ===\n{research_text}"
+
         if planning_mode == "deep_nexus":
             plan = self.planner.build_plan(
                 requirement=requirement,
@@ -294,12 +315,40 @@ class TaskPlanningRunner:
             )
             warnings.extend(self.planner.get_last_warnings())
 
+        # Adversarial critique: attack the plan from multiple angles before any code is written. If a
+        # high/critical gap is found, regenerate the plan ONCE with the critique appended, then re-critique
+        # for the record. Complements (does not replace) the rule-based PlanReviewer below.
+        critique = self.adversarial_critic.critique(
+            plan_summary=self._plan_summary(plan),
+            requirement_summary=self._requirement_summary(requirement),
+        )
+        warnings.extend(critique.warnings)
+        if critique.requires_revision and planning_mode != "deep_nexus":
+            revision_context = f"{repository_context}\n\n=== Adversarial Critique (fix high/critical gaps) ===\n{self._critique_text(critique)}"
+            revised = self.planner.build_plan(
+                requirement=requirement,
+                planning_mode=planning_mode,
+                prompt=PLAN_GENERATION_PROMPT,
+                nexus_context=nexus_context,
+                repository_context=revision_context,
+            )
+            warnings.extend(self.planner.get_last_warnings())
+            if revised.implementation_steps:
+                plan = revised
+                warnings.append("plan_revised_after_adversarial_critique")
+                critique = self.adversarial_critic.critique(
+                    plan_summary=self._plan_summary(plan),
+                    requirement_summary=self._requirement_summary(requirement),
+                )
+                warnings.extend(critique.warnings)
+
         review_result = self.plan_reviewer.review(
             requirement=requirement,
             plan=plan,
             nexus_context=nexus_context if isinstance(nexus_context, dict) else {},
             repository_context=repository_context,
         )
+        self._merge_critique_into_review(review_result, critique)
         plan.destructive_change_detected = bool(review_result.destructive_change_detected)
         plan.requires_user_confirmation = bool(review_result.requires_user_confirmation)
         if review_result.overall_risk == "critical":
@@ -340,6 +389,8 @@ class TaskPlanningRunner:
             "requirement": requirement.model_dump(),
             "plan": plan.model_dump(),
             "review_result": review_result.model_dump(),
+            "research_findings": research_findings.model_dump(),
+            "adversarial_critique": critique.model_dump(),
             "nexus_context": nexus_context,
             "repository_context": repository_context,
             "requirement_markdown_path": str(req_md),
@@ -347,6 +398,63 @@ class TaskPlanningRunner:
             "resolved_project_path": resolved_project_path,
             "warnings": warnings,
         }
+
+    def _plan_summary(self, plan) -> dict:
+        steps = [
+            {
+                "title": getattr(s, "title", ""),
+                "description": getattr(s, "description", "")[:300],
+                "target_files": list(getattr(s, "target_files", []) or []),
+                "action_type": getattr(s, "action_type", ""),
+                "risk_level": getattr(s, "risk_level", ""),
+            }
+            for s in (getattr(plan, "implementation_steps", []) or [])[:20]
+        ]
+        return {
+            "user_goal": getattr(plan, "user_goal", ""),
+            "selected_architecture": getattr(plan, "selected_architecture", ""),
+            "implementation_steps": steps,
+            "test_plan": list(getattr(plan, "test_plan", []) or []),
+            "risks": list(getattr(plan, "risks", []) or []),
+        }
+
+    def _requirement_summary(self, requirement) -> dict:
+        return {
+            "interpreted_goal": getattr(requirement, "interpreted_goal", ""),
+            "functional_requirements": list(getattr(requirement, "functional_requirements", []) or []),
+            "out_of_scope": list(getattr(requirement, "out_of_scope", []) or []),
+            "done_definition": list(getattr(requirement, "done_definition", []) or []),
+        }
+
+    def _critique_text(self, critique) -> str:
+        lines: list[str] = []
+        for f in critique.findings:
+            if f.severity in {"high", "critical"}:
+                lines.append(f"- [{f.severity}/{f.angle}] {f.title}: {f.detail} -> {f.recommendation}")
+        return "\n".join(lines)[:4000]
+
+    def _merge_critique_into_review(self, review_result, critique) -> None:
+        # Surface LLM critique findings on the rule-based review so downstream consumers see one record.
+        from agent.plan_review_schema import PlanReviewFinding
+
+        rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        for i, f in enumerate(critique.findings):
+            sev = f.severity if f.severity in {"info", "warning", "high", "critical"} else "info"
+            review_result.findings.append(PlanReviewFinding(
+                finding_id=f"adversarial_{i+1}",
+                severity=sev,
+                category="other",
+                title=f.title or f"{f.angle} critique",
+                detail=f.detail,
+                recommendation=f.recommendation,
+            ))
+            if sev in {"high", "critical"}:
+                review_result.blocking_findings.append(f"adversarial_{i+1}")
+        # Escalate overall risk if the critique found something worse than the rule-based review.
+        if rank.get(critique.consensus_risk, 0) > rank.get(review_result.overall_risk, 0):
+            review_result.overall_risk = critique.consensus_risk
+        if critique.requires_revision:
+            review_result.warnings.append("adversarial_critique_flagged_high_risk")
 
 
 def _dedup_warnings(warnings: list[str]) -> list[str]:

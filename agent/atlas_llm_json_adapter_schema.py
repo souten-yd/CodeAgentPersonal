@@ -7,6 +7,8 @@ class AtlasLLMJsonRequest(BaseModel):
     system_prompt: str
     user_prompt: str
     schema_hint: str = ""
+    json_schema: dict | None = None
+    grammar: str = ""
     model: str = ""
     temperature: float = 0.1
     max_tokens: int = 4096
@@ -20,6 +22,8 @@ class AtlasLLMJsonResult(BaseModel):
     raw_text: str = ""
     model: str = ""
     backend: str = ""
+    structured: bool = False
+    structured_fallback: bool = False
     used_fallback: bool = False
     error: str = ""
     warnings: list[str] = Field(default_factory=list)

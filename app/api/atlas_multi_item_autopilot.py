@@ -19,7 +19,9 @@ from agent.atlas_llm_evaluator_service import AtlasLLMEvaluatorService
 from agent.atlas_multi_item_autopilot_policies import list_multi_item_policies
 from agent.atlas_multi_item_autopilot_schema import AtlasMultiItemAutopilotRequest
 from agent.atlas_multi_item_autopilot_service import AtlasMultiItemAutopilotService
+from agent.atlas_patch_proposal_service import AtlasPatchProposalService
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_self_correction_service import AtlasSelfCorrectionService
 from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
 from agent.atlas_safe_apply_execution_service import AtlasSafeApplyExecutionService
 from agent.atlas_workspace_root import resolve_atlas_workspace_root
@@ -81,15 +83,31 @@ def _service(request: Request | None = None, workspace_id: str = "default", pool
     journal = AtlasJournal(root, workspace_id=workspace_id or "default")
     workspace_root = _resolve_pool_workspace_root(storage=storage, ca_data_root=root, workspace_id=workspace_id or "default", pool_id=pool_id)
     safe_apply_service = _build_safe_apply_execution_service(request=request, storage=storage, journal=journal, workspace_root=workspace_root)
+    auto_safe_apply_service = AtlasAutoSafeApplyService(automation_gate=AtlasAutomationGateService(), safe_apply_service=safe_apply_service, journal=journal, storage=storage)
+    auto_verification_service = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner())
+    # Self-correction reuses the same apply/verify services and a patch generator backed by the app's
+    # LLM json fn (None in tests -> the service is simply not constructed and the loop is a no-op).
+    llm_json_fn = getattr(getattr(getattr(request, "app", None), "state", None), "atlas_llm_json_fn", None)
+    self_correction_service = None
+    if llm_json_fn is not None:
+        patch_proposal_service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_json_fn)
+        self_correction_service = AtlasSelfCorrectionService(
+            storage=storage,
+            journal=journal,
+            patch_proposal_service=patch_proposal_service,
+            auto_safe_apply_service=auto_safe_apply_service,
+            auto_verification_service=auto_verification_service,
+        )
     return AtlasMultiItemAutopilotService(
         storage=storage,
         journal=journal,
         automation_gate=AtlasAutomationGateService(),
-        auto_safe_apply_service=AtlasAutoSafeApplyService(automation_gate=AtlasAutomationGateService(), safe_apply_service=safe_apply_service, journal=journal, storage=storage),
-        auto_verification_service=AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner()),
+        auto_safe_apply_service=auto_safe_apply_service,
+        auto_verification_service=auto_verification_service,
         context_refresh_service=AtlasContextRefreshService(journal=journal),
         evaluator_service=AtlasLLMEvaluatorService(journal=journal),
         bounded_retry_service=AtlasBoundedRetryService(storage=storage, journal=journal, auto_verification_service=AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner()), context_refresh_service=AtlasContextRefreshService(journal=journal), evaluator_service=AtlasLLMEvaluatorService(journal=journal)),
+        self_correction_service=self_correction_service,
     )
 
 

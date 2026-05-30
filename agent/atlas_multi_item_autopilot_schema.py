@@ -25,6 +25,8 @@ class AtlasMultiItemAutopilotRequest(BaseModel):
     include_bounded_retry: bool = False
     retry_policy_id: str = "verification_retry_v1"
     max_retry_attempts_per_item: int = 2
+    include_self_correction: bool = True
+    self_correction_max_attempts: int = 2
     metadata: dict = Field(default_factory=dict)
 
 

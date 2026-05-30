@@ -18,6 +18,7 @@ from agent.atlas_llm_evaluator_schema import AtlasEvaluatorRequest
 from agent.atlas_multi_item_autopilot_policies import get_multi_item_policy
 from agent.atlas_multi_item_supervised_status_schema import AtlasMultiItemSupervisedStatusRequest
 from agent.atlas_multi_item_supervised_status_service import AtlasMultiItemSupervisedStatusService
+from agent.atlas_self_correction_schema import AtlasSelfCorrectionRequest
 from agent.atlas_supervised_item_status_service import AtlasSupervisedItemStatusService
 from agent.atlas_multi_item_autopilot_schema import (
     AtlasAutopilotItemResult,
@@ -27,7 +28,7 @@ from agent.atlas_multi_item_autopilot_schema import (
 
 
 class AtlasMultiItemAutopilotService:
-    def __init__(self, *, storage, journal, automation_gate, auto_safe_apply_service, auto_verification_service, context_refresh_service, evaluator_service, bounded_retry_service=None):
+    def __init__(self, *, storage, journal, automation_gate, auto_safe_apply_service, auto_verification_service, context_refresh_service, evaluator_service, bounded_retry_service=None, self_correction_service=None):
         self.storage = storage
         self.journal = journal
         self.automation_gate = automation_gate
@@ -37,6 +38,7 @@ class AtlasMultiItemAutopilotService:
         self.evaluator_service = evaluator_service
         self.failure_stop_service = AtlasFailureStopService(journal=journal)
         self.bounded_retry_service = bounded_retry_service
+        self.self_correction_service = self_correction_service
         self.supervised_status_service = AtlasMultiItemSupervisedStatusService(storage=storage, journal=journal, supervised_item_status_service=AtlasSupervisedItemStatusService(storage=storage, journal=journal))
 
     def run(self, request: AtlasMultiItemAutopilotRequest) -> AtlasMultiItemAutopilotResult:
@@ -111,6 +113,20 @@ class AtlasMultiItemAutopilotService:
                                 result.status = "completed"
                                 result.reason = "bounded_retry_recovered"
                                 recovered_vr = {"status": "passed", "recovered_by_bounded_retry": True, "retry_run_id": rr.retry_run_id, "final_verification_status": rr.final_verification_status, "attempt_count": rr.attempt_count}
+                                result.verification_result = recovered_vr
+                                vr = type("V", (), {"status": "passed", "model_dump": lambda self: recovered_vr})()
+                        # Self-correction: verification failed and content was applied -> feed the failing
+                        # test/compile output back to the patch generator, re-apply, re-verify (bounded,
+                        # low/medium risk only). This is the generate->verify->fix loop.
+                        if request.include_self_correction and self.self_correction_service and vr.status == "failed":
+                            sc = self.self_correction_service.run(AtlasSelfCorrectionRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), verification_result=vr.model_dump(), max_attempts=request.self_correction_max_attempts))
+                            result.metadata["self_correction_result"] = sc.model_dump()
+                            if sc.status == "recovered":
+                                result.status = "completed"
+                                result.reason = "self_correction_recovered"
+                                if sc.changed_files:
+                                    result.safe_apply_result = {**(result.safe_apply_result or {}), "changed_files": sc.changed_files}
+                                recovered_vr = {"status": "passed", "recovered_by_self_correction": True, "final_verification_status": sc.final_verification_status, "attempt_count": sc.attempts}
                                 result.verification_result = recovered_vr
                                 vr = type("V", (), {"status": "passed", "model_dump": lambda self: recovered_vr})()
                         if request.include_evaluator and vr.status in {"passed", "failed"}:
