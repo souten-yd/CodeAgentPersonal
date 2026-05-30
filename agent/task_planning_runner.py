@@ -276,6 +276,7 @@ class TaskPlanningRunner:
             interpreted_goal=requirement.interpreted_goal,
             repository_context=repository_context,
             nexus_text=nexus_text_for_research,
+            project_path=project_path or "",
         )
         warnings.extend(research_findings.warnings)
         research_text = research_findings.to_prompt_text()

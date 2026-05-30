@@ -13,15 +13,20 @@ from agent.atlas_llm_schemas import patch_proposal_json_schema
 from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProposalRequest, AtlasPatchProposalResult
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_workspace_root import resolve_atlas_workspace_root
 
 
 class AtlasPatchProposalService:
     ALLOWED_SOURCE_TYPES = {"debug_review", "plan_item"}
-    LLM_ALLOWED_FIELDS = {"title", "summary", "root_cause", "proposed_fix", "target_files", "suggested_changes", "unified_diff_preview", "proposed_content", "risk_level", "verification_plan", "rollback_plan", "assumptions"}
+    LLM_ALLOWED_FIELDS = {"title", "summary", "root_cause", "proposed_fix", "target_files", "suggested_changes", "unified_diff_preview", "proposed_content", "edits", "risk_level", "verification_plan", "rollback_plan", "assumptions"}
+    MAX_EDITS = 20
     LLM_UNTRUSTED_FIELDS = {"status", "pool_id", "item_id", "run_id", "proposal_id", "metadata", "warnings", "errors", "proposal_json_path", "proposal_md_path", "created_at"}
     ALLOWED_RISK_LEVELS = {"low", "medium", "high", "critical"}
     MAX_DIFF_PREVIEW_CHARS = 12000
     MAX_PROPOSED_CONTENT_CHARS = 200000
+    # Read-before-edit: how much of an existing target file to feed the model as ground truth so it
+    # produces a patch that CONNECTS to the current code instead of overwriting it blindly.
+    MAX_EXISTING_FILE_CHARS = 60000
     # A plan_item that must write a file gets more than one shot at the LLM: weak models often emit
     # an empty/invalid first response but succeed when told the prior attempt was unusable.
     MAX_LLM_GENERATION_ATTEMPTS = 2
@@ -53,7 +58,8 @@ class AtlasPatchProposalService:
             # Honest signal: a proposal can be "proposed" yet carry NO applicable content (weak/absent
             # LLM, or fallback). Surface that explicitly so the UI does not report fake success and the
             # autopilot does not silently skip with "missing_patch_or_content".
-            has_content = bool(proposal.unified_diff_preview or (proposal.metadata or {}).get("proposed_content"))
+            _pmeta = proposal.metadata or {}
+            has_content = bool(proposal.unified_diff_preview or _pmeta.get("proposed_content") or _pmeta.get("edits"))
             result = AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="proposed", proposal=proposal, proposal_json_path=json_path, proposal_md_path=md_path, metadata={"patch_content_available": has_content})
             self.mark_item_from_patch_proposal(pool, item, result)
             self.storage.save_pool(pool)
@@ -102,10 +108,77 @@ class AtlasPatchProposalService:
             return "plan_item"
         return "debug_review"
 
+    def _read_existing_target_content(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
+        """Read-before-edit: return the current on-disk content of the item's (single) target file.
+
+        Returns {"exists": bool, "content": str, "truncated": bool, "rel_path": str}. A patch for an
+        EXISTING file must connect to its current code, so we ground the model with the real bytes
+        rather than guessing. Reuses the executor's workspace + safe-path logic; never reads outside
+        the workspace and never raises.
+        """
+        out = {"exists": False, "content": "", "truncated": False, "rel_path": ""}
+        try:
+            target_files = [str(p).strip() for p in (item.target_files or []) if str(p).strip()]
+            if len(target_files) != 1:
+                return out
+            rel = target_files[0]
+            out["rel_path"] = rel
+            p = Path(rel)
+            if p.is_absolute() or ".." in p.parts:
+                return out
+            workspace_root = resolve_atlas_workspace_root(
+                ca_data_root=self.storage.root_dir,
+                workspace_id=request.workspace_id or "default",
+                project_path=str(getattr(pool, "project_path", "") or ""),
+            )
+            target = (workspace_root / p).resolve()
+            try:
+                target.relative_to(workspace_root)
+            except ValueError:
+                return out
+            if not target.is_file():
+                return out
+            text = target.read_text(encoding="utf-8", errors="replace")
+            out["exists"] = True
+            if len(text) > self.MAX_EXISTING_FILE_CHARS:
+                out["content"] = text[: self.MAX_EXISTING_FILE_CHARS]
+                out["truncated"] = True
+            else:
+                out["content"] = text
+        except Exception:
+            return {"exists": False, "content": "", "truncated": False, "rel_path": out.get("rel_path", "")}
+        return out
+
+    def _build_code_context(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
+        """Pillar C: surrounding-code awareness for the patch — project symbols the change can call or
+        extend, plus tests related to the target file. Best-effort; empty when no project dir."""
+        out: dict = {"symbols": [], "related_tests": []}
+        try:
+            from agent.atlas_code_explorer import extract_symbols, find_related_tests
+
+            project_path = str(getattr(pool, "project_path", "") or "")
+            if not project_path:
+                return out
+            target_files = [str(p).strip() for p in (item.target_files or []) if str(p).strip()]
+            # Symbols across the project so the model knows what already exists to reuse (cap small for
+            # weak models); related tests for the file under change.
+            syms = extract_symbols(project_path, max_symbols=40)
+            out["symbols"] = [f"{s['file']}:{s['line']} {s.get('signature') or s.get('name','')}" for s in syms[:40]]
+            out["related_tests"] = find_related_tests(project_path, target_files, max_tests=8)
+        except Exception:  # noqa: BLE001
+            return {"symbols": [], "related_tests": []}
+        return out
+
     def build_proposal_input(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
         source_type = self._effective_source_type(item, request)
         debug_review = (item.metadata or {}).get("debug_review") or {}
         item_metadata = item.metadata or {}
+        # Ground the model in the target file's CURRENT content (read-before-edit). Prefer real disk
+        # bytes; fall back to any content captured in metadata.
+        existing_target = self._read_existing_target_content(pool, item, request)
+        existing_content = existing_target["content"] or str(item_metadata.get("content") or item_metadata.get("proposed_content") or "")
+        # Pillar C: surrounding-code awareness — symbols the patch can call/extend, and related tests.
+        code_context = self._build_code_context(pool, item, request)
         return {
             "pool_id": pool.pool_id,
             "item_id": item.item_id,
@@ -124,7 +197,12 @@ class AtlasPatchProposalService:
                 "item_type": item.item_type,
                 "action_type": str(item_metadata.get("action_type") or ""),
                 "existing_patch": str(item_metadata.get("patch") or ""),
-                "existing_content": str(item_metadata.get("content") or item_metadata.get("proposed_content") or ""),
+                "existing_content": existing_content,
+                "target_file_exists": bool(existing_target["exists"]),
+                "current_file_content": existing_target["content"],
+                "current_file_truncated": bool(existing_target["truncated"]),
+                "project_symbols": code_context["symbols"],
+                "related_tests": code_context["related_tests"],
             },
             "debug_review": {
                 "root_cause_category": str(debug_review.get("root_cause_category") or ("plan_item" if source_type == "plan_item" else "")),
@@ -185,12 +263,27 @@ class AtlasPatchProposalService:
             "You generate advisory patch proposals only. Return a single JSON object only, no prose, "
             "no markdown fences. Do not claim changes were applied."
         )
-        base_task = (
-            "Generate a safe patch proposal as JSON. For source_type=plan_item that lists target_files, "
-            "you MUST return a non-empty \"proposed_content\" string containing the COMPLETE file text for the "
-            "first target file (this is a new/overwritten file write, not a diff). "
-            "Example: {\"target_files\":[\"index.html\"],\"proposed_content\":\"<!doctype html>\\n<html>...\",\"risk_level\":\"low\"}"
-        )
+        item_for_task = input_payload.get("item") or {}
+        target_exists = bool(item_for_task.get("target_file_exists"))
+        if target_exists:
+            base_task = (
+                "Generate a safe patch proposal as JSON. The target file ALREADY EXISTS; its current "
+                "content is provided in input.item.current_file_content. Apply ONLY the change required by "
+                "the goal and PRESERVE all unrelated code. "
+                "PREFERRED: return \"edits\" — a list of {\"old_string\",\"new_string\"} where each "
+                "old_string is an EXACT, UNIQUE snippet copied from the current content (include enough "
+                "surrounding context to be unique). This is safest for existing files. "
+                "Example: {\"target_files\":[\"app.py\"],\"edits\":[{\"old_string\":\"def foo():\\n    return 1\",\"new_string\":\"def foo():\\n    return 2\"}],\"risk_level\":\"low\"} "
+                "ALTERNATIVELY, if a localized edit is impractical, return \"proposed_content\" with the "
+                "COMPLETE updated file text. Use input.item.project_symbols to reuse existing functions."
+            )
+        else:
+            base_task = (
+                "Generate a safe patch proposal as JSON. For source_type=plan_item that lists target_files, "
+                "you MUST return a non-empty \"proposed_content\" string containing the COMPLETE file text for the "
+                "first target file (this is a new file write, not a diff). "
+                "Example: {\"target_files\":[\"index.html\"],\"proposed_content\":\"<!doctype html>\\n<html>...\",\"risk_level\":\"low\"}"
+            )
         content_required = self._plan_item_requires_content(input_payload)
         output_schema = patch_proposal_json_schema(require_content=content_required)
         # If this is a self-correction regeneration, surface the failing verification output so the
@@ -269,7 +362,10 @@ class AtlasPatchProposalService:
             proposed_content = proposed_content[: self.MAX_PROPOSED_CONTENT_CHARS]
             warnings.append("proposed_content_truncated")
 
-        has_content = bool(proposed_content or diff_preview)
+        # Pillar B: surgical string-replacement edits the executor can apply against the current file.
+        edits = self._normalize_edits(llm_allowed.get("edits"), warnings)
+
+        has_content = bool(proposed_content or diff_preview or edits)
         metadata = {
             "source_type": str(input_payload.get("source_type") or "debug_review"),
             "requested_source_type": str(input_payload.get("requested_source_type") or ""),
@@ -277,6 +373,8 @@ class AtlasPatchProposalService:
         }
         if proposed_content:
             metadata["proposed_content"] = proposed_content
+        if edits:
+            metadata["edits"] = edits
 
         normalized = AtlasPatchProposal.model_validate({
             "proposal_id": f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid4().hex[:8]}",
@@ -341,6 +439,27 @@ class AtlasPatchProposalService:
                 "generation_empty_content_attempts": empty_content_attempts,
             },
         )
+
+    def _normalize_edits(self, raw_edits: object, warnings: list[str]) -> list[dict]:
+        """Validate LLM-proposed surgical edits: a list of {old_string, new_string} with non-empty
+        old_string. Caps the count; drops malformed entries. Returns [] if none usable."""
+        if not isinstance(raw_edits, list) or not raw_edits:
+            return []
+        out: list[dict] = []
+        dropped = False
+        for e in raw_edits[: self.MAX_EDITS]:
+            if not isinstance(e, dict):
+                dropped = True
+                continue
+            old = str(e.get("old_string", ""))
+            new = str(e.get("new_string", ""))
+            if old == "":
+                dropped = True
+                continue
+            out.append({"old_string": old, "new_string": new})
+        if dropped:
+            warnings.append("some_edits_dropped")
+        return out
 
     def _normalize_target_files(self, raw_target_files: object, fallback_target_files: list[str], warnings: list[str]) -> list[str]:
         if not isinstance(raw_target_files, list):
@@ -459,15 +578,38 @@ class AtlasPatchProposalService:
             item.metadata["patch_proposal"]["patch"] = proposal.unified_diff_preview
             item.metadata["unified_diff_preview"] = proposal.unified_diff_preview
             item.metadata["patch"] = proposal.unified_diff_preview
+        proposal_edits = proposal_metadata.get("edits") if isinstance(proposal_metadata.get("edits"), list) else []
+        if proposal_edits:
+            item.metadata["patch_proposal"]["edits"] = proposal_edits
+            item.metadata["edits"] = proposal_edits
         # When real patch content was produced, wire the item into the canonical safe-apply
         # vocabulary so the autopilot can actually apply it: action_type must be {create, update}
         # and item_type must be implementation/documentation (the executor + adapter reject others).
         # Empty/unknown action_type defaults to create (greenfield write); an existing action_type
-        # is preserved (e.g. an LLM-specified "update" for edits) via normalization.
-        if proposed_content or proposal.unified_diff_preview:
-            item.metadata["action_type"] = normalize_safe_apply_action_type(item.metadata.get("action_type"))
+        # is preserved (e.g. an LLM-specified "update" for edits) via normalization. Surgical edits
+        # always target an existing file, so force update.
+        if proposed_content or proposal.unified_diff_preview or proposal_edits:
+            if proposal_edits and not proposed_content:
+                item.metadata["action_type"] = "update"
+            else:
+                item.metadata["action_type"] = normalize_safe_apply_action_type(item.metadata.get("action_type"))
             if str(getattr(item, "item_type", "") or "") not in {"implementation", "documentation"}:
                 item.item_type = "implementation"
+            # Pillar E: connect the item to a concrete allowlisted verification command so the existing
+            # verify -> self-correct loop actually runs (the item writes a test file, or a related test
+            # exists for the changed file). Never override a verification the planner already set.
+            if not ((item.metadata or {}).get("verification") or {}).get("command_id"):
+                try:
+                    from agent.atlas_verification_resolver import resolve_verification_for_item
+
+                    spec = resolve_verification_for_item(
+                        target_files=list(item.target_files or []),
+                        project_path=str(getattr(pool, "project_path", "") or ""),
+                    )
+                    if spec:
+                        item.metadata["verification"] = {**((item.metadata or {}).get("verification") or {}), **spec}
+                except Exception:  # noqa: BLE001
+                    pass
 
     def _append_event(self, pool_id: str, run_id: str, event_type: str, item: AtlasPlanItem | None, status: str, warnings: list[str] | None = None, errors: list[str] | None = None) -> None:
         if not run_id:

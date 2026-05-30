@@ -11,13 +11,15 @@ RISK_LEVELS = ["low", "medium", "high", "critical"]
 PLAN_ACTION_TYPES = ["create", "update", "delete", "inspect", "run_command", "test"]
 
 
-def patch_proposal_json_schema(*, require_content: bool) -> dict:
+def patch_proposal_json_schema(*, require_content: bool = False) -> dict:
     """Schema for a single patch proposal.
 
-    When ``require_content`` is True (a plan_item that writes a target file), ``proposed_content`` is
-    required so the model cannot return an applicable-looking proposal with no file body. For advisory
-    sources (debug_review) nothing is hard-required.
+    A valid applicable proposal may carry EITHER a full ``proposed_content`` OR a list of surgical
+    ``edits`` (old->new). The schema stays permissive (nothing hard-required) because forcing one field
+    would block the other path; the service enforces "some applicable content" and reports honestly when
+    there is none. ``require_content`` is accepted for backward-compat and no longer changes the schema.
     """
+    _ = require_content
     properties = {
         "title": {"type": "string"},
         "summary": {"type": "string"},
@@ -25,14 +27,25 @@ def patch_proposal_json_schema(*, require_content: bool) -> dict:
         "proposed_fix": {"type": "string"},
         "target_files": {"type": "array", "items": {"type": "string"}},
         "proposed_content": {"type": "string"},
+        "edits": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"old_string": {"type": "string"}, "new_string": {"type": "string"}},
+                "required": ["old_string", "new_string"],
+                "additionalProperties": True,
+            },
+        },
         "unified_diff_preview": {"type": "string"},
         "risk_level": {"type": "string", "enum": RISK_LEVELS},
     }
-    required = ["proposed_content"] if require_content else []
+    # Do not hard-require proposed_content even when content is required: a surgical "edits" response is
+    # equally valid. The service enforces "some applicable content" downstream (and reports honestly when
+    # there is none), so we keep the schema permissive to avoid blocking the edits path.
     return {
         "type": "object",
         "properties": properties,
-        "required": required,
+        "required": [],
         # Keep True: the service filters to its own allow-list anyway, and additionalProperties=false
         # is a common trigger for token-repetition collapse on weak models.
         "additionalProperties": True,
