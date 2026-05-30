@@ -19,11 +19,14 @@ def _make_llm(state):
                     "key_findings": ["routes live in app/server.py"], "risks": ["shared state"],
                     "recommended_approach": "extend existing router"}
         if "adversarial plan reviewer" in p:
-            angle = json.loads(user_input).get("angle")
-            state["critique_angles"].append(angle)
+            # Combined mode (default): one call carries the angles list; each finding self-tags its angle.
+            payload = json.loads(user_input)
+            angles = payload.get("angles") or ([payload.get("angle")] if payload.get("angle") else [])
+            state["critique_angles"].extend(angles)
             # First overall critique: flag a high gap on the security angle to force one revision.
-            if angle == "security" and not state["revised"]:
-                return {"findings": [{"severity": "high", "title": "missing auth", "detail": "x", "recommendation": "add auth"}],
+            if not state["revised"]:
+                return {"findings": [{"angle": "security", "severity": "high", "title": "missing auth",
+                                       "detail": "x", "recommendation": "add auth"}],
                         "angle_risk": "high", "requires_revision": True}
             return {"findings": [], "angle_risk": "low", "requires_revision": False}
         if "planning specialist" in p:

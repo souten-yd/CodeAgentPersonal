@@ -129,3 +129,22 @@ Rules:
 - Be specific and tie each finding to a step or file when possible.
 - If the plan is sound from your angle, return an empty findings list and angle_risk=low.
 """
+
+ADVERSARIAL_PLAN_CRITIQUE_COMBINED_PROMPT = """You are an adversarial plan reviewer. You are given a
+software implementation plan and a list of angles to attack it from (e.g. security, maintainability,
+missing_steps, requirement_alignment). Find real, actionable gaps across ALL angles in a single pass,
+before any code is written. Return JSON only. Do not rewrite the plan; only critique it.
+
+Required keys:
+- findings: array of {angle: string (which angle this gap came from), severity: one of
+  [info, warning, high, critical], category: string, title: string, detail: string, recommendation: string}
+- angle_risk: one of [low, medium, high, critical]   // worst-case risk across all angles
+- requires_revision: boolean                         // true if any high/critical gap must be fixed first
+
+Rules:
+- Cover every requested angle, but report only substantive gaps (missing steps, unhandled cases, wrong
+  assumptions, safety/security, maintainability, requirement mismatches), not style nits.
+- Tag each finding with the angle it came from.
+- Be specific and tie each finding to a step or file when possible.
+- If the plan is sound from every angle, return an empty findings list and angle_risk=low.
+"""

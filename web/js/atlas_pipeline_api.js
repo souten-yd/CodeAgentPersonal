@@ -111,7 +111,9 @@
     getPlanPoolStatus(poolId) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/status`, { timeoutMs: 15000 });
     },
-    async pollPlanPoolUntilReady(poolId, workspaceId, maxWaitMs = 240000, intervalMs = 1500) {
+    // Local models (e.g. Gemma-4B on RunPod) can take several minutes to plan + research + critique.
+    // Keep polling well past the old 240s so slow-but-successful runs aren't reported as timeouts.
+    async pollPlanPoolUntilReady(poolId, workspaceId, maxWaitMs = 480000, intervalMs = 1500) {
       const startTime = Date.now();
       while (Date.now() - startTime < maxWaitMs) {
         await new Promise((r) => setTimeout(r, intervalMs));
