@@ -154,6 +154,31 @@ class AtlasPatchProposalService:
         target_files = [str(p).strip() for p in (item.get("target_files") or []) if str(p).strip()]
         return bool(target_files)
 
+    def _verification_feedback(self, input_payload: dict) -> dict | None:
+        # Extract a compact, model-facing description of WHY the previously applied content failed
+        # verification, set by the self-correction loop on item.metadata["verification"].
+        verification = (input_payload.get("latest_verification") or {})
+        if not isinstance(verification, dict) or not verification:
+            return None
+        if str(verification.get("status") or "").lower() != "failed":
+            return None
+        item = input_payload.get("item") or {}
+        prior = str(item.get("existing_content") or "")
+        feedback = {
+            "instruction": (
+                "Your previous proposed_content was applied to the target file and then FAILED "
+                "verification. Fix the root cause shown below and return corrected, COMPLETE file "
+                "content. Do not repeat the same mistake."
+            ),
+            "command": str(verification.get("command") or ""),
+            "exit_code": verification.get("exit_code"),
+            "stdout_tail": str(verification.get("stdout_tail") or "")[-2000:],
+            "stderr_tail": str(verification.get("stderr_tail") or "")[-2000:],
+        }
+        if prior:
+            feedback["previous_content"] = prior[: self.MAX_PROPOSED_CONTENT_CHARS]
+        return feedback
+
     def generate_proposal_with_llm(self, input_payload: dict) -> AtlasPatchProposal:
         assert self.llm_json_fn is not None
         system_prompt = (
@@ -168,11 +193,16 @@ class AtlasPatchProposalService:
         )
         content_required = self._plan_item_requires_content(input_payload)
         output_schema = patch_proposal_json_schema(require_content=content_required)
+        # If this is a self-correction regeneration, surface the failing verification output so the
+        # model fixes the ROOT CAUSE instead of re-emitting the same broken content.
+        verification_feedback = self._verification_feedback(input_payload)
         last_failure = "llm_no_output"
         parse_failures = 0
         empty_content_attempts = 0
         for attempt in range(1, self.MAX_LLM_GENERATION_ATTEMPTS + 1):
             user_obj: dict = {"task": base_task, "input": input_payload}
+            if verification_feedback:
+                user_obj["fix_verification_failure"] = verification_feedback
             if attempt > 1:
                 # Escalate: tell the model exactly why the previous attempt was unusable.
                 user_obj["retry_note"] = (
