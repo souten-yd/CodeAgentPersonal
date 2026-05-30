@@ -595,6 +595,21 @@ class AtlasPatchProposalService:
                 item.metadata["action_type"] = normalize_safe_apply_action_type(item.metadata.get("action_type"))
             if str(getattr(item, "item_type", "") or "") not in {"implementation", "documentation"}:
                 item.item_type = "implementation"
+            # Pillar E: connect the item to a concrete allowlisted verification command so the existing
+            # verify -> self-correct loop actually runs (the item writes a test file, or a related test
+            # exists for the changed file). Never override a verification the planner already set.
+            if not ((item.metadata or {}).get("verification") or {}).get("command_id"):
+                try:
+                    from agent.atlas_verification_resolver import resolve_verification_for_item
+
+                    spec = resolve_verification_for_item(
+                        target_files=list(item.target_files or []),
+                        project_path=str(getattr(pool, "project_path", "") or ""),
+                    )
+                    if spec:
+                        item.metadata["verification"] = {**((item.metadata or {}).get("verification") or {}), **spec}
+                except Exception:  # noqa: BLE001
+                    pass
 
     def _append_event(self, pool_id: str, run_id: str, event_type: str, item: AtlasPlanItem | None, status: str, warnings: list[str] | None = None, errors: list[str] | None = None) -> None:
         if not run_id:

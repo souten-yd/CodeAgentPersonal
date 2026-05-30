@@ -52,6 +52,12 @@ Required keys:
 - destructive_change_detected: boolean
 - requires_user_confirmation: boolean
 
+Testing:
+- For software_development tasks, include a dedicated implementation step that WRITES a test file
+  (action_type=create, target_files=["tests/test_<name>.py"]) covering the new/changed behavior.
+  This is a code-writing step (it produces the test file), not a verification step. The system runs
+  the generated test automatically and self-corrects on failure.
+
 If Nexus context exists, reflect it. If absent, continue naturally.
 """
 
