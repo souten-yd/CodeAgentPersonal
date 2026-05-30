@@ -37,12 +37,16 @@ class AtlasFileSafeApplyExecutor:
             return self._blocked("content_too_large")
 
         existed = target.exists()
+        effective_action = action_type
         if action_type == "update":
             if not existed:
                 return self._blocked("update_target_missing")
         elif action_type == "create":
+            # A planner/weak model often labels an edit of an existing file as "create". With
+            # read-before-edit the generated content is the FULL updated file, so apply it as an
+            # update rather than hard-blocking with create_target_already_exists.
             if existed:
-                return self._blocked("create_target_already_exists")
+                effective_action = "update"
 
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
@@ -50,7 +54,7 @@ class AtlasFileSafeApplyExecutor:
             "status": "applied",
             "actual_file_changed": True,
             "changed_files": [rel_target],
-            "summary": f"{action_type} applied to {rel_target}",
+            "summary": f"{effective_action} applied to {rel_target}",
         }
 
     def _safe_target_path(self, rel_path: str) -> Path | None:

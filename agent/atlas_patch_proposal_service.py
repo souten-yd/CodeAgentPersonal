@@ -13,6 +13,7 @@ from agent.atlas_llm_schemas import patch_proposal_json_schema
 from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProposalRequest, AtlasPatchProposalResult
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_workspace_root import resolve_atlas_workspace_root
 
 
 class AtlasPatchProposalService:
@@ -22,6 +23,9 @@ class AtlasPatchProposalService:
     ALLOWED_RISK_LEVELS = {"low", "medium", "high", "critical"}
     MAX_DIFF_PREVIEW_CHARS = 12000
     MAX_PROPOSED_CONTENT_CHARS = 200000
+    # Read-before-edit: how much of an existing target file to feed the model as ground truth so it
+    # produces a patch that CONNECTS to the current code instead of overwriting it blindly.
+    MAX_EXISTING_FILE_CHARS = 60000
     # A plan_item that must write a file gets more than one shot at the LLM: weak models often emit
     # an empty/invalid first response but succeed when told the prior attempt was unusable.
     MAX_LLM_GENERATION_ATTEMPTS = 2
@@ -102,10 +106,55 @@ class AtlasPatchProposalService:
             return "plan_item"
         return "debug_review"
 
+    def _read_existing_target_content(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
+        """Read-before-edit: return the current on-disk content of the item's (single) target file.
+
+        Returns {"exists": bool, "content": str, "truncated": bool, "rel_path": str}. A patch for an
+        EXISTING file must connect to its current code, so we ground the model with the real bytes
+        rather than guessing. Reuses the executor's workspace + safe-path logic; never reads outside
+        the workspace and never raises.
+        """
+        out = {"exists": False, "content": "", "truncated": False, "rel_path": ""}
+        try:
+            target_files = [str(p).strip() for p in (item.target_files or []) if str(p).strip()]
+            if len(target_files) != 1:
+                return out
+            rel = target_files[0]
+            out["rel_path"] = rel
+            p = Path(rel)
+            if p.is_absolute() or ".." in p.parts:
+                return out
+            workspace_root = resolve_atlas_workspace_root(
+                ca_data_root=self.storage.root_dir,
+                workspace_id=request.workspace_id or "default",
+                project_path=str(getattr(pool, "project_path", "") or ""),
+            )
+            target = (workspace_root / p).resolve()
+            try:
+                target.relative_to(workspace_root)
+            except ValueError:
+                return out
+            if not target.is_file():
+                return out
+            text = target.read_text(encoding="utf-8", errors="replace")
+            out["exists"] = True
+            if len(text) > self.MAX_EXISTING_FILE_CHARS:
+                out["content"] = text[: self.MAX_EXISTING_FILE_CHARS]
+                out["truncated"] = True
+            else:
+                out["content"] = text
+        except Exception:
+            return {"exists": False, "content": "", "truncated": False, "rel_path": out.get("rel_path", "")}
+        return out
+
     def build_proposal_input(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
         source_type = self._effective_source_type(item, request)
         debug_review = (item.metadata or {}).get("debug_review") or {}
         item_metadata = item.metadata or {}
+        # Ground the model in the target file's CURRENT content (read-before-edit). Prefer real disk
+        # bytes; fall back to any content captured in metadata.
+        existing_target = self._read_existing_target_content(pool, item, request)
+        existing_content = existing_target["content"] or str(item_metadata.get("content") or item_metadata.get("proposed_content") or "")
         return {
             "pool_id": pool.pool_id,
             "item_id": item.item_id,
@@ -124,7 +173,10 @@ class AtlasPatchProposalService:
                 "item_type": item.item_type,
                 "action_type": str(item_metadata.get("action_type") or ""),
                 "existing_patch": str(item_metadata.get("patch") or ""),
-                "existing_content": str(item_metadata.get("content") or item_metadata.get("proposed_content") or ""),
+                "existing_content": existing_content,
+                "target_file_exists": bool(existing_target["exists"]),
+                "current_file_content": existing_target["content"],
+                "current_file_truncated": bool(existing_target["truncated"]),
             },
             "debug_review": {
                 "root_cause_category": str(debug_review.get("root_cause_category") or ("plan_item" if source_type == "plan_item" else "")),
@@ -185,12 +237,25 @@ class AtlasPatchProposalService:
             "You generate advisory patch proposals only. Return a single JSON object only, no prose, "
             "no markdown fences. Do not claim changes were applied."
         )
-        base_task = (
-            "Generate a safe patch proposal as JSON. For source_type=plan_item that lists target_files, "
-            "you MUST return a non-empty \"proposed_content\" string containing the COMPLETE file text for the "
-            "first target file (this is a new/overwritten file write, not a diff). "
-            "Example: {\"target_files\":[\"index.html\"],\"proposed_content\":\"<!doctype html>\\n<html>...\",\"risk_level\":\"low\"}"
-        )
+        item_for_task = input_payload.get("item") or {}
+        target_exists = bool(item_for_task.get("target_file_exists"))
+        if target_exists:
+            base_task = (
+                "Generate a safe patch proposal as JSON. The target file ALREADY EXISTS; its current "
+                "content is provided in input.item.current_file_content. You MUST return a non-empty "
+                "\"proposed_content\" containing the COMPLETE updated file text that PRESERVES the existing "
+                "code and applies ONLY the change required by the goal. Do NOT discard or rewrite unrelated "
+                "parts of the file. If input.item.current_file_truncated is true, keep the unseen remainder "
+                "intact by making a minimal, localized edit. "
+                "Example: {\"target_files\":[\"app.py\"],\"proposed_content\":\"<full updated file>\",\"risk_level\":\"low\"}"
+            )
+        else:
+            base_task = (
+                "Generate a safe patch proposal as JSON. For source_type=plan_item that lists target_files, "
+                "you MUST return a non-empty \"proposed_content\" string containing the COMPLETE file text for the "
+                "first target file (this is a new file write, not a diff). "
+                "Example: {\"target_files\":[\"index.html\"],\"proposed_content\":\"<!doctype html>\\n<html>...\",\"risk_level\":\"low\"}"
+            )
         content_required = self._plan_item_requires_content(input_payload)
         output_schema = patch_proposal_json_schema(require_content=content_required)
         # If this is a self-correction regeneration, surface the failing verification output so the
