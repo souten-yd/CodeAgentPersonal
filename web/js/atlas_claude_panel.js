@@ -766,6 +766,8 @@
         include_context_refresh: true,
         include_evaluator: true,
         include_bounded_retry: true,
+        include_self_correction: true,
+        self_correction_max_attempts: 2,
         metadata: { ui: 'atlas_claude_panel', envelope_id: envelope.envelope_id },
       });
       // Concurrent polling: peek at the persisted autopilot result every 1.5s
@@ -1212,11 +1214,26 @@
     }
   }
 
+  // Guard against ever surfacing a raw HTML error page (e.g. a Cloudflare/runpod 5xx body) in chat.
+  function sanitizeErrorText(text) {
+    let s = String(text == null ? '' : text);
+    const head = s.slice(0, 200).toLowerCase();
+    if (head.includes('<html') || head.includes('<!doctype') || head.includes('cf-error') || head.includes('cloudflare')) {
+      return 'サーバが時間内に応答しませんでした（タイムアウト）。少し待って再実行してください。';
+    }
+    if (s.length > 500) s = s.slice(0, 500) + '…';
+    return s;
+  }
+
   function formatError(resp) {
     if (!resp) return 'no response';
+    // Prefer the canned message produced by parseResponse for gateway/timeout/non-JSON errors.
+    if (resp.code === 'gateway_timeout' || resp.code === 'plan_pool_timeout' || resp.code === 'plan_pool_failed' || resp.code === 'network_error') {
+      return sanitizeErrorText(resp.message || 'request failed');
+    }
     const detail = resp && resp.detail && resp.detail.detail !== undefined ? resp.detail.detail : resp.message;
-    if (detail == null) return resp.message || 'unknown error';
-    if (typeof detail === 'string') return detail;
+    if (detail == null) return sanitizeErrorText(resp.message || 'unknown error');
+    if (typeof detail === 'string') return sanitizeErrorText(detail);
     if (Array.isArray(detail)) {
       // FastAPI pydantic validation errors arrive as an array of {loc, msg, type}.
       return detail.map((d) => {
@@ -1303,7 +1320,11 @@
     const node = document.createElement('div');
     node.className = 'atlas-claude-msg';
     node.dataset.role = role;
-    if (root.marked && typeof root.marked.parse === 'function' && role !== 'system') {
+    // Defense-in-depth: never run marked (-> innerHTML) on text that smells like a raw HTML error
+    // page. Render it as plain text instead so a leaked Cloudflare/runpod body can't inject markup.
+    const head = String(text || '').slice(0, 200).toLowerCase();
+    const htmlish = head.includes('<html') || head.includes('<!doctype') || head.includes('cf-error') || head.includes('cf-icon') || head.includes('cloudflare');
+    if (root.marked && typeof root.marked.parse === 'function' && role !== 'system' && !htmlish) {
       node.innerHTML = root.marked.parse(text);
     } else {
       node.textContent = text;

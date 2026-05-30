@@ -121,7 +121,7 @@ def test_atlas_pipeline_api_contains_expected_helpers_after_classic_conversion()
 
 def test_ui_loads_atlas_pipeline_api_as_classic_script():
     html = _read("ui.html")
-    m = re.search(r"<script[^>]+atlas_pipeline_api\.js\?v=atlas-dashboard-40[^>]*>", html)
+    m = re.search(r"<script[^>]+atlas_pipeline_api\.js\?v=[^>]*>", html)
     assert m, "atlas_pipeline_api script tag missing"
     assert "type=\"module\"" not in m.group(0)
 

@@ -4,8 +4,21 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+class _AppOnlyRequest:
+    """Minimal stand-in for a FastAPI Request usable from a background thread.
+
+    The plan-pool handler's helpers only ever read ``request.app`` / ``request.app.state`` (verified),
+    which are app-scoped and thread-safe. This shim exposes just ``.app`` so the existing synchronous
+    body can run unchanged off the request lifecycle.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
 
 from agent.atlas_llm_json_adapter import AtlasLLMJsonAdapter
 
@@ -390,11 +403,81 @@ def _checkpoint_next_action(status: str) -> str:
     return "Review the latest Atlas checkpoint."
 
 
-@router.post("/plan-pools", response_model=CreatePlanPoolResponse)
-def create_plan_pool(req: CreatePlanPoolRequest, request: Request) -> CreatePlanPoolResponse:
+def _plan_pool_jobs_dir(ca_data_root: Path) -> Path:
+    d = Path(ca_data_root) / "atlas" / "plan_pool_jobs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _write_plan_pool_job(ca_data_root: Path, pool_id: str, payload: dict) -> None:
+    try:
+        path = _plan_pool_jobs_dir(ca_data_root) / f"{pool_id}.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+@router.post("/plan-pools")
+def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Query(0)) -> Any:
     root_goal = (req.input or "").strip()
     if not root_goal:
         raise HTTPException(status_code=400, detail="input is empty")
+
+    # Default: run the slow LLM planning on a background thread and return a job handle immediately,
+    # so a slow model can't blow past the proxy (Cloudflare/runpod) 524 timeout. ?sync=1 keeps the
+    # legacy blocking behavior for tests / direct callers.
+    if not sync:
+        import threading
+        import uuid as _uuid
+
+        register_atlas_llm_json_adapter(request.app)
+        ca_data_root, _storage, _journal = _atlas_components(request, workspace_id=req.workspace_id)
+        pool_id = f"pool_{_uuid.uuid4().hex[:12]}"
+        now = datetime.now(timezone.utc).isoformat()
+        _write_plan_pool_job(ca_data_root, pool_id, {"pool_id": pool_id, "status": "queued", "created_at": now})
+        app_ref = request.app
+
+        def _runner() -> None:
+            _write_plan_pool_job(ca_data_root, pool_id, {"pool_id": pool_id, "status": "running", "created_at": now})
+            try:
+                result = _create_plan_pool_core(req, app_ref, forced_pool_id=pool_id)
+                _write_plan_pool_job(ca_data_root, pool_id, {
+                    "pool_id": result.pool_id, "status": "ready", "created_at": now,
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:  # noqa: BLE001 — never leak a raw traceback to the UI.
+                _write_plan_pool_job(ca_data_root, pool_id, {
+                    "pool_id": pool_id, "status": "failed",
+                    "error": "プラン作成に失敗しました。再実行してください。",
+                    "error_kind": exc.__class__.__name__,
+                    "created_at": now, "finished_at": datetime.now(timezone.utc).isoformat(),
+                })
+
+        threading.Thread(target=_runner, daemon=True).start()
+        return {"pool_id": pool_id, "status": "queued"}
+
+    return _create_plan_pool_core(req, request.app)
+
+
+@router.get("/plan-pools/{pool_id}/status")
+def get_plan_pool_status(pool_id: str, request: Request, workspace_id: str = Query("default")) -> dict[str, Any]:
+    ca_data_root, _storage, _journal = _atlas_components(request, workspace_id=workspace_id)
+    path = _plan_pool_jobs_dir(ca_data_root) / f"{pool_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail={"error": "plan_pool_job_not_found", "pool_id": pool_id})
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"pool_id": pool_id, "status": "running"}
+
+
+def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_id: str = "") -> CreatePlanPoolResponse:
+    root_goal = (req.input or "").strip()
+    request = _AppOnlyRequest(app)
+    # Keep the created pool's id equal to the async job id so the client can poll by it and then fetch
+    # the pool at the same id.
+    if forced_pool_id:
+        req = req.model_copy(update={"pool_id": forced_pool_id})
 
     register_atlas_llm_json_adapter(request.app)
     ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
