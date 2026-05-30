@@ -147,6 +147,26 @@ class AtlasPatchProposalService:
             return {"exists": False, "content": "", "truncated": False, "rel_path": out.get("rel_path", "")}
         return out
 
+    def _build_code_context(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
+        """Pillar C: surrounding-code awareness for the patch — project symbols the change can call or
+        extend, plus tests related to the target file. Best-effort; empty when no project dir."""
+        out: dict = {"symbols": [], "related_tests": []}
+        try:
+            from agent.atlas_code_explorer import extract_symbols, find_related_tests
+
+            project_path = str(getattr(pool, "project_path", "") or "")
+            if not project_path:
+                return out
+            target_files = [str(p).strip() for p in (item.target_files or []) if str(p).strip()]
+            # Symbols across the project so the model knows what already exists to reuse (cap small for
+            # weak models); related tests for the file under change.
+            syms = extract_symbols(project_path, max_symbols=40)
+            out["symbols"] = [f"{s['file']}:{s['line']} {s.get('signature') or s.get('name','')}" for s in syms[:40]]
+            out["related_tests"] = find_related_tests(project_path, target_files, max_tests=8)
+        except Exception:  # noqa: BLE001
+            return {"symbols": [], "related_tests": []}
+        return out
+
     def build_proposal_input(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
         source_type = self._effective_source_type(item, request)
         debug_review = (item.metadata or {}).get("debug_review") or {}
@@ -155,6 +175,8 @@ class AtlasPatchProposalService:
         # bytes; fall back to any content captured in metadata.
         existing_target = self._read_existing_target_content(pool, item, request)
         existing_content = existing_target["content"] or str(item_metadata.get("content") or item_metadata.get("proposed_content") or "")
+        # Pillar C: surrounding-code awareness — symbols the patch can call/extend, and related tests.
+        code_context = self._build_code_context(pool, item, request)
         return {
             "pool_id": pool.pool_id,
             "item_id": item.item_id,
@@ -177,6 +199,8 @@ class AtlasPatchProposalService:
                 "target_file_exists": bool(existing_target["exists"]),
                 "current_file_content": existing_target["content"],
                 "current_file_truncated": bool(existing_target["truncated"]),
+                "project_symbols": code_context["symbols"],
+                "related_tests": code_context["related_tests"],
             },
             "debug_review": {
                 "root_cause_category": str(debug_review.get("root_cause_category") or ("plan_item" if source_type == "plan_item" else "")),
