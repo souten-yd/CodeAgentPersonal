@@ -17,7 +17,7 @@ def _client(tmp_path):
 
 
 def _create_pool(client: TestClient, goal: str = "Ship Atlas API integration") -> dict:
-    response = client.post("/api/atlas/plan-pools", json={"input": goal})
+    response = client.post("/api/atlas/plan-pools?sync=1", json={"input": goal})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -247,7 +247,7 @@ def test_create_plan_pool_auto_falls_back_when_real_planner_unavailable(tmp_path
     if hasattr(main.app.state, "atlas_llm_json_fn"):
         main.app.state.atlas_llm_json_fn = None
 
-    response = client.post("/api/atlas/plan-pools", json={"input": "Bridge fallback", "planner_mode": "auto"})
+    response = client.post("/api/atlas/plan-pools?sync=1", json={"input": "Bridge fallback", "planner_mode": "auto"})
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -260,7 +260,7 @@ def test_create_plan_pool_fallback_only(tmp_path) -> None:
     client = _client(tmp_path)
     main.app.state.atlas_llm_json_fn = lambda _prompt, _schema: {"ok": True}
 
-    response = client.post("/api/atlas/plan-pools", json={"input": "Force fallback", "planner_mode": "fallback_only"})
+    response = client.post("/api/atlas/plan-pools?sync=1", json={"input": "Force fallback", "planner_mode": "fallback_only"})
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -276,7 +276,7 @@ def test_create_plan_pool_with_plan_payload_still_works(tmp_path) -> None:
         ]
     }
 
-    response = client.post("/api/atlas/plan-pools", json={"input": "Use payload", "plan_payload": payload})
+    response = client.post("/api/atlas/plan-pools?sync=1", json={"input": "Use payload", "plan_payload": payload})
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -331,7 +331,7 @@ def test_create_plan_pool_waiting_for_clarification_shape_if_mocked(tmp_path, mo
     client = _client(tmp_path)
     main.app.state.atlas_llm_json_fn = lambda _prompt, _schema: {"ok": True}
 
-    response = client.post("/api/atlas/plan-pools", json={"input": "Needs details", "planner_mode": "real_planner"})
+    response = client.post("/api/atlas/plan-pools?sync=1", json={"input": "Needs details", "planner_mode": "real_planner"})
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -356,7 +356,7 @@ def test_api_still_does_not_expose_runner_execution_controls() -> None:
 def test_create_plan_pool_uses_registered_atlas_llm_json_fn(tmp_path) -> None:
     client = _client(tmp_path)
     main.app.state.atlas_llm_json_fn = lambda _s, _u: {"plan": {"implementation_steps": [{"title": "x"}]}, "status": "planned"}
-    response = client.post("/api/atlas/plan-pools", json={"input": "goal", "planner_mode": "real_planner"})
+    response = client.post("/api/atlas/plan-pools?sync=1", json={"input": "goal", "planner_mode": "real_planner"})
     assert response.status_code == 200
     body = response.json()
     assert body["used_fallback"] is False
@@ -366,7 +366,7 @@ def test_create_plan_pool_uses_registered_atlas_llm_json_fn(tmp_path) -> None:
 def test_create_plan_pool_falls_back_when_llm_json_fn_returns_none(tmp_path) -> None:
     client = _client(tmp_path)
     main.app.state.atlas_llm_json_fn = lambda _s, _u: (_ for _ in ()).throw(RuntimeError("llm unavailable"))
-    response = client.post("/api/atlas/plan-pools", json={"input": "goal", "planner_mode": "real_planner"})
+    response = client.post("/api/atlas/plan-pools?sync=1", json={"input": "goal", "planner_mode": "real_planner"})
     assert response.status_code == 200
     body = response.json()
     assert body["fallback_reason"]

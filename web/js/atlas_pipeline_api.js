@@ -2,10 +2,39 @@
   const root = (typeof window !== 'undefined' ? window : globalThis);
   const API_BASE = root.API || '';
 
+  // Map a gateway/proxy status (often returning an HTML error page from Cloudflare/runpod) to a
+  // short, safe, user-facing message. We never surface the raw HTML body to the UI.
+  function gatewayMessage(status, statusText) {
+    if (status === 502 || status === 503 || status === 504 || status === 524) {
+      return 'サーバが時間内に応答しませんでした（タイムアウト）。モデルが混雑しています。少し待って再実行してください。';
+    }
+    if (status === 0) return 'リクエストがタイムアウト/中断されました。少し待って再実行してください。';
+    return `リクエストに失敗しました (HTTP ${status}${statusText ? ' ' + statusText : ''})`;
+  }
+
+  function looksLikeHtml(text) {
+    const head = String(text || '').slice(0, 200).toLowerCase();
+    return head.includes('<html') || head.includes('<!doctype') || head.includes('cf-error') || head.includes('cloudflare');
+  }
+
   async function parseResponse(response) {
     const contentType = response.headers.get('content-type') || '';
-    const payload = contentType.includes('application/json') ? await response.json() : await response.text();
+    const isJson = contentType.includes('application/json');
+    const payload = isJson ? await response.json().catch(() => null) : await response.text();
     if (!response.ok) {
+      // Non-JSON error body (e.g. a Cloudflare/runpod 5xx HTML page): NEVER pass the raw HTML to the
+      // UI. Replace it with a short canned message and a status-derived code.
+      if (!isJson || looksLikeHtml(payload)) {
+        const isGateway = [502, 503, 504, 524, 0].includes(response.status);
+        return {
+          ok: false,
+          status: response.status,
+          code: isGateway ? 'gateway_timeout' : `http_${response.status}`,
+          error: true,
+          message: gatewayMessage(response.status, response.statusText),
+          detail: { error: isGateway ? 'gateway_timeout' : 'http_error', status: response.status },
+        };
+      }
       const detail = payload && typeof payload === 'object' ? payload.detail : payload;
       const code = response.status === 404 && String(detail || '').toLowerCase().includes('pipeline state not found')
         ? 'pipeline_state_not_found'
@@ -22,12 +51,35 @@
     return { ok: true, status: response.status, data: payload };
   }
 
+  // Default per-request timeout. Long-running operations (plan creation, autopilot) pass a larger
+  // timeoutMs. On abort we synthesize a gateway-style timeout result instead of throwing raw.
+  const DEFAULT_TIMEOUT_MS = 120000;
+
   async function atlasFetch(path, options) {
-    const response = await fetch(API_BASE + path, {
-      headers: { 'Content-Type': 'application/json', ...(options && options.headers ? options.headers : {}) },
-      ...options,
-    });
-    return parseResponse(response);
+    const opts = options || {};
+    const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
+    const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      const response = await fetch(API_BASE + path, {
+        headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+        ...opts,
+        signal: controller ? controller.signal : undefined,
+      });
+      return await parseResponse(response);
+    } catch (err) {
+      const aborted = err && (err.name === 'AbortError' || /abort/i.test(String(err)));
+      return {
+        ok: false,
+        status: 0,
+        code: aborted ? 'gateway_timeout' : 'network_error',
+        error: true,
+        message: aborted ? gatewayMessage(0) : 'ネットワークエラーが発生しました。接続を確認して再実行してください。',
+        detail: { error: aborted ? 'timeout' : 'network_error' },
+      };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   function query(params) {
@@ -40,8 +92,52 @@
   }
 
   const AtlasPipelineAPI = {
-    createPlanPool(payload) {
-      return atlasFetch('/api/atlas/plan-pools', { method: 'POST', body: JSON.stringify(payload || {}) });
+    // Async plan-pool creation: the server returns immediately with {pool_id, status:"queued"} and
+    // does the slow LLM planning on a background thread. We poll status until ready, then fetch the
+    // full pool. This avoids the proxy 524 timeout that produced the raw Cloudflare HTML in the UI.
+    async createPlanPool(payload) {
+      const started = await atlasFetch('/api/atlas/plan-pools', {
+        method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 30000,
+      });
+      if (!started.ok) return started;
+      const data = started.data || {};
+      // Async path: poll the job to completion.
+      if (data.pool_id && (data.status === 'queued' || data.status === 'running')) {
+        return await this.pollPlanPoolUntilReady(data.pool_id, payload && payload.workspace_id);
+      }
+      // Sync path (server returned the full pool directly): pass through unchanged.
+      return started;
+    },
+    getPlanPoolStatus(poolId) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/status`, { timeoutMs: 15000 });
+    },
+    async pollPlanPoolUntilReady(poolId, workspaceId, maxWaitMs = 240000, intervalMs = 1500) {
+      const startTime = Date.now();
+      while (Date.now() - startTime < maxWaitMs) {
+        await new Promise((r) => setTimeout(r, intervalMs));
+        const st = await this.getPlanPoolStatus(poolId);
+        if (!st.ok) {
+          // 404 right after submit just means the job file isn't written yet — keep waiting.
+          if (st.status === 404) continue;
+          return st;
+        }
+        const status = (st.data && st.data.status) || '';
+        if (status === 'ready') {
+          return await atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId })}`, { timeoutMs: 30000 });
+        }
+        if (status === 'failed') {
+          return {
+            ok: false, status: 200, error: true, code: 'plan_pool_failed',
+            message: (st.data && st.data.error) || 'プラン作成に失敗しました。再実行してください。',
+            detail: { error: 'plan_pool_failed' },
+          };
+        }
+      }
+      return {
+        ok: false, status: 0, error: true, code: 'plan_pool_timeout',
+        message: 'プラン作成がタイムアウトしました。モデルが混雑しています。少し待って再実行してください。',
+        detail: { error: 'plan_pool_timeout' },
+      };
     },
     getPlanPool(poolId) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}`);

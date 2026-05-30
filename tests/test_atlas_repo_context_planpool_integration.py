@@ -5,7 +5,7 @@ from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPac
 
 def test_create_plan_pool_succeeds_when_repo_index_missing():
     c = TestClient(create_app())
-    r = c.post('/api/atlas/plan-pools', json={'input': 'x', 'project_path': '/tmp/not-found-repo'})
+    r = c.post('/api/atlas/plan-pools?sync=1', json={'input': 'x', 'project_path': '/tmp/not-found-repo'})
     assert r.status_code == 200
     assert r.json()['status'] == 'ready'
 
@@ -16,7 +16,7 @@ def test_create_plan_pool_repo_context_disabled(tmp_path):
     c = TestClient(app)
     project = tmp_path / "repo"
     project.mkdir()
-    r = c.post('/api/atlas/plan-pools', json={'input': 'x', 'project_path': str(project), 'enable_repo_context': False})
+    r = c.post('/api/atlas/plan-pools?sync=1', json={'input': 'x', 'project_path': str(project), 'enable_repo_context': False})
     assert r.status_code == 200
     repo_context = r.json().get('metadata', {}).get('repo_context')
     assert repo_context is None or repo_context.get('status') == 'disabled'
@@ -33,7 +33,7 @@ def test_create_plan_pool_preflight_uses_top_level_changed_files(monkeypatch):
 
     monkeypatch.setattr(AtlasRepoContextPlannerPackager, "build_package", _capture)
     c = TestClient(create_app())
-    r = c.post('/api/atlas/plan-pools', json={
+    r = c.post('/api/atlas/plan-pools?sync=1', json={
         'input': 'x',
         'project_path': '/tmp/not-found-repo',
         'changed_files': ['app/foo.py'],
@@ -56,7 +56,7 @@ def test_create_plan_pool_metadata_changed_files_fallback_only_when_top_level_em
 
     monkeypatch.setattr(AtlasRepoContextPlannerPackager, "build_package", _capture)
     c = TestClient(create_app())
-    r = c.post('/api/atlas/plan-pools', json={
+    r = c.post('/api/atlas/plan-pools?sync=1', json={
         'input': 'x',
         'project_path': '/tmp/not-found-repo',
         'changed_files': [],
@@ -70,7 +70,7 @@ def test_create_plan_pool_metadata_changed_files_fallback_only_when_top_level_em
 
 def test_create_plan_pool_impacted_test_recommendation_executed_false():
     c = TestClient(create_app())
-    r = c.post('/api/atlas/plan-pools', json={'input': 'x', 'project_path': '/tmp/not-found-repo'})
+    r = c.post('/api/atlas/plan-pools?sync=1', json={'input': 'x', 'project_path': '/tmp/not-found-repo'})
     assert r.status_code == 200
     rec = r.json().get("plan_pool", {}).get("metadata", {}).get("repo_context", {}).get("impacted_test_recommendation", {})
     rec_meta = rec.get("metadata", {})
