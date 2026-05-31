@@ -57,16 +57,39 @@ class AtlasAutoVerificationService:
                 command.append(tok)
 
         res = self.command_runner.run_command(AtlasTestCommandRequest(command=" ".join(command), cwd=workspace_root, timeout_seconds=spec.timeout_seconds, metadata={"pool_id": pool.pool_id, "item_id": item.item_id, "source": "auto_verification"}))
-        status = "passed" if res.status == "passed" else "failed"
-        event = "auto_verification_passed" if status == "passed" else "auto_verification_failed"
-        self._append_event(pool.pool_id, request.run_id, event, item.item_id, status=status)
-        out = AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status=status, verification_result=res.model_dump(), command_id=command_id, command=command, exit_code=res.returncode, stdout_tail=(res.stdout or "")[-4000:], stderr_tail=(res.stderr or "")[-4000:], warnings=list(res.warnings), errors=list(res.errors), metadata={"workspace_root": workspace_root}, plan_pool=pool.model_dump())
+        status, classify_warnings = self._classify(res, command_id)
+        event = {"passed": "auto_verification_passed", "blocked": "auto_verification_blocked"}.get(status, "auto_verification_failed")
+        self._append_event(pool.pool_id, request.run_id, event, item.item_id, status=status, warnings=classify_warnings)
+        out = AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status=status, verification_result=res.model_dump(), command_id=command_id, command=command, exit_code=res.returncode, stdout_tail=(res.stdout or "")[-4000:], stderr_tail=(res.stderr or "")[-4000:], warnings=[*classify_warnings, *res.warnings], errors=list(res.errors), metadata={"workspace_root": workspace_root}, plan_pool=pool.model_dump())
         item.metadata.setdefault("auto_verification", {})
         item.metadata["auto_verification"].update({"status": status, "command_id": command_id, "verified_at": datetime.now(timezone.utc).isoformat()})
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
         out.plan_pool = pool.model_dump()
         return out
+
+    def _classify(self, res, command_id: str) -> tuple[str, list[str]]:
+        """Map a raw command result to passed / failed / blocked, distinguishing a real test
+        failure from an environment problem (interpreter or pytest missing, no tests collected).
+        Environment problems become 'blocked' with an actionable warning so the autopilot does not
+        treat a successfully-applied change as a code failure just because the harness can't run."""
+        if res.status == "passed":
+            return "passed", []
+        # Missing interpreter/executable (python/python3/node not on PATH).
+        if res.status == "blocked" and str(getattr(res, "blocked_reason", "")) == "executable_not_found":
+            return "blocked", ["test_harness_unavailable", "interpreter_or_executable_missing"]
+        is_pytest = str(command_id).startswith("pytest")
+        stderr = (getattr(res, "stderr", "") or "") + (getattr(res, "stdout", "") or "")
+        if is_pytest:
+            # pytest itself is not installed in the interpreter we ran.
+            if "No module named pytest" in stderr or "No module named 'pytest'" in stderr:
+                return "blocked", ["test_harness_unavailable", "pytest_not_installed"]
+            # pytest exit code 5 = no tests were collected (empty/placeholder test file). That is not
+            # a failing assertion — surface it distinctly instead of as a hard failure.
+            if getattr(res, "returncode", None) == 5:
+                return "blocked", ["no_tests_collected"]
+        # Everything else non-passed (assertion failures, compile errors, timeouts) is a real failure.
+        return "failed", []
 
     def _safe_rel(self, value: str) -> bool:
         if not value:

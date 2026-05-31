@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -104,9 +105,10 @@ class TestCommandRunner:
         command = request.command.strip()
         started_at = _utc_now_iso()
         started = time.monotonic()
+        argv = self._normalize_argv(shlex.split(command))
         try:
             completed = subprocess.run(
-                shlex.split(command),
+                argv,
                 cwd=request.cwd or None,
                 capture_output=True,
                 text=True,
@@ -144,6 +146,30 @@ class TestCommandRunner:
                 errors=[f"Command timed out after {request.timeout_seconds} seconds."],
                 metadata=dict(request.metadata),
             )
+        except (FileNotFoundError, OSError) as exc:
+            # The executable itself is missing (e.g. `python`/`node` not on PATH). This is an
+            # environment problem, not a code/test failure — surface it as blocked with an
+            # actionable reason instead of letting it look like the test failed.
+            finished_at = _utc_now_iso()
+            return AtlasTestCommandResult(
+                command=command,
+                status="blocked",
+                blocked_reason="executable_not_found",
+                returncode=None,
+                duration_seconds=time.monotonic() - started,
+                started_at=started_at,
+                finished_at=finished_at,
+                errors=[f"Executable not found for command: {argv[0] if argv else command} ({exc.__class__.__name__})."],
+                metadata=dict(request.metadata),
+            )
+
+    def _normalize_argv(self, argv: list[str]) -> list[str]:
+        """Run `python`/`python3` with the interpreter that is actually running this server
+        (sys.executable). Avoids spurious failures when the bare `python` binary is absent from
+        PATH (common in minimal containers that only ship `python3`)."""
+        if argv and argv[0] in {"python", "python3"}:
+            return [sys.executable, *argv[1:]]
+        return argv
 
     def run_many(
         self,

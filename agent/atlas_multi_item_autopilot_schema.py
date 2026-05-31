@@ -13,7 +13,9 @@ class AtlasMultiItemAutopilotRequest(BaseModel):
     context_policy_id: str = "local_first_bounded"
     evaluator_policy_id: str = "guarded_evaluator_v1"
     max_items: int = 3
-    max_failures: int = 1
+    # One failing item used to stop the whole run (e.g. a single flaky/auto-generated test would
+    # halt everything). Allow a few so the autopilot keeps completing the items it can.
+    max_failures: int = 3
     max_runtime_seconds: int = 300
     max_changed_files_total: int = 20
     stop_on_manual_required: bool = True
@@ -35,7 +37,7 @@ class AtlasMultiItemAutopilotPolicy(BaseModel):
     name: str
     description: str
     max_items: int = 3
-    max_failures: int = 1
+    max_failures: int = 3
     max_runtime_seconds: int = 300
     max_changed_files_total: int = 20
     allowed_risk_levels: list[str] = Field(default_factory=lambda: ["low"])

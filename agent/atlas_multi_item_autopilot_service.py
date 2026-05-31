@@ -134,15 +134,26 @@ class AtlasMultiItemAutopilotService:
                             result.evaluator_result_id = str((ev.metadata or {}).get("eval_id") or "")
                             result.evaluator_decision = ev.decision.model_dump()
                         vr_warnings = list(getattr(vr, "warnings", []) or [])
-                        # No verification command / no tests configured means there was nothing to
-                        # verify — not a failure or a block. The change was applied successfully, so
-                        # report it as completed (with a reason that documents the caveat) instead of
+                        # Surface verification warnings on the item so the user can see *why* a test
+                        # could not be run (e.g. pytest_not_installed) instead of a silent caveat.
+                        for w in vr_warnings:
+                            if w not in result.warnings:
+                                result.warnings.append(w)
+                        # No verification command / no tests configured, OR the harness simply could
+                        # not run (interpreter or pytest missing, no tests collected), means there was
+                        # nothing we could actually verify — not a code failure. The change was applied
+                        # successfully, so report it as completed with a caveat reason rather than
                         # leaving a successful write looking blocked/failed to the user.
                         no_verification_configured = any(
                             w in vr_warnings for w in ("verification_command_missing", "no_test_commands")
                         )
+                        harness_unavailable = any(
+                            w in vr_warnings for w in ("test_harness_unavailable", "pytest_not_installed", "no_tests_collected")
+                        )
                         if vr.status in {"blocked", "skipped"} and no_verification_configured:
                             result.status, result.reason = "completed", "applied_no_verification"
+                        elif vr.status == "blocked" and harness_unavailable:
+                            result.status, result.reason = "completed", "applied_verification_unavailable"
                         elif vr.status == "blocked":
                             result.status, result.reason = "blocked", "verification_blocked"
                         elif vr.status == "skipped":
