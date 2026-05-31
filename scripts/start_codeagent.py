@@ -429,9 +429,38 @@ def _ensure_local_bootstrap_venv(base_dir: Path, env: dict[str, str]) -> tuple[s
             install = subprocess.run([str(venv_pip), "install", "-r", str(req_txt)], cwd=base_dir, env=env, check=False)
             if install.returncode != 0:
                 print("[Bootstrap][WARN] pip install failed. Continue with existing environment.")
+        # Test harness (pytest + playwright + chromium) so Atlas can run its verification loop and the
+        # UI smoke tests on Windows out of the box. Best-effort: failures are non-fatal.
+        _install_test_harness(base_dir, venv_python, venv_pip, env)
     env["CODEAGENT_SYS_VENV_DIR"] = str(venv_root)
     env["CODEAGENT_SYS_VENV_PYTHON"] = str(venv_python)
     return str(venv_python), created
+
+
+def _install_test_harness(base_dir: Path, venv_python: Path, venv_pip: Path, env: dict[str, str]) -> None:
+    """Install pytest + playwright (+ chromium) into the freshly created venv. Best-effort and
+    non-fatal: a failed install (e.g. offline) only logs a warning and startup continues. Skipped
+    when KASANE_SKIP_TEST_HARNESS=1 (avoids the heavy chromium download for users who don't want it).
+    """
+    if str(env.get("KASANE_SKIP_TEST_HARNESS", "")).strip() in {"1", "true", "True"}:
+        print("[Bootstrap] KASANE_SKIP_TEST_HARNESS set; skipping pytest/playwright install.")
+        return
+    dev_req = base_dir / "requirements-dev.txt"
+    try:
+        if dev_req.exists():
+            print("[Bootstrap] Installing test harness (pytest + playwright) into venv_sys...")
+            dev = subprocess.run([str(venv_pip), "install", "-r", str(dev_req)], cwd=base_dir, env=env, check=False)
+        else:
+            dev = subprocess.run([str(venv_pip), "install", "pytest", "playwright"], cwd=base_dir, env=env, check=False)
+        if dev.returncode != 0:
+            print("[Bootstrap][WARN] Test harness install failed. Continue without it.")
+            return
+        print("[Bootstrap] Installing Playwright Chromium browser (first run only)...")
+        browser = subprocess.run([str(venv_python), "-m", "playwright", "install", "chromium"], cwd=base_dir, env=env, check=False)
+        if browser.returncode != 0:
+            print("[Bootstrap][WARN] Playwright chromium download failed. UI tests may need 'playwright install chromium'.")
+    except Exception as exc:  # noqa: BLE001 — bootstrap must never crash startup
+        print(f"[Bootstrap][WARN] Test harness setup error ({exc.__class__.__name__}). Continue without it.")
 
 
 def _default_llm_ctx_size(*, runpod: bool, env: dict[str, str]) -> str:

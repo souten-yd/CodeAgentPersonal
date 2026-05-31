@@ -1,0 +1,5 @@
+# Test/UI-test harness (NOT installed into the lean production image via requirements.txt).
+# Installed where verification + UI smoke tests run: the runpod Docker image
+# (KASANE_DEBUG_TEST_HARNESS=1) and the Windows bootstrap venv on first creation.
+pytest
+playwright

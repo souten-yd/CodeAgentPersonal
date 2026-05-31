@@ -28,7 +28,7 @@ from agent.atlas_multi_item_autopilot_schema import (
 
 
 class AtlasMultiItemAutopilotService:
-    def __init__(self, *, storage, journal, automation_gate, auto_safe_apply_service, auto_verification_service, context_refresh_service, evaluator_service, bounded_retry_service=None, self_correction_service=None, harness_provisioner=None):
+    def __init__(self, *, storage, journal, automation_gate, auto_safe_apply_service, auto_verification_service, context_refresh_service, evaluator_service, bounded_retry_service=None, self_correction_service=None, harness_provisioner=None, correction_router_service=None):
         self.storage = storage
         self.journal = journal
         self.automation_gate = automation_gate
@@ -40,6 +40,7 @@ class AtlasMultiItemAutopilotService:
         self.bounded_retry_service = bounded_retry_service
         self.self_correction_service = self_correction_service
         self.harness_provisioner = harness_provisioner
+        self.correction_router_service = correction_router_service
         self.supervised_status_service = AtlasMultiItemSupervisedStatusService(storage=storage, journal=journal, supervised_item_status_service=AtlasSupervisedItemStatusService(storage=storage, journal=journal))
 
     def run(self, request: AtlasMultiItemAutopilotRequest) -> AtlasMultiItemAutopilotResult:
@@ -133,7 +134,13 @@ class AtlasMultiItemAutopilotService:
                         # test/compile output back to the patch generator, re-apply, re-verify (bounded,
                         # low/medium risk only). This is the generate->verify->fix loop.
                         if request.include_self_correction and self.self_correction_service and vr.status == "failed":
-                            sc = self.self_correction_service.run(AtlasSelfCorrectionRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), verification_result=vr.model_dump(), max_attempts=request.self_correction_max_attempts))
+                            sc_request = AtlasSelfCorrectionRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), verification_result=vr.model_dump(), max_attempts=request.self_correction_max_attempts)
+                            # Route the failure to the right artifact (code vs test) when enabled; the
+                            # router internally falls back to plain self-correction on the failing item.
+                            if request.include_correction_routing and self.correction_router_service:
+                                sc = self.correction_router_service.run(sc_request)
+                            else:
+                                sc = self.self_correction_service.run(sc_request)
                             result.metadata["self_correction_result"] = sc.model_dump()
                             if sc.status == "recovered":
                                 result.status = "completed"

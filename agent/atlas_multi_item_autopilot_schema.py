@@ -30,6 +30,9 @@ class AtlasMultiItemAutopilotRequest(BaseModel):
     include_self_correction: bool = True
     self_correction_max_attempts: int = 2
     include_harness_provisioning: bool = True
+    # Route a verification failure to the right artifact: if a failing test is caused by a code bug,
+    # regenerate the implementation item (not just the test). Falls back to self-correction.
+    include_correction_routing: bool = True
     metadata: dict = Field(default_factory=dict)
 
 
