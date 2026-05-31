@@ -5,6 +5,7 @@ from pathlib import Path
 from agent.atlas_integration_checker import AtlasIntegrationChecker
 from agent.atlas_placeholder_detector import detect_placeholders
 from agent.atlas_repair_intent_classifier import is_test_only_repair_plan
+from agent.atlas_requirement_tracer import AtlasRequirementTracer
 
 _HTML_EXT = (".html",)
 _JS_CSS_EXT = (".js", ".css", ".mjs", ".ts")
@@ -27,30 +28,54 @@ def _read(project_path: str, rel: str) -> str | None:
         return None
 
 
-def _requirement_coverage(requirements: list[dict], changed_files: list[str], any_completed: bool) -> dict:
-    """Heuristic, conservative coverage. We never overclaim 'verified' here.
+def _requirement_coverage(
+    requirements: list[dict],
+    changed_files: list[str],
+    any_completed: bool,
+    *,
+    verified_files: list[str] | None = None,
+    done_definitions: list[str] | None = None,
+) -> dict:
+    """Map requirements to evidence (changed/verified files, done_definition) — conservative.
 
     - No implementation evidence at all (no changed files / nothing completed) → every
       requirement is 'missing' and the run is not success-eligible.
-    - Otherwise requirements are reported as 'partial' (implementation evidence exists but
-      cannot be tied to a specific requirement in this PR) — informational, not a hard fail.
+    - Otherwise map each requirement to changed/verified files via keyword overlap:
+      matched+verified → verified, matched → implemented, unmapped → partial.
+    - requirement_checked is only achievable when ALL requirements are 'verified'.
     """
     total = len(requirements)
     no_evidence = (not changed_files) or (not any_completed)
     if total == 0:
-        return {"total": 0, "by_status": {}, "no_implementation_evidence": False, "success_eligible": True}
+        return {"total": 0, "by_status": {}, "mapped": [], "no_implementation_evidence": False,
+                "all_verified": False, "success_eligible": True}
     if no_evidence:
         return {
             "total": total,
             "by_status": {"missing": total},
+            "mapped": [{**r, "status": "missing"} for r in requirements],
             "no_implementation_evidence": True,
+            "all_verified": False,
             "success_eligible": False,
         }
+    mapped = AtlasRequirementTracer().map_requirements_to_evidence(
+        requirements, changed_files=changed_files, verified_files=verified_files,
+        done_definitions=done_definitions,
+    )
+    by_status: dict[str, int] = {}
+    for r in mapped:
+        s = str(r.get("status") or "partial")
+        by_status[s] = by_status.get(s, 0) + 1
+    all_verified = by_status.get("verified", 0) == total and total > 0
     return {
         "total": total,
-        "by_status": {"partial": total},
+        "by_status": by_status,
+        "mapped": mapped,
         "no_implementation_evidence": False,
-        "success_eligible": True,  # partial does not hard-fail a completed run (see PR-8d notes)
+        "all_verified": all_verified,
+        # partial/implemented do not hard-fail a completed run (see PR-8d notes); only the
+        # no-implementation-evidence case degrades.
+        "success_eligible": True,
     }
 
 
@@ -128,13 +153,27 @@ def compute_run_quality_rollup(pool, item_results, *, project_path: str = "") ->
     terminal status when `degraded` is True.
     """
     changed: list[str] = []
+    verified_files: list[str] = []
     for r in item_results:
-        changed += list(getattr(r, "changed_files", []) or [])
+        files = list(getattr(r, "changed_files", []) or [])
+        changed += files
+        # Files are "verified" only when the item completed with a passing verification.
+        vr = getattr(r, "verification_result", {}) or {}
+        if str(getattr(r, "status", "")) == "completed" and str(vr.get("status") or "") == "passed":
+            verified_files += files
     changed = list(dict.fromkeys(changed))
+    verified_files = list(dict.fromkeys(verified_files))
     any_completed = any(str(getattr(r, "status", "")) == "completed" for r in item_results)
 
-    requirements = (getattr(pool, "metadata", {}) or {}).get("requirement_trace") or []
-    coverage = _requirement_coverage(requirements, changed, any_completed)
+    pool_meta = getattr(pool, "metadata", {}) or {}
+    requirements = pool_meta.get("requirement_trace") or []
+    done_definitions: list[str] = []
+    for it in (getattr(pool, "items", []) or []):
+        done_definitions += list(getattr(it, "done_definition", []) or [])
+    coverage = _requirement_coverage(
+        requirements, changed, any_completed,
+        verified_files=verified_files, done_definitions=done_definitions,
+    )
 
     integration_warnings, integration_failed = _integration_scan(project_path, changed)
     placeholder_warnings, placeholder_failed = _placeholder_scan(project_path, changed)
