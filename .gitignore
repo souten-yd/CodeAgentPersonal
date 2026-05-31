@@ -78,3 +78,4 @@ ca_data/atlas/
 ca_data/plans/
 ca_data/requirements/
 ca_data/reviews/
+.claude/
