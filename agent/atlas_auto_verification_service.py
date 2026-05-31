@@ -81,13 +81,16 @@ class AtlasAutoVerificationService:
         is_pytest = str(command_id).startswith("pytest")
         stderr = (getattr(res, "stderr", "") or "") + (getattr(res, "stdout", "") or "")
         if is_pytest:
-            # pytest itself is not installed in the interpreter we ran.
+            # pytest itself is not installed in the interpreter we ran. This is an environment gap the
+            # caller can fix by provisioning the harness (install pytest) and re-verifying.
             if "No module named pytest" in stderr or "No module named 'pytest'" in stderr:
                 return "blocked", ["test_harness_unavailable", "pytest_not_installed"]
-            # pytest exit code 5 = no tests were collected (empty/placeholder test file). That is not
-            # a failing assertion — surface it distinctly instead of as a hard failure.
+            # pytest exit code 5 = no tests were collected: the generated "test" file has no runnable
+            # test functions. That is a generation defect, not success — report it as a failure (with
+            # a specific warning) so the self-correction loop regenerates a real test instead of
+            # silently passing.
             if getattr(res, "returncode", None) == 5:
-                return "blocked", ["no_tests_collected"]
+                return "failed", ["no_tests_collected"]
         # Everything else non-passed (assertion failures, compile errors, timeouts) is a real failure.
         return "failed", []
 

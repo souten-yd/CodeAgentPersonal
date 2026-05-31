@@ -29,6 +29,7 @@ class AtlasMultiItemAutopilotRequest(BaseModel):
     max_retry_attempts_per_item: int = 2
     include_self_correction: bool = True
     self_correction_max_attempts: int = 2
+    include_harness_provisioning: bool = True
     metadata: dict = Field(default_factory=dict)
 
 

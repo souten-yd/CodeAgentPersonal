@@ -37,9 +37,11 @@ def test_classify_pytest_not_installed_is_blocked_not_failed():
     assert "pytest_not_installed" in warns and "test_harness_unavailable" in warns
 
 
-def test_classify_no_tests_collected_is_blocked():
+def test_classify_no_tests_collected_is_failed_for_regeneration():
+    # An empty/placeholder test (pytest exit 5) is a generation defect, not success: it must be a
+    # failure so the self-correction loop regenerates a real test (not silently pass/complete).
     status, warns = _svc()._classify(_Res(status="failed", returncode=5, stderr="no tests ran"), "pytest_file")
-    assert status == "blocked"
+    assert status == "failed"
     assert "no_tests_collected" in warns
 
 
@@ -73,3 +75,31 @@ def test_max_failures_default_raised():
 
     assert AtlasMultiItemAutopilotRequest(pool_id="p").max_failures == 3
     assert AtlasMultiItemAutopilotPolicy(policy_id="x", name="n", description="d").max_failures == 3
+
+
+def test_harness_provisioner_reports_already_present_when_installed():
+    from agent.atlas_test_harness_provisioner import AtlasTestHarnessProvisioner
+
+    p = AtlasTestHarnessProvisioner()
+    # pytest is installed in the test interpreter, so ensure_pytest must short-circuit without
+    # attempting a network install.
+    assert p.pytest_available() is True
+    assert p.ensure_pytest()["status"] == "already_present"
+
+
+def test_harness_provisioner_install_failure_degrades_gracefully(monkeypatch):
+    from agent import atlas_test_harness_provisioner as mod
+
+    p = mod.AtlasTestHarnessProvisioner(timeout_seconds=5)
+    # Force "missing" so it attempts an install, and make the install fail (e.g. no network).
+    monkeypatch.setattr(p, "pytest_available", lambda: False)
+
+    class _Completed:
+        returncode = 1
+        stderr = "Could not find a version / network unreachable"
+        stdout = ""
+
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: _Completed())
+    out = p.ensure_pytest()
+    assert out["status"] == "failed"
+    assert out["reason"] == "pip_install_failed"
