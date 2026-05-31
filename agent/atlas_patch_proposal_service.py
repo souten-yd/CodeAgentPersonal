@@ -60,7 +60,9 @@ class AtlasPatchProposalService:
             # LLM, or fallback). Surface that explicitly so the UI does not report fake success and the
             # autopilot does not silently skip with "missing_patch_or_content".
             _pmeta = proposal.metadata or {}
-            has_content = bool(proposal.unified_diff_preview or _pmeta.get("proposed_content") or _pmeta.get("edits"))
+            _file_changes = _pmeta.get("file_changes") if isinstance(_pmeta.get("file_changes"), list) else []
+            has_file_changes_content = bool(_file_changes) and all(has_file_change_content(fc) for fc in _file_changes)
+            has_content = bool(proposal.unified_diff_preview or _pmeta.get("proposed_content") or _pmeta.get("edits") or has_file_changes_content)
             result = AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="proposed", proposal=proposal, proposal_json_path=json_path, proposal_md_path=md_path, metadata={"patch_content_available": has_content})
             self.mark_item_from_patch_proposal(pool, item, result)
             self.storage.save_pool(pool)

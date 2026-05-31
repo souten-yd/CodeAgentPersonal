@@ -68,6 +68,33 @@ def test_safe_apply_metadata_persisted_for_applied_blocked_failed(tmp_path, adap
         assert safe['actual_file_changed'] is False
 
 
+def test_write_time_failure_metadata_preserves_partial_write_changed_files(tmp_path):
+    adapter_result = {
+        'status': 'failed',
+        'reasons': ['write_failed'],
+        'actual_file_changed': True,
+        'changed_files': ['a.txt'],
+        'partial_write_possible': True,
+        'file_results': [
+            {'path': 'a.txt', 'status': 'applied'},
+            {'path': 'b.txt', 'status': 'failed', 'reason': 'write_failed'},
+        ],
+    }
+    pool = _pool_with_item(target_files=['a.txt', 'b.txt'])
+    svc, storage = _service(tmp_path, adapter_result, pool)
+
+    result = svc.execute_item(AtlasSafeApplyExecutionRequest(pool_id='p1', item_id='i1', run_id='r1'))
+
+    assert result.status == 'failed'
+    item = storage.load_pool('p1').get_item('i1')
+    safe = item.metadata['safe_apply']
+    assert safe['status'] == 'failed'
+    assert safe['partial_write_possible'] is True
+    assert safe['actual_file_changed'] is True
+    assert safe['changed_files'] == ['a.txt']
+    assert safe['file_results'] == adapter_result['file_results']
+
+
 def test_file_changes_are_normalized_and_saved_before_snapshot(tmp_path):
     pool = _pool_with_item(target_files=[], metadata={
         'file_changes': [
