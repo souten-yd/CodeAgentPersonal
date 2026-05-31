@@ -19,10 +19,12 @@ class AtlasAutoVerificationService:
         item = pool.get_item(request.item_id)
         if item is None:
             return AtlasAutoVerificationResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, preset_id=request.preset_id, status="blocked", warnings=["item_not_found"], plan_pool=pool.model_dump())
-        safe = ((item.metadata or {}).get("safe_apply") or {}).get("status")
+        safe_apply_meta = ((item.metadata or {}).get("safe_apply") or {})
+        safe = safe_apply_meta.get("status")
         auto_safe = ((item.metadata or {}).get("auto_safe_apply") or {}).get("status")
         if str(safe or "").lower() != "applied" and str(auto_safe or "").lower() != "applied":
-            return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status="skipped", warnings=["safe_apply_not_applied"], plan_pool=pool.model_dump())
+            explanation = self._safe_apply_explanation(safe_apply_meta)
+            return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status="skipped", warnings=["safe_apply_not_applied", *list(explanation.get("reasons") or [])], metadata={"safe_apply_not_applied": explanation}, plan_pool=pool.model_dump(), orchestration_summary={"safe_apply_not_applied": explanation})
 
         workspace_root = str(getattr(pool, "project_path", "") or "").strip()
         if not workspace_root:
@@ -104,7 +106,20 @@ class AtlasAutoVerificationService:
 
     def _blocked(self, pool, item_id: str, request: AtlasAutoVerificationRequest, reason: str):
         self._append_event(pool.pool_id, request.run_id, "auto_verification_blocked", item_id, status="blocked", warnings=[reason])
-        return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item_id, run_id=request.run_id, preset_id=request.preset_id, status="blocked", warnings=[reason], errors=[reason], plan_pool=pool.model_dump())
+        item = pool.get_item(item_id)
+        safe_apply_meta = ((item.metadata or {}).get("safe_apply") or {}) if item is not None else {}
+        metadata = {"safe_apply": self._safe_apply_explanation(safe_apply_meta)}
+        return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item_id, run_id=request.run_id, preset_id=request.preset_id, status="blocked", warnings=[reason], errors=[reason], metadata=metadata, plan_pool=pool.model_dump())
+
+    @staticmethod
+    def _safe_apply_explanation(safe_apply_meta: dict) -> dict:
+        return {
+            "status": str(safe_apply_meta.get("status") or ""),
+            "reasons": list(safe_apply_meta.get("reasons") or []),
+            "changed_files": list(safe_apply_meta.get("changed_files") or []),
+            "file_results": list(safe_apply_meta.get("file_results") or []),
+            "actual_file_changed": bool(safe_apply_meta.get("actual_file_changed", False)),
+        }
 
     def _append_event(self, pool_id: str, run_id: str, event_type: str, item_id: str, *, status: str, warnings: list[str] | None = None):
         if not run_id:

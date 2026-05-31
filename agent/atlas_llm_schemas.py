@@ -11,6 +11,33 @@ RISK_LEVELS = ["low", "medium", "high", "critical"]
 PLAN_ACTION_TYPES = ["create", "update", "delete", "inspect", "run_command", "test"]
 
 
+FILE_CHANGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "change_id": {"type": "string"},
+        "path": {"type": "string"},
+        "action_type": {"type": "string", "enum": ["create", "update"]},
+        "content_mode": {"type": "string", "enum": ["full_content", "unified_diff", "edits", "append"]},
+        "proposed_content": {"type": "string"},
+        "patch": {"type": "string"},
+        "unified_diff_preview": {"type": "string"},
+        "edits": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"old_string": {"type": "string"}, "new_string": {"type": "string"}},
+                "required": ["old_string", "new_string"],
+                "additionalProperties": True,
+            },
+        },
+        "append_content": {"type": "string"},
+        "metadata": {"type": "object", "additionalProperties": True},
+    },
+    "required": ["path", "action_type"],
+    "additionalProperties": True,
+}
+
+
 def patch_proposal_json_schema(*, require_content: bool = False) -> dict:
     """Schema for a single patch proposal.
 
@@ -26,6 +53,7 @@ def patch_proposal_json_schema(*, require_content: bool = False) -> dict:
         "root_cause": {"type": "string"},
         "proposed_fix": {"type": "string"},
         "target_files": {"type": "array", "items": {"type": "string"}},
+        "file_changes": {"type": "array", "items": FILE_CHANGE_SCHEMA},
         "proposed_content": {"type": "string"},
         "edits": {
             "type": "array",
@@ -60,6 +88,7 @@ def plan_generation_json_schema() -> dict:
             "title": {"type": "string"},
             "description": {"type": "string"},
             "target_files": {"type": "array", "items": {"type": "string"}},
+            "file_changes": {"type": "array", "items": FILE_CHANGE_SCHEMA},
             "action_type": {"type": "string", "enum": PLAN_ACTION_TYPES},
             "risk_level": {"type": "string", "enum": ["low", "medium", "high"]},
             "verification": {"type": "string"},

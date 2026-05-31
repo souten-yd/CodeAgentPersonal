@@ -59,6 +59,25 @@ def test_auto_verification_blocks_missing_project_path(tmp_path):
     assert 'project_path_missing' in (r.warnings + r.errors)
 
 
+def test_auto_verification_safe_apply_not_applied_includes_safe_apply_details(tmp_path):
+    storage, journal, pool, item = _setup(tmp_path)
+    item.metadata['safe_apply'] = {
+        'status': 'blocked',
+        'reasons': ['multi_file_preflight_failed'],
+        'file_results': [{'path': 'style.css', 'status': 'blocked', 'reason': 'content_missing'}],
+        'changed_files': [],
+        'actual_file_changed': False,
+    }
+    storage.save_pool(pool)
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=_runner())
+    r = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id='r1'))
+    assert r.status == 'skipped'
+    assert 'safe_apply_not_applied' in r.warnings
+    summary = r.orchestration_summary['safe_apply_not_applied']
+    assert summary['reasons'] == ['multi_file_preflight_failed']
+    assert summary['file_results'][0]['reason'] == 'content_missing'
+
+
 def test_auto_verification_passes_allowlisted_pytest(tmp_path):
     (tmp_path / 'tests').mkdir(parents=True, exist_ok=True)
     (tmp_path / 'tests' / 'test_ok.py').write_text('def test_ok():\n    assert True\n', encoding='utf-8')

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from agent.atlas_change_snapshot_schema import AtlasChangeSnapshot, AtlasChangeSnapshotFile, AtlasChangeSnapshotResult
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_plan_item_file_changes import normalize_plan_item_file_changes, validate_protected_relative_path
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 
 
@@ -24,13 +25,8 @@ class AtlasChangeSnapshotService:
         return Path(self.journal.root_dir) / 'atlas' / 'workspaces' / workspace_id
 
     def validate_target_path(self, path: str) -> tuple[bool, str]:
-        v = str(path or '').strip()
-        if not v:
-            return False, 'empty_target_path'
-        pp = Path(v)
-        if pp.is_absolute() or '..' in pp.parts:
-            return False, 'unsafe_target_path'
-        return True, ''
+        ok, reason, _ = validate_protected_relative_path(path)
+        return ok, reason
 
     def copy_file_to_snapshot(self, src: Path, dst: Path):
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -68,6 +64,10 @@ class AtlasChangeSnapshotService:
         item = pool.get_item(item_id)
         if item is None:
             return AtlasChangeSnapshotResult(pool_id=pool_id, item_id=item_id, run_id=run_id, status='blocked', warnings=['item_not_found'])
+        norm = normalize_plan_item_file_changes(item)
+        if norm.get('changed'):
+            self.storage.save_pool(pool)
+            self.journal.save_plan_pool(pool)
         target_files = list(item.target_files or [])
         if not target_files:
             if run_id:

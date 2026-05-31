@@ -4,6 +4,14 @@ import re
 from pathlib import Path
 
 from agent.atlas_action_type import normalize_action_type
+from agent.atlas_plan_item_file_changes import (
+    ALLOWED_FILE_CHANGE_ACTIONS,
+    FORBIDDEN_FILE_CHANGE_ACTIONS,
+    has_file_change_content,
+    infer_content_mode,
+    normalize_plan_item_file_changes,
+    validate_protected_relative_path,
+)
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 
 _MAX_CONTENT_BYTES = 1024 * 1024
@@ -17,18 +25,24 @@ class AtlasFileSafeApplyExecutor:
         self.workspace_root = Path(workspace_root).resolve()
 
     def apply_plan_item_safe(self, *, item: AtlasPlanItem, pool: AtlasPlanPool) -> dict:
+        normalize_plan_item_file_changes(item)
+        if str(item.risk_level or "").strip().lower() == "critical":
+            return self._blocked("critical_risk_not_allowed")
+        file_changes = (item.metadata or {}).get("file_changes")
+        if isinstance(file_changes, list) and file_changes:
+            return self._apply_file_changes_safe(item=item, pool=pool, file_changes=file_changes)
         action_type = str((item.metadata or {}).get("action_type") or "").strip().lower()
-        if action_type in {"delete", "run_command"}:
+        if action_type in FORBIDDEN_FILE_CHANGE_ACTIONS:
             return self._blocked("forbidden_action_type")
-        if action_type not in {"update", "create"}:
+        if action_type not in ALLOWED_FILE_CHANGE_ACTIONS:
             return self._blocked("unsupported_action_type")
         if len(item.target_files or []) != 1:
-            return self._blocked("single_target_file_required")
+            return self._blocked("multi_file_item_requires_file_changes")
 
         rel_target = str(item.target_files[0] or "").strip()
-        target = self._safe_target_path(rel_target)
+        target, path_reason = self._safe_target_path(rel_target)
         if target is None:
-            return self._blocked("unsafe_target_path")
+            return self._blocked(path_reason or "unsafe_target_path")
 
         existed = target.exists()
         current_text = ""
@@ -68,24 +82,149 @@ class AtlasFileSafeApplyExecutor:
             "status": "applied",
             "actual_file_changed": True,
             "changed_files": [rel_target],
+            "file_results": [{
+                "change_id": "fc_" + rel_target.replace("/", "_").replace("\\", "_"),
+                "path": rel_target,
+                "status": "applied",
+                "action_type": action_type,
+                "content_mode": parse.get("mode", "content"),
+                "mode": parse.get("mode", "content"),
+            }],
             "summary": f"{effective_action} ({parse.get('mode', 'content')}) applied to {rel_target}",
         }
 
-    def _safe_target_path(self, rel_path: str) -> Path | None:
-        if not rel_path:
-            return None
-        p = Path(rel_path)
-        if p.is_absolute() or ".." in p.parts:
-            return None
-        resolved = (self.workspace_root / p).resolve()
-        try:
-            resolved.relative_to(self.workspace_root)
-        except ValueError:
-            return None
-        return resolved
+    def _apply_file_changes_safe(self, *, item: AtlasPlanItem, pool: AtlasPlanPool, file_changes: list) -> dict:
+        preflight = self._preflight_file_changes(item=item, file_changes=file_changes)
+        ready_results = preflight["file_results"]
+        reasons = list(preflight["reasons"])
+        if reasons:
+            return {
+                "status": "blocked",
+                "actual_file_changed": False,
+                "changed_files": [],
+                "reasons": list(dict.fromkeys(["multi_file_preflight_failed", *reasons])),
+                "file_results": [self._public_file_result(result) for result in ready_results],
+                "summary": "multi-file preflight failed",
+            }
+
+        changed_files: list[str] = []
+        applied_results: list[dict] = []
+        for ready in ready_results:
+            path = str(ready.get("path") or "")
+            target = ready.get("_target")
+            content = str(ready.get("_content") or "")
+            result = self._public_file_result(ready)
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+            except Exception as exc:  # noqa: BLE001
+                result.update({"status": "failed", "reason": "write_failed", "error": str(exc) or exc.__class__.__name__})
+                applied_results.append(result)
+                return {
+                    "status": "failed",
+                    "actual_file_changed": bool(changed_files),
+                    "changed_files": changed_files,
+                    "reasons": ["write_failed"],
+                    "errors": [str(exc) or exc.__class__.__name__],
+                    "partial_write_possible": True,
+                    "file_results": applied_results + [
+                        self._public_file_result(rest)
+                        for rest in ready_results[len(applied_results):]
+                    ],
+                    "summary": "multi-file apply failed during write",
+                }
+            result["status"] = "applied"
+            applied_results.append(result)
+            changed_files.append(path)
+
+        return {
+            "status": "applied",
+            "actual_file_changed": bool(changed_files),
+            "changed_files": changed_files,
+            "file_results": applied_results,
+            "summary": "multi-file apply completed",
+        }
+
+    def _preflight_file_changes(self, *, item: AtlasPlanItem, file_changes: list) -> dict:
+        file_results: list[dict] = []
+        reasons: list[str] = []
+        raw_paths = [str(fc.get("path") or "").strip().replace("\\", "/") if isinstance(fc, dict) else "" for fc in file_changes]
+        duplicate_paths = {p for p in raw_paths if p and raw_paths.count(p) > 1}
+
+        for index, raw in enumerate(file_changes, start=1):
+            if not isinstance(raw, dict):
+                file_results.append({"change_id": f"fc_{index}", "path": "", "status": "blocked", "reason": "invalid_file_change"})
+                reasons.append("invalid_file_change")
+                continue
+            change = dict(raw)
+            path = str(change.get("path") or "").strip().replace("\\", "/")
+            action_type = normalize_action_type(change.get("action_type") or (item.metadata or {}).get("action_type"))
+            change_id = str(change.get("change_id") or f"fc_{index}").strip()
+            content_mode = str(change.get("content_mode") or infer_content_mode(change) or "").strip()
+            base_result = {"change_id": change_id, "path": path, "status": "ready", "action_type": action_type}
+            if content_mode:
+                base_result.update({"content_mode": content_mode, "mode": content_mode})
+
+            if path in duplicate_paths:
+                self._mark_blocked_file(file_results, reasons, base_result, "duplicate_file_change_path")
+                continue
+            target, path_reason = self._safe_target_path(path)
+            if target is None:
+                self._mark_blocked_file(file_results, reasons, base_result, path_reason or "unsafe_target_path")
+                continue
+            if action_type in FORBIDDEN_FILE_CHANGE_ACTIONS:
+                self._mark_blocked_file(file_results, reasons, base_result, "forbidden_action_type")
+                continue
+            if action_type not in ALLOWED_FILE_CHANGE_ACTIONS:
+                self._mark_blocked_file(file_results, reasons, base_result, "unsupported_action_type")
+                continue
+            existed = target.exists()
+            current_text = ""
+            if existed:
+                try:
+                    current_text = target.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    self._mark_blocked_file(file_results, reasons, base_result, "target_unreadable")
+                    continue
+            if action_type == "update" and not existed:
+                self._mark_blocked_file(file_results, reasons, base_result, "update_target_missing")
+                continue
+            if not has_file_change_content(change):
+                self._mark_blocked_file(file_results, reasons, base_result, "content_missing")
+                continue
+
+            parse = self._resolve_content_from_metadata(change, current_text=current_text, target_exists=existed)
+            if parse["status"] != "ok":
+                self._mark_blocked_file(file_results, reasons, base_result, parse["reason"])
+                continue
+            content = parse["content"]
+            mode = str(parse.get("mode") or content_mode or "content")
+            if len(content.encode("utf-8")) > _MAX_CONTENT_BYTES:
+                self._mark_blocked_file(file_results, reasons, {**base_result, "content_mode": mode, "mode": mode}, "content_too_large")
+                continue
+            if existed and content == current_text:
+                self._mark_blocked_file(file_results, reasons, {**base_result, "content_mode": mode, "mode": mode}, "no_effective_change")
+                continue
+            file_results.append({
+                **base_result,
+                "content_mode": mode,
+                "mode": mode,
+                "_target": target,
+                "_content": content,
+            })
+        return {"file_results": file_results, "reasons": list(dict.fromkeys(reasons))}
+
+    def _safe_target_path(self, rel_path: str) -> tuple[Path | None, str]:
+        ok, reason, resolved = validate_protected_relative_path(rel_path, workspace_root=self.workspace_root)
+        if not ok:
+            return None, reason
+        return resolved, ""
 
     def _resolve_content(self, item: AtlasPlanItem, *, current_text: str = "", target_exists: bool = False) -> dict:
         metadata = item.metadata or {}
+        return self._resolve_content_from_metadata(metadata, current_text=current_text, target_exists=target_exists)
+
+    def _resolve_content_from_metadata(self, metadata: dict, *, current_text: str = "", target_exists: bool = False) -> dict:
         patch_proposal = metadata.get("patch_proposal") if isinstance(metadata.get("patch_proposal"), dict) else {}
 
         # 1. Surgical string-replacement edits (old -> new), like Claude Code's Edit. Applied against
@@ -227,3 +366,15 @@ class AtlasFileSafeApplyExecutor:
     @staticmethod
     def _blocked(reason: str) -> dict:
         return {"status": "blocked", "actual_file_changed": False, "changed_files": [], "reasons": [reason]}
+
+    @staticmethod
+    def _mark_blocked_file(file_results: list[dict], reasons: list[str], base_result: dict, reason: str) -> None:
+        blocked = dict(base_result)
+        blocked.update({"status": "blocked", "reason": reason})
+        file_results.append(blocked)
+        if reason:
+            reasons.append(reason)
+
+    @staticmethod
+    def _public_file_result(result: dict) -> dict:
+        return {k: v for k, v in result.items() if not str(k).startswith("_")}

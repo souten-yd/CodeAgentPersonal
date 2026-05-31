@@ -33,16 +33,24 @@ class AtlasSafeApplyAdapter:
         item: AtlasPlanItem,
         pool: AtlasPlanPool,
         patch_metadata: dict | None = None,
+        preset_id: str | None = None,
     ) -> AtlasSafeApplyResult:
         result = AtlasSafeApplyResult(pool_id=pool.pool_id, item_id=item.item_id, status="skipped", decision="allow")
         action_type = self._action_type(item)
         approval_needed = False
 
-        if (item.risk_level or "").lower() != "low":
-            self._add(result.reasons, "only low risk items can be evaluated for guarded apply")
+        allowed_risks = {"low", "medium", "high"} if preset_id == "full_auto" else {"low"}
+        risk = (item.risk_level or "").lower()
+        if risk == "critical":
+            self._add(result.reasons, "critical_risk_not_allowed")
             self._add(result.categories, "non_low_risk")
             return self._blocked(result)
-        self._add(result.categories, "low_risk")
+        if risk not in allowed_risks:
+            self._add(result.reasons, "risk_not_allowed")
+            self._add(result.categories, "non_low_risk")
+            return self._blocked(result)
+        if risk == "low":
+            self._add(result.categories, "low_risk")
 
         if item.status in _TERMINAL_ITEM_STATUSES:
             self._add(result.reasons, f"item status is {item.status}")
@@ -72,8 +80,11 @@ class AtlasSafeApplyAdapter:
             self._add(result.categories, "policy_blocked")
             return self._blocked(result)
         if item_evaluation.decision == "require_approval":
-            approval_needed = True
-            self._add(result.categories, "policy_requires_approval")
+            if preset_id == "full_auto" and risk in {"medium", "high"}:
+                self._add(result.categories, "approval_present")
+            else:
+                approval_needed = True
+                self._add(result.categories, "policy_requires_approval")
 
         if patch_metadata:
             patch_evaluation = self.policy_gate.evaluate_patch_metadata(item, patch_metadata)
@@ -94,7 +105,7 @@ class AtlasSafeApplyAdapter:
             self._add(result.categories, "protected_path")
             result.warnings.extend(protected_files)
 
-        if item.requires_user_confirmation:
+        if item.requires_user_confirmation and not (preset_id == "full_auto" and risk in {"medium", "high"}):
             approval_needed = True
             self._add(result.reasons, "item requires user confirmation")
             self._add(result.categories, "policy_requires_approval")
@@ -120,7 +131,7 @@ class AtlasSafeApplyAdapter:
     ) -> AtlasSafeApplyResult:
         safe_request = request or AtlasSafeApplyRequest(pool_id=pool.pool_id, item_id=item.item_id)
         evaluate_method = getattr(self, "evaluate_" + "safe_apply")
-        result = evaluate_method(item, pool, patch_metadata=patch_metadata)
+        result = evaluate_method(item, pool, patch_metadata=patch_metadata, preset_id=str((safe_request.metadata or {}).get("preset_id") or ""))
         result.metadata["request"] = self._dict_result(safe_request)
 
         if result.decision == "block":

@@ -35,7 +35,10 @@ def test_full_auto_preset_allows_medium_and_high():
 
 
 def test_full_auto_preset_still_blocks_critical():
-    assert _decide("critical", "full_auto") == "block"
+    gate = AtlasAutomationGateService()
+    decision = gate.decide_pre_safe_apply(_pool(), _item("critical"), atlas_auto_policy_presets()["full_auto"])
+    assert decision.decision == "block"
+    assert "critical_risk_not_allowed" in decision.reasons
 
 
 def test_guarded_preset_still_blocks_medium_high():

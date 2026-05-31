@@ -39,6 +39,170 @@ def test_create_makes_new_file(tmp_path):
     assert (Path(tmp_path) / 'new.txt').read_text(encoding='utf-8') == 'abc\n'
 
 
+def test_multi_file_apply_success(tmp_path):
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(
+        item_id='i1',
+        pool_id='p1',
+        title='t',
+        goal='g',
+        item_type='implementation',
+        risk_level='low',
+        status='ready',
+        target_files=['index.html'],
+        metadata={
+            'action_type': 'create',
+            'file_changes': [
+                {'change_id': 'fc_index', 'path': 'index.html', 'action_type': 'create', 'proposed_content': '<!doctype html>\n'},
+                {'change_id': 'fc_css', 'path': 'style.css', 'action_type': 'create', 'proposed_content': 'body{}\n'},
+            ],
+        },
+    )
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'applied'
+    assert out['changed_files'] == ['index.html', 'style.css']
+    assert [r['status'] for r in out['file_results']] == ['applied', 'applied']
+    assert (Path(tmp_path) / 'index.html').read_text(encoding='utf-8') == '<!doctype html>\n'
+    assert (Path(tmp_path) / 'style.css').read_text(encoding='utf-8') == 'body{}\n'
+    assert item.target_files == ['index.html', 'style.css']
+
+
+def test_multi_file_requires_file_changes(tmp_path):
+    pool, item = _pool_and_item(tmp_path, action_type='create', target='index.html', metadata={'proposed_content': '<!doctype html>\n'})
+    item.target_files = ['index.html', 'style.css']
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'blocked'
+    assert 'multi_file_item_requires_file_changes' in out['reasons']
+
+
+def test_multi_file_duplicate_path_blocks_without_writes(tmp_path):
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'create',
+        'file_changes': [
+            {'path': 'a.txt', 'action_type': 'create', 'proposed_content': 'one\n'},
+            {'path': 'a.txt', 'action_type': 'create', 'proposed_content': 'two\n'},
+        ],
+    })
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'blocked'
+    assert 'duplicate_file_change_path' in out['reasons']
+    assert not (Path(tmp_path) / 'a.txt').exists()
+
+
+def test_critical_risk_blocks_even_with_valid_file_changes(tmp_path):
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='critical', status='ready', metadata={
+        'action_type': 'create',
+        'file_changes': [{'path': 'a.txt', 'action_type': 'create', 'proposed_content': 'a\n'}],
+    })
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'blocked'
+    assert 'critical_risk_not_allowed' in out['reasons']
+    assert not (Path(tmp_path) / 'a.txt').exists()
+
+
+def test_multi_file_preflight_atomicity_content_missing(tmp_path):
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'create',
+        'file_changes': [
+            {'path': 'a.txt', 'action_type': 'create', 'proposed_content': 'a\n'},
+            {'path': 'b.txt', 'action_type': 'create'},
+            {'path': 'c.txt', 'action_type': 'create', 'proposed_content': 'c\n'},
+        ],
+    })
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'blocked'
+    assert 'multi_file_preflight_failed' in out['reasons']
+    assert any(r.get('reason') == 'content_missing' for r in out['file_results'])
+    assert not (Path(tmp_path) / 'a.txt').exists()
+    assert not (Path(tmp_path) / 'c.txt').exists()
+
+
+def test_multi_file_unsafe_path_atomicity(tmp_path):
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'create',
+        'file_changes': [
+            {'path': 'safe.txt', 'action_type': 'create', 'proposed_content': 'safe\n'},
+            {'path': '../evil.txt', 'action_type': 'create', 'proposed_content': 'evil\n'},
+        ],
+    })
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'blocked'
+    assert 'unsafe_target_path' in out['reasons']
+    assert not (Path(tmp_path) / 'safe.txt').exists()
+
+
+def test_multi_file_update_target_missing_blocks_without_writes(tmp_path):
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'update',
+        'file_changes': [{'path': 'missing.txt', 'action_type': 'update', 'proposed_content': 'x\n'}],
+    })
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'blocked'
+    assert 'update_target_missing' in out['reasons']
+
+
+def test_multi_file_no_effective_change_blocks_without_writes(tmp_path):
+    (Path(tmp_path) / 'a.txt').write_text('same\n', encoding='utf-8')
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'update',
+        'file_changes': [
+            {'path': 'a.txt', 'action_type': 'update', 'proposed_content': 'same\n'},
+            {'path': 'b.txt', 'action_type': 'create', 'proposed_content': 'b\n'},
+        ],
+    })
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'blocked'
+    assert 'no_effective_change' in out['reasons']
+    assert not (Path(tmp_path) / 'b.txt').exists()
+
+
+def test_multi_file_diagnoses_all_file_changes(tmp_path):
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'create',
+        'file_changes': [
+            {'path': '../bad.txt', 'action_type': 'create', 'proposed_content': 'bad\n'},
+            {'path': 'missing.txt', 'action_type': 'update', 'proposed_content': 'x\n'},
+            {'path': 'empty.txt', 'action_type': 'create'},
+        ],
+    })
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    reasons = [r.get('reason') for r in out['file_results']]
+    assert 'unsafe_target_path' in reasons
+    assert 'update_target_missing' in reasons
+    assert 'content_missing' in reasons
+
+
+def test_multi_file_write_failure_reports_failed_partial_possible(tmp_path, monkeypatch):
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'create',
+        'file_changes': [
+            {'path': 'a.txt', 'action_type': 'create', 'proposed_content': 'a\n'},
+            {'path': 'b.txt', 'action_type': 'create', 'proposed_content': 'b\n'},
+        ],
+    })
+    original_write_text = Path.write_text
+
+    def fail_on_b(self, *args, **kwargs):
+        if self.name == 'b.txt':
+            raise OSError('disk full')
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'write_text', fail_on_b)
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'failed'
+    assert out['partial_write_possible'] is True
+    assert out['changed_files'] == ['a.txt']
+    assert any(r.get('reason') == 'write_failed' for r in out['file_results'])
+
+
 def test_unsupported_patch_is_blocked(tmp_path):
     f = Path(tmp_path) / 'doc.txt'; f.write_text('old\n', encoding='utf-8')
     pool, item = _pool_and_item(tmp_path, metadata={'patch': 'not a diff'})

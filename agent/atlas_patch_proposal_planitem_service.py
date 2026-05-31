@@ -11,6 +11,7 @@ from agent.atlas_patch_proposal_planitem_schema import (
     AtlasPatchProposalPlanItemDraftRequest,
     AtlasPatchProposalPlanItemDraftResult,
 )
+from agent.atlas_plan_item_file_changes import DEFAULT_CHANGE_SET, normalize_plan_item_file_changes
 from agent.atlas_plan_pool_schema import AtlasPlanItem
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 
@@ -124,12 +125,19 @@ class AtlasPatchProposalPlanItemDraftService:
             "target_files": list(patch.get("target_files") or []),
             "risk_level": str(patch.get("risk_level") or ""),
         }
+        patch_metadata = patch.get("metadata") if isinstance(patch.get("metadata"), dict) else {}
+        file_changes = patch.get("file_changes") if isinstance(patch.get("file_changes"), list) else patch_metadata.get("file_changes")
+        if isinstance(file_changes, list) and file_changes:
+            metadata["file_changes"] = [dict(fc) for fc in file_changes if isinstance(fc, dict)]
+            metadata["change_set"] = {**DEFAULT_CHANGE_SET, **(patch_metadata.get("change_set") if isinstance(patch_metadata.get("change_set"), dict) else {}), "change_set_id": f"cs_{draft_item_id}"}
+            patch_proposal_metadata["file_changes"] = metadata["file_changes"]
+            patch_proposal_metadata["change_set"] = metadata["change_set"]
         if proposed_content:
             patch_proposal_metadata["proposed_content"] = proposed_content
         if diff_preview:
             patch_proposal_metadata["unified_diff_preview"] = diff_preview
         metadata["patch_proposal"] = patch_proposal_metadata
-        return AtlasPlanItem(
+        draft = AtlasPlanItem(
             item_id=draft_item_id,
             pool_id=pool.pool_id,
             title=title,
@@ -148,6 +156,8 @@ class AtlasPatchProposalPlanItemDraftService:
             linked_run_id=request.run_id,
             metadata=metadata,
         )
+        normalize_plan_item_file_changes(draft)
+        return draft
 
     def save_draft_record(self, pool_id, item_id, draft) -> tuple[str, str]:
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

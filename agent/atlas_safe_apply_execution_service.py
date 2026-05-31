@@ -6,6 +6,7 @@ from pathlib import Path
 
 from agent.atlas_change_snapshot_service import AtlasChangeSnapshotService
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_plan_item_file_changes import normalize_plan_item_file_changes
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
@@ -27,8 +28,15 @@ class AtlasSafeApplyExecutionService:
         if item is None:
             self._append_event(pool.pool_id, request.run_id, 'safe_apply_manual_blocked', None, status='blocked', warnings=['item_not_found'])
             return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=request.item_id, run_id=request.run_id, status='blocked', warnings=['item_not_found'], plan_pool=pool.model_dump(), safe_apply_result={'decision': 'block', 'status': 'blocked', 'reasons': ['item_not_found']})
+        norm = normalize_plan_item_file_changes(item)
+        if norm.get('changed'):
+            self.storage.save_pool(pool)
+            self.journal.save_plan_pool(pool)
         ok, warnings = self.validate_item_for_safe_apply(pool, item, request=request)
         if not ok:
+            self.persist_safe_apply_metadata(item, {'status': 'blocked', 'reasons': warnings, 'actual_file_changed': False, 'changed_files': [], 'file_results': []}, change_snapshot={})
+            self.storage.save_pool(pool)
+            self.journal.save_plan_pool(pool)
             self._append_event(pool.pool_id, request.run_id, 'safe_apply_manual_blocked', item, status='blocked', warnings=warnings)
             return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status='blocked', warnings=warnings, plan_pool=pool.model_dump(), safe_apply_result={'decision': 'block', 'status': 'blocked', 'reasons': warnings})
 
@@ -46,11 +54,20 @@ class AtlasSafeApplyExecutionService:
                 'workspace_root': str(self.change_snapshot_service.resolve_workspace_root(request.workspace_id)),
             }
         if snapshot_result.status in {'blocked', 'failed'}:
+            snapshot_reasons = list(snapshot_result.warnings or ['change_snapshot_failed'])
+            self.persist_safe_apply_metadata(item, {'status': 'blocked', 'reasons': snapshot_reasons, 'actual_file_changed': False, 'changed_files': [], 'file_results': []}, change_snapshot=snapshot_meta)
+            self.storage.save_pool(pool)
+            self.journal.save_plan_pool(pool)
             self._append_event(pool.pool_id, request.run_id, 'safe_apply_manual_blocked', item, status='blocked', warnings=list(snapshot_result.warnings or ['change_snapshot_failed']))
             return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status='blocked', warnings=list(snapshot_result.warnings or ['change_snapshot_failed']), plan_pool=pool.model_dump(), safe_apply_result={'decision': 'block', 'status': 'blocked', 'reasons': list(snapshot_result.warnings or ['change_snapshot_failed']), 'change_snapshot': snapshot_meta}, metadata={'change_snapshot': snapshot_meta})
 
-        apply_result = self.safe_apply_adapter.apply_low_risk_item(item, pool, request=AtlasSafeApplyRequest(pool_id=pool.pool_id, item_id=item.item_id, dry_run=request.dry_run, require_approval=False, allow_simulation_without_executor=True, metadata=dict(request.metadata or {})))
+        apply_metadata = dict(request.metadata or {})
+        apply_result = self.safe_apply_adapter.apply_low_risk_item(item, pool, request=AtlasSafeApplyRequest(pool_id=pool.pool_id, item_id=item.item_id, dry_run=request.dry_run, require_approval=False, allow_simulation_without_executor=True, metadata=apply_metadata))
         result_payload = apply_result.model_dump() if hasattr(apply_result, 'model_dump') else dict(apply_result)
+        executor_result = dict(result_payload.get('executor_result') or {})
+        for key in ('actual_file_changed', 'changed_files', 'file_results', 'partial_write_possible'):
+            if key in executor_result and key not in result_payload:
+                result_payload[key] = executor_result.get(key)
         executor_connected = self.safe_apply_adapter is not None and self.safe_apply_adapter.implementation_executor is not None
         result_payload.setdefault('executor_connected', executor_connected)
         result_payload.setdefault('actual_file_changed', bool(result_payload.get('status') == 'applied'))
@@ -79,11 +96,11 @@ class AtlasSafeApplyExecutionService:
         else:
             event_type = 'safe_apply_manual_failed'
         self._append_event(pool.pool_id, request.run_id, event_type, item, status=status, warnings=reasons, execution_record_json=json_path, execution_record_md=md_path)
-        item.metadata.setdefault('safe_apply', {})
-        item.metadata['safe_apply'].update({'change_snapshot_id': snapshot_meta.get('snapshot_id', ''), 'change_snapshot_manifest_path': snapshot_meta.get('manifest_path', '')})
+        self.persist_safe_apply_metadata(item, {**result_payload, 'status': status, 'reasons': reasons}, change_snapshot=snapshot_meta)
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
-        return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status=status, safe_apply_result={**result_payload, 'decision': 'allow' if status == 'applied' else 'block', 'status': status, 'reasons': reasons, 'change_snapshot': snapshot_meta}, plan_pool=pool.model_dump(), warnings=reasons, metadata={'execution_record_json': json_path, 'execution_record_md': md_path, 'workspace_root': str(getattr(getattr(self.safe_apply_adapter, 'implementation_executor', None), 'workspace_root', '')), 'change_snapshot': snapshot_meta, 'executor_result': {'actual_file_changed': bool(result_payload.get('actual_file_changed')), 'changed_files': list(result_payload.get('changed_files') or [])}})
+        executor_meta = {'actual_file_changed': bool(result_payload.get('actual_file_changed')), 'changed_files': list(result_payload.get('changed_files') or []), 'file_results': list(result_payload.get('file_results') or [])}
+        return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status=status, safe_apply_result={**result_payload, 'decision': 'allow' if status == 'applied' else 'block', 'status': status, 'reasons': reasons, 'change_snapshot': snapshot_meta}, plan_pool=pool.model_dump(), warnings=reasons, metadata={'execution_record_json': json_path, 'execution_record_md': md_path, 'workspace_root': str(getattr(getattr(self.safe_apply_adapter, 'implementation_executor', None), 'workspace_root', '')), 'change_snapshot': snapshot_meta, 'executor_result': executor_meta})
 
     def validate_item_for_safe_apply(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasSafeApplyExecutionRequest | None = None):
         warnings: list[str] = []
@@ -92,16 +109,26 @@ class AtlasSafeApplyExecutionService:
         dry_run = bool(request.dry_run) if request is not None else False
         if self.safe_apply_adapter.implementation_executor is None and not dry_run:
             return False, ['safe_apply_executor_unavailable']
-        if str(((item.metadata or {}).get('approval') or {}).get('decision') or '').lower() != 'approved':
+        preset_id = str(((request.metadata or {}) if request is not None else {}).get('preset_id') or '').lower()
+        if preset_id != 'full_auto' and str(((item.metadata or {}).get('approval') or {}).get('decision') or '').lower() != 'approved':
             warnings.append('approval_not_approved')
-        if str(item.risk_level or '').lower() != 'low':
+        risk = str(item.risk_level or '').lower()
+        if risk == 'critical':
+            warnings.append('critical_risk_not_allowed')
+        elif preset_id == 'full_auto':
+            if risk not in {'low', 'medium', 'high'}:
+                warnings.append('risk_not_allowed')
+        elif risk != 'low':
             warnings.append('risk_not_low')
         action_type = str((item.metadata or {}).get('action_type') or '').lower()
         if action_type in {'delete', 'run_command'}:
             warnings.append('forbidden_action_type')
         if item.item_type not in {'implementation', 'documentation'}:
             warnings.append('unsupported_item_type')
-        evaluation = self.safe_apply_adapter.evaluate_safe_apply(item, pool)
+        try:
+            evaluation = self.safe_apply_adapter.evaluate_safe_apply(item, pool, preset_id=preset_id)
+        except TypeError:
+            evaluation = self.safe_apply_adapter.evaluate_safe_apply(item, pool)
         if evaluation.decision != 'allow':
             warnings.append('safe_apply_blocked')
         return len(warnings) == 0, warnings
@@ -136,6 +163,25 @@ class AtlasSafeApplyExecutionService:
             })
         item.metadata['safe_apply'].update(safe_apply_meta)
 
+    def persist_safe_apply_metadata(self, item: AtlasPlanItem, result: dict, *, change_snapshot: dict | None = None) -> None:
+        item.metadata.setdefault('safe_apply', {})
+        status = str(result.get('status') or 'failed')
+        actual = bool(result.get('actual_file_changed')) if status == 'applied' else False
+        safe_apply_meta = {
+            'status': status,
+            'applied_at': datetime.now(timezone.utc).isoformat(),
+            'reasons': list(result.get('reasons') or []),
+            'changed_files': list(result.get('changed_files') or []) if actual else [],
+            'file_results': list(result.get('file_results') or []),
+            'actual_file_changed': actual,
+            'change_set_id': str(((item.metadata or {}).get('change_set') or {}).get('change_set_id') or ''),
+            'change_snapshot_id': (change_snapshot or {}).get('snapshot_id', ''),
+            'change_snapshot_manifest_path': (change_snapshot or {}).get('manifest_path', ''),
+        }
+        if result.get('partial_write_possible'):
+            safe_apply_meta['partial_write_possible'] = True
+        item.metadata['safe_apply'].update(safe_apply_meta)
+
     def save_execution_record(self, pool_id, item_id, *, request: AtlasSafeApplyExecutionRequest, item: AtlasPlanItem, status: str, result: dict, warnings: list[str], change_snapshot: dict | None = None):
         ts = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         out_dir = Path(self.journal.paths(pool_id=pool_id).plan_pool_json).parent / 'safe_apply'
@@ -157,6 +203,9 @@ class AtlasSafeApplyExecutionService:
 - Risk level: {item.risk_level}
 - Target files: {', '.join(item.target_files or [])}
 - Safe apply result summary: {result.get('summary','')}
+- Safe apply reasons: {', '.join(result.get('reasons') or [])}
+- Changed files: {', '.join(result.get('changed_files') or [])}
+- File results: {json.dumps(result.get('file_results') or [], ensure_ascii=False)}
 - Warnings: {', '.join(warnings)}
 - Change Snapshot ID: {(change_snapshot or {}).get('snapshot_id','')}
 - Change Snapshot manifest: {(change_snapshot or {}).get('manifest_path','')}
