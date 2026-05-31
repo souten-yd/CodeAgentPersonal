@@ -85,15 +85,13 @@ class AtlasMultiItemAutopilotService:
                     if ctx.status in {"blocked", "failed"} and policy.require_context_refresh:
                         result.status, result.reason = "blocked", "context_refresh_failed"
                 if result.status != "blocked":
-                    safe = self.auto_safe_apply_service.execute_one(AtlasAutoSafeApplyRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id))
+                    preset_id = "full_auto" if policy.policy_id == "full_auto_multi_item_v1" else "guarded_low_risk"
+                    safe = self.auto_safe_apply_service.execute_one(AtlasAutoSafeApplyRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, preset_id=preset_id))
                     result.safe_apply_result = safe.model_dump()
                     self.emit("multi_item_autopilot_safe_apply_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=safe.status)
                     if safe.status != "applied":
                         result.status, result.reason = "failed", "safe_apply_not_applied"
                     else:
-                        # Clear the pessimistic "failed" default so the verification stage runs.
-                        # (Previously this path was never reached because items were skipped at
-                        # eligibility / blocked for a missing executor, leaving the bug latent.)
                         result.status, result.reason = "applied", ""
                 if result.status not in {"blocked", "failed"}:
                     if changed_total + len(target_files) > min(request.max_changed_files_total, policy.max_changed_files_total):
@@ -118,13 +116,7 @@ class AtlasMultiItemAutopilotService:
                             result.evaluator_result_id = str((ev.metadata or {}).get("eval_id") or "")
                             result.evaluator_decision = ev.decision.model_dump()
                         vr_warnings = list(getattr(vr, "warnings", []) or [])
-                        # No verification command / no tests configured means there was nothing to
-                        # verify — not a failure or a block. The change was applied successfully, so
-                        # report it as completed (with a reason that documents the caveat) instead of
-                        # leaving a successful write looking blocked/failed to the user.
-                        no_verification_configured = any(
-                            w in vr_warnings for w in ("verification_command_missing", "no_test_commands")
-                        )
+                        no_verification_configured = any(w in vr_warnings for w in ("verification_command_missing", "no_test_commands"))
                         if vr.status in {"blocked", "skipped"} and no_verification_configured:
                             result.status, result.reason = "completed", "applied_no_verification"
                         elif vr.status == "blocked":
@@ -198,12 +190,12 @@ class AtlasMultiItemAutopilotService:
         if not target_files:
             return {"status": "ineligible", "reason": "missing_target_files", "planned_steps": planned_steps}
         md = item.metadata or {}
-        # Content keys the file executor (AtlasFileSafeApplyExecutor._resolve_content) actually
-        # reads: proposed_content / patch_proposal.proposed_content / patch / unified_diff_preview.
-        # "content" is kept for back-compat with older proposals.
+        file_changes = md.get("file_changes") if isinstance(md.get("file_changes"), list) else []
+        file_change_content_ready = bool(file_changes) and all(isinstance(ch, dict) and any(ch.get(k) for k in ("proposed_content", "patch", "unified_diff_preview", "edits", "append_content")) for ch in file_changes)
         patch_proposal = md.get("patch_proposal") or {}
         if not (
-            (md.get("patch") or "")
+            file_change_content_ready
+            or (md.get("patch") or "")
             or (md.get("content") or "")
             or (md.get("proposed_content") or "")
             or (md.get("unified_diff_preview") or "")
@@ -214,12 +206,11 @@ class AtlasMultiItemAutopilotService:
             return {"status": "ineligible", "reason": "missing_patch_or_content", "planned_steps": planned_steps}
         if (changed_total + len(target_files)) > min(request.max_changed_files_total, policy.max_changed_files_total):
             return {"status": "ineligible", "reason": "budget_exceeded", "planned_steps": planned_steps}
-        # Canonical action_type is {create, update} (what the executor applies). Accept the legacy
-        # {patch, write} vocabulary for back-compat; empty defaults to create (greenfield write).
-        action_type = normalize_safe_apply_action_type(md.get("action_type"))
+        action_type = normalize_safe_apply_action_type(md.get("action_type") or ("write" if file_changes else ""))
         if action_type not in {"create", "update"}:
             return {"status": "ineligible", "reason": "unsupported_action_type", "planned_steps": planned_steps}
-        preset = atlas_auto_policy_presets().get("guarded_low_risk")
+        preset_id = "full_auto" if policy.policy_id == "full_auto_multi_item_v1" else "guarded_low_risk"
+        preset = atlas_auto_policy_presets().get(preset_id)
         if preset is not None:
             decision = self.automation_gate.decide_pre_safe_apply(self.storage.load_pool(request.pool_id), item, preset)
             if str(getattr(decision, "decision", "")).lower() in {"block", "require_manual"}:
