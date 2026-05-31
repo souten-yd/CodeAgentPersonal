@@ -4,6 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 from agent.atlas_action_type import normalize_action_type
+from agent.atlas_plan_item_file_changes import DEFAULT_CHANGE_SET, normalize_plan_item_file_changes
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 
 
@@ -254,6 +255,11 @@ class AtlasPlanPoolBuilder:
                     "original_step_payload": _compact_payload_summary(step),
                 },
             )
+            file_changes = step.get("file_changes")
+            if isinstance(file_changes, list) and file_changes:
+                item.metadata["file_changes"] = [dict(fc) for fc in file_changes if isinstance(fc, dict)]
+                item.metadata["change_set"] = {**DEFAULT_CHANGE_SET, **object_to_dict(step.get("change_set")), "change_set_id": str(object_to_dict(step.get("change_set")).get("change_set_id") or f"cs_{item_id}")}
+                normalize_plan_item_file_changes(item)
             items.append(item)
             previous_item_id = item_id
 
@@ -334,6 +340,11 @@ class AtlasPlanPoolBuilder:
                     "original_task_payload": _compact_payload_summary(task),
                 },
             )
+            file_changes = task.get("file_changes")
+            if isinstance(file_changes, list) and file_changes:
+                item.metadata["file_changes"] = [dict(fc) for fc in file_changes if isinstance(fc, dict)]
+                item.metadata["change_set"] = {**DEFAULT_CHANGE_SET, **object_to_dict(task.get("change_set")), "change_set_id": str(object_to_dict(task.get("change_set")).get("change_set_id") or f"cs_{item_id}")}
+                normalize_plan_item_file_changes(item)
             items.append(item)
 
         return AtlasPlanPool(

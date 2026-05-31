@@ -415,7 +415,7 @@ def test_pipeline_waiting_and_patch_proposal_guidance_copy_contract() -> None:
 
 
 def test_safe_apply_result_root_fields_visible_contract() -> None:
-    for token in ("Executor workspace root", "Change Snapshot workspace root", "actual_file_changed", "changed_files", "Restore from Snapshot", "Auto rollback is not enabled"):
+    for token in ("Executor workspace root", "Change Snapshot workspace root", "actual_file_changed", "changed_files", "file_results", "safe_apply_result.status", "reasons", "Restore from Snapshot", "Auto rollback is not enabled"):
         assert token in (HTML + ATLAS_DASHBOARD_JS)
 
 

@@ -10,6 +10,7 @@ from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_typ
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_llm_json_adapter import call_llm_json
 from agent.atlas_llm_schemas import patch_proposal_json_schema
+from agent.atlas_plan_item_file_changes import DEFAULT_CHANGE_SET, has_file_change_content, normalize_plan_item_file_changes
 from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProposalRequest, AtlasPatchProposalResult
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
@@ -18,7 +19,7 @@ from agent.atlas_workspace_root import resolve_atlas_workspace_root
 
 class AtlasPatchProposalService:
     ALLOWED_SOURCE_TYPES = {"debug_review", "plan_item"}
-    LLM_ALLOWED_FIELDS = {"title", "summary", "root_cause", "proposed_fix", "target_files", "suggested_changes", "unified_diff_preview", "proposed_content", "edits", "risk_level", "verification_plan", "rollback_plan", "assumptions"}
+    LLM_ALLOWED_FIELDS = {"title", "summary", "root_cause", "proposed_fix", "target_files", "file_changes", "change_set", "suggested_changes", "unified_diff_preview", "proposed_content", "edits", "risk_level", "verification_plan", "rollback_plan", "assumptions"}
     MAX_EDITS = 20
     LLM_UNTRUSTED_FIELDS = {"status", "pool_id", "item_id", "run_id", "proposal_id", "metadata", "warnings", "errors", "proposal_json_path", "proposal_md_path", "created_at"}
     ALLOWED_RISK_LEVELS = {"low", "medium", "high", "critical"}
@@ -193,6 +194,7 @@ class AtlasPatchProposalService:
                 "goal": item.goal,
                 "done_definition": list(item.done_definition or []),
                 "target_files": list(item.target_files or []),
+                "file_changes": list(item_metadata.get("file_changes") or []),
                 "risk_level": item.risk_level,
                 "item_type": item.item_type,
                 "action_type": str(item_metadata.get("action_type") or ""),
@@ -293,6 +295,8 @@ class AtlasPatchProposalService:
                 "Generate a safe patch proposal as JSON. For source_type=plan_item that lists target_files, "
                 "you MUST return a non-empty \"proposed_content\" string containing the COMPLETE file text for the "
                 "first target file (this is a new file write, not a diff). "
+                "For a multi-file PlanItem, keep the PlanItem as one work unit and return \"file_changes\" with "
+                "one entry per path; do not put one top-level proposed_content across multiple target_files. "
                 "Example: {\"target_files\":[\"index.html\"],\"proposed_content\":\"<!doctype html>\\n<html>...\",\"risk_level\":\"low\"}"
             )
         content_required = self._plan_item_requires_content(input_payload)
@@ -361,7 +365,10 @@ class AtlasPatchProposalService:
         if raw_risk != risk_level:
             warnings.append("llm_risk_level_normalized")
 
-        target_files = self._normalize_target_files(llm_allowed.get("target_files"), list(item.get("target_files") or []), warnings)
+        file_changes = self._normalize_file_changes(llm_allowed.get("file_changes"), warnings)
+        file_change_paths = [str(fc.get("path") or "") for fc in file_changes if str(fc.get("path") or "")]
+        target_files = self._normalize_target_files(llm_allowed.get("target_files"), [*list(item.get("target_files") or []), *file_change_paths], warnings)
+        target_files = list(dict.fromkeys([*target_files, *file_change_paths]))
 
         diff_preview = str(llm_allowed.get("unified_diff_preview") or "")
         if len(diff_preview) > self.MAX_DIFF_PREVIEW_CHARS:
@@ -376,12 +383,15 @@ class AtlasPatchProposalService:
         # Pillar B: surgical string-replacement edits the executor can apply against the current file.
         edits = self._normalize_edits(llm_allowed.get("edits"), warnings)
 
-        has_content = bool(proposed_content or diff_preview or edits)
+        has_content = bool(proposed_content or diff_preview or edits or (file_changes and all(has_file_change_content(fc) for fc in file_changes)))
         metadata = {
             "source_type": str(input_payload.get("source_type") or "debug_review"),
             "requested_source_type": str(input_payload.get("requested_source_type") or ""),
             "patch_content_available": has_content,
         }
+        if file_changes:
+            metadata["file_changes"] = file_changes
+            metadata["change_set"] = {**DEFAULT_CHANGE_SET, **(llm_allowed.get("change_set") if isinstance(llm_allowed.get("change_set"), dict) else {})}
         if proposed_content:
             metadata["proposed_content"] = proposed_content
         if edits:
@@ -492,7 +502,31 @@ class AtlasPatchProposalService:
             safe_files.append(candidate)
         if ignored:
             warnings.append("unsafe_target_files_ignored")
-        return safe_files or list(fallback_target_files)
+        return safe_files or list(dict.fromkeys(fallback_target_files))
+
+    def _normalize_file_changes(self, raw_file_changes: object, warnings: list[str]) -> list[dict]:
+        if not isinstance(raw_file_changes, list) or not raw_file_changes:
+            return []
+        out: list[dict] = []
+        seen: set[str] = set()
+        for raw in raw_file_changes:
+            if not isinstance(raw, dict):
+                warnings.append("invalid_file_change_ignored")
+                continue
+            path = str(raw.get("path") or "").strip()
+            action = normalize_safe_apply_action_type(raw.get("action_type"))
+            if not path or Path(path).is_absolute() or ".." in Path(path).parts:
+                warnings.append("unsafe_file_change_ignored")
+                continue
+            if path in seen:
+                warnings.append("duplicate_file_change_path")
+                continue
+            seen.add(path)
+            change = {k: raw[k] for k in ("change_id", "path", "action_type", "content_mode", "proposed_content", "patch", "unified_diff_preview", "edits", "append_content", "metadata") if k in raw}
+            change["path"] = path
+            change["action_type"] = action
+            out.append(change)
+        return out
 
     def generate_fallback_proposal(self, input_payload: dict) -> AtlasPatchProposal:
         source_type = str(input_payload.get("source_type") or "debug_review")
@@ -585,6 +619,12 @@ class AtlasPatchProposalService:
             item.metadata["patch_proposal"]["proposed_content"] = proposed_content
             item.metadata["proposed_content"] = proposed_content
             item.metadata["content"] = proposed_content
+        proposal_file_changes = proposal_metadata.get("file_changes") if isinstance(proposal_metadata.get("file_changes"), list) else []
+        if proposal_file_changes:
+            item.metadata["patch_proposal"]["file_changes"] = proposal_file_changes
+            item.metadata["file_changes"] = proposal_file_changes
+            item.metadata["change_set"] = {**DEFAULT_CHANGE_SET, **(proposal_metadata.get("change_set") if isinstance(proposal_metadata.get("change_set"), dict) else {}), "change_set_id": f"cs_{item.item_id}"}
+            normalize_plan_item_file_changes(item)
         if proposal.unified_diff_preview:
             item.metadata["patch_proposal"]["patch"] = proposal.unified_diff_preview
             item.metadata["unified_diff_preview"] = proposal.unified_diff_preview

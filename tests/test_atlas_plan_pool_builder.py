@@ -192,3 +192,26 @@ def test_builder_does_not_write_files(monkeypatch) -> None:
 
     assert pool.pool_id == "pool_test"
     assert len(pool.items) == 1
+def test_builder_carries_file_changes_and_normalizes_target_files():
+    pool = AtlasPlanPoolBuilder().build_from_plan_payload(
+        {
+            "root_goal": "g",
+            "implementation_steps": [
+                {
+                    "step_id": "step_1",
+                    "title": "create web app",
+                    "action_type": "create",
+                    "risk_level": "low",
+                    "target_files": ["index.html"],
+                    "file_changes": [
+                        {"path": "index.html", "action_type": "create", "proposed_content": "<!doctype html>\n"},
+                        {"path": "style.css", "action_type": "create", "proposed_content": "body{}\n"},
+                    ],
+                }
+            ],
+        }
+    )
+    item = pool.items[0]
+    assert item.metadata["file_changes"][1]["path"] == "style.css"
+    assert item.target_files == ["index.html", "style.css"]
+    assert item.metadata["change_set"]["apply_strategy"] == "preflight_all_then_apply_all"

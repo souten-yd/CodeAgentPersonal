@@ -190,6 +190,10 @@ class AtlasPlannerBridge:
                 "rollback": coerce_list(step.get("rollback") or plan.get("rollback_plan")),
                 "depends_on": coerce_list(step.get("depends_on")) if "depends_on" in step else ([previous_item_id] if previous_item_id else []),
             }
+            if isinstance(step.get("file_changes"), list):
+                converted["file_changes"] = step.get("file_changes")
+            if isinstance(step.get("change_set"), dict):
+                converted["change_set"] = step.get("change_set")
             converted_steps.append(converted)
             previous_item_id = item_id
 

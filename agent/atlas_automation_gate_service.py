@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from agent.atlas_auto_policy_schema import AtlasAutoPolicyPreset, AtlasAutomationDecision
+from agent.atlas_plan_item_file_changes import has_file_change_content, normalize_plan_item_file_changes
 
 
 class AtlasAutomationGateService:
     def decide_pre_safe_apply(self, pool: Any, item: Any, preset: AtlasAutoPolicyPreset) -> AtlasAutomationDecision:
         reasons: list[str] = []
         warnings: list[str] = []
+        normalize_plan_item_file_changes(item)
         meta = getattr(item, "metadata", {}) or {}
         action_type = str(meta.get("action_type") or "update").lower()
         risk = str(getattr(item, "risk_level", "")).lower()
@@ -26,6 +28,7 @@ class AtlasAutomationGateService:
         if action_type not in set(preset.allowed_action_types): reasons.append("unsupported_action")
         # Respect the preset's allowed_risk_levels (a full-automation preset opts into medium/high);
         # don't hardcode a low-only ceiling here, or no preset could ever permit higher risk.
+        if risk == "critical": reasons.append("critical_risk_not_allowed")
         if risk not in set(preset.allowed_risk_levels): reasons.append("risk_not_allowed")
         if item_type not in set(preset.allowed_item_types): reasons.append("item_type_not_allowed")
         if not preset.allow_auto_safe_apply: reasons.append("auto_safe_apply_disabled")
@@ -33,7 +36,7 @@ class AtlasAutomationGateService:
         if len(target_files) > int(preset.max_changed_files_per_item): reasons.append("target_files_too_many")
         if any((str(p).startswith("/") or ".." in str(p).split("/")) for p in target_files): reasons.append("unsafe_path")
         if any(str(p).startswith((".git/", "/etc/", "../")) for p in target_files): reasons.append("protected_path")
-        if approval != "approved": reasons.append("approval_missing")
+        if preset.require_planitem_approval and approval != "approved": reasons.append("approval_missing")
         if preset.require_patch_proposal_approval and (patch_approval != "approved" and not source_proposal_id): reasons.append("patch_proposal_approval_missing")
         if preset.require_project_path and not str(getattr(pool, "project_path", "") or "").strip(): reasons.append("project_path_missing")
         if str(meta.get("safe_apply_status") or "").lower() in {"applied", "completed"}: reasons.append("already_safe_applied")
@@ -48,11 +51,13 @@ class AtlasAutomationGateService:
             (meta.get("patch_proposal") or {}).get("proposed_content"),
             (meta.get("patch_proposal") or {}).get("unified_diff_preview"),
         ]
-        if preset.require_executor_readable_patch and not any(isinstance(v, str) and v.strip() for v in content_candidates):
+        file_changes = meta.get("file_changes") if isinstance(meta.get("file_changes"), list) else []
+        file_change_content = bool(file_changes) and all(isinstance(fc, dict) and has_file_change_content(fc) for fc in file_changes)
+        if preset.require_executor_readable_patch and not (any(isinstance(v, str) and v.strip() for v in content_candidates) or file_change_content):
             reasons.append("content_missing")
 
         decision = "allow"
         if reasons:
-            block_reasons = {"forbidden_action_type", "unsupported_action", "risk_not_allowed", "target_files_too_many", "target_files_missing", "unsafe_path", "protected_path", "content_missing", "terminal_status"}
+            block_reasons = {"forbidden_action_type", "unsupported_action", "risk_not_allowed", "critical_risk_not_allowed", "target_files_too_many", "target_files_missing", "unsafe_path", "protected_path", "content_missing", "terminal_status"}
             decision = "block" if any(r in block_reasons for r in reasons) else "require_manual"
         return AtlasAutomationDecision(pool_id=pool.pool_id, item_id=item.item_id, preset_id=preset.preset_id, decision=decision, phase="pre_safe_apply", reasons=sorted(set(reasons)), warnings=sorted(set(warnings)), metadata={"action_type": action_type, "risk_level": risk, "target_file_count": len(target_files)})
