@@ -207,6 +207,7 @@
     bindInputs();
     appendMessage('system', '指示を入力してください', false);
     refreshPolicies();
+    loadAtlasCapabilityPreferences();
   }
 
   function bindInputs() {
@@ -1485,6 +1486,64 @@
     setTranscribingStatus,
     state,
   };
+
+  // ── Capability Preferences ─────────────────────────────────────────────────
+  // These checkboxes store USER PREFERENCE METADATA only.
+  // Backend/runtime policy remains authoritative over actual capability availability.
+  // Checked preference ≠ backend authorization.
+
+  const _CAP_STORAGE_KEY = 'atlas_capability_preferences';
+  const _CAP_IDS = [
+    'cap-command-execution',
+    'cap-browser-automation',
+    'cap-playwright-verification',
+    'cap-web-evidence',
+    'cap-sandboxed-install',
+  ];
+
+  function saveAtlasCapabilityPreferences() {
+    const prefs = {};
+    _CAP_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) prefs[id] = el.checked;
+    });
+    try {
+      localStorage.setItem(_CAP_STORAGE_KEY, JSON.stringify(prefs));
+    } catch (e) {
+      // localStorage unavailable — preferences are in-memory only
+    }
+  }
+
+  function loadAtlasCapabilityPreferences() {
+    let stored = {};
+    try {
+      const raw = localStorage.getItem(_CAP_STORAGE_KEY);
+      if (raw) stored = JSON.parse(raw);
+    } catch (e) {
+      // ignore parse errors — use defaults (all checked)
+    }
+    _CAP_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      // If key is absent from storage, keep default (checked)
+      if (Object.prototype.hasOwnProperty.call(stored, id)) {
+        el.checked = Boolean(stored[id]);
+      }
+    });
+  }
+
+  function getAtlasCapabilityPreferences() {
+    const prefs = {};
+    _CAP_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      prefs[id] = el ? el.checked : true;
+    });
+    return prefs;
+  }
+
+  // Expose for external callers (e.g., pipeline API payload builders)
+  window.saveAtlasCapabilityPreferences = saveAtlasCapabilityPreferences;
+  window.getAtlasCapabilityPreferences = getAtlasCapabilityPreferences;
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
