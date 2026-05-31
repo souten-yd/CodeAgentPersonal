@@ -36,7 +36,9 @@ class AtlasAutoSafeApplyService:
             return AtlasAutoSafeApplyResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status=status, automation_decision=decision.model_dump(), plan_pool=pool.model_dump(), warnings=list(decision.warnings), errors=list(decision.reasons))
 
         self._append_event(pool.pool_id, request.run_id, "auto_safe_apply_started", item.item_id, status="started")
-        safe = self.safe_apply_service.execute_item(AtlasSafeApplyExecutionRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, workspace_id=request.workspace_id, requested_by="atlas_auto_safe_apply", dry_run=False, metadata=dict(request.metadata or {})))
+        safe_metadata = dict(request.metadata or {})
+        safe_metadata.setdefault("preset_id", request.preset_id)
+        safe = self.safe_apply_service.execute_item(AtlasSafeApplyExecutionRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, workspace_id=request.workspace_id, requested_by="atlas_auto_safe_apply", dry_run=False, metadata=safe_metadata))
         safe_payload = safe.model_dump()
         snapshot = ((safe_payload.get("metadata") or {}).get("change_snapshot") or (safe_payload.get("safe_apply_result") or {}).get("change_snapshot") or {})
         changed = bool(((safe_payload.get("metadata") or {}).get("executor_result") or {}).get("actual_file_changed", safe_payload.get("safe_apply_result", {}).get("actual_file_changed", False)))
