@@ -16,6 +16,10 @@ _VISUAL_KEYWORDS = (
     "frontend", "ui ", "layout", "screen",
 )
 
+# Browser-smoke failure reasons that are HARD (real defects) vs SOFT (style-sampling /
+# environment) which only warn when the static contract already passes.
+_HARD_SMOKE_REASONS = ("js_error", "expected_text_missing", "html_file_missing")
+
 
 class AtlasAutoVerificationService:
     def __init__(self, *, journal, storage, command_runner, visual_verifier=None, playwright_verifier=None):
@@ -77,9 +81,27 @@ class AtlasAutoVerificationService:
 
         res = self.command_runner.run_command(AtlasTestCommandRequest(command=" ".join(command), cwd=workspace_root, timeout_seconds=spec.timeout_seconds, metadata={"pool_id": pool.pool_id, "item_id": item.item_id, "source": "auto_verification"}))
         status, classify_warnings = self._classify(res, command_id)
+        warnings = [*classify_warnings, *res.warnings]
+        metadata: dict = {"workspace_root": workspace_root}
+
+        # Supplemental visual check (PR-9a): a passing unit test does not prove a visual artifact
+        # works, so for visual HTML tasks also run the static contract (+ optional smoke) and let a
+        # hard visual failure degrade an otherwise-passing command result.
+        html_rel = self._resolve_visual_html(item, pool)
+        if html_rel and self._safe_rel(html_rel):
+            ev = self._evaluate_visual(Path(workspace_root) / html_rel, self._visual_task_description(item, pool))
+            metadata["visual_contract"] = ev["static"]
+            metadata["browser_smoke"] = ev["smoke"]
+            warnings = [*warnings, *ev["warnings"]]
+            if status == "passed":
+                if ev["hard_failed"]:
+                    status = "failed"
+                elif ev["verify_level"]:
+                    metadata["verify_level"] = ev["verify_level"]
+
         event = {"passed": "auto_verification_passed", "blocked": "auto_verification_blocked"}.get(status, "auto_verification_failed")
-        self._append_event(pool.pool_id, request.run_id, event, item.item_id, status=status, warnings=classify_warnings)
-        out = AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status=status, verification_result=res.model_dump(), command_id=command_id, command=command, exit_code=res.returncode, stdout_tail=(res.stdout or "")[-4000:], stderr_tail=(res.stderr or "")[-4000:], warnings=[*classify_warnings, *res.warnings], errors=list(res.errors), metadata={"workspace_root": workspace_root}, plan_pool=pool.model_dump())
+        self._append_event(pool.pool_id, request.run_id, event, item.item_id, status=status, warnings=warnings)
+        out = AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status=status, verification_result=res.model_dump(), command_id=command_id, command=command, exit_code=res.returncode, stdout_tail=(res.stdout or "")[-4000:], stderr_tail=(res.stderr or "")[-4000:], warnings=warnings, errors=list(res.errors), metadata=metadata, plan_pool=pool.model_dump())
         item.metadata.setdefault("auto_verification", {})
         item.metadata["auto_verification"].update({"status": status, "command_id": command_id, "verified_at": datetime.now(timezone.utc).isoformat()})
         self.storage.save_pool(pool)
@@ -139,36 +161,70 @@ class AtlasAutoVerificationService:
                 return str(f).replace("\\", "/")
         return ""
 
-    def _run_visual_verification(self, pool, item, request, workspace_root: str, html_rel: str):
-        """Run the static visual contract (+ optional Playwright smoke) for a visual HTML task."""
-        html_path = Path(workspace_root) / html_rel
-        task_desc = " ".join([
+    def _visual_task_description(self, item, pool) -> str:
+        return " ".join([
             str(getattr(item, "goal", "") or ""),
             " ".join(getattr(item, "done_definition", []) or []),
             str(getattr(pool, "root_goal", "") or ""),
         ]).strip()
+
+    def _evaluate_visual(self, html_path: Path, task_desc: str) -> dict:
+        """Run static visual contract + optional Playwright smoke; classify hard/soft outcomes.
+
+        Returns:
+            {
+              static, smoke, warnings, hard_failed, soft, verify_level
+            }
+        A browser_smoke_failed with a hard reason (js_error / expected_text_missing /
+        html_file_missing) is a real defect. A soft reason (style-sampling / playwright_error)
+        only warns when the static contract already passes.
+        """
         static_res = self.visual_verifier.verify_static(html_path, task_description=task_desc)
         smoke = self.playwright_verifier.verify(html_path, task_description=task_desc)
         warnings: list[str] = []
-        metadata: dict = {"workspace_root": workspace_root, "visual_contract": static_res, "browser_smoke": smoke}
+        static_failed = str(static_res.get("status")) == "failed"
+        smoke_status = str(smoke.get("status"))
+        smoke_reason = str(smoke.get("reason") or "")
+        smoke_hard = smoke_status == "browser_smoke_failed" and any(
+            smoke_reason.startswith(r) for r in _HARD_SMOKE_REASONS
+        )
+        smoke_soft = smoke_status == "browser_smoke_failed" and not smoke_hard
 
-        if str(static_res.get("status")) == "failed":
-            status = "failed"
+        if static_failed:
             warnings.append("visual_contract_failed")
             for miss in (static_res.get("missing") or []):
                 warnings.append(f"visual_missing:{miss}")
         else:
-            status = "passed"
             warnings.append("visual_contract_passed")
-            # Static pass caps at static_checked; a passing browser smoke lifts to runtime_smoke_checked.
-            if str(smoke.get("status")) == "browser_smoke_passed":
-                metadata["verify_level"] = "runtime_smoke_checked"
-            else:
-                metadata["verify_level"] = "static_checked"
-            if str(smoke.get("status")) == "browser_smoke_failed":
-                # A failing browser smoke degrades an otherwise-passing static contract.
-                status = "failed"
-                warnings = ["browser_smoke_failed", *warnings]
+        if smoke_hard:
+            warnings.append(f"browser_smoke_failed:{smoke_reason}")
+        elif smoke_soft:
+            # Static passed but the browser style-sampling couldn't confirm motion → warn only.
+            warnings.append(f"browser_smoke_warning:{smoke_reason}")
+
+        hard_failed = static_failed or smoke_hard
+        if hard_failed:
+            verify_level = None
+        elif smoke_status == "browser_smoke_passed":
+            verify_level = "runtime_smoke_checked"
+        else:
+            verify_level = "static_checked"
+
+        return {
+            "static": static_res, "smoke": smoke, "warnings": warnings,
+            "hard_failed": hard_failed, "soft": smoke_soft, "verify_level": verify_level,
+        }
+
+    def _run_visual_verification(self, pool, item, request, workspace_root: str, html_rel: str):
+        """Run the static visual contract (+ optional Playwright smoke) for a visual HTML task
+        that has no allowlisted test command."""
+        html_path = Path(workspace_root) / html_rel
+        ev = self._evaluate_visual(html_path, self._visual_task_description(item, pool))
+        warnings = list(ev["warnings"])
+        metadata: dict = {"workspace_root": workspace_root, "visual_contract": ev["static"], "browser_smoke": ev["smoke"]}
+        if ev["verify_level"]:
+            metadata["verify_level"] = ev["verify_level"]
+        status = "failed" if ev["hard_failed"] else "passed"
 
         event = {"passed": "auto_verification_passed"}.get(status, "auto_verification_failed")
         self._append_event(pool.pool_id, request.run_id, event, item.item_id, status=status, warnings=warnings)
@@ -180,8 +236,8 @@ class AtlasAutoVerificationService:
         item.metadata.setdefault("auto_verification", {})
         item.metadata["auto_verification"].update({
             "status": status, "source": "visual_artifact",
-            "visual_contract_status": static_res.get("status"),
-            "browser_smoke_status": smoke.get("status"),
+            "visual_contract_status": ev["static"].get("status"),
+            "browser_smoke_status": ev["smoke"].get("status"),
             "verified_at": datetime.now(timezone.utc).isoformat(),
         })
         self.storage.save_pool(pool)
