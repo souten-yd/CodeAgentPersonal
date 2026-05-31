@@ -105,6 +105,12 @@ class AtlasPatchProposalPlanItemDraftService:
             "action_type": "update",
             "expected_changes": list(patch.get("suggested_changes") or []),
         }
+        raw_file_changes = patch.get("file_changes") or patch.get("fileChanges") or []
+        if not raw_file_changes and isinstance(patch.get("metadata"), dict):
+            raw_file_changes = patch.get("metadata", {}).get("file_changes") or []
+        file_changes = self._normalize_file_changes(raw_file_changes, list(patch.get("target_files") or []))
+        if file_changes:
+            metadata["file_changes"] = file_changes
         proposed_content = ""
         patch_metadata = patch.get("metadata") if isinstance(patch.get("metadata"), dict) else {}
         if patch.get("proposed_content"):
@@ -128,6 +134,8 @@ class AtlasPatchProposalPlanItemDraftService:
             patch_proposal_metadata["proposed_content"] = proposed_content
         if diff_preview:
             patch_proposal_metadata["unified_diff_preview"] = diff_preview
+        if file_changes:
+            patch_proposal_metadata["file_changes"] = file_changes
         metadata["patch_proposal"] = patch_proposal_metadata
         return AtlasPlanItem(
             item_id=draft_item_id,
@@ -148,6 +156,29 @@ class AtlasPatchProposalPlanItemDraftService:
             linked_run_id=request.run_id,
             metadata=metadata,
         )
+
+    def _normalize_file_changes(self, raw_file_changes, target_files: list[str]) -> list[dict]:
+        if not isinstance(raw_file_changes, list):
+            return []
+        target_set = set(target_files)
+        out: list[dict] = []
+        for raw in raw_file_changes:
+            if not isinstance(raw, dict):
+                continue
+            path = str(raw.get("path") or "").strip()
+            action_type = str(raw.get("action_type") or "").strip().lower()
+            if not path or path not in target_set or Path(path).is_absolute() or ".." in Path(path).parts:
+                continue
+            if action_type not in {"create", "update"}:
+                continue
+            change = {"path": path, "action_type": action_type, "metadata": dict(raw.get("metadata") or {}) if isinstance(raw.get("metadata"), dict) else {}}
+            for key in ("proposed_content", "patch", "unified_diff_preview", "append_content"):
+                if isinstance(raw.get(key), str) and raw.get(key):
+                    change[key] = str(raw.get(key))
+            if isinstance(raw.get("edits"), list) and raw.get("edits"):
+                change["edits"] = list(raw.get("edits") or [])
+            out.append(change)
+        return out
 
     def save_draft_record(self, pool_id, item_id, draft) -> tuple[str, str]:
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
