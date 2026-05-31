@@ -185,7 +185,7 @@ class AtlasMultiItemAutopilotService:
                             w in vr_warnings for w in ("test_harness_unavailable", "pytest_not_installed")
                         )
                         if vr.status in {"blocked", "skipped"} and no_verification_configured:
-                            result.status, result.reason = "completed", "applied_no_verification"
+                            result.status, result.reason = "applied_no_verification", "applied_no_verification"
                         elif vr.status == "blocked" and harness_unavailable:
                             result.status, result.reason = "blocked", "verification_unavailable_harness_missing"
                         elif vr.status == "blocked":
@@ -224,6 +224,7 @@ class AtlasMultiItemAutopilotService:
                 result.status = "completed"
             out.item_results.append(result); out.processed_count += 1
             out.completed_count += 1 if result.status == "completed" else 0
+            out.applied_no_verification_count += 1 if result.status == "applied_no_verification" else 0
             out.failed_count += 1 if result.status == "failed" else 0
             out.blocked_count += 1 if result.status == "blocked" else 0
             if out.failed_count >= min(request.max_failures, policy.max_failures):
@@ -306,11 +307,13 @@ class AtlasMultiItemAutopilotService:
         root.mkdir(parents=True, exist_ok=True)
         (root / f"{result.autopilot_run_id}.json").write_text(json.dumps(result.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
         lines = ["# Multi-item Autopilot Run", "", "## Summary"]
-        for k in ["autopilot_run_id", "pool_id", "run_id", "policy_id", "status", "processed_count", "completed_count", "failed_count", "stop_reason"]:
+        for k in ["autopilot_run_id", "pool_id", "run_id", "policy_id", "status", "processed_count", "completed_count", "applied_no_verification_count", "failed_count", "stop_reason"]:
             lines.append(f"- {k}: {getattr(result, k)}")
         lines += ["", "## Item Results"]
         for r in result.item_results:
-            lines += [f"- item_id: {r.item_id}", f"  - status: {r.status}", f"  - reason: {r.reason}", f"  - context_bundle_id: {r.context_bundle_id}", f"  - evaluator_result_id: {r.evaluator_result_id}", f"  - evaluator_decision.decision: {(r.evaluator_decision or {}).get('decision','')}", f"  - verification_result.status: {(r.verification_result or {}).get('status','')}", f"  - verification_result.recovered_by_bounded_retry: {(r.verification_result or {}).get('recovered_by_bounded_retry', False)}", f"  - safe_apply_result.status: {(r.safe_apply_result or {}).get('status','')}"]
+            verify_level = _verify_level_for_item(r)
+            verify_note = " (適用のみ・実行検証なし)" if r.status == "applied_no_verification" else ""
+            lines += [f"- item_id: {r.item_id}", f"  - status: {r.status}{verify_note}", f"  - verify_level: {verify_level}", f"  - reason: {r.reason}", f"  - context_bundle_id: {r.context_bundle_id}", f"  - evaluator_result_id: {r.evaluator_result_id}", f"  - evaluator_decision.decision: {(r.evaluator_decision or {}).get('decision','')}", f"  - verification_result.status: {(r.verification_result or {}).get('status','')}", f"  - verification_result.recovered_by_bounded_retry: {(r.verification_result or {}).get('recovered_by_bounded_retry', False)}", f"  - safe_apply_result.status: {(r.safe_apply_result or {}).get('status','')}"]
         lines += ["", "## Warnings"] + ([f"- {w}" for w in result.warnings] or ["- (none)"]) + ["", "## Errors"] + ([f"- {e}" for e in result.errors] or ["- (none)"])
         (root / f"{result.autopilot_run_id}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -318,3 +321,21 @@ class AtlasMultiItemAutopilotService:
         if not request.run_id:
             return
         self.journal.append_event(request.pool_id, request.run_id, {"event_type": event_type, "pool_id": request.pool_id, "run_id": request.run_id, "autopilot_run_id": autopilot_run_id, "created_at": datetime.now(timezone.utc).isoformat(), **kw})
+
+
+def _verify_level_for_item(r) -> str:
+    """Classify the highest verify level reached for a single autopilot item result."""
+    status = str(r.status or "")
+    vr = r.verification_result or {}
+    vr_status = str(vr.get("status") or "")
+    if status == "applied_no_verification":
+        return "applied_only"
+    if status not in {"completed"}:
+        return "applied_only"
+    if vr_status == "passed" and vr.get("requirement_coverage"):
+        return "requirement_checked"
+    if vr_status == "passed":
+        return "runtime_smoke_checked"
+    if vr_status in {"skipped", "blocked"}:
+        return "static_checked"
+    return "applied_only"
