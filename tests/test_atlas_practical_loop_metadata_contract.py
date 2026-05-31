@@ -113,68 +113,6 @@ def test_latest_practical_loop_artifact_discovery_empty_state(tmp_path: Path) ->
     assert metadata['draft_pr_artifact_summary'] == 'not_available'
 
 
-def test_practical_loop_metadata_is_rendered_by_fastui_shell_and_client() -> None:
-    shell = Path('web/atlas-next/src/components/FastUiShellMvp.vue').read_text(encoding='utf-8')
-    client = Path('web/atlas-next/src/api/atlasClient.ts').read_text(encoding='utf-8')
-    app = Path('web/atlas-next/src/components/AtlasNextApp.vue').read_text(encoding='utf-8')
-
-    for term in [
-        'practicalLoop',
-        'Loop',
-        'Draft PR',
-        'verificationState',
-        'recoveryState',
-        'draftPrState',
-        'Loop artifact',
-        'loopArtifactDetails',
-        'latestLoopPoolId',
-        'latestLoopMode',
-        'latestLoopResultPath',
-        'latestLoopSourceDetail',
-        'latestLoopActionExecuted',
-        'recoveryArtifactAvailable',
-        'recoveryArtifactSummary',
-        'draftPrArtifactAvailable',
-        'draftPrArtifactSummary',
-        'Action executed',
-        'Recovery artifact',
-        'Recovery summary',
-        'Draft PR artifact',
-        'Draft PR summary',
-    ]:
-        assert term in shell
-
-    for term in [
-        'AtlasPracticalLoopMetadata',
-        'practical_loop_metadata',
-        'normalizePracticalLoopMetadata',
-        'latest_loop_pool_id',
-        'latest_loop_mode',
-        'latest_loop_result_path',
-        'latest_loop_source_detail',
-        'latest_loop_action_executed',
-        'recovery_artifact_available',
-        'recovery_artifact_summary',
-        'draft_pr_artifact_available',
-        'draft_pr_artifact_summary',
-        'latestLoopPoolId',
-        'latestLoopMode',
-        'latestLoopResultPath',
-        'latestLoopSourceDetail',
-        'latestLoopActionExecuted: item.latest_loop_action_executed === true',
-        'recoveryArtifactAvailable: item.recovery_artifact_available === true',
-        'draftPrArtifactAvailable: item.draft_pr_artifact_available === true',
-        'executionEnabled: false',
-        'directMergeEnabled: false',
-        'remoteGitPushEnabled: false',
-        'selfApplyEnabled: false',
-        'vueAuthoritative: false',
-    ]:
-        assert term in client
-
-    assert 'practicalLoop: {' in app
-
-
 def test_practical_loop_discovery_source_has_no_process_network_or_git_dependency() -> None:
     text = Path('app/atlas/practical_loop_metadata.py').read_text(encoding='utf-8')
     forbidden = [

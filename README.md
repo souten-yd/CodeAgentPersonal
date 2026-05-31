@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>完全ローカル動作・クラウド非依存のAIコーディングエージェント基盤</strong><br>
-  llama.cpp × FastAPI × Vue3 で、要件定義からパッチ適用・ロールバックまで一気通貫
+  llama.cpp × FastAPI で、要件定義からパッチ適用・ロールバックまで一気通貫
 </p>
 
 <p align="center">
@@ -52,7 +52,7 @@ OpenAIのAPIキーもクラウドサービスも必要ありません。RTX 3070
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    ブラウザ UI                                    │
-│   ui.html (Vanilla JS)  +  web/atlas-next/ (Vue3 + Vite)       │
+│                    ui.html (Vanilla JS)                          │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │ HTTP / SSE / WebSocket
 ┌───────────────────────────────▼─────────────────────────────────┐
@@ -696,8 +696,6 @@ KasaneCore/
 │   ├── lumen/                  # インテント検出・天気・ニュース
 │   └── services/               # jobs / system_usage / audio_runtime
 ├── web/
-│   ├── atlas-next/             # Vue3 + Vite (Atlasワークフロー UI)
-│   │   └── src/components/     # WorkflowShell / PlanReview / PatchReview...
 │   └── js/ css/               # メインUIアセット
 ├── docs/                       # 設計ドキュメント・ロードマップ
 ├── tests/                      # contractテスト (Phase2〜Phase31, 200件超)
@@ -798,7 +796,7 @@ python -m playwright install chromium
 | Echo (ASR/TTS/翻訳) | Experimental |
 | Style-Bert-VITS2 | Experimental |
 | Qwen3-TTS | Experimental |
-| Atlas Next (Vue3 UI) | Experimental |
+
 
 ---
 
