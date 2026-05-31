@@ -94,8 +94,65 @@ def normalize_plan_item_file_changes(item: AtlasPlanItem) -> dict[str, Any]:
         metadata["change_set"] = merged_change_set
         changed = True
     if warnings:
+        warnings = list(dict.fromkeys(warnings))
         item.warnings = list(dict.fromkeys([*(item.warnings or []), *warnings]))
+        metadata["normalization_warnings"] = list(dict.fromkeys([*(metadata.get("normalization_warnings") or []), *warnings]))
     return {"changed": changed, "warnings": list(dict.fromkeys(warnings)), "file_change_paths": file_change_paths}
+
+
+def normalize_change_set(item: AtlasPlanItem) -> dict[str, Any]:
+    normalize_plan_item_file_changes(item)
+    return dict((item.metadata or {}).get("change_set") or {})
+
+
+def normalize_file_changes(item: AtlasPlanItem) -> list[dict[str, Any]]:
+    normalize_plan_item_file_changes(item)
+    changes = (item.metadata or {}).get("file_changes")
+    return [dict(change) for change in changes] if isinstance(changes, list) else []
+
+
+def normalize_target_files_from_file_changes(item: AtlasPlanItem) -> list[str]:
+    normalize_plan_item_file_changes(item)
+    return list(item.target_files or [])
+
+
+def extract_planned_paths(item: AtlasPlanItem) -> list[str]:
+    changes = normalize_file_changes(item)
+    if changes:
+        return list(dict.fromkeys(str(change.get("path") or "").strip().replace("\\", "/") for change in changes if str(change.get("path") or "").strip()))
+    return [str(path).strip().replace("\\", "/") for path in (item.target_files or []) if str(path).strip()]
+
+
+def detect_duplicate_file_change_paths(item: AtlasPlanItem) -> list[str]:
+    paths = [str(change.get("path") or "").strip().replace("\\", "/") for change in normalize_file_changes(item)]
+    return sorted({path for path in paths if path and paths.count(path) > 1})
+
+
+def detect_executor_readable_content(item: AtlasPlanItem) -> bool:
+    metadata = item.metadata if isinstance(item.metadata, dict) else {}
+    patch_proposal = metadata.get("patch_proposal") if isinstance(metadata.get("patch_proposal"), dict) else {}
+    top_level = (
+        metadata.get("proposed_content"),
+        metadata.get("patch"),
+        metadata.get("unified_diff_preview"),
+        metadata.get("edits"),
+        metadata.get("append_content"),
+        patch_proposal.get("proposed_content"),
+        patch_proposal.get("patch"),
+        patch_proposal.get("unified_diff_preview"),
+        patch_proposal.get("edits"),
+        patch_proposal.get("append_content"),
+    )
+    if any((isinstance(value, str) and value.strip()) or (isinstance(value, list) and value) for value in top_level):
+        return True
+    changes = normalize_file_changes(item)
+    return bool(changes) and all(has_file_change_content(change) for change in changes)
+
+
+def collect_normalization_warnings(item: AtlasPlanItem) -> list[str]:
+    result = normalize_plan_item_file_changes(item)
+    metadata_warnings = (item.metadata or {}).get("normalization_warnings") or []
+    return list(dict.fromkeys([*list(result.get("warnings") or []), *list(metadata_warnings)]))
 
 
 def infer_content_mode(change: dict[str, Any]) -> str:

@@ -105,6 +105,11 @@ class AtlasMultiItemAutopilotService:
                         # eligibility / blocked for a missing executor, leaving the bug latent.)
                         result.status, result.reason = "applied", ""
                 actual_changed_files = list((result.safe_apply_result or {}).get("changed_files") or [])
+                actual_file_results = list(
+                    ((result.safe_apply_result or {}).get("safe_apply_result") or {}).get("file_results")
+                    or ((result.safe_apply_result or {}).get("metadata") or {}).get("file_results")
+                    or []
+                )
                 if result.status not in {"blocked", "failed"}:
                     if changed_total + len(actual_changed_files) > min(request.max_changed_files_total, policy.max_changed_files_total):
                         result.status, result.reason = "stopped", "max_changed_files_total_exceeded_pre_apply"
@@ -140,7 +145,7 @@ class AtlasMultiItemAutopilotService:
                         # test/compile output back to the patch generator, re-apply, re-verify (bounded,
                         # low/medium risk only). This is the generate->verify->fix loop.
                         if request.include_self_correction and self.self_correction_service and vr.status == "failed":
-                            sc_request = AtlasSelfCorrectionRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), verification_result=vr.model_dump(), max_attempts=request.self_correction_max_attempts)
+                            sc_request = AtlasSelfCorrectionRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), verification_result=vr.model_dump(), changed_files=actual_changed_files, file_results=actual_file_results, max_attempts=request.self_correction_max_attempts)
                             # Route the failure to the right artifact (code vs test) when enabled; the
                             # router internally falls back to plain self-correction on the failing item.
                             if request.include_correction_routing and self.correction_router_service:

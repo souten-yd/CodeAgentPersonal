@@ -4,6 +4,12 @@ from agent.atlas_journal import AtlasJournal
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
 from agent.atlas_patch_proposal_planitem_service import AtlasPatchProposalPlanItemDraftService
 from agent.atlas_patch_proposal_service import AtlasPatchProposalService
+from agent.atlas_plan_item_file_changes import (
+    collect_normalization_warnings,
+    detect_duplicate_file_change_paths,
+    detect_executor_readable_content,
+    extract_planned_paths,
+)
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_planner_bridge import AtlasPlannerBridge
@@ -102,3 +108,26 @@ def test_patch_proposal_planitem_draft_carries_file_changes(tmp_path):
     assert [fc['path'] for fc in draft.metadata['file_changes']] == ['index.html', 'style.css']
     assert draft.target_files == ['index.html', 'style.css']
     assert draft.metadata['change_set']['apply_strategy'] == 'preflight_all_then_apply_all'
+
+
+def test_plan_item_file_change_helper_surfaces_planned_paths_warnings_and_content():
+    item = AtlasPlanItem(
+        item_id='i1',
+        pool_id='p1',
+        title='t',
+        goal='g',
+        target_files=['legacy.txt'],
+        metadata={
+            'action_type': 'create',
+            'file_changes': [
+                {'path': 'index.html', 'action_type': 'create', 'proposed_content': '<!doctype html>\n'},
+                {'path': 'index.html', 'action_type': 'create', 'proposed_content': '<!doctype html>\n'},
+            ],
+        },
+    )
+
+    assert extract_planned_paths(item) == ['index.html']
+    assert detect_duplicate_file_change_paths(item) == ['index.html']
+    assert detect_executor_readable_content(item) is True
+    assert 'target_file_without_file_change' in collect_normalization_warnings(item)
+    assert 'target_file_without_file_change' in item.metadata['normalization_warnings']

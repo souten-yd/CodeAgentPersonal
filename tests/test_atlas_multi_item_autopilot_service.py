@@ -82,3 +82,75 @@ def test_full_auto_multi_item_passes_full_auto_preset(tmp_path):
     out = svc.run(AtlasMultiItemAutopilotRequest(pool_id='p1', project_path=str(tmp_path), policy_id='full_auto_multi_item_v1', require_approval=False, include_context_refresh=False, include_evaluator=False))
     assert captured['preset_id'] == 'full_auto'
     assert out.item_results[0].changed_files == ['a.txt']
+
+
+def test_self_correction_receives_actual_changed_files_and_file_results(tmp_path):
+    pool = AtlasPlanPool(
+        pool_id='p1',
+        root_goal='g',
+        project_path=str(tmp_path),
+        items=[
+            AtlasPlanItem(
+                item_id='i1',
+                pool_id='p1',
+                title='t',
+                goal='g',
+                item_type='implementation',
+                risk_level='medium',
+                status='ready',
+                target_files=['planned.txt'],
+                metadata={'action_type': 'create', 'proposed_content': 'a\n'},
+            )
+        ],
+    )
+    captured = {}
+    file_results = [{'path': 'actual.txt', 'status': 'applied'}]
+
+    class Storage:
+        def load_pool(self, pool_id):
+            return pool
+        def save_pool(self, p):
+            pass
+
+    class Journal:
+        def append_event(self, *args, **kwargs):
+            pass
+
+    class AutoSafe:
+        def execute_one(self, request):
+            return SimpleNamespace(
+                status='applied',
+                changed_files=['actual.txt'],
+                model_dump=lambda: {
+                    'status': 'applied',
+                    'changed_files': ['actual.txt'],
+                    'actual_file_changed': True,
+                    'metadata': {'file_results': file_results},
+                },
+            )
+
+    class Verification:
+        def run_after_auto_safe_apply(self, request):
+            return SimpleNamespace(status='failed', warnings=[], model_dump=lambda: {'status': 'failed', 'warnings': []})
+
+    class SelfCorrection:
+        def run(self, request):
+            captured['changed_files'] = request.changed_files
+            captured['file_results'] = request.file_results
+            return SimpleNamespace(status='exhausted', changed_files=[], model_dump=lambda: {'status': 'exhausted'})
+
+    svc = AtlasMultiItemAutopilotService(
+        storage=Storage(),
+        journal=Journal(),
+        automation_gate=AtlasAutomationGateService(),
+        auto_safe_apply_service=AutoSafe(),
+        auto_verification_service=Verification(),
+        context_refresh_service=SimpleNamespace(refresh=lambda request: SimpleNamespace(status='available', bundle_id='ctx1')),
+        evaluator_service=SimpleNamespace(evaluate=lambda request: SimpleNamespace(metadata={'eval_id': 'ev1'}, decision=SimpleNamespace(model_dump=lambda: {'decision': 'continue'}))),
+        self_correction_service=SelfCorrection(),
+    )
+
+    svc.run(AtlasMultiItemAutopilotRequest(pool_id='p1', project_path=str(tmp_path), policy_id='full_auto_multi_item_v1', require_approval=False, include_context_refresh=False, include_evaluator=False, include_harness_provisioning=False, include_self_correction=True))
+
+    assert captured['changed_files'] == ['actual.txt']
+    assert captured['file_results'] == file_results

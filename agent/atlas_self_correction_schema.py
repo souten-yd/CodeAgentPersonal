@@ -11,6 +11,8 @@ class AtlasSelfCorrectionRequest(BaseModel):
     project_path: str = ""
     # The verification failure that triggers correction (stdout_tail/stderr_tail/exit_code/command/status).
     verification_result: dict = Field(default_factory=dict)
+    changed_files: list[str] = Field(default_factory=list)
+    file_results: list[dict] = Field(default_factory=list)
     max_attempts: int = 2
 
 
