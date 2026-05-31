@@ -39,6 +39,30 @@ CAPABILITY_LABELS: dict[str, str] = {
 }
 
 
+# UI checkbox ids (ui.html) → backend schema keys.
+UI_ID_TO_KEY: dict[str, str] = {
+    "cap-command-execution": CAP_COMMAND_EXECUTION,
+    "cap-browser-automation": CAP_BROWSER_AUTOMATION,
+    "cap-playwright-verification": CAP_PLAYWRIGHT_VERIFICATION,
+    "cap-web-evidence": CAP_WEB_EVIDENCE,
+    "cap-sandboxed-install": CAP_SANDBOXED_INSTALL,
+}
+
+
+def normalize_ui_preferences(incoming: dict) -> dict[str, bool]:
+    """Map incoming preferences (UI ids OR backend keys) to backend schema keys.
+
+    Accepts both the UI checkbox ids (e.g. "cap-command-execution") and the canonical
+    backend keys (e.g. "command_execution_requested"). Unknown keys are ignored.
+    """
+    normalized: dict[str, bool] = {}
+    for raw_key, val in (incoming or {}).items():
+        key = UI_ID_TO_KEY.get(raw_key, raw_key)
+        if key in ALL_CAPABILITY_KEYS:
+            normalized[key] = bool(val)
+    return normalized
+
+
 def get_default_preferences() -> dict[str, bool]:
     """Return a copy of the default capability preferences (all checked)."""
     return dict(DEFAULT_CAPABILITY_PREFERENCES)
