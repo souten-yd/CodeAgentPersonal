@@ -10,6 +10,30 @@ REQ_STATUS_MISSING = "missing"
 REQ_STATUS_PARTIAL = "partial"
 
 _SENTENCE_SPLIT = re.compile(r'[。.!?！？\n]+')
+_TOKEN_RE = re.compile(r'[a-zA-Z][a-zA-Z0-9]+')
+# Common words that carry no mapping signal.
+_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "that", "this", "should", "must", "shall", "need", "needs",
+    "please", "add", "create", "make", "ensure", "show", "display", "update", "page", "code",
+    "implement", "implementation", "from", "into", "when", "where", "which", "have", "has",
+    "will", "your", "use", "using", "value", "values", "file", "files", "user", "users",
+})
+
+
+def _keywords(text: str) -> set[str]:
+    """Meaningful lowercase tokens (len>=4, not stopwords) used for requirement↔file mapping."""
+    return {t.lower() for t in _TOKEN_RE.findall(text or "") if len(t) >= 4 and t.lower() not in _STOPWORDS}
+
+
+def _file_matches(path: str, keywords: set[str]) -> bool:
+    """A file matches a requirement when its path tokens overlap the requirement keywords."""
+    if not keywords:
+        return False
+    file_tokens = {t.lower() for t in _TOKEN_RE.findall(str(path) or "")}
+    return bool(file_tokens & keywords)
+
+
+
 _REQ_PREFIXES = re.compile(
     r'^(?:must|should|shall|needs?\s+to|required?\s+to|'
     r'please|add|create|implement|make|ensure|fix|update|show|display|'
@@ -57,6 +81,51 @@ class AtlasRequirementTracer:
         else:
             req["status"] = REQ_STATUS_MISSING
         return req
+
+    def map_requirements_to_evidence(
+        self,
+        requirements: list[dict],
+        *,
+        changed_files: list[str],
+        verified_files: list[str] | None = None,
+        done_definitions: list[str] | None = None,
+    ) -> list[dict]:
+        """Map each requirement to changed/verified files via keyword overlap (heuristic).
+
+        Status rules (conservative — never overclaim verification):
+        - matched changed file AND that file is covered by a passing verification → verified
+        - matched changed file (no passing verification) → implemented
+        - no per-requirement match but the run produced changes → partial
+        - no implementation evidence at all → missing
+        Unmapped requirements stay 'partial', never silently 'verified'.
+        """
+        changed = list(changed_files or [])
+        verified = set(verified_files or [])
+        done_text = " ".join(done_definitions or []).lower()
+        out: list[dict] = []
+        for req in requirements:
+            kw = _keywords(str(req.get("description") or ""))
+            # done_definition keywords reinforce the requirement's vocabulary
+            kw |= (_keywords(done_text) & kw) if done_text else set()
+            matched = [f for f in changed if _file_matches(f, kw)]
+            if matched:
+                status = REQ_STATUS_VERIFIED if any(f in verified for f in matched) else REQ_STATUS_IMPLEMENTED
+                evidence = list(matched)
+            elif changed:
+                status = REQ_STATUS_PARTIAL
+                evidence = []
+            else:
+                status = REQ_STATUS_MISSING
+                evidence = []
+            verification_method = "verification_passed" if status == REQ_STATUS_VERIFIED else ""
+            out.append({
+                **req,
+                "planned_files": list(req.get("planned_files") or []),
+                "implementation_evidence": evidence,
+                "verification_method": verification_method,
+                "status": status,
+            })
+        return out
 
     def coverage_summary(self, requirements: list[dict]) -> dict:
         """Return a summary of requirement coverage."""
