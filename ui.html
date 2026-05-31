@@ -189,32 +189,27 @@
               <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="platform_self_improvement"> Self-improvement (自己改修)</label>
             </fieldset>
 
-            <fieldset class="atlas-claude-feature-group" aria-label="Capability Preferences" id="atlas-cap-prefs-fieldset">
-              <legend>Capability Preferences <span class="atlas-claude-muted-inline">(preference only — backend policy enforces actual availability)</span></legend>
+            <fieldset class="atlas-claude-feature-group atlas-cap-prefs" aria-label="Capability Preferences" id="atlas-cap-prefs-fieldset">
+              <legend>Capability Preferences <span class="atlas-claude-muted-inline">(preference only — backend enforces availability)</span></legend>
               <label class="atlas-checkbox-label" title="Command execution requested">
-                <input type="checkbox" id="cap-command-execution" checked onchange="saveAtlasCapabilityPreferences()">
-                Command execution requested
-                <span class="atlas-cap-status" id="cap-command-execution-status">blocked: runtime level_0_manual_only</span>
+                <span class="atlas-cap-row"><input type="checkbox" id="cap-command-execution" checked onchange="saveAtlasCapabilityPreferences()"> <span class="atlas-cap-name">Command execution</span></span>
+                <span class="atlas-cap-status" id="cap-command-execution-status">Status: blocked — level_0_manual_only</span>
               </label>
               <label class="atlas-checkbox-label" title="Browser automation requested">
-                <input type="checkbox" id="cap-browser-automation" checked onchange="saveAtlasCapabilityPreferences()">
-                Browser automation requested
-                <span class="atlas-cap-status" id="cap-browser-automation-status">blocked: arbitrary browser automation not enabled</span>
+                <span class="atlas-cap-row"><input type="checkbox" id="cap-browser-automation" checked onchange="saveAtlasCapabilityPreferences()"> <span class="atlas-cap-name">Browser automation</span></span>
+                <span class="atlas-cap-status" id="cap-browser-automation-status">Status: blocked — not enabled</span>
               </label>
               <label class="atlas-checkbox-label" title="Playwright visual verification requested">
-                <input type="checkbox" id="cap-playwright-verification" checked onchange="saveAtlasCapabilityPreferences()">
-                Playwright visual verification requested
-                <span class="atlas-cap-status" id="cap-playwright-verification-status">available only in test/CI harness if Playwright exists</span>
+                <span class="atlas-cap-row"><input type="checkbox" id="cap-playwright-verification" checked onchange="saveAtlasCapabilityPreferences()"> <span class="atlas-cap-name">Playwright visual verification</span></span>
+                <span class="atlas-cap-status" id="cap-playwright-verification-status">Status: test/CI harness only (if Playwright present)</span>
               </label>
               <label class="atlas-checkbox-label" title="Web evidence gathering requested">
-                <input type="checkbox" id="cap-web-evidence" checked onchange="saveAtlasCapabilityPreferences()">
-                Web evidence gathering requested
-                <span class="atlas-cap-status" id="cap-web-evidence-status">planner/evidence mode only</span>
+                <span class="atlas-cap-row"><input type="checkbox" id="cap-web-evidence" checked onchange="saveAtlasCapabilityPreferences()"> <span class="atlas-cap-name">Web evidence gathering</span></span>
+                <span class="atlas-cap-status" id="cap-web-evidence-status">Status: planner / evidence mode only</span>
               </label>
               <label class="atlas-checkbox-label" title="Sandboxed package installation requested">
-                <input type="checkbox" id="cap-sandboxed-install" checked onchange="saveAtlasCapabilityPreferences()">
-                Sandboxed package installation requested
-                <span class="atlas-cap-status" id="cap-sandboxed-install-status">blocked until sandbox policy is enabled</span>
+                <span class="atlas-cap-row"><input type="checkbox" id="cap-sandboxed-install" checked onchange="saveAtlasCapabilityPreferences()"> <span class="atlas-cap-name">Sandboxed package installation</span></span>
+                <span class="atlas-cap-status" id="cap-sandboxed-install-status">Status: blocked — sandbox policy disabled</span>
               </label>
             </fieldset>
 
