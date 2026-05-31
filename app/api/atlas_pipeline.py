@@ -31,6 +31,9 @@ from agent.atlas_approval_service import AtlasApprovalService
 from agent.atlas_continuation_service import AtlasContinuationService
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_orchestration_summary import AtlasOrchestrationSummaryBuilder
+from agent.atlas_critique_gate_service import AtlasCritiqueGateService
+from agent.atlas_clarification_gate_service import AtlasClarificationGateService
+from agent.atlas_plan_quality_gate import apply_plan_quality_gate
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
@@ -914,6 +917,26 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
             md["recommended_test_commands"] = list(impacted_test_recommendation_payload.get("recommended_commands", []))[:5]
             md["verification_hints"] = {"related_tests": list(verification_plan_payload.get("related_tests", []))[:10], "recommended_commands": list(verification_plan_payload.get("recommended_commands", []))[:5], "manual_steps": list(verification_plan_payload.get("manual_verification_steps", []))[:5], "ci_hints": list(verification_plan_payload.get("ci_selection_hints", []))[:5], "executed": False, "advisory_only": True, "auto_verification_triggered": False, "auto_test_execution_triggered": False}
             item.metadata = md
+    # ── Critique gate (PR-8b): block patch generation or record full_auto continuation ──
+    # Evaluates the planner's POST-revision adversarial critique. full_auto + non-safety high
+    # findings proceed as a recorded policy continuation; supervised/lower presets or any
+    # safety-sensitive high finding pause at the approval gate with plan_revision_required.
+    quality_gate = apply_plan_quality_gate(
+        plan,
+        automation_level=req.automation_level,
+        preset_id=str(req.metadata.get("preset_id") or ""),
+    )
+    pool.metadata["critique_gate"] = quality_gate["critique_gate"]
+    if quality_gate["plan_revision_required"]:
+        pool.metadata["plan_revision_required"] = True
+    if quality_gate["clarification"]:
+        pool.metadata["critique_clarification"] = quality_gate["clarification"]
+    for _w in quality_gate["warnings"]:
+        if _w not in pool.warnings:
+            pool.warnings.append(_w)
+    if quality_gate["require_approval"]:
+        pool.status = "approval_required"
+
     pool.metadata.update(
         {
             "api_created": True,
