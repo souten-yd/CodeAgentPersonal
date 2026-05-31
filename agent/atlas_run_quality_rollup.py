@@ -92,8 +92,19 @@ def _integration_scan(project_path: str, changed_files: list[str]) -> tuple[list
     failed = False
     for html in html_files:
         html_path = Path(project_path) / html
-        result = checker.check_html_entrypoint(html_path, generated_files=js_css)
+        # Use import-graph traversal when JS modules present (catches transitive imports).
+        js_files = [f for f in js_css if str(f).lower().endswith((".js", ".mjs", ".ts"))]
+        css_files = [f for f in js_css if str(f).lower().endswith(".css")]
+        if js_files:
+            result = checker.check_entrypoint_import_graph(
+                html_path, project_root=project_path, generated_files=js_css
+            )
+        else:
+            result = checker.check_html_entrypoint(html_path, generated_files=css_files)
         for finding in result.get("findings", []):
+            if finding.get("type") == "unused_export":
+                warnings.append(finding)
+                continue
             warnings.append(finding)
             if str(finding.get("severity")) == "failed":
                 failed = True

@@ -952,6 +952,29 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         pool.metadata["plan_revision_required"] = True
     if quality_gate["clarification"]:
         pool.metadata["critique_clarification"] = quality_gate["clarification"]
+    # ── Structured clarification options (PR-9d): when plan_revision_required, produce
+    # option/merit/risk/recommendation items so the UI can present choices. ──
+    if quality_gate["plan_revision_required"]:
+        _plan_text = str(plan.get("summary") or plan.get("task_summary") or root_goal)
+        _ambiguities = AtlasClarificationGateService().detect_ambiguities(_plan_text)
+        _blocking = list((quality_gate.get("critique_gate") or {}).get("blocking_findings") or [])
+        _options = [
+            {
+                "option_id": f"revise_{i}",
+                "label": f.get("angle") or f.get("category") or f"Finding {i+1}",
+                "description": str(f.get("detail") or f.get("summary") or f),
+                "merit": "Addresses a high-severity critique finding before patching.",
+                "risk": "Requires plan revision; may delay implementation.",
+                "recommendation": "revise" if str(f.get("severity") or "") == "critical" else "review",
+            }
+            for i, f in enumerate(_blocking)
+        ]
+        _clarification_eval = AtlasClarificationGateService().evaluate(_ambiguities, options=_options)
+        pool.metadata["critique_clarification_options"] = {
+            "ambiguity_signals": _ambiguities,
+            "options": _options,
+            "gate_evaluation": _clarification_eval,
+        }
     for _w in quality_gate["warnings"]:
         if _w not in pool.warnings:
             pool.warnings.append(_w)
@@ -1008,6 +1031,12 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         "used_fallback": used_fallback,
         "fallback_reason": fallback_reason,
         "question_count": len(questions),
+        # PR-9d: surface quality signals and preference summary in the orchestration summary
+        # so the UI and API consumers can act on them without digging into pool.metadata.
+        "feature_summary": pool.metadata.get("feature_summary") or {},
+        "critique_gate": pool.metadata.get("critique_gate") or {},
+        "plan_revision_required": bool(pool.metadata.get("plan_revision_required")),
+        "critique_clarification_options": pool.metadata.get("critique_clarification_options") or {},
     })
     return CreatePlanPoolResponse(
         pool_id=pool.pool_id,

@@ -80,13 +80,19 @@ class AtlasOrchestrationSummaryBuilder:
         current_item_title = str(recovery_data.get("current_item_title") or self._item_title(pool_data, current_item_id) or "")
         warnings = [*list(pool_data.get("warnings") or []), *list(state_data.get("warnings") or []), *list(recovery_data.get("warnings") or [])]
         errors = [*list(pool_data.get("errors") or []), *list(state_data.get("errors") or []), *list(recovery_data.get("errors") or [])]
+        _pool_meta = pool_data.get("metadata") or {}
         metadata = {
             "pool_status": pool_data.get("status", ""),
             "state_status": state_data.get("status", ""),
             "recovery_status": recovery_data.get("status", ""),
-            "planner_status": (pool_data.get("metadata") or {}).get("planner_status", ""),
-            "used_fallback": bool((pool_data.get("metadata") or {}).get("used_fallback", False)),
-            "fallback_reason": (pool_data.get("metadata") or {}).get("fallback_reason", ""),
+            "planner_status": _pool_meta.get("planner_status", ""),
+            "used_fallback": bool(_pool_meta.get("used_fallback", False)),
+            "fallback_reason": _pool_meta.get("fallback_reason", ""),
+            # PR-9d: surface quality rollup and preference summary for UI/API consumers
+            "quality_rollup": _pool_meta.get("quality_rollup") or {},
+            "feature_summary": _pool_meta.get("feature_summary") or {},
+            "plan_revision_required": bool(_pool_meta.get("plan_revision_required")),
+            "critique_clarification_options": _pool_meta.get("critique_clarification_options") or {},
         }
         if self._has_approval_required(pool_data, state_data) and status not in {"failed", "blocked", "completed", "completed_with_warnings", "stale"}:
             status = "approval_required"
