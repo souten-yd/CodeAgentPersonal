@@ -597,7 +597,7 @@
     // free_text_goal: create a plan pool with the user's goal, then render
     // the generated plan in chat so the user can see what Atlas produced.
     setBusy(true);
-    const resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_path: projectPath() });
+    const resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_path: projectPath(), metadata: { preset_id: state.selectedPresetId } });
     if (!resp.ok) {
       setBusy(false);
       pushAtlasMessage(`PlanPool creation failed: ${formatError(resp)}`);
