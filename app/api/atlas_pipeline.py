@@ -606,6 +606,20 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
 
     register_atlas_llm_json_adapter(request.app)
     ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    # Bind the pool to the SELECTED project's working directory so generated files land where the
+    # project drawer lists/downloads them (ca_data/atlas/projects/{name}/work). Without this the
+    # workspace resolver falls back to a divergent ca_data/atlas/workspaces/{name} location and the
+    # deliverables end up in a different folder than the project the user sees. Only applied when a
+    # concrete project (non-default workspace_id) is given and no explicit project_path was supplied.
+    if not (req.project_path or "").strip():
+        ws = str(req.workspace_id or "").strip()
+        if ws and ws != "default" and "/" not in ws and "\\" not in ws and ".." not in ws:
+            work_dir = Path(ca_data_root) / "atlas" / "projects" / ws / "work"
+            try:
+                work_dir.mkdir(parents=True, exist_ok=True)
+                req = req.model_copy(update={"project_path": str(work_dir.resolve())})
+            except Exception:
+                pass
     builder = AtlasPlanPoolBuilder()
     planner_status = "planned"
     used_fallback = False

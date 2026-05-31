@@ -53,7 +53,6 @@ class AtlasMultiItemAutopilotService:
         self.emit("multi_item_autopilot_started", request, autopilot_run_id, status="started")
         ids = request.item_ids or [i.item_id for i in pool.items]
         changed_total = 0
-        failed_ids: set[str] = set()
         for idx, item_id in enumerate(ids):
             if out.processed_count >= min(request.max_items, policy.max_items):
                 out.status, out.stop_reason = "stopped", "max_items_reached"; break
@@ -62,10 +61,6 @@ class AtlasMultiItemAutopilotService:
             item = pool.get_item(item_id)
             if item is None:
                 out.item_results.append(AtlasAutopilotItemResult(item_id=item_id, status="skipped", reason="item_not_found")); out.skipped_count += 1; continue
-            # Skip items whose upstream dependency failed (don't apply work built on a broken item).
-            if any(dep in failed_ids for dep in (getattr(item, "depends_on", []) or [])):
-                out.item_results.append(AtlasAutopilotItemResult(item_id=item_id, status="skipped", reason="dependency_failed")); out.processed_count += 1; out.skipped_count += 1
-                self.emit("item_skipped", request, autopilot_run_id, item_id=item_id, item_index=idx, status="skipped", reason="dependency_failed"); continue
             self.emit("item_selected", request, autopilot_run_id, item_id=item_id, item_index=idx, status="started")
             target_files = list(getattr(item, "target_files", []) or [])
             item_md = item.metadata or {}
@@ -209,12 +204,7 @@ class AtlasMultiItemAutopilotService:
             if changed_total > min(request.max_changed_files_total, policy.max_changed_files_total):
                 result.status, result.reason = "stopped", "max_changed_files_total_exceeded"; out.status = "stopped"; out.stop_reason = result.reason
             elif result.status == "failed":
-                # Record the failure and remember the reason, but keep going: dependents are skipped
-                # above, and the run stops only once failed_count reaches max_failures (below). A
-                # single failing item — e.g. one auto-generated test — must not bury the items that
-                # succeeded or make max_failures dead.
-                failed_ids.add(item_id)
-                out.stop_reason = out.stop_reason or result.reason
+                out.status, out.stop_reason = "stopped", result.reason
             elif result.status == "blocked":
                 out.status, out.stop_reason = "stopped", result.reason
             elif decision in set(policy.stop_decisions) and (decision != "manual_required" or request.stop_on_manual_required) and (decision != "revise" or request.stop_on_revise):
@@ -237,10 +227,6 @@ class AtlasMultiItemAutopilotService:
         if out.status == "completed" and out.completed_count == 0 and out.blocked_count > 0:
             out.status = "blocked"
         if out.status == "stopped" and out.completed_count > 0:
-            out.status = "partial"
-        # Some items failed but stayed under max_failures: honest "partial" (not "completed"), so a
-        # successful deliverable is acknowledged while the failure is still visible.
-        if out.status == "completed" and out.failed_count > 0:
             out.status = "partial"
         self.save_result(out)
         self.emit("completed" if out.status in {"completed", "partial"} else "failed" if out.status == "failed" else "stopped", request, autopilot_run_id, status=out.status)
