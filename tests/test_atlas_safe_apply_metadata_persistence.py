@@ -95,6 +95,60 @@ def test_write_time_failure_metadata_preserves_partial_write_changed_files(tmp_p
     assert safe['file_results'] == adapter_result['file_results']
 
 
+def test_rollback_fields_persisted_in_safe_apply_metadata(tmp_path):
+    adapter_result = {
+        'status': 'failed',
+        'reasons': ['write_failed'],
+        'actual_file_changed': False,
+        'changed_files': [],
+        'partial_write_possible': False,
+        'rollback_attempted': True,
+        'rollback_succeeded': True,
+        'restored_files': ['a.txt'],
+        'unrestored_files': [],
+        'file_results': [
+            {'path': 'a.txt', 'status': 'failed', 'reason': 'write_failed'},
+        ],
+    }
+    pool = _pool_with_item()
+    svc, storage = _service(tmp_path, adapter_result, pool)
+    result = svc.execute_item(AtlasSafeApplyExecutionRequest(pool_id='p1', item_id='i1', run_id='r1'))
+    assert result.status == 'failed'
+    item = storage.load_pool('p1').get_item('i1')
+    safe = item.metadata['safe_apply']
+    assert safe['rollback_attempted'] is True
+    assert safe['rollback_succeeded'] is True
+    assert safe['restored_files'] == ['a.txt']
+    assert safe['unrestored_files'] == []
+    assert safe['partial_write_possible'] is False
+
+
+def test_rollback_failure_fields_persisted_in_safe_apply_metadata(tmp_path):
+    adapter_result = {
+        'status': 'failed',
+        'reasons': ['write_failed'],
+        'actual_file_changed': True,
+        'changed_files': ['a.txt'],
+        'partial_write_possible': True,
+        'rollback_attempted': True,
+        'rollback_succeeded': False,
+        'restored_files': [],
+        'unrestored_files': ['a.txt'],
+        'file_results': [
+            {'path': 'a.txt', 'status': 'failed', 'reason': 'write_failed'},
+        ],
+    }
+    pool = _pool_with_item()
+    svc, storage = _service(tmp_path, adapter_result, pool)
+    svc.execute_item(AtlasSafeApplyExecutionRequest(pool_id='p1', item_id='i1', run_id='r1'))
+    item = storage.load_pool('p1').get_item('i1')
+    safe = item.metadata['safe_apply']
+    assert safe['rollback_attempted'] is True
+    assert safe['rollback_succeeded'] is False
+    assert safe['unrestored_files'] == ['a.txt']
+    assert safe['partial_write_possible'] is True
+
+
 def test_file_changes_are_normalized_and_saved_before_snapshot(tmp_path):
     pool = _pool_with_item(target_files=[], metadata={
         'file_changes': [

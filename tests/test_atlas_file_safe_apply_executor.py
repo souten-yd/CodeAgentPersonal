@@ -179,7 +179,8 @@ def test_multi_file_diagnoses_all_file_changes(tmp_path):
     assert 'content_missing' in reasons
 
 
-def test_multi_file_write_failure_reports_failed_partial_possible(tmp_path, monkeypatch):
+def test_multi_file_write_failure_rollback_deletes_created_file(tmp_path, monkeypatch):
+    """When b.txt write fails, the already-created a.txt is rolled back (deleted)."""
     pool = AtlasPlanPool(pool_id='p1', root_goal='g')
     item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
         'action_type': 'create',
@@ -198,9 +199,133 @@ def test_multi_file_write_failure_reports_failed_partial_possible(tmp_path, monk
     monkeypatch.setattr(Path, 'write_text', fail_on_b)
     out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
     assert out['status'] == 'failed'
-    assert out['partial_write_possible'] is True
-    assert out['changed_files'] == ['a.txt']
+    assert out['rollback_attempted'] is True
+    assert out['rollback_succeeded'] is True
+    assert out['partial_write_possible'] is False
+    assert out['changed_files'] == []
+    assert 'a.txt' in out['restored_files']
+    assert out['unrestored_files'] == []
+    assert not (Path(tmp_path) / 'a.txt').exists()
     assert any(r.get('reason') == 'write_failed' for r in out['file_results'])
+
+
+def test_multi_file_write_failure_rollback_restores_updated_file(tmp_path, monkeypatch):
+    """When b.txt write fails, the already-updated a.txt is rolled back to original content."""
+    (Path(tmp_path) / 'a.txt').write_text('original\n', encoding='utf-8')
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'update',
+        'file_changes': [
+            {'path': 'a.txt', 'action_type': 'update', 'proposed_content': 'updated\n'},
+            {'path': 'b.txt', 'action_type': 'create', 'proposed_content': 'b\n'},
+        ],
+    })
+    original_write_text = Path.write_text
+
+    def fail_on_b(self, *args, **kwargs):
+        if self.name == 'b.txt':
+            raise OSError('disk full')
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'write_text', fail_on_b)
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'failed'
+    assert out['rollback_attempted'] is True
+    assert out['rollback_succeeded'] is True
+    assert out['partial_write_possible'] is False
+    assert out['changed_files'] == []
+    assert (Path(tmp_path) / 'a.txt').read_text(encoding='utf-8') == 'original\n'
+
+
+def test_multi_file_rollback_delete_failure_reports_partial_write(tmp_path, monkeypatch):
+    """When b.txt write fails and rollback unlink also fails, partial_write_possible=True."""
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'create',
+        'file_changes': [
+            {'path': 'a.txt', 'action_type': 'create', 'proposed_content': 'a\n'},
+            {'path': 'b.txt', 'action_type': 'create', 'proposed_content': 'b\n'},
+        ],
+    })
+    original_write_text = Path.write_text
+    original_unlink = Path.unlink
+
+    def fail_on_b_write(self, *args, **kwargs):
+        if self.name == 'b.txt':
+            raise OSError('disk full')
+        return original_write_text(self, *args, **kwargs)
+
+    def fail_unlink(self, *args, **kwargs):
+        raise OSError('cannot delete')
+
+    monkeypatch.setattr(Path, 'write_text', fail_on_b_write)
+    monkeypatch.setattr(Path, 'unlink', fail_unlink)
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'failed'
+    assert out['rollback_attempted'] is True
+    assert out['rollback_succeeded'] is False
+    assert out['partial_write_possible'] is True
+    assert 'a.txt' in out['unrestored_files']
+
+
+def test_multi_file_rollback_restore_write_failure_reports_partial_write(tmp_path, monkeypatch):
+    """When b.txt write fails and rollback write_text on updated a.txt also fails."""
+    (Path(tmp_path) / 'a.txt').write_text('original\n', encoding='utf-8')
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'update',
+        'file_changes': [
+            {'path': 'a.txt', 'action_type': 'update', 'proposed_content': 'updated\n'},
+            {'path': 'b.txt', 'action_type': 'create', 'proposed_content': 'b\n'},
+        ],
+    })
+    call_count = {'n': 0}
+    original_write_text = Path.write_text
+
+    def selective_fail(self, content, *args, **kwargs):
+        call_count['n'] += 1
+        if self.name == 'b.txt':
+            raise OSError('disk full')
+        if self.name == 'a.txt' and call_count['n'] > 1:
+            # Second write to a.txt (rollback restore) fails
+            raise OSError('restore failed')
+        return original_write_text(self, content, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'write_text', selective_fail)
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'failed'
+    assert out['rollback_attempted'] is True
+    assert out['rollback_succeeded'] is False
+    assert out['partial_write_possible'] is True
+    assert 'a.txt' in out['unrestored_files']
+
+
+def test_multi_file_rollback_success_empty_changed_files(tmp_path, monkeypatch):
+    """Successful rollback reports changed_files=[] and partial_write_possible=False."""
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'create',
+        'file_changes': [
+            {'path': 'x.txt', 'action_type': 'create', 'proposed_content': 'x\n'},
+            {'path': 'y.txt', 'action_type': 'create', 'proposed_content': 'y\n'},
+            {'path': 'z.txt', 'action_type': 'create', 'proposed_content': 'z\n'},
+        ],
+    })
+    original_write_text = Path.write_text
+
+    def fail_on_z(self, *args, **kwargs):
+        if self.name == 'z.txt':
+            raise OSError('disk full')
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'write_text', fail_on_z)
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'failed'
+    assert out['partial_write_possible'] is False
+    assert out['changed_files'] == []
+    assert out['rollback_succeeded'] is True
+    assert not (Path(tmp_path) / 'x.txt').exists()
+    assert not (Path(tmp_path) / 'y.txt').exists()
 
 
 def test_unsupported_patch_is_blocked(tmp_path):

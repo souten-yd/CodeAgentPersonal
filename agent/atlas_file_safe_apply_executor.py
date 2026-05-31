@@ -109,10 +109,15 @@ class AtlasFileSafeApplyExecutor:
 
         changed_files: list[str] = []
         applied_results: list[dict] = []
+        # Tracks written files with original state for rollback: {path, target, existed, original_text}
+        written_entries: list[dict] = []
+
         for ready in ready_results:
             path = str(ready.get("path") or "")
             target = ready.get("_target")
             content = str(ready.get("_content") or "")
+            existed = bool(ready.get("_existed"))
+            original_text = str(ready.get("_original_text") or "")
             result = self._public_file_result(ready)
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -120,19 +125,25 @@ class AtlasFileSafeApplyExecutor:
             except Exception as exc:  # noqa: BLE001
                 result.update({"status": "failed", "reason": "write_failed", "error": str(exc) or exc.__class__.__name__})
                 applied_results.append(result)
+                rb = self._rollback_written_files(written_entries)
                 return {
                     "status": "failed",
-                    "actual_file_changed": bool(changed_files),
-                    "changed_files": changed_files,
+                    "actual_file_changed": not rb["succeeded"],
+                    "changed_files": rb["unrestored_files"] if not rb["succeeded"] else [],
                     "reasons": ["write_failed"],
                     "errors": [str(exc) or exc.__class__.__name__],
-                    "partial_write_possible": True,
+                    "partial_write_possible": not rb["succeeded"],
+                    "rollback_attempted": True,
+                    "rollback_succeeded": rb["succeeded"],
+                    "restored_files": rb["restored_files"],
+                    "unrestored_files": rb["unrestored_files"],
                     "file_results": applied_results + [
                         self._public_file_result(rest)
                         for rest in ready_results[len(applied_results):]
                     ],
                     "summary": "multi-file apply failed during write",
                 }
+            written_entries.append({"path": path, "target": target, "existed": existed, "original_text": original_text})
             result["status"] = "applied"
             applied_results.append(result)
             changed_files.append(path)
@@ -144,6 +155,25 @@ class AtlasFileSafeApplyExecutor:
             "file_results": applied_results,
             "summary": "multi-file apply completed",
         }
+
+    def _rollback_written_files(self, written_entries: list[dict]) -> dict:
+        """Attempt to undo writes in reverse order. New files are deleted; updated files are restored."""
+        restored: list[str] = []
+        unrestored: list[str] = []
+        for entry in reversed(written_entries):
+            path = entry["path"]
+            target: Path = entry["target"]
+            existed: bool = entry["existed"]
+            original_text: str = entry["original_text"]
+            try:
+                if not existed:
+                    target.unlink(missing_ok=True)
+                else:
+                    target.write_text(original_text, encoding="utf-8")
+                restored.append(path)
+            except Exception:  # noqa: BLE001
+                unrestored.append(path)
+        return {"succeeded": len(unrestored) == 0, "restored_files": restored, "unrestored_files": unrestored}
 
     def _preflight_file_changes(self, *, item: AtlasPlanItem, file_changes: list) -> dict:
         file_results: list[dict] = []
@@ -211,6 +241,8 @@ class AtlasFileSafeApplyExecutor:
                 "mode": mode,
                 "_target": target,
                 "_content": content,
+                "_existed": existed,
+                "_original_text": current_text,
             })
         return {"file_results": file_results, "reasons": list(dict.fromkeys(reasons))}
 

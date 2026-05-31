@@ -180,8 +180,13 @@ class AtlasSafeApplyExecutionService:
             'change_snapshot_id': (change_snapshot or {}).get('snapshot_id', ''),
             'change_snapshot_manifest_path': (change_snapshot or {}).get('manifest_path', ''),
         }
-        if partial_write_possible:
-            safe_apply_meta['partial_write_possible'] = True
+        if partial_write_possible or 'rollback_attempted' in result:
+            safe_apply_meta['partial_write_possible'] = partial_write_possible
+        if 'rollback_attempted' in result:
+            safe_apply_meta['rollback_attempted'] = bool(result.get('rollback_attempted'))
+            safe_apply_meta['rollback_succeeded'] = result.get('rollback_succeeded')
+            safe_apply_meta['restored_files'] = list(result.get('restored_files') or [])
+            safe_apply_meta['unrestored_files'] = list(result.get('unrestored_files') or [])
         item.metadata['safe_apply'].update(safe_apply_meta)
 
     def save_execution_record(self, pool_id, item_id, *, request: AtlasSafeApplyExecutionRequest, item: AtlasPlanItem, status: str, result: dict, warnings: list[str], change_snapshot: dict | None = None):
