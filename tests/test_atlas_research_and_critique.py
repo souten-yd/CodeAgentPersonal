@@ -44,7 +44,8 @@ def test_critic_aggregates_worst_risk_and_requires_revision():
         if angle == "security":
             return {"findings": [{"severity": "high", "title": "no auth check", "detail": "endpoint open", "recommendation": "add auth"}], "angle_risk": "high", "requires_revision": True}
         return {"findings": [], "angle_risk": "low", "requires_revision": False}
-    res = AdversarialPlanCritic(llm_json_fn=fake_llm).critique(
+    # per_angle mode: the mock keys off the per-call angle field (one LLM call per angle).
+    res = AdversarialPlanCritic(llm_json_fn=fake_llm, mode="per_angle").critique(
         plan_summary={"implementation_steps": []}, requirement_summary={})
     assert res.consensus_risk == "high"
     assert res.requires_revision is True

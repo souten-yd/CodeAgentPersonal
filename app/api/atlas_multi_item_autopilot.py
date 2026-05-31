@@ -122,7 +122,24 @@ def run(payload: AtlasMultiItemAutopilotRequest, request: Request):
     if payload.run_id:
         payload.run_id = _validate_id(payload.run_id, "run_id")
     payload.item_ids = [_validate_id(v, "item_id") for v in (payload.item_ids or [])]
-    return _service(request, payload.workspace_id, pool_id=payload.pool_id).run(payload).model_dump()
+    # Validate the pool exists up front so a missing/unreadable pool returns a clean 404 instead of a
+    # bare 500 from deep inside the service.
+    root = resolve_atlas_ca_data_root(request)
+    try:
+        AtlasPlanPoolStorage(root).load_pool(payload.pool_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail={"error": "pool_not_found", "reason": f"pool_not_found:{payload.pool_id}"}) from exc
+    # Build + run inside a guard: surface service/executor wiring failures as a structured 500 rather
+    # than leaking an unhandled exception (the "Apply: Internal Server Error" the user saw).
+    try:
+        return _service(request, payload.workspace_id, pool_id=payload.pool_id).run(payload).model_dump()
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "autopilot_failed", "reason": f"{exc.__class__.__name__}: {exc}"[:300]},
+        ) from exc
 
 
 @router.get("/results/{pool_id}/{autopilot_run_id}")

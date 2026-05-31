@@ -403,6 +403,131 @@ def _checkpoint_next_action(status: str) -> str:
     return "Review the latest Atlas checkpoint."
 
 
+def _sp_str(value: Any, limit: int = 600) -> str:
+    s = str(value or "").strip()
+    return s[:limit]
+
+
+def _sp_list(value: Any, *, max_items: int = 20, item_limit: int = 300) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        return []
+    out: list[str] = []
+    for v in value:
+        s = str(v or "").strip()
+        if s:
+            out.append(s[:item_limit])
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _build_strategic_plan_summary(*, requirement: dict, plan: dict, review_result: dict, pool: Any) -> dict:
+    """Compact, size-bounded strategic plan for the UI to render a Claude/Codex-style plan card.
+
+    Sourced from the planner's requirement/plan/review dicts (all available at creation). Persisted on
+    pool.metadata so it survives the async job and reaches the frontend via GET /plan-pools/{id}
+    (which returns the pool). Research/critique are included when the planner surfaced them on the plan.
+    """
+    requirement = requirement if isinstance(requirement, dict) else {}
+    plan = plan if isinstance(plan, dict) else {}
+    review_result = review_result if isinstance(review_result, dict) else {}
+
+    steps_raw = plan.get("implementation_steps") if isinstance(plan.get("implementation_steps"), list) else []
+    steps: list[dict] = []
+    for s in steps_raw[:30]:
+        if not isinstance(s, dict):
+            continue
+        steps.append({
+            "title": _sp_str(s.get("title")),
+            "description": _sp_str(s.get("description"), 600),
+            "target_files": _sp_list(s.get("target_files"), max_items=10, item_limit=200),
+            "action_type": _sp_str(s.get("action_type"), 40),
+            "risk_level": _sp_str(s.get("risk_level"), 20),
+            "verification": _sp_str(s.get("verification"), 300),
+            "rollback": _sp_str(s.get("rollback"), 300),
+        })
+    # Fallback: when the plan dict has no steps (e.g. plan_payload path), derive them from the pool
+    # items so the strategic card still shows per-step detail.
+    if not steps:
+        for it in (getattr(pool, "items", None) or [])[:30]:
+            md = getattr(it, "metadata", {}) or {}
+            steps.append({
+                "title": _sp_str(getattr(it, "title", "")),
+                "description": _sp_str(getattr(it, "description", "") or getattr(it, "goal", ""), 600),
+                "target_files": _sp_list(getattr(it, "target_files", []), max_items=10, item_limit=200),
+                "action_type": _sp_str(md.get("action_type"), 40),
+                "risk_level": _sp_str(getattr(it, "risk_level", ""), 20),
+                "verification": _sp_str("; ".join(getattr(it, "done_definition", []) or []), 300),
+                "rollback": _sp_str("; ".join(getattr(it, "rollback_plan", []) or []), 300),
+            })
+
+    findings_raw = review_result.get("findings") if isinstance(review_result.get("findings"), list) else []
+    findings: list[dict] = []
+    for f in findings_raw[:20]:
+        if not isinstance(f, dict):
+            continue
+        findings.append({
+            "title": _sp_str(f.get("title"), 200),
+            "severity": _sp_str(f.get("severity"), 20),
+            "category": _sp_str(f.get("category"), 40),
+            "recommendation": _sp_str(f.get("recommendation"), 300),
+        })
+
+    summary: dict = {
+        "goal": _sp_str(requirement.get("interpreted_goal") or plan.get("user_goal") or pool.root_goal, 600),
+        "requirement_summary": _sp_str(plan.get("requirement_summary") or requirement.get("user_intent"), 600),
+        "scope": _sp_list(requirement.get("scope")),
+        "out_of_scope": _sp_list(requirement.get("out_of_scope")),
+        "assumptions": _sp_list(plan.get("assumptions") or requirement.get("assumptions")),
+        "constraints": _sp_list(plan.get("constraints") or requirement.get("constraints")),
+        "selected_architecture": _sp_str(plan.get("selected_architecture"), 400),
+        "architecture_options": _sp_list(plan.get("architecture_options"), max_items=6, item_limit=300),
+        "rejected_architectures": _sp_list(plan.get("rejected_architectures"), max_items=6, item_limit=300),
+        "steps": steps,
+        "risks": _sp_list(plan.get("risks") or requirement.get("risks")),
+        "test_plan": _sp_list(plan.get("test_plan")),
+        "verification_plan": _sp_list(plan.get("verification_plan")),
+        "done_definition": _sp_list(plan.get("done_definition") or requirement.get("done_definition")),
+        "review": {
+            "overall_risk": _sp_str(review_result.get("overall_risk"), 20),
+            "summary": _sp_str(review_result.get("summary"), 600),
+            "recommended_next_action": _sp_str(review_result.get("recommended_next_action"), 40),
+            "findings": findings,
+        },
+    }
+
+    # Research findings / adversarial critique are surfaced by the planner on the plan dict when present.
+    research = plan.get("research_findings") if isinstance(plan.get("research_findings"), dict) else {}
+    if research:
+        summary["research"] = {
+            "recommended_approach": _sp_str(research.get("recommended_approach"), 600),
+            "key_findings": _sp_list(research.get("key_findings")),
+            "relevant_files": _sp_list(research.get("relevant_files"), max_items=15, item_limit=200),
+            "risks": _sp_list(research.get("risks")),
+        }
+    critique = plan.get("adversarial_critique") if isinstance(plan.get("adversarial_critique"), dict) else {}
+    if critique:
+        c_findings_raw = critique.get("findings") if isinstance(critique.get("findings"), list) else []
+        c_findings: list[dict] = []
+        for f in c_findings_raw[:20]:
+            if not isinstance(f, dict):
+                continue
+            c_findings.append({
+                "angle": _sp_str(f.get("angle"), 40),
+                "severity": _sp_str(f.get("severity"), 20),
+                "title": _sp_str(f.get("title"), 200),
+                "recommendation": _sp_str(f.get("recommendation"), 300),
+            })
+        summary["adversarial_critique"] = {
+            "consensus_risk": _sp_str(critique.get("consensus_risk"), 20),
+            "requires_revision": bool(critique.get("requires_revision")),
+            "findings": c_findings,
+        }
+    return summary
+
+
 def _plan_pool_jobs_dir(ca_data_root: Path) -> Path:
     d = Path(ca_data_root) / "atlas" / "plan_pool_jobs"
     d.mkdir(parents=True, exist_ok=True)
@@ -782,6 +907,9 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
             "planner_status": planner_status,
             "used_fallback": used_fallback,
             "fallback_reason": fallback_reason,
+            "strategic_plan": _build_strategic_plan_summary(
+                requirement=requirement, plan=plan, review_result=review_result, pool=pool,
+            ),
             **dict(req.metadata),
         }
     )

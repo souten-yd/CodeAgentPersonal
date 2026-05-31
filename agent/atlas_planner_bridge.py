@@ -49,10 +49,17 @@ class AtlasPlannerBridge:
         try:
             planner_result = self.run_real_planner(request)
             status = str(planner_result.get("status") or "")
+            # Fold research_findings / adversarial_critique into the plan dict so downstream consumers
+            # (e.g. the strategic-plan summary) can surface them without a wider schema change.
+            _plan_dict = _as_dict(planner_result.get("plan"))
+            if isinstance(planner_result.get("research_findings"), dict):
+                _plan_dict.setdefault("research_findings", planner_result.get("research_findings"))
+            if isinstance(planner_result.get("adversarial_critique"), dict):
+                _plan_dict.setdefault("adversarial_critique", planner_result.get("adversarial_critique"))
             common = {
                 "planner_result": planner_result,
                 "requirement": _as_dict(planner_result.get("requirement")),
-                "plan": _as_dict(planner_result.get("plan")),
+                "plan": _plan_dict,
                 "review_result": _as_dict(planner_result.get("review_result")),
                 "questions": _as_list_of_dicts(planner_result.get("questions")),
                 "warnings": _dedup(coerce_list(planner_result.get("warnings"))),

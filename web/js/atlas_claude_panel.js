@@ -1104,9 +1104,14 @@
     // (Status / Planning Depth / Items table / Warnings / Errors) is tucked into a collapsible
     // <details> so the execution steps are readable at a glance.
     let items = [];
+    let strategic = null;
     try {
       const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
-      if (pool && pool.ok && pool.data) items = pool.data.items || pool.data.plan_items || [];
+      if (pool && pool.ok && pool.data) {
+        items = pool.data.items || pool.data.plan_items || [];
+        const meta = pool.data.metadata || (pool.data.plan_pool && pool.data.plan_pool.metadata) || {};
+        if (meta && typeof meta.strategic_plan === 'object') strategic = meta.strategic_plan;
+      }
     } catch (_e) { items = []; }
 
     let rawMarkdown = '';
@@ -1117,7 +1122,7 @@
       } catch (_e) { rawMarkdown = ''; }
     }
 
-    if (!items.length && !rawMarkdown) {
+    if (!items.length && !rawMarkdown && !strategic) {
       pushAtlasMessage('Plan was created. Use Recover to view it.');
       return;
     }
@@ -1125,7 +1130,129 @@
       pushAtlasMessage(rawMarkdown ? rawMarkdown.slice(0, 4000) : 'Plan was created.');
       return;
     }
-    appendPlanCard(items, rawMarkdown);
+    appendStrategicPlanCard(strategic, items, rawMarkdown);
+  }
+
+  // Render a Claude/Codex-style strategic plan the user can review before approving: goal, approach,
+  // per-step detail, risks/review, done-definition. Falls back to the thin item list when no
+  // strategic_plan is present (older pools). textContent-based; never injects HTML.
+  function appendStrategicPlanCard(strategic, items, rawMarkdown) {
+    if (!strategic || typeof strategic !== 'object') {
+      appendPlanCard(items, rawMarkdown);
+      return;
+    }
+    const card = document.createElement('div');
+    card.className = 'atlas-claude-msg atlas-claude-stage-block';
+    card.dataset.role = 'atlas';
+
+    const head = document.createElement('div');
+    head.className = 'atlas-claude-summary-head';
+    const stepCount = Array.isArray(strategic.steps) ? strategic.steps.length : 0;
+    head.textContent = `戦略プラン — 実行ステップ ${stepCount} 件`;
+    card.appendChild(head);
+
+    const addSection = (label, render) => {
+      const sec = document.createElement('div');
+      sec.style.margin = '8px 0 2px';
+      const h = document.createElement('div');
+      h.className = 'atlas-claude-summary-head';
+      h.style.fontSize = '12px';
+      h.textContent = label;
+      sec.appendChild(h);
+      render(sec);
+      card.appendChild(sec);
+    };
+    const para = (parent, text) => {
+      if (!text) return;
+      const d = document.createElement('div');
+      d.className = 'atlas-claude-stage-detail';
+      d.style.whiteSpace = 'normal';
+      d.textContent = text;
+      parent.appendChild(d);
+    };
+    const bullets = (parent, arr) => {
+      if (!Array.isArray(arr) || !arr.length) return;
+      arr.forEach((x) => {
+        const d = document.createElement('div');
+        d.className = 'atlas-claude-stage-detail';
+        d.style.whiteSpace = 'normal';
+        d.textContent = `• ${x}`;
+        parent.appendChild(d);
+      });
+    };
+
+    // Goal / summary
+    if (strategic.goal || strategic.requirement_summary) {
+      addSection('ゴール', (sec) => {
+        para(sec, strategic.goal);
+        if (strategic.requirement_summary && strategic.requirement_summary !== strategic.goal) para(sec, strategic.requirement_summary);
+      });
+    }
+    // Approach / architecture
+    if (strategic.selected_architecture || (strategic.architecture_options || []).length || (strategic.research && strategic.research.recommended_approach)) {
+      addSection('アプローチ / アーキテクチャ', (sec) => {
+        if (strategic.research && strategic.research.recommended_approach) para(sec, strategic.research.recommended_approach);
+        para(sec, strategic.selected_architecture);
+        bullets(sec, strategic.architecture_options);
+      });
+    }
+    // Steps
+    if (stepCount) {
+      addSection('実行ステップ', (sec) => {
+        strategic.steps.forEach((s, i) => {
+          const row = document.createElement('div');
+          row.style.padding = '4px 0';
+          const t = document.createElement('div');
+          const meta = [s.action_type, s.risk_level].filter(Boolean).join(' · ');
+          t.innerHTML = `<strong>${escapeText(`${i + 1}. ${s.title || 'step'}`)}</strong>${meta ? ` <span class="atlas-claude-stage-detail">(${escapeText(meta)})</span>` : ''}`;
+          row.appendChild(t);
+          para(row, s.description);
+          if ((s.target_files || []).length) para(row, `files: ${s.target_files.join(', ')}`);
+          if (s.verification) para(row, `検証: ${s.verification}`);
+          if (s.rollback) para(row, `ロールバック: ${s.rollback}`);
+          sec.appendChild(row);
+        });
+      });
+    }
+    // Risks & review
+    const review = strategic.review || {};
+    const critique = strategic.adversarial_critique || {};
+    if ((strategic.risks || []).length || review.summary || (review.findings || []).length || (critique.findings || []).length) {
+      addSection('リスク / レビュー', (sec) => {
+        if (review.overall_risk) para(sec, `総合リスク: ${review.overall_risk}`);
+        if (review.summary) para(sec, review.summary);
+        bullets(sec, strategic.risks);
+        (review.findings || []).forEach((f) => para(sec, `⚠ [${f.severity || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
+        if (critique.requires_revision) para(sec, `敵対的批評: 要改訂 (${critique.consensus_risk || '-'})`);
+        (critique.findings || []).forEach((f) => para(sec, `⚔ [${f.severity || '-'}/${f.angle || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
+      });
+    }
+    // Done definition / tests
+    if ((strategic.done_definition || []).length || (strategic.test_plan || []).length) {
+      addSection('完了条件 / テスト', (sec) => {
+        bullets(sec, strategic.done_definition);
+        bullets(sec, strategic.test_plan);
+      });
+    }
+
+    // Raw details preserved for power users.
+    if (rawMarkdown) {
+      const det = document.createElement('details');
+      det.className = 'atlas-claude-summary-items';
+      const sm = document.createElement('summary');
+      sm.textContent = '詳細（生のプラン情報）';
+      det.appendChild(sm);
+      const body = document.createElement('div');
+      const trimmed = rawMarkdown.length > 8000 ? rawMarkdown.slice(0, 8000) + '\n\n…(truncated)' : rawMarkdown;
+      const pre = document.createElement('pre');
+      pre.textContent = trimmed;
+      body.appendChild(pre);
+      det.appendChild(body);
+      card.appendChild(det);
+    }
+
+    dom.transcript.appendChild(card);
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
   }
 
   function appendPlanCard(items, rawMarkdown) {
