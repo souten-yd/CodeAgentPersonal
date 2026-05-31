@@ -21,6 +21,18 @@ def atlas_auto_policy_presets() -> dict[str, AtlasAutoPolicyPreset]:
             allowed_action_types=["update", "create"],
             allowed_risk_levels=["low"],
         ),
+        "full_auto": AtlasAutoPolicyPreset(
+            preset_id="full_auto",
+            name="Full Auto Safe Apply",
+            description="Allows gated create/update safe_apply for low, medium, and high risk items while keeping critical and command actions forbidden.",
+            automation_level="full_autopilot",
+            allow_auto_safe_apply=True,
+            max_auto_items_per_run=3,
+            max_changed_files_per_item=20,
+            allowed_action_types=["update", "create"],
+            allowed_risk_levels=["low", "medium", "high"],
+            require_patch_proposal_approval=False,
+        ),
         "supervised_auto": AtlasAutoPolicyPreset(
             preset_id="supervised_auto",
             name="Supervised Auto (Reserved)",
