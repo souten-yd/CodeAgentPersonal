@@ -10,7 +10,8 @@ class AtlasAutomationGateService:
         reasons: list[str] = []
         warnings: list[str] = []
         meta = getattr(item, "metadata", {}) or {}
-        action_type = str(meta.get("action_type") or "update").lower()
+        file_changes = meta.get("file_changes") if isinstance(meta.get("file_changes"), list) else []
+        action_type = str(meta.get("action_type") or ("update" if not file_changes else "")).lower()
         risk = str(getattr(item, "risk_level", "")).lower()
         item_type = str(getattr(item, "item_type", "")).lower()
         target_files = list(getattr(item, "target_files", []) or [])
@@ -22,9 +23,11 @@ class AtlasAutomationGateService:
         if preset.preset_id == "manual_only":
             return AtlasAutomationDecision(pool_id=pool.pool_id, item_id=item.item_id, preset_id=preset.preset_id, decision="require_manual", reasons=["manual_only_preset"], warnings=[], metadata={"action_type": action_type})
 
-        if action_type in set(preset.forbidden_action_types): reasons.append("forbidden_action_type")
-        if action_type not in set(preset.allowed_action_types): reasons.append("unsupported_action")
-        if risk in {"medium", "high", "critical"} or risk not in set(preset.allowed_risk_levels): reasons.append("risk_not_allowed")
+        file_action_types = [str(ch.get("action_type") or "").lower() for ch in file_changes if isinstance(ch, dict)]
+        action_types_to_check = file_action_types or [action_type]
+        if any(a in set(preset.forbidden_action_types) or a in {"execute", "shell"} for a in action_types_to_check): reasons.append("forbidden_action_type")
+        if any(a not in set(preset.allowed_action_types) for a in action_types_to_check): reasons.append("unsupported_action")
+        if risk == "critical" or risk not in set(preset.allowed_risk_levels): reasons.append("risk_not_allowed")
         if item_type not in set(preset.allowed_item_types): reasons.append("item_type_not_allowed")
         if not preset.allow_auto_safe_apply: reasons.append("auto_safe_apply_disabled")
         if not target_files: reasons.append("target_files_missing")
@@ -46,7 +49,12 @@ class AtlasAutomationGateService:
             (meta.get("patch_proposal") or {}).get("proposed_content"),
             (meta.get("patch_proposal") or {}).get("unified_diff_preview"),
         ]
-        if preset.require_executor_readable_patch and not any(isinstance(v, str) and v.strip() for v in content_candidates):
+        file_change_has_content = bool(file_changes) and all(
+            isinstance(ch, dict)
+            and any(ch.get(k) for k in ("proposed_content", "patch", "unified_diff_preview", "edits", "append_content"))
+            for ch in file_changes
+        )
+        if preset.require_executor_readable_patch and not (file_change_has_content or any(isinstance(v, str) and v.strip() for v in content_candidates)):
             reasons.append("content_missing")
 
         decision = "allow"
