@@ -92,3 +92,39 @@ def test_manifest_vue_next_preview_contract_fields():
     assert manifest["vue_next_preview_contract_scope"] == "read_only_display_only"
     assert manifest["vue_next_preview_level_is_level0"] is True
     assert manifest["vue_next_preview_all_actions_disabled"] is True
+
+# --- UI default wording / removed Vue runtime cleanup ---
+
+def test_manifest_keeps_buildless_shell_as_active_default():
+    manifest = _load_manifest()
+    assert manifest["active_ui_default_policy"] == "buildless_thinux_fastui_conversational_shell"
+    assert manifest["default_conversational_shell_requires_build"] is False
+    assert manifest["default_conversational_shell_requires_vue"] is False
+    assert manifest["default_conversational_shell_requires_vite"] is False
+
+
+def test_manifest_marks_vue_default_metadata_deprecated_non_active():
+    manifest = _load_manifest()
+    stale_active_keys = [key for key in manifest if key.startswith("vue_default_")]
+    assert stale_active_keys == []
+    assert manifest["deprecated_vue_default_metadata_status"] == "deprecated_non_active_historical_record"
+    assert manifest["deprecated_vue_default_metadata_active"] is False
+    assert manifest["deprecated_vue_default_route_was"] == "/"
+    assert "removed" in manifest["deprecated_vue_default_metadata_reason"]
+
+
+def test_removed_atlas_next_vue_runtime_has_no_server_serving_path():
+    route_text = (Path(__file__).parent.parent / "main.py").read_text(encoding="utf-8")
+    server_text = (Path(__file__).parent.parent / "app" / "server.py").read_text(encoding="utf-8")
+    combined = route_text + "\n" + server_text
+    forbidden = [
+        "configure_atlas_next_preview_route",
+        "web/atlas-next/dist",
+        "ATLAS_NEXT_DEFAULT_ENABLED",
+        "validate_atlas_next_dist",
+    ]
+    for token in forbidden:
+        assert token not in combined
+    assert '@app.get("/atlas-next' not in route_text
+    assert 'app.mount("/atlas-next' not in combined
+    assert "atlas-next" not in combined

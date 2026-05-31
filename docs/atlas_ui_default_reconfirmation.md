@@ -6,7 +6,7 @@ Status: POST-SCALE-160-UI-DEFAULT-RECONFIRM completed and re-applied for the bui
 
 Revert the default `/` route to the buildless `ui.html` shell that hosts the Claude-Code-style conversational Atlas panel (POST-SCALE-160-CLAUDE-CHAT-PANEL track).
 
-The active default route is `/`, served from `serve_existing_ui_index()` which returns `ui.html`. The guarded Atlas Next preview is still reachable at `/atlas-next/` for users who explicitly opt in by building the dist (`cd web/atlas-next && npm ci && npm run build`); `ATLAS_NEXT_DEFAULT_ENABLED` is now `False`, so even a valid Atlas Next dist no longer takes over `/`. `can_serve_atlas_next_default()`, `validate_atlas_next_dist()`, and the legacy `/ui/` route remain unchanged for code-reachability.
+The active default route is `/`, served from `serve_existing_ui_index()` which returns `ui.html`. Atlas Next Vue3 is no longer a runnable/default UI in this tree: `web/atlas-next` is absent, there is no `/atlas-next` server route or static mount, FastAPI startup does not run npm/Vite builds, and the manifest keeps any Vue default-route facts only as explicitly deprecated, non-active historical metadata. The legacy `/ui/` route remains available for the same buildless shell.
 
 ## Preferred Future UI
 
@@ -19,9 +19,10 @@ This reconfirmation does not change route behavior, runtime behavior, workflow a
 Still forbidden in this checkpoint:
 
 - serving raw Vue source
-- bypassing Atlas Next dist validation
+- re-adding `/atlas-next` runtime serving or raw dist fallback
+- requiring Atlas Next dist validation for the active default shell
 - bypassing legacy `/ui/` fallback
-- running npm during FastAPI server startup
+- running npm or Vite during FastAPI server startup
 - making Vue workflow state authoritative
 - adding Vue execution controls
 - enabling stable runtime mutation

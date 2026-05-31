@@ -14,7 +14,7 @@ Updated after POST-SCALE-160 recovery and draft artifact summaries.
 - The read-only PlanPool item summary PR makes generated plan candidates easier to scan inside the Start Atlas result review panel.
 - POST-SCALE-160-VUE-DEFAULT-PROMOTION-GATE adds a backend-only readiness gate for promoting `/atlas-next/` as the default route.
 - POST-SCALE-160-VUE-DEFAULT-PROMOTION-APPLY aligns docs, manifest, and route contracts with the existing guarded `/` default behavior.
-- POST-SCALE-160-UI-DEFAULT-RECONFIRM records that the current guarded Atlas Next root default stays active for now while buildless ThinUX / FastUI remains the preferred future default direction.
+- POST-SCALE-160-UI-DEFAULT-RECONFIRM records that the active root default is the buildless ThinUX / FastUI conversational shell, not Atlas Next Vue3.
 - POST-SCALE-160-FASTUI-SHELL-MVP mounts the first conversation-first Atlas shell above the older detailed panels, including a backend-owned work target intent selector, current phase, next action, safety badge, changed files, verification, recovery, one Start Atlas CTA, and a collapsed settings drawer.
 - POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP now has a read-only practical loop metadata bridge for bounded loop status, iteration count, stop condition, changed files, verification, recovery, and draft PR state.
 - POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP now reads the latest guarded operator loop artifact when available and summarizes it into the same read-only practical loop metadata surface.
@@ -25,16 +25,16 @@ Updated after POST-SCALE-160 recovery and draft artifact summaries.
 - PR-ATLAS-SCALE-129 remains planned and records patch transaction preview with rollback metadata required and no apply.
 - PR-ATLAS-SCALE-130 through PR-ATLAS-SCALE-160 reach the backend fully autonomous code agent milestone.
 - POST-SCALE-160-VUE-DEFAULT-PROMOTION-GATE prepared Vue default promotion readiness after the backend milestone.
-- POST-SCALE-160-VUE-DEFAULT-PROMOTION-APPLY records the guarded Vue default route as applied without expanding Vue authority or runtime mutation.
+- POST-SCALE-160-VUE-DEFAULT-PROMOTION-APPLY is now retained only as deprecated, non-active historical metadata; it does not make Vue authoritative or default.
 - POST-SCALE-160-STABLE-RUNTIME-MUTATION-GATE adds a backend-only gate for future stable runtime mutation or release pointer behavior.
 - POST-SCALE-160-UI-DEFAULT-RECONFIRM completes the UI default checkpoint required before stable runtime mutation apply.
 - POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY adds a strict, record-only stable runtime mutation apply helper that consumes a ready gate and exact approval.
 - POST-SCALE-160-PRACTICAL-AUTOMATION-PLAN adds the practical full-automation experience plan and marks practical completion flags incomplete until evidence exists.
 
 ## Current safety boundaries
-- `/` selects Atlas Next only through `can_serve_atlas_next_default()` after `validate_atlas_next_dist()` passes.
-- `/ui/` remains the legacy UI fallback route and root fails closed to legacy UI if the prebuilt Vue dist is missing or invalid.
-- Buildless ThinUX / FastUI conversational shell is the preferred future normal Atlas experience, but it is not switched to the default route in this checkpoint.
+- `/` serves the buildless `ui.html` shell through `serve_existing_ui_index()`.
+- `/ui/` remains the legacy route for the same buildless UI shell.
+- Atlas Next Vue3 runtime serving is removed from this tree: no `web/atlas-next` directory, no `/atlas-next` route/static mount, no server startup npm/Vite build, and no raw dist fallback.
 - Practical full automation is not complete at backend-milestone-only state; FastUI usability, bounded developer loop, self-improvement loop, draft PR experience, and checkpoint evidence remain tracked separately.
 - Vue remains non-authoritative for workflow eligibility and approval; backend workflow state remains authoritative.
 - Current runtime level is `level_8_fully_autonomous_code_agent` for the backend automation milestone.
@@ -57,4 +57,4 @@ The buildless track now includes a Claude-Code-style conversational chat panel d
 - `POST-SCALE-160-CLAUDE-CHAT-PROFILE-CONTROLS`: unified Automation Profile preset selector and confirmation-gated preview/select endpoints.
 - `POST-SCALE-160-CLAUDE-CHAT-COMPLETE-AUTOMATION-PROFILE`: pre-authorised envelopes and chat-driven autonomous loop session preparation.
 
-The Vue Atlas Next surface remains optional preview; the buildless shell at `#atlas-claude-col` is the new default for Atlas mode in `ui.html`.
+The Vue Atlas Next surface is no longer an active runtime surface; the buildless shell at `#atlas-claude-col` is the default for Atlas mode in `ui.html`.
