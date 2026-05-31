@@ -9,7 +9,7 @@ class AtlasAutoPolicyPreset(BaseModel):
     preset_id: str
     name: str
     description: str
-    automation_level: Literal["manual_only", "guarded_low_risk", "supervised_auto"]
+    automation_level: Literal["manual_only", "guarded_low_risk", "supervised_auto", "full_autopilot"]
     allow_auto_safe_apply: bool = False
     allow_auto_verification: bool = False
     allow_auto_debug_review: bool = False
