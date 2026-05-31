@@ -76,14 +76,45 @@ class AtlasFileSafeApplyExecutor:
         if existed and content == current_text:
             return self._blocked("no_effective_change")
 
+        change_id = "fc_" + rel_target.replace("/", "_").replace("\\", "_")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        try:
+            target.write_text(content, encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001
+            # The write may have partially modified/created the file, so the failed target is
+            # always a rollback target: delete it if it is new, restore original content if it
+            # existed. Reuse the multi-file rollback helper with a single entry.
+            rb = self._rollback_written_files([
+                {"path": rel_target, "target": target, "existed": existed, "original_text": current_text}
+            ])
+            return {
+                "status": "failed",
+                "actual_file_changed": not rb["succeeded"],
+                "changed_files": rb["unrestored_files"] if not rb["succeeded"] else [],
+                "reasons": ["write_failed"],
+                "errors": [str(exc) or exc.__class__.__name__],
+                "partial_write_possible": not rb["succeeded"],
+                "rollback_attempted": True,
+                "rollback_succeeded": rb["succeeded"],
+                "restored_files": rb["restored_files"],
+                "unrestored_files": rb["unrestored_files"],
+                "file_results": [{
+                    "change_id": change_id,
+                    "path": rel_target,
+                    "status": "failed",
+                    "reason": "write_failed",
+                    "action_type": action_type,
+                    "content_mode": parse.get("mode", "content"),
+                    "mode": parse.get("mode", "content"),
+                }],
+                "summary": f"single-file apply failed during write to {rel_target}",
+            }
         return {
             "status": "applied",
             "actual_file_changed": True,
             "changed_files": [rel_target],
             "file_results": [{
-                "change_id": "fc_" + rel_target.replace("/", "_").replace("\\", "_"),
+                "change_id": change_id,
                 "path": rel_target,
                 "status": "applied",
                 "action_type": action_type,

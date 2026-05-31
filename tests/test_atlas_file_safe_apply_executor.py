@@ -328,6 +328,98 @@ def test_multi_file_rollback_success_empty_changed_files(tmp_path, monkeypatch):
     assert not (Path(tmp_path) / 'y.txt').exists()
 
 
+def test_single_file_write_failure_new_file_rollback_deletes(tmp_path, monkeypatch):
+    """Single-file write failure on a NEW file: rollback deletes the partial file → not partial."""
+    pool, item = _pool_and_item(tmp_path, action_type='create', target='new.txt', metadata={'proposed_content': 'abc\n'})
+    original_write_text = Path.write_text
+
+    def fail_write(self, *args, **kwargs):
+        if self.name == 'new.txt':
+            # Simulate a partial write then failure: create the file, then raise.
+            original_write_text(self, 'partial', encoding='utf-8')
+            raise OSError('disk full')
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'write_text', fail_write)
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'failed'
+    assert out['rollback_attempted'] is True
+    assert out['rollback_succeeded'] is True
+    assert out['partial_write_possible'] is False
+    assert out['changed_files'] == []
+    assert 'new.txt' in out['restored_files']
+    assert not (Path(tmp_path) / 'new.txt').exists()
+
+
+def test_single_file_write_failure_new_file_delete_failure_partial(tmp_path, monkeypatch):
+    """New-file write failure where rollback unlink also fails → partial_write_possible=True."""
+    pool, item = _pool_and_item(tmp_path, action_type='create', target='new.txt', metadata={'proposed_content': 'abc\n'})
+    original_write_text = Path.write_text
+
+    def fail_write(self, *args, **kwargs):
+        if self.name == 'new.txt':
+            original_write_text(self, 'partial', encoding='utf-8')
+            raise OSError('disk full')
+        return original_write_text(self, *args, **kwargs)
+
+    def fail_unlink(self, *args, **kwargs):
+        raise OSError('cannot delete')
+
+    monkeypatch.setattr(Path, 'write_text', fail_write)
+    monkeypatch.setattr(Path, 'unlink', fail_unlink)
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'failed'
+    assert out['rollback_succeeded'] is False
+    assert out['partial_write_possible'] is True
+    assert 'new.txt' in out['unrestored_files']
+    assert out['changed_files'] == ['new.txt']
+
+
+def test_single_file_write_failure_existing_file_rollback_restores(tmp_path, monkeypatch):
+    """Single-file write failure on an EXISTING file: rollback restores original → not partial."""
+    f = Path(tmp_path) / 'doc.txt'; f.write_text('original\n', encoding='utf-8')
+    pool, item = _pool_and_item(tmp_path, target='doc.txt', metadata={'proposed_content': 'new\n'})
+    original_write_text = Path.write_text
+    call_count = {'n': 0}
+
+    def fail_then_restore(self, content, *args, **kwargs):
+        if self.name == 'doc.txt':
+            call_count['n'] += 1
+            if call_count['n'] == 1:
+                # First write (the apply) corrupts then fails
+                original_write_text(self, 'corrupt', encoding='utf-8')
+                raise OSError('disk full')
+        return original_write_text(self, content, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'write_text', fail_then_restore)
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'failed'
+    assert out['rollback_succeeded'] is True
+    assert out['partial_write_possible'] is False
+    assert out['changed_files'] == []
+    assert f.read_text(encoding='utf-8') == 'original\n'
+
+
+def test_single_file_write_failure_existing_file_restore_failure_partial(tmp_path, monkeypatch):
+    """Existing-file write failure where rollback restore also fails → partial_write_possible=True."""
+    f = Path(tmp_path) / 'doc.txt'; f.write_text('original\n', encoding='utf-8')
+    pool, item = _pool_and_item(tmp_path, target='doc.txt', metadata={'proposed_content': 'new\n'})
+    original_write_text = Path.write_text
+
+    def always_fail_doc(self, *args, **kwargs):
+        if self.name == 'doc.txt':
+            raise OSError('disk full')
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'write_text', always_fail_doc)
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'failed'
+    assert out['rollback_succeeded'] is False
+    assert out['partial_write_possible'] is True
+    assert 'doc.txt' in out['unrestored_files']
+    assert out['changed_files'] == ['doc.txt']
+
+
 def test_unsupported_patch_is_blocked(tmp_path):
     f = Path(tmp_path) / 'doc.txt'; f.write_text('old\n', encoding='utf-8')
     pool, item = _pool_and_item(tmp_path, metadata={'patch': 'not a diff'})
