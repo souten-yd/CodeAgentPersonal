@@ -763,8 +763,10 @@
       const autopilotPromise = root.AtlasPipelineAPI.runMultiItemAutopilot({
         pool_id: poolId,
         item_ids: appliableIds,
-        policy_id: 'guarded_multi_item_v1',
-        max_items: Math.min(bounds.max_actions_per_loop || 12, applyTotal),
+        // Autonomous code-generation run: allow low/medium/high-risk create/update items so a real
+        // program (not just trivial low-risk steps) can be built end-to-end.
+        policy_id: 'full_auto_multi_item_v1',
+        max_items: Math.min(bounds.max_actions_per_loop || 20, applyTotal),
         max_runtime_seconds: bounds.max_runtime_seconds || 1800,
         max_changed_files_total: bounds.max_files_changed || 25,
         dry_run: false,

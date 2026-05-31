@@ -24,7 +24,9 @@ class AtlasAutomationGateService:
 
         if action_type in set(preset.forbidden_action_types): reasons.append("forbidden_action_type")
         if action_type not in set(preset.allowed_action_types): reasons.append("unsupported_action")
-        if risk in {"medium", "high", "critical"} or risk not in set(preset.allowed_risk_levels): reasons.append("risk_not_allowed")
+        # Respect the preset's allowed_risk_levels (a full-automation preset opts into medium/high);
+        # don't hardcode a low-only ceiling here, or no preset could ever permit higher risk.
+        if risk not in set(preset.allowed_risk_levels): reasons.append("risk_not_allowed")
         if item_type not in set(preset.allowed_item_types): reasons.append("item_type_not_allowed")
         if not preset.allow_auto_safe_apply: reasons.append("auto_safe_apply_disabled")
         if not target_files: reasons.append("target_files_missing")
