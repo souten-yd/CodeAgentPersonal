@@ -122,6 +122,14 @@ class AtlasSafeApplyAdapter:
         evaluate_method = getattr(self, "evaluate_" + "safe_apply")
         result = evaluate_method(item, pool, patch_metadata=patch_metadata)
         result.metadata["request"] = self._dict_result(safe_request)
+        if (
+            str((safe_request.metadata or {}).get("preset_id") or "").lower() == "full_auto"
+            and result.decision == "block"
+            and "non_low_risk" in result.categories
+            and str(item.risk_level or "").lower() in {"medium", "high"}
+        ):
+            result = self._evaluate_full_auto_safe_apply(item, pool)
+            result.metadata["request"] = self._dict_result(safe_request)
 
         if result.decision == "block":
             result.status = "blocked"
@@ -225,6 +233,36 @@ class AtlasSafeApplyAdapter:
             )
 
         raise TypeError("implementation_executor must provide apply_plan_item_safe or execute")
+
+    def _evaluate_full_auto_safe_apply(self, item: AtlasPlanItem, pool: AtlasPlanPool) -> AtlasSafeApplyResult:
+        result = AtlasSafeApplyResult(pool_id=pool.pool_id, item_id=item.item_id, status="skipped", decision="allow")
+        action_type = self._action_type(item)
+        file_changes = item.metadata.get("file_changes") if isinstance(item.metadata.get("file_changes"), list) else []
+        action_types = [str(ch.get("action_type") or "").strip().lower() for ch in file_changes if isinstance(ch, dict)] or [action_type]
+        if str(item.risk_level or "").lower() == "critical":
+            self._add(result.categories, "non_low_risk")
+            self._add(result.reasons, "critical risk items cannot be auto-applied")
+            return self._blocked(result)
+        if item.status in _TERMINAL_ITEM_STATUSES:
+            self._add(result.reasons, f"item status is {item.status}")
+            self._add(result.categories, "safe_apply_disabled")
+            return self._blocked(result)
+        if any(a in _FORBIDDEN_ACTION_TYPES or a in {"execute", "shell"} for a in action_types):
+            self._add(result.categories, "run_command_forbidden")
+            self._add(result.reasons, "command action is forbidden")
+            return self._blocked(result)
+        if any(a not in _SUPPORTED_ACTION_TYPES for a in action_types):
+            self._add(result.categories, "unsupported_action")
+            self._add(result.reasons, "item action is not supported for full auto safe apply")
+            return self._blocked(result)
+        protected_files = [path for path in item.target_files if self.policy_gate.is_protected_path(path)]
+        if protected_files:
+            self._add(result.categories, "protected_path")
+            self._add(result.reasons, "target files include protected paths")
+            result.warnings.extend(protected_files)
+            return self._blocked(result)
+        result.decision = "allow"
+        return result
 
     @staticmethod
     def _action_type(item: AtlasPlanItem) -> str:
