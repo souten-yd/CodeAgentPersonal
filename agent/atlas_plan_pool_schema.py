@@ -66,6 +66,17 @@ AtlasRiskLevel = Literal["low", "medium", "high", "critical"]
 AtlasPriority = Literal["low", "medium", "high"]
 
 
+class AtlasPlanItemFileChange(BaseModel):
+    path: str
+    action_type: Literal["create", "update"]
+    proposed_content: str = ""
+    patch: str = ""
+    unified_diff_preview: str = ""
+    edits: list[dict] = Field(default_factory=list)
+    append_content: str = ""
+    metadata: dict = Field(default_factory=dict)
+
+
 class AtlasPlanItem(BaseModel):
     item_id: str
     pool_id: str
