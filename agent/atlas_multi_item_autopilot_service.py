@@ -28,7 +28,7 @@ from agent.atlas_multi_item_autopilot_schema import (
 
 
 class AtlasMultiItemAutopilotService:
-    def __init__(self, *, storage, journal, automation_gate, auto_safe_apply_service, auto_verification_service, context_refresh_service, evaluator_service, bounded_retry_service=None, self_correction_service=None):
+    def __init__(self, *, storage, journal, automation_gate, auto_safe_apply_service, auto_verification_service, context_refresh_service, evaluator_service, bounded_retry_service=None, self_correction_service=None, harness_provisioner=None, correction_router_service=None):
         self.storage = storage
         self.journal = journal
         self.automation_gate = automation_gate
@@ -39,6 +39,8 @@ class AtlasMultiItemAutopilotService:
         self.failure_stop_service = AtlasFailureStopService(journal=journal)
         self.bounded_retry_service = bounded_retry_service
         self.self_correction_service = self_correction_service
+        self.harness_provisioner = harness_provisioner
+        self.correction_router_service = correction_router_service
         self.supervised_status_service = AtlasMultiItemSupervisedStatusService(storage=storage, journal=journal, supervised_item_status_service=AtlasSupervisedItemStatusService(storage=storage, journal=journal))
 
     def run(self, request: AtlasMultiItemAutopilotRequest) -> AtlasMultiItemAutopilotResult:
@@ -104,6 +106,19 @@ class AtlasMultiItemAutopilotService:
                         vr = self.auto_verification_service.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id))
                         result.verification_result = vr.model_dump()
                         self.emit("multi_item_autopilot_verification_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=vr.status)
+                        # Harness auto-provisioning: if verification could not run because pytest is not
+                        # installed, install it once and re-verify (see missing dep -> install -> re-run)
+                        # rather than reporting a success we never checked. Best-effort: if the install
+                        # fails, the terminal handling below records an honest "unverified" status.
+                        if (request.include_harness_provisioning and self.harness_provisioner
+                                and any(w in (getattr(vr, "warnings", []) or []) for w in ("pytest_not_installed", "test_harness_unavailable"))):
+                            prov = self.harness_provisioner.ensure_pytest(project_path=self.resolve_project_path(request, pool, item))
+                            result.metadata["harness_provisioning"] = prov
+                            self.emit("multi_item_autopilot_harness_provisioning", request, autopilot_run_id, item_id=item_id, item_index=idx, status=str(prov.get("status") or ""))
+                            if prov.get("status") in {"installed", "already_present"}:
+                                vr = self.auto_verification_service.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id))
+                                result.verification_result = vr.model_dump()
+                                self.emit("multi_item_autopilot_verification_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=vr.status)
                         if vr.status == "failed":
                             result.failure_stop_suggestion = self.failure_stop_service.build_for_verification_failure(pool, item, run_id, vr.model_dump()).model_dump()
                         if request.include_bounded_retry and self.bounded_retry_service and vr.status != "passed" and result.failure_stop_suggestion:
@@ -119,7 +134,13 @@ class AtlasMultiItemAutopilotService:
                         # test/compile output back to the patch generator, re-apply, re-verify (bounded,
                         # low/medium risk only). This is the generate->verify->fix loop.
                         if request.include_self_correction and self.self_correction_service and vr.status == "failed":
-                            sc = self.self_correction_service.run(AtlasSelfCorrectionRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), verification_result=vr.model_dump(), max_attempts=request.self_correction_max_attempts))
+                            sc_request = AtlasSelfCorrectionRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), verification_result=vr.model_dump(), max_attempts=request.self_correction_max_attempts)
+                            # Route the failure to the right artifact (code vs test) when enabled; the
+                            # router internally falls back to plain self-correction on the failing item.
+                            if request.include_correction_routing and self.correction_router_service:
+                                sc = self.correction_router_service.run(sc_request)
+                            else:
+                                sc = self.self_correction_service.run(sc_request)
                             result.metadata["self_correction_result"] = sc.model_dump()
                             if sc.status == "recovered":
                                 result.status = "completed"
@@ -134,15 +155,28 @@ class AtlasMultiItemAutopilotService:
                             result.evaluator_result_id = str((ev.metadata or {}).get("eval_id") or "")
                             result.evaluator_decision = ev.decision.model_dump()
                         vr_warnings = list(getattr(vr, "warnings", []) or [])
-                        # No verification command / no tests configured means there was nothing to
-                        # verify — not a failure or a block. The change was applied successfully, so
-                        # report it as completed (with a reason that documents the caveat) instead of
-                        # leaving a successful write looking blocked/failed to the user.
+                        # Surface verification warnings on the item so the user can see *why* a test
+                        # could not be run (e.g. pytest_not_installed) instead of a silent caveat.
+                        for w in vr_warnings:
+                            if w not in result.warnings:
+                                result.warnings.append(w)
+                        # No verification command / no tests configured means there was genuinely
+                        # nothing to verify — the change was applied successfully, so report completed
+                        # with a caveat reason.
                         no_verification_configured = any(
                             w in vr_warnings for w in ("verification_command_missing", "no_test_commands")
                         )
+                        # The harness still could not run after the provisioning attempt above (e.g.
+                        # pytest could not be installed because there is no network). Do NOT claim
+                        # success we never verified: report an honest "applied but unverified" block so
+                        # the user knows to install the harness, instead of a misleading completed.
+                        harness_unavailable = any(
+                            w in vr_warnings for w in ("test_harness_unavailable", "pytest_not_installed")
+                        )
                         if vr.status in {"blocked", "skipped"} and no_verification_configured:
                             result.status, result.reason = "completed", "applied_no_verification"
+                        elif vr.status == "blocked" and harness_unavailable:
+                            result.status, result.reason = "blocked", "verification_unavailable_harness_missing"
                         elif vr.status == "blocked":
                             result.status, result.reason = "blocked", "verification_blocked"
                         elif vr.status == "skipped":

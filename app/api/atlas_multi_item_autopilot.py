@@ -22,6 +22,9 @@ from agent.atlas_multi_item_autopilot_service import AtlasMultiItemAutopilotServ
 from agent.atlas_patch_proposal_service import AtlasPatchProposalService
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_self_correction_service import AtlasSelfCorrectionService
+from agent.atlas_correction_router_service import AtlasCorrectionRouterService
+from agent.atlas_failure_diagnosis_service import AtlasFailureDiagnosisService
+from agent.atlas_test_harness_provisioner import AtlasTestHarnessProvisioner
 from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
 from agent.atlas_safe_apply_execution_service import AtlasSafeApplyExecutionService
 from agent.atlas_workspace_root import resolve_atlas_workspace_root
@@ -89,6 +92,7 @@ def _service(request: Request | None = None, workspace_id: str = "default", pool
     # LLM json fn (None in tests -> the service is simply not constructed and the loop is a no-op).
     llm_json_fn = getattr(getattr(getattr(request, "app", None), "state", None), "atlas_llm_json_fn", None)
     self_correction_service = None
+    correction_router_service = None
     if llm_json_fn is not None:
         patch_proposal_service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_json_fn)
         self_correction_service = AtlasSelfCorrectionService(
@@ -97,6 +101,16 @@ def _service(request: Request | None = None, workspace_id: str = "default", pool
             patch_proposal_service=patch_proposal_service,
             auto_safe_apply_service=auto_safe_apply_service,
             auto_verification_service=auto_verification_service,
+        )
+        # Routes a test failure caused by a code bug back to regenerating the implementation item.
+        correction_router_service = AtlasCorrectionRouterService(
+            storage=storage,
+            journal=journal,
+            patch_proposal_service=patch_proposal_service,
+            auto_safe_apply_service=auto_safe_apply_service,
+            auto_verification_service=auto_verification_service,
+            self_correction_service=self_correction_service,
+            diagnosis_service=AtlasFailureDiagnosisService(llm_json_fn=llm_json_fn),
         )
     return AtlasMultiItemAutopilotService(
         storage=storage,
@@ -108,6 +122,8 @@ def _service(request: Request | None = None, workspace_id: str = "default", pool
         evaluator_service=AtlasLLMEvaluatorService(journal=journal),
         bounded_retry_service=AtlasBoundedRetryService(storage=storage, journal=journal, auto_verification_service=AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner()), context_refresh_service=AtlasContextRefreshService(journal=journal), evaluator_service=AtlasLLMEvaluatorService(journal=journal)),
         self_correction_service=self_correction_service,
+        harness_provisioner=AtlasTestHarnessProvisioner(),
+        correction_router_service=correction_router_service,
     )
 
 

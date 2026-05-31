@@ -12,7 +12,10 @@ MAIN = (ROOT / 'main.py').read_text(encoding='utf-8')
 class Phase301DebugHarnessPlaywrightRuntimeContract(unittest.TestCase):
     def test_dockerfile_installs_playwright_for_debug_harness(self):
         self.assertIn('KASANE_DEBUG_TEST_HARNESS', DOCKER)
-        self.assertIn('pip install --no-cache-dir playwright', DOCKER)
+        # The debug-harness block now installs the full test harness (pytest + playwright) from
+        # requirements-dev.txt, with a bare-package fallback, then the chromium browser.
+        self.assertIn('requirements-dev.txt', DOCKER)
+        self.assertIn('pip install --no-cache-dir pytest playwright', DOCKER)
         self.assertIn('playwright install --with-deps chromium', DOCKER)
 
     def test_docs_state_chrome_extension_not_required(self):

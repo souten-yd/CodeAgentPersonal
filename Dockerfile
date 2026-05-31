@@ -170,7 +170,7 @@ PY
 FROM py_base AS py_build
 
 # Copy dependency manifests first to preserve heavy build cache when app source changes.
-COPY requirements.txt requirements-tts.txt /app/
+COPY requirements.txt requirements-tts.txt requirements-dev.txt /app/
 
 # Install Python dependencies if present.
 RUN if [ -f /app/requirements.txt ]; then \
@@ -179,8 +179,14 @@ RUN if [ -f /app/requirements.txt ]; then \
         /opt/venv/bin/python -m pip install --no-cache-dir fastapi 'uvicorn[standard]' pydantic requests python-multipart; \
     fi
 
+# Test harness for runpod: pytest (autopilot verification + self-correction) and playwright
+# (UI smoke). Installed from requirements-dev.txt so the verification loop can actually run tests.
 RUN if [ "${KASANE_DEBUG_TEST_HARNESS}" = "1" ]; then \
-        /opt/venv/bin/python -m pip install --no-cache-dir playwright \
+        if [ -f /app/requirements-dev.txt ]; then \
+            /opt/venv/bin/python -m pip install --no-cache-dir -r /app/requirements-dev.txt; \
+        else \
+            /opt/venv/bin/python -m pip install --no-cache-dir pytest playwright; \
+        fi \
         && /opt/venv/bin/python -m playwright install --with-deps chromium; \
     fi
 

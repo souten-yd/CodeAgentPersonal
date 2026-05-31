@@ -255,6 +255,17 @@ class AtlasPatchProposalService:
         }
         if prior:
             feedback["previous_content"] = prior[: self.MAX_PROPOSED_CONTENT_CHARS]
+        # Routed from the correction router: a test that exercises THIS implementation failed. Tell the
+        # model to fix the implementation so the (unchanged) test passes, and give it the test source.
+        failing_test_content = str(verification.get("failing_test_content") or "")
+        if failing_test_content:
+            feedback["instruction"] = (
+                "The implementation you produced was applied, then a test that exercises it FAILED. "
+                "Fix the IMPLEMENTATION CODE so the test passes — do NOT change the test. Return "
+                "corrected, COMPLETE file content for the implementation."
+            )
+            feedback["failing_test_file"] = str(verification.get("failing_test_file") or "")
+            feedback["failing_test_content"] = failing_test_content[: self.MAX_PROPOSED_CONTENT_CHARS]
         return feedback
 
     def generate_proposal_with_llm(self, input_payload: dict) -> AtlasPatchProposal:
