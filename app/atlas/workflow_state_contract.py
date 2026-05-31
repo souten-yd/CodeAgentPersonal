@@ -1,8 +1,21 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from app.atlas.level1_guarded_execution import Level1GuardedExecutionSkeleton
+
+_MANIFEST_PATH = Path(__file__).parent.parent.parent / "docs" / "atlas_automation_phase_manifest.json"
+
+
+def _read_manifest_field(key: str, fallback: Any) -> Any:
+    try:
+        with _MANIFEST_PATH.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data[key]
+    except Exception:
+        return fallback
 
 _PRIMARY_REASON = "Metadata only. Execution remains in guarded backend/manual flow."
 _ACTION_REASON = "Metadata only. This endpoint never executes actions."
@@ -151,8 +164,12 @@ def build_read_only_workflow_state(
     return {
         "schema_version": "atlas.workflow_state.v1",
         "contract": "read_only_workflow_state",
+        "contract_scope": "vue_next_preview_read_only",
         "source": "backend_contract",
         "runtime_level": "level_0_manual_only",
+        "preview_runtime_level": "level_0_manual_only",
+        "canonical_runtime_level": _read_manifest_field("current_level", "level_8_fully_autonomous_code_agent"),
+        "canonical_autonomous_execution_enabled": _read_manifest_field("autonomous_execution_enabled", True),
         "backend_workflow_state_authoritative": True,
         "vue_source_of_truth": False,
         "vue_execution_enabled": False,

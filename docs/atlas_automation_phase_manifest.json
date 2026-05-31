@@ -518,5 +518,8 @@
   "pre_authorized_self_improvement_envelope_defined": true,
   "pre_authorized_envelope_track_pr": "POST-SCALE-160-CLAUDE-CHAT-COMPLETE-AUTOMATION-PROFILE",
   "pre_authorized_envelope_lifts_safety_profile_invariants": false,
-  "pre_authorized_envelope_carries_derived_activation_flags": true
+  "pre_authorized_envelope_carries_derived_activation_flags": true,
+  "vue_next_preview_contract_scope": "read_only_display_only",
+  "vue_next_preview_level_is_level0": true,
+  "vue_next_preview_all_actions_disabled": true
 }
