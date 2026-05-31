@@ -82,6 +82,7 @@ class AtlasMultiItemAutopilotResult(BaseModel):
     status: str
     processed_count: int = 0
     completed_count: int = 0
+    applied_no_verification_count: int = 0
     skipped_count: int = 0
     blocked_count: int = 0
     failed_count: int = 0
