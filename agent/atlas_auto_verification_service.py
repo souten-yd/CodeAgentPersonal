@@ -19,10 +19,12 @@ class AtlasAutoVerificationService:
         item = pool.get_item(request.item_id)
         if item is None:
             return AtlasAutoVerificationResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, preset_id=request.preset_id, status="blocked", warnings=["item_not_found"], plan_pool=pool.model_dump())
-        safe = ((item.metadata or {}).get("safe_apply") or {}).get("status")
-        auto_safe = ((item.metadata or {}).get("auto_safe_apply") or {}).get("status")
+        safe_meta = ((item.metadata or {}).get("safe_apply") or {})
+        auto_safe_meta = ((item.metadata or {}).get("auto_safe_apply") or {})
+        safe = safe_meta.get("status")
+        auto_safe = auto_safe_meta.get("status")
         if str(safe or "").lower() != "applied" and str(auto_safe or "").lower() != "applied":
-            return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status="skipped", warnings=["safe_apply_not_applied"], plan_pool=pool.model_dump())
+            return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status="skipped", warnings=["safe_apply_not_applied"], metadata={"safe_apply": dict(safe_meta), "auto_safe_apply": dict(auto_safe_meta)}, plan_pool=pool.model_dump())
 
         workspace_root = str(getattr(pool, "project_path", "") or "").strip()
         if not workspace_root:
