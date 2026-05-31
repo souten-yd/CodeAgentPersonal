@@ -1,18 +1,29 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest, AtlasAutoVerificationResult
+from agent.atlas_playwright_smoke_verifier import AtlasPlaywrightSmokeVerifier
 from agent.atlas_verification_allowlist import atlas_verification_allowlist
+from agent.atlas_visual_artifact_verifier import AtlasVisualArtifactVerifier
 from agent.test_command_runner_schema import AtlasTestCommandRequest
+
+# Keywords in goal/done_definition/root_goal that mark a visual artifact task.
+_VISUAL_KEYWORDS = (
+    "animat", "wave", "oscillat", "canvas", "game", "visual", "render", "draw",
+    "hue", "color", "button", "webpage", "web page", "html page", "css style",
+    "frontend", "ui ", "layout", "screen",
+)
 
 
 class AtlasAutoVerificationService:
-    def __init__(self, *, journal, storage, command_runner):
+    def __init__(self, *, journal, storage, command_runner, visual_verifier=None, playwright_verifier=None):
         self.journal = journal
         self.storage = storage
         self.command_runner = command_runner
+        self.visual_verifier = visual_verifier or AtlasVisualArtifactVerifier()
+        self.playwright_verifier = playwright_verifier or AtlasPlaywrightSmokeVerifier()
 
     def run_after_auto_safe_apply(self, request: AtlasAutoVerificationRequest) -> AtlasAutoVerificationResult:
         pool = self.storage.load_pool(request.pool_id)
@@ -36,6 +47,12 @@ class AtlasAutoVerificationService:
             return self._blocked(pool, item.item_id, request, "arbitrary_command_forbidden")
         command_id = request.command_id or str(((item.metadata or {}).get("verification") or {}).get("command_id") or "")
         if not command_id:
+            # No allowlisted test command. For visual HTML artifacts, run the static visual
+            # contract (and optional Playwright smoke) instead of reporting "nothing to verify"
+            # — file existence alone must never pass a visual task.
+            html_rel = self._resolve_visual_html(item, pool)
+            if html_rel and self._safe_rel(html_rel):
+                return self._run_visual_verification(pool, item, request, workspace_root, html_rel)
             return self._blocked(pool, item.item_id, request, "verification_command_missing")
         if command_id not in allowlist or not allowlist[command_id].allowed:
             return self._blocked(pool, item.item_id, request, "verification_command_not_allowlisted")
@@ -95,6 +112,82 @@ class AtlasAutoVerificationService:
                 return "failed", ["no_tests_collected"]
         # Everything else non-passed (assertion failures, compile errors, timeouts) is a real failure.
         return "failed", []
+
+    def _is_visual_task(self, item, pool) -> bool:
+        """Visual if a target/changed file is .html, OR goal/done_definition/root_goal carry
+        visual keywords. A bare .css/.js target is NOT sufficient on its own."""
+        target_files = [str(f).lower() for f in (getattr(item, "target_files", []) or [])]
+        changed = [str(f).lower() for f in (((item.metadata or {}).get("safe_apply") or {}).get("changed_files") or [])]
+        all_files = target_files + changed
+        if any(f.endswith(".html") for f in all_files):
+            return True
+        text = " ".join([
+            str(getattr(item, "goal", "") or ""),
+            " ".join(getattr(item, "done_definition", []) or []),
+            str(getattr(pool, "root_goal", "") or ""),
+        ]).lower()
+        return any(kw in text for kw in _VISUAL_KEYWORDS)
+
+    def _resolve_visual_html(self, item, pool) -> str:
+        """Return the relative .html artifact path for a visual task, or '' if none."""
+        if not self._is_visual_task(item, pool):
+            return ""
+        candidates = list(getattr(item, "target_files", []) or [])
+        candidates += list(((item.metadata or {}).get("safe_apply") or {}).get("changed_files") or [])
+        for f in candidates:
+            if str(f).lower().endswith(".html"):
+                return str(f).replace("\\", "/")
+        return ""
+
+    def _run_visual_verification(self, pool, item, request, workspace_root: str, html_rel: str):
+        """Run the static visual contract (+ optional Playwright smoke) for a visual HTML task."""
+        html_path = Path(workspace_root) / html_rel
+        task_desc = " ".join([
+            str(getattr(item, "goal", "") or ""),
+            " ".join(getattr(item, "done_definition", []) or []),
+            str(getattr(pool, "root_goal", "") or ""),
+        ]).strip()
+        static_res = self.visual_verifier.verify_static(html_path, task_description=task_desc)
+        smoke = self.playwright_verifier.verify(html_path, task_description=task_desc)
+        warnings: list[str] = []
+        metadata: dict = {"workspace_root": workspace_root, "visual_contract": static_res, "browser_smoke": smoke}
+
+        if str(static_res.get("status")) == "failed":
+            status = "failed"
+            warnings.append("visual_contract_failed")
+            for miss in (static_res.get("missing") or []):
+                warnings.append(f"visual_missing:{miss}")
+        else:
+            status = "passed"
+            warnings.append("visual_contract_passed")
+            # Static pass caps at static_checked; a passing browser smoke lifts to runtime_smoke_checked.
+            if str(smoke.get("status")) == "browser_smoke_passed":
+                metadata["verify_level"] = "runtime_smoke_checked"
+            else:
+                metadata["verify_level"] = "static_checked"
+            if str(smoke.get("status")) == "browser_smoke_failed":
+                # A failing browser smoke degrades an otherwise-passing static contract.
+                status = "failed"
+                warnings = ["browser_smoke_failed", *warnings]
+
+        event = {"passed": "auto_verification_passed"}.get(status, "auto_verification_failed")
+        self._append_event(pool.pool_id, request.run_id, event, item.item_id, status=status, warnings=warnings)
+        out = AtlasAutoVerificationResult(
+            pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id,
+            status=status, verification_result={"status": status, "source": "visual_artifact"},
+            warnings=warnings, errors=[], metadata=metadata, plan_pool=pool.model_dump(),
+        )
+        item.metadata.setdefault("auto_verification", {})
+        item.metadata["auto_verification"].update({
+            "status": status, "source": "visual_artifact",
+            "visual_contract_status": static_res.get("status"),
+            "browser_smoke_status": smoke.get("status"),
+            "verified_at": datetime.now(timezone.utc).isoformat(),
+        })
+        self.storage.save_pool(pool)
+        self.journal.save_plan_pool(pool)
+        out.plan_pool = pool.model_dump()
+        return out
 
     def _safe_rel(self, value: str) -> bool:
         if not value:

@@ -324,16 +324,34 @@ class AtlasMultiItemAutopilotService:
 
 
 def _verify_level_for_item(r) -> str:
-    """Classify the highest verify level reached for a single autopilot item result."""
+    """Classify the highest verify level reached for a single autopilot item result.
+
+    Reads verification metadata written by the auto-verification service:
+    - explicit metadata.verify_level (visual static/browser smoke) takes precedence
+    - browser_smoke_passed → runtime_smoke_checked
+    - requirement coverage all verified → requirement_checked
+    - plain test pass → runtime_smoke_checked
+    - skipped/blocked → static_checked
+    """
     status = str(r.status or "")
     vr = r.verification_result or {}
     vr_status = str(vr.get("status") or "")
+    meta = vr.get("metadata") or {}
     if status == "applied_no_verification":
         return "applied_only"
     if status not in {"completed"}:
         return "applied_only"
-    if vr_status == "passed" and vr.get("requirement_coverage"):
+    # Requirement coverage fully verified is the strongest signal.
+    coverage = meta.get("requirement_coverage") or vr.get("requirement_coverage") or {}
+    if isinstance(coverage, dict) and coverage.get("all_verified"):
         return "requirement_checked"
+    # A passing constrained browser smoke is a real runtime check.
+    if str((meta.get("browser_smoke") or {}).get("status")) == "browser_smoke_passed":
+        return "runtime_smoke_checked"
+    # Explicit cap from the visual contract path (static_checked unless smoke lifted it).
+    explicit = str(meta.get("verify_level") or "")
+    if explicit:
+        return explicit
     if vr_status == "passed":
         return "runtime_smoke_checked"
     if vr_status in {"skipped", "blocked"}:
