@@ -269,7 +269,10 @@ class AtlasMultiItemAutopilotService:
         action_type = normalize_safe_apply_action_type(md.get("action_type"))
         if action_type not in {"create", "update"}:
             return {"status": "ineligible", "reason": "unsupported_action_type", "planned_steps": planned_steps}
-        preset = atlas_auto_policy_presets().get("guarded_low_risk")
+        # Pick the gate preset to match the run policy: a policy that allows medium/high risk uses the
+        # full-auto preset so the automation gate doesn't re-block what the policy already permits.
+        preset_id = "full_auto" if (set(policy.allowed_risk_levels) - {"low"}) else "guarded_low_risk"
+        preset = atlas_auto_policy_presets().get(preset_id)
         if preset is not None:
             decision = self.automation_gate.decide_pre_safe_apply(self.storage.load_pool(request.pool_id), item, preset)
             gate = str(getattr(decision, "decision", "")).lower()
