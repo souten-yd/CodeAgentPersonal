@@ -52,6 +52,12 @@
     return (state.activeProject && state.activeProject.workspaceId) || 'default';
   }
 
+  // The selected project's working directory. Threaded into plan creation so generated files land in
+  // the project the user sees (and downloads), not a divergent fallback workspace.
+  function projectPath() {
+    return (state.activeProject && state.activeProject.projectPath) || '';
+  }
+
   function projectName() {
     return (state.activeProject && state.activeProject.name) || '';
   }
@@ -590,7 +596,7 @@
     // free_text_goal: create a plan pool with the user's goal, then render
     // the generated plan in chat so the user can see what Atlas produced.
     setBusy(true);
-    const resp = await root.AtlasPipelineAPI.createPlanPool({ input: text });
+    const resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_path: projectPath() });
     if (!resp.ok) {
       setBusy(false);
       pushAtlasMessage(`PlanPool creation failed: ${formatError(resp)}`);

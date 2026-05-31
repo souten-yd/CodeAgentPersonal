@@ -53,10 +53,15 @@ Required keys:
 - requires_user_confirmation: boolean
 
 Testing:
-- For software_development tasks, include a dedicated implementation step that WRITES a test file
-  (action_type=create, target_files=["tests/test_<name>.py"]) covering the new/changed behavior.
-  This is a code-writing step (it produces the test file), not a verification step. The system runs
-  the generated test automatically and self-corrects on failure.
+- Only write an automated test for executable CODE with logic (e.g. a Python/JS module that exposes
+  functions or classes). When such code is produced, include a dedicated implementation step that
+  WRITES a test file (action_type=create, target_files=["tests/test_<name>.py"]) covering the new
+  behavior. This is a code-writing step (it produces the test file), not a verification step; the
+  system runs the generated test automatically and self-corrects on failure.
+- Do NOT create a separate unit-test file for a trivial or static deliverable — a single HTML, CSS,
+  Markdown, JSON or plain-text file with no executable logic. A pytest unit test for static markup is
+  fragile and adds needless dependencies. For those, put the check in done_definition instead
+  (e.g. "the file exists and contains the expected text"); no test file step.
 
 If Nexus context exists, reflect it. If absent, continue naturally.
 """
