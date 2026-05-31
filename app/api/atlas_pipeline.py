@@ -36,6 +36,12 @@ from agent.atlas_clarification_gate_service import AtlasClarificationGateService
 from agent.atlas_plan_quality_gate import apply_plan_quality_gate
 from agent.atlas_repair_intent_classifier import classify_repair_intent
 from agent.atlas_requirement_tracer import AtlasRequirementTracer
+from agent.atlas_capability_preference_schema import (
+    apply_preferences as _apply_capability_preferences,
+    build_feature_summary as _build_capability_summary,
+    get_default_preferences as _default_capability_preferences,
+    normalize_ui_preferences as _normalize_capability_preferences,
+)
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
@@ -112,6 +118,7 @@ class CreatePlanPoolRequest(BaseModel):
     target_files: list[str] = Field(default_factory=list)
     enable_repo_context: bool = True
     repo_context_mode: str = "scope_summary"
+    capability_preferences: dict = Field(default_factory=dict)
 
 
 class CreatePlanPoolResponse(BaseModel):
@@ -958,6 +965,18 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         req.input or "", previous_changed_files=changed_files_for_context
     )
     pool.metadata["repair_intent"] = _repair_intent
+
+    # ── Capability preferences (PR-8e): persist USER PREFERENCE METADATA server-side.
+    # These are preferences only — backend/runtime policy stays authoritative. Storing a
+    # checked preference NEVER enables shell/run_command/arbitrary browser automation. ──
+    _incoming_caps = dict(req.capability_preferences or {})
+    if not _incoming_caps and isinstance(req.metadata, dict):
+        _incoming_caps = dict(req.metadata.get("capability_preferences") or {})
+    _caps = _apply_capability_preferences(
+        _default_capability_preferences(), _normalize_capability_preferences(_incoming_caps)
+    )
+    pool.metadata["feature_preferences"] = _caps
+    pool.metadata["feature_summary"] = _build_capability_summary(_caps)
 
     pool.metadata.update(
         {
