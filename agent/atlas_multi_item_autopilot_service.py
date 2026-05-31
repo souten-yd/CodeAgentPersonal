@@ -26,6 +26,7 @@ from agent.atlas_multi_item_autopilot_schema import (
     AtlasMultiItemAutopilotRequest,
     AtlasMultiItemAutopilotResult,
 )
+from agent.atlas_run_quality_rollup import compute_run_quality_rollup
 
 
 class AtlasMultiItemAutopilotService:
@@ -240,6 +241,21 @@ class AtlasMultiItemAutopilotService:
             out.status = "blocked"
         if out.status == "stopped" and out.completed_count > 0:
             out.status = "partial"
+        # ── Final-status quality rollup (PR-8d): requirement coverage, integration,
+        # placeholder, and repair checks. A would-be-success run is degraded to "partial"
+        # when concrete defects are found (disconnected user-facing module, placeholder-only
+        # implementation, test-only repair plan, or zero implementation evidence).
+        try:
+            final_pool = self.storage.load_pool(request.pool_id)
+            rollup = compute_run_quality_rollup(final_pool, out.item_results, project_path=request.project_path or getattr(final_pool, "project_path", ""))
+            out.metadata["quality_rollup"] = rollup
+            for w in rollup.get("degrade_reasons", []):
+                if w not in out.warnings:
+                    out.warnings.append(w)
+            if rollup.get("degraded") and out.status in {"completed"}:
+                out.status, out.stop_reason = "partial", (rollup.get("degrade_reasons") or ["quality_rollup_degraded"])[0]
+        except Exception as ex:  # noqa: BLE001
+            out.warnings.append(f"quality_rollup_failed:{ex}")
         self.save_result(out)
         self.emit("completed" if out.status in {"completed", "partial"} else "failed" if out.status == "failed" else "stopped", request, autopilot_run_id, status=out.status)
         return out
@@ -314,6 +330,20 @@ class AtlasMultiItemAutopilotService:
             verify_level = _verify_level_for_item(r)
             verify_note = " (適用のみ・実行検証なし)" if r.status == "applied_no_verification" else ""
             lines += [f"- item_id: {r.item_id}", f"  - status: {r.status}{verify_note}", f"  - verify_level: {verify_level}", f"  - reason: {r.reason}", f"  - context_bundle_id: {r.context_bundle_id}", f"  - evaluator_result_id: {r.evaluator_result_id}", f"  - evaluator_decision.decision: {(r.evaluator_decision or {}).get('decision','')}", f"  - verification_result.status: {(r.verification_result or {}).get('status','')}", f"  - verification_result.recovered_by_bounded_retry: {(r.verification_result or {}).get('recovered_by_bounded_retry', False)}", f"  - safe_apply_result.status: {(r.safe_apply_result or {}).get('status','')}"]
+        rollup = (result.metadata or {}).get("quality_rollup") or {}
+        if rollup:
+            coverage = rollup.get("requirement_coverage", {})
+            lines += [
+                "", "## Quality Rollup",
+                f"- requirement_coverage.total: {coverage.get('total', 0)}",
+                f"- requirement_coverage.by_status: {coverage.get('by_status', {})}",
+                f"- requirement_coverage.success_eligible: {coverage.get('success_eligible', True)}",
+                f"- integration_warnings: {len(rollup.get('integration_warnings', []))}",
+                f"- placeholder_warnings: {len(rollup.get('placeholder_warnings', []))}",
+                f"- repair_warning: {rollup.get('repair_warning', '') or '(none)'}",
+                f"- degraded: {rollup.get('degraded', False)}",
+                f"- degrade_reasons: {', '.join(rollup.get('degrade_reasons', [])) or '(none)'}",
+            ]
         lines += ["", "## Warnings"] + ([f"- {w}" for w in result.warnings] or ["- (none)"]) + ["", "## Errors"] + ([f"- {e}" for e in result.errors] or ["- (none)"])
         (root / f"{result.autopilot_run_id}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 

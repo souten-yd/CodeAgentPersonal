@@ -34,6 +34,8 @@ from agent.atlas_orchestration_summary import AtlasOrchestrationSummaryBuilder
 from agent.atlas_critique_gate_service import AtlasCritiqueGateService
 from agent.atlas_clarification_gate_service import AtlasClarificationGateService
 from agent.atlas_plan_quality_gate import apply_plan_quality_gate
+from agent.atlas_repair_intent_classifier import classify_repair_intent
+from agent.atlas_requirement_tracer import AtlasRequirementTracer
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
@@ -426,6 +428,18 @@ def _sp_list(value: Any, *, max_items: int = 20, item_limit: int = 300) -> list[
     return out
 
 
+def _planner_metadata_with_repair(req: CreatePlanPoolRequest, changed_files_for_context: list[str]) -> dict:
+    """Augment planner metadata with repair intent (PR-8d). When the user prompt is repair-like
+    and previous changed files are known, expose them as primary implementation targets so the
+    planner prioritizes fixing the affected file rather than drifting to tests/clarification."""
+    md = dict(req.metadata)
+    repair = classify_repair_intent(req.input or "", previous_changed_files=changed_files_for_context)
+    md["repair_intent"] = repair
+    if repair.get("is_repair") and repair.get("primary_target_files"):
+        md["primary_implementation_targets"] = list(repair["primary_target_files"])
+    return md
+
+
 def _build_strategic_plan_summary(*, requirement: dict, plan: dict, review_result: dict, pool: Any) -> dict:
     """Compact, size-bounded strategic plan for the UI to render a Claude/Codex-style plan card.
 
@@ -718,7 +732,7 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
                 mode=_normalize_planner_mode(req.planner_mode),
                 pool_id=req.pool_id,
                 workspace_id=req.workspace_id,
-                metadata=dict(req.metadata),
+                metadata=_planner_metadata_with_repair(req, changed_files_for_context),
                 repo_context_package=repo_context_package_payload,
                 planner_context_text=planner_context_text,
                 planner_context_text_v2=planner_context_text_v2,
@@ -936,6 +950,14 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
             pool.warnings.append(_w)
     if quality_gate["require_approval"]:
         pool.status = "approval_required"
+
+    # ── Requirement trace + repair intent (PR-8d): persist on pool metadata so the autopilot
+    # final-status rollup can compute coverage and detect test-only repair plans. ──
+    pool.metadata["requirement_trace"] = AtlasRequirementTracer().extract_requirements(root_goal)
+    _repair_intent = (req.metadata or {}).get("repair_intent") or classify_repair_intent(
+        req.input or "", previous_changed_files=changed_files_for_context
+    )
+    pool.metadata["repair_intent"] = _repair_intent
 
     pool.metadata.update(
         {

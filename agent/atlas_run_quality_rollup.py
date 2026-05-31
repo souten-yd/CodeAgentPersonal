@@ -1,0 +1,175 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from agent.atlas_integration_checker import AtlasIntegrationChecker
+from agent.atlas_placeholder_detector import detect_placeholders
+from agent.atlas_repair_intent_classifier import is_test_only_repair_plan
+
+_HTML_EXT = (".html",)
+_JS_CSS_EXT = (".js", ".css", ".mjs", ".ts")
+_IMPL_EXT = (".py", ".js", ".ts", ".mjs", ".html", ".css")
+_TEST_MARKERS = ("/test/", "/tests/", "/spec/", "test_", "_test.", ".spec.", ".test.")
+
+
+def _is_test_path(path: str) -> bool:
+    p = path.lower().replace("\\", "/")
+    return any(m in p for m in _TEST_MARKERS)
+
+
+def _read(project_path: str, rel: str) -> str | None:
+    try:
+        fp = Path(project_path) / rel
+        if not fp.exists():
+            return None
+        return fp.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+
+
+def _requirement_coverage(requirements: list[dict], changed_files: list[str], any_completed: bool) -> dict:
+    """Heuristic, conservative coverage. We never overclaim 'verified' here.
+
+    - No implementation evidence at all (no changed files / nothing completed) → every
+      requirement is 'missing' and the run is not success-eligible.
+    - Otherwise requirements are reported as 'partial' (implementation evidence exists but
+      cannot be tied to a specific requirement in this PR) — informational, not a hard fail.
+    """
+    total = len(requirements)
+    no_evidence = (not changed_files) or (not any_completed)
+    if total == 0:
+        return {"total": 0, "by_status": {}, "no_implementation_evidence": False, "success_eligible": True}
+    if no_evidence:
+        return {
+            "total": total,
+            "by_status": {"missing": total},
+            "no_implementation_evidence": True,
+            "success_eligible": False,
+        }
+    return {
+        "total": total,
+        "by_status": {"partial": total},
+        "no_implementation_evidence": False,
+        "success_eligible": True,  # partial does not hard-fail a completed run (see PR-8d notes)
+    }
+
+
+def _integration_scan(project_path: str, changed_files: list[str]) -> tuple[list[dict], bool]:
+    """Check that changed JS/CSS modules are referenced from a changed HTML entrypoint."""
+    if not project_path:
+        return [], False
+    html_files = [f for f in changed_files if str(f).lower().endswith(_HTML_EXT)]
+    js_css = [f for f in changed_files if str(f).lower().endswith(_JS_CSS_EXT) and not _is_test_path(f)]
+    if not html_files or not js_css:
+        return [], False
+    checker = AtlasIntegrationChecker()
+    warnings: list[dict] = []
+    failed = False
+    for html in html_files:
+        html_path = Path(project_path) / html
+        result = checker.check_html_entrypoint(html_path, generated_files=js_css)
+        for finding in result.get("findings", []):
+            warnings.append(finding)
+            if str(finding.get("severity")) == "failed":
+                failed = True
+    return warnings, failed
+
+
+def _is_placeholder_only(content: str) -> bool:
+    """A file is placeholder-only if, after removing comments/blanks, the remaining lines are
+    just stubs (pass / console.log / empty bodies) and it carries placeholder markers."""
+    findings = detect_placeholders(content)
+    if not findings:
+        return False
+    substantive = 0
+    for raw in content.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith(("#", "//", "/*", "*", "<!--")):
+            continue
+        if line in ("pass", "{", "}", "});", ")", "(", "</script>", "<script>"):
+            continue
+        if line.lower().startswith(("console.log", "todo", "pass", "return none")):
+            continue
+        substantive += 1
+    # Mostly stubs → placeholder-only.
+    return substantive <= 2
+
+
+def _placeholder_scan(project_path: str, changed_files: list[str]) -> tuple[list[dict], bool]:
+    if not project_path:
+        return [], False
+    warnings: list[dict] = []
+    placeholder_only_files = 0
+    impl_files = 0
+    for rel in changed_files:
+        if not str(rel).lower().endswith(_IMPL_EXT) or _is_test_path(rel):
+            continue
+        content = _read(project_path, rel)
+        if content is None:
+            continue
+        impl_files += 1
+        findings = detect_placeholders(content, file_path=rel)
+        if findings:
+            warnings.append({"path": rel, "findings": findings})
+        if _is_placeholder_only(content):
+            placeholder_only_files += 1
+    # If every changed implementation file is placeholder-only, the change is a stub.
+    placeholder_failed = impl_files > 0 and placeholder_only_files == impl_files and placeholder_only_files > 0
+    return warnings, placeholder_failed
+
+
+def compute_run_quality_rollup(pool, item_results, *, project_path: str = "") -> dict:
+    """Aggregate final-status quality signals for an autopilot run.
+
+    Returns a rollup with requirement coverage, integration/placeholder warnings, repair
+    warning, and a `degraded` flag with reasons. The caller degrades a would-be-success
+    terminal status when `degraded` is True.
+    """
+    changed: list[str] = []
+    for r in item_results:
+        changed += list(getattr(r, "changed_files", []) or [])
+    changed = list(dict.fromkeys(changed))
+    any_completed = any(str(getattr(r, "status", "")) == "completed" for r in item_results)
+
+    requirements = (getattr(pool, "metadata", {}) or {}).get("requirement_trace") or []
+    coverage = _requirement_coverage(requirements, changed, any_completed)
+
+    integration_warnings, integration_failed = _integration_scan(project_path, changed)
+    placeholder_warnings, placeholder_failed = _placeholder_scan(project_path, changed)
+
+    # Repair warning: user reported a repair but the plan only touched tests.
+    repair_warning = ""
+    repair_intent = (getattr(pool, "metadata", {}) or {}).get("repair_intent") or {}
+    if repair_intent.get("is_repair"):
+        plan_items = [
+            {
+                "item_type": getattr(it, "item_type", ""),
+                "target_files": list(getattr(it, "target_files", []) or []),
+                "file_changes": list((getattr(it, "metadata", {}) or {}).get("file_changes") or []),
+            }
+            for it in (getattr(pool, "items", []) or [])
+        ]
+        if is_test_only_repair_plan(plan_items):
+            repair_warning = "test_only_repair_plan"
+
+    degrade_reasons: list[str] = []
+    if coverage.get("no_implementation_evidence"):
+        degrade_reasons.append("requirement_coverage_incomplete")
+    if integration_failed:
+        degrade_reasons.append("integration_failed")
+    if placeholder_failed:
+        degrade_reasons.append("placeholder_only")
+    if repair_warning:
+        degrade_reasons.append(repair_warning)
+
+    return {
+        "requirement_coverage": coverage,
+        "integration_warnings": integration_warnings,
+        "placeholder_warnings": placeholder_warnings,
+        "repair_warning": repair_warning,
+        "degraded": bool(degrade_reasons),
+        "degrade_reasons": degrade_reasons,
+        "changed_files": changed,
+    }
