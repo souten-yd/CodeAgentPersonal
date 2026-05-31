@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+# Static signals checked in HTML/CSS/JS visual artifacts
+_ANIMATION_SIGNALS = [
+    (re.compile(r'\brequestAnimationFrame\b'), 'requestAnimationFrame'),
+    (re.compile(r'@keyframes\s+\w+', re.IGNORECASE), 'css_keyframes'),
+]
+_COLOR_SIGNALS = [
+    (re.compile(r'\bhsl\s*\(', re.IGNORECASE), 'hsl'),
+    (re.compile(r'\brgb\s*\(', re.IGNORECASE), 'rgb'),
+    (re.compile(r'style\.color\b'), 'style_color'),
+    (re.compile(r'--[a-z][\w-]*(?:color|hue|fill)[^:]*:', re.IGNORECASE), 'css_color_variable'),
+    (re.compile(r'\bhue-rotate\b'), 'hue_rotate'),
+]
+_MOTION_SIGNALS = [
+    (re.compile(r'\btransform\s*[:(]', re.IGNORECASE), 'transform'),
+    (re.compile(r'\btranslate[XYZ]?\s*\(', re.IGNORECASE), 'translate'),
+    (re.compile(r'\bcanvas\b.*\bcontext\b|\bgetContext\s*\(', re.IGNORECASE), 'canvas_context'),
+]
+_WAVE_PHASE_SIGNALS = [
+    (re.compile(r'\bMath\.sin\b'), 'math_sin'),
+    (re.compile(r'\bMath\.cos\b'), 'math_cos'),
+    (re.compile(r'\bphase\b', re.IGNORECASE), 'phase'),
+    (re.compile(r'\bamplitude\b', re.IGNORECASE), 'amplitude'),
+    (re.compile(r'\bfrequency\b', re.IGNORECASE), 'frequency'),
+]
+
+# Keywords that suggest an animation task in task_description / goal
+_ANIMATION_TASK_KEYWORDS = re.compile(
+    r'\b(animat|wave|oscillat|bounce|spin\w*|rotat|pulse|fade|mov\w+|motion|color\s*chang|hue)',
+    re.IGNORECASE,
+)
+_WAVE_TASK_KEYWORDS = re.compile(
+    r'\b(wave|sine|sinusoid|oscillat|linear.?phase|phase.?shift)',
+    re.IGNORECASE,
+)
+
+
+class AtlasVisualArtifactVerifier:
+    """Static contract verifier for HTML/CSS/JS visual artifacts.
+
+    File existence alone is never a pass. This checks structural signals
+    for animation, color mutation, motion, and wave/phase.
+    """
+
+    def verify_static(self, html_path: str | Path, *, task_description: str = "") -> dict:
+        html_path = Path(html_path)
+        if not html_path.exists():
+            return self._result("failed", checks=[], missing=["html_file_missing"])
+
+        try:
+            content = html_path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            return self._result("failed", checks=[], missing=[f"html_read_error: {exc}"])
+
+        task_desc = task_description.lower()
+        is_animation_task = bool(_ANIMATION_TASK_KEYWORDS.search(task_desc))
+        is_wave_task = bool(_WAVE_TASK_KEYWORDS.search(task_desc))
+
+        checks: list[dict] = []
+        missing: list[str] = []
+
+        # 1. Animation signal (required for animation tasks; advisory for all)
+        anim_found = self._check_signals(content, _ANIMATION_SIGNALS)
+        if is_animation_task:
+            if anim_found:
+                checks.append({"check": "animation_signal", "status": "passed", "detail": anim_found})
+            else:
+                checks.append({"check": "animation_signal", "status": "failed", "detail": None})
+                missing.append("animation_signal")
+        else:
+            checks.append({"check": "animation_signal", "status": "passed" if anim_found else "advisory",
+                           "detail": anim_found})
+
+        # 2. Color mutation signal (required for animation tasks)
+        color_found = self._check_signals(content, _COLOR_SIGNALS)
+        if is_animation_task:
+            if color_found:
+                checks.append({"check": "color_mutation_signal", "status": "passed", "detail": color_found})
+            else:
+                checks.append({"check": "color_mutation_signal", "status": "failed", "detail": None})
+                missing.append("color_mutation_signal")
+        else:
+            checks.append({"check": "color_mutation_signal", "status": "passed" if color_found else "advisory",
+                           "detail": color_found})
+
+        # 3. Motion signal (required for animation tasks)
+        motion_found = self._check_signals(content, _MOTION_SIGNALS)
+        if is_animation_task:
+            if motion_found:
+                checks.append({"check": "motion_signal", "status": "passed", "detail": motion_found})
+            else:
+                checks.append({"check": "motion_signal", "status": "failed", "detail": None})
+                missing.append("motion_signal")
+        else:
+            checks.append({"check": "motion_signal", "status": "passed" if motion_found else "advisory",
+                           "detail": motion_found})
+
+        # 4. Wave/linear phase signal (required for wave tasks)
+        if is_wave_task:
+            wave_found = self._check_signals(content, _WAVE_PHASE_SIGNALS)
+            if wave_found:
+                checks.append({"check": "wave_phase_signal", "status": "passed", "detail": wave_found})
+            else:
+                checks.append({"check": "wave_phase_signal", "status": "failed", "detail": None})
+                missing.append("wave_phase_signal")
+
+        # 5. Abrupt value check for wave tasks (warn if no smooth progression)
+        if is_wave_task and not self._check_signals(content, _WAVE_PHASE_SIGNALS):
+            checks.append({"check": "smooth_phase_progression", "status": "warned",
+                           "detail": "no Math.sin/phase/amplitude/frequency found"})
+
+        if missing:
+            status = "failed"
+        else:
+            status = "passed"
+
+        return self._result(status, checks=checks, missing=missing)
+
+    def _check_signals(self, content: str, signals: list) -> str | None:
+        """Return the name of the first matching signal, or None."""
+        for pattern, name in signals:
+            if pattern.search(content):
+                return name
+        return None
+
+    @staticmethod
+    def _result(status: str, *, checks: list, missing: list) -> dict:
+        return {"status": status, "checks": checks, "missing": missing}
