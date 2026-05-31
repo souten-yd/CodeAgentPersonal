@@ -166,19 +166,21 @@ class AtlasSafeApplyExecutionService:
     def persist_safe_apply_metadata(self, item: AtlasPlanItem, result: dict, *, change_snapshot: dict | None = None) -> None:
         item.metadata.setdefault('safe_apply', {})
         status = str(result.get('status') or 'failed')
-        actual = bool(result.get('actual_file_changed')) if status == 'applied' else False
+        partial_write_possible = bool(result.get('partial_write_possible'))
+        actual = bool(result.get('actual_file_changed'))
+        changed_files = list(result.get('changed_files') or []) if (actual or partial_write_possible) else []
         safe_apply_meta = {
             'status': status,
             'applied_at': datetime.now(timezone.utc).isoformat(),
             'reasons': list(result.get('reasons') or []),
-            'changed_files': list(result.get('changed_files') or []) if actual else [],
+            'changed_files': changed_files,
             'file_results': list(result.get('file_results') or []),
             'actual_file_changed': actual,
             'change_set_id': str(((item.metadata or {}).get('change_set') or {}).get('change_set_id') or ''),
             'change_snapshot_id': (change_snapshot or {}).get('snapshot_id', ''),
             'change_snapshot_manifest_path': (change_snapshot or {}).get('manifest_path', ''),
         }
-        if result.get('partial_write_possible'):
+        if partial_write_possible:
             safe_apply_meta['partial_write_possible'] = True
         item.metadata['safe_apply'].update(safe_apply_meta)
 
