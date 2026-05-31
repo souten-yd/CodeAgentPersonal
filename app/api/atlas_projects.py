@@ -104,8 +104,10 @@ def _project_payload(root: Path, name: str) -> dict:
     store = AtlasConversationStore(root, name)
     meta = store.read_meta()
     work = _work_dir(root, name)
+    display_name = str(meta.get("display_name") or name)
     return {
         "name": name,
+        "display_name": display_name,
         "project_path": str(work),
         "workspace_id": name,
         "file_count": _file_count(work),
@@ -160,32 +162,30 @@ def create_project(payload: CreateProjectRequest, request: Request):
     work.mkdir(parents=True, exist_ok=True)
     _workspace_dir(root, name).mkdir(parents=True, exist_ok=True)
     store = AtlasConversationStore(root, name)
-    store.write_meta({"provisional": _is_provisional(name)})
+    store.write_meta({"provisional": _is_provisional(name), "display_name": name})
     return {"created": name, "existed": existed, **_project_payload(root, name)}
 
 
 @router.post("/{name}/rename")
 def rename_project(name: str, payload: RenameProjectRequest, request: Request):
+    """Rename only the user-facing project title.
+
+    The project ``name`` is the stable storage id for both
+    ``atlas/projects/<name>/work`` and ``atlas/workspaces/<name>``. Moving those
+    directories after planning has started can split artifacts: older in-flight
+    calls keep the previous project_path/workspace_id while new UI calls switch
+    to the renamed id. Keep storage immutable and store the friendly title in
+    conversation meta instead.
+    """
     root = resolve_atlas_ca_data_root(request)
-    old = _require_name(name)
-    new = _require_name(payload.new_name)
-    if old == new:
-        return _project_payload(root, new)
-    old_dir = _project_dir(root, old)
-    new_dir = _project_dir(root, new)
-    if not old_dir.exists():
+    storage_id = _require_name(name)
+    display_name = _require_name(payload.new_name)
+    proj_dir = _project_dir(root, storage_id)
+    if not proj_dir.exists():
         raise HTTPException(status_code=404, detail={"error": "not_found", "reason": "project_not_found"})
-    if new_dir.exists():
-        raise HTTPException(status_code=409, detail={"error": "conflict", "reason": "project_exists"})
-    new_dir.parent.mkdir(parents=True, exist_ok=True)
-    os.rename(old_dir, new_dir)
-    old_ws = _workspace_dir(root, old)
-    new_ws = _workspace_dir(root, new)
-    if old_ws.exists() and not new_ws.exists():
-        new_ws.parent.mkdir(parents=True, exist_ok=True)
-        os.rename(old_ws, new_ws)
-    AtlasConversationStore(root, new).write_meta({"provisional": False})
-    return _project_payload(root, new)
+    store = AtlasConversationStore(root, storage_id)
+    store.write_meta({"provisional": False, "display_name": display_name})
+    return _project_payload(root, storage_id)
 
 
 @router.delete("/{name}")
