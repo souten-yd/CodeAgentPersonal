@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
 from agent.atlas_patch_proposal_planitem_service import AtlasPatchProposalPlanItemDraftService
 from agent.atlas_patch_proposal_service import AtlasPatchProposalService
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
@@ -46,6 +47,38 @@ def test_patch_proposal_build_output_carries_file_changes(tmp_path):
     assert has_content is True
     assert proposal.metadata['file_changes'] == file_changes
     assert proposal.target_files == ['index.html', 'style.css']
+
+
+def test_patch_proposal_result_metadata_detects_file_changes_content(tmp_path):
+    storage = AtlasPlanPoolStorage(tmp_path)
+    journal = AtlasJournal(tmp_path)
+    file_changes = [
+        {'path': 'index.html', 'action_type': 'create', 'proposed_content': '<!doctype html>\n'},
+        {'path': 'style.css', 'action_type': 'create', 'proposed_content': 'body{}\n'},
+    ]
+    item = AtlasPlanItem(
+        item_id='i1',
+        pool_id='p1',
+        title='t',
+        goal='g',
+        target_files=['index.html'],
+        metadata={'action_type': 'create'},
+    )
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g', items=[item])
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+
+    def llm_json_fn(system_prompt, user_prompt, **kwargs):
+        return {'summary': 'multi', 'file_changes': file_changes, 'risk_level': 'low'}
+
+    svc = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_json_fn)
+    result = svc.propose_for_item(AtlasPatchProposalRequest(pool_id='p1', item_id='i1', run_id='r1', source_type='plan_item'))
+
+    assert result.status == 'proposed'
+    assert result.metadata['patch_content_available'] is True
+    assert result.proposal.unified_diff_preview == ''
+    assert 'proposed_content' not in result.proposal.metadata
+    assert result.proposal.metadata['file_changes'] == file_changes
 
 
 def test_patch_proposal_planitem_draft_carries_file_changes(tmp_path):
