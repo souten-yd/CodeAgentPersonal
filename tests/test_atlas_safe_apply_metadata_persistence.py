@@ -41,7 +41,12 @@ def _pool_with_item(metadata=None, target_files=None):
         risk_level='low',
         status='ready',
         target_files=['a.txt'] if target_files is None else target_files,
-        metadata={'action_type': 'create', 'approval': {'decision': 'approved'}, **(metadata or {})},
+        metadata={
+            'action_type': 'create',
+            'approval': {'decision': 'approved'},
+            'proposed_content': 'placeholder\n',
+            **(metadata or {}),
+        },
     )
     return AtlasPlanPool(pool_id='p1', root_goal='g', project_path='.', items=[item])
 

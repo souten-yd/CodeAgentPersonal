@@ -7,6 +7,7 @@ from pathlib import Path
 from agent.atlas_change_snapshot_service import AtlasChangeSnapshotService
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_plan_item_file_changes import normalize_plan_item_file_changes
+from agent.atlas_plan_item_patchability import classify_plan_item_patchability
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
@@ -109,6 +110,12 @@ class AtlasSafeApplyExecutionService:
         dry_run = bool(request.dry_run) if request is not None else False
         if self.safe_apply_adapter.implementation_executor is None and not dry_run:
             return False, ['safe_apply_executor_unavailable']
+
+        # Patchability gate: reject non-patch PlanItems before they reach the executor
+        patchability = classify_plan_item_patchability(item)
+        if not patchability['patchable']:
+            return False, [patchability['reason'] or 'unpatchable_plan_item']
+
         preset_id = str(((request.metadata or {}) if request is not None else {}).get('preset_id') or '').lower()
         if preset_id != 'full_auto' and str(((item.metadata or {}).get('approval') or {}).get('decision') or '').lower() != 'approved':
             warnings.append('approval_not_approved')
