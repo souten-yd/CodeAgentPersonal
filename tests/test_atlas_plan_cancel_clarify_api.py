@@ -408,6 +408,8 @@ def test_auto_clarification_records_safe_default_for_noncritical_ambiguity(tmp_p
     assert metadata["gate_rerun_performed_after_clarification"] is True
     assert metadata["plan_revision_required_after_clarification"] is False
     assert metadata["gate_rerun_required_after_clarification"] is False
+    assert metadata["allowed_paths_after_clarification"] == []
+    assert metadata["blocked_paths_after_clarification"] == []
     assert _clarification_execution_block_reasons(AtlasPlanPool.model_validate(body["plan_pool"])) == []
 
 
@@ -452,6 +454,10 @@ def test_answer_reducing_scope_updates_target_files_from_answer(tmp_path: Path):
     assert r.status_code == 200, r.text
     reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
     assert reloaded.items[0].target_files == ["src/a.py"]
+    assert reloaded.metadata["allowed_paths_after_clarification"] == ["src/a.py"]
+    assert reloaded.metadata["blocked_paths_after_clarification"] == []
+    assert reloaded.metadata["plan_revision_diff"]["allowed_paths_after_clarification"] == ["src/a.py"]
+    assert reloaded.items[0].metadata["allowed_paths_after_clarification"] == ["src/a.py"]
     assert reloaded.metadata["plan_revision_diff"]["scope_reduced"] is True
 
 
