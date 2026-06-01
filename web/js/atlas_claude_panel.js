@@ -631,6 +631,25 @@
     appendPlanActionPrompt(poolId);
   }
 
+  // Blocked status card: shown instead of the Approve/Run prompt while a clarification or
+  // post-clarification blocker is active (plan revision / gate rerun evidence still missing).
+  // Display/supervision only — renders no Approve / Run / Revise controls. Backend
+  // workflow_state stays authoritative and already refuses execution in this state.
+  function appendClarificationBlockedStatus(poolId, reasons) {
+    if (!dom.transcript) return;
+    const list = Array.isArray(reasons) ? reasons : [];
+    const node = document.createElement('div');
+    node.className = 'atlas-claude-msg';
+    node.dataset.role = 'system';
+    node.dataset.atlasClarificationBlocked = String(poolId);
+    node.textContent = `確認回答と plan revision / gate rerun が完了するまで実行できません: ${list.join(', ')}`;
+    upsertTranscriptNode(
+      (el) => el.dataset && el.dataset.atlasClarificationBlocked === String(poolId),
+      node,
+    );
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
   async function requestPlanRevision(poolId, note) {
     if (!root.AtlasPipelineAPI) return;
     try {
@@ -1496,10 +1515,17 @@
     // State-driven prompts (survive a browser reload): re-derive from the server pool.status /
     // metadata instead of in-memory flags, so the approval / clarification controls reappear.
     const clarification = poolMeta.critique_clarification_options || {};
+    // Mirror the create-time guard (see dispatchIntent): on a state-driven reload/recover the
+    // approval prompt must not reappear while clarification or post-clarification blockers
+    // (plan_revision_required / gate_rerun_required / missing revised snapshot / missing gate
+    // rerun evidence) are still active. Backend workflow_state stays authoritative.
+    const clarificationBlocks = clarificationExecutionBlockReasons(poolMeta);
     if (poolMeta.clarification_required && Array.isArray(poolMeta.clarification_questions) && poolMeta.clarification_questions.length) {
       appendClarificationPrompt(poolId, poolMeta);
     } else if (poolMeta.clarification_required && Array.isArray(clarification.options) && clarification.options.length) {
       appendClarificationPrompt(poolId, { clarification_questions: [{ question_id: 'clar_q_1', index: 1, total: 1, prompt: '確認が必要です。以下から選択してください:', options: clarification.options, status: 'pending' }] });
+    } else if (clarificationBlocks.length) {
+      appendClarificationBlockedStatus(poolId, clarificationBlocks);
     } else if (poolStatus === 'approval_required') {
       appendPlanActionPrompt(poolId);
     }
