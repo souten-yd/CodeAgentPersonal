@@ -221,6 +221,73 @@ def test_verification_failure_repair_is_visible_and_failed_run_is_not_pr_ready(t
     assert out.metadata["draft_pr_artifact"]["ready"] is False
 
 
+def test_visual_verification_failure_creates_bounded_repair_plan(tmp_path: Path) -> None:
+    visual_failed = _Autopilot(
+        status="failed",
+        item_results=[
+            AtlasAutopilotItemResult(
+                item_id="game",
+                status="failed",
+                reason="verification_failed:visual_contract_failed",
+                changed_files=["index.html", "style.css"],
+                verification_result={
+                    "status": "failed",
+                    "warnings": [
+                        "visual_contract_failed",
+                        "visual_missing:animation_signal",
+                        "visual_missing:motion_signal",
+                        "browser_smoke_failed:playwright_error: timeout",
+                    ],
+                },
+            )
+        ],
+    )
+    svc, _proposal, _auto = _service(tmp_path / "visual_failed", _pool([_item("game", "index.html")]), visual_failed)
+    out = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_accept", max_retries=2))
+
+    assert out.status == "failed"
+    assert out.phase == "failure_analysis"
+    summary = out.metadata["verification_failure_summary"]
+    assert summary["user_facing_title"] == "Visual verification failed: game does not show required motion/animation evidence"
+    assert "visual_missing:animation_signal" in summary["failed_contracts"]
+    assert summary["verification_tool_error"].startswith("browser_smoke_failed:playwright_error")
+    assert summary["can_attempt_bounded_repair"] is True
+    plan = out.metadata["repair_plan"]
+    assert plan["allowed_repair_files"] == ["index.html", "style.css"]
+    assert plan["post_repair_verification_required"] is True
+    assert out.metadata["post_repair_verification_result"]["status"] == "not_run"
+    assert out.metadata["draft_pr_readiness"]["ready"] is False
+    status_view = _normalized_status(out.model_dump())
+    assert status_view["current_phase"] == "failure_analysis"
+    assert status_view["evidence_summary"]["verification_failure_summary"]["failed_contracts"]
+    assert status_view["evidence_summary"]["repair_plan"]["status"] == "planned"
+    assert status_view["evidence_summary"]["repair_attempts"][0]["kind"] == "bounded_repair_plan"
+
+
+def test_bounded_repair_plan_limits_files_to_allowed_changed_paths(tmp_path: Path) -> None:
+    visual_failed = _Autopilot(
+        status="failed",
+        item_results=[
+            AtlasAutopilotItemResult(
+                item_id="game",
+                status="failed",
+                changed_files=["index.html", "style.css", "docs/note.md"],
+                verification_result={"status": "failed", "warnings": ["visual_contract_failed"]},
+            )
+        ],
+    )
+    svc, _proposal, _auto = _service(tmp_path / "visual_limited", _pool([_item("game", "index.html")]), visual_failed)
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            allowed_paths=["index.html", "style.css"],
+            blocked_paths=["docs/"],
+        )
+    )
+
+    assert out.metadata["repair_plan"]["allowed_repair_files"] == ["index.html", "style.css"]
+
+
 def test_envelope_and_forbidden_operation_acceptance(tmp_path: Path) -> None:
     svc, _proposal, auto = _service(tmp_path / "no_envelope", _pool([_item("code", "src/fix.py")]))
     no_envelope = svc.run(

@@ -156,7 +156,9 @@ def _normalized_status(payload: dict) -> dict:
         "evidence_summary": {
             "changed_files": changed_files,
             "verification": _verification_summary(item_results),
-            "repair_attempts": _repair_summary(item_results),
+            "verification_failure_summary": metadata.get("verification_failure_summary") or {},
+            "repair_plan": metadata.get("repair_plan") or {},
+            "repair_attempts": _repair_summary(item_results, metadata),
             "final_summary": {
                 "status": status,
                 "stop_reason": stop_reason,
@@ -301,8 +303,12 @@ def _verification_summary(item_results: list) -> dict:
     return {"statuses": statuses, "visible": bool(item_results)}
 
 
-def _repair_summary(item_results: list) -> list[dict]:
+def _repair_summary(item_results: list, metadata: dict | None = None) -> list[dict]:
     repairs: list[dict] = []
+    if isinstance(metadata, dict):
+        for attempt in metadata.get("repair_attempts") or []:
+            if isinstance(attempt, dict):
+                repairs.append({"kind": "bounded_repair_plan", **attempt})
     for item in item_results:
         if not isinstance(item, dict):
             continue

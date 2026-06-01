@@ -886,7 +886,7 @@
       const poolMeta = pool.data.metadata || (pool.data.plan_pool && pool.data.plan_pool.metadata) || {};
       const clarificationBlocks = clarificationExecutionBlockReasons(poolMeta);
       if (clarificationBlocks.length) {
-        updateStage(stages, 'plan', 'failed', `clarification blocked: ${clarificationBlocks.join(', ')}`);
+        updateStage(stages, 'plan', 'failed', `clarification revision/gate rerun required: ${clarificationBlocks.join(', ')}`);
         renderPipelineSummary(stages, { status: 'clarification_blocked', failed_count: 1, stop_reason: 'clarification_required' });
         return;
       }
