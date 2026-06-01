@@ -26,6 +26,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from agent.atlas_clarification_schema import AtlasClarificationSubmitRequest, AtlasClarificationSubmitResult
+from agent.atlas_clarification_replanning_service import AtlasClarificationReplanningService
 from agent.atlas_clarification_service import AtlasClarificationService
 from agent.atlas_approval_service import AtlasApprovalService, POOL_CRITICAL_DECISION_ITEM_ID
 from agent.atlas_continuation_service import AtlasContinuationService
@@ -403,8 +404,8 @@ def _normalize_planner_mode(value: str) -> str:
 
 def _checkpoint_next_action(status: str) -> str:
     normalized = str(status or "").lower()
-    if normalized == "waiting_for_clarification":
-        return "Review planner questions and refine the goal before creating a PlanPool."
+    if normalized in {"waiting_for_clarification", "needs_scope_confirmation"}:
+        return "Answer clarification so Atlas can revise the plan and rerun gates."
     if normalized == "ready":
         return "Start Dry-run to validate the generated PlanPool."
     if normalized in {"stale", "interrupted"}:
@@ -1015,10 +1016,39 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
             pool.metadata["pending_question_count"] = len(pool.metadata["clarification_questions"])
             pool.metadata["answered_question_count"] = 0
             pool.metadata["clarification_required"] = True
+            pool.status = "needs_scope_confirmation"
+    _direct_clarification_text = str(plan.get("summary") or plan.get("task_summary") or root_goal)
+    _direct_ambiguities = AtlasClarificationGateService().detect_ambiguities(_direct_clarification_text)
+    if _direct_ambiguities and not pool.metadata.get("clarification_questions"):
+        critical_ambiguity = any(
+            AtlasClarificationReplanningService.critical_ambiguity_requires_user(signal)
+            for signal in _direct_ambiguities
+        ) or AtlasClarificationReplanningService.critical_ambiguity_requires_user(_direct_clarification_text)
+        if _features.get("clarification_mode") == "pause" or critical_ambiguity:
+            pool.metadata["clarification_questions"] = AtlasClarificationService().build_question_queue(
+                ambiguity_signals=_direct_ambiguities,
+                options=[],
+            )
+            pool.metadata["current_question_index"] = 1
+            pool.metadata["pending_question_count"] = len(pool.metadata["clarification_questions"])
+            pool.metadata["answered_question_count"] = 0
+            pool.metadata["clarification_required"] = True
+            pool.metadata["critique_clarification_options"] = {
+                "ambiguity_signals": _direct_ambiguities,
+                "options": [],
+                "gate_evaluation": {"clarification_required": True, "gate_status": "clarification_required"},
+            }
+            pool.status = "needs_scope_confirmation"
+        else:
+            pool.metadata["safe_default_assumption_after_clarification"] = {
+                "assumption": "Proceed with the narrowest low-risk interpretation and record the assumption.",
+                "ambiguity_signals": _direct_ambiguities,
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+            }
     for _w in quality_gate["warnings"]:
         if _w not in pool.warnings:
             pool.warnings.append(_w)
-    if quality_gate["require_approval"]:
+    if quality_gate["require_approval"] and pool.status != "needs_scope_confirmation":
         pool.status = "waiting_for_critical_decision" if quality_gate.get("critical_event") else "approval_required"
 
     # ── Requirement trace + repair intent (PR-8d): persist on pool metadata so the autopilot
@@ -1674,11 +1704,18 @@ def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Reque
     pool.metadata["clarification_decision"] = progress["latest_decision"]
     pool.metadata["plan_revision_required_after_clarification"] = True
     pool.metadata["gate_rerun_required_after_clarification"] = True
+    replan_result: dict[str, Any] = {}
     if progress["pending_count"]:
         pool.metadata["clarification_required"] = True
     else:
         pool.metadata.pop("clarification_required", None)
-    if pool.status == "ready":
+        replan_result = AtlasClarificationReplanningService().revise_after_answers(
+            pool,
+            preset_id=str((pool.metadata or {}).get("preset_id") or "guarded_low_risk"),
+            automation_level=str(getattr(pool, "automation_level", "") or ""),
+            critical_handling=str(((pool.metadata or {}).get("automation_features") or {}).get("critical_handling") or "ask"),
+        )
+    if pool.status == "ready" and not replan_result:
         pool.status = "approval_required"
     storage.save_pool(pool)
     journal.save_plan_pool(pool)
@@ -1689,6 +1726,7 @@ def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Reque
         "clarification_questions": pool.metadata["clarification_questions"],
         "pending_question_count": pool.metadata["pending_question_count"],
         "answered_question_count": pool.metadata["answered_question_count"],
+        "clarification_replanning": replan_result,
         "plan_pool": _model_dump(pool),
     }
 

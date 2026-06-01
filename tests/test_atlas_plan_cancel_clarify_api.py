@@ -125,7 +125,12 @@ def test_clarify_clears_required_only_after_all_questions_answered(tmp_path: Pat
     assert body["pending_question_count"] == 0
     reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
     assert "clarification_required" not in (reloaded.metadata or {})
-    assert reloaded.metadata["gate_rerun_required_after_clarification"] is True
+    assert reloaded.metadata["gate_rerun_required_after_clarification"] is False
+    assert reloaded.metadata["gate_rerun_performed_after_clarification"] is True
+    assert reloaded.metadata["plan_revision_required_after_clarification"] is False
+    assert reloaded.metadata["revised_plan_snapshot"]
+    assert "one file" in reloaded.root_goal
+    assert reloaded.items[0].metadata["clarification_revision"]["answer_summary"]
 
 
 def test_auto_safe_apply_blocks_until_clarification_replan_gate_rerun(tmp_path: Path):
@@ -145,6 +150,110 @@ def test_auto_safe_apply_blocks_until_clarification_replan_gate_rerun(tmp_path: 
     assert body["status"] == "blocked"
     assert "plan_revision_required_after_clarification" in body["warnings"]
     assert "gate_rerun_required_after_clarification" in body["warnings"]
+
+
+def test_ambiguous_plan_pool_pauses_at_needs_scope_confirmation(tmp_path: Path):
+    client = _client(tmp_path, _pool())
+    r = client.post(
+        "/api/atlas/plan-pools?sync=1",
+        json={
+            "input": "Build a page with unclear scope not defined",
+            "automation_features": {"clarification_mode": "pause"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "needs_scope_confirmation"
+    metadata = body["plan_pool"]["metadata"]
+    assert metadata["clarification_required"] is True
+    assert metadata["clarification_questions"][0]["index"] == 1
+
+
+def test_auto_clarification_records_safe_default_for_noncritical_ambiguity(tmp_path: Path):
+    client = _client(tmp_path, _pool())
+    r = client.post(
+        "/api/atlas/plan-pools?sync=1",
+        json={
+            "input": "Build a page with unclear scope not defined",
+            "automation_features": {"clarification_mode": "auto"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    metadata = body["plan_pool"]["metadata"]
+    assert "safe_default_assumption_after_clarification" in metadata
+    assert metadata.get("clarification_required") is not True
+
+
+def test_critical_ambiguity_does_not_use_auto_default(tmp_path: Path):
+    client = _client(tmp_path, _pool())
+    r = client.post(
+        "/api/atlas/plan-pools?sync=1",
+        json={
+            "input": "Build unclear runtime command execution support",
+            "automation_features": {"clarification_mode": "auto"},
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "needs_scope_confirmation"
+    metadata = body["plan_pool"]["metadata"]
+    assert metadata["clarification_required"] is True
+    assert "safe_default_assumption_after_clarification" not in metadata
+
+
+def test_answer_reducing_scope_updates_target_files_from_answer(tmp_path: Path):
+    pool = _pool(metadata={
+        "clarification_required": True,
+        "clarification_questions": [
+            {
+                "question_id": "clar_q_1",
+                "index": 1,
+                "total": 1,
+                "prompt": "Pick file",
+                "reason": "scope unclear",
+                "options": [{"option_id": "minimal_scope", "label": "Minimal"}],
+                "status": "pending",
+            },
+        ],
+    })
+    pool.items[0].target_files = ["src/a.py", "src/b.py"]
+    client = _client(tmp_path, pool)
+    r = client.post(
+        "/api/atlas/plan-pools/pool_x/clarify",
+        json={"question_id": "clar_q_1", "option_id": "minimal_scope", "answer_text": "Only src/a.py"},
+    )
+    assert r.status_code == 200, r.text
+    reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
+    assert reloaded.items[0].target_files == ["src/a.py"]
+    assert reloaded.metadata["plan_revision_diff"]["scope_reduced"] is True
+
+
+def test_answer_expanding_scope_triggers_critical_or_approval_status(tmp_path: Path):
+    pool = _pool(metadata={
+        "clarification_required": True,
+        "clarification_questions": [
+            {
+                "question_id": "clar_q_1",
+                "index": 1,
+                "total": 1,
+                "prompt": "Pick scope",
+                "reason": "runtime scope unclear",
+                "options": [{"option_id": "custom", "label": "Custom", "requires_text": True}],
+                "status": "pending",
+            },
+        ],
+    })
+    client = _client(tmp_path, pool)
+    r = client.post(
+        "/api/atlas/plan-pools/pool_x/clarify",
+        json={"question_id": "clar_q_1", "option_id": "custom", "answer_text": "Also add runtime command execution"},
+    )
+    assert r.status_code == 200, r.text
+    reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
+    assert reloaded.status in {"waiting_for_critical_decision", "approval_required"}
+    assert reloaded.items[0].risk_level == "high"
+    assert reloaded.metadata["plan_revision_diff"]["risk_raised"] is True
 
 
 def test_pool_level_critical_decision_api_rejects_to_replanning(tmp_path: Path):

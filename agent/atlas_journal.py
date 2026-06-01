@@ -240,8 +240,8 @@ class AtlasJournal:
     @staticmethod
     def _default_next_action(status: str) -> str:
         normalized = str(status or "").lower()
-        if normalized == "waiting_for_clarification":
-            return "Review planner questions and refine the goal before creating a PlanPool."
+        if normalized in {"waiting_for_clarification", "needs_scope_confirmation"}:
+            return "Answer clarification so Atlas can revise the plan and rerun gates."
         if normalized == "ready":
             return "Start Dry-run to validate the generated PlanPool."
         if normalized in {"stale", "interrupted"}:
