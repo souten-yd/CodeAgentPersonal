@@ -725,18 +725,54 @@
     }
   }
 
-  // Claude-style clarification question: render the structured options as buttons; the user's
-  // choice is recorded server-side and the gate cleared. State-driven (survives reload).
-  function appendClarificationPrompt(poolId, options) {
-    if (!dom.transcript || !Array.isArray(options) || !options.length) return;
+  function firstPendingClarificationQuestion(poolMeta) {
+    const questions = Array.isArray(poolMeta && poolMeta.clarification_questions)
+      ? poolMeta.clarification_questions : [];
+    return questions.find((q) => String(q.status || 'pending') !== 'answered') || questions[0] || null;
+  }
+
+  function upsertTranscriptNode(matchFn, node) {
+    if (!dom.transcript || !node) return;
+    const existing = Array.from(dom.transcript.children || []).find(matchFn);
+    if (existing) existing.replaceWith(node);
+    else dom.transcript.appendChild(node);
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  // Claude-style clarification queue: render exactly one pending question, preserving the rest.
+  function appendClarificationPrompt(poolId, poolMeta) {
+    if (!dom.transcript) return;
+    const question = firstPendingClarificationQuestion(poolMeta || {});
+    if (!question) return;
+    const options = Array.isArray(question.options) ? question.options : [];
     const node = document.createElement('div');
     node.className = 'atlas-claude-msg';
     node.dataset.role = 'system';
+    node.dataset.atlasClarificationPrompt = 'true';
+    node.dataset.poolId = poolId;
     node.style.flexDirection = 'column';
     node.style.gap = '6px';
     const text = document.createElement('div');
-    text.textContent = '確認が必要です。以下から選択してください:';
+    const index = question.index || 1;
+    const total = question.total || Math.max(1, options.length ? 1 : index);
+    text.textContent = `確認が必要です: ${index}/${total}`;
     node.appendChild(text);
+    const prompt = document.createElement('div');
+    prompt.className = 'atlas-claude-stage-detail';
+    prompt.style.whiteSpace = 'normal';
+    prompt.textContent = String(question.prompt || question.title || 'Clarification required');
+    node.appendChild(prompt);
+    if (question.reason) {
+      const reason = document.createElement('div');
+      reason.className = 'atlas-claude-stage-detail';
+      reason.style.whiteSpace = 'normal';
+      reason.textContent = `理由: ${String(question.reason)}`;
+      node.appendChild(reason);
+    }
+    const custom = document.createElement('textarea');
+    custom.className = 'atlas-claude-input';
+    custom.rows = 2;
+    custom.placeholder = '自由入力 / Custom answer';
     const actions = document.createElement('div');
     actions.style.display = 'flex';
     actions.style.flexDirection = 'column';
@@ -750,21 +786,29 @@
       const desc = String(opt.description || '');
       btn.textContent = desc ? `${label} — ${desc}` : label;
       btn.addEventListener('click', () => {
-        node.remove();
-        submitClarification(poolId, opt.option_id);
+        submitClarification(poolId, question.question_id, opt.option_id, opt.requires_text ? custom.value : '');
       });
       actions.appendChild(btn);
     });
+    node.appendChild(custom);
     node.appendChild(actions);
-    dom.transcript.appendChild(node);
-    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    upsertTranscriptNode(
+      (el) => el.dataset && el.dataset.atlasClarificationPrompt === 'true' && el.dataset.poolId === String(poolId),
+      node,
+    );
   }
 
-  async function submitClarification(poolId, optionId) {
+  async function submitClarification(poolId, questionId, optionId, answerText) {
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.clarifyPlanPool) return;
     try {
-      await root.AtlasPipelineAPI.clarifyPlanPool(poolId, { option_id: optionId, workspace_id: workspaceId() });
-      pushSystemMessage('選択を記録しました。Plan を続行します。');
+      const result = await root.AtlasPipelineAPI.clarifyPlanPool(poolId, {
+        question_id: questionId,
+        option_id: optionId,
+        answer_text: answerText || '',
+        workspace_id: workspaceId(),
+      });
+      const pending = result && result.data ? Number(result.data.pending_question_count || 0) : 0;
+      pushSystemMessage(pending > 0 ? `選択を記録しました。残り ${pending} 件の確認があります。` : '選択を記録しました。Plan revision と gate rerun が必要です。');
       await renderPlanPoolMarkdown(poolId);
     } catch (e) {
       pushSystemMessage('選択の送信に失敗しました: ' + (e && e.message ? e.message : e));
@@ -781,6 +825,15 @@
       const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
       if (!pool.ok || !pool.data) {
         updateStage(stages, 'plan', 'failed', formatError(pool));
+        return;
+      }
+      const poolMeta = pool.data.metadata || (pool.data.plan_pool && pool.data.plan_pool.metadata) || {};
+      const clarificationBlocked = poolMeta.clarification_required
+        || poolMeta.plan_revision_required_after_clarification
+        || poolMeta.gate_rerun_required_after_clarification;
+      if (clarificationBlocked) {
+        updateStage(stages, 'plan', 'failed', 'clarification revision/gate rerun required');
+        renderPipelineSummary(stages, { status: 'clarification_blocked', failed_count: 1, stop_reason: 'clarification_required' });
         return;
       }
       const items = pool.data.items || pool.data.plan_items || [];
@@ -930,10 +983,15 @@
 
   function appendStageBlock(poolId) {
     if (!dom.transcript) return null;
+    Array.from(dom.transcript.children || []).forEach((el) => {
+      if (el.dataset && el.dataset.atlasStageBlock === 'true' && el.dataset.poolId === String(poolId)) el.remove();
+    });
     const block = document.createElement('div');
     block.className = 'atlas-claude-msg atlas-claude-stage-block';
     block.dataset.role = 'atlas';
     block.dataset.pool = poolId;
+    block.dataset.poolId = poolId;
+    block.dataset.atlasStageBlock = 'true';
     const list = document.createElement('div');
     list.className = 'atlas-claude-stage-list';
     STAGE_DEFS.forEach((def) => {
@@ -1196,6 +1254,28 @@
     return Array.isArray(errors) ? errors.map((e) => String(e)).filter(Boolean) : [];
   }
 
+  function visualFailureDetails(item) {
+    const warnings = [];
+    if (item && Array.isArray(item.warnings)) warnings.push(...item.warnings);
+    const verification = item && (item.verification_result || item.auto_verification_result || {});
+    if (Array.isArray(verification.warnings)) warnings.push(...verification.warnings);
+    const metadata = verification.metadata || (item && item.metadata) || {};
+    const visual = metadata.visual_contract || {};
+    const smoke = metadata.browser_smoke || {};
+    const missing = Array.isArray(visual.missing) ? visual.missing.map((x) => String(x)).filter(Boolean) : [];
+    const visualWarnings = warnings.map((w) => String(w)).filter((w) => w.startsWith('visual_missing:'));
+    const smokeStatus = String(smoke.status || '');
+    const smokeReason = String(smoke.reason || '');
+    if (!missing.length && !visualWarnings.length && !smokeStatus) return '';
+    const parts = [];
+    if (visual.status) parts.push(`visual_contract.status=${visual.status}`);
+    if (missing.length) parts.push(`missing=${missing.join(', ')}`);
+    if (visualWarnings.length) parts.push(`warnings=${visualWarnings.join(', ')}`);
+    if (smokeStatus || smokeReason) parts.push(`browser_smoke=${smokeStatus || '-'}${smokeReason ? ':' + smokeReason : ''}`);
+    parts.push('Repair guidance: run Debug Review and inspect index.html; add requestAnimationFrame loop, input handling, update/render separation, collision handling, HUD state, and visible motion/color/canvas signals.');
+    return `Visual contract failed: ${parts.join(' | ')}`;
+  }
+
   function primaryRecoveryReason(stop, item) {
     const metaReason = stop && stop.metadata && stop.metadata.primary_verification_reason;
     if (metaReason) return String(metaReason);
@@ -1217,7 +1297,9 @@
       const reason = primary ? `Verification failed: ${primary}` : (stop.reason || r.reason || 'unknown');
       const actions = (stop.suggested_manual_actions || []).join(', ');
       const consoleErrors = verificationConsoleErrors(r);
-      li.textContent = `${r.item_id}: ${reason}${actions ? ' — ' + actions : ''}${consoleErrors.length ? ' — console_errors: ' + consoleErrors.slice(0, 3).join(' | ') : ''}`;
+      const visualDetails = primary === 'visual_contract_failed' || String(primary).startsWith('visual_missing:')
+        ? visualFailureDetails(r) : '';
+      li.textContent = `${r.item_id}: ${reason}${actions ? ' — ' + actions : ''}${visualDetails ? ' — ' + visualDetails : ''}${consoleErrors.length ? ' — console_errors: ' + consoleErrors.slice(0, 3).join(' | ') : ''}`;
       ul.appendChild(li);
     });
     box.appendChild(ul);
@@ -1284,12 +1366,21 @@
       pushAtlasMessage(rawMarkdown ? rawMarkdown.slice(0, 4000) : 'Plan was created.');
       return;
     }
-    appendStrategicPlanCard(strategic, items, rawMarkdown);
+    const revisionId = String(
+      poolMeta.plan_revision_id
+      || poolMeta.revision_id
+      || (poolMeta.critical_replanning && poolMeta.critical_replanning.revision_id)
+      || (strategic && strategic.revision_id)
+      || ''
+    );
+    appendStrategicPlanCard(poolId, revisionId, strategic, items, rawMarkdown);
     // State-driven prompts (survive a browser reload): re-derive from the server pool.status /
     // metadata instead of in-memory flags, so the approval / clarification controls reappear.
     const clarification = poolMeta.critique_clarification_options || {};
-    if (poolMeta.clarification_required && Array.isArray(clarification.options) && clarification.options.length) {
-      appendClarificationPrompt(poolId, clarification.options);
+    if (poolMeta.clarification_required && Array.isArray(poolMeta.clarification_questions) && poolMeta.clarification_questions.length) {
+      appendClarificationPrompt(poolId, poolMeta);
+    } else if (poolMeta.clarification_required && Array.isArray(clarification.options) && clarification.options.length) {
+      appendClarificationPrompt(poolId, { clarification_questions: [{ question_id: 'clar_q_1', index: 1, total: 1, prompt: '確認が必要です。以下から選択してください:', options: clarification.options, status: 'pending' }] });
     } else if (poolStatus === 'approval_required') {
       appendPlanActionPrompt(poolId);
     }
@@ -1298,9 +1389,27 @@
   // Render a Claude/Codex-style strategic plan the user can review before approving: goal, approach,
   // per-step detail, risks/review, done-definition. Falls back to the thin item list when no
   // strategic_plan is present (older pools). textContent-based; never injects HTML.
-  function appendStrategicPlanCard(strategic, items, rawMarkdown) {
+  function preparePlanCardForUpsert(card, poolId, revisionId) {
+    card.dataset.atlasPlanCard = 'true';
+    card.dataset.poolId = String(poolId || '');
+    card.dataset.planRevisionId = String(revisionId || '');
+    return card;
+  }
+
+  function upsertPlanCard(card, poolId, revisionId) {
+    preparePlanCardForUpsert(card, poolId, revisionId);
+    upsertTranscriptNode(
+      (el) => el.dataset
+        && el.dataset.atlasPlanCard === 'true'
+        && el.dataset.poolId === String(poolId || '')
+        && el.dataset.planRevisionId === String(revisionId || ''),
+      card,
+    );
+  }
+
+  function appendStrategicPlanCard(poolId, revisionId, strategic, items, rawMarkdown) {
     if (!strategic || typeof strategic !== 'object') {
-      appendPlanCard(items, rawMarkdown);
+      appendPlanCard(poolId, revisionId, items, rawMarkdown);
       return;
     }
     const card = document.createElement('div');
@@ -1413,11 +1522,10 @@
       card.appendChild(det);
     }
 
-    dom.transcript.appendChild(card);
-    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    upsertPlanCard(card, poolId, revisionId);
   }
 
-  function appendPlanCard(items, rawMarkdown) {
+  function appendPlanCard(poolId, revisionId, items, rawMarkdown) {
     const card = document.createElement('div');
     card.className = 'atlas-claude-msg atlas-claude-stage-block';
     card.dataset.role = 'atlas';
@@ -1470,8 +1578,7 @@
       card.appendChild(det);
     }
 
-    dom.transcript.appendChild(card);
-    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    upsertPlanCard(card, poolId, revisionId);
   }
 
   function escapeText(value) {
