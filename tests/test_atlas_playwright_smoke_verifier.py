@@ -96,7 +96,7 @@ def test_static_html_fails_for_animation_task(tmp_path):
     f.write_text(_STATIC_HTML, encoding='utf-8')
     result = _VFY.verify(f, task_description='animate color wave')
     assert result['status'] == 'browser_smoke_failed'
-    assert result['reason'] == 'animation_not_detected_no_style_change'
+    assert result['reason'] == 'animation_not_detected'
 
 
 @_pw_mark
@@ -150,10 +150,37 @@ def test_missing_module_import_target_diagnosed(tmp_path):
     assert diagnostic == 'missing_import_target'
 
 
-def test_case_sensitive_import_path_mismatch_diagnosed(tmp_path):
+def test_import_path_case_mismatch_diagnosed(tmp_path):
     (tmp_path / 'js').mkdir()
     (tmp_path / 'index.html').write_text('<!doctype html><script type="module" src="js/GameEngine.js"></script>', encoding='utf-8')
     (tmp_path / 'js' / 'GameEngine.js').write_text('import { Player } from "./player.js";\nnew Player();', encoding='utf-8')
     (tmp_path / 'js' / 'Player.js').write_text('export class Player {}', encoding='utf-8')
     diagnostic = _VFY._diagnose_js_wiring(tmp_path / 'index.html', ['Failed to resolve module specifier'])
-    assert diagnostic == 'case_sensitive_import_path_mismatch'
+    assert diagnostic == 'import_path_case_mismatch'
+
+
+def test_canvas_grid_hash_detects_motion_that_fixed_points_miss():
+    page = _FakeCanvasPage([
+        {"present": True, "samples": [{"pixels": "same-five-fixed-points", "dataHash": "same", "gridHash": "123"}]},
+        {"present": True, "samples": [{"pixels": "same-five-fixed-points", "dataHash": "same", "gridHash": "456"}]},
+    ])
+    result = _VFY._check_canvas_changes_over_time(page)
+    assert result["changed"] is True
+
+
+def test_favicon_resource_404_is_not_hard_js_failure(tmp_path):
+    html = tmp_path / 'index.html'
+    html.write_text('<!doctype html><link rel="icon" href="favicon.ico"><script src="js/GameEngine.js"></script>', encoding='utf-8')
+    (tmp_path / 'js').mkdir()
+    (tmp_path / 'js' / 'GameEngine.js').write_text('window.gameReady = true;', encoding='utf-8')
+    errors = ['Failed to load resource: net::ERR_FILE_NOT_FOUND file:///tmp/game/favicon.ico']
+    assert _VFY._hard_js_errors(errors, html) == []
+    assert _VFY._diagnose_js_wiring(html, errors) == ''
+
+
+def test_missing_js_entry_script_is_hard_failure(tmp_path):
+    html = tmp_path / 'index.html'
+    html.write_text('<!doctype html><script src="js/MissingGame.js"></script>', encoding='utf-8')
+    diagnostic = _VFY._diagnose_js_wiring(html, ['Failed to load resource: net::ERR_FILE_NOT_FOUND js/MissingGame.js'])
+    assert diagnostic == 'missing_script_src'
+    assert _VFY._js_error_reason(diagnostic) == 'js_error:missing_script_src'

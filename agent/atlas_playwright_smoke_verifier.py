@@ -58,9 +58,14 @@ class AtlasPlaywrightSmokeVerifier:
                 # Check for JS errors (ReferenceError / SyntaxError are hard failures).
                 # Add local static diagnostics so repair planning can target common
                 # generated-game wiring mistakes instead of producing generic tests.
-                js_errors = self._hard_js_errors(console_errors)
-                if js_errors:
-                    diagnostic = self._diagnose_js_wiring(html_path, console_errors)
+                diagnostic = self._diagnose_js_wiring(html_path, console_errors)
+                js_errors = self._hard_js_errors(console_errors, html_path)
+                if js_errors or diagnostic in {
+                    "module_script_mismatch",
+                    "missing_script_src",
+                    "missing_import_target",
+                    "import_path_case_mismatch",
+                }:
                     browser.close()
                     return self._result("browser_smoke_failed", reason=self._js_error_reason(diagnostic),
                                         console_errors=console_errors, diagnostics=diagnostic)
@@ -147,15 +152,23 @@ class AtlasPlaywrightSmokeVerifier:
                     if (!w || !h) { out.push({empty:true, width:w, height:h}); continue; }
                     const ctx = canvas.getContext('2d');
                     if (!ctx) { out.push({no2d:true, width:w, height:h}); continue; }
-                    const pts = [[0.25,0.25],[0.5,0.5],[0.75,0.75],[0.5,0.25],[0.25,0.75]];
-                    const pixels = pts.map(([px, py]) => {
-                        const x = Math.max(0, Math.min(w - 1, Math.floor(w * px)));
-                        const y = Math.max(0, Math.min(h - 1, Math.floor(h * py)));
-                        return Array.from(ctx.getImageData(x, y, 1, 1).data).join(',');
-                    }).join('|');
+                    const sampleW = Math.max(1, Math.min(32, Math.floor(w)));
+                    const sampleH = Math.max(1, Math.min(32, Math.floor(h)));
+                    const scratch = document.createElement('canvas');
+                    scratch.width = sampleW;
+                    scratch.height = sampleH;
+                    const scratchCtx = scratch.getContext('2d', {willReadFrequently:true});
+                    if (!scratchCtx) { out.push({noSampleContext:true, width:w, height:h}); continue; }
+                    scratchCtx.drawImage(canvas, 0, 0, sampleW, sampleH);
+                    const data = scratchCtx.getImageData(0, 0, sampleW, sampleH).data;
+                    let gridHash = 2166136261;
+                    for (let i = 0; i < data.length; i++) {
+                        gridHash ^= data[i];
+                        gridHash = Math.imul(gridHash, 16777619) >>> 0;
+                    }
                     let dataHash = '';
-                    try { dataHash = canvas.toDataURL('image/png').slice(0, 256); } catch (_e) {}
-                    out.push({width:w, height:h, pixels, dataHash});
+                    try { dataHash = scratch.toDataURL('image/png').slice(0, 256); } catch (_e) {}
+                    out.push({width:w, height:h, sampleWidth:sampleW, sampleHeight:sampleH, gridHash:String(gridHash), dataHash});
                 } catch (e) {
                     out.push({error:String(e && e.message || e)});
                 }
@@ -180,9 +193,48 @@ class AtlasPlaywrightSmokeVerifier:
         except Exception as exc:  # noqa: BLE001
             return {"present": False, "changed": False, "warning": "canvas_inaccessible", "errors": [str(exc)]}
 
-    def _hard_js_errors(self, console_errors: list[str]) -> list[str]:
-        markers = ("ReferenceError", "SyntaxError", "TypeError", "Cannot use import statement", "Unexpected token 'export'", "Failed to resolve module specifier", "Failed to load resource", "ERR_FILE_NOT_FOUND", "net::")
-        return [e for e in console_errors if any(m in e for m in markers)]
+    def _hard_js_errors(self, console_errors: list[str], html_path: Path | None = None) -> list[str]:
+        hard_markers = (
+            "ReferenceError",
+            "SyntaxError",
+            "Cannot use import statement",
+            "Unexpected token 'export'",
+            "Failed to resolve module specifier",
+            "Failed to fetch dynamically imported module",
+        )
+        entry_refs = self._entry_script_refs(html_path) if html_path else []
+        hard: list[str] = []
+        for error in console_errors:
+            if any(marker in error for marker in hard_markers):
+                hard.append(error)
+                continue
+            if ("Failed to load resource" in error or "ERR_FILE_NOT_FOUND" in error or "net::" in error) and self._mentions_entry_script(error, entry_refs):
+                hard.append(error)
+        return hard
+
+    def _entry_script_refs(self, html_path: Path | None) -> list[str]:
+        if html_path is None:
+            return []
+        try:
+            html = html_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            return []
+        refs: list[str] = []
+        for attrs, _body in re.findall(r"<script\b([^>]*)>(.*?)</script>", html, flags=re.IGNORECASE | re.DOTALL):
+            src_m = re.search(r'\bsrc\s*=\s*([\'"])(.*?)\1', attrs, flags=re.IGNORECASE)
+            if not src_m:
+                continue
+            src = src_m.group(2).split("#", 1)[0].split("?", 1)[0]
+            if not src or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", src) or src.startswith("//"):
+                continue
+            refs.extend([src, src.lstrip("/"), Path(src).name])
+        return [ref for ref in dict.fromkeys(refs) if ref]
+
+    def _mentions_entry_script(self, error: str, entry_refs: list[str]) -> bool:
+        if not entry_refs:
+            return False
+        normalized = error.replace("\\", "/")
+        return any(ref.replace("\\", "/") in normalized for ref in entry_refs)
 
     def _js_error_reason(self, diagnostic: str) -> str:
         return f"js_error:{diagnostic}" if diagnostic else "js_error"
@@ -221,7 +273,7 @@ class AtlasPlaywrightSmokeVerifier:
         joined = "\n".join(console_errors)
         if inline_non_module_uses_modules or loaded_non_module_with_modules or "Cannot use import statement" in joined or "Unexpected token 'export'" in joined:
             return "module_script_mismatch"
-        if "Failed to resolve module specifier" in joined or "ERR_FILE_NOT_FOUND" in joined:
+        if "Failed to resolve module specifier" in joined or "Failed to fetch dynamically imported module" in joined:
             return "missing_import_target"
         return ""
 
@@ -269,7 +321,7 @@ class AtlasPlaywrightSmokeVerifier:
             wanted = candidate.name.lower()
             try:
                 if any(child.name.lower() == wanted for child in parent.iterdir()):
-                    return "case_sensitive_import_path_mismatch"
+                    return "import_path_case_mismatch"
             except Exception:  # noqa: BLE001
                 pass
         return "missing_import_target"

@@ -1185,6 +1185,17 @@
     return '';
   }
 
+  function verificationConsoleErrors(item) {
+    const stop = (item && item.failure_stop_suggestion) || {};
+    const stopMeta = stop.metadata || {};
+    const direct = item && item.browser_smoke && item.browser_smoke.console_errors;
+    const nested = item && item.verification_result && item.verification_result.metadata
+      && item.verification_result.metadata.browser_smoke
+      && item.verification_result.metadata.browser_smoke.console_errors;
+    const errors = stopMeta.console_errors || direct || nested || [];
+    return Array.isArray(errors) ? errors.map((e) => String(e)).filter(Boolean) : [];
+  }
+
   function primaryRecoveryReason(stop, item) {
     const metaReason = stop && stop.metadata && stop.metadata.primary_verification_reason;
     if (metaReason) return String(metaReason);
@@ -1205,7 +1216,8 @@
       const primary = primaryRecoveryReason(stop, r);
       const reason = primary ? `Verification failed: ${primary}` : (stop.reason || r.reason || 'unknown');
       const actions = (stop.suggested_manual_actions || []).join(', ');
-      li.textContent = `${r.item_id}: ${reason}${actions ? ' — ' + actions : ''}`;
+      const consoleErrors = verificationConsoleErrors(r);
+      li.textContent = `${r.item_id}: ${reason}${actions ? ' — ' + actions : ''}${consoleErrors.length ? ' — console_errors: ' + consoleErrors.slice(0, 3).join(' | ') : ''}`;
       ul.appendChild(li);
     });
     box.appendChild(ul);
