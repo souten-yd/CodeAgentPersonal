@@ -7,10 +7,11 @@ Use this file as the Codex starting point for the A-J practical full automation 
 1. `AGENTS.md` when present.
 2. `docs/atlas_practical_full_automation_experience_plan.md`.
 3. `docs/atlas_pr_e0_clarification_bugfix_plan.md`.
-4. `docs/atlas_corrective_pr_split_plan_after_1510.md`.
-5. `docs/atlas_scale_master_roadmap.md`.
-6. `docs/atlas_automation_phase_manifest.json`.
-7. `docs/atlas_autonomous_execution_readiness_policy.md`.
+4. `docs/atlas_pr_e0_b_hardening_instruction.md`.
+5. `docs/atlas_corrective_pr_split_plan_after_1510.md`.
+6. `docs/atlas_scale_master_roadmap.md`.
+7. `docs/atlas_automation_phase_manifest.json`.
+8. `docs/atlas_autonomous_execution_readiness_policy.md`.
 
 ## Required implementation order
 
@@ -32,11 +33,14 @@ The current implementation order is:
 
 Before continuing broad A-J/full-automation expansion, Codex must follow:
 
+- `docs/atlas_pr_e0_b_hardening_instruction.md`
 - `docs/atlas_corrective_pr_split_plan_after_1510.md`
 
-That corrective plan folds the latest user feedback and review findings into four small PR tracks:
+`docs/atlas_pr_e0_b_hardening_instruction.md` is the current narrow PR-E-0-B stabilization instruction and refines PR-1 / P0 from the corrective split plan.
 
-1. PR-1 / P0: clarification execution safety blocker.
+The corrective split plan folds the latest user feedback and review findings into four small PR tracks:
+
+1. PR-1 / P0: clarification execution safety blocker. Implement as **PR-E-0-B** using `docs/atlas_pr_e0_b_hardening_instruction.md`.
 2. PR-2 / P1: clarification UX and concrete remediation options.
 3. PR-3 / P1: repairable verification failure bounded repair loop.
 4. PR-4 / P0/P1: manifest truthfulness, orchestrator preflight hardening, critical-event continuation scope, and acceptance/safety contract tests.
