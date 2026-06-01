@@ -557,17 +557,20 @@
     setBusy(false);
 
     // If a full-automation preset is selected AND the envelope is active,
-    // offer the user a one-click approval that runs patch generation +
-    // approval + autopilot end-to-end without any further chat input.
+    // offer user intent only when backend-owned clarification/revision gates are clear.
     const preset = state.presets.find((p) => p.id === state.selectedPresetId);
     const envelope = state.latestEnvelope;
     const envelopeActive = envelope && envelope.status === 'active' && envelope.envelope_id !== 'none';
-    if (preset && preset.enables_full_automation && envelopeActive) {
+    const createdPool = (resp.data && (resp.data.plan_pool || resp.data)) || {};
+    const clarificationBlocks = clarificationExecutionBlockReasons((createdPool && createdPool.metadata) || {});
+    if (clarificationBlocks.length) {
+      pushSystemMessage(`確認回答と plan revision / gate rerun が完了するまで実行できません: ${clarificationBlocks.join(', ')}`);
+    } else if (preset && preset.enables_full_automation && envelopeActive) {
       appendApprovalPrompt(poolId);
     } else if (preset && preset.enables_full_automation && !envelopeActive) {
-      pushSystemMessage('Features → 「Apply」で Profile を確定するとここに「承認して実行」ボタンが出ます。');
+      pushSystemMessage('Backend profile と active bounded envelope が確定し、gates が通過すると実行 intent を送信できます。');
     } else {
-      pushSystemMessage('Profile 4 (Autonomous) を Apply すると、選択した Work target の bounded envelope で自動実行を開始できるようになります。');
+      pushSystemMessage('Profile selection alone never starts automation; backend workflow state, active envelope, and gates are required.');
     }
   }
 
@@ -737,6 +740,8 @@
       const recommended = opt.recommended || question.recommended_option_id === opt.option_id ? 'Recommended: ' : '';
       btn.textContent = [recommended + label, desc, impact ? `Impact: ${impact}` : ''].filter(Boolean).join(' — ');
       btn.addEventListener('click', () => {
+        Array.from(actions.querySelectorAll('button')).forEach((actionBtn) => { actionBtn.disabled = true; });
+        custom.disabled = true;
         submitClarification(poolId, question.question_id, opt.option_id, opt.requires_text ? custom.value : '');
       });
       actions.appendChild(btn);

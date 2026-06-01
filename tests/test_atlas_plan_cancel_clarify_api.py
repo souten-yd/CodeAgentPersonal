@@ -206,6 +206,32 @@ def test_auto_safe_apply_blocks_until_clarification_replan_gate_rerun(tmp_path: 
     assert body["metadata"]["clarification_execution_blocked"] is True
 
 
+def test_safe_apply_and_verify_blocks_until_clarification_replan_gate_rerun(tmp_path: Path):
+    pool = _pool(status="ready", item_status="ready", metadata={
+        "clarification_answers": [{"question_id": "clar_q_1", "option_id": "minimal_scope"}],
+        "revised_plan_snapshot": {"root_goal": "Revised"},
+        "gate_rerun_required_after_clarification": True,
+    })
+    client = _client(tmp_path, pool)
+    r = client.post(
+        "/api/atlas/automation/safe-apply-one-and-verify",
+        json={"pool_id": "pool_x", "item_id": "i1", "preset_id": "guarded_low_risk", "command_id": "pytest"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "safe_apply_blocked"
+    safe = body["auto_safe_apply_result"]
+    assert safe["status"] == "blocked"
+    assert safe["metadata"]["clarification_execution_blocked"] is True
+    assert safe["metadata"]["blocked_reasons"] == [
+        "gate_rerun_required_after_clarification",
+        "missing_gate_rerun_evidence_after_clarification",
+    ]
+    verify = body["auto_verification_result"]
+    assert verify["status"] == "skipped"
+    assert verify["warnings"] == ["safe_apply_not_applied"]
+
+
 def test_patch_proposal_generation_blocks_before_service_for_clarification_required(tmp_path: Path, monkeypatch):
     pool = _pool(status="ready", item_status="ready", metadata={"clarification_required": True})
     client = _client(tmp_path, pool)

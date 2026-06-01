@@ -225,6 +225,7 @@ def test_claude_profile_startup_does_not_auto_apply_autonomous_profile() -> None
 def test_claude_panel_policy_wording_keeps_backend_authoritative() -> None:
     assert "Profile selection alone never" in ATLAS_CLAUDE_PANEL_JS
     assert "requires backend workflow state, an active bounded envelope, and gates" in ATLAS_CLAUDE_PANEL_JS
+    assert "Backend profile と active bounded envelope が確定し、gates が通過すると実行 intent を送信できます。" in ATLAS_CLAUDE_PANEL_JS
     assert "DOES pre-authorise the autonomous loop" not in ATLAS_CLAUDE_PANEL_JS
     assert "pre-authorise the autonomous loop" not in ATLAS_PHASE_MANIFEST
     assert "profile selection alone never starts an autonomous loop" in ATLAS_PHASE_MANIFEST
@@ -306,6 +307,14 @@ def test_claude_panel_mirrors_clarification_execution_blocker_contract() -> None
     assert "missing_gate_rerun_evidence_after_clarification" in ATLAS_CLAUDE_PANEL_JS
     assert "rerun_critique_gate_after_clarification" in ATLAS_CLAUDE_PANEL_JS
     assert "rerun_safety_gate_after_clarification" in ATLAS_CLAUDE_PANEL_JS
+    snippet = ATLAS_CLAUDE_PANEL_JS[
+        ATLAS_CLAUDE_PANEL_JS.index("const createdPool ="):
+        ATLAS_CLAUDE_PANEL_JS.index("function appendPlanActionPrompt")
+    ]
+    assert "clarificationExecutionBlockReasons" in snippet
+    assert "appendApprovalPrompt(poolId)" in snippet
+    assert snippet.index("clarificationExecutionBlockReasons") < snippet.index("appendApprovalPrompt(poolId)")
+    assert "確認回答と plan revision / gate rerun が完了するまで実行できません" in snippet
 
 
 def test_claude_panel_renders_user_facing_clarification_issue_and_impact() -> None:
@@ -314,6 +323,13 @@ def test_claude_panel_renders_user_facing_clarification_issue_and_impact() -> No
     assert "plan_change_summary" in ATLAS_CLAUDE_PANEL_JS
     assert "Impact:" in ATLAS_CLAUDE_PANEL_JS
     assert "Recommended:" in ATLAS_CLAUDE_PANEL_JS
+    snippet = ATLAS_CLAUDE_PANEL_JS[
+        ATLAS_CLAUDE_PANEL_JS.index("function appendClarificationPrompt"):
+        ATLAS_CLAUDE_PANEL_JS.index("async function submitClarification")
+    ]
+    assert "actionBtn.disabled = true" in snippet
+    assert "custom.disabled = true" in snippet
+    assert snippet.index("actionBtn.disabled = true") < snippet.index("submitClarification(")
 
 
 def test_claude_panel_renders_autonomous_repair_failure_summary() -> None:
