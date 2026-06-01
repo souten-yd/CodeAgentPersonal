@@ -46,7 +46,7 @@ def test_scale_113_closes_local_only_metadata_phase_and_points_to_level1() -> No
     phase = json.loads(read(PHASE_MANIFEST))
     master = read(MASTER_PLAN)
 
-    assert phase["completed_phase"] == "stable_runtime_mutation_apply"
+    assert phase["completed_phase"] == "practical_full_automation_experience"
     assert phase["automation_phase"] == "practical_full_automation_experience"
     assert phase["local_only_readiness_metadata_phase_complete"] is True
     assert phase["runtime_level_model"] == "profile_dependent"

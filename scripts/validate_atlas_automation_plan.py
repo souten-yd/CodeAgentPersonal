@@ -43,8 +43,8 @@ def validate() -> None:
     assert phase["current_level_semantics"] == "max_backend_runtime_milestone_not_single_active_runtime"
     assert phase["completed_automation_pr"] == "POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY"
     assert phase["current_automation_track"] == "POST-SCALE-160-FASTUI-SHELL-MVP"
-    assert phase["next_automation_track"] == "POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP"
-    assert phase["completed_phase"] == "stable_runtime_mutation_apply"
+    assert phase["next_automation_track"] == "POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT"
+    assert phase["completed_phase"] == "practical_full_automation_experience"
     assert phase["automation_phase"] == "practical_full_automation_experience"
     assert phase["default_runtime_level"] == "level_4_self_improvement_platform"
     assert phase["max_runtime_level"] == "level_8_fully_autonomous_code_agent"
@@ -77,7 +77,7 @@ def validate() -> None:
         "fully_autonomous_code_agent",
         "self_improving_codeagentpersonal_kasanecore",
         "PR-B is allowed only when",
-        "POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP",
+        "POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT",
     ]:
         assert token in master, token
 

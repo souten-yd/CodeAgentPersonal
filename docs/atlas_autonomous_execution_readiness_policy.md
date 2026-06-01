@@ -17,7 +17,7 @@ Atlas runtime level is profile-dependent: it is resolved from the selected autom
 
 - Completed automation PR: POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY
 - Current automation track: POST-SCALE-160-FASTUI-SHELL-MVP
-- Next automation track: POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP
+- Next automation track: POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT
 - Runtime level model: profile-dependent; effective runtime level is resolved from the selected backend automation profile and envelope.
 - Current level semantics: maximum backend milestone reached, not one always-on active runtime.
 - Default runtime level: level_4_self_improvement_platform
