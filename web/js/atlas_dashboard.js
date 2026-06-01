@@ -469,7 +469,9 @@
     banner.hidden = !shouldShow;
     if (shouldShow && $('atlas-recovery-summary')) {
       const warning = state.recoveryWarning ? ` / warning: ${state.recoveryWarning}` : '';
-      $('atlas-recovery-summary').textContent = `status: ${status} / pool_id: ${recovery.pool_id || '-'} / run_id: ${state.currentRunId || recovery.run_id || '-'} / next: ${recovery.next_action || '-'}${warning}`;
+      const primary = recovery?.metadata?.primary_verification_reason || recovery?.primary_verification_reason || '';
+      const next = primary ? `Verification failed: ${primary}` : (recovery.next_action || '-');
+      $('atlas-recovery-summary').textContent = `status: ${status} / pool_id: ${recovery.pool_id || '-'} / run_id: ${state.currentRunId || recovery.run_id || '-'} / next: ${next}${warning}`;
     }
     const loadBtn = $('atlas-recovery-load-btn');
     const refreshBtn = $('atlas-recovery-refresh-btn');

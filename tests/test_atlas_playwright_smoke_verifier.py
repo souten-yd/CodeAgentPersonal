@@ -106,3 +106,54 @@ def test_animation_html_passes_for_animation_task(tmp_path):
     f.write_text(_ANIM_HTML, encoding='utf-8')
     result = _VFY.verify(f, task_description='animate wave')
     assert result['status'] == 'browser_smoke_passed'
+
+class _FakeCanvasPage:
+    def __init__(self, values):
+        self.values = list(values)
+    def evaluate(self, _script):
+        if len(self.values) > 1:
+            return self.values.pop(0)
+        return self.values[0]
+
+
+def test_canvas_pixel_change_detects_animation_without_style_change():
+    page = _FakeCanvasPage([
+        {"present": True, "samples": [{"pixels": "0,0,0,255", "dataHash": "a"}]},
+        {"present": True, "samples": [{"pixels": "255,0,0,255", "dataHash": "b"}]},
+    ])
+    result = _VFY._check_canvas_changes_over_time(page)
+    assert result["changed"] is True
+
+
+def test_static_canvas_no_frame_changes_reports_not_detected():
+    sample = {"present": True, "samples": [{"pixels": "0,0,0,255", "dataHash": "a"}]}
+    page = _FakeCanvasPage([sample, sample])
+    result = _VFY._check_canvas_changes_over_time(page)
+    assert result["changed"] is False
+    assert result["present"] is True
+
+
+def test_non_module_script_with_exports_diagnoses_module_script_mismatch(tmp_path):
+    (tmp_path / 'js').mkdir()
+    (tmp_path / 'index.html').write_text('<!doctype html><script src="js/GameEngine.js"></script>', encoding='utf-8')
+    (tmp_path / 'js' / 'GameEngine.js').write_text('export class GameEngine {}', encoding='utf-8')
+    diagnostic = _VFY._diagnose_js_wiring(tmp_path / 'index.html', ["SyntaxError: Unexpected token 'export'"])
+    assert diagnostic == 'module_script_mismatch'
+    assert _VFY._js_error_reason(diagnostic) == 'js_error:module_script_mismatch'
+
+
+def test_missing_module_import_target_diagnosed(tmp_path):
+    (tmp_path / 'js').mkdir()
+    (tmp_path / 'index.html').write_text('<!doctype html><script type="module" src="js/GameEngine.js"></script>', encoding='utf-8')
+    (tmp_path / 'js' / 'GameEngine.js').write_text('import { Player } from "./Player.js";\nnew Player();', encoding='utf-8')
+    diagnostic = _VFY._diagnose_js_wiring(tmp_path / 'index.html', ['TypeError: Failed to fetch dynamically imported module'])
+    assert diagnostic == 'missing_import_target'
+
+
+def test_case_sensitive_import_path_mismatch_diagnosed(tmp_path):
+    (tmp_path / 'js').mkdir()
+    (tmp_path / 'index.html').write_text('<!doctype html><script type="module" src="js/GameEngine.js"></script>', encoding='utf-8')
+    (tmp_path / 'js' / 'GameEngine.js').write_text('import { Player } from "./player.js";\nnew Player();', encoding='utf-8')
+    (tmp_path / 'js' / 'Player.js').write_text('export class Player {}', encoding='utf-8')
+    diagnostic = _VFY._diagnose_js_wiring(tmp_path / 'index.html', ['Failed to resolve module specifier'])
+    assert diagnostic == 'case_sensitive_import_path_mismatch'

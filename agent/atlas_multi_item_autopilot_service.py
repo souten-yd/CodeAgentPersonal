@@ -342,7 +342,9 @@ class AtlasMultiItemAutopilotService:
             verify_level = _verify_level_for_item(r)
             verify_note = " (適用のみ・実行検証なし)" if r.status == "applied_no_verification" else ""
             item_warnings = ", ".join(str(w) for w in (r.warnings or [])) or "(none)"
-            lines += [f"- item_id: {r.item_id}", f"  - status: {r.status}{verify_note}", f"  - verify_level: {verify_level}", f"  - reason: {r.reason}", f"  - verification_warnings: {item_warnings}", f"  - context_bundle_id: {r.context_bundle_id}", f"  - evaluator_result_id: {r.evaluator_result_id}", f"  - evaluator_decision.decision: {(r.evaluator_decision or {}).get('decision','')}", f"  - verification_result.status: {(r.verification_result or {}).get('status','')}", f"  - verification_result.recovered_by_bounded_retry: {(r.verification_result or {}).get('recovered_by_bounded_retry', False)}", f"  - safe_apply_result.status: {(r.safe_apply_result or {}).get('status','')}"]
+            browser_smoke = (((r.verification_result or {}).get("metadata") or {}).get("browser_smoke") or {})
+            console_errors = "; ".join(str(e) for e in (browser_smoke.get("console_errors") or [])[:5]) if isinstance(browser_smoke, dict) else ""
+            lines += [f"- item_id: {r.item_id}", f"  - status: {r.status}{verify_note}", f"  - verify_level: {verify_level}", f"  - reason: {r.reason}", f"  - verification_warnings: {item_warnings}", f"  - browser_smoke.console_errors: {console_errors or '(none)'}", f"  - context_bundle_id: {r.context_bundle_id}", f"  - evaluator_result_id: {r.evaluator_result_id}", f"  - evaluator_decision.decision: {(r.evaluator_decision or {}).get('decision','')}", f"  - verification_result.status: {(r.verification_result or {}).get('status','')}", f"  - verification_result.recovered_by_bounded_retry: {(r.verification_result or {}).get('recovered_by_bounded_retry', False)}", f"  - safe_apply_result.status: {(r.safe_apply_result or {}).get('status','')}"]
         rollup = (result.metadata or {}).get("quality_rollup") or {}
         if rollup:
             coverage = rollup.get("requirement_coverage", {})
