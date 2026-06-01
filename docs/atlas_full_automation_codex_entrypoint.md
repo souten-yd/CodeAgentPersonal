@@ -7,9 +7,10 @@ Use this file as the Codex starting point for the A-J practical full automation 
 1. `AGENTS.md` when present.
 2. `docs/atlas_practical_full_automation_experience_plan.md`.
 3. `docs/atlas_pr_e0_clarification_bugfix_plan.md`.
-4. `docs/atlas_scale_master_roadmap.md`.
-5. `docs/atlas_automation_phase_manifest.json`.
-6. `docs/atlas_autonomous_execution_readiness_policy.md`.
+4. `docs/atlas_corrective_pr_split_plan_after_1510.md`.
+5. `docs/atlas_scale_master_roadmap.md`.
+6. `docs/atlas_automation_phase_manifest.json`.
+7. `docs/atlas_autonomous_execution_readiness_policy.md`.
 
 ## Required implementation order
 
@@ -27,6 +28,19 @@ The current implementation order is:
 10. **PR-I** UI and API practical automation experience.
 11. **PR-J** End-to-end acceptance tests.
 
+## Corrective plan after PR #1510
+
+Before continuing broad A-J/full-automation expansion, Codex must follow:
+
+- `docs/atlas_corrective_pr_split_plan_after_1510.md`
+
+That corrective plan folds the latest user feedback and review findings into four small PR tracks:
+
+1. PR-1 / P0: clarification execution safety blocker.
+2. PR-2 / P1: clarification UX and concrete remediation options.
+3. PR-3 / P1: repairable verification failure bounded repair loop.
+4. PR-4 / P0/P1: manifest truthfulness, orchestrator preflight hardening, critical-event continuation scope, and acceptance/safety contract tests.
+
 ## Blocking note
 
 PR-E-0 is blocking before PR-E and PR-F.
@@ -38,6 +52,8 @@ Do not proceed into the clarification-driven plan revision loop or practical aut
 - Same plan card duplicated for the same pool/revision.
 - `visual_contract_failed` shown without actionable missing contract details.
 - Approval/execution possible before clarification answers have caused plan revision and gate rerun.
+- A-J/full automation is over-declared as complete before end-to-end, safety, and acceptance contracts are actually verified.
+- Critical-event approval continuation lacks explicit bounded approved scope checks.
 
 ## Safety invariants
 
