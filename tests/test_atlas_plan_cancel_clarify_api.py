@@ -399,7 +399,16 @@ def test_auto_clarification_records_safe_default_for_noncritical_ambiguity(tmp_p
     body = r.json()
     metadata = body["plan_pool"]["metadata"]
     assert "safe_default_assumption_after_clarification" in metadata
+    assert metadata["safe_default_clarification_mode"] == "auto"
     assert metadata.get("clarification_required") is not True
+    assert metadata["pending_question_count"] == 0
+    assert metadata["answered_question_count"] >= 1
+    assert metadata["clarification_answers"][0]["option_id"] == "safest_recommended"
+    assert metadata["revised_plan_snapshot"]
+    assert metadata["gate_rerun_performed_after_clarification"] is True
+    assert metadata["plan_revision_required_after_clarification"] is False
+    assert metadata["gate_rerun_required_after_clarification"] is False
+    assert _clarification_execution_block_reasons(AtlasPlanPool.model_validate(body["plan_pool"])) == []
 
 
 def test_critical_ambiguity_does_not_use_auto_default(tmp_path: Path):
