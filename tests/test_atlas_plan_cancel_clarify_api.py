@@ -476,3 +476,56 @@ def test_pool_level_critical_decision_api_rejects_to_replanning(tmp_path: Path):
     reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
     assert reloaded.metadata["critical_replanning"]["original_path_blocked"] is True
     assert reloaded.items[0].metadata["created_from_critical_event"] is True
+
+
+def test_pool_level_critical_approval_persists_bounded_scope(tmp_path: Path):
+    event = normalize_critical_event(category="security", affected_files=["agent/security.py"])
+    pool = AtlasPlanPool(
+        pool_id="pool_x",
+        root_goal="Change auth",
+        status="waiting_for_critical_decision",
+        items=[
+            AtlasPlanItem(
+                item_id="i1",
+                pool_id="pool_x",
+                title="Security item",
+                goal="Change auth safely",
+                item_type="implementation",
+                status="waiting_for_critical_decision",
+                risk_level="critical",
+                target_files=["agent/security.py"],
+                metadata={"critical_event": event},
+            )
+        ],
+        metadata={"critical_event": event},
+    )
+    client = _client(tmp_path, pool)
+
+    r = client.post(
+        "/api/atlas/critical-decisions/decide",
+        json={
+            "pool_id": "pool_x",
+            "item_id": POOL_CRITICAL_DECISION_ITEM_ID,
+            "decision": "approved",
+            "reason": "Allow only the reviewed file",
+            "metadata": {
+                "approved_files": ["agent/security.py"],
+                "approved_item_ids": ["i1"],
+                "approved_capabilities": ["security"],
+            },
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
+    decision = reloaded.metadata["critical_decision"]
+    assert decision["decision"] == "approved"
+    assert decision["approved_files"] == ["agent/security.py"]
+    assert decision["approved_scope"] == ["agent/security.py"]
+    assert decision["approved_paths"] == ["agent/security.py"]
+    assert decision["approved_item_ids"] == ["i1"]
+    assert decision["approved_capabilities"] == ["security"]
+    assert decision["bounded_continuation"] is True
+    approval_metadata = r.json()["approval_record"]["metadata"]
+    assert approval_metadata["approved_files"] == ["agent/security.py"]
+    assert approval_metadata["approved_item_ids"] == ["i1"]

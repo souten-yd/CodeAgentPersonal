@@ -169,6 +169,26 @@ class AtlasApprovalService:
             pool.status = "approval_required"
             normalized_decision = "edit_scope_requested"
 
+        approved_files = self._approved_files_for_pool_critical(critical_event, metadata)
+        approved_item_ids = [
+            str(item_id)
+            for item_id in (
+                (metadata or {}).get("approved_item_ids")
+                or (metadata or {}).get("approved_items")
+                or []
+            )
+            if str(item_id).strip()
+        ]
+        approved_capabilities = [
+            str(capability)
+            for capability in (
+                (metadata or {}).get("approved_capabilities")
+                or critical_event.get("affected_capabilities")
+                or []
+            )
+            if str(capability).strip()
+        ]
+        bounded_continuation = normalized_decision == "approved"
         pool.metadata["critical_decision"] = {
             "scope": "pool",
             "decision": normalized_decision,
@@ -177,6 +197,13 @@ class AtlasApprovalService:
             "approval_id": record.approval_id,
             "critical_event": critical_event,
             "original_path_blocked": normalized_decision == "rejected_ng_safer_replan",
+            "approved_scope": approved_files if bounded_continuation else [],
+            "approved_files": approved_files if bounded_continuation else [],
+            "approved_paths": approved_files if bounded_continuation else [],
+            "approved_item_ids": approved_item_ids if bounded_continuation else [],
+            "approved_capabilities": approved_capabilities if bounded_continuation else [],
+            "bounded_continuation": bounded_continuation,
+            "one_action_only": not bounded_continuation,
             "next_required_user_action": self._pool_next_action(normalized_decision),
         }
         payload = record.model_dump()
@@ -188,6 +215,13 @@ class AtlasApprovalService:
             "decision": normalized_decision,
             "critical_event": critical_event,
             "critical_replanning": pool.metadata.get("critical_replanning") or {},
+            "approved_scope": pool.metadata["critical_decision"]["approved_scope"],
+            "approved_files": pool.metadata["critical_decision"]["approved_files"],
+            "approved_paths": pool.metadata["critical_decision"]["approved_paths"],
+            "approved_item_ids": pool.metadata["critical_decision"]["approved_item_ids"],
+            "approved_capabilities": pool.metadata["critical_decision"]["approved_capabilities"],
+            "bounded_continuation": pool.metadata["critical_decision"]["bounded_continuation"],
+            "one_action_only": pool.metadata["critical_decision"]["one_action_only"],
             "next_required_user_action": pool.metadata["critical_decision"]["next_required_user_action"],
         }
         self._save_record(
@@ -363,6 +397,22 @@ class AtlasApprovalService:
                 "next_required_user_action": "Decide pool-level critical event before continuing.",
             },
         }
+
+    @staticmethod
+    def _approved_files_for_pool_critical(critical_event: dict, metadata: dict) -> list[str]:
+        raw = (
+            (metadata or {}).get("approved_files")
+            or (metadata or {}).get("approved_scope")
+            or (metadata or {}).get("approved_paths")
+            or critical_event.get("affected_files")
+            or []
+        )
+        out: list[str] = []
+        for path in raw:
+            text = str(path or "").replace("\\", "/")
+            if text and text not in out:
+                out.append(text)
+        return out
 
     @staticmethod
     def _pool_next_action(decision: str) -> str:

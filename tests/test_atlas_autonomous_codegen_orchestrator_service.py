@@ -333,6 +333,72 @@ def test_allowed_verification_commands_are_blocked_until_supported(tmp_path: Pat
     assert autopilot.last_request is None
 
 
+def test_critical_approval_scope_blocks_unapproved_continuation_files(tmp_path: Path) -> None:
+    item = _item("i1")
+    item.target_files = ["src/unapproved.py"]
+    pool = _pool(
+        [item],
+        metadata={
+            "critical_event": {"critical_event": True, "category": "security", "affected_files": ["src/approved.py"]},
+            "critical_decision": {
+                "scope": "pool",
+                "decision": "approved",
+                "approved_files": ["src/approved.py"],
+                "approved_scope": ["src/approved.py"],
+                "approved_item_ids": ["i1"],
+                "bounded_continuation": True,
+            },
+        },
+    )
+    svc, _storage, proposal, autopilot = _orchestrator(tmp_path, pool)
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+        )
+    )
+
+    assert out.status == "stopped"
+    assert out.stop_reason == "critical_approval_scope_mismatch"
+    assert out.metadata["preflight"]["critical_scope"]["unapproved_files"] == ["src/unapproved.py"]
+    assert proposal.calls == []
+    assert autopilot.last_request is None
+
+
+def test_critical_approval_scope_allows_approved_item_and_files(tmp_path: Path) -> None:
+    item = _item("i1")
+    item.target_files = ["src/approved.py"]
+    pool = _pool(
+        [item],
+        metadata={
+            "critical_event": {"critical_event": True, "category": "security", "affected_files": ["src/approved.py"]},
+            "critical_decision": {
+                "scope": "pool",
+                "decision": "approved",
+                "approved_files": ["src/approved.py"],
+                "approved_scope": ["src/approved.py"],
+                "approved_item_ids": ["i1"],
+                "bounded_continuation": True,
+            },
+        },
+    )
+    svc, _storage, _proposal, autopilot = _orchestrator(tmp_path, pool)
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+        )
+    )
+
+    assert out.status == "completed"
+    assert out.metadata["preflight"]["critical_scope"]["status"] == "approved_scope_valid"
+    assert autopilot.last_request is not None
+
+
 def test_unknown_profile_falls_back_safely_without_running(tmp_path: Path) -> None:
     svc, _storage, proposal, autopilot = _orchestrator(tmp_path, _pool([_item("i1")]))
 
