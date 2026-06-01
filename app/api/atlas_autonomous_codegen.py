@@ -76,14 +76,78 @@ def read_result(pool_id: str, orchestrator_run_id: str, request: Request):
 @router.get("/status/{pool_id}/{orchestrator_run_id}")
 def read_status(pool_id: str, orchestrator_run_id: str, request: Request):
     payload = read_result(pool_id, orchestrator_run_id, request)
+    return _normalized_status(payload)
+
+
+def _normalized_status(payload: dict) -> dict:
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    preflight = metadata.get("preflight") if isinstance(metadata.get("preflight"), dict) else {}
+    autopilot = payload.get("autopilot_result") if isinstance(payload.get("autopilot_result"), dict) else {}
+    workspace_evidence = metadata.get("workspace_evidence") if isinstance(metadata.get("workspace_evidence"), dict) else {}
+    recovery_evidence = metadata.get("recovery_evidence") if isinstance(metadata.get("recovery_evidence"), dict) else {}
+    draft_pr_readiness = metadata.get("draft_pr_readiness") if isinstance(metadata.get("draft_pr_readiness"), dict) else {}
+    draft_pr_artifact = metadata.get("draft_pr_artifact") if isinstance(metadata.get("draft_pr_artifact"), dict) else {}
+    phase = str(payload.get("phase") or "")
+    status = str(payload.get("status") or "")
+    stop_reason = str(payload.get("stop_reason") or "")
+    changed_files = list(metadata.get("changed_files") or [])
+    item_results = list(autopilot.get("item_results") or [])
+    warnings = _unique(
+        list(payload.get("warnings") or [])
+        + list(preflight.get("warnings") or [])
+        + list(workspace_evidence.get("warnings") or [])
+        + list(recovery_evidence.get("warnings") or [])
+    )
+    decision_targets = _decision_targets(phase=phase, status=status, stop_reason=stop_reason, metadata=metadata)
+    next_action = _next_action(payload)
     return {
         "pool_id": payload.get("pool_id", ""),
         "run_id": payload.get("run_id", ""),
         "orchestrator_run_id": payload.get("orchestrator_run_id", ""),
-        "status": payload.get("status", ""),
-        "current_phase": payload.get("phase", ""),
-        "next_action": _next_action(payload),
-        "summary": payload,
+        "status": status,
+        "automation_state": _automation_state(status),
+        "current_phase": phase,
+        "next_action": next_action,
+        "active_profile": {
+            "profile": preflight.get("normalized_profile", "review_only"),
+            "preset": metadata.get("selected_preset", ""),
+            "envelope_id": preflight.get("envelope_id", ""),
+            "runtime_level": _runtime_level(str(preflight.get("normalized_profile") or "review_only")),
+        },
+        "requirement_summary": payload.get("user_requirement", "") or metadata.get("user_requirement", ""),
+        "plan_summary": {
+            "processed_count": autopilot.get("processed_count", metadata.get("processed_count", 0)),
+            "completed_count": autopilot.get("completed_count", metadata.get("completed_count", 0)),
+            "failed_count": autopilot.get("failed_count", metadata.get("failed_count", 0)),
+            "blocked_count": autopilot.get("blocked_count", metadata.get("blocked_count", 0)),
+        },
+        "decision_targets": decision_targets,
+        "evidence_summary": {
+            "changed_files": changed_files,
+            "verification": _verification_summary(item_results),
+            "repair_attempts": _repair_summary(item_results),
+            "final_summary": {
+                "status": status,
+                "stop_reason": stop_reason,
+                "draft_pr_ready": bool(draft_pr_readiness.get("ready")),
+            },
+            "draft_pr": {
+                "ready": bool(draft_pr_readiness.get("ready")),
+                "artifact_path": draft_pr_readiness.get("artifact_path") or draft_pr_artifact.get("artifact_path", ""),
+                "body_path": draft_pr_readiness.get("body_path") or draft_pr_artifact.get("body_path", ""),
+                "draft_pr_url": draft_pr_readiness.get("draft_pr_url", ""),
+            },
+            "workspace": workspace_evidence,
+            "recovery": {
+                "status": ((recovery_evidence.get("summary") or {}) if isinstance(recovery_evidence.get("summary"), dict) else {}).get("status", ""),
+                "restore_executed": bool(recovery_evidence.get("restore_executed")),
+                "rollback_executed": bool(recovery_evidence.get("rollback_executed")),
+                "recovery_execution_performed": bool(recovery_evidence.get("recovery_execution_performed")),
+            },
+        },
+        "user_visible_warnings": warnings,
+        "controls": _controls(status=status, phase=phase, decision_targets=decision_targets),
+        "raw_json_included": False,
     }
 
 
@@ -136,3 +200,94 @@ def _next_action(payload: dict) -> str:
     if status in {"completed", "partial"}:
         return "Review final summary and prepare draft PR artifact when allowed."
     return "Poll status or inspect the autonomous code-generation result."
+
+
+def _automation_state(status: str) -> str:
+    if status in {"completed", "partial"}:
+        return "completed"
+    if status in {"stopped", "failed", "needs_revision", "no_items"}:
+        return "stopped"
+    if status in {"blocked_safety_review"}:
+        return "blocked"
+    return "active"
+
+
+def _runtime_level(profile: str) -> str:
+    return {
+        "review_only": "level_0_manual_only",
+        "guarded_single_action": "level_1_guarded_execution",
+        "supervised_bounded_auto": "level_4_self_improvement_platform",
+        "autonomous_dev_agent": "level_8_fully_autonomous_code_agent",
+    }.get(profile, "level_0_manual_only")
+
+
+def _decision_targets(*, phase: str, status: str, stop_reason: str, metadata: dict) -> dict:
+    clarification_visible = phase == "needs_scope_confirmation" or "clarification" in stop_reason
+    critical_visible = phase == "waiting_for_critical_decision" or "critical" in stop_reason
+    lower_impact_visible = phase == "replanning_lower_impact" or bool(metadata.get("critical_replanning"))
+    return {
+        "clarification": {
+            "visible": clarification_visible,
+            "required": clarification_visible,
+            "action": "answer_clarification" if clarification_visible else "",
+        },
+        "critical_event": {
+            "visible": critical_visible,
+            "required": critical_visible,
+            "actions": ["approve_critical_event", "reject_and_request_safer_alternative"] if critical_visible else [],
+        },
+        "lower_impact_replanning": {
+            "visible": lower_impact_visible,
+            "required": lower_impact_visible and status == "blocked_safety_review",
+        },
+    }
+
+
+def _controls(*, status: str, phase: str, decision_targets: dict) -> dict:
+    blocked_for_decision = bool(
+        (decision_targets.get("clarification") or {}).get("required")
+        or (decision_targets.get("critical_event") or {}).get("required")
+    )
+    return {
+        "can_start": status in {"", "stopped", "failed", "needs_revision", "no_items"},
+        "can_stop": status in {"running"} or phase not in {"final_summary", "completed"},
+        "can_cancel": status not in {"completed", "partial"},
+        "can_answer_clarification": bool((decision_targets.get("clarification") or {}).get("required")),
+        "can_approve_critical_event": bool((decision_targets.get("critical_event") or {}).get("required")),
+        "can_reject_critical_event": bool((decision_targets.get("critical_event") or {}).get("required")),
+        "can_edit_scope": status in {"blocked_safety_review", "needs_revision"} or blocked_for_decision,
+        "can_continue": not blocked_for_decision and status in {"stopped", "blocked_safety_review", "needs_revision"},
+        "execute_apply_visible": False,
+    }
+
+
+def _verification_summary(item_results: list) -> dict:
+    statuses: dict[str, int] = {}
+    for item in item_results:
+        verification = item.get("verification_result") if isinstance(item, dict) else {}
+        status = str((verification or {}).get("status") or "not_recorded")
+        statuses[status] = statuses.get(status, 0) + 1
+    return {"statuses": statuses, "visible": bool(item_results)}
+
+
+def _repair_summary(item_results: list) -> list[dict]:
+    repairs: list[dict] = []
+    for item in item_results:
+        if not isinstance(item, dict):
+            continue
+        md = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        for key in ("bounded_retry_result", "self_correction_result"):
+            if md.get(key):
+                repairs.append({"item_id": item.get("item_id", ""), "kind": key, "status": (md.get(key) or {}).get("status", "")})
+    return repairs
+
+
+def _unique(values: list) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        text = str(value)
+        if text and text not in seen:
+            seen.add(text)
+            out.append(text)
+    return out

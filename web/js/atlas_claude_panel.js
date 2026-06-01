@@ -179,6 +179,19 @@
         }
       }
     } catch (_err) { /* no prior run to restore */ }
+    await restoreLatestAutonomousRun(poolId);
+  }
+
+  async function restoreLatestAutonomousRun(poolId) {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getLatestAutonomousCodegen || !root.AtlasPipelineAPI.getAutonomousCodegenStatus) return;
+    try {
+      const latest = await root.AtlasPipelineAPI.getLatestAutonomousCodegen(poolId);
+      if (!latest || !latest.ok || !latest.data || !latest.data.orchestrator_run_id) return;
+      const status = await root.AtlasPipelineAPI.getAutonomousCodegenStatus(poolId, latest.data.orchestrator_run_id);
+      if (status && status.ok && status.data) {
+        renderAutonomousWorkflowState(status.data);
+      }
+    } catch (_err) { /* no autonomous codegen result to restore */ }
   }
 
   function init() {
@@ -1252,6 +1265,95 @@
       && item.verification_result.metadata.browser_smoke.console_errors;
     const errors = stopMeta.console_errors || direct || nested || [];
     return Array.isArray(errors) ? errors.map((e) => String(e)).filter(Boolean) : [];
+  }
+
+  function renderAutonomousWorkflowState(view) {
+    if (!dom.transcript || !view) return;
+    const poolId = view.pool_id || '';
+    const block = appendStageBlock(poolId || 'autonomous');
+    if (!block) return;
+    const phase = String(view.current_phase || 'idle');
+    ['plan', 'patch', 'approve', 'apply', 'verify'].forEach((stage) => updateStage(block, stage, 'pending', ''));
+    if (phase === 'needs_scope_confirmation') updateStage(block, 'plan', 'failed', 'clarification required');
+    else if (phase === 'waiting_for_critical_decision') updateStage(block, 'plan', 'failed', 'critical decision required');
+    else if (phase === 'replanning_lower_impact') updateStage(block, 'plan', 'running', 'lower-impact replanning');
+    else if (phase === 'candidate_generation') updateStage(block, 'patch', 'running', '');
+    else if (phase === 'candidate_apply') updateStage(block, 'apply', 'running', '');
+    else if (phase === 'verification') updateStage(block, 'verify', 'running', '');
+    else if (phase === 'final_summary') updateStage(block, 'summary', 'done', view.status || '');
+    renderAutonomousWorkflowSummary(block, view);
+  }
+
+  function renderAutonomousWorkflowSummary(block, view) {
+    const summary = block && block.querySelector('.atlas-claude-summary-block');
+    if (!summary) return;
+    summary.innerHTML = '';
+    const profile = view.active_profile || {};
+    const evidence = view.evidence_summary || {};
+    const plan = view.plan_summary || {};
+    const decisions = view.decision_targets || {};
+    const controls = view.controls || {};
+    const rows = [
+      `state: ${view.automation_state || view.status || '-'}`,
+      `phase: ${view.current_phase || '-'}`,
+      `profile: ${profile.profile || 'review_only'} / ${profile.envelope_id || 'none'} / ${profile.runtime_level || '-'}`,
+      `plan: processed ${plan.processed_count || 0}, completed ${plan.completed_count || 0}, failed ${plan.failed_count || 0}`,
+      `next: ${view.next_action || '-'}`,
+    ];
+    rows.forEach((text) => {
+      const div = document.createElement('div');
+      div.className = 'atlas-claude-stage-detail';
+      div.textContent = text;
+      summary.appendChild(div);
+    });
+    renderAutonomousList(summary, 'Changed files', evidence.changed_files || []);
+    const verification = evidence.verification && evidence.verification.statuses ? evidence.verification.statuses : {};
+    renderAutonomousList(summary, 'Verification', Object.keys(verification).map((key) => `${key}: ${verification[key]}`));
+    renderAutonomousList(summary, 'Repair attempts', (evidence.repair_attempts || []).map((r) => `${r.item_id}: ${r.kind} ${r.status || ''}`));
+    renderAutonomousList(summary, 'User-visible warnings', view.user_visible_warnings || []);
+    if (decisions.clarification && decisions.clarification.visible) {
+      appendAutonomousDecision(summary, 'Clarification required', controls.can_answer_clarification);
+    }
+    if (decisions.critical_event && decisions.critical_event.visible) {
+      appendAutonomousDecision(summary, 'Critical event decision required', controls.can_approve_critical_event || controls.can_reject_critical_event);
+    }
+    if (decisions.lower_impact_replanning && decisions.lower_impact_replanning.visible) {
+      appendAutonomousDecision(summary, 'Lower-impact replanning visible', controls.can_continue);
+    }
+    const draft = evidence.draft_pr || {};
+    if (draft.ready || draft.artifact_path || draft.body_path || draft.draft_pr_url) {
+      renderAutonomousList(summary, 'Draft PR artifact', [
+        draft.draft_pr_url ? `url: ${draft.draft_pr_url}` : '',
+        draft.artifact_path ? `artifact: ${draft.artifact_path}` : '',
+        draft.body_path ? `body: ${draft.body_path}` : '',
+      ]);
+    }
+  }
+
+  function renderAutonomousList(parent, title, values) {
+    const cleaned = (values || []).map((v) => String(v || '')).filter(Boolean);
+    if (!cleaned.length) return;
+    const box = document.createElement('div');
+    box.className = 'atlas-claude-summary-recovery';
+    const head = document.createElement('div');
+    head.className = 'atlas-claude-summary-head';
+    head.textContent = title;
+    box.appendChild(head);
+    const ul = document.createElement('ul');
+    cleaned.slice(0, 12).forEach((value) => {
+      const li = document.createElement('li');
+      li.textContent = value;
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+    parent.appendChild(box);
+  }
+
+  function appendAutonomousDecision(parent, label, enabled) {
+    const row = document.createElement('div');
+    row.className = 'atlas-claude-summary-pr-hint';
+    row.textContent = `${label}: ${enabled ? 'backend action available' : 'backend action blocked'}`;
+    parent.appendChild(row);
   }
 
   function visualFailureDetails(item) {
