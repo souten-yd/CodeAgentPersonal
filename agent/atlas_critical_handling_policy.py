@@ -27,6 +27,8 @@ constants in ``app.atlas.automation_safety_profile`` and
 
 from __future__ import annotations
 
+from agent.atlas_automation_profile_resolver import normalize_automation_profile
+
 _VALID_HANDLING = {"auto", "ask", "block"}
 
 # Conservative-by-default, keyed by automation safety profile. The autonomous dev
@@ -97,12 +99,17 @@ def resolve_default_critical_handling(
         _ = (strict_gate_approved, envelope_active)
         return "ask"
 
-    preset_key = str(preset_id or "").strip().lower()
-    if preset_key in CRITICAL_HANDLING_BY_PRESET:
-        return CRITICAL_HANDLING_BY_PRESET[preset_key]
+    if not any(str(value or "").strip() for value in (preset_id, profile, envelope_id)):
+        return "ask"
 
-    profile_key = str(profile or "").strip().lower()
-    if profile_key in CRITICAL_HANDLING_BY_PROFILE:
-        return CRITICAL_HANDLING_BY_PROFILE[profile_key]
-
-    return "ask"
+    resolved = normalize_automation_profile(
+        profile=profile,
+        preset_id=preset_id,
+        envelope_id=envelope_id,
+        envelope_active=envelope_active,
+        self_improvement=self_improvement,
+        strict_gate_approved=strict_gate_approved,
+    )
+    if any("unknown_" in str(reason) for reason in resolved.get("blocking_reasons") or []):
+        return "ask"
+    return str(resolved.get("critical_handling_default") or "ask")
