@@ -15,14 +15,20 @@ Atlas runtime level is profile-dependent: it is resolved from the selected autom
 
 ## Current execution boundary
 
-- Completed automation PR: PR-ATLAS-SCALE-152
-- Current automation track: PR-ATLAS-SCALE-153
-- Next automation track: PR-ATLAS-SCALE-153
-- Current level: Level 4 self-improvement platform checkpoint
-- Target level: Level 4 self-improvement platform checkpoint
-- Next level advancement checkpoint: PR-ATLAS-SCALE-157
+- Completed automation PR: POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY
+- Current automation track: POST-SCALE-160-FASTUI-SHELL-MVP
+- Next automation track: POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP
+- Runtime level model: profile-dependent; effective runtime level is resolved from the selected backend automation profile and envelope.
+- Current level semantics: maximum backend milestone reached, not one always-on active runtime.
+- Default runtime level: level_4_self_improvement_platform
+- Max runtime level: level_8_fully_autonomous_code_agent
+- Next level advancement checkpoint: POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT
 - Final goal: fully autonomous code agent
 - Self-improvement goal: self-improving CodeAgentPersonal / KasaneCore platform
+
+The current active boundary is the manifest state above. Profile selection alone never starts an autonomous loop. Bounded autonomous execution requires an active pre-authorized envelope and still preserves direct-merge, remote-push, self-apply, stable-runtime-mutation, Vue-authority, and arbitrary-unbounded-command prohibitions.
+
+## Historical baseline after PR-ATLAS-SCALE-152
 
 PR-ATLAS-SCALE-152 adds a buildless conversational Atlas shell model. It can turn the SCALE-151 contract into backend-owned display/supervision regions for transcript, goal input, current phase, next action, safety profile, work target selector, changed files, verification, recovery, and one primary CTA.
 
@@ -34,7 +40,7 @@ Self-improvement candidate apply, boot probe execution, verification execution, 
 
 ## Contract Phrase Lock
 
-This policy does not enable unbounded autonomous execution. Current Atlas state is Level 4 self-improvement platform checkpoint with proposal-only self-improvement metadata, classification-only self-modification risk metadata, preview-only self-improvement patch metadata, verification-plan-only self-improvement dry-run metadata, manually approved one-action self-improvement patch apply, manually approved injected-client self-improvement draft PR creation, checkpoint-only Level-4 authorization, backend-owned automation safety profile metadata, external recovery supervisor metadata, candidate workspace plan metadata, boot self-diagnosis checkpoint metadata, buildless conversational shell contract metadata, and buildless conversational shell model metadata. Future PRs must explicitly move levels or execution authority.
+This policy does not enable unbounded autonomous execution. The historical SCALE-152 baseline was a Level 4 self-improvement platform checkpoint with proposal-only self-improvement metadata, classification-only self-modification risk metadata, preview-only self-improvement patch metadata, verification-plan-only self-improvement dry-run metadata, manually approved one-action self-improvement patch apply, manually approved injected-client self-improvement draft PR creation, checkpoint-only Level-4 authorization, backend-owned automation safety profile metadata, external recovery supervisor metadata, candidate workspace plan metadata, boot self-diagnosis checkpoint metadata, buildless conversational shell contract metadata, and buildless conversational shell model metadata. The current runtime model is profile-dependent and envelope-bounded; future PRs must explicitly move execution authority.
 
 - Backend workflow state is authoritative.
 - ThinUI remains supervision layer.
@@ -81,6 +87,23 @@ This policy does not enable unbounded autonomous execution. Current Atlas state 
 - Execute-all remains forbidden.
 
 ## Non-Negotiable Safety Invariants
+
+Current active invariants:
+
+- backend workflow state is authoritative
+- ThinUI remains supervision/display only
+- direct merge remains disabled
+- remote git push remains disabled
+- self-apply remains disabled
+- stable runtime mutation remains disabled unless a separate strict gate explicitly records evidence; the current practical track does not perform it
+- Vue authority remains disabled
+- arbitrary unbounded command execution remains disabled
+- verification results must not be fabricated
+- critical events always require user judgment, including full_auto/autonomous modes
+- profile selection alone never starts an autonomous loop
+- active envelopes remain bounded by max actions, max retries, max runtime, max files, max risk, allowed paths, blocked paths, and allowlisted commands
+
+## Historical Non-Negotiable Safety Invariants After PR-ATLAS-SCALE-152
 
 After PR-ATLAS-SCALE-152:
 

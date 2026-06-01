@@ -4,6 +4,8 @@
 
 This is the latest practical Atlas plan. It supersedes the previous post-SCALE-160
 practical automation plan and restructures the work from PR-A onward.
+The manifest places this plan after `POST-SCALE-160-FASTUI-SHELL-MVP` and before
+the practical autonomous development loop.
 
 The central missing loop is now explicit:
 
