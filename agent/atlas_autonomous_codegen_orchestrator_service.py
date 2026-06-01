@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from typing import Any
 from uuid import uuid4
 
 from app.atlas.candidate_workspace_manager import load_candidate_workspace_plan
+from app.atlas.draft_pr_creation import DraftPullRequestClient
 from agent.atlas_autonomous_codegen_orchestrator_schema import (
     AtlasAutonomousCodegenProposalResult,
     AtlasAutonomousCodegenRequest,
@@ -38,12 +40,13 @@ class AtlasAutonomousCodegenOrchestratorService:
     gate (Phase 1 stop) plus the pre-apply snapshot/rollback inside the multi-item engine.
     """
 
-    def __init__(self, *, storage, journal, patch_proposal_service, multi_item_autopilot_service, data_root=None):
+    def __init__(self, *, storage, journal, patch_proposal_service, multi_item_autopilot_service, data_root=None, draft_pr_client: DraftPullRequestClient | None = None):
         self.storage = storage
         self.journal = journal
         self.patch_proposal_service = patch_proposal_service
         self.multi_item_autopilot_service = multi_item_autopilot_service
         self.data_root = Path(data_root or getattr(journal, "root_dir", "ca_data"))
+        self.draft_pr_client = draft_pr_client
 
     def run(self, request: AtlasAutonomousCodegenRequest) -> AtlasAutonomousCodegenResult:
         run_id = request.run_id or f"autocodegen_{uuid4().hex[:10]}"
@@ -189,6 +192,25 @@ class AtlasAutonomousCodegenOrchestratorService:
                 },
             }
         )
+        draft_pr_artifact = self._prepare_draft_pr_artifact(
+            result=out,
+            request=request,
+            pool=self.storage.load_pool(request.pool_id),
+            autopilot=autopilot,
+        )
+        out.metadata["draft_pr_artifact"] = draft_pr_artifact
+        out.metadata["draft_pr_readiness"] = {
+            **(out.metadata.get("draft_pr_readiness") or {}),
+            "ready": bool(draft_pr_artifact.get("ready")),
+            "artifact_path": str(draft_pr_artifact.get("artifact_path") or ""),
+            "body_path": str(draft_pr_artifact.get("body_path") or ""),
+            "draft_pr_created": bool((draft_pr_artifact.get("creation_result") or {}).get("draft_pr_created")),
+            "draft_pr_url": str((draft_pr_artifact.get("creation_result") or {}).get("draft_pr_url") or ""),
+            "direct_merge_enabled": False,
+            "remote_git_push_enabled": False,
+            "self_apply_enabled": False,
+            "stable_runtime_mutation_enabled": False,
+        }
         self._emit("autonomous_codegen_completed", request.pool_id, run_id, orchestrator_run_id, status=out.status)
         self.save_result(out)
         return out
@@ -418,6 +440,243 @@ class AtlasAutonomousCodegenOrchestratorService:
             "recovery_execution_performed": False,
             "warnings": sorted(set(warnings)),
         }
+
+    def _prepare_draft_pr_artifact(
+        self,
+        *,
+        result: AtlasAutonomousCodegenResult,
+        request: AtlasAutonomousCodegenRequest,
+        pool: AtlasPlanPool,
+        autopilot,
+    ) -> dict[str, Any]:
+        success = result.status in {"completed", "partial"}
+        changed_files = self._changed_files_from_autopilot(autopilot)
+        metadata = request.metadata or {}
+        title = str(metadata.get("draft_pr_title") or f"Atlas autonomous update: {pool.root_goal[:80]}").strip()
+        base_ref = str(metadata.get("base_ref") or "main").strip() or "main"
+        head_branch = str(metadata.get("head_branch") or "codex/atlas-autonomous-update").strip()
+        body = self._build_draft_pr_body(
+            result=result,
+            pool=pool,
+            changed_files=changed_files,
+            autopilot=autopilot,
+        )
+        artifact_id = f"draftpr_artifact_{uuid4().hex[:10]}"
+        root = self.data_root / "atlas" / "autonomous_codegen" / result.pool_id / result.orchestrator_run_id
+        artifact_path = root / "draft_pr_artifact.json"
+        body_path = root / "draft_pr_body.md"
+        creation_allowed = bool(metadata.get("allow_draft_pr_creation") or (request.envelope or {}).get("allow_draft_pr_creation"))
+        creation_result: dict[str, Any] = {
+            "attempted": False,
+            "allowed": creation_allowed,
+            "status": "not_requested" if not creation_allowed else "blocked",
+            "blocked_reasons": [] if not creation_allowed else ["draft_pr_client_required"],
+            "draft_pr_created": False,
+            "draft_pr_updated": False,
+            "direct_merge_performed": False,
+            "remote_git_push_performed": False,
+        }
+        if success and creation_allowed and self.draft_pr_client is not None:
+            creation_result = self._create_draft_pr_with_injected_client(
+                base_ref=base_ref,
+                head_branch=head_branch,
+                title=title,
+                body=body,
+            )
+        elif not success:
+            creation_result = {
+                **creation_result,
+                "status": "not_ready",
+                "blocked_reasons": ["autonomous_run_not_successful"],
+            }
+
+        artifact = {
+            "schema_version": "atlas.autonomous_codegen_draft_pr_artifact.v1",
+            "artifact_id": artifact_id,
+            "status": "ready" if success else "not_ready",
+            "ready": success,
+            "pool_id": result.pool_id,
+            "run_id": result.run_id,
+            "orchestrator_run_id": result.orchestrator_run_id,
+            "autopilot_run_id": str((result.metadata or {}).get("autopilot_run_id") or ""),
+            "title": title,
+            "base_ref": base_ref,
+            "head_branch": head_branch,
+            "changed_files": changed_files,
+            "body": body,
+            "body_path": str(body_path),
+            "artifact_path": str(artifact_path),
+            "branch_instructions": [
+                f"Review local branch {head_branch}.",
+                f"Open a draft PR from {head_branch} into {base_ref} with the generated body.",
+            ],
+            "safety": {
+                "injected_client_only": True,
+                "direct_merge_enabled": False,
+                "direct_merge_performed": False,
+                "remote_git_push_enabled": False,
+                "remote_git_push_performed": False,
+                "runtime_auto_merge_enabled": False,
+                "self_apply_enabled": False,
+                "stable_runtime_mutation_enabled": False,
+            },
+            "creation_result": creation_result,
+        }
+        root.mkdir(parents=True, exist_ok=True)
+        body_path.write_text(body, encoding="utf-8")
+        artifact_path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {
+            key: artifact[key]
+            for key in (
+                "schema_version",
+                "artifact_id",
+                "status",
+                "ready",
+                "artifact_path",
+                "body_path",
+                "changed_files",
+                "safety",
+                "creation_result",
+            )
+        }
+
+    def _create_draft_pr_with_injected_client(
+        self,
+        *,
+        base_ref: str,
+        head_branch: str,
+        title: str,
+        body: str,
+    ) -> dict[str, Any]:
+        assert self.draft_pr_client is not None
+        base = {
+            "attempted": True,
+            "allowed": True,
+            "draft_pr_created": False,
+            "draft_pr_updated": False,
+            "direct_merge_performed": False,
+            "remote_git_push_performed": False,
+        }
+        try:
+            response = self.draft_pr_client.create_draft_pull_request(
+                base_ref=base_ref,
+                head_branch=head_branch,
+                title=title,
+                body=body,
+            )
+        except Exception as exc:
+            return {**base, "status": "blocked", "blocked_reasons": [f"draft_pr_client_error:{type(exc).__name__}"]}
+        blocked: list[str] = []
+        if not response.get("number"):
+            blocked.append("draft_pr_number_required")
+        if not (response.get("html_url") or response.get("url")):
+            blocked.append("draft_pr_url_required")
+        if response.get("draft") is not True:
+            blocked.append("draft_pr_must_be_draft")
+        if blocked:
+            return {**base, "status": "blocked", "blocked_reasons": blocked}
+        return {
+            **base,
+            "status": "created",
+            "blocked_reasons": [],
+            "draft_pr_created": True,
+            "draft_pr_number": response.get("number"),
+            "draft_pr_url": response.get("html_url") or response.get("url"),
+            "draft_pr_api_url": response.get("url") or "",
+            "draft": True,
+        }
+
+    def _build_draft_pr_body(self, *, result: AtlasAutonomousCodegenResult, pool: AtlasPlanPool, changed_files: list[str], autopilot) -> str:
+        metadata = pool.metadata or {}
+        return "\n".join(
+            [
+                "## Summary",
+                f"- Autonomous Atlas run status: {result.status}.",
+                f"- Goal: {pool.root_goal}",
+                "",
+                "## Scope",
+                f"- Pool: {pool.pool_id}",
+                f"- Processed items: {getattr(autopilot, 'processed_count', 0)}",
+                f"- Completed items: {getattr(autopilot, 'completed_count', 0)}",
+                f"- Failed items: {getattr(autopilot, 'failed_count', 0)}",
+                "",
+                "## Safety constraints",
+                "- backend workflow_state authoritative",
+                "- UI supervision/display only",
+                "- no direct merge",
+                "- no remote git push",
+                "- no self-apply",
+                "- no stable runtime mutation",
+                "",
+                "## Changed files",
+                self._markdown_list(changed_files),
+                "",
+                "## Tests / verification",
+                self._markdown_list(self._verification_evidence(autopilot)),
+                "",
+                "## Clarification decisions",
+                self._markdown_list(self._metadata_lines(metadata, "clarification_answers", "clarifications")),
+                "",
+                "## Critical events / user decisions",
+                self._markdown_list(self._metadata_lines(metadata, "critical_decisions", "critical_events", "user_decisions")),
+                "",
+                "## Repair attempts",
+                self._markdown_list(self._repair_attempts(autopilot)),
+                "",
+                "## Remaining risks",
+                self._markdown_list(list(result.warnings or []) + list(result.errors or [])),
+                "",
+                "## Rollback notes",
+                self._markdown_list(self._rollback_notes(pool)),
+            ]
+        )
+
+    @staticmethod
+    def _verification_evidence(autopilot) -> list[str]:
+        lines: list[str] = []
+        for item in getattr(autopilot, "item_results", []) or []:
+            verification = getattr(item, "verification_result", None) or {}
+            if isinstance(verification, dict) and verification:
+                lines.append(f"{getattr(item, 'item_id', '')}: {verification.get('status', 'unknown')}")
+        return lines
+
+    @staticmethod
+    def _repair_attempts(autopilot) -> list[str]:
+        lines: list[str] = []
+        for item in getattr(autopilot, "item_results", []) or []:
+            metadata = getattr(item, "metadata", {}) or {}
+            for key in ("bounded_retry_result", "self_correction_result"):
+                if metadata.get(key):
+                    lines.append(f"{getattr(item, 'item_id', '')}: {key}")
+        return lines
+
+    @staticmethod
+    def _metadata_lines(metadata: dict, *keys: str) -> list[str]:
+        lines: list[str] = []
+        for key in keys:
+            value = metadata.get(key)
+            if not value:
+                continue
+            if isinstance(value, list):
+                lines.extend(json.dumps(item, ensure_ascii=False, sort_keys=True) for item in value)
+            else:
+                lines.append(json.dumps(value, ensure_ascii=False, sort_keys=True) if isinstance(value, dict) else str(value))
+        return lines
+
+    @staticmethod
+    def _rollback_notes(pool: AtlasPlanPool) -> list[str]:
+        lines: list[str] = []
+        for item in pool.items:
+            for note in getattr(item, "rollback_plan", []) or []:
+                lines.append(f"{item.item_id}: {note}")
+        return lines
+
+    @staticmethod
+    def _markdown_list(values: list[str]) -> str:
+        cleaned = [str(value) for value in values if str(value).strip()]
+        if not cleaned:
+            return "- None recorded."
+        return "\n".join(f"- {value}" for value in cleaned)
 
     @staticmethod
     def _requested_paths(request: AtlasAutonomousCodegenRequest, pool: AtlasPlanPool) -> list[str]:

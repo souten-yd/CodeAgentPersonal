@@ -6,7 +6,7 @@ from app.atlas.candidate_workspace_manager import create_candidate_workspace_pla
 from agent.atlas_autonomous_codegen_orchestrator_schema import AtlasAutonomousCodegenRequest
 from agent.atlas_autonomous_codegen_orchestrator_service import AtlasAutonomousCodegenOrchestratorService
 from agent.atlas_journal import AtlasJournal
-from agent.atlas_multi_item_autopilot_schema import AtlasMultiItemAutopilotRequest, AtlasMultiItemAutopilotResult
+from agent.atlas_multi_item_autopilot_schema import AtlasAutopilotItemResult, AtlasMultiItemAutopilotRequest, AtlasMultiItemAutopilotResult
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalResult
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
@@ -89,12 +89,22 @@ class FakeAutopilotService:
             policy_id=request.policy_id,
             status=self.status,
             processed_count=len(request.item_ids) or 1,
-            completed_count=1,
+            completed_count=1 if self.status in {"completed", "partial"} else 0,
+            failed_count=1 if self.status in {"failed", "needs_revision"} else 0,
+            item_results=[
+                AtlasAutopilotItemResult(
+                    item_id=(request.item_ids[0] if request.item_ids else "i1"),
+                    status=self.status,
+                    changed_files=["src/i1.py"] if self.status in {"completed", "partial"} else [],
+                    verification_result={"status": "passed"} if self.status in {"completed", "partial"} else {"status": "failed"},
+                    metadata={"bounded_retry_result": {"status": "not_needed"}},
+                )
+            ],
             created_at="2026-06-01T00:00:00+00:00",
         )
 
 
-def _orchestrator(tmp_path: Path, pool: AtlasPlanPool, *, produce_content: bool = True, autopilot_status: str = "completed"):
+def _orchestrator(tmp_path: Path, pool: AtlasPlanPool, *, produce_content: bool = True, autopilot_status: str = "completed", draft_pr_client=None):
     storage = AtlasPlanPoolStorage(tmp_path)
     storage.save_pool(pool)
     journal = AtlasJournal(tmp_path, workspace_id="default")
@@ -105,8 +115,18 @@ def _orchestrator(tmp_path: Path, pool: AtlasPlanPool, *, produce_content: bool 
         journal=journal,
         patch_proposal_service=proposal,
         multi_item_autopilot_service=autopilot,
+        draft_pr_client=draft_pr_client,
     )
     return svc, storage, proposal, autopilot
+
+
+class FakeDraftPrClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str]] = []
+
+    def create_draft_pull_request(self, *, base_ref: str, head_branch: str, title: str, body: str) -> dict[str, object]:
+        self.calls.append({"base_ref": base_ref, "head_branch": head_branch, "title": title, "body": body})
+        return {"number": 88, "html_url": "https://example.test/pull/88", "url": "https://api.example.test/pull/88", "draft": True}
 
 
 def test_generates_missing_patch_then_applies(tmp_path: Path) -> None:
@@ -121,8 +141,80 @@ def test_generates_missing_patch_then_applies(tmp_path: Path) -> None:
     assert autopilot.last_request.require_approval is False
     assert out.phase == "final_summary"
     assert out.status == "completed"
+    assert out.metadata["draft_pr_artifact"]["ready"] is True
+    assert Path(out.metadata["draft_pr_artifact"]["artifact_path"]).exists()
     # The pool is tagged full_autopilot so the single-item pipeline also relaxes.
     assert storage.load_pool("pool_1").automation_level == "full_autopilot"
+
+
+def test_successful_run_produces_pr_artifact_body(tmp_path: Path) -> None:
+    item = _item("i1")
+    item.rollback_plan = ["Restore src/i1.py from snapshot."]
+    pool = _pool(
+        [item],
+        metadata={
+            "clarification_answers": [{"question_id": "q1", "answer": "Use narrow scope"}],
+            "critical_decisions": [{"event_id": "crit1", "decision": "reject"}],
+        },
+    )
+    svc, _storage, _proposal, _autopilot = _orchestrator(tmp_path, pool)
+
+    out = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_1"))
+
+    artifact = out.metadata["draft_pr_artifact"]
+    body = Path(artifact["body_path"]).read_text(encoding="utf-8")
+    for heading in [
+        "## Summary",
+        "## Scope",
+        "## Safety constraints",
+        "## Changed files",
+        "## Tests / verification",
+        "## Clarification decisions",
+        "## Critical events / user decisions",
+        "## Repair attempts",
+        "## Remaining risks",
+        "## Rollback notes",
+    ]:
+        assert heading in body
+    assert "Use narrow scope" in body
+    assert "crit1" in body
+    assert "Restore src/i1.py from snapshot." in body
+
+
+def test_draft_pr_creation_uses_injected_client_only(tmp_path: Path) -> None:
+    client = FakeDraftPrClient()
+    svc, _storage, _proposal, _autopilot = _orchestrator(tmp_path, _pool([_item("i1")]), draft_pr_client=client)
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            metadata={
+                "allow_draft_pr_creation": True,
+                "base_ref": "main",
+                "head_branch": "codex/atlas-generated",
+                "draft_pr_title": "Atlas generated change",
+            },
+        )
+    )
+
+    creation = out.metadata["draft_pr_artifact"]["creation_result"]
+    assert creation["draft_pr_created"] is True
+    assert creation["draft_pr_url"] == "https://example.test/pull/88"
+    assert creation["remote_git_push_performed"] is False
+    assert creation["direct_merge_performed"] is False
+    assert client.calls[0]["base_ref"] == "main"
+    assert client.calls[0]["head_branch"] == "codex/atlas-generated"
+
+
+def test_failed_run_does_not_claim_pr_ready(tmp_path: Path) -> None:
+    svc, _storage, _proposal, _autopilot = _orchestrator(tmp_path, _pool([_item("i1")]), autopilot_status="needs_revision")
+
+    out = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_1"))
+
+    artifact = out.metadata["draft_pr_artifact"]
+    assert artifact["ready"] is False
+    assert artifact["status"] == "not_ready"
+    assert out.metadata["draft_pr_readiness"]["ready"] is False
 
 
 def test_missing_project_path_stops_safely(tmp_path: Path) -> None:
