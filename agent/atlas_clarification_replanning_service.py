@@ -60,6 +60,7 @@ class AtlasClarificationReplanningService:
                 )
             )
         allowed_paths_after_clarification = self._allowed_paths_after_clarification(revised_items)
+        item_changed_fields = self._item_changed_fields(revised_items)
 
         revised_plan = self._build_revised_plan(pool, answers, risk_raised=risk_raised)
         critique_gate = apply_plan_quality_gate(
@@ -84,6 +85,7 @@ class AtlasClarificationReplanningService:
                     "scope_reduced": scope_reduced,
                     "target_files_from_answer": extracted_paths,
                     "allowed_paths_after_clarification": allowed_paths_after_clarification,
+                    "item_changed_fields": item_changed_fields,
                     "selected_option_impacts": selected_option_impacts,
                 },
                 "original_requirement_summary": original_requirement,
@@ -97,6 +99,7 @@ class AtlasClarificationReplanningService:
                     "scope_reduced": scope_reduced,
                     "allowed_paths_after_clarification": allowed_paths_after_clarification,
                     "blocked_paths_after_clarification": [],
+                    "item_changed_fields": item_changed_fields,
                     "selected_option_impacts": selected_option_impacts,
                 },
                 "allowed_paths_after_clarification": allowed_paths_after_clarification,
@@ -229,6 +232,15 @@ class AtlasClarificationReplanningService:
                 text = str(path or "").replace("\\", "/").strip()
                 if text and text not in out:
                     out.append(text)
+        return out
+
+    @staticmethod
+    def _item_changed_fields(items: list[AtlasPlanItem]) -> list[dict]:
+        out: list[dict] = []
+        for item in items:
+            revision = item.metadata.get("clarification_revision") if isinstance(item.metadata, dict) else {}
+            changed_fields = list((revision or {}).get("changed_fields") or [])
+            out.append({"item_id": item.item_id, "changed_fields": changed_fields})
         return out
 
     @staticmethod
