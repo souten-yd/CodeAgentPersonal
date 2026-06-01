@@ -8,6 +8,8 @@ UI = load_ui_contract_text()
 HTML = (ROOT / "ui.html").read_text(encoding="utf-8")
 ATLAS_API_JS = (ROOT / "web" / "js" / "atlas_pipeline_api.js").read_text(encoding="utf-8")
 ATLAS_DASHBOARD_JS = (ROOT / "web" / "js" / "atlas_dashboard.js").read_text(encoding="utf-8")
+ATLAS_CLAUDE_PANEL_JS = (ROOT / "web" / "js" / "atlas_claude_panel.js").read_text(encoding="utf-8")
+ATLAS_PHASE_MANIFEST = (ROOT / "docs" / "atlas_automation_phase_manifest.json").read_text(encoding="utf-8")
 CSS = (ROOT / "web" / "css" / "app.css").read_text(encoding="utf-8")
 # Per-asset cache-bust versions, kept in sync with the live <link>/<script> tags in ui.html.
 # app.css and the atlas claude panel advance on their own UI-fix cadence, while the dashboard
@@ -167,6 +169,36 @@ def test_ui_loads_cache_busted_static_assets() -> None:
     assert f'<script src="/static/js/atlas_dashboard.js?v={DASHBOARD_ASSET_VERSION}"></script>' in HTML
     assert "AtlasPipelineAPI" in ATLAS_API_JS
     assert "AtlasDashboard" in ATLAS_DASHBOARD_JS
+
+
+def test_claude_panel_defaults_to_review_only_preset() -> None:
+    assert "selectedPresetId: 'review_only'" in ATLAS_CLAUDE_PANEL_JS
+    assert 'name="atlas-claude-preset" value="review_only" checked' in HTML
+    assert 'name="atlas-claude-preset" value="autonomous_bounded_dev" checked' not in HTML
+
+
+def test_claude_panel_policy_wording_keeps_backend_authoritative() -> None:
+    assert "Profile selection alone never" in ATLAS_CLAUDE_PANEL_JS
+    assert "requires backend workflow state, an active bounded envelope, and gates" in ATLAS_CLAUDE_PANEL_JS
+    assert "DOES pre-authorise the autonomous loop" not in ATLAS_CLAUDE_PANEL_JS
+    assert "pre-authorise the autonomous loop" not in ATLAS_PHASE_MANIFEST
+    assert "profile selection alone never starts an autonomous loop" in ATLAS_PHASE_MANIFEST
+    assert "backend envelope + gates required" in HTML
+
+
+def test_claude_panel_visual_contract_failure_is_actionable() -> None:
+    for token in (
+        "visual_contract.status=",
+        "visual_missing:",
+        "browser_smoke=",
+        "requestAnimationFrame loop",
+        "input handling",
+        "update/render separation",
+        "collision handling",
+        "HUD state",
+        "visible motion/color/canvas signals",
+    ):
+        assert token in ATLAS_CLAUDE_PANEL_JS
 
 
 def test_continuation_panel_contract() -> None:
