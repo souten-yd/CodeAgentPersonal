@@ -470,8 +470,12 @@
     if (shouldShow && $('atlas-recovery-summary')) {
       const warning = state.recoveryWarning ? ` / warning: ${state.recoveryWarning}` : '';
       const primary = recovery?.metadata?.primary_verification_reason || recovery?.primary_verification_reason || '';
+      const consoleErrors = recovery?.metadata?.console_errors || recovery?.console_errors || [];
+      const consoleText = Array.isArray(consoleErrors) && consoleErrors.length
+        ? ` / console_errors: ${consoleErrors.slice(0, 3).map((e) => String(e)).join(' | ')}`
+        : '';
       const next = primary ? `Verification failed: ${primary}` : (recovery.next_action || '-');
-      $('atlas-recovery-summary').textContent = `status: ${status} / pool_id: ${recovery.pool_id || '-'} / run_id: ${state.currentRunId || recovery.run_id || '-'} / next: ${next}${warning}`;
+      $('atlas-recovery-summary').textContent = `status: ${status} / pool_id: ${recovery.pool_id || '-'} / run_id: ${state.currentRunId || recovery.run_id || '-'} / next: ${next}${consoleText}${warning}`;
     }
     const loadBtn = $('atlas-recovery-load-btn');
     const refreshBtn = $('atlas-recovery-refresh-btn');
