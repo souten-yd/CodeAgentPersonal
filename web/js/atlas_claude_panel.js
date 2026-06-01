@@ -1321,6 +1321,8 @@
     else if (phase === 'candidate_generation') updateStage(block, 'patch', 'running', '');
     else if (phase === 'candidate_apply') updateStage(block, 'apply', 'running', '');
     else if (phase === 'verification') updateStage(block, 'verify', 'running', '');
+    else if (phase === 'failure_analysis') updateStage(block, 'verify', 'failed', 'repairable verification failure');
+    else if (phase === 'bounded_repair') updateStage(block, 'verify', 'running', 'bounded repair');
     else if (phase === 'final_summary') updateStage(block, 'summary', 'done', view.status || '');
     renderAutonomousWorkflowSummary(block, view);
   }
@@ -1350,6 +1352,8 @@
     renderAutonomousList(summary, 'Changed files', evidence.changed_files || []);
     const verification = evidence.verification && evidence.verification.statuses ? evidence.verification.statuses : {};
     renderAutonomousList(summary, 'Verification', Object.keys(verification).map((key) => `${key}: ${verification[key]}`));
+    renderAutonomousFailureSummary(summary, evidence.verification_failure_summary || {});
+    renderAutonomousRepairPlan(summary, evidence.repair_plan || {});
     renderAutonomousList(summary, 'Repair attempts', (evidence.repair_attempts || []).map((r) => `${r.item_id}: ${r.kind} ${r.status || ''}`));
     renderAutonomousList(summary, 'User-visible warnings', view.user_visible_warnings || []);
     if (decisions.clarification && decisions.clarification.visible) {
@@ -1388,6 +1392,50 @@
     });
     box.appendChild(ul);
     parent.appendChild(box);
+  }
+
+  function renderAutonomousFailureSummary(parent, failure) {
+    if (!failure || !Object.keys(failure).length) return;
+    const lines = [
+      failure.user_facing_summary || '',
+      (failure.failed_contracts || []).length ? `failed: ${(failure.failed_contracts || []).join(', ')}` : '',
+      failure.likely_cause ? `likely cause: ${failure.likely_cause}` : '',
+      failure.verification_tool_error ? `tool: ${failure.verification_tool_error}` : '',
+      typeof failure.retry_count_remaining === 'number' ? `retries remaining: ${failure.retry_count_remaining}` : '',
+    ].filter(Boolean);
+    const box = document.createElement('div');
+    box.className = 'atlas-claude-summary-recovery';
+    const head = document.createElement('div');
+    head.className = 'atlas-claude-summary-head';
+    head.textContent = failure.user_facing_title || 'Verification failure';
+    box.appendChild(head);
+    const ul = document.createElement('ul');
+    lines.slice(0, 10).forEach((value) => {
+      const li = document.createElement('li');
+      li.textContent = value;
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+    const steps = Array.isArray(failure.recommended_repair_steps) ? failure.recommended_repair_steps : [];
+    if (steps.length) {
+      renderAutonomousList(box, 'Recommended repair steps', steps);
+    }
+    parent.appendChild(box);
+  }
+
+  function renderAutonomousRepairPlan(parent, plan) {
+    if (!plan || !Object.keys(plan).length) return;
+    const lines = [
+      `status: ${plan.status || '-'}`,
+      (plan.allowed_repair_files || []).length ? `allowed files: ${(plan.allowed_repair_files || []).join(', ')}` : '',
+      typeof plan.retry_index === 'number' && typeof plan.max_retries === 'number' ? `retry: ${plan.retry_index}/${plan.max_retries}` : '',
+      plan.post_repair_verification_required ? 'post-repair verification required' : '',
+      (plan.blocked_reasons || []).length ? `blocked: ${(plan.blocked_reasons || []).join(', ')}` : '',
+    ].filter(Boolean);
+    renderAutonomousList(parent, 'Bounded repair plan', lines);
+    if ((plan.concrete_repair_steps || []).length) {
+      renderAutonomousList(parent, 'Concrete repair steps', plan.concrete_repair_steps || []);
+    }
   }
 
   function appendAutonomousDecision(parent, label, enabled) {
