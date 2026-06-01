@@ -252,17 +252,19 @@ class AtlasPatchProposalService:
             return None
         item = input_payload.get("item") or {}
         prior = str(item.get("existing_content") or "")
+        primary_reason = self._primary_verification_reason(verification)
         feedback = {
-            "instruction": (
-                "Your previous proposed_content was applied to the target file and then FAILED "
-                "verification. Fix the root cause shown below and return corrected, COMPLETE file "
-                "content. Do not repeat the same mistake."
-            ),
+            "instruction": self._verification_repair_instruction(primary_reason),
+            "primary_reason": primary_reason,
             "command": str(verification.get("command") or ""),
             "exit_code": verification.get("exit_code"),
             "stdout_tail": str(verification.get("stdout_tail") or "")[-2000:],
             "stderr_tail": str(verification.get("stderr_tail") or "")[-2000:],
         }
+        repair_targets = self._browser_repair_targets(primary_reason, input_payload)
+        if repair_targets:
+            feedback["repair_target_files"] = repair_targets
+            feedback["do_not_repair_by_tests_only"] = True
         if prior:
             feedback["previous_content"] = prior[: self.MAX_PROPOSED_CONTENT_CHARS]
         # Routed from the correction router: a test that exercises THIS implementation failed. Tell the
@@ -277,6 +279,50 @@ class AtlasPatchProposalService:
             feedback["failing_test_file"] = str(verification.get("failing_test_file") or "")
             feedback["failing_test_content"] = failing_test_content[: self.MAX_PROPOSED_CONTENT_CHARS]
         return feedback
+
+    def _primary_verification_reason(self, verification: dict) -> str:
+        warnings = [str(w) for w in (verification.get("warnings") or [])]
+        meta_reason = str(((verification.get("metadata") or {}).get("primary_verification_reason") or ""))
+        if meta_reason:
+            return meta_reason
+        for prefix in ("browser_smoke_failed:", "visual_contract_failed", "visual_missing:", "browser_smoke_warning:"):
+            for warning in warnings:
+                if warning == prefix or warning.startswith(prefix):
+                    return warning
+        return warnings[0] if warnings else ""
+
+    def _verification_repair_instruction(self, primary_reason: str) -> str:
+        if primary_reason.startswith("browser_smoke_failed:js_error"):
+            return (
+                "The generated browser game files were applied, then browser smoke verification FAILED "
+                f"with {primary_reason}. Fix the IMPLEMENTATION files (index.html and relevant js/*.js), "
+                "especially script type=module vs classic script consistency, import/export usage, import paths, "
+                "and global-scope wiring. Do NOT generate a Python test as the only repair. Return corrected, "
+                "COMPLETE browser file content."
+            )
+        if primary_reason.startswith("visual_missing") or "animation_not_detected" in primary_reason:
+            return (
+                "The generated browser game files were applied, then visual verification could not detect "
+                f"required motion/animation ({primary_reason}). Fix the IMPLEMENTATION files (Renderer, "
+                "GameEngine, index.html, and relevant canvas code) so requestAnimationFrame drives visible "
+                "canvas updates. Do NOT generate a Python test as the only repair. Return corrected, COMPLETE file content."
+            )
+        return (
+            "Your previous proposed_content was applied to the target file and then FAILED "
+            "verification. Fix the root cause shown below and return corrected, COMPLETE file "
+            "content. Do not repeat the same mistake."
+        )
+
+    def _browser_repair_targets(self, primary_reason: str, input_payload: dict) -> list[str]:
+        if not (primary_reason.startswith("browser_smoke_failed:") or primary_reason.startswith("visual_missing") or "animation_not_detected" in primary_reason or primary_reason == "visual_contract_failed"):
+            return []
+        targets = [str(p) for p in ((input_payload.get("item") or {}).get("target_files") or [])]
+        browser_targets = [p for p in targets if p == "index.html" or p.endswith(".html") or p.startswith("js/") or p.endswith(".js") or any(name in p for name in ("Renderer", "GameEngine"))]
+        if browser_targets:
+            return browser_targets
+        if primary_reason.startswith("browser_smoke_failed:js_error"):
+            return ["index.html", "js/*.js"]
+        return ["index.html", "js/Renderer.js", "js/GameEngine.js"]
 
     def generate_proposal_with_llm(self, input_payload: dict) -> AtlasPatchProposal:
         assert self.llm_json_fn is not None

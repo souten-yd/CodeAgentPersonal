@@ -52,6 +52,8 @@ class AtlasFailureStopService:
             "file_count": snapshot.get("file_count"),
         } if manifest_path else {}
         primary_reason = _primary_verification_reason(verification_result)
+        smoke = (((verification_result or {}).get("metadata") or {}).get("browser_smoke") or {})
+        console_errors = list(smoke.get("console_errors") or [])[:10] if isinstance(smoke, dict) else []
         manual_actions = [
             "Review verification failure.",
             "Inspect changed files.",
@@ -72,7 +74,7 @@ class AtlasFailureStopService:
             snapshot_manifest_path=manifest_path,
             changed_files=changed_files,
             verification_result=dict(verification_result or {}),
-            metadata={"has_restore_candidate": bool(manifest_path), "primary_verification_reason": primary_reason},
+            metadata={"has_restore_candidate": bool(manifest_path), "primary_verification_reason": primary_reason, "console_errors": console_errors},
         )
         if run_id:
             self.journal.append_event(pool.pool_id, run_id, {

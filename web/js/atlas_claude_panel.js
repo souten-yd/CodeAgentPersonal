@@ -1089,7 +1089,9 @@
       const ul = document.createElement('ul');
       itemResults.forEach((r) => {
         const li = document.createElement('li');
-        const reason = r.reason ? ` (${r.reason})` : '';
+        const precise = preciseVerificationReason(r);
+        const displayReason = precise && r.reason === 'verification_failed' ? `verification_failed:${precise}` : (r.reason || precise || '');
+        const reason = displayReason ? ` (${displayReason})` : '';
         li.textContent = `${r.item_id}: ${r.status}${reason}`;
         ul.appendChild(li);
       });
@@ -1163,6 +1165,32 @@
     return null;
   }
 
+
+  function preciseVerificationReason(item) {
+    const reason = item && item.reason ? String(item.reason) : '';
+    if (reason.startsWith('verification_failed:')) return reason.replace(/^verification_failed:/, '');
+    const stop = (item && item.failure_stop_suggestion) || {};
+    const metaReason = stop.metadata && stop.metadata.primary_verification_reason;
+    if (metaReason) return String(metaReason);
+    const warnings = [];
+    if (item && Array.isArray(item.warnings)) warnings.push(...item.warnings);
+    const vrWarnings = item && item.verification_result && Array.isArray(item.verification_result.warnings)
+      ? item.verification_result.warnings : [];
+    warnings.push(...vrWarnings);
+    const priorities = ['browser_smoke_failed:', 'visual_contract_failed', 'visual_missing:', 'test_harness_unavailable', 'pytest_not_installed'];
+    for (const prefix of priorities) {
+      const found = warnings.find((w) => String(w) === prefix || String(w).startsWith(prefix));
+      if (found) return String(found);
+    }
+    return '';
+  }
+
+  function primaryRecoveryReason(stop, item) {
+    const metaReason = stop && stop.metadata && stop.metadata.primary_verification_reason;
+    if (metaReason) return String(metaReason);
+    return preciseVerificationReason(item);
+  }
+
   function renderRecoverySection(failures) {
     const box = document.createElement('div');
     box.className = 'atlas-claude-summary-recovery';
@@ -1174,7 +1202,8 @@
     failures.forEach((r) => {
       const stop = r.failure_stop_suggestion || {};
       const li = document.createElement('li');
-      const reason = stop.reason || r.reason || 'unknown';
+      const primary = primaryRecoveryReason(stop, r);
+      const reason = primary ? `Verification failed: ${primary}` : (stop.reason || r.reason || 'unknown');
       const actions = (stop.suggested_manual_actions || []).join(', ');
       li.textContent = `${r.item_id}: ${reason}${actions ? ' — ' + actions : ''}`;
       ul.appendChild(li);

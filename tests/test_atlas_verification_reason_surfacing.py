@@ -61,3 +61,23 @@ def test_failure_stop_suggestion_surfaces_precise_reason() -> None:
 def test_failure_stop_helper_matches_service() -> None:
     vr = {"status": "failed", "warnings": ["visual_missing:motion_signal"]}
     assert _primary_verification_reason(vr) == "visual_missing:motion_signal"
+
+
+def test_primary_reason_keeps_precise_js_subdiagnostic() -> None:
+    warnings = ["visual_contract_passed", "browser_smoke_failed:js_error:module_script_mismatch"]
+    assert primary_verification_reason(warnings) == "browser_smoke_failed:js_error:module_script_mismatch"
+
+
+def test_failure_stop_recovery_metadata_keeps_console_errors() -> None:
+    suggestion = _build_suggestion(["browser_smoke_failed:js_error:missing_import_target"])
+    # Rebuild with metadata to ensure console details can reach recovery/UI summaries.
+    service = AtlasFailureStopService(journal=_Journal())
+    pool = SimpleNamespace(pool_id="pool_1")
+    item = SimpleNamespace(item_id="item_1", metadata={})
+    suggestion = service.build_for_verification_failure(pool, item, "run_1", {
+        "status": "failed",
+        "warnings": ["browser_smoke_failed:js_error:missing_import_target"],
+        "metadata": {"browser_smoke": {"console_errors": ["Failed to load module script"]}},
+    })
+    assert suggestion.metadata["primary_verification_reason"] == "browser_smoke_failed:js_error:missing_import_target"
+    assert suggestion.metadata["console_errors"] == ["Failed to load module script"]
