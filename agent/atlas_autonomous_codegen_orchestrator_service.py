@@ -302,6 +302,19 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "recovery_evidence": recovery_evidence,
             }
         paths = self._requested_paths(request, pool)
+        critical_scope = self._critical_continuation_scope(request, pool, paths)
+        if critical_scope.get("status") == "blocked":
+            return {
+                "status": "blocked",
+                "phase": "waiting_for_critical_decision",
+                "reason": str(critical_scope.get("reason") or "critical_approval_scope_mismatch"),
+                "paths": paths,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+                "effective_limits": effective_limits,
+                "critical_scope": critical_scope,
+            }
         effective_allowed_paths = self._effective_allowed_paths(request, envelope)
         if effective_allowed_paths.get("expanded"):
             return {
@@ -361,9 +374,74 @@ class AtlasAutonomousCodegenOrchestratorService:
             "effective_allowed_paths": allowed,
             "effective_blocked_paths": blocked_paths,
             "effective_limits": effective_limits,
+            "critical_scope": critical_scope,
             "warnings": warnings,
             "workspace_evidence": workspace_evidence,
             "recovery_evidence": recovery_evidence,
+        }
+
+    @staticmethod
+    def _critical_continuation_scope(
+        request: AtlasAutonomousCodegenRequest,
+        pool: AtlasPlanPool,
+        paths: list[str],
+    ) -> dict[str, Any]:
+        metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
+        critical_event = metadata.get("critical_event") if isinstance(metadata.get("critical_event"), dict) else {}
+        critical_decision = metadata.get("critical_decision") if isinstance(metadata.get("critical_decision"), dict) else {}
+        if not critical_event or not critical_event.get("critical_event"):
+            return {"status": "not_applicable"}
+        if str(critical_decision.get("decision") or "").strip().lower() != "approved":
+            return {
+                "status": "blocked",
+                "reason": "critical_event_waiting_for_user_decision",
+                "critical_event": critical_event,
+            }
+        if critical_decision.get("bounded_continuation") is not True:
+            return {
+                "status": "blocked",
+                "reason": "critical_approval_missing_bounded_scope",
+                "critical_event": critical_event,
+                "critical_decision": critical_decision,
+            }
+        approved_files = [
+            str(path).replace("\\", "/")
+            for path in (
+                critical_decision.get("approved_files")
+                or critical_decision.get("approved_scope")
+                or critical_decision.get("approved_paths")
+                or []
+            )
+            if str(path).strip()
+        ]
+        approved_item_ids = {
+            str(item_id)
+            for item_id in (critical_decision.get("approved_item_ids") or [])
+            if str(item_id).strip()
+        }
+        target_item_ids = set(request.item_ids or [item.item_id for item in pool.items])
+        unapproved_items = sorted(target_item_ids - approved_item_ids) if approved_item_ids else []
+        unapproved_files = [
+            path for path in paths
+            if approved_files and not AtlasAutonomousCodegenOrchestratorService._matches_prefix(path, approved_files)
+        ]
+        if unapproved_items or unapproved_files or not approved_files:
+            return {
+                "status": "blocked",
+                "reason": "critical_approval_scope_mismatch",
+                "critical_event": critical_event,
+                "critical_decision": critical_decision,
+                "approved_files": approved_files,
+                "approved_item_ids": sorted(approved_item_ids),
+                "target_item_ids": sorted(target_item_ids),
+                "unapproved_items": unapproved_items,
+                "unapproved_files": unapproved_files,
+            }
+        return {
+            "status": "approved_scope_valid",
+            "critical_event": critical_event,
+            "approved_files": approved_files,
+            "approved_item_ids": sorted(approved_item_ids),
         }
 
     @staticmethod
