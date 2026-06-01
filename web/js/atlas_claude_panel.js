@@ -206,9 +206,7 @@
     dom.stopBtn = $('atlas-claude-stop-btn');
     dom.featuresDrawer = $('atlas-claude-features-drawer');
     dom.profileResult = $('atlas-claude-profile-result');
-    dom.previewBtn = $('atlas-claude-preview-profile-btn');
     dom.selectBtn = $('atlas-claude-select-profile-btn');
-    dom.confirmInput = $('atlas-claude-confirm-text');
     dom.recoveryBtn = $('atlas-claude-recovery-btn');
     dom.badges = {
       safety: dom.col.querySelector('.atlas-claude-badge.safety'),
@@ -235,9 +233,7 @@
     }
     if (dom.sendBtn) dom.sendBtn.addEventListener('click', () => sendChatMessage());
     if (dom.stopBtn) dom.stopBtn.addEventListener('click', () => onStop());
-    if (dom.previewBtn) dom.previewBtn.addEventListener('click', () => previewProfile());
     if (dom.selectBtn) dom.selectBtn.addEventListener('click', () => selectProfile());
-    if (dom.confirmInput) dom.confirmInput.addEventListener('input', updateSelectButtonState);
     if (dom.recoveryBtn) dom.recoveryBtn.addEventListener('click', () => delegateRecover());
 
     document.querySelectorAll('input[name="atlas-claude-preset"]').forEach((radio) => {
@@ -254,10 +250,6 @@
         renderBadges();
         renderPresetSummary();
         updateSelectButtonState();
-        // When the user switches to self-improvement target on an autonomous
-        // preset, warn explicitly and require an explicit re-Apply (the auto-
-        // applied envelope is dev_envelope; self_improvement_envelope is more
-        // restrictive AND requires strict gate + Level-4 checkpoint backend-side).
         if (ev.target.value === 'platform_self_improvement') {
           pushSystemMessage('自己改修ターゲット: 影響範囲は app/atlas/, docs/, tests/ のみ。strict gate と Level-4 checkpoint が必須です。Features ドロワーで Apply を再実行してください。');
         }
@@ -320,38 +312,11 @@
       renderPresetSummary();
     }
     const envResp = await root.AtlasPipelineAPI.getPreAuthorizedEnvelopes();
-    if (envResp.ok) state.envelopes = envResp.data.envelopes || [];
-
-    // Auto-apply Profile 0 (Review Only) at startup if no profile is yet
-    // selected. This ensures Apply / Send work immediately without forcing
-    // the user to type confirmation text for the safe default.
-    const latest = state.latestSafetyProfile;
-    if (!latest || latest.status !== 'active') {
-      autoApplyDefaultProfile();
+    if (envResp.ok) {
+      state.envelopes = envResp.data.envelopes || [];
+      renderPresetSummary();
     }
-  }
-
-  async function autoApplyDefaultProfile() {
-    // Default initial profile: Profile 4 (Autonomous) + Work target Dev/repair.
-    // This auto-applies the pre_authorized_bounded_dev_envelope so the user can
-    // send instructions and execute end-to-end without manually pressing Apply.
-    // Self-improvement target still requires an explicit re-Apply with warning.
-    if (!root.AtlasPipelineAPI) return;
-    const r = await root.AtlasPipelineAPI.selectAutomationProfile({
-      profile: 'autonomous_dev_agent',
-      envelope_id: 'pre_authorized_bounded_dev_envelope',
-      explicit_profile_selection: true,
-      self_improvement_enabled: false,
-      self_improvement_scope: 'none',
-      strict_gate_approved: false,
-      confirmation_text: 'SELECT AUTOMATION PROFILE',
-    });
-    if (r.ok && r.data && r.data.safety_profile) {
-      state.latestSafetyProfile = r.data.safety_profile;
-      state.latestEnvelope = r.data.envelope || null;
-      renderBadges();
-      appendMessage('system', 'Profile 4 Autonomous + Dev/repair を初期適用しました', false);
-    }
+    updateSelectButtonState();
   }
 
   async function refreshLatestProfile() {
@@ -409,11 +374,12 @@
     if (!dom.profileResult) return;
     const preset = state.presets.find((p) => p.id === state.selectedPresetId);
     if (!preset) return;
-    const envelopeRecipe = state.envelopes.find((e) => e.envelope_id === preset.envelope_id) || null;
+    const envelopeId = selectedEnvelopeId(preset);
+    const envelopeRecipe = state.envelopes.find((e) => e.envelope_id === envelopeId) || null;
     const lines = [
       `# ${preset.label}`,
       `- safety profile: \`${preset.safety_profile}\``,
-      `- envelope: \`${preset.envelope_id}\``,
+      `- envelope: \`${envelopeId}\``,
       `- enables full automation: ${preset.enables_full_automation ? 'YES' : 'no'}`,
     ];
     if (preset.self_improvement_enabled) {
@@ -436,64 +402,14 @@
 
   function updateSelectButtonState() {
     if (!dom.selectBtn) return;
-    // Profile 0-2 (Review / Single Action / Supervised) do not enable any
-    // autonomous execution, so Apply is one-click. Profile 3-5 require the
-    // explicit SELECT AUTOMATION PROFILE confirmation text.
     const preset = state.presets.find((p) => p.id === state.selectedPresetId);
-    const rank = preset && typeof preset.rank === 'number' ? preset.rank : 0;
-    const requiresConfirmation = rank >= 3;
-    if (!requiresConfirmation) {
-      dom.selectBtn.disabled = false;
-      return;
-    }
-    const text = dom.confirmInput ? String(dom.confirmInput.value || '').trim() : '';
-    const matches = text === CONFIRM_TEXT || text === 'SELECT AUTOMATION SAFETY PROFILE';
-    dom.selectBtn.disabled = !matches;
-  }
-
-  async function previewProfile() {
-    if (!root.AtlasPipelineAPI) return;
-    const payload = buildSelectionPayload();
-    const resp = await root.AtlasPipelineAPI.previewAutomationProfile(payload);
-    if (resp.ok) {
-      renderPreviewResult(resp.data);
-    } else {
-      pushAtlasMessage(`Preview failed: ${formatError(resp)}`);
-    }
-  }
-
-  function renderPreviewResult(data) {
-    const safety = data.safety_profile || {};
-    const envelope = data.envelope;
-    const lines = [
-      `## Preview`,
-      `- status: \`${safety.status}\``,
-      `- profile: \`${safety.automation_safety_profile}\``,
-      `- self-improvement: ${safety.self_improvement_enabled ? 'on' : 'off'}`,
-      `- enables full automation: ${data.enables_full_automation ? 'YES' : 'no'}`,
-    ];
-    if (safety.blocking_reasons && safety.blocking_reasons.length) {
-      lines.push(`- blocked: ${safety.blocking_reasons.join(', ')}`);
-    }
-    if (envelope) {
-      lines.push(`- envelope: \`${envelope.envelope_id}\` status=\`${envelope.status}\``);
-      if (envelope.blocking_reasons && envelope.blocking_reasons.length) {
-        lines.push(`- envelope blocked: ${envelope.blocking_reasons.join(', ')}`);
-      }
-    }
-    if (dom.profileResult) {
-      dom.profileResult.hidden = false;
-      dom.profileResult.textContent = lines.join('\n');
-    }
+    dom.selectBtn.disabled = !preset;
   }
 
   async function selectProfile() {
     if (!root.AtlasPipelineAPI) return;
     const payload = buildSelectionPayload();
-    // Profile 0-2 may apply with the canonical confirmation text auto-filled.
-    // Profile 3-5 use the user-typed text (the Apply button is disabled until
-    // they type it correctly via updateSelectButtonState).
-    payload.confirmation_text = (dom.confirmInput && dom.confirmInput.value.trim()) || CONFIRM_TEXT;
+    payload.confirmation_text = CONFIRM_TEXT;
     const resp = await root.AtlasPipelineAPI.selectAutomationProfile(payload);
     if (resp.ok) {
       const preset = state.presets.find((p) => p.id === state.selectedPresetId);
@@ -510,12 +426,19 @@
     }
   }
 
+  function selectedEnvelopeId(preset) {
+    if (!preset) return 'none';
+    const map = preset.work_target_envelope_map;
+    if (map && state.workTarget && map[state.workTarget]) return map[state.workTarget];
+    return preset.envelope_id || 'none';
+  }
+
   function buildSelectionPayload() {
     const preset = state.presets.find((p) => p.id === state.selectedPresetId) || state.presets[0];
     if (!preset) return {};
     // Profile 4 selects envelope from Work target via work_target_envelope_map.
     // Other presets use their fixed envelope_id.
-    let envelopeId = preset.envelope_id;
+    let envelopeId = selectedEnvelopeId(preset);
     let selfImprovement = !!preset.self_improvement_enabled;
     let selfImprovementScope = preset.self_improvement_scope || 'none';
     let strictGate = !!preset.self_improvement_enabled;
@@ -644,7 +567,7 @@
     } else if (preset && preset.enables_full_automation && !envelopeActive) {
       pushSystemMessage('Features → 「Apply」で Profile を確定するとここに「承認して実行」ボタンが出ます。');
     } else {
-      pushSystemMessage('Profile 4 (Bounded Dev) / 5 (Self-Improvement) を Apply すると自動実行が可能になります。');
+      pushSystemMessage('Profile 4 (Autonomous) を Apply すると、選択した Work target の bounded envelope で自動実行を開始できるようになります。');
     }
   }
 
@@ -1844,7 +1767,7 @@
   async function startAutonomousLoop(text) {
     const preset = state.presets.find((p) => p.id === state.selectedPresetId);
     if (!preset || !preset.enables_full_automation) {
-      pushAtlasMessage('Current Automation Profile does not enable autonomous execution. Pick Profile 4 or 5 first.');
+      pushAtlasMessage('Current Automation Profile does not enable autonomous execution. Pick Profile 4 first.');
       return;
     }
     const envelope = state.latestEnvelope;
@@ -1929,7 +1852,6 @@
     deactivate,
     refresh: refreshWorkflowState,
     sendChatMessage,
-    previewProfile,
     selectProfile,
     startAutonomousLoop,
     setActiveProject,

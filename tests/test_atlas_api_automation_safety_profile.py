@@ -174,6 +174,24 @@ def test_preview_bounded_dev_envelope_active(client: TestClient) -> None:
     assert data["enables_full_automation"] is True
 
 
+def test_preview_validation_only_does_not_persist_latest_profile(
+    client: TestClient,
+) -> None:
+    resp = client.post(
+        "/api/atlas/automation-safety-profile/preview",
+        json={
+            "profile": "autonomous_dev_agent",
+            "explicit_profile_selection": True,
+            "envelope_id": "pre_authorized_bounded_dev_envelope",
+        },
+    )
+    assert resp.status_code == 200
+
+    latest_resp = client.get("/api/atlas/automation-safety-profile/latest")
+    assert latest_resp.status_code == 200
+    assert latest_resp.json()["available"] is False
+
+
 def test_select_requires_confirmation_text(client: TestClient) -> None:
     resp = client.post(
         "/api/atlas/automation-safety-profile/select",
@@ -202,6 +220,32 @@ def test_select_writes_safety_manifest(client: TestClient, tmp_path: Path) -> No
     manifest_path = Path(data["manifest_paths"]["safety_profile"])
     assert manifest_path.exists()
     assert manifest_path.is_relative_to(tmp_path)
+
+
+def test_select_persists_only_after_explicit_apply_and_does_not_start_execution(
+    client: TestClient,
+) -> None:
+    before = client.get("/api/atlas/automation-safety-profile/latest")
+    assert before.status_code == 200
+    assert before.json()["available"] is False
+
+    resp = client.post(
+        "/api/atlas/automation-safety-profile/select",
+        json={
+            "profile": "autonomous_dev_agent",
+            "explicit_profile_selection": True,
+            "envelope_id": "pre_authorized_bounded_dev_envelope",
+            "confirmation_text": EXPECTED_CONFIRMATION_TEXT,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "permit_autonomous_loop_execution" not in data
+    safety_profile = data["safety_profile"]
+    assert safety_profile["execution_performed"] is False
+    assert safety_profile["patch_generated"] is False
+    assert safety_profile["patch_applied"] is False
+    assert data["envelope"]["autonomous_loop_execution_enabled"] is True
 
 
 def test_select_writes_envelope_manifest_for_bounded_dev(

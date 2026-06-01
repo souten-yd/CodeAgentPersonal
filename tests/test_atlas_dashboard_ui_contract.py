@@ -177,6 +177,51 @@ def test_claude_panel_defaults_to_review_only_preset() -> None:
     assert 'name="atlas-claude-preset" value="autonomous_bounded_dev" checked' not in HTML
 
 
+def test_claude_profile_selection_has_no_preview_or_confirmation_input() -> None:
+    assert 'id="atlas-claude-preview-profile-btn"' not in HTML
+    assert 'id="atlas-claude-confirm-text"' not in HTML
+    assert "atlas-claude-preview-profile-btn" not in ATLAS_CLAUDE_PANEL_JS
+    assert "atlas-claude-confirm-text" not in ATLAS_CLAUDE_PANEL_JS
+    assert "previewProfile" not in ATLAS_CLAUDE_PANEL_JS
+    assert "previewAutomationProfile(" not in ATLAS_CLAUDE_PANEL_JS
+    assert "confirmInput" not in ATLAS_CLAUDE_PANEL_JS
+
+
+def test_claude_profile_apply_is_one_click_for_all_presets() -> None:
+    snippet = ATLAS_CLAUDE_PANEL_JS[
+        ATLAS_CLAUDE_PANEL_JS.index("function updateSelectButtonState()"):
+        ATLAS_CLAUDE_PANEL_JS.index("async function selectProfile()")
+    ]
+    assert "dom.selectBtn.disabled = !preset;" in snippet
+    assert "CONFIRM_TEXT" not in snippet
+    assert "profile_rank" not in snippet
+    assert "rank >=" not in snippet
+    assert "SELECT AUTOMATION SAFETY PROFILE" not in ATLAS_CLAUDE_PANEL_JS
+
+
+def test_claude_profile_select_sends_canonical_confirmation_without_execution() -> None:
+    snippet = ATLAS_CLAUDE_PANEL_JS[
+        ATLAS_CLAUDE_PANEL_JS.index("async function selectProfile()"):
+        ATLAS_CLAUDE_PANEL_JS.index("function selectedEnvelopeId")
+    ]
+    assert "payload.confirmation_text = CONFIRM_TEXT;" in snippet
+    assert "selectAutomationProfile(payload)" in snippet
+    assert "startAutonomousLoopFromEnvelope" not in snippet
+    assert "runAutonomousCodegen" not in snippet
+
+
+def test_claude_profile_startup_does_not_auto_apply_autonomous_profile() -> None:
+    snippet = ATLAS_CLAUDE_PANEL_JS[
+        ATLAS_CLAUDE_PANEL_JS.index("async function refreshPolicies()"):
+        ATLAS_CLAUDE_PANEL_JS.index("async function refreshLatestProfile()")
+    ]
+    assert "autoApplyDefaultProfile" not in ATLAS_CLAUDE_PANEL_JS
+    assert "selectAutomationProfile" not in snippet
+    assert "pre_authorized_bounded_dev_envelope" not in snippet
+    assert "Profile 4 Autonomous" not in ATLAS_CLAUDE_PANEL_JS
+    assert "初期適用" not in ATLAS_CLAUDE_PANEL_JS
+
+
 def test_claude_panel_policy_wording_keeps_backend_authoritative() -> None:
     assert "Profile selection alone never" in ATLAS_CLAUDE_PANEL_JS
     assert "requires backend workflow state, an active bounded envelope, and gates" in ATLAS_CLAUDE_PANEL_JS
