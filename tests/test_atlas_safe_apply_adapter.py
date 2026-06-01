@@ -285,3 +285,90 @@ def test_adapter_has_no_direct_file_command_side_effect_tokens() -> None:
         "safe_apply(",
     ):
         assert token not in text
+
+
+def _critical_event(category="critical_risk", files=None, capabilities=None):
+    return {
+        "critical_event": True,
+        "category": category,
+        "affected_files": files or ["agent/example.py"],
+        "affected_capabilities": capabilities or ["safe_apply_gate"],
+        "status": "waiting_for_critical_decision",
+    }
+
+
+def _approved_critical_metadata(event=None, files=None, capabilities=None, *, one_action_only=True):
+    event = event or _critical_event(files=files, capabilities=capabilities)
+    return {
+        "action_type": "update",
+        "critical_event": event,
+        "approval": {
+            "decision": "approved",
+            "one_action_only": one_action_only,
+            "bounded_continuation": False,
+            "approved_files": files or event["affected_files"],
+            "approved_capabilities": capabilities or event["affected_capabilities"],
+            "critical_event": event,
+        },
+    }
+
+
+def test_approved_critical_risk_item_can_proceed_with_exact_files_and_capabilities() -> None:
+    event = _critical_event(files=["agent/example.py"], capabilities=["safe_apply_gate"])
+    item = make_item(risk_level="critical", target_files=["agent/example.py"], metadata=_approved_critical_metadata(event))
+
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(item, make_pool(item), preset_id="full_auto")
+
+    assert result.decision == "allow"
+    assert "critical_approval_present" in result.categories
+    assert result.metadata["critical_approval"]["approved_files"] == ["agent/example.py"]
+
+
+def test_approved_critical_risk_item_requires_approval_when_scope_does_not_match() -> None:
+    event = _critical_event(files=["agent/example.py"], capabilities=["safe_apply_gate"])
+    metadata = _approved_critical_metadata(event, files=["agent/other.py"], capabilities=["safe_apply_gate"])
+    item = make_item(risk_level="critical", target_files=["agent/example.py"], metadata=metadata)
+
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(item, make_pool(item), preset_id="full_auto")
+
+    assert result.decision == "require_approval"
+    assert result.metadata["status"] == "waiting_for_critical_decision"
+    assert "critical_approval_missing_or_invalid" in result.categories
+
+
+def test_approved_critical_risk_item_requires_approval_when_capability_does_not_match() -> None:
+    event = _critical_event(files=["agent/example.py"], capabilities=["safe_apply_gate"])
+    metadata = _approved_critical_metadata(event, files=["agent/example.py"], capabilities=["documentation_only"])
+    item = make_item(risk_level="critical", target_files=["agent/example.py"], metadata=metadata)
+
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(item, make_pool(item), preset_id="full_auto")
+
+    assert result.decision == "require_approval"
+    assert "critical_approval_missing_or_invalid" in result.categories
+
+
+def test_hard_forbidden_categories_remain_blocked_with_ordinary_critical_approval() -> None:
+    for category in (
+        "delete_forbidden",
+        "run_command_forbidden",
+        "direct_merge",
+        "remote_push",
+        "self_apply",
+        "stable_runtime_mutation",
+        "unbounded_automation",
+    ):
+        event = _critical_event(category=category, capabilities=[category])
+        metadata = _approved_critical_metadata(event, capabilities=[category])
+        if category == "delete_forbidden":
+            metadata["action_type"] = "delete"
+        elif category == "run_command_forbidden":
+            metadata["action_type"] = "run_command"
+        else:
+            metadata["forbidden_categories"] = [category]
+        item = make_item(risk_level="critical", metadata=metadata)
+
+        result = AtlasSafeApplyAdapter().evaluate_safe_apply(item, make_pool(item), preset_id="full_auto")
+
+        assert result.decision == "block", category
+        assert result.status == "blocked", category
+        assert category in result.categories, category

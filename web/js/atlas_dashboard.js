@@ -1098,7 +1098,20 @@
     if (state.approvalSubmitting || !state.currentPoolId) return;
     state.approvalSubmitting = true;
     const reasonEl = document.querySelector(`textarea[data-approval-reason="${itemId}"]`);
-    const response = await handleResult(await root.AtlasPipelineAPI.decideApproval({ pool_id: state.currentPoolId, item_id: itemId, run_id: state.currentRunId || '', decision, reason: reasonEl?.value || '', workspace_id: workspaceId(), metadata: { ui: 'atlas_dashboard' } }), 'Approval decision failed');
+    const item = arr(state.approvalItems).concat(arr(state.planPool?.items)).find((it)=>String(it?.item_id||'') === String(itemId));
+    const criticalEvent = item?.metadata?.critical_event || item?.metadata?.approval?.critical_event || null;
+    const criticalDecisionMap = { approved: 'approve', rejected: 'reject_ng_safer_replan', cancelled: 'cancel', needs_revision: 'edit_scope' };
+    const useCriticalDecisionPath = Boolean(criticalEvent?.critical_event && root.AtlasPipelineAPI?.decideCriticalEvent);
+    const payload = {
+      pool_id: state.currentPoolId,
+      item_id: itemId,
+      run_id: state.currentRunId || '',
+      decision: useCriticalDecisionPath ? (criticalDecisionMap[decision] || decision) : decision,
+      reason: reasonEl?.value || '',
+      workspace_id: workspaceId(),
+      metadata: { ui: 'atlas_dashboard', critical_event: criticalEvent || undefined }
+    };
+    const response = await handleResult(await (useCriticalDecisionPath ? root.AtlasPipelineAPI.decideCriticalEvent(payload) : root.AtlasPipelineAPI.decideApproval(payload)), useCriticalDecisionPath ? 'Critical decision failed' : 'Approval decision failed');
     state.approvalSubmitting = false;
     if (!response) return;
     state.planPool = response.plan_pool || state.planPool;

@@ -174,6 +174,9 @@
     decideApproval(payload) {
       return atlasFetch('/api/atlas/approvals/decide', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    decideCriticalEvent(payload) {
+      return atlasFetch('/api/atlas/critical-decisions/decide', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     cancelPlanPool(poolId, payload) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/cancel`, { method: 'POST', body: JSON.stringify(payload || {}) });
     },

@@ -84,6 +84,9 @@ def test_critical_event_ui_summary_strings_present():
     assert "Generating lower-impact alternative" in text
     assert "Approve with explicit consent" in text
     assert "Reject / NG and request safer alternative" in text
+    assert "decideCriticalEvent" in text
+    api_text = Path("web/js/atlas_pipeline_api.js").read_text(encoding="utf-8")
+    assert "/api/atlas/critical-decisions/decide" in api_text
 
 
 class _Journal:
@@ -128,3 +131,57 @@ def test_user_approval_persists_bounded_scope_and_ng_blocks_original_path():
     service.decide(pool, item_id="i1", run_id="r2", decision="rejected", reason="NG", approver="tester", metadata={})
     assert item.status == "needs_revision"
     assert item.metadata["lower_impact_alternative"]["metadata"]["original_critical_path_rejected"] is True
+
+
+def test_rejected_ng_critical_event_creates_lower_impact_revised_item_and_rerun_markers():
+    event = normalize_critical_event(category="security", affected_files=["agent/security.py"], affected_capabilities=["security"])
+    item = AtlasPlanItem(
+        item_id="i2",
+        pool_id="p2",
+        title="Critical item",
+        goal="Change auth",
+        status="waiting_for_critical_decision",
+        risk_level="critical",
+        target_files=["agent/security.py", "agent/extra.py"],
+        metadata={"critical_event": event},
+    )
+    pool = AtlasPlanPool(pool_id="p2", root_goal="goal", items=[item])
+
+    service = AtlasApprovalService(_Journal())
+    service.decide(pool, item_id="i2", run_id="r1", decision="rejected", reason="NG", approver="tester", metadata={})
+
+    assert item.status == "needs_revision"
+    assert item.auto_execution_allowed is False
+    assert item.metadata["executable"] is False
+    revised_id = item.metadata["lower_impact_revised_item_id"]
+    revised = pool.get_item(revised_id)
+    assert revised is not None
+    assert revised.status == "needs_revision"
+    assert revised.metadata["lower_impact_revised_candidate"] is True
+    assert revised.metadata["requires_critique_gate_rerun"] is True
+    assert revised.metadata["requires_policy_gate_rerun"] is True
+    assert revised.metadata["requires_safe_apply_gate_rerun"] is True
+    assert revised.metadata["gate_rerun_required"] == ["plan_critique_gate", "policy_gate", "safe_apply_gate"]
+    assert revised.metadata["safe_apply_allowed_before_gate_rerun"] is False
+    assert revised.auto_execution_allowed is False
+    assert revised.target_files == ["agent/security.py"]
+
+
+def test_waiting_for_critical_decision_items_are_listed_for_dedicated_decision():
+    event = normalize_critical_event(category="security", affected_files=["agent/security.py"], affected_capabilities=["security"])
+    item = AtlasPlanItem(
+        item_id="i3",
+        pool_id="p3",
+        title="Critical item",
+        goal="Change auth",
+        status="waiting_for_critical_decision",
+        risk_level="critical",
+        target_files=["agent/security.py"],
+        metadata={"critical_event": event},
+    )
+    pool = AtlasPlanPool(pool_id="p3", root_goal="goal", items=[item])
+
+    data = AtlasApprovalService(_Journal()).list_pool_approvals(pool)
+
+    assert data["pending_count"] == 1
+    assert data["approval_required_items"][0]["item_id"] == "i3"

@@ -7,7 +7,7 @@ from uuid import uuid4
 from agent.atlas_approval_gate import AtlasApprovalGate
 from agent.atlas_critical_event_policy import lower_impact_alternative_plan
 from agent.atlas_journal import AtlasJournal
-from agent.atlas_plan_pool_schema import AtlasPlanPool
+from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 
 
 class AtlasApprovalService:
@@ -27,7 +27,7 @@ class AtlasApprovalService:
             payload = self._item_payload(item)
             decision = str(((payload.get("metadata") or {}).get("approval") or {}).get("decision") or "").strip().lower()
             requires_approval = (
-                item.status in {"approval_required", "paused"}
+                item.status in {"approval_required", "paused", "waiting_for_critical_decision"}
                 or bool(item.requires_user_confirmation)
                 or (item.status == "ready" and bool(item.requires_user_confirmation) and not decision)
             )
@@ -106,7 +106,11 @@ class AtlasApprovalService:
             gate.reject(record.approval_id, decided_by=approver, reason=reason)
             if critical_event.get("critical_event"):
                 item.status = "needs_revision"
+                item.auto_execution_allowed = False
+                item.metadata["original_critical_path_rejected"] = True
+                item.metadata["executable"] = False
                 item.metadata["lower_impact_alternative"] = lower_impact_alternative_plan(self._item_payload(item), critical_event)
+                self._enqueue_lower_impact_revision(pool, item, critical_event)
             else:
                 item.status = "blocked"
         elif decision == "cancelled":
@@ -156,6 +160,62 @@ class AtlasApprovalService:
             }
         self._save_record(pool.pool_id, payload, item_title=item.title, risk_level=item.risk_level, target_files=item.target_files)
         return payload
+
+
+    def _enqueue_lower_impact_revision(self, pool: AtlasPlanPool, item, critical_event: dict) -> AtlasPlanItem:
+        alternative = dict(item.metadata.get("lower_impact_alternative") or lower_impact_alternative_plan(self._item_payload(item), critical_event))
+        metadata = dict(alternative.get("metadata") or {})
+        original_item_id = str(item.item_id)
+        candidate_id = f"{original_item_id}_lower_impact_{uuid4().hex[:8]}"
+        metadata.update({
+            "source": "critical_decision_lower_impact_replan",
+            "source_item_id": original_item_id,
+            "original_critical_item_id": original_item_id,
+            "critical_event": dict(critical_event or {}),
+            "requires_critique_gate_rerun": True,
+            "requires_policy_gate_rerun": True,
+            "requires_safe_apply_gate_rerun": True,
+            "gate_rerun_required": ["plan_critique_gate", "policy_gate", "safe_apply_gate"],
+            "safe_apply_allowed_before_gate_rerun": False,
+            "auto_execution_allowed": False,
+            "lower_impact_revised_candidate": True,
+        })
+        candidate = AtlasPlanItem(
+            item_id=candidate_id,
+            pool_id=pool.pool_id,
+            title=f"Lower-impact revision for {item.title}",
+            goal=str(alternative.get("goal") or item.goal),
+            parent_plan_id=item.parent_plan_id,
+            description="User rejected/NG the original critical path; revise this lower-impact candidate and rerun gates before mutation.",
+            item_type=item.item_type,
+            status="needs_revision",
+            priority=item.priority,
+            risk_level=str(alternative.get("risk_level") or "medium"),
+            depends_on=[],
+            target_files=list(alternative.get("target_files") or []),
+            expected_changes=list(alternative.get("expected_changes") or []),
+            test_commands=[],
+            done_definition=list(alternative.get("done_definition") or item.done_definition or []),
+            rollback_plan=list(alternative.get("rollback_plan") or item.rollback_plan or []),
+            requires_user_confirmation=True,
+            auto_execution_allowed=False,
+            linked_requirement_id=item.linked_requirement_id,
+            linked_plan_id=item.linked_plan_id,
+            linked_run_id=item.linked_run_id,
+            metadata=metadata,
+        )
+        item.metadata["lower_impact_revised_item_id"] = candidate_id
+        item.metadata["lower_impact_alternative"] = {**alternative, "item_id": candidate_id, "pool_id": pool.pool_id, "metadata": metadata}
+        pool.items.append(candidate)
+        pool.status = "approval_required"
+        pool.metadata.setdefault("critical_replanning", {})
+        pool.metadata["critical_replanning"].update({
+            "status": "lower_impact_revision_created",
+            "original_item_id": original_item_id,
+            "revised_item_id": candidate_id,
+            "requires_gate_rerun": ["plan_critique_gate", "policy_gate", "safe_apply_gate"],
+        })
+        return candidate
 
     def _approvals_dir(self, pool_id: str) -> Path:
         return Path(self.journal.plan_pool_dir(pool_id)) / "approvals"
