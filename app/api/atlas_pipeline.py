@@ -1472,6 +1472,61 @@ def decide_approval(req: AtlasApprovalDecisionRequest, request: Request) -> Atla
     return AtlasApprovalDecisionResponse(pool_id=req.pool_id, item_id=req.item_id, decision=req.decision, status=pool.status, approval_record=approval_record, plan_pool=_model_dump(pool), recovery_summary=recovery, orchestration_summary=orchestration, continuation_prompt=continuation)
 
 
+class AtlasPlanCancelRequest(BaseModel):
+    workspace_id: str = "default"
+    reason: str = ""
+
+
+_CANCELLABLE_ITEM_STATUSES = {"queued", "ready", "pending", "approval_required", "needs_revision", "paused", "waiting", "dependency_waiting"}
+
+
+@router.post("/plan-pools/{pool_id}/cancel")
+def cancel_plan_pool(pool_id: str, req: AtlasPlanCancelRequest, request: Request) -> dict:
+    """Cancel a plan: mark the pool cancelled and stop any not-yet-terminal items. This is the
+    plan-level counterpart to the per-item approval decisions (approve/reject/needs_revision)."""
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    try:
+        pool = storage.load_pool(pool_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="plan pool not found") from exc
+    cancelled_ids: list[str] = []
+    for item in (pool.items or []):
+        if str(getattr(item, "status", "")).lower() in _CANCELLABLE_ITEM_STATUSES:
+            item.status = "cancelled"
+            cancelled_ids.append(item.item_id)
+    pool.status = "cancelled"
+    pool.metadata["cancelled"] = {"reason": req.reason, "cancelled_item_ids": cancelled_ids}
+    pool.metadata.pop("clarification_required", None)
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    journal.write_checkpoint(pool=pool, next_action=_checkpoint_next_action(pool.status))
+    return {"pool_id": pool_id, "status": pool.status, "cancelled_item_ids": cancelled_ids, "plan_pool": _model_dump(pool)}
+
+
+class AtlasPlanClarifyRequest(BaseModel):
+    workspace_id: str = "default"
+    option_id: str = ""
+    note: str = ""
+
+
+@router.post("/plan-pools/{pool_id}/clarify")
+def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Request) -> dict:
+    """Record the user's answer to a Claude-style clarification question and clear the gate so the
+    plan can continue. The chosen option is persisted for audit and downstream revision."""
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    try:
+        pool = storage.load_pool(pool_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="plan pool not found") from exc
+    options = list(((pool.metadata or {}).get("critique_clarification_options") or {}).get("options") or [])
+    chosen = next((o for o in options if str(o.get("option_id")) == req.option_id), None)
+    pool.metadata["clarification_decision"] = {"option_id": req.option_id, "note": req.note, "chosen": chosen or {}}
+    pool.metadata.pop("clarification_required", None)
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    return {"pool_id": pool_id, "status": pool.status, "clarification_decision": pool.metadata["clarification_decision"], "plan_pool": _model_dump(pool)}
+
+
 
 
 @router.post("/change-snapshots/restore", response_model=AtlasChangeSnapshotRestoreResult)
