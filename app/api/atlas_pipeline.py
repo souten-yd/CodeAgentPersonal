@@ -43,6 +43,7 @@ from agent.atlas_capability_preference_schema import (
     normalize_ui_preferences as _normalize_capability_preferences,
 )
 from agent.atlas_automation_features import resolve_features as _resolve_automation_features
+from agent.atlas_plan_depth_gate import evaluate_plan_depth
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
@@ -951,6 +952,19 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         request_features=dict(req.automation_features or {}), ca_data_root=ca_data_root
     )
     pool.metadata["automation_features"] = _features
+    # ── Pre-approval plan-depth gate (WS6-1): reject shallow plans (no implementation items,
+    # missing target files, one-line step descriptions) before approval/apply. Blocking only when
+    # quality_gate_enforcement="block"; otherwise surfaced as warnings. ──
+    _depth = evaluate_plan_depth(pool)
+    pool.metadata["plan_depth_gate"] = _depth
+    _enforce_quality = _features.get("quality_gate_enforcement") == "block"
+    if not _depth["ok"]:
+        for _r in _depth["warnings"]:
+            if _r not in pool.warnings:
+                pool.warnings.append(_r)
+        if _enforce_quality:
+            pool.metadata["plan_revision_required"] = True
+            pool.status = "approval_required"
     quality_gate = apply_plan_quality_gate(
         plan,
         automation_level=req.automation_level,
