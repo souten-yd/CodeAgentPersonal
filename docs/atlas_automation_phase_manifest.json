@@ -12,7 +12,7 @@
   "runtime_level_model": "profile_dependent",
   "current_level": "level_8_fully_autonomous_code_agent",
   "current_level_semantics": "max_backend_runtime_milestone_not_single_active_runtime",
-  "current_level_note": "Runtime level is resolved per selected automation profile (see runtime_level_by_profile). current_level records the maximum backend milestone reached, not a single always-on active runtime; defaults sit on the safe end. Practical full automation is complete only inside the selected bounded profile/envelope constraints.",
+  "current_level_note": "Runtime level is resolved per selected automation profile (see runtime_level_by_profile). current_level records the maximum backend milestone reached, not a single always-on active runtime; defaults sit on the safe end. Practical full automation is still a corrective checkpoint until end-to-end acceptance proves clarification, critical decisions, bounded code generation, verification, repair, and draft PR evidence under backend profile/envelope gates.",
   "default_runtime_level": "level_4_self_improvement_platform",
   "max_runtime_level": "level_8_fully_autonomous_code_agent",
   "runtime_level_by_profile": {
@@ -527,11 +527,18 @@
     }
   ],
   "practical_full_automation_plan": "docs/atlas_practical_full_automation_experience_plan.md",
-  "practical_full_automation_complete": true,
-  "ui_practical_experience_complete": true,
+  "practical_full_automation_complete": false,
+  "ui_practical_experience_complete": false,
   "stable_runtime_mutation_apply_complete": true,
-  "self_improvement_practical_loop_complete": true,
-  "draft_pr_experience_complete": true,
+  "self_improvement_practical_loop_complete": false,
+  "draft_pr_experience_complete": false,
+  "practical_full_automation_truthfulness_status": "corrective_checkpoint_in_progress",
+  "practical_full_automation_incomplete_reasons": [
+    "acceptance_tests_are_focused_contracts_not_full_end_to_end_proof",
+    "self_improvement_practical_loop_not_end_to_end_verified",
+    "draft_pr_experience_artifact_exists_but_not_full_review_workflow_complete",
+    "bounded_repair_evidence_is_planned_not_executed_in_all_failure_cases"
+  ],
   "practical_full_automation_acceptance_tests": "tests/test_atlas_practical_full_automation_acceptance.py",
   "claude_chat_panel_buildless_enabled": true,
   "claude_chat_panel_additive_only": true,

@@ -7,10 +7,12 @@ def test_practical_full_automation_plan_manifest_wiring() -> None:
 
     manifest = json.loads(Path('docs/atlas_automation_phase_manifest.json').read_text(encoding='utf-8'))
     assert manifest['practical_full_automation_plan'] == 'docs/atlas_practical_full_automation_experience_plan.md'
-    assert manifest['practical_full_automation_complete'] is True
-    assert manifest['ui_practical_experience_complete'] is True
-    assert manifest['self_improvement_practical_loop_complete'] is True
-    assert manifest['draft_pr_experience_complete'] is True
+    assert manifest['practical_full_automation_complete'] is False
+    assert manifest['ui_practical_experience_complete'] is False
+    assert manifest['self_improvement_practical_loop_complete'] is False
+    assert manifest['draft_pr_experience_complete'] is False
+    assert manifest['practical_full_automation_truthfulness_status'] == 'corrective_checkpoint_in_progress'
+    assert 'not a single always-on active runtime' in manifest['current_level_note']
     assert manifest['practical_full_automation_acceptance_tests'] == 'tests/test_atlas_practical_full_automation_acceptance.py'
 
     planned_prs = {item['pr'] for item in manifest['planned_prs']}
