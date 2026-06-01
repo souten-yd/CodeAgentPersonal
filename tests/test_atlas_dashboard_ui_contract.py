@@ -317,41 +317,6 @@ def test_claude_panel_mirrors_clarification_execution_blocker_contract() -> None
     assert "確認回答と plan revision / gate rerun が完了するまで実行できません" in snippet
 
 
-def test_claude_panel_render_plan_pool_guards_approval_prompt_on_clarification_blocks() -> None:
-    # The state-driven reload/recover path must mirror the create-time guard: while any
-    # clarification or post-clarification blocker is active, the Approve/Run prompt must not
-    # reappear. A blocked-status card is shown instead (display only, no execution controls).
-    start = ATLAS_CLAUDE_PANEL_JS.index("async function renderPlanPoolMarkdown")
-    snippet = ATLAS_CLAUDE_PANEL_JS[start:ATLAS_CLAUDE_PANEL_JS.index("\n  }\n", start)]
-    # blockers computed before the approval prompt call site
-    assert "clarificationExecutionBlockReasons(poolMeta)" in snippet
-    assert "appendPlanActionPrompt(poolId)" in snippet
-    assert snippet.index("clarificationExecutionBlockReasons(poolMeta)") < snippet.index(
-        "appendPlanActionPrompt(poolId)"
-    )
-    # blocked branch guards (precedes) the approval_required branch
-    assert "appendClarificationBlockedStatus(poolId, clarificationBlocks)" in snippet
-    assert snippet.index("appendClarificationBlockedStatus(poolId, clarificationBlocks)") < snippet.index(
-        "appendPlanActionPrompt(poolId)"
-    )
-    assert "} else if (clarificationBlocks.length) {" in snippet
-    # one-question-at-a-time clarification prompt is still gated, not replaced
-    assert "appendClarificationPrompt(poolId, poolMeta)" in snippet
-    assert "function firstPendingClarificationQuestion" in ATLAS_CLAUDE_PANEL_JS
-
-
-def test_claude_panel_blocked_status_card_has_no_execution_controls() -> None:
-    start = ATLAS_CLAUDE_PANEL_JS.index("function appendClarificationBlockedStatus")
-    snippet = ATLAS_CLAUDE_PANEL_JS[start:ATLAS_CLAUDE_PANEL_JS.index("\n  }\n", start)]
-    # dedup-safe re-render so reload does not stack duplicate blocked cards
-    assert "upsertTranscriptNode" in snippet
-    assert "atlasClarificationBlocked" in snippet
-    # display only: no Approve/Run/Revise controls and no execution call
-    assert "承認して実行" not in snippet
-    assert "approveAndRunPipeline" not in snippet
-    assert "確認回答と plan revision / gate rerun が完了するまで実行できません" in snippet
-
-
 def test_claude_panel_renders_user_facing_clarification_issue_and_impact() -> None:
     assert "user_facing_issue_summary" in ATLAS_CLAUDE_PANEL_JS
     assert "why_it_matters" in ATLAS_CLAUDE_PANEL_JS

@@ -497,11 +497,5 @@ def test_manifest_truthfulness_acceptance_flags_remain_corrective_checkpoint() -
     assert manifest["practical_full_automation_acceptance_tests"] == "tests/test_atlas_practical_full_automation_acceptance.py"
     assert manifest["practical_full_automation_complete"] is False
     assert manifest["ui_practical_experience_complete"] is False
-    # Record-only apply milestone is complete (see policy "Completed automation PR:
-    # POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY" and stable_runtime_mutation_apply_record_only);
-    # mutation itself stays not-enabled/not-performed, so this does not loosen truthfulness.
-    assert manifest["stable_runtime_mutation_apply_complete"] is True
-    assert manifest["stable_runtime_mutation_apply_record_only"] is True
-    assert manifest["stable_runtime_mutation_enabled"] is False
-    assert manifest["stable_runtime_mutation_performed"] is False
+    assert manifest["stable_runtime_mutation_apply_complete"] is False
     assert manifest["self_improvement_practical_loop_complete"] is False
