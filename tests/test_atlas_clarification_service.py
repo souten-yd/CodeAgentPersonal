@@ -45,6 +45,39 @@ def test_build_question_queue_creates_independent_questions():
     assert all(q["total"] == 3 for q in questions)
     assert all(len(q["options"]) >= 4 for q in questions)
     assert all(any(o["option_id"] == "custom" and o.get("requires_text") for o in q["options"]) for q in questions)
+    assert questions[0]["title"] != "Clarify missing_steps"
+    assert questions[0]["user_facing_issue_summary"]
+    assert questions[0]["why_it_matters"]
+    assert questions[0]["detected_signal_metadata"]["raw_label"] == "missing_steps"
+    assert questions[0]["remediation_options_generated_by"] == "template_fallback"
+    for option in questions[0]["options"]:
+        assert "plan_change_summary" in option
+        assert "implementation_scope" in option
+        assert "risk_level" in option
+        assert option["gate_rerun_required"] is True
+        assert option["can_continue_after_answer"] is False
+
+
+def test_missing_game_over_question_uses_concrete_remediation_options():
+    svc = AtlasClarificationService()
+    questions = svc.build_question_queue(
+        options=[
+            {
+                "option_id": "missing_steps",
+                "label": "missing_steps",
+                "description": "Game plan lacks game-over, collision restart, and animation loop behavior.",
+            }
+        ],
+    )
+
+    question = questions[0]
+    assert question["title"] == "Game-over and restart behavior is missing"
+    assert "how the game ends" in question["user_facing_issue_summary"]
+    assert "restart state" in question["why_it_matters"]
+    labels = [option["label"] for option in question["options"]]
+    assert labels[:3] == ["Recommended safe fix", "Minimal fix", "Defer/remove"]
+    assert "playing -> game_over -> restart" in question["options"][0]["plan_change_summary"]
+    assert question["recommended_option_id"] == "safest_recommended"
 
 
 def test_apply_answer_marks_only_one_question_answered():
@@ -68,6 +101,7 @@ def test_apply_answer_marks_only_one_question_answered():
     assert progress["questions"][0]["status"] == "answered"
     assert progress["questions"][1]["status"] == "pending"
     assert progress["answers"][0]["question_id"] == "clar_q_1"
+    assert progress["answers"][0]["selected_option_impact"]["implementation_scope"] == "minimal"
 
 
 def test_save_load_session_with_journal(tmp_path):

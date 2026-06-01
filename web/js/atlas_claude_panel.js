@@ -772,13 +772,27 @@
     const prompt = document.createElement('div');
     prompt.className = 'atlas-claude-stage-detail';
     prompt.style.whiteSpace = 'normal';
-    prompt.textContent = String(question.prompt || question.title || 'Clarification required');
+    prompt.textContent = String(question.title || question.prompt || 'Clarification required');
     node.appendChild(prompt);
+    if (question.user_facing_issue_summary) {
+      const summary = document.createElement('div');
+      summary.className = 'atlas-claude-stage-detail';
+      summary.style.whiteSpace = 'normal';
+      summary.textContent = String(question.user_facing_issue_summary);
+      node.appendChild(summary);
+    }
+    if (question.why_it_matters) {
+      const why = document.createElement('div');
+      why.className = 'atlas-claude-stage-detail';
+      why.style.whiteSpace = 'normal';
+      why.textContent = String(question.why_it_matters);
+      node.appendChild(why);
+    }
     if (question.reason) {
       const reason = document.createElement('div');
       reason.className = 'atlas-claude-stage-detail';
       reason.style.whiteSpace = 'normal';
-      reason.textContent = `理由: ${String(question.reason)}`;
+      reason.textContent = `Detected: ${String(question.reason)}`;
       node.appendChild(reason);
     }
     const custom = document.createElement('textarea');
@@ -796,7 +810,9 @@
       btn.style.textAlign = 'left';
       const label = String(opt.label || opt.option_id || 'option');
       const desc = String(opt.description || '');
-      btn.textContent = desc ? `${label} — ${desc}` : label;
+      const impact = String(opt.plan_change_summary || opt.implementation_scope || '');
+      const recommended = opt.recommended || question.recommended_option_id === opt.option_id ? 'Recommended: ' : '';
+      btn.textContent = [recommended + label, desc, impact ? `Impact: ${impact}` : ''].filter(Boolean).join(' — ');
       btn.addEventListener('click', () => {
         submitClarification(poolId, question.question_id, opt.option_id, opt.requires_text ? custom.value : '');
       });

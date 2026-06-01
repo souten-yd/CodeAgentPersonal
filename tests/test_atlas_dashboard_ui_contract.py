@@ -263,6 +263,14 @@ def test_claude_panel_mirrors_clarification_execution_blocker_contract() -> None
     assert "rerun_safety_gate_after_clarification" in ATLAS_CLAUDE_PANEL_JS
 
 
+def test_claude_panel_renders_user_facing_clarification_issue_and_impact() -> None:
+    assert "user_facing_issue_summary" in ATLAS_CLAUDE_PANEL_JS
+    assert "why_it_matters" in ATLAS_CLAUDE_PANEL_JS
+    assert "plan_change_summary" in ATLAS_CLAUDE_PANEL_JS
+    assert "Impact:" in ATLAS_CLAUDE_PANEL_JS
+    assert "Recommended:" in ATLAS_CLAUDE_PANEL_JS
+
+
 def test_dashboard_supports_llm_backend_unavailable_warning_strings() -> None:
     assert "llm_backend_unavailable" in ATLAS_DASHBOARD_JS
     assert "real_planner_unavailable" in ATLAS_DASHBOARD_JS
