@@ -171,10 +171,14 @@ class AtlasAutonomousCodegenOrchestratorService:
         for w in autopilot.warnings:
             if w not in out.warnings:
                 out.warnings.append(w)
+        repair_evidence = self._build_repairable_verification_evidence(request, autopilot)
 
         # ── Phase 4: aggregate ────────────────────────────────────────────────────────────────
         out.phase = "final_summary"
         out.status = autopilot.status or "completed"
+        if repair_evidence:
+            out.phase = "failure_analysis"
+            out.stop_reason = out.stop_reason or "repairable_verification_failed"
         out.metadata.update(
             {
                 "autopilot_run_id": autopilot.autopilot_run_id,
@@ -192,6 +196,8 @@ class AtlasAutonomousCodegenOrchestratorService:
                 },
             }
         )
+        if repair_evidence:
+            out.metadata.update(repair_evidence)
         draft_pr_artifact = self._prepare_draft_pr_artifact(
             result=out,
             request=request,
@@ -708,6 +714,135 @@ class AtlasAutonomousCodegenOrchestratorService:
                 if path not in changed:
                     changed.append(path)
         return changed
+
+    def _build_repairable_verification_evidence(self, request: AtlasAutonomousCodegenRequest, autopilot) -> dict[str, Any]:
+        failures = []
+        for item in getattr(autopilot, "item_results", []) or []:
+            summary = self._repairable_failure_summary(item, max_retries=int(request.max_retries or 0))
+            if summary:
+                failures.append(summary)
+        if not failures:
+            return {}
+        changed_files = self._changed_files_from_autopilot(autopilot)
+        affected_files = []
+        for summary in failures:
+            for path in summary.get("affected_files") or []:
+                if path not in affected_files:
+                    affected_files.append(path)
+        allowed_repair_files = self._allowed_repair_files(
+            affected_files=affected_files,
+            changed_files=changed_files,
+            allowed_paths=request.allowed_paths or list((((request.envelope or {}).get("bounds") or {}).get("allowed_paths") or [])),
+            blocked_paths=request.blocked_paths or list((((request.envelope or {}).get("bounds") or {}).get("blocked_paths") or [])),
+        )
+        repair_plan = {
+            "status": "planned" if allowed_repair_files else "blocked",
+            "failure_summary": failures[0],
+            "affected_files": affected_files,
+            "allowed_repair_files": allowed_repair_files,
+            "concrete_repair_steps": failures[0].get("recommended_repair_steps") or [],
+            "retry_index": 0,
+            "max_retries": int(request.max_retries or 0),
+            "post_repair_verification_required": True,
+            "blocked_reasons": [] if allowed_repair_files else ["no_allowed_repair_files"],
+        }
+        return {
+            "verification_failure_summary": failures[0],
+            "verification_failure_summaries": failures,
+            "repair_plan": repair_plan,
+            "repair_attempts": [
+                {
+                    "status": "planned_not_executed",
+                    "reason": "bounded_repair_patch_generation_not_started",
+                    "retry_index": 0,
+                    "post_repair_verification_required": True,
+                }
+            ],
+            "files_allowed_for_repair": allowed_repair_files,
+            "retry_count": 0,
+            "post_repair_verification_result": {"status": "not_run", "reason": "repair_not_applied"},
+            "final_status": "verification_failed_repair_planned" if allowed_repair_files else "verification_failed_repair_blocked",
+        }
+
+    @staticmethod
+    def _repairable_failure_summary(item, *, max_retries: int) -> dict[str, Any]:
+        verification = getattr(item, "verification_result", None) or {}
+        warnings = []
+        warnings.extend(str(w) for w in (verification.get("warnings") or []) if str(w))
+        warnings.extend(str(w) for w in (getattr(item, "warnings", []) or []) if str(w))
+        reason = str(getattr(item, "reason", "") or "")
+        if reason.startswith("verification_failed:"):
+            warnings.append(reason.replace("verification_failed:", "", 1))
+        visual_contract_failed = "visual_contract_failed" in warnings
+        visual_missing = [w for w in warnings if w.startswith("visual_missing:")]
+        browser_smoke_failed = [w for w in warnings if w.startswith("browser_smoke_failed:")]
+        repairable_visual_missing = [
+            w for w in visual_missing
+            if w in {"visual_missing:animation_signal", "visual_missing:motion_signal", "visual_missing:color_mutation_signal"}
+        ]
+        browser_repairable = [
+            w for w in browser_smoke_failed
+            if "playwright_error" in w or visual_contract_failed or visual_missing
+        ]
+        if not (visual_contract_failed or repairable_visual_missing or browser_repairable):
+            return {}
+        affected_files = list(getattr(item, "changed_files", []) or [])
+        failed_contracts = list(dict.fromkeys(
+            (["visual_contract_failed"] if visual_contract_failed else [])
+            + repairable_visual_missing
+            + browser_repairable
+        ))
+        verification_tool_error = next((w for w in browser_smoke_failed if "playwright_error" in w), "")
+        return {
+            "item_id": str(getattr(item, "item_id", "") or ""),
+            "user_facing_title": "Visual verification failed: game does not show required motion/animation evidence",
+            "user_facing_summary": (
+                f"Atlas changed {', '.join(affected_files) or 'the generated files'}, but verification could not detect "
+                "visible animation, motion, or color/state changes. Browser smoke may also have failed, so Atlas should "
+                "inspect the generated HTML/CSS/JS and repair the runtime loop or visible signals."
+            ),
+            "failed_contracts": failed_contracts,
+            "likely_cause": "Missing or non-observable requestAnimationFrame loop, visible motion, canvas/DOM state mutation, or browser runtime signal.",
+            "recommended_repair_steps": [
+                "inspect index.html and related style/script files",
+                "add or fix requestAnimationFrame loop",
+                "ensure visible object position changes over time",
+                "ensure canvas/DOM visual state changes are observable",
+                "add visible color/state mutation where appropriate",
+                "preserve existing game requirements",
+                "rerun focused visual verification",
+            ],
+            "affected_files": affected_files,
+            "repair_scope": "changed_files_only",
+            "can_attempt_bounded_repair": max_retries > 0,
+            "retry_count_remaining": max(0, max_retries),
+            "verification_tool_error": verification_tool_error,
+            "app_visual_contract_failed": visual_contract_failed,
+        }
+
+    def _allowed_repair_files(
+        self,
+        *,
+        affected_files: list[str],
+        changed_files: list[str],
+        allowed_paths: list[str],
+        blocked_paths: list[str],
+    ) -> list[str]:
+        changed = set(changed_files or [])
+        candidates = [path for path in affected_files if path in changed]
+        if not candidates:
+            candidates = list(changed_files or [])
+        allowed: list[str] = []
+        for path in candidates:
+            if not self._safe_relative_path(path):
+                continue
+            if self._matches_prefix(path, blocked_paths or []):
+                continue
+            if allowed_paths and not self._matches_prefix(path, allowed_paths):
+                continue
+            if path not in allowed:
+                allowed.append(path)
+        return allowed
 
     def _item_has_patch_content(self, item) -> bool:
         md = item.metadata or {}
