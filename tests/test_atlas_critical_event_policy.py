@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agent.atlas_approval_service import AtlasApprovalService
+from agent.atlas_approval_service import AtlasApprovalService, POOL_CRITICAL_DECISION_ITEM_ID
 from agent.atlas_autopilot_policy_schema import AtlasPolicyEvaluation
 from agent.atlas_critical_replanning_service import AtlasCriticalReplanningService
 from agent.atlas_critical_event_policy import lower_impact_alternative_plan, normalize_critical_event
@@ -274,3 +274,51 @@ def test_waiting_for_critical_decision_items_are_listed_for_dedicated_decision()
 
     assert data["pending_count"] == 1
     assert data["approval_required_items"][0]["item_id"] == "i3"
+
+
+def test_pool_level_critical_event_is_listed_without_item_event():
+    event = normalize_critical_event(category="security", affected_files=["agent/security.py"], affected_capabilities=["security"])
+    pool = AtlasPlanPool(
+        pool_id="p6",
+        root_goal="goal",
+        status="waiting_for_critical_decision",
+        items=[],
+        metadata={"critical_event": event},
+    )
+
+    data = AtlasApprovalService(_Journal()).list_pool_approvals(pool)
+
+    assert data["pending_count"] == 1
+    target = data["approval_required_items"][0]
+    assert target["scope"] == "pool"
+    assert target["item_id"] == POOL_CRITICAL_DECISION_ITEM_ID
+    assert target["metadata"]["critical_event"]["critical_event"] is True
+    assert target["metadata"]["next_required_user_action"] == "Decide pool-level critical event before continuing."
+
+
+def test_pool_level_reject_ng_creates_lower_impact_replanning_metadata():
+    event = normalize_critical_event(category="security", affected_files=["agent/security.py"], affected_capabilities=["security"])
+    pool = AtlasPlanPool(
+        pool_id="p7",
+        root_goal="Change auth",
+        status="waiting_for_critical_decision",
+        items=[],
+        metadata={"critical_event": event},
+    )
+
+    record = AtlasApprovalService(_Journal()).decide_pool_critical(
+        pool,
+        run_id="r1",
+        decision="rejected",
+        reason="NG",
+        approver="tester",
+        metadata={},
+    )
+
+    assert record["metadata"]["decision"] == "rejected_ng_safer_replan"
+    assert pool.metadata["critical_decision"]["original_path_blocked"] is True
+    assert pool.metadata["critical_replanning"]["original_path_blocked"] is True
+    assert len(pool.items) == 1
+    revised = pool.items[0]
+    assert revised.metadata["created_from_critical_event"] is True
+    assert revised.metadata["rerun_result_status"] == "approval_required"

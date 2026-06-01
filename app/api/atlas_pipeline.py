@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 
 from agent.atlas_clarification_schema import AtlasClarificationSubmitRequest, AtlasClarificationSubmitResult
 from agent.atlas_clarification_service import AtlasClarificationService
-from agent.atlas_approval_service import AtlasApprovalService
+from agent.atlas_approval_service import AtlasApprovalService, POOL_CRITICAL_DECISION_ITEM_ID
 from agent.atlas_continuation_service import AtlasContinuationService
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_orchestration_summary import AtlasOrchestrationSummaryBuilder
@@ -1497,6 +1497,54 @@ def decide_critical_event(req: AtlasApprovalDecisionRequest, request: Request) -
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="plan pool not found") from exc
     item = pool.get_item(req.item_id)
+    pool_critical_event = dict((pool.metadata or {}).get("critical_event") or {})
+    is_pool_scope = (
+        req.item_id in {"", POOL_CRITICAL_DECISION_ITEM_ID}
+        or (item is None and pool_critical_event.get("critical_event"))
+    )
+    if is_pool_scope:
+        critical_event = dict(pool_critical_event or (req.metadata or {}).get("critical_event") or {})
+        if not critical_event.get("critical_event") and pool.status != "waiting_for_critical_decision":
+            raise HTTPException(status_code=400, detail="critical_decision_requires_critical_event")
+        decision_map = {
+            "approve": "approved",
+            "approved": "approved",
+            "reject_ng_safer_replan": "rejected",
+            "rejected": "rejected",
+            "cancel": "cancelled",
+            "cancelled": "cancelled",
+            "edit_scope": "needs_revision",
+            "needs_revision": "needs_revision",
+        }
+        mapped_decision = decision_map.get(str(req.decision or "").strip().lower())
+        if mapped_decision is None:
+            raise HTTPException(status_code=400, detail="invalid_critical_decision")
+        service = AtlasApprovalService(journal)
+        metadata = {
+            **dict(req.metadata or {}),
+            "critical_decision_path": True,
+            "critical_decision_scope": "pool",
+            "critical_decision": str(req.decision or ""),
+            "critical_event": critical_event,
+        }
+        try:
+            approval_record = service.decide_pool_critical(
+                pool,
+                run_id=req.run_id,
+                decision=mapped_decision,
+                reason=req.reason,
+                approver=req.approver,
+                metadata=metadata,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        storage.save_pool(pool)
+        journal.save_plan_pool(pool)
+        recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
+        orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None, recovery=recovery).model_dump()
+        continuation = AtlasContinuationService(journal).build_pool_summary(pool.pool_id, req.run_id).continuation_prompt
+        journal.write_checkpoint(pool=pool, next_action=_checkpoint_next_action(pool.status))
+        return AtlasApprovalDecisionResponse(pool_id=req.pool_id, item_id=POOL_CRITICAL_DECISION_ITEM_ID, decision=str(req.decision or mapped_decision), status=pool.status, approval_record=approval_record, plan_pool=_model_dump(pool), recovery_summary=recovery, orchestration_summary=orchestration, continuation_prompt=continuation)
     if item is None:
         raise HTTPException(status_code=404, detail="item not found")
     critical_event = dict((item.metadata or {}).get("critical_event") or (req.metadata or {}).get("critical_event") or {})

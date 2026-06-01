@@ -10,6 +10,8 @@ from agent.atlas_critical_event_policy import lower_impact_alternative_plan
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_plan_pool_schema import AtlasPlanPool
 
+POOL_CRITICAL_DECISION_ITEM_ID = "__pool_critical_decision__"
+
 
 class AtlasApprovalService:
     def __init__(self, journal: AtlasJournal):
@@ -23,6 +25,16 @@ class AtlasApprovalService:
         approved_count = 0
         rejected_count = 0
         needs_revision_count = 0
+
+        pool_critical_event = dict((pool.metadata or {}).get("critical_event") or {})
+        pool_decision = str(((pool.metadata or {}).get("critical_decision") or {}).get("decision") or "").strip().lower()
+        pool_requires_decision = (
+            pool.status == "waiting_for_critical_decision"
+            or bool(pool_critical_event.get("critical_event"))
+        ) and pool_decision not in {"approved", "rejected_ng_safer_replan", "cancelled", "edit_scope_requested"}
+        if pool_requires_decision:
+            required_items.append(self._pool_critical_payload(pool, pool_critical_event))
+            pending_count += 1
 
         for item in pool.items:
             payload = self._item_payload(item)
@@ -88,6 +100,104 @@ class AtlasApprovalService:
             "warnings": [],
             "errors": [],
         }
+
+    def decide_pool_critical(self, pool: AtlasPlanPool, *, run_id: str, decision: str, reason: str, approver: str, metadata: dict) -> dict:
+        if decision not in {"approved", "rejected", "needs_revision", "cancelled"}:
+            raise ValueError("invalid decision")
+        critical_event = dict((pool.metadata or {}).get("critical_event") or (metadata or {}).get("critical_event") or {})
+        if not critical_event.get("critical_event"):
+            raise ValueError("pool critical event not found")
+
+        gate = AtlasApprovalGate()
+        record = gate.request_approval(
+            scope="pool",
+            pool_id=pool.pool_id,
+            item_id="",
+            reason=reason,
+            metadata={**dict(metadata or {}), "critical_event": critical_event},
+        )
+        if decision == "approved":
+            gate.approve(record.approval_id, decided_by=approver, reason=reason)
+            pool.status = "approval_required"
+            normalized_decision = "approved"
+        elif decision == "rejected":
+            gate.reject(record.approval_id, decided_by=approver, reason=reason)
+            normalized_decision = "rejected_ng_safer_replan"
+            alternative = lower_impact_alternative_plan(
+                {
+                    "title": f"Lower-impact revision for {pool.root_goal}",
+                    "goal": pool.root_goal,
+                    "risk_level": "critical",
+                    "target_files": list(critical_event.get("affected_files") or [])[:1],
+                    "metadata": {},
+                },
+                critical_event,
+            )
+            profile_context = {
+                **dict((pool.metadata or {}).get("automation_features") or {}),
+                **dict((metadata or {}).get("profile_context") or {}),
+                "preset_id": (metadata or {}).get("preset_id") or (pool.metadata or {}).get("preset_id") or "",
+                "automation_level": (metadata or {}).get("automation_level") or getattr(pool, "automation_level", ""),
+                "bounded_envelope_active": bool(
+                    (metadata or {}).get("bounded_envelope_active")
+                    or ((pool.metadata or {}).get("pre_authorized_envelope") or {}).get("envelope_active")
+                ),
+            }
+            replanning = AtlasCriticalReplanningService().create_lower_impact_revision(
+                pool=pool,
+                original_item=None,
+                critical_event=critical_event,
+                user_decision_record={
+                    "decision": normalized_decision,
+                    "reason": reason,
+                    "approver": approver,
+                    "approval_id": record.approval_id,
+                },
+                lower_impact_alternative=alternative,
+                profile_context=profile_context,
+                workflow_state=dict((pool.metadata or {}).get("workflow_state") or {}),
+            )
+            pool.metadata["critical_replanning"] = {
+                key: value for key, value in replanning.items() if key != "revised_item"
+            }
+        elif decision == "cancelled":
+            gate.revoke(record.approval_id, decided_by=approver, reason=reason)
+            pool.status = "cancelled"
+            normalized_decision = "cancelled"
+        else:
+            gate.reject(record.approval_id, decided_by=approver, reason=reason)
+            pool.status = "approval_required"
+            normalized_decision = "edit_scope_requested"
+
+        pool.metadata["critical_decision"] = {
+            "scope": "pool",
+            "decision": normalized_decision,
+            "reason": reason,
+            "approver": approver,
+            "approval_id": record.approval_id,
+            "critical_event": critical_event,
+            "original_path_blocked": normalized_decision == "rejected_ng_safer_replan",
+            "next_required_user_action": self._pool_next_action(normalized_decision),
+        }
+        payload = record.model_dump()
+        payload["run_id"] = run_id
+        payload["item_id"] = POOL_CRITICAL_DECISION_ITEM_ID
+        payload["metadata"] = {
+            **payload.get("metadata", {}),
+            "scope": "pool",
+            "decision": normalized_decision,
+            "critical_event": critical_event,
+            "critical_replanning": pool.metadata.get("critical_replanning") or {},
+            "next_required_user_action": pool.metadata["critical_decision"]["next_required_user_action"],
+        }
+        self._save_record(
+            pool.pool_id,
+            payload,
+            item_title=f"Pool critical decision: {pool.root_goal}",
+            risk_level=str(critical_event.get("severity") or "critical"),
+            target_files=list(critical_event.get("affected_files") or []),
+        )
+        return payload
 
     def decide(self, pool: AtlasPlanPool, *, item_id: str, run_id: str, decision: str, reason: str, approver: str, metadata: dict) -> dict:
         item = pool.get_item(item_id)
@@ -231,3 +341,37 @@ class AtlasApprovalService:
             "target_files": list(item.target_files),
             "metadata": dict(item.metadata or {}),
         }
+
+    @staticmethod
+    def _pool_critical_payload(pool: AtlasPlanPool, critical_event: dict) -> dict:
+        return {
+            "scope": "pool",
+            "item_id": POOL_CRITICAL_DECISION_ITEM_ID,
+            "pool_id": pool.pool_id,
+            "title": "Pool-level critical event",
+            "status": "waiting_for_critical_decision",
+            "risk_level": str(critical_event.get("severity") or "critical"),
+            "item_type": "planning",
+            "target_files": list(critical_event.get("affected_files") or []),
+            "requires_user_confirmation": True,
+            "metadata": {
+                "scope": "pool",
+                "critical_event": critical_event,
+                "required_options": list(critical_event.get("required_options") or []),
+                "safer_alternatives": list(critical_event.get("safer_alternatives") or []),
+                "recommended_decision": str(critical_event.get("recommended_decision") or ""),
+                "next_required_user_action": "Decide pool-level critical event before continuing.",
+            },
+        }
+
+    @staticmethod
+    def _pool_next_action(decision: str) -> str:
+        if decision == "approved":
+            return "Continue only inside the approved bounded pool scope."
+        if decision == "rejected_ng_safer_replan":
+            return "Review lower-impact pool revision before any mutation."
+        if decision == "edit_scope_requested":
+            return "Edit requirement or scope, then rerun plan gates."
+        if decision == "cancelled":
+            return "Pool critical path cancelled."
+        return "Decide pool-level critical event before continuing."

@@ -3,6 +3,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.server import create_app
+from agent.atlas_approval_service import POOL_CRITICAL_DECISION_ITEM_ID
+from agent.atlas_critical_event_policy import normalize_critical_event
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 
@@ -72,3 +74,34 @@ def test_clarify_records_decision_and_clears_flag(tmp_path: Path):
     reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
     assert "clarification_required" not in (reloaded.metadata or {})
     assert reloaded.metadata["clarification_decision"]["note"] == "go"
+
+
+def test_pool_level_critical_decision_api_rejects_to_replanning(tmp_path: Path):
+    event = normalize_critical_event(category="security", affected_files=["agent/security.py"])
+    pool = AtlasPlanPool(
+        pool_id="pool_x",
+        root_goal="Change auth",
+        status="waiting_for_critical_decision",
+        items=[],
+        metadata={"critical_event": event},
+    )
+    client = _client(tmp_path, pool)
+
+    r = client.post(
+        "/api/atlas/critical-decisions/decide",
+        json={
+            "pool_id": "pool_x",
+            "item_id": POOL_CRITICAL_DECISION_ITEM_ID,
+            "decision": "reject_ng_safer_replan",
+            "reason": "Use safer path",
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["item_id"] == POOL_CRITICAL_DECISION_ITEM_ID
+    assert body["approval_record"]["metadata"]["scope"] == "pool"
+    assert body["approval_record"]["metadata"]["decision"] == "rejected_ng_safer_replan"
+    reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
+    assert reloaded.metadata["critical_replanning"]["original_path_blocked"] is True
+    assert reloaded.items[0].metadata["created_from_critical_event"] is True
