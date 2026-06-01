@@ -6,6 +6,7 @@ from uuid import uuid4
 from agent.atlas_autopilot_policy import AtlasAutopilotPolicyGate
 from agent.atlas_approval_gate import AtlasApprovalGate
 from agent.atlas_autopilot_policy_schema import AtlasPolicyEvaluation
+from agent.atlas_full_auto_gate import relax_evaluation_for_full_auto
 from agent.atlas_nexus_research_adapter import AtlasNexusResearchAdapter
 from agent.atlas_pipeline_runner_schema import (
     AtlasPipelineItemResult,
@@ -58,6 +59,10 @@ class AtlasPipelineRunner:
         pool.updated_at = _utc_now_iso()
 
         pool_evaluation = self.policy_gate.evaluate_pool(pool)
+        # Under a full-automation pool (automation_level == "full_autopilot") relax the raw policy
+        # decision through the single source of truth so the single-item pipeline honours the same
+        # full_auto boundary as the multi-item autopilot path.
+        pool_evaluation = relax_evaluation_for_full_auto(pool_evaluation, automation_level=pool.automation_level)
         state.metadata["pool_policy"] = self._evaluation_metadata(pool_evaluation)
         state.add_event(
             "policy_evaluated",
@@ -196,10 +201,13 @@ class AtlasPipelineRunner:
         state.add_event("item_started", item_id=item.item_id, message="Pipeline item started.")
 
         evaluation = self.policy_gate.evaluate_item(item, pool)
-        result.policy_decision = evaluation.decision
+        # Record the raw policy reasons/categories for audit, then relax the decision for full_auto
+        # pools so control flow matches the adapter (atlas_full_auto_gate single source of truth).
         result.policy_reasons = list(evaluation.reasons)
         result.policy_categories = list(evaluation.categories)
         result.warnings.extend(evaluation.warnings)
+        evaluation = relax_evaluation_for_full_auto(evaluation, automation_level=pool.automation_level)
+        result.policy_decision = evaluation.decision
         state.add_event(
             "policy_evaluated",
             item_id=item.item_id,

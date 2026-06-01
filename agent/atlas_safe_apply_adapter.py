@@ -4,7 +4,9 @@ from typing import Any
 
 from agent.atlas_approval_gate import AtlasApprovalGate
 from agent.atlas_autopilot_policy import AtlasAutopilotPolicyGate
+from agent.atlas_full_auto_gate import relax_evaluation_for_full_auto
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
+from agent.atlas_plan_quality_gate import is_full_auto_preset
 from agent.atlas_safe_apply_adapter_schema import AtlasSafeApplyRequest, AtlasSafeApplyResult
 
 _TERMINAL_ITEM_STATUSES = {"completed", "failed", "blocked", "cancelled"}
@@ -39,7 +41,8 @@ class AtlasSafeApplyAdapter:
         action_type = self._action_type(item)
         approval_needed = False
 
-        allowed_risks = {"low", "medium", "high"} if preset_id == "full_auto" else {"low"}
+        full_auto = is_full_auto_preset(preset_id=preset_id)
+        allowed_risks = {"low", "medium", "high"} if full_auto else {"low"}
         risk = (item.risk_level or "").lower()
         if risk == "critical":
             self._add(result.reasons, "critical_risk_not_allowed")
@@ -72,31 +75,37 @@ class AtlasSafeApplyAdapter:
 
         self._add(result.categories, "create_allowed" if action_type == "create" else "update_allowed")
 
+        # Raw policy evaluation (reasons/warnings/categories are recorded from the *original*
+        # evaluation for auditability), then relaxed through the single full_auto source of truth
+        # so control flow uses the same relaxation rule everywhere (adapter + pipeline runner).
         item_evaluation = self.policy_gate.evaluate_item(item, pool)
         result.reasons.extend(str(reason) for reason in item_evaluation.reasons)
         result.warnings.extend(str(warning) for warning in item_evaluation.warnings)
         self._add_policy_categories(result, item_evaluation.categories)
+        item_evaluation = relax_evaluation_for_full_auto(item_evaluation, preset_id=preset_id)
         if item_evaluation.decision == "block":
             self._add(result.categories, "policy_blocked")
             return self._blocked(result)
         if item_evaluation.decision == "require_approval":
-            if preset_id == "full_auto" and risk in {"medium", "high"}:
-                self._add(result.categories, "approval_present")
-            else:
-                approval_needed = True
-                self._add(result.categories, "policy_requires_approval")
+            approval_needed = True
+            self._add(result.categories, "policy_requires_approval")
+        elif item_evaluation.metadata.get("full_auto_relaxed"):
+            self._add(result.categories, "full_auto_approval_bypassed")
 
         if patch_metadata:
             patch_evaluation = self.policy_gate.evaluate_patch_metadata(item, patch_metadata)
             result.reasons.extend(str(reason) for reason in patch_evaluation.reasons)
             result.warnings.extend(str(warning) for warning in patch_evaluation.warnings)
             self._add_policy_categories(result, patch_evaluation.categories)
+            patch_evaluation = relax_evaluation_for_full_auto(patch_evaluation, preset_id=preset_id)
             if patch_evaluation.decision == "block":
                 self._add(result.categories, "policy_blocked")
                 return self._blocked(result)
             if patch_evaluation.decision == "require_approval":
                 approval_needed = True
                 self._add(result.categories, "policy_requires_approval")
+            elif patch_evaluation.metadata.get("full_auto_relaxed"):
+                self._add(result.categories, "full_auto_approval_bypassed")
 
         protected_files = [path for path in item.target_files if self.policy_gate.is_protected_path(path)]
         if protected_files:
@@ -105,7 +114,10 @@ class AtlasSafeApplyAdapter:
             self._add(result.categories, "protected_path")
             result.warnings.extend(protected_files)
 
-        if item.requires_user_confirmation and not (preset_id == "full_auto" and risk in {"medium", "high"}):
+        # requires_user_confirmation is a quality signal, not a true-safety gate: once full_auto
+        # is opted into it is bypassed regardless of risk level (previously a low-risk item that
+        # carried this flag leaked through the medium/high-only hardcode).
+        if item.requires_user_confirmation and not full_auto:
             approval_needed = True
             self._add(result.reasons, "item requires user confirmation")
             self._add(result.categories, "policy_requires_approval")
