@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.atlas.candidate_workspace_manager import create_candidate_workspace_plan, write_candidate_workspace_plan
 from agent.atlas_autonomous_codegen_orchestrator_schema import AtlasAutonomousCodegenRequest
 from agent.atlas_autonomous_codegen_orchestrator_service import AtlasAutonomousCodegenOrchestratorService
 from agent.atlas_journal import AtlasJournal
@@ -151,6 +152,24 @@ def test_unsafe_path_stops_before_generation(tmp_path: Path) -> None:
     assert autopilot.last_request is None
 
 
+def test_blocked_path_stops_before_generation(tmp_path: Path) -> None:
+    item = _item("i1")
+    item.target_files = ["secrets/token.txt"]
+    svc, _storage, proposal, autopilot = _orchestrator(tmp_path, _pool([item]))
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            blocked_paths=["secrets/"],
+        )
+    )
+
+    assert out.status == "stopped"
+    assert out.stop_reason == "blocked_path"
+    assert proposal.calls == []
+    assert autopilot.last_request is None
+
+
 def test_unknown_profile_falls_back_safely_without_running(tmp_path: Path) -> None:
     svc, _storage, proposal, autopilot = _orchestrator(tmp_path, _pool([_item("i1")]))
 
@@ -188,6 +207,8 @@ def test_active_bounded_envelope_allows_bounded_loop(tmp_path: Path) -> None:
     assert out.status == "completed"
     assert proposal.calls == ["i1"]
     assert autopilot.last_request is not None
+    assert out.metadata["workspace_evidence"]["work_target"] == "ordinary_project"
+    assert out.metadata["workspace_evidence"]["stable_runtime_mutation_performed"] is False
 
 
 def test_self_improvement_without_strict_gate_stops(tmp_path: Path) -> None:
@@ -204,6 +225,138 @@ def test_self_improvement_without_strict_gate_stops(tmp_path: Path) -> None:
 
     assert out.status == "stopped"
     assert out.stop_reason == "self_improvement_without_strict_gate"
+    assert proposal.calls == []
+    assert autopilot.last_request is None
+
+
+def test_self_improvement_with_strict_gate_requires_candidate_workspace(tmp_path: Path) -> None:
+    envelope = {**_active_envelope(), "strict_gate_approved": True, "candidate_workspace_required": True}
+    svc, _storage, proposal, autopilot = _orchestrator(tmp_path, _pool([_item("i1")]))
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            selected_profile="autonomous_dev_agent",
+            envelope=envelope,
+            self_improvement=True,
+        )
+    )
+
+    assert out.status == "stopped"
+    assert out.stop_reason == "candidate_workspace_required"
+    assert out.metadata["workspace_evidence"]["stable_runtime_mutation_performed"] is False
+    assert proposal.calls == []
+    assert autopilot.last_request is None
+
+
+def test_self_improvement_candidate_workspace_requires_level4_checkpoint(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    envelope = {**_active_envelope(), "strict_gate_approved": True, "candidate_workspace_required": True}
+    svc, _storage, proposal, autopilot = _orchestrator(tmp_path, _pool([_item("i1")]))
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            selected_profile="autonomous_dev_agent",
+            envelope=envelope,
+            self_improvement=True,
+            metadata={"candidate_workspace_path": str(candidate)},
+        )
+    )
+
+    assert out.status == "stopped"
+    assert out.stop_reason == "stable_checkpoint_evidence_required"
+    assert proposal.calls == []
+    assert autopilot.last_request is None
+
+
+def test_candidate_workspace_plan_uses_candidate_path_without_stable_runtime_mutation(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    candidate = tmp_path / "candidate"
+    repo.mkdir()
+    candidate.mkdir()
+    plan = create_candidate_workspace_plan(
+        target_repo=repo,
+        candidate_root=candidate,
+        allowed_paths=["src"],
+        blocked_paths=[".git"],
+        stable_checkpoint_id="stable_1",
+        max_files=4,
+        max_risk_level="medium",
+        self_improvement_scope="atlas_non_runtime",
+        recovery_manifest_path=tmp_path / "recovery" / "manifest.json",
+    )
+    plan_path = write_candidate_workspace_plan(plan=plan, destination=tmp_path / "candidate_plan.json")
+    svc, _storage, proposal, autopilot = _orchestrator(tmp_path, _pool([_item("i1")]))
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            metadata={"candidate_workspace_plan_path": str(plan_path)},
+        )
+    )
+
+    assert out.status == "completed"
+    assert autopilot.last_request is not None
+    assert autopilot.last_request.project_path == str(candidate.resolve())
+    workspace_evidence = out.metadata["workspace_evidence"]
+    assert workspace_evidence["work_target"] == "candidate_workspace"
+    assert workspace_evidence["candidate_workspace_available"] is True
+    assert workspace_evidence["candidate_workspace_plan_status"] == "ready"
+    assert workspace_evidence["stable_runtime_mutation_performed"] is False
+
+
+def test_candidate_workspace_target_without_workspace_stops(tmp_path: Path) -> None:
+    svc, _storage, proposal, autopilot = _orchestrator(tmp_path, _pool([_item("i1")]))
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            metadata={"work_target": "candidate_workspace"},
+        )
+    )
+
+    assert out.status == "stopped"
+    assert out.stop_reason == "workspace_not_available"
+    assert proposal.calls == []
+    assert autopilot.last_request is None
+
+
+def test_recovery_metadata_is_recorded_but_not_executed(tmp_path: Path) -> None:
+    svc, _storage, _proposal, _autopilot = _orchestrator(tmp_path, _pool([_item("i1")]))
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            metadata={
+                "recovery_manifest_path": "atlas/recovery/manifest.json",
+                "restore_plan_ref": "atlas/recovery/restore.md",
+                "rollback_plan_ref": "atlas/recovery/rollback.md",
+            },
+        )
+    )
+
+    recovery_evidence = out.metadata["recovery_evidence"]
+    assert recovery_evidence["references"]["recovery_manifest_path"] == "atlas/recovery/manifest.json"
+    assert recovery_evidence["restore_executed"] is False
+    assert recovery_evidence["rollback_executed"] is False
+    assert recovery_evidence["recovery_execution_performed"] is False
+
+
+def test_stable_runtime_target_is_forbidden(tmp_path: Path) -> None:
+    svc, _storage, proposal, autopilot = _orchestrator(tmp_path, _pool([_item("i1")]))
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            metadata={"work_target": "stable_runtime"},
+        )
+    )
+
+    assert out.status == "stopped"
+    assert out.stop_reason == "stable_runtime_mutation_forbidden"
+    assert out.metadata["workspace_evidence"]["stable_runtime_mutation_enabled"] is False
     assert proposal.calls == []
     assert autopilot.last_request is None
 

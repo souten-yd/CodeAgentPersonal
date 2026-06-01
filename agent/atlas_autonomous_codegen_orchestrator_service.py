@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
+from app.atlas.candidate_workspace_manager import load_candidate_workspace_plan
 from agent.atlas_autonomous_codegen_orchestrator_schema import (
     AtlasAutonomousCodegenProposalResult,
     AtlasAutonomousCodegenRequest,
@@ -14,6 +15,7 @@ from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_typ
 from agent.atlas_multi_item_autopilot_schema import AtlasMultiItemAutopilotRequest
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
 from agent.atlas_plan_item_file_changes import has_file_change_content, normalize_plan_item_file_changes
+from agent.atlas_recovery_service import AtlasRecoveryService
 
 # Items the full-auto profile never applies; generating a patch for them is wasted work because
 # the safe-apply gate (and atlas_full_auto_gate) hard-block them downstream anyway.
@@ -61,6 +63,8 @@ class AtlasAutonomousCodegenOrchestratorService:
         pool = self.storage.load_pool(request.pool_id)
         preflight = self._preflight(request, pool)
         out.metadata["preflight"] = preflight
+        out.metadata["workspace_evidence"] = preflight.get("workspace_evidence", {})
+        out.metadata["recovery_evidence"] = preflight.get("recovery_evidence", {})
         for warning in preflight.get("warnings", []):
             if warning not in out.warnings:
                 out.warnings.append(warning)
@@ -144,7 +148,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 pool_id=request.pool_id,
                 run_id=run_id,
                 workspace_id=request.workspace_id,
-                project_path=request.project_path,
+                project_path=str(preflight.get("effective_project_path") or request.project_path),
                 item_ids=request.item_ids,
                 policy_id=request.policy_id,
                 require_approval=False,
@@ -195,35 +199,224 @@ class AtlasAutonomousCodegenOrchestratorService:
             return {"status": "blocked", "phase": "understanding_goal", "reason": "missing_project_path"}
         profile = str(request.selected_profile or "review_only")
         warnings: list[str] = []
+        envelope = request.envelope or {}
+        workspace_evidence = self._workspace_evidence(request, pool, project_path, profile)
+        recovery_evidence = self._recovery_evidence(request, pool)
+        for warning in workspace_evidence.get("warnings", []):
+            if warning not in warnings:
+                warnings.append(warning)
+        for warning in recovery_evidence.get("warnings", []):
+            if warning not in warnings:
+                warnings.append(warning)
         if profile not in _KNOWN_PROFILES:
             warnings.append("unknown_profile_fell_back_to_review_only")
             profile = "review_only"
-            return {"status": "blocked", "phase": "understanding_goal", "reason": "unknown_profile_fallback", "normalized_profile": profile, "warnings": warnings}
+            return {
+                "status": "blocked",
+                "phase": "understanding_goal",
+                "reason": "unknown_profile_fallback",
+                "normalized_profile": profile,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+            }
         if request.self_improvement and not bool((request.envelope or {}).get("strict_gate_approved")):
-            return {"status": "blocked", "phase": "understanding_goal", "reason": "self_improvement_without_strict_gate", "normalized_profile": profile, "warnings": warnings}
-        envelope = request.envelope or {}
+            return {
+                "status": "blocked",
+                "phase": "understanding_goal",
+                "reason": "self_improvement_without_strict_gate",
+                "normalized_profile": profile,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+            }
         envelope_status = str(envelope.get("status") or "").lower()
         envelope_id = str(envelope.get("envelope_id") or "")
         if profile == "autonomous_dev_agent" and not (envelope_status == "active" and envelope_id):
-            return {"status": "blocked", "phase": "understanding_goal", "reason": "selected_profile_inactive_envelope", "normalized_profile": profile, "warnings": warnings}
+            return {
+                "status": "blocked",
+                "phase": "understanding_goal",
+                "reason": "selected_profile_inactive_envelope",
+                "normalized_profile": profile,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+            }
+        workspace_block = workspace_evidence.get("blocking_reason", "")
+        if workspace_block:
+            return {
+                "status": "blocked",
+                "phase": "understanding_goal",
+                "reason": workspace_block,
+                "normalized_profile": profile,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+            }
         paths = self._requested_paths(request, pool)
         unsafe = [p for p in paths if not self._safe_relative_path(p)]
         if unsafe:
-            return {"status": "blocked", "phase": "understanding_goal", "reason": "unsafe_path", "paths": unsafe, "warnings": warnings}
+            return {
+                "status": "blocked",
+                "phase": "understanding_goal",
+                "reason": "unsafe_path",
+                "paths": unsafe,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+            }
         blocked = [p for p in paths if self._matches_prefix(p, request.blocked_paths or list(((envelope.get("bounds") or {}).get("blocked_paths") or [])))]
         if blocked:
-            return {"status": "blocked", "phase": "understanding_goal", "reason": "blocked_path", "paths": blocked, "warnings": warnings}
+            return {
+                "status": "blocked",
+                "phase": "understanding_goal",
+                "reason": "blocked_path",
+                "paths": blocked,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+            }
         allowed = request.allowed_paths or list(((envelope.get("bounds") or {}).get("allowed_paths") or []))
         outside = [p for p in paths if allowed and not self._matches_prefix(p, allowed)]
         if outside:
-            return {"status": "blocked", "phase": "understanding_goal", "reason": "path_outside_allowed_paths", "paths": outside, "warnings": warnings}
+            return {
+                "status": "blocked",
+                "phase": "understanding_goal",
+                "reason": "path_outside_allowed_paths",
+                "paths": outside,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+            }
         return {
             "status": "ok",
             "normalized_profile": profile,
             "project_path": project_path,
+            "effective_project_path": workspace_evidence.get("effective_project_path") or project_path,
             "paths": paths,
             "envelope_id": envelope_id,
             "warnings": warnings,
+            "workspace_evidence": workspace_evidence,
+            "recovery_evidence": recovery_evidence,
+        }
+
+    def _workspace_evidence(
+        self,
+        request: AtlasAutonomousCodegenRequest,
+        pool: AtlasPlanPool,
+        project_path: str,
+        profile: str,
+    ) -> dict:
+        metadata = request.metadata or {}
+        envelope = request.envelope or {}
+        work_target = str(metadata.get("work_target") or "").strip()
+        if not work_target:
+            if request.self_improvement:
+                work_target = "platform_self_improvement"
+            elif metadata.get("candidate_workspace_path") or metadata.get("candidate_workspace_plan_path"):
+                work_target = "candidate_workspace"
+            else:
+                work_target = "ordinary_project"
+
+        warnings: list[str] = []
+        candidate_path = str(metadata.get("candidate_workspace_path") or "").strip()
+        candidate_plan_path = str(metadata.get("candidate_workspace_plan_path") or "").strip()
+        candidate_plan = self._load_candidate_workspace_plan(candidate_plan_path, warnings)
+        if not candidate_path and candidate_plan:
+            candidate_path = str(candidate_plan.get("candidate_root") or "")
+
+        candidate_required = bool(
+            request.self_improvement
+            or work_target in {"platform_self_improvement", "candidate_workspace"}
+            or envelope.get("candidate_workspace_required")
+        )
+        candidate_available = bool(candidate_path)
+        level4_checkpoint_path = str(
+            metadata.get("level4_checkpoint_path")
+            or envelope.get("level4_checkpoint_path")
+            or ""
+        ).strip()
+        recovery_manifest_ref = str(
+            metadata.get("recovery_manifest_path")
+            or (candidate_plan or {}).get("recovery_manifest_path")
+            or ""
+        ).strip()
+
+        blocking_reason = ""
+        if work_target == "stable_runtime":
+            blocking_reason = "stable_runtime_mutation_forbidden"
+        elif request.self_improvement:
+            if profile != "autonomous_dev_agent":
+                blocking_reason = "self_improvement_profile_required"
+            elif not candidate_available:
+                blocking_reason = "candidate_workspace_required"
+            elif not level4_checkpoint_path:
+                blocking_reason = "stable_checkpoint_evidence_required"
+        elif work_target == "candidate_workspace" and not candidate_available:
+            blocking_reason = "workspace_not_available"
+
+        if candidate_required and not candidate_available and "candidate_workspace_missing" not in warnings:
+            warnings.append("candidate_workspace_missing")
+        if not recovery_manifest_ref and "recovery_manifest_missing" not in warnings:
+            warnings.append("recovery_manifest_missing")
+
+        effective_project_path = candidate_path if candidate_available else project_path
+        return {
+            "work_target": work_target,
+            "project_path": project_path,
+            "effective_project_path": effective_project_path,
+            "candidate_workspace_required": candidate_required,
+            "candidate_workspace_available": candidate_available,
+            "candidate_workspace_path": candidate_path,
+            "candidate_workspace_plan_path": candidate_plan_path,
+            "candidate_workspace_plan_status": str((candidate_plan or {}).get("status") or ""),
+            "level4_checkpoint_required": bool(request.self_improvement),
+            "level4_checkpoint_path": level4_checkpoint_path,
+            "recovery_manifest_path": recovery_manifest_ref,
+            "stable_runtime_mutation_enabled": False,
+            "stable_runtime_mutation_performed": False,
+            "self_apply_enabled": False,
+            "self_apply_performed": False,
+            "direct_merge_enabled": False,
+            "remote_git_push_enabled": False,
+            "recovery_execution_performed": False,
+            "blocking_reason": blocking_reason,
+            "warnings": warnings,
+        }
+
+    @staticmethod
+    def _load_candidate_workspace_plan(path: str, warnings: list[str]) -> dict:
+        if not path:
+            return {}
+        try:
+            return load_candidate_workspace_plan(manifest_path=path)
+        except (FileNotFoundError, ValueError, json.JSONDecodeError, OSError) as exc:
+            warnings.append(f"candidate_workspace_plan_unavailable:{type(exc).__name__}")
+            return {}
+
+    def _recovery_evidence(self, request: AtlasAutonomousCodegenRequest, pool: AtlasPlanPool) -> dict:
+        metadata = request.metadata or {}
+        refs = {
+            "recovery_manifest_path": str(metadata.get("recovery_manifest_path") or ""),
+            "restore_plan_ref": str(metadata.get("restore_plan_ref") or ""),
+            "rollback_plan_ref": str(metadata.get("rollback_plan_ref") or ""),
+        }
+        warnings: list[str] = []
+        if not any(refs.values()):
+            warnings.append("recovery_reference_missing")
+        try:
+            summary = AtlasRecoveryService(self.journal).recover_pool(pool.pool_id).model_dump()
+        except Exception as exc:  # recovery metadata must not block or fabricate execution
+            summary = {"status": "unavailable", "errors": [f"recovery_summary_unavailable:{type(exc).__name__}"]}
+        if summary.get("status") in {"no_workspace", "no_plan_pool", "no_pipeline_run", "unavailable"}:
+            warnings.append(f"recovery_summary_{summary.get('status')}")
+        return {
+            "references": refs,
+            "summary": summary,
+            "restore_executed": False,
+            "rollback_executed": False,
+            "recovery_execution_performed": False,
+            "warnings": sorted(set(warnings)),
         }
 
     @staticmethod
