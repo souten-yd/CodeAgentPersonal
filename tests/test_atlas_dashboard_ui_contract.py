@@ -253,6 +253,16 @@ def test_waiting_for_clarification_uses_warning_not_error_contract() -> None:
     assert "atlas-questions-list" in CSS
 
 
+def test_claude_panel_mirrors_clarification_execution_blocker_contract() -> None:
+    assert "function clarificationExecutionBlockReasons" in ATLAS_CLAUDE_PANEL_JS
+    assert "pending_question_count" in ATLAS_CLAUDE_PANEL_JS
+    assert "clarification_questions" in ATLAS_CLAUDE_PANEL_JS
+    assert "missing_revised_plan_snapshot_after_clarification" in ATLAS_CLAUDE_PANEL_JS
+    assert "missing_gate_rerun_evidence_after_clarification" in ATLAS_CLAUDE_PANEL_JS
+    assert "rerun_critique_gate_after_clarification" in ATLAS_CLAUDE_PANEL_JS
+    assert "rerun_safety_gate_after_clarification" in ATLAS_CLAUDE_PANEL_JS
+
+
 def test_dashboard_supports_llm_backend_unavailable_warning_strings() -> None:
     assert "llm_backend_unavailable" in ATLAS_DASHBOARD_JS
     assert "real_planner_unavailable" in ATLAS_DASHBOARD_JS
