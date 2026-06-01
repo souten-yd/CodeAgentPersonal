@@ -107,9 +107,14 @@ class AtlasAutonomousCodegenOrchestratorService:
 
         # ── Phase 2: batch first-patch generation for items lacking content ───────────────────
         out.phase = "candidate_generation"
+        effective_limits = preflight.get("effective_limits") if isinstance(preflight.get("effective_limits"), dict) else {}
+        effective_max_actions = int(effective_limits.get("max_actions") or request.max_actions)
+        effective_max_items = int(effective_limits.get("max_items") or request.max_items)
+        effective_max_runtime_seconds = int(effective_limits.get("max_runtime_seconds") or request.max_runtime_seconds)
+        effective_max_changed_files_total = int(effective_limits.get("max_changed_files_total") or request.max_changed_files_total)
         if request.generate_missing_patches:
             ids = request.item_ids or [i.item_id for i in pool.items]
-            for item_id in ids[: max(0, int(request.max_items))]:
+            for item_id in ids[: max(0, min(effective_max_items, effective_max_actions))]:
                 pool = self.storage.load_pool(request.pool_id)  # pick up content persisted so far
                 item = pool.get_item(item_id)
                 if item is None:
@@ -155,9 +160,9 @@ class AtlasAutonomousCodegenOrchestratorService:
                 item_ids=request.item_ids,
                 policy_id=request.policy_id,
                 require_approval=False,
-                max_items=min(request.max_items, request.max_actions),
-                max_runtime_seconds=request.max_runtime_seconds,
-                max_changed_files_total=request.max_changed_files_total,
+                max_items=min(effective_max_items, effective_max_actions),
+                max_runtime_seconds=effective_max_runtime_seconds,
+                max_changed_files_total=effective_max_changed_files_total,
                 include_context_refresh=True,
                 include_evaluator=True,
                 include_bounded_retry=True,
@@ -270,6 +275,21 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "workspace_evidence": workspace_evidence,
                 "recovery_evidence": recovery_evidence,
             }
+        effective_limits = self._effective_limits(request, envelope)
+        if effective_limits.get("clamped") and "request_limits_clamped_to_envelope" not in warnings:
+            warnings.append("request_limits_clamped_to_envelope")
+        if request.allowed_verification_commands:
+            return {
+                "status": "blocked",
+                "phase": "understanding_goal",
+                "reason": "allowed_verification_commands_unsupported",
+                "normalized_profile": profile,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+                "effective_limits": effective_limits,
+                "allowed_verification_commands": list(request.allowed_verification_commands),
+            }
         workspace_block = workspace_evidence.get("blocking_reason", "")
         if workspace_block:
             return {
@@ -282,6 +302,20 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "recovery_evidence": recovery_evidence,
             }
         paths = self._requested_paths(request, pool)
+        effective_allowed_paths = self._effective_allowed_paths(request, envelope)
+        if effective_allowed_paths.get("expanded"):
+            return {
+                "status": "blocked",
+                "phase": "understanding_goal",
+                "reason": "allowed_paths_expand_envelope",
+                "paths": paths,
+                "requested_allowed_paths": list(request.allowed_paths or []),
+                "envelope_allowed_paths": list(((envelope.get("bounds") or {}).get("allowed_paths") or [])),
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+                "effective_limits": effective_limits,
+            }
         unsafe = [p for p in paths if not self._safe_relative_path(p)]
         if unsafe:
             return {
@@ -293,7 +327,8 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "workspace_evidence": workspace_evidence,
                 "recovery_evidence": recovery_evidence,
             }
-        blocked = [p for p in paths if self._matches_prefix(p, request.blocked_paths or list(((envelope.get("bounds") or {}).get("blocked_paths") or [])))]
+        blocked_paths = self._unique_strings(list(((envelope.get("bounds") or {}).get("blocked_paths") or [])) + list(request.blocked_paths or []))
+        blocked = [p for p in paths if self._matches_prefix(p, blocked_paths)]
         if blocked:
             return {
                 "status": "blocked",
@@ -304,7 +339,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "workspace_evidence": workspace_evidence,
                 "recovery_evidence": recovery_evidence,
             }
-        allowed = request.allowed_paths or list(((envelope.get("bounds") or {}).get("allowed_paths") or []))
+        allowed = list(effective_allowed_paths.get("allowed_paths") or [])
         outside = [p for p in paths if allowed and not self._matches_prefix(p, allowed)]
         if outside:
             return {
@@ -323,10 +358,63 @@ class AtlasAutonomousCodegenOrchestratorService:
             "effective_project_path": workspace_evidence.get("effective_project_path") or project_path,
             "paths": paths,
             "envelope_id": envelope_id,
+            "effective_allowed_paths": allowed,
+            "effective_blocked_paths": blocked_paths,
+            "effective_limits": effective_limits,
             "warnings": warnings,
             "workspace_evidence": workspace_evidence,
             "recovery_evidence": recovery_evidence,
         }
+
+    @staticmethod
+    def _effective_limits(request: AtlasAutonomousCodegenRequest, envelope: dict) -> dict[str, Any]:
+        bounds = envelope.get("bounds") if isinstance(envelope.get("bounds"), dict) else {}
+
+        def positive_int(value: Any, fallback: int) -> int:
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError):
+                return fallback
+            return parsed if parsed > 0 else fallback
+
+        envelope_max_actions = positive_int(bounds.get("max_actions_per_loop"), int(request.max_actions))
+        envelope_max_files = positive_int(bounds.get("max_files_changed"), int(request.max_changed_files_total))
+        envelope_max_runtime = positive_int(bounds.get("max_runtime_seconds"), int(request.max_runtime_seconds))
+        effective = {
+            "max_actions": min(int(request.max_actions), envelope_max_actions),
+            "max_items": min(int(request.max_items), envelope_max_actions),
+            "max_runtime_seconds": min(int(request.max_runtime_seconds), envelope_max_runtime),
+            "max_changed_files_total": min(int(request.max_changed_files_total), envelope_max_files),
+            "max_changed_files_per_item": min(int(request.max_changed_files_per_item), envelope_max_files),
+        }
+        requested = {
+            "max_actions": int(request.max_actions),
+            "max_items": int(request.max_items),
+            "max_runtime_seconds": int(request.max_runtime_seconds),
+            "max_changed_files_total": int(request.max_changed_files_total),
+            "max_changed_files_per_item": int(request.max_changed_files_per_item),
+        }
+        effective["clamped"] = any(effective[key] < requested[key] for key in requested)
+        return effective
+
+    @classmethod
+    def _effective_allowed_paths(cls, request: AtlasAutonomousCodegenRequest, envelope: dict) -> dict[str, Any]:
+        bounds = envelope.get("bounds") if isinstance(envelope.get("bounds"), dict) else {}
+        envelope_allowed = [str(path).replace("\\", "/") for path in (bounds.get("allowed_paths") or []) if str(path)]
+        requested_allowed = [str(path).replace("\\", "/") for path in (request.allowed_paths or []) if str(path)]
+        if envelope_allowed and requested_allowed:
+            expanded = [path for path in requested_allowed if not cls._matches_prefix(path, envelope_allowed)]
+            return {"allowed_paths": requested_allowed, "expanded": bool(expanded), "expanded_paths": expanded}
+        return {"allowed_paths": requested_allowed or envelope_allowed, "expanded": False, "expanded_paths": []}
+
+    @staticmethod
+    def _unique_strings(values: list[str]) -> list[str]:
+        out: list[str] = []
+        for value in values:
+            text = str(value or "").replace("\\", "/")
+            if text and text not in out:
+                out.append(text)
+        return out
 
     def _workspace_evidence(
         self,
@@ -704,7 +792,14 @@ class AtlasAutonomousCodegenOrchestratorService:
 
     @staticmethod
     def _matches_prefix(path: str, prefixes: list[str]) -> bool:
-        return any(str(path).startswith(str(prefix).replace("\\", "/")) for prefix in prefixes or [])
+        normalized = str(path or "").replace("\\", "/").strip("/")
+        for prefix in prefixes or []:
+            pfx = str(prefix or "").replace("\\", "/").strip("/")
+            if not pfx:
+                continue
+            if normalized == pfx or normalized.startswith(pfx + "/"):
+                return True
+        return False
 
     @staticmethod
     def _changed_files_from_autopilot(autopilot) -> list[str]:
