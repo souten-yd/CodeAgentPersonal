@@ -82,6 +82,12 @@ def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id
     # ── Safety-sensitive high/critical findings: routed by the configurable critical_handling knob.
     # This is the single human-in-the-loop boundary shared with the apply-time full_auto gate.
     if safety_sensitive:
+        # The plan-time critique gate keeps a conservative "ask" default for every preset:
+        # it is the earliest human-in-the-loop boundary, so by default it pauses for a user
+        # decision (without forcing a re-plan). An explicit critical_handling value still
+        # unlocks full autonomy ("auto") or a hard stop ("block"). Profile/preset/envelope
+        # *default* relaxation to "auto" is applied at the apply layer (safe_apply adapter /
+        # full_auto gate), not here.
         handling = str(critical_handling or "ask").strip().lower()
         if handling == "auto":
             # Maximum autonomy — proceed without approval but record an audit trail.

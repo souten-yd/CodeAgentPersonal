@@ -33,18 +33,23 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.api.atlas_root import resolve_atlas_ca_data_root
+from agent.atlas_critical_handling_policy import CRITICAL_HANDLING_BY_PROFILE
 from app.atlas.automation_safety_profile import (
+    DEFAULT_RUNTIME_LEVEL,
+    MAX_RUNTIME_LEVEL,
     PROFILE_AUTONOMOUS_DEV_AGENT,
     PROFILE_GUARDED_SINGLE_ACTION,
     PROFILE_ORDER,
     PROFILE_REVIEW_ONLY,
     PROFILE_SUPERVISED_BOUNDED_AUTO,
+    RUNTIME_LEVEL_BY_PROFILE,
     SCHEMA_VERSION as SAFETY_PROFILE_SCHEMA_VERSION,
     SELF_IMPROVEMENT_SCOPES,
     SELF_SCOPE_ATLAS_RUNTIME_STRICT,
     SELF_SCOPE_NONE,
     create_automation_safety_profile,
     load_automation_safety_profile,
+    resolve_runtime_level_for_profile,
     write_automation_safety_profile,
     _PROFILE_CAPABILITIES,
 )
@@ -174,6 +179,46 @@ class StartAutonomousLoopRequest(BaseModel):
     requested_commands: list[str] = Field(default_factory=list)
 
 
+def _preset_activation_state(preset: dict[str, Any]) -> str:
+    """Catalogue-level activation semantics for a preset.
+
+    Full automation (Level 8) is bounded and only *active* once a pre-authorized
+    envelope is persisted — profile selection alone never starts the loop. At the
+    /policies catalogue level no envelope is persisted yet, so:
+      * presets that carry an envelope (autonomous_bounded_dev) report
+        ``envelope_required`` (full automation capable, activated later by the
+        persisted envelope);
+      * the autonomous_custom preset carries no envelope, so it reports
+        ``bounds_required`` (Level-8 capable profile, but bounds must be supplied
+        per request and the loop is not auto-active);
+      * non-autonomous presets report ``not_applicable``.
+    """
+    if not preset.get("enables_full_automation") and preset.get("envelope_id") == ENVELOPE_NONE:
+        if preset.get("safety_profile") == PROFILE_AUTONOMOUS_DEV_AGENT:
+            return "bounds_required"
+        return "not_applicable"
+    if preset.get("envelope_id") and preset.get("envelope_id") != ENVELOPE_NONE:
+        return "envelope_required"
+    return "not_applicable"
+
+
+def _enriched_presets() -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for preset in AUTOMATION_PROFILE_PRESETS:
+        item = dict(preset)
+        item["resolved_runtime_level"] = resolve_runtime_level_for_profile(
+            str(preset.get("safety_profile") or "")
+        )
+        activation_state = _preset_activation_state(preset)
+        item["activation_state"] = activation_state
+        item["full_automation_capable"] = preset.get("safety_profile") == PROFILE_AUTONOMOUS_DEV_AGENT
+        # At catalogue time no envelope is persisted, so full automation is never
+        # *active* here regardless of capability.
+        item["full_automation_active"] = False
+        enriched.append(item)
+    return enriched
+
+
 @router.get("/policies")
 def get_policies() -> dict[str, Any]:
     """Return the UI preset catalogue and underlying capability matrix."""
@@ -185,11 +230,17 @@ def get_policies() -> dict[str, Any]:
         "expected_confirmation_text": EXPECTED_CONFIRMATION_TEXT,
         "legacy_confirmation_text_accepted": LEGACY_CONFIRMATION_TEXT,
         "explicit_profile_selection_required": True,
-        "automation_profile_presets": AUTOMATION_PROFILE_PRESETS,
+        "runtime_level_model": "profile_dependent",
+        "default_runtime_level": DEFAULT_RUNTIME_LEVEL,
+        "max_runtime_level": MAX_RUNTIME_LEVEL,
+        "runtime_level_by_profile": dict(RUNTIME_LEVEL_BY_PROFILE),
+        "critical_handling_by_profile": dict(CRITICAL_HANDLING_BY_PROFILE),
+        "automation_profile_presets": _enriched_presets(),
         "safety_profiles": [
             {
                 "id": name,
                 "rank": rank,
+                "resolved_runtime_level": resolve_runtime_level_for_profile(name),
                 "capabilities": dict(_PROFILE_CAPABILITIES[name]),
             }
             for name, rank in PROFILE_ORDER.items()

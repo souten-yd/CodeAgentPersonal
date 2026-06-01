@@ -9,7 +9,32 @@
   "next_automation_track": "POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP",
   "completed_phase": "stable_runtime_mutation_apply",
   "automation_phase": "practical_full_automation_experience",
+  "runtime_level_model": "profile_dependent",
   "current_level": "level_8_fully_autonomous_code_agent",
+  "current_level_semantics": "max_backend_runtime_milestone_not_single_active_runtime",
+  "current_level_note": "Runtime level is resolved per selected automation profile (see runtime_level_by_profile). current_level records the maximum backend milestone reached, not a single always-on active runtime; defaults sit on the safe end.",
+  "default_runtime_level": "level_4_self_improvement_platform",
+  "max_runtime_level": "level_8_fully_autonomous_code_agent",
+  "runtime_level_by_profile": {
+    "review_only": "level_0_review_only",
+    "guarded_single_action": "level_1_guarded_single_step",
+    "supervised_bounded_auto": "level_2_to_level4_supervised_bounded_auto",
+    "autonomous_dev_agent": "level_8_fully_autonomous_code_agent"
+  },
+  "level8_activation_requires": {
+    "profile": "autonomous_dev_agent",
+    "activation_artifact": "active pre_authorized_bounded_dev_envelope (or pre_authorized_self_improvement_envelope with strict gate + Level-4 checkpoint)",
+    "profile_selection_alone_starts_loop": false,
+    "still_forbidden_at_level_8": [
+      "direct_merge",
+      "remote_git_push",
+      "self_apply",
+      "stable_runtime_mutation",
+      "vue_authority",
+      "arbitrary_unbounded_command_execution",
+      "self_modification_without_self_improvement_gate"
+    ]
+  },
   "target_level": "level_8_fully_autonomous_code_agent",
   "next_level_advancement_pr": "POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT",
   "post_level4_target_level": "fully_autonomous_code_agent",

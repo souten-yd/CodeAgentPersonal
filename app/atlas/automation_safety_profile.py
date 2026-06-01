@@ -16,7 +16,11 @@ from app.atlas.level4_self_improvement_checkpoint import (
 SCHEMA_VERSION = "atlas.automation_safety_profile.v1"
 TRACK_PR = "PR-ATLAS-SCALE-147"
 NEXT_REQUIRED_PR = "PR-ATLAS-SCALE-148"
+# Historical / default baseline. The runtime is no longer pinned to a single level;
+# the effective level is resolved per selected profile (see RUNTIME_LEVEL_BY_PROFILE).
 CURRENT_RUNTIME_LEVEL = "level_4_self_improvement_platform"
+DEFAULT_RUNTIME_LEVEL = CURRENT_RUNTIME_LEVEL
+MAX_RUNTIME_LEVEL = "level_8_fully_autonomous_code_agent"
 
 PROFILE_REVIEW_ONLY = "review_only"
 PROFILE_GUARDED_SINGLE_ACTION = "guarded_single_action"
@@ -34,6 +38,18 @@ PROFILE_ORDER = {
     PROFILE_GUARDED_SINGLE_ACTION: 1,
     PROFILE_SUPERVISED_BOUNDED_AUTO: 2,
     PROFILE_AUTONOMOUS_DEV_AGENT: 3,
+}
+
+# Profile-dependent runtime model. The selected automation profile determines the
+# effective runtime level. Defaults stay on the safe end; only autonomous_dev_agent
+# reaches Level 8 (fully autonomous code agent), and even then full automation is
+# bounded and only activated by an active pre-authorized envelope (never by profile
+# selection alone). The forbidden capability flags below remain False at every level.
+RUNTIME_LEVEL_BY_PROFILE = {
+    PROFILE_REVIEW_ONLY: "level_0_review_only",
+    PROFILE_GUARDED_SINGLE_ACTION: "level_1_guarded_single_step",
+    PROFILE_SUPERVISED_BOUNDED_AUTO: "level_2_to_level4_supervised_bounded_auto",
+    PROFILE_AUTONOMOUS_DEV_AGENT: "level_8_fully_autonomous_code_agent",
 }
 SELF_IMPROVEMENT_SCOPES = {
     SELF_SCOPE_NONE,
@@ -99,6 +115,14 @@ _PROFILE_CAPABILITIES: dict[str, dict[str, Any]] = {
 }
 
 
+def resolve_runtime_level_for_profile(profile: str) -> str:
+    """Resolve the effective runtime level for a selected automation profile.
+
+    Unknown profiles fall back to the safe historical baseline rather than escalating.
+    """
+    return RUNTIME_LEVEL_BY_PROFILE.get(profile, DEFAULT_RUNTIME_LEVEL)
+
+
 def create_automation_safety_profile(
     *,
     profile: str = PROFILE_REVIEW_ONLY,
@@ -156,7 +180,11 @@ def create_automation_safety_profile(
         "next_required_pr": NEXT_REQUIRED_PR,
         "status": status,
         "blocking_reasons": sorted(set(blocked)),
-        "runtime_level": CURRENT_RUNTIME_LEVEL,
+        "runtime_level": resolve_runtime_level_for_profile(profile),
+        "runtime_level_model": "profile_dependent",
+        "runtime_level_by_profile": dict(RUNTIME_LEVEL_BY_PROFILE),
+        "default_runtime_level": DEFAULT_RUNTIME_LEVEL,
+        "max_runtime_level": MAX_RUNTIME_LEVEL,
         "automation_safety_profile": profile,
         "profile_rank": PROFILE_ORDER[profile],
         "explicit_profile_selection_required": True,
@@ -267,7 +295,7 @@ def validate_automation_safety_profile(profile: dict[str, Any]) -> dict[str, Any
         "track_pr": profile.get("track_pr") == TRACK_PR,
         "next_required_pr": profile.get("next_required_pr") == NEXT_REQUIRED_PR,
         "status": profile.get("status") in {"active", "blocked"},
-        "runtime_level": profile.get("runtime_level") == CURRENT_RUNTIME_LEVEL,
+        "runtime_level": profile.get("runtime_level") == resolve_runtime_level_for_profile(name),
         "automation_safety_profile": name in PROFILE_ORDER,
         "profile_rank": profile.get("profile_rank") == PROFILE_ORDER.get(name),
         "explicit_profile_selection_required": profile.get("explicit_profile_selection_required") is True,

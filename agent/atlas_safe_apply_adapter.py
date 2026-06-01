@@ -4,6 +4,7 @@ from typing import Any
 
 from agent.atlas_approval_gate import AtlasApprovalGate
 from agent.atlas_autopilot_policy import AtlasAutopilotPolicyGate
+from agent.atlas_critical_handling_policy import resolve_default_critical_handling
 from agent.atlas_full_auto_gate import relax_evaluation_for_full_auto
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_quality_gate import is_full_auto_preset
@@ -44,8 +45,16 @@ class AtlasSafeApplyAdapter:
         full_auto = is_full_auto_preset(preset_id=preset_id)
         allowed_risks = {"low", "medium", "high"} if full_auto else {"low"}
         # The shared human-in-the-loop knob (Features) routes safety-sensitive findings at the
-        # apply layer exactly as the plan-time critique gate does.
-        critical_handling = str(((getattr(pool, "metadata", {}) or {}).get("automation_features") or {}).get("critical_handling") or "auto")
+        # apply layer exactly as the plan-time critique gate does. An explicit value from
+        # Features always wins; otherwise the default is resolved from the selected
+        # profile/preset (no longer a blanket "auto") so non-autonomous selections do not
+        # silently auto-allow safety-sensitive changes.
+        meta = getattr(pool, "metadata", {}) or {}
+        critical_handling = resolve_default_critical_handling(
+            preset_id=str(preset_id or ""),
+            profile=str(meta.get("automation_safety_profile") or ""),
+            explicit=(meta.get("automation_features") or {}).get("critical_handling"),
+        )
         risk = (item.risk_level or "").lower()
         if risk == "critical":
             self._add(result.reasons, "critical_risk_not_allowed")
