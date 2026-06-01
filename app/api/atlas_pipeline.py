@@ -1043,11 +1043,49 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
             }
             pool.status = "needs_scope_confirmation"
         else:
+            _safe_default_answer = "Proceed with the narrowest low-risk interpretation and record the assumption."
+            _safe_default_questions = AtlasClarificationService().build_question_queue(
+                ambiguity_signals=_direct_ambiguities,
+                options=[],
+            )
+            _safe_default_progress = {
+                "questions": _safe_default_questions,
+                "answers": [],
+                "current_question_index": 0,
+                "pending_count": len(_safe_default_questions),
+                "answered_count": 0,
+                "latest_decision": {},
+            }
+            for _safe_default_question in _safe_default_questions:
+                _safe_default_progress = AtlasClarificationService().apply_answer_to_question_queue(
+                    questions=_safe_default_progress["questions"],
+                    answers=_safe_default_progress["answers"],
+                    question_id=str(_safe_default_question.get("question_id") or ""),
+                    option_id="safest_recommended",
+                    answer_text=_safe_default_answer,
+                    note="safe default selected because clarification_mode=auto",
+                )
+            pool.metadata["clarification_questions"] = _safe_default_progress["questions"]
+            pool.metadata["clarification_answers"] = _safe_default_progress["answers"]
+            pool.metadata["current_question_index"] = _safe_default_progress["current_question_index"]
+            pool.metadata["pending_question_count"] = _safe_default_progress["pending_count"]
+            pool.metadata["answered_question_count"] = _safe_default_progress["answered_count"]
+            pool.metadata["latest_clarification_decision"] = _safe_default_progress["latest_decision"]
+            pool.metadata["clarification_decision"] = _safe_default_progress["latest_decision"]
+            pool.metadata["plan_revision_required_after_clarification"] = True
+            pool.metadata["gate_rerun_required_after_clarification"] = True
             pool.metadata["safe_default_assumption_after_clarification"] = {
-                "assumption": "Proceed with the narrowest low-risk interpretation and record the assumption.",
+                "assumption": _safe_default_answer,
                 "ambiguity_signals": _direct_ambiguities,
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
             }
+            pool.metadata["safe_default_clarification_mode"] = "auto"
+            AtlasClarificationReplanningService().revise_after_answers(
+                pool,
+                preset_id=str((pool.metadata or {}).get("preset_id") or req.metadata.get("preset_id") or "guarded_low_risk"),
+                automation_level=str(req.automation_level or getattr(pool, "automation_level", "") or ""),
+                critical_handling=str(_features.get("critical_handling") or "ask"),
+            )
     for _w in quality_gate["warnings"]:
         if _w not in pool.warnings:
             pool.warnings.append(_w)
