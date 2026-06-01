@@ -59,6 +59,7 @@ class AtlasClarificationReplanningService:
                     selected_option_impacts=selected_option_impacts,
                 )
             )
+        allowed_paths_after_clarification = self._allowed_paths_after_clarification(revised_items)
 
         revised_plan = self._build_revised_plan(pool, answers, risk_raised=risk_raised)
         critique_gate = apply_plan_quality_gate(
@@ -82,6 +83,7 @@ class AtlasClarificationReplanningService:
                     "risk_raised": risk_raised,
                     "scope_reduced": scope_reduced,
                     "target_files_from_answer": extracted_paths,
+                    "allowed_paths_after_clarification": allowed_paths_after_clarification,
                     "selected_option_impacts": selected_option_impacts,
                 },
                 "original_requirement_summary": original_requirement,
@@ -93,8 +95,12 @@ class AtlasClarificationReplanningService:
                     "target_files_from_answer": extracted_paths,
                     "risk_raised": risk_raised,
                     "scope_reduced": scope_reduced,
+                    "allowed_paths_after_clarification": allowed_paths_after_clarification,
+                    "blocked_paths_after_clarification": [],
                     "selected_option_impacts": selected_option_impacts,
                 },
+                "allowed_paths_after_clarification": allowed_paths_after_clarification,
+                "blocked_paths_after_clarification": [],
                 "gate_rerun_required_after_clarification": False,
                 "gate_rerun_performed_after_clarification": True,
                 "plan_revision_required_after_clarification": False,
@@ -110,6 +116,7 @@ class AtlasClarificationReplanningService:
         return {
             "revision_id": revision_id,
             "status": next_status,
+            "allowed_paths_after_clarification": allowed_paths_after_clarification,
             "revised_plan_snapshot": metadata["revised_plan_snapshot"],
             "rerun_critique_gate": critique_gate,
             "rerun_safety_gate": safety_gate,
@@ -212,6 +219,16 @@ class AtlasClarificationReplanningService:
         out = list(values or [])
         if value and value not in out:
             out.append(value)
+        return out
+
+    @staticmethod
+    def _allowed_paths_after_clarification(items: list[AtlasPlanItem]) -> list[str]:
+        out: list[str] = []
+        for item in items:
+            for path in item.target_files or []:
+                text = str(path or "").replace("\\", "/").strip()
+                if text and text not in out:
+                    out.append(text)
         return out
 
     @staticmethod
