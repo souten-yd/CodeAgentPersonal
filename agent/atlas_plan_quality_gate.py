@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from agent.atlas_clarification_gate_service import AtlasClarificationGateService
 from agent.atlas_critique_gate_service import AtlasCritiqueGateService
+from agent.atlas_critical_event_policy import normalize_critical_event
 
 # Presets / automation levels treated as "full automation policy" (profiles 3-4).
 # When selected, high/critical non-safety critique does NOT dead-stop the run: it proceeds
@@ -79,60 +80,38 @@ def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id
             AtlasClarificationGateService().detect_ambiguities(plan_text)
         )
 
-    # ── Safety-sensitive high/critical findings: routed by the configurable critical_handling knob.
-    # This is the single human-in-the-loop boundary shared with the apply-time full_auto gate.
+    # ── Critical/safety-sensitive high findings: always pause for user judgment.
+    # full_auto, critical_handling=auto, and autonomous_dev_agent are useful for non-critical
+    # quality continuation, but they must never silently continue a critical event.
     if safety_sensitive:
-        # The plan-time critique gate keeps a conservative "ask" default for every preset:
-        # it is the earliest human-in-the-loop boundary, so by default it pauses for a user
-        # decision (without forcing a re-plan). An explicit critical_handling value still
-        # unlocks full autonomy ("auto") or a hard stop ("block"). Profile/preset/envelope
-        # *default* relaxation to "auto" is applied at the apply layer (safe_apply adapter /
-        # full_auto gate), not here.
-        handling = str(critical_handling or "ask").strip().lower()
-        if handling == "auto":
-            # Maximum autonomy — proceed without approval but record an audit trail.
-            warnings.append("critical_handling_auto_continued_safety_sensitive")
-            return {
-                "critique_gate": {
-                    "gate_status": "critical_auto_continued",
-                    "reason": "safety_sensitive_high_critique",
-                    "residual_risk": residual_risk,
-                    "blocking_findings": blocking,
-                    "safety_sensitive": True,
-                    "auditable_note": "proceeded under critical_handling=auto despite safety-sensitive critique",
-                },
-                "plan_revision_required": False,
-                "require_approval": False,
-                "warnings": warnings,
-                "clarification": {},
-            }
-        if handling == "ask":
-            # Pause for a user decision (approval/clarification) but do NOT force a re-plan.
-            warnings.append("safety_sensitive_high_critique_ask")
-            return {
-                "critique_gate": {
-                    "gate_status": "ask",
-                    "reason": "safety_sensitive_high_critique",
-                    "residual_risk": residual_risk,
-                    "blocking_findings": blocking,
-                    "safety_sensitive": True,
-                },
-                "plan_revision_required": False,
-                "require_approval": True,
-                "warnings": warnings,
-                "clarification": _clarification(),
-            }
-        # block (default for safety): stop and require a revised plan.
-        warnings.append("safety_sensitive_high_critique")
+        warnings.append("critical_event_detected_waiting_for_user_decision")
+        critical_event = normalize_critical_event(
+            category="safety_sensitive_critique",
+            severity="critical" if any(str(f.get("severity") or "").lower() == "critical" for f in blocking) else "high",
+            reason="Safety-sensitive high/critical critique requires explicit user decision",
+            affected_files=[],
+            affected_capabilities=["plan_critique_gate"],
+            estimated_impact="May affect safety, security, data loss, destructive behavior, or runtime execution boundaries.",
+            source_gate="plan_critique_gate",
+            extra={
+                "blocking_findings": blocking,
+                "residual_risk": residual_risk,
+                "full_auto_bypass_allowed": False,
+                "critical_handling_auto_bypass_allowed": False,
+            },
+        )
         return {
             "critique_gate": {
-                "gate_status": "blocked",
-                "reason": "safety_sensitive_high_critique",
+                "gate_status": "waiting_for_critical_decision",
+                "reason": "Critical event detected",
                 "residual_risk": residual_risk,
                 "blocking_findings": blocking,
                 "safety_sensitive": True,
+                "critical_event": critical_event,
             },
-            "plan_revision_required": True,
+            "critical_event": critical_event,
+            "status": "waiting_for_critical_decision",
+            "plan_revision_required": False,
             "require_approval": True,
             "warnings": warnings,
             "clarification": _clarification(),

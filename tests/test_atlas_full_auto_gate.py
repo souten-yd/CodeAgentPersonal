@@ -20,10 +20,11 @@ def _eval(decision, categories, *, scope="item"):
 
 # ── Hard block is preserved even under full_auto ──────────────────────────────
 
-def test_full_auto_keeps_block_on_critical_risk():
+def test_full_auto_requires_decision_on_critical_risk():
     out = relax_evaluation_for_full_auto(_eval("block", ["critical_risk"]), preset_id="full_auto")
-    assert out.decision == "block"
-    assert out.blocked is True
+    assert out.decision == "require_approval"
+    assert out.requires_user_confirmation is True
+    assert out.metadata["status"] == "waiting_for_critical_decision"
 
 
 def test_full_auto_keeps_block_on_delete_and_run_command():
@@ -57,8 +58,6 @@ def test_full_auto_relaxes_require_approval_quality_categories():
         "ui_breaking_change",
         "docker_change",
         "database_migration",
-        "security",
-        "destructive_change",
         "too_many_files",
         "patch_too_large",
     ):
@@ -69,15 +68,15 @@ def test_full_auto_relaxes_require_approval_quality_categories():
         assert out.metadata.get("full_auto_original_decision") == "require_approval"
 
 
-def test_full_auto_relaxes_data_loss_block_to_allow():
-    # User opted into maximum autonomy; data_loss is reversible via the pre-apply snapshot.
+def test_full_auto_requires_decision_on_data_loss_block():
     out = relax_evaluation_for_full_auto(_eval("block", ["data_loss"]), preset_id="full_auto")
-    assert out.decision == "allow"
+    assert out.decision == "require_approval"
     assert out.blocked is False
+    assert out.metadata["critical_event"]["critical_event"] is True
 
 
-def test_full_auto_keeps_block_when_data_loss_combined_with_hard_block():
-    out = relax_evaluation_for_full_auto(_eval("block", ["data_loss", "critical_risk"]), preset_id="full_auto")
+def test_full_auto_keeps_block_when_data_loss_combined_with_forbidden_action():
+    out = relax_evaluation_for_full_auto(_eval("block", ["data_loss", "run_command_forbidden"]), preset_id="full_auto")
     assert out.decision == "block"
 
 

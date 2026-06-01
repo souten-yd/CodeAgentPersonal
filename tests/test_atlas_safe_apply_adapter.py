@@ -188,16 +188,15 @@ def test_full_auto_bypasses_patch_metadata_dependency_change() -> None:
     assert result.decision == "allow"
 
 
-def test_full_auto_relaxes_patch_metadata_data_loss_to_allow() -> None:
-    # User opted into maximum autonomy. data_loss is reversible via the pre-apply change
-    # snapshot/rollback (AtlasChangeSnapshotService), and safety-sensitive plans are blocked
-    # earlier at the plan-time critique gate.
+def test_full_auto_routes_patch_metadata_data_loss_to_critical_decision() -> None:
     item = make_item()
     result = AtlasSafeApplyAdapter().evaluate_safe_apply(
         item, make_pool(item), patch_metadata={"data_loss": True}, preset_id="full_auto"
     )
 
-    assert result.decision == "allow"
+    assert result.decision == "require_approval"
+    assert result.metadata["status"] == "waiting_for_critical_decision"
+    assert result.metadata["critical_event"]["critical_event"] is True
 
 
 def test_full_auto_bypasses_low_risk_requires_user_confirmation() -> None:
@@ -215,12 +214,13 @@ def test_autonomous_preset_ids_treated_as_full_auto() -> None:
         assert result.decision == "allow", preset
 
 
-def test_full_auto_keeps_block_on_critical_risk() -> None:
+def test_full_auto_requires_critical_decision_on_critical_risk() -> None:
     item = make_item(risk_level="critical")
     result = AtlasSafeApplyAdapter().evaluate_safe_apply(item, make_pool(item), preset_id="full_auto")
 
-    assert result.decision == "block"
+    assert result.decision == "require_approval"
     assert "critical_risk_not_allowed" in result.reasons
+    assert result.metadata["status"] == "waiting_for_critical_decision"
 
 
 def test_full_auto_keeps_approval_on_protected_path() -> None:
@@ -253,20 +253,22 @@ def test_full_auto_security_patch_routed_by_critical_handling_ask() -> None:
     assert result.decision == "require_approval"
 
 
-def test_full_auto_security_patch_routed_by_critical_handling_block() -> None:
+def test_full_auto_security_patch_ignores_critical_handling_block_and_waits() -> None:
     item = make_item(risk_level="high")
     result = AtlasSafeApplyAdapter().evaluate_safe_apply(
         item, _pool_with_features(item, "block"), patch_metadata={"security": True}, preset_id="full_auto"
     )
-    assert result.decision == "block"
+    assert result.decision == "require_approval"
+    assert result.metadata["status"] == "waiting_for_critical_decision"
 
 
-def test_full_auto_security_patch_routed_by_critical_handling_auto() -> None:
+def test_full_auto_security_patch_ignores_critical_handling_auto_and_waits() -> None:
     item = make_item(risk_level="high")
     result = AtlasSafeApplyAdapter().evaluate_safe_apply(
         item, _pool_with_features(item, "auto"), patch_metadata={"security": True}, preset_id="full_auto"
     )
-    assert result.decision == "allow"
+    assert result.decision == "require_approval"
+    assert result.metadata["critical_event"]["critical_event"] is True
 
 
 def test_adapter_has_no_direct_file_command_side_effect_tokens() -> None:

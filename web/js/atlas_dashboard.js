@@ -264,6 +264,7 @@
     const status = pipeline?.status || '';
     if (status === 'completed') return 'Review final report or start next plan.';
     if (status === 'failed') return 'Inspect failed items in Details and prepare a follow-up plan. Open Details / Advanced Panel → Debug Review.';
+    if (status === 'waiting_for_critical_decision') return 'Critical event detected. Review reason, impact, recommended action, and safer alternative in Approval Gate.';
     if (status === 'approval_required') return 'Open Details / Advanced Panel → Approval Gate.';
     if (status === 'paused' || status === 'waiting' || status === 'dependency_waiting') return 'No ready item remains. Check dependencies or approve required items. Open Details / Advanced Panel.';
     if (status === 'blocked') return 'Review blocked items and policy/approval reasons.';
@@ -958,6 +959,19 @@
     state.safeApplyCandidateItems = arr(result.data?.safe_apply_candidate_items);
   }
 
+  function renderCriticalEventSummary(item) {
+    const event = item?.metadata?.critical_event || item?.metadata?.approval?.critical_event || null;
+    if (!event?.critical_event) return '';
+    const alternatives = arr(event.safer_alternatives).map((alt)=>`<li>${esc(alt)}</li>`).join('');
+    return `<div class="atlas-warning-box"><strong>Critical event detected</strong><br>Reason: ${esc(event.reason || '-')}<br>Impact: ${esc(event.estimated_impact || '-')}<br>Recommended action: ${esc(event.recommended_decision || 'Reject / NG and request safer alternative')}<br>Options: Approve with explicit consent / Reject or NG and request safer alternative / Cancel / Edit requirement or scope<br>${alternatives ? `<small>Safer alternative:</small><ul>${alternatives}</ul>` : ''}</div>`;
+  }
+
+  function renderRejectedCriticalAlternative(item) {
+    const alt = item?.metadata?.lower_impact_alternative || item?.metadata?.approval?.lower_impact_alternative || null;
+    if (!alt?.metadata?.lower_impact_alternative) return '';
+    return `<div class="atlas-warning-box"><strong>Original critical path rejected</strong><br>Generating lower-impact alternative<br>Alternative plan summary: ${esc(arr(alt.expected_changes).join(' '))}<br>Risk reduced: ${esc(arr(alt.metadata?.risk_reduced).join(', ') || '-')}<br>Remaining risk: ${esc(alt.metadata?.remaining_risk || '-')}</div>`;
+  }
+
   function renderApprovalPanel() {
     const summaryEl = $('atlas-approval-summary');
     const listEl = $('atlas-approval-list');
@@ -981,7 +995,7 @@
           : (decision === 'needs_revision'
             ? '<small>Needs revision. Return to Patch Proposal / PlanItem draft flow manually.</small>'
             : ''));
-      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')}${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<br><small>draft item id: ${esc(item.item_id)}</small>${isPatchDraft ? `<br><small>source proposal id: ${esc(sourceProposalId || '-')}</small><br><small>source item id: ${esc(sourceItemId || '-')}</small><br><small>target files: ${esc(targetFiles || '-')}</small><br><small>risk level: ${esc(item?.risk_level || '-')}</small><br><small>approval status: ${esc(decision || '-')}</small><br><small>PlanItem approval only.</small><br><small>No safe_apply is executed automatically.</small><br><small>No verification or DebugReview is executed automatically.</small>${nextNote}` : ''}<textarea data-approval-reason="${esc(item.item_id)}" placeholder="reason"></textarea><div class="atlas-clarification-actions"><button data-approval="approved" data-item-id="${esc(item.item_id)}" type="button">Approve</button><button data-approval="rejected" data-item-id="${esc(item.item_id)}" type="button">Reject</button><button data-approval="needs_revision" data-item-id="${esc(item.item_id)}" type="button">Needs revision</button>${safeApplyHtml}</div></div>`;
+      return `<div class="atlas-question-card"><b>${esc(item.item_id)}</b> ${esc(item.title||'')}${isPatchDraft ? ' <span class="atlas-badge">Patch Proposal Draft</span>' : ''}<br><small>draft item id: ${esc(item.item_id)}</small>${renderCriticalEventSummary(item)}${renderRejectedCriticalAlternative(item)}${isPatchDraft ? `<br><small>source proposal id: ${esc(sourceProposalId || '-')}</small><br><small>source item id: ${esc(sourceItemId || '-')}</small><br><small>target files: ${esc(targetFiles || '-')}</small><br><small>risk level: ${esc(item?.risk_level || '-')}</small><br><small>approval status: ${esc(decision || '-')}</small><br><small>PlanItem approval only.</small><br><small>No safe_apply is executed automatically.</small><br><small>No verification or DebugReview is executed automatically.</small>${nextNote}` : ''}<textarea data-approval-reason="${esc(item.item_id)}" placeholder="reason"></textarea><div class="atlas-clarification-actions"><button data-approval="approved" data-item-id="${esc(item.item_id)}" type="button">Approve with explicit consent</button><button data-approval="rejected" data-item-id="${esc(item.item_id)}" type="button">Reject / NG and request safer alternative</button><button data-approval="cancelled" data-item-id="${esc(item.item_id)}" type="button">Cancel</button><button data-approval="needs_revision" data-item-id="${esc(item.item_id)}" type="button">Edit requirement / scope</button>${safeApplyHtml}</div></div>`;
     }).join('');
     const candidateHtml = candidateItems.map((item)=>{
       const safeApplyHtml = renderSafeApplyEligibility(item);

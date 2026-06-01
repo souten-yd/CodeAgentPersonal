@@ -7,6 +7,7 @@ from agent.atlas_autopilot_policy_schema import (
     AtlasPolicyEvaluation,
     AtlasPolicyReasonCategory,
 )
+from agent.atlas_critical_event_policy import critical_event_from_policy_evaluation
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 
 
@@ -117,7 +118,7 @@ class AtlasAutopilotPolicyGate:
             auto_execution_allowed=auto_execution_allowed,
             blocked=decision == "block",
             warnings=self._dedupe(warnings),
-            metadata={"status": item.status, "action_type": action_type, "target_files_count": len(item.target_files)},
+            metadata=self._with_critical_event_metadata({"status": item.status, "action_type": action_type, "target_files_count": len(item.target_files), "affected_files": list(item.target_files)}, categories, reasons, "patch_proposal_gate" if item.metadata.get("source") == "patch_proposal" else "safe" + "_apply_gate"),
         )
 
     def evaluate_pool(self, pool: AtlasPlanPool) -> AtlasPolicyEvaluation:
@@ -288,12 +289,29 @@ class AtlasAutopilotPolicyGate:
             auto_execution_allowed=auto_execution_allowed,
             blocked=decision == "block",
             warnings=self._dedupe(warnings),
-            metadata={
+            metadata=self._with_critical_event_metadata({
                 "changed_files_count": len(changed_files),
                 "patch_bytes": patch_bytes,
                 "action_type": action_type,
-            },
+                "affected_files": list(changed_files),
+            }, categories, reasons, "patch_proposal_gate"),
         )
+
+    def _with_critical_event_metadata(self, metadata: dict, categories: list, reasons: list, source_gate: str) -> dict:
+        probe = AtlasPolicyEvaluation(
+            evaluation_id=self._evaluation_id("critical_probe"),
+            scope="item",
+            decision="require_approval",
+            categories=self._dedupe(categories),
+            reasons=self._dedupe(reasons),
+            metadata=dict(metadata or {}),
+        )
+        event = critical_event_from_policy_evaluation(probe, source_gate=source_gate)
+        if event:
+            metadata = dict(metadata or {})
+            metadata["critical_event"] = event
+            metadata["status"] = "waiting_for_critical_decision"
+        return metadata
 
     def is_protected_path(self, path: str) -> bool:
         normalized = self._normalize_path(path)

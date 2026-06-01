@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from agent.atlas_approval_gate import AtlasApprovalGate
+from agent.atlas_critical_event_policy import lower_impact_alternative_plan
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_plan_pool_schema import AtlasPlanPool
 
@@ -96,13 +97,18 @@ class AtlasApprovalService:
 
         gate = AtlasApprovalGate()
         record = gate.request_approval(scope="item", pool_id=pool.pool_id, item_id=item_id, reason=reason, metadata=dict(metadata or {}))
+        critical_event = dict((item.metadata or {}).get("critical_event") or (metadata or {}).get("critical_event") or {})
         if decision == "approved":
             gate.approve(record.approval_id, decided_by=approver, reason=reason)
-            if item.status in {"approval_required", "paused"}:
+            if item.status in {"approval_required", "paused", "waiting_for_critical_decision"}:
                 item.status = "ready"
         elif decision == "rejected":
             gate.reject(record.approval_id, decided_by=approver, reason=reason)
-            item.status = "blocked"
+            if critical_event.get("critical_event"):
+                item.status = "needs_revision"
+                item.metadata["lower_impact_alternative"] = lower_impact_alternative_plan(self._item_payload(item), critical_event)
+            else:
+                item.status = "blocked"
         elif decision == "cancelled":
             # User cancelled the plan/item: revoke the approval request and stop the item.
             gate.revoke(record.approval_id, decided_by=approver, reason=reason)
@@ -128,15 +134,26 @@ class AtlasApprovalService:
             "source_item_id": source_item_id,
             "source_proposal_id": source_proposal_id,
             "manual_only": True,
+            "critical_event": critical_event or existing.get("critical_event") or {},
+            "approved_scope": list((metadata or {}).get("approved_scope") or item.target_files or []),
+            "approved_files": list((metadata or {}).get("approved_files") or item.target_files or []),
+            "approved_capabilities": list((metadata or {}).get("approved_capabilities") or (critical_event.get("affected_capabilities") if critical_event else []) or []),
+            "bounded_continuation": bool((metadata or {}).get("bounded_continuation", False)),
+            "one_action_only": not bool((metadata or {}).get("bounded_continuation", False)),
             "auto_safe_apply": False,
             "auto_verification": False,
             "auto_debug_review": False,
         }
         payload = record.model_dump()
         payload["run_id"] = run_id
-        if decision == "needs_revision":
+        if decision == "needs_revision" or (decision == "rejected" and critical_event.get("critical_event")):
             payload["status"] = "rejected"
-            payload["metadata"] = {**payload.get("metadata", {}), "decision": "needs_revision"}
+            payload["metadata"] = {
+                **payload.get("metadata", {}),
+                "decision": "needs_revision" if decision == "needs_revision" else "rejected_ng_safer_replan",
+                "critical_event": critical_event,
+                "lower_impact_alternative": item.metadata.get("lower_impact_alternative") or {},
+            }
         self._save_record(pool.pool_id, payload, item_title=item.title, risk_level=item.risk_level, target_files=item.target_files)
         return payload
 
