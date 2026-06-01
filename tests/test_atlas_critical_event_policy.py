@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from agent.atlas_approval_service import AtlasApprovalService
 from agent.atlas_autopilot_policy_schema import AtlasPolicyEvaluation
+from agent.atlas_critical_replanning_service import AtlasCriticalReplanningService
 from agent.atlas_critical_event_policy import lower_impact_alternative_plan, normalize_critical_event
 from agent.atlas_full_auto_gate import relax_evaluation_for_full_auto
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
@@ -156,15 +157,103 @@ def test_rejected_ng_critical_event_creates_lower_impact_revised_item_and_rerun_
     revised_id = item.metadata["lower_impact_revised_item_id"]
     revised = pool.get_item(revised_id)
     assert revised is not None
-    assert revised.status == "needs_revision"
+    assert revised.status == "approval_required"
     assert revised.metadata["lower_impact_revised_candidate"] is True
     assert revised.metadata["requires_critique_gate_rerun"] is True
     assert revised.metadata["requires_policy_gate_rerun"] is True
     assert revised.metadata["requires_safe_apply_gate_rerun"] is True
     assert revised.metadata["gate_rerun_required"] == ["plan_critique_gate", "policy_gate", "safe_apply_gate"]
+    assert revised.metadata["gate_rerun_performed"] is True
+    assert revised.metadata["rerun_critique_gate"]["critique_gate"]["gate_status"] == "passed"
+    assert revised.metadata["rerun_safety_gate"]["phase"] == "pre_safe_apply"
+    assert revised.metadata["rerun_result_status"] == "approval_required"
+    assert revised.metadata["next_required_user_action"] == "Review lower-impact revised candidate before any mutation."
     assert revised.metadata["safe_apply_allowed_before_gate_rerun"] is False
     assert revised.auto_execution_allowed is False
     assert revised.target_files == ["agent/security.py"]
+    assert pool.metadata["critical_replanning"]["original_path_blocked"] is True
+    assert pool.metadata["critical_replanning"]["revised_item_id"] == revised_id
+
+
+def test_critical_replanning_rerun_critical_finding_waits_for_decision():
+    event = normalize_critical_event(category="security", affected_files=["agent/security.py"], affected_capabilities=["security"])
+    item = AtlasPlanItem(
+        item_id="i4",
+        pool_id="p4",
+        title="Critical item",
+        goal="Change auth",
+        status="waiting_for_critical_decision",
+        risk_level="critical",
+        target_files=["agent/security.py"],
+        metadata={"critical_event": event},
+    )
+    pool = AtlasPlanPool(pool_id="p4", root_goal="goal", items=[item])
+
+    result = AtlasCriticalReplanningService().create_lower_impact_revision(
+        pool=pool,
+        original_item=item,
+        critical_event=event,
+        user_decision_record={"decision": "rejected_ng_safer_replan"},
+        lower_impact_alternative={
+            "goal": "Safer auth docs",
+            "risk_level": "medium",
+            "target_files": ["agent/security.py"],
+            "adversarial_critique": {
+                "findings": [
+                    {
+                        "severity": "critical",
+                        "category": "security",
+                        "title": "still unsafe",
+                        "detail": "security decision remains critical",
+                    }
+                ],
+                "consensus_risk": "critical",
+            },
+        },
+        profile_context={"preset_id": "full_auto", "critical_handling": "auto"},
+    )
+
+    revised = result["revised_item"]
+    assert revised.status == "waiting_for_critical_decision"
+    assert revised.metadata["rerun_result_status"] == "waiting_for_critical_decision"
+    assert revised.metadata["critical_event"]["critical_event"] is True
+    assert item.metadata["original_path_blocked"] is True
+    assert item.auto_execution_allowed is False
+
+
+def test_critical_replanning_ready_only_inside_active_bounded_envelope():
+    event = normalize_critical_event(category="security", affected_files=["docs/safer.md"], affected_capabilities=["security"])
+    item = AtlasPlanItem(
+        item_id="i5",
+        pool_id="p5",
+        title="Critical item",
+        goal="Change docs",
+        status="waiting_for_critical_decision",
+        risk_level="critical",
+        target_files=["docs/safer.md"],
+        metadata={"critical_event": event},
+    )
+    pool = AtlasPlanPool(pool_id="p5", root_goal="goal", project_path=".", items=[item])
+
+    result = AtlasCriticalReplanningService().create_lower_impact_revision(
+        pool=pool,
+        original_item=item,
+        critical_event=event,
+        user_decision_record={"decision": "rejected_ng_safer_replan"},
+        lower_impact_alternative={
+            "goal": "Safer docs",
+            "risk_level": "low",
+            "target_files": ["docs/safer.md"],
+            "metadata": {"proposed_content": "safe docs update"},
+        },
+        profile_context={"preset_id": "full_auto", "bounded_envelope_active": True},
+    )
+
+    revised = result["revised_item"]
+    assert revised.status == "ready"
+    assert revised.auto_execution_allowed is True
+    assert revised.metadata["rerun_result_status"] == "ready"
+    assert revised.metadata["rerun_safety_gate"]["decision"] == "allow"
 
 
 def test_waiting_for_critical_decision_items_are_listed_for_dedicated_decision():
