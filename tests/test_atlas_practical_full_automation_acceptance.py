@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agent.atlas_approval_service import AtlasApprovalService
@@ -334,6 +335,100 @@ def test_envelope_and_forbidden_operation_acceptance(tmp_path: Path) -> None:
     assert auto.last_request is None
 
 
+def test_preflight_path_and_verification_command_acceptance(tmp_path: Path) -> None:
+    svc, _proposal, auto = _service(tmp_path / "outside_allowed", _pool([_item("code", "src/fix.py")]))
+    outside = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+            allowed_paths=["docs/"],
+        )
+    )
+    assert outside.status == "stopped"
+    assert outside.stop_reason == "path_outside_allowed_paths"
+    assert outside.metadata["preflight"]["paths"] == ["src/fix.py"]
+    assert auto.last_request is None
+
+    svc, _proposal, auto = _service(tmp_path / "blocked_path", _pool([_item("code", "src/fix.py")]))
+    blocked = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+            blocked_paths=["src/"],
+        )
+    )
+    assert blocked.status == "stopped"
+    assert blocked.stop_reason == "blocked_path"
+    assert blocked.metadata["preflight"]["paths"] == ["src/fix.py"]
+    assert auto.last_request is None
+
+    svc, _proposal, auto = _service(tmp_path / "expanded_allowed", _pool([_item("code", "src/fix.py")]))
+    expanded = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope={**_active_envelope(), "bounds": {"allowed_paths": ["src/"], "max_actions_per_loop": 4}},
+            allowed_paths=["src/", "docs/"],
+        )
+    )
+    assert expanded.status == "stopped"
+    assert expanded.stop_reason == "allowed_paths_expand_envelope"
+    assert expanded.metadata["preflight"]["requested_allowed_paths"] == ["src/", "docs/"]
+    assert auto.last_request is None
+
+    svc, _proposal, auto = _service(tmp_path / "verification_commands", _pool([_item("code", "src/fix.py")]))
+    commands = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+            allowed_verification_commands=["pytest tests/test_atlas.py"],
+        )
+    )
+    assert commands.status == "stopped"
+    assert commands.stop_reason == "allowed_verification_commands_unsupported"
+    assert commands.metadata["preflight"]["allowed_verification_commands"] == ["pytest tests/test_atlas.py"]
+    assert auto.last_request is None
+
+
+def test_critical_approval_scope_acceptance_blocks_unapproved_continuation(tmp_path: Path) -> None:
+    event = normalize_critical_event(category="security", affected_files=["src/approved.py"])
+    item = _item("crit", "src/unapproved.py", risk_level="critical")
+    pool = _pool(
+        [item],
+        metadata={
+            "critical_event": event,
+            "critical_decision": {
+                "scope": "pool",
+                "decision": "approved",
+                "approved_files": ["src/approved.py"],
+                "approved_paths": ["src/approved.py"],
+                "approved_item_ids": ["crit"],
+                "bounded_continuation": True,
+            },
+        },
+    )
+    svc, proposal, auto = _service(tmp_path, pool)
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+        )
+    )
+
+    assert out.status == "stopped"
+    assert out.stop_reason == "critical_approval_scope_mismatch"
+    critical_scope = out.metadata["preflight"]["critical_scope"]
+    assert critical_scope["approved_files"] == ["src/approved.py"]
+    assert critical_scope["unapproved_files"] == ["src/unapproved.py"]
+    assert proposal.calls == []
+    assert auto.last_request is None
+
+
 def test_ui_api_state_reports_decisions_verification_repair_and_final_summary(tmp_path: Path) -> None:
     autopilot = _Autopilot(
         item_results=[
@@ -356,3 +451,51 @@ def test_ui_api_state_reports_decisions_verification_repair_and_final_summary(tm
     assert status_view["evidence_summary"]["final_summary"]["draft_pr_ready"] is True
     assert status_view["controls"]["execute_apply_visible"] is False
     assert status_view["raw_json_included"] is False
+
+
+def test_ui_status_hides_execution_controls_for_safety_blocks(tmp_path: Path) -> None:
+    clarification = _pool(
+        [_item("amb", "src/a.py")],
+        status="needs_scope_confirmation",
+        metadata={
+            "clarification_required": True,
+            "pending_question_count": 1,
+            "clarification_questions": [{"question_id": "q1", "status": "pending"}],
+        },
+    )
+    svc, _proposal, _auto = _service(tmp_path / "clarification", clarification)
+    blocked = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_accept"))
+    status_view = _normalized_status(blocked.model_dump())
+    assert status_view["decision_targets"]["clarification"]["required"] is True
+    assert status_view["controls"]["can_execute"] is False
+    assert status_view["controls"]["can_continue"] is False
+    assert status_view["controls"]["execute_apply_visible"] is False
+    assert status_view["next_action"] == "Answer remaining clarification"
+
+    critical_item = _item("crit", "src/security.py", status="waiting_for_critical_decision", risk_level="critical")
+    critical_pool = _pool([critical_item], status="waiting_for_critical_decision")
+    svc, _proposal, _auto = _service(tmp_path / "critical_ui", critical_pool)
+    blocked = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+        )
+    )
+    status_view = _normalized_status(blocked.model_dump())
+    assert status_view["decision_targets"]["critical_event"]["required"] is True
+    assert status_view["controls"]["can_execute"] is False
+    assert status_view["controls"]["can_continue"] is False
+    assert status_view["controls"]["execute_apply_visible"] is False
+    assert status_view["next_action"] == "Make critical event decision"
+
+
+def test_manifest_truthfulness_acceptance_flags_remain_corrective_checkpoint() -> None:
+    manifest = json.loads(Path("docs/atlas_automation_phase_manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest["practical_full_automation_truthfulness_status"] == "corrective_checkpoint_in_progress"
+    assert manifest["practical_full_automation_acceptance_tests"] == "tests/test_atlas_practical_full_automation_acceptance.py"
+    assert manifest["practical_full_automation_complete"] is False
+    assert manifest["ui_practical_experience_complete"] is False
+    assert manifest["stable_runtime_mutation_apply_complete"] is False
+    assert manifest["self_improvement_practical_loop_complete"] is False

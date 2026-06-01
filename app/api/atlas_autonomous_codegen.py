@@ -224,12 +224,12 @@ def cancel(payload: dict, request: Request):
 def _next_action(payload: dict) -> str:
     status = str(payload.get("status") or "")
     phase = str(payload.get("phase") or "")
+    if phase == "needs_scope_confirmation":
+        return "Answer remaining clarification"
+    if phase == "waiting_for_critical_decision":
+        return "Make critical event decision"
     if status in {"stopped", "blocked_safety_review"}:
         return f"Resolve stop reason: {payload.get('stop_reason') or 'blocked'}"
-    if phase == "needs_scope_confirmation":
-        return "Answer clarification, revise plan, and rerun gates."
-    if phase == "waiting_for_critical_decision":
-        return "Review critical event and choose an explicit user decision."
     if status in {"completed", "partial"}:
         return "Review final summary and prepare draft PR artifact when allowed."
     return "Poll status or inspect the autonomous code-generation result."
@@ -289,6 +289,7 @@ def _controls(*, status: str, phase: str, decision_targets: dict) -> dict:
         "can_approve_critical_event": bool((decision_targets.get("critical_event") or {}).get("required")),
         "can_reject_critical_event": bool((decision_targets.get("critical_event") or {}).get("required")),
         "can_edit_scope": status in {"blocked_safety_review", "needs_revision"} or blocked_for_decision,
+        "can_execute": False,
         "can_continue": not blocked_for_decision and status in {"stopped", "blocked_safety_review", "needs_revision"},
         "execute_apply_visible": False,
     }
