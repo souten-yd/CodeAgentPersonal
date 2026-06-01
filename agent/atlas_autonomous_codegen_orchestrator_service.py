@@ -364,6 +364,41 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "workspace_evidence": workspace_evidence,
                 "recovery_evidence": recovery_evidence,
             }
+        clarification_scope = self._clarification_scope(pool)
+        clarification_allowed = list(clarification_scope.get("allowed_paths") or [])
+        clarification_blocked = list(clarification_scope.get("blocked_paths") or [])
+        clarification_blocked_paths = [
+            p for p in paths
+            if clarification_blocked and self._matches_prefix(p, clarification_blocked)
+        ]
+        if clarification_blocked_paths:
+            return {
+                "status": "blocked",
+                "phase": "revising_plan_from_clarification",
+                "reason": "path_blocked_by_clarification_scope",
+                "paths": clarification_blocked_paths,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+                "effective_limits": effective_limits,
+                "clarification_scope": clarification_scope,
+            }
+        clarification_outside = [
+            p for p in paths
+            if clarification_allowed and not self._matches_prefix(p, clarification_allowed)
+        ]
+        if clarification_outside:
+            return {
+                "status": "blocked",
+                "phase": "revising_plan_from_clarification",
+                "reason": "path_outside_clarification_allowed_paths",
+                "paths": clarification_outside,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+                "effective_limits": effective_limits,
+                "clarification_scope": clarification_scope,
+            }
         return {
             "status": "ok",
             "normalized_profile": profile,
@@ -375,6 +410,7 @@ class AtlasAutonomousCodegenOrchestratorService:
             "effective_blocked_paths": blocked_paths,
             "effective_limits": effective_limits,
             "critical_scope": critical_scope,
+            "clarification_scope": clarification_scope,
             "warnings": warnings,
             "workspace_evidence": workspace_evidence,
             "recovery_evidence": recovery_evidence,
@@ -484,6 +520,23 @@ class AtlasAutonomousCodegenOrchestratorService:
             expanded = [path for path in requested_allowed if not cls._matches_prefix(path, envelope_allowed)]
             return {"allowed_paths": requested_allowed, "expanded": bool(expanded), "expanded_paths": expanded}
         return {"allowed_paths": requested_allowed or envelope_allowed, "expanded": False, "expanded_paths": []}
+
+    @staticmethod
+    def _clarification_scope(pool: AtlasPlanPool) -> dict[str, Any]:
+        metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
+        allowed = [
+            str(path).replace("\\", "/")
+            for path in (metadata.get("allowed_paths_after_clarification") or [])
+            if str(path).strip()
+        ]
+        blocked = [
+            str(path).replace("\\", "/")
+            for path in (metadata.get("blocked_paths_after_clarification") or [])
+            if str(path).strip()
+        ]
+        if not allowed and not blocked:
+            return {"status": "not_applicable", "allowed_paths": [], "blocked_paths": []}
+        return {"status": "active", "allowed_paths": allowed, "blocked_paths": blocked}
 
     @staticmethod
     def _unique_strings(values: list[str]) -> list[str]:

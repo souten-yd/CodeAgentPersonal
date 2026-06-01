@@ -333,6 +333,63 @@ def test_allowed_verification_commands_are_blocked_until_supported(tmp_path: Pat
     assert autopilot.last_request is None
 
 
+def test_clarification_allowed_paths_block_unrevised_target_files(tmp_path: Path) -> None:
+    item = _item("i1")
+    item.target_files = ["src/unrevised.py"]
+    pool = _pool(
+        [item],
+        metadata={
+            "allowed_paths_after_clarification": ["src/revised.py"],
+            "blocked_paths_after_clarification": [],
+            "revised_plan_snapshot": {"root_goal": "Revised"},
+            "gate_rerun_performed_after_clarification": True,
+        },
+    )
+    svc, _storage, proposal, autopilot = _orchestrator(tmp_path, pool)
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+        )
+    )
+
+    assert out.status == "stopped"
+    assert out.stop_reason == "path_outside_clarification_allowed_paths"
+    assert out.metadata["preflight"]["clarification_scope"]["allowed_paths"] == ["src/revised.py"]
+    assert out.metadata["preflight"]["paths"] == ["src/unrevised.py"]
+    assert proposal.calls == []
+    assert autopilot.last_request is None
+
+
+def test_clarification_allowed_paths_allow_revised_target_files(tmp_path: Path) -> None:
+    item = _item("i1")
+    item.target_files = ["src/revised.py"]
+    pool = _pool(
+        [item],
+        metadata={
+            "allowed_paths_after_clarification": ["src/revised.py"],
+            "blocked_paths_after_clarification": [],
+            "revised_plan_snapshot": {"root_goal": "Revised"},
+            "gate_rerun_performed_after_clarification": True,
+        },
+    )
+    svc, _storage, _proposal, autopilot = _orchestrator(tmp_path, pool)
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+        )
+    )
+
+    assert out.status == "completed"
+    assert out.metadata["preflight"]["clarification_scope"]["status"] == "active"
+    assert autopilot.last_request is not None
+
+
 def test_critical_approval_scope_blocks_unapproved_continuation_files(tmp_path: Path) -> None:
     item = _item("i1")
     item.target_files = ["src/unapproved.py"]
