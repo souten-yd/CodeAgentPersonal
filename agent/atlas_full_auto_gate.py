@@ -37,23 +37,36 @@ FULL_AUTO_KEEP_APPROVAL_CATEGORIES = frozenset({
     "protected_path",
 })
 
-# Block-producing categories that full_auto is allowed to downgrade to "allow". The user opted
-# into maximum autonomy (data-loss changes are reversible via the pre-apply snapshot/rollback).
-# A terminal-status block surfaces as the generic "manual_gate" category and is deliberately NOT
-# listed here, so a failed/blocked/cancelled item is never resurrected by the relaxation.
-FULL_AUTO_RELAXABLE_BLOCK_CATEGORIES = frozenset({
+# Safety-sensitive categories whose handling is routed by the shared critical_handling knob
+# (Features). data-loss changes are reversible via the pre-apply snapshot/rollback, security /
+# destructive changes mirror the plan-time critique gate's safety set. Under critical_handling:
+#   auto  -> allow (maximum autonomy), ask -> require_approval (pause), block -> block.
+FULL_AUTO_SAFETY_SENSITIVE_CATEGORIES = frozenset({
+    "security",
     "data_loss",
+    "destructive_change",
 })
 
+_SAFETY_DECISION_BY_HANDLING = {
+    "auto": "allow",
+    "ask": "require_approval",
+    "block": "block",
+}
 
-def relax_evaluation_for_full_auto(evaluation, *, preset_id: str = "", automation_level: str = ""):
+
+def relax_evaluation_for_full_auto(evaluation, *, preset_id: str = "", automation_level: str = "", critical_handling: str = "auto"):
     """Return a full_auto-relaxed copy of a policy-gate evaluation.
 
     - Non full_auto presets/levels: the evaluation is returned unchanged (backward compatible).
-    - ``block`` whose driving categories are relaxable (e.g. ``data_loss``) and not a hard block
-      -> ``allow``. Any other block (critical/delete/run_command/terminal-status) stays ``block``.
-    - ``require_approval`` -> ``allow`` unless it carries a keep-approval category
-      (``protected_path``) or a hard-block category.
+    - Hard-block categories (critical/delete/run_command) always stay ``block``.
+    - Safety-sensitive categories (security/data_loss/destructive) are routed by
+      ``critical_handling``: auto->allow, ask->require_approval, block->block. This is the single
+      human-in-the-loop knob shared with the plan-time critique gate.
+    - ``protected_path`` keeps ``require_approval``.
+    - Any other ``block`` (terminal-status / generic manual_gate) is NOT relaxed — a
+      failed/blocked/cancelled item is never resurrected.
+    - A pure quality ``require_approval`` (high/medium/dependency/api/ui/docker/db/files/size/
+      requires_user_confirmation) -> ``allow``.
     - ``allow`` is left untouched.
 
     The relaxed copy records ``metadata.full_auto_relaxed`` / ``full_auto_original_decision`` for
@@ -64,17 +77,28 @@ def relax_evaluation_for_full_auto(evaluation, *, preset_id: str = "", automatio
 
     categories = set(evaluation.categories or [])
     decision = evaluation.decision
+    handling = str(critical_handling or "auto").strip().lower()
+    safety_decision = _SAFETY_DECISION_BY_HANDLING.get(handling, "require_approval")
+
+    hard_block = bool(categories & FULL_AUTO_HARD_BLOCK_CATEGORIES)
+    keep_approval = bool(categories & FULL_AUTO_KEEP_APPROVAL_CATEGORIES)
+    safety = bool(categories & FULL_AUTO_SAFETY_SENSITIVE_CATEGORIES)
 
     if decision == "block":
-        if (categories & FULL_AUTO_RELAXABLE_BLOCK_CATEGORIES) and not (categories & FULL_AUTO_HARD_BLOCK_CATEGORIES):
-            new_decision = "allow"
+        if hard_block:
+            new_decision = "block"
+        elif safety:
+            new_decision = safety_decision
         else:
+            # Generic / terminal-status block — never resurrected.
             new_decision = "block"
     elif decision == "require_approval":
-        if categories & FULL_AUTO_HARD_BLOCK_CATEGORIES:
+        if hard_block:
             new_decision = "block"
-        elif categories & FULL_AUTO_KEEP_APPROVAL_CATEGORIES:
+        elif keep_approval:
             new_decision = "require_approval"
+        elif safety:
+            new_decision = safety_decision
         else:
             new_decision = "allow"
     else:
@@ -91,4 +115,5 @@ def relax_evaluation_for_full_auto(evaluation, *, preset_id: str = "", automatio
     relaxed.metadata = dict(relaxed.metadata or {})
     relaxed.metadata["full_auto_relaxed"] = True
     relaxed.metadata["full_auto_original_decision"] = decision
+    relaxed.metadata["full_auto_critical_handling"] = handling
     return relaxed

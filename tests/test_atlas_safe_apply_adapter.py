@@ -238,6 +238,37 @@ def test_guarded_low_risk_preset_still_blocks_high_risk() -> None:
     assert result.decision == "block"
 
 
+def _pool_with_features(item: AtlasPlanItem, critical_handling: str) -> AtlasPlanPool:
+    return AtlasPlanPool(
+        pool_id="pool_1", root_goal="Goal", status="ready", items=[item],
+        metadata={"automation_features": {"critical_handling": critical_handling}},
+    )
+
+
+def test_full_auto_security_patch_routed_by_critical_handling_ask() -> None:
+    item = make_item(risk_level="high")
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(
+        item, _pool_with_features(item, "ask"), patch_metadata={"security": True}, preset_id="full_auto"
+    )
+    assert result.decision == "require_approval"
+
+
+def test_full_auto_security_patch_routed_by_critical_handling_block() -> None:
+    item = make_item(risk_level="high")
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(
+        item, _pool_with_features(item, "block"), patch_metadata={"security": True}, preset_id="full_auto"
+    )
+    assert result.decision == "block"
+
+
+def test_full_auto_security_patch_routed_by_critical_handling_auto() -> None:
+    item = make_item(risk_level="high")
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(
+        item, _pool_with_features(item, "auto"), patch_metadata={"security": True}, preset_id="full_auto"
+    )
+    assert result.decision == "allow"
+
+
 def test_adapter_has_no_direct_file_command_side_effect_tokens() -> None:
     text = ADAPTER_PATH.read_text(encoding="utf-8")
 

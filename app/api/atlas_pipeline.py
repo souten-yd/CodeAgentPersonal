@@ -42,6 +42,7 @@ from agent.atlas_capability_preference_schema import (
     get_default_preferences as _default_capability_preferences,
     normalize_ui_preferences as _normalize_capability_preferences,
 )
+from agent.atlas_automation_features import resolve_features as _resolve_automation_features
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
@@ -119,6 +120,9 @@ class CreatePlanPoolRequest(BaseModel):
     enable_repo_context: bool = True
     repo_context_mode: str = "scope_summary"
     capability_preferences: dict = Field(default_factory=dict)
+    # Human-in-the-loop automation features (critical_handling / clarification_mode /
+    # quality_gate_enforcement). Empty -> server-side default (atlas_automation_features).
+    automation_features: dict = Field(default_factory=dict)
 
 
 class CreatePlanPoolResponse(BaseModel):
@@ -942,19 +946,26 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
     # Evaluates the planner's POST-revision adversarial critique. full_auto + non-safety high
     # findings proceed as a recorded policy continuation; supervised/lower presets or any
     # safety-sensitive high finding pause at the approval gate with plan_revision_required.
+    # Resolve human-in-the-loop features (request override > server-side default > built-in).
+    _features = _resolve_automation_features(
+        request_features=dict(req.automation_features or {}), ca_data_root=ca_data_root
+    )
+    pool.metadata["automation_features"] = _features
     quality_gate = apply_plan_quality_gate(
         plan,
         automation_level=req.automation_level,
         preset_id=str(req.metadata.get("preset_id") or ""),
+        critical_handling=_features["critical_handling"],
     )
     pool.metadata["critique_gate"] = quality_gate["critique_gate"]
     if quality_gate["plan_revision_required"]:
         pool.metadata["plan_revision_required"] = True
     if quality_gate["clarification"]:
         pool.metadata["critique_clarification"] = quality_gate["clarification"]
-    # ── Structured clarification options (PR-9d): when plan_revision_required, produce
-    # option/merit/risk/recommendation items so the UI can present choices. ──
-    if quality_gate["plan_revision_required"]:
+    # ── Structured clarification options (PR-9d): produce option/merit/risk/recommendation items
+    # whenever the gate needs a human (plan_revision_required OR an "ask" pause) so the UI can
+    # present choices. When clarification_mode=="pause" mark the pool clarification_required. ──
+    if quality_gate["plan_revision_required"] or quality_gate["require_approval"]:
         _plan_text = str(plan.get("summary") or plan.get("task_summary") or root_goal)
         _ambiguities = AtlasClarificationGateService().detect_ambiguities(_plan_text)
         _blocking = list((quality_gate.get("critique_gate") or {}).get("blocking_findings") or [])
@@ -975,6 +986,11 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
             "options": _options,
             "gate_evaluation": _clarification_eval,
         }
+        # When clarification_mode is "pause" and we have something to ask about (options or
+        # detected ambiguity), flag the pool so the UI surfaces a Claude-style options question
+        # that survives reload. "auto" proceeds with the safe-default assumption (legacy).
+        if _features.get("clarification_mode") == "pause" and (_options or _ambiguities):
+            pool.metadata["clarification_required"] = True
     for _w in quality_gate["warnings"]:
         if _w not in pool.warnings:
             pool.warnings.append(_w)

@@ -41,6 +41,10 @@ class AtlasPipelineRunner:
         self.test_command_runner = test_command_runner
         self.nexus_research_adapter = nexus_research_adapter
 
+    @staticmethod
+    def _critical_handling(pool) -> str:
+        return str(((getattr(pool, "metadata", {}) or {}).get("automation_features") or {}).get("critical_handling") or "auto")
+
     def run_dry_run(self, request: AtlasPipelineRunRequest) -> AtlasPipelineRunState:
         if not request.dry_run:
             raise ValueError("AtlasPipelineRunner only supports dry_run=True in this PR")
@@ -62,7 +66,7 @@ class AtlasPipelineRunner:
         # Under a full-automation pool (automation_level == "full_autopilot") relax the raw policy
         # decision through the single source of truth so the single-item pipeline honours the same
         # full_auto boundary as the multi-item autopilot path.
-        pool_evaluation = relax_evaluation_for_full_auto(pool_evaluation, automation_level=pool.automation_level)
+        pool_evaluation = relax_evaluation_for_full_auto(pool_evaluation, automation_level=pool.automation_level, critical_handling=self._critical_handling(pool))
         state.metadata["pool_policy"] = self._evaluation_metadata(pool_evaluation)
         state.add_event(
             "policy_evaluated",
@@ -206,7 +210,7 @@ class AtlasPipelineRunner:
         result.policy_reasons = list(evaluation.reasons)
         result.policy_categories = list(evaluation.categories)
         result.warnings.extend(evaluation.warnings)
-        evaluation = relax_evaluation_for_full_auto(evaluation, automation_level=pool.automation_level)
+        evaluation = relax_evaluation_for_full_auto(evaluation, automation_level=pool.automation_level, critical_handling=self._critical_handling(pool))
         result.policy_decision = evaluation.decision
         state.add_event(
             "policy_evaluated",
