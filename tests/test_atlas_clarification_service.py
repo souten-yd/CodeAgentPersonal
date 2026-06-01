@@ -56,6 +56,7 @@ def test_build_question_queue_creates_independent_questions():
         assert "risk_level" in option
         assert option["gate_rerun_required"] is True
         assert option["can_continue_after_answer"] is False
+        assert "requires_text" in option
 
 
 def test_missing_game_over_question_uses_concrete_remediation_options():
@@ -78,6 +79,7 @@ def test_missing_game_over_question_uses_concrete_remediation_options():
     assert labels[:3] == ["Recommended safe fix", "Minimal fix", "Defer/remove"]
     assert "playing -> game_over -> restart" in question["options"][0]["plan_change_summary"]
     assert question["recommended_option_id"] == "safest_recommended"
+    assert all("requires_text" in option for option in question["options"])
 
 
 def test_apply_answer_marks_only_one_question_answered():
