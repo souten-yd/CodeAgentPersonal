@@ -467,6 +467,38 @@ def test_answer_reducing_scope_updates_target_files_from_answer(tmp_path: Path):
     assert reloaded.metadata["plan_revision_diff"]["scope_reduced"] is True
 
 
+def test_answer_changing_tests_persists_structured_verification_intent(tmp_path: Path):
+    pool = _pool(metadata={
+        "clarification_required": True,
+        "clarification_questions": [
+            {
+                "question_id": "clar_q_1",
+                "index": 1,
+                "total": 1,
+                "prompt": "Pick verification",
+                "reason": "test scope unclear",
+                "options": [{"option_id": "smoke", "label": "Smoke test"}],
+                "status": "pending",
+            },
+        ],
+    })
+    client = _client(tmp_path, pool)
+    r = client.post(
+        "/api/atlas/plan-pools/pool_x/clarify",
+        json={"question_id": "clar_q_1", "option_id": "smoke", "answer_text": "Run smoke test for the changed UI"},
+    )
+    assert r.status_code == 200, r.text
+
+    reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
+    intent = reloaded.items[0].metadata["verification_intent_after_clarification"]
+    assert intent["selected_verification"] == "Smoke test: Run smoke test for the changed UI"
+    assert intent["gate_rerun_required"] is True
+    assert intent["can_continue_after_answer"] is False
+    assert "focused verification selected by clarification" in reloaded.items[0].test_commands
+    changed = reloaded.metadata["plan_revision_diff"]["item_changed_fields"][0]["changed_fields"]
+    assert "test_commands" in changed
+
+
 def test_answer_expanding_scope_triggers_critical_or_approval_status(tmp_path: Path):
     pool = _pool(metadata={
         "clarification_required": True,

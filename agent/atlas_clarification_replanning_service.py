@@ -193,7 +193,15 @@ class AtlasClarificationReplanningService:
             )
             changed_fields.append("test_commands")
         if "test" in answer_summary.lower() or "smoke" in answer_summary.lower():
-            item.metadata["verification_intent_after_clarification"] = answer_summary
+            existing_intent = item.metadata.get("verification_intent_after_clarification")
+            existing_payload = existing_intent if isinstance(existing_intent, dict) else {}
+            item.metadata["verification_intent_after_clarification"] = {
+                **existing_payload,
+                "answer_summary": answer_summary,
+                "selected_verification": answer_summary,
+                "gate_rerun_required": bool(existing_payload.get("gate_rerun_required", True)),
+                "can_continue_after_answer": bool(existing_payload.get("can_continue_after_answer", False)),
+            }
             item.test_commands = self._append_unique(item.test_commands, "focused verification selected by clarification")
             if "test_commands" not in changed_fields:
                 changed_fields.append("test_commands")
