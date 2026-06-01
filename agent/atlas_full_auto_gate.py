@@ -21,6 +21,10 @@ decision lives in exactly one place.
 
 from __future__ import annotations
 
+from agent.atlas_critical_handling_policy import (
+    normalize_critical_handling,
+    resolve_default_critical_handling,
+)
 from agent.atlas_plan_quality_gate import is_full_auto_preset  # shared single source of truth
 
 # Categories that ALWAYS stop autonomous apply, even under full_auto. These are structural /
@@ -54,7 +58,7 @@ _SAFETY_DECISION_BY_HANDLING = {
 }
 
 
-def relax_evaluation_for_full_auto(evaluation, *, preset_id: str = "", automation_level: str = "", critical_handling: str = "auto"):
+def relax_evaluation_for_full_auto(evaluation, *, preset_id: str = "", automation_level: str = "", critical_handling: str | None = None):
     """Return a full_auto-relaxed copy of a policy-gate evaluation.
 
     - Non full_auto presets/levels: the evaluation is returned unchanged (backward compatible).
@@ -77,7 +81,11 @@ def relax_evaluation_for_full_auto(evaluation, *, preset_id: str = "", automatio
 
     categories = set(evaluation.categories or [])
     decision = evaluation.decision
-    handling = str(critical_handling or "auto").strip().lower()
+    # An explicit recognised value wins; otherwise resolve the default from the selected
+    # preset (only the autonomous presets that reach this point resolve to "auto").
+    handling = normalize_critical_handling(critical_handling)
+    if handling is None:
+        handling = resolve_default_critical_handling(preset_id=preset_id)
     safety_decision = _SAFETY_DECISION_BY_HANDLING.get(handling, "require_approval")
 
     hard_block = bool(categories & FULL_AUTO_HARD_BLOCK_CATEGORIES)

@@ -9,6 +9,10 @@ The machine-readable phase contract is `docs/atlas_automation_phase_manifest.jso
 
 Do not duplicate active/current/next PR pointers in additional planning files. Any future handoff or UI migration note must link to the master roadmap instead of copying its PR table.
 
+## Profile-dependent runtime model
+
+Atlas runtime level is profile-dependent: it is resolved from the selected automation profile rather than pinned to a single fixed level (see `runtime_level_by_profile` in the phase manifest and the roadmap section of the same name). Defaults sit on the safe end (`review_only` → level 0, `guarded_single_action` → level 1, `supervised_bounded_auto` → level_2_to_level4 band). The `autonomous_dev_agent` profile reaches level_8_fully_autonomous_code_agent, but Level 8 full automation is bounded and only activated by an active pre-authorized envelope — selecting a profile alone never starts a loop. Even at Level 8 the prohibitions in this policy remain in force: direct merge, remote git push, self-apply, stable runtime mutation, Vue authority, arbitrary unbounded command execution, and self-modification without the self-improvement gate are all forbidden. The historical level/boundary notes below are retained as the baseline record.
+
 ## Current execution boundary
 
 - Completed automation PR: PR-ATLAS-SCALE-152

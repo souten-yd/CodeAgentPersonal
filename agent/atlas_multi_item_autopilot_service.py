@@ -194,7 +194,13 @@ class AtlasMultiItemAutopilotService:
                         elif vr.status == "skipped":
                             result.status, result.reason = "completed", "verification_skipped"
                         elif vr.status == "failed":
-                            result.status, result.reason = "failed", "verification_failed"
+                            # Surface the precise reason (e.g. browser_smoke_failed:js_error,
+                            # visual_missing:*) alongside the generic marker. The
+                            # ``verification_failed`` prefix is preserved so existing
+                            # startswith/equality consumers still match.
+                            _primary = primary_verification_reason(vr_warnings)
+                            result.status = "failed"
+                            result.reason = f"verification_failed:{_primary}" if _primary else "verification_failed"
                         else:
                             result.status = "completed"
             except Exception as exc:
@@ -335,7 +341,8 @@ class AtlasMultiItemAutopilotService:
         for r in result.item_results:
             verify_level = _verify_level_for_item(r)
             verify_note = " (適用のみ・実行検証なし)" if r.status == "applied_no_verification" else ""
-            lines += [f"- item_id: {r.item_id}", f"  - status: {r.status}{verify_note}", f"  - verify_level: {verify_level}", f"  - reason: {r.reason}", f"  - context_bundle_id: {r.context_bundle_id}", f"  - evaluator_result_id: {r.evaluator_result_id}", f"  - evaluator_decision.decision: {(r.evaluator_decision or {}).get('decision','')}", f"  - verification_result.status: {(r.verification_result or {}).get('status','')}", f"  - verification_result.recovered_by_bounded_retry: {(r.verification_result or {}).get('recovered_by_bounded_retry', False)}", f"  - safe_apply_result.status: {(r.safe_apply_result or {}).get('status','')}"]
+            item_warnings = ", ".join(str(w) for w in (r.warnings or [])) or "(none)"
+            lines += [f"- item_id: {r.item_id}", f"  - status: {r.status}{verify_note}", f"  - verify_level: {verify_level}", f"  - reason: {r.reason}", f"  - verification_warnings: {item_warnings}", f"  - context_bundle_id: {r.context_bundle_id}", f"  - evaluator_result_id: {r.evaluator_result_id}", f"  - evaluator_decision.decision: {(r.evaluator_decision or {}).get('decision','')}", f"  - verification_result.status: {(r.verification_result or {}).get('status','')}", f"  - verification_result.recovered_by_bounded_retry: {(r.verification_result or {}).get('recovered_by_bounded_retry', False)}", f"  - safe_apply_result.status: {(r.safe_apply_result or {}).get('status','')}"]
         rollup = (result.metadata or {}).get("quality_rollup") or {}
         if rollup:
             coverage = rollup.get("requirement_coverage", {})
@@ -357,6 +364,35 @@ class AtlasMultiItemAutopilotService:
         if not request.run_id:
             return
         self.journal.append_event(request.pool_id, request.run_id, {"event_type": event_type, "pool_id": request.pool_id, "run_id": request.run_id, "autopilot_run_id": autopilot_run_id, "created_at": datetime.now(timezone.utc).isoformat(), **kw})
+
+
+# Ordered by how actionable the marker is. The dominant precise reason is appended to the
+# generic ``verification_failed`` so the UI / recovery surfaces *why* (e.g. a browser JS error
+# or a missing visual signal) instead of an opaque stop. Soft markers
+# (``browser_smoke_warning:*``) and pass markers are intentionally excluded — they are not
+# failures.
+_VERIFICATION_REASON_PRIORITY = (
+    "browser_smoke_failed:",
+    "visual_contract_failed",
+    "visual_missing:",
+    "test_harness_unavailable",
+    "pytest_not_installed",
+)
+_NON_FAILURE_WARNINGS = ("visual_contract_passed",)
+
+
+def primary_verification_reason(warnings) -> str:
+    """Pick the dominant, most actionable verification-failure marker from warnings."""
+    items = [str(w) for w in (warnings or [])]
+    for prefix in _VERIFICATION_REASON_PRIORITY:
+        for w in items:
+            if w == prefix or w.startswith(prefix):
+                return w
+    for w in items:
+        if w in _NON_FAILURE_WARNINGS or w.startswith("browser_smoke_warning"):
+            continue
+        return w
+    return ""
 
 
 def _verify_level_for_item(r) -> str:
