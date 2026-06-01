@@ -40,6 +40,7 @@ class AtlasClarificationReplanningService:
         original_pool_snapshot = self._pool_payload(pool)
         original_requirement = str(metadata.get("original_requirement_summary") or pool.root_goal or "")
         answer_summary = self._answer_summary(answers)
+        selected_option_impacts = self._selected_option_impacts(answers)
         revised_requirement = self._revised_requirement_summary(original_requirement, answer_summary)
         extracted_paths = self._extract_target_files(answer_summary)
         risk_raised = self._raises_risk(answer_summary, answers)
@@ -80,6 +81,7 @@ class AtlasClarificationReplanningService:
                     "risk_raised": risk_raised,
                     "scope_reduced": scope_reduced,
                     "target_files_from_answer": extracted_paths,
+                    "selected_option_impacts": selected_option_impacts,
                 },
                 "original_requirement_summary": original_requirement,
                 "revised_requirement_summary": revised_requirement,
@@ -90,6 +92,7 @@ class AtlasClarificationReplanningService:
                     "target_files_from_answer": extracted_paths,
                     "risk_raised": risk_raised,
                     "scope_reduced": scope_reduced,
+                    "selected_option_impacts": selected_option_impacts,
                 },
                 "gate_rerun_required_after_clarification": False,
                 "gate_rerun_performed_after_clarification": True,
@@ -179,13 +182,29 @@ class AtlasClarificationReplanningService:
             option = answer.get("selected_option") or {}
             label = str(option.get("label") or answer.get("option_id") or "").strip()
             text = str(answer.get("answer_text") or answer.get("note") or "").strip()
-            if label and text:
-                parts.append(f"{label}: {text}")
+            impact = answer.get("selected_option_impact") if isinstance(answer.get("selected_option_impact"), dict) else {}
+            plan_change = str(impact.get("plan_change_summary") or option.get("plan_change_summary") or "").strip()
+            scope = str(impact.get("implementation_scope") or option.get("implementation_scope") or "").strip()
+            risk = str(impact.get("risk_level") or option.get("risk_level") or "").strip()
+            detail = "; ".join(part for part in (plan_change, f"scope={scope}" if scope else "", f"risk={risk}" if risk else "", text) if part)
+            if label and detail:
+                parts.append(f"{label}: {detail}")
+            elif detail:
+                parts.append(detail)
             elif label:
                 parts.append(label)
             elif text:
                 parts.append(text)
         return "; ".join(parts)
+
+    @staticmethod
+    def _selected_option_impacts(answers: list[dict]) -> list[dict]:
+        impacts: list[dict] = []
+        for answer in answers:
+            impact = answer.get("selected_option_impact")
+            if isinstance(impact, dict) and impact:
+                impacts.append({"question_id": str(answer.get("question_id") or ""), **impact})
+        return impacts
 
     @staticmethod
     def _revised_requirement_summary(original: str, answer_summary: str) -> str:

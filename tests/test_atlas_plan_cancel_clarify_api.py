@@ -136,6 +136,48 @@ def test_clarify_clears_required_only_after_all_questions_answered(tmp_path: Pat
     assert reloaded.items[0].metadata["clarification_revision"]["answer_summary"]
 
 
+def test_clarification_replanning_consumes_selected_option_impact(tmp_path: Path):
+    pool = _pool(metadata={
+        "clarification_required": True,
+        "clarification_questions": [
+            {
+                "question_id": "clar_q_1",
+                "index": 1,
+                "total": 1,
+                "title": "Game-over and restart behavior is missing",
+                "prompt": "Choose how Atlas should revise the plan.",
+                "reason": "Game plan lacks restart behavior.",
+                "options": [
+                    {
+                        "option_id": "safest_recommended",
+                        "label": "Recommended safe fix",
+                        "description": "Add explicit game state transitions.",
+                        "plan_change_summary": "Add playing -> game_over -> restart state and Space restart.",
+                        "implementation_scope": "small_state_model",
+                        "risk_level": "low",
+                        "gate_rerun_required": True,
+                        "can_continue_after_answer": False,
+                    }
+                ],
+                "status": "pending",
+            },
+        ],
+    })
+    client = _client(tmp_path, pool)
+    r = client.post(
+        "/api/atlas/plan-pools/pool_x/clarify",
+        json={"question_id": "clar_q_1", "option_id": "safest_recommended"},
+    )
+    assert r.status_code == 200, r.text
+
+    reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
+    answer = reloaded.metadata["clarification_answers"][0]
+    assert answer["selected_option_impact"]["plan_change_summary"].startswith("Add playing")
+    assert "playing -> game_over -> restart" in reloaded.root_goal
+    impacts = reloaded.metadata["plan_revision_diff"]["selected_option_impacts"]
+    assert impacts[0]["implementation_scope"] == "small_state_model"
+
+
 def test_auto_safe_apply_blocks_until_clarification_replan_gate_rerun(tmp_path: Path):
     pool = _pool(status="ready", item_status="ready", metadata={
         "clarification_required": False,
