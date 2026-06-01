@@ -522,7 +522,7 @@
     {
       "pr": "POST-SCALE-160-CLAUDE-CHAT-COMPLETE-AUTOMATION-PROFILE",
       "phase": "buildless_conversational_chat_panel",
-      "outcome": "introduce pre-authorized bounded dev and self-improvement envelopes that pre-authorise the autonomous loop within bounded scope; the safety profile manifest invariants stay locked and derived activation flags live on the envelope manifest",
+      "outcome": "introduce bounded dev and self-improvement envelope definitions; profile selection alone never starts an autonomous loop, and bounded autonomous execution requires backend profile resolution, an active bounded envelope, and gates while safety profile invariants stay locked",
       "runtime_change_allowed": false
     }
   ],

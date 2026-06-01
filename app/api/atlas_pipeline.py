@@ -1631,13 +1631,35 @@ _CANCELLABLE_ITEM_STATUSES = {"queued", "ready", "pending", "approval_required",
 def _clarification_execution_block_reasons(pool: AtlasPlanPool) -> list[str]:
     metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
     reasons: list[str] = []
+
+    def add(reason: str) -> None:
+        if reason not in reasons:
+            reasons.append(reason)
+
     if metadata.get("clarification_required"):
-        reasons.append("clarification_required")
-    if metadata.get("plan_revision_required_after_clarification") and not metadata.get("revised_plan_snapshot"):
-        reasons.append("plan_revision_required_after_clarification")
-    gate_rerun = metadata.get("gate_rerun_after_clarification") or metadata.get("gate_rerun_evidence_after_clarification")
-    if metadata.get("gate_rerun_required_after_clarification") and not gate_rerun:
-        reasons.append("gate_rerun_required_after_clarification")
+        add("clarification_required")
+
+    clarification_answers = metadata.get("clarification_answers")
+    has_clarification_answers = bool(clarification_answers) if isinstance(clarification_answers, list) else False
+    has_revised_plan = bool(metadata.get("revised_plan_snapshot"))
+    has_gate_rerun_evidence = bool(
+        metadata.get("gate_rerun_performed_after_clarification")
+        or metadata.get("gate_rerun_after_clarification")
+        or metadata.get("gate_rerun_evidence_after_clarification")
+        or (
+            metadata.get("rerun_critique_gate_after_clarification")
+            and metadata.get("rerun_safety_gate_after_clarification")
+        )
+    )
+
+    if metadata.get("plan_revision_required_after_clarification"):
+        add("plan_revision_required_after_clarification")
+    if metadata.get("gate_rerun_required_after_clarification"):
+        add("gate_rerun_required_after_clarification")
+    if has_clarification_answers and not has_revised_plan:
+        add("missing_revised_plan_snapshot_after_clarification")
+    if has_clarification_answers and not has_gate_rerun_evidence:
+        add("missing_gate_rerun_evidence_after_clarification")
     return reasons
 
 
@@ -1748,6 +1770,22 @@ def execute_safe_apply(req: AtlasSafeApplyExecutionRequest, request: Request) ->
         raise HTTPException(status_code=400, detail="invalid id")
     ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
+    try:
+        pool = storage.load_pool(req.pool_id)
+    except FileNotFoundError:
+        return AtlasSafeApplyExecutionResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, status="blocked", warnings=["pool_not_found"])
+    clarification_blocks = _clarification_execution_block_reasons(pool)
+    if clarification_blocks:
+        return AtlasSafeApplyExecutionResult(
+            pool_id=req.pool_id,
+            item_id=req.item_id,
+            run_id=req.run_id,
+            status="blocked",
+            warnings=clarification_blocks,
+            metadata={"clarification_execution_blocked": True, "blocked_reasons": clarification_blocks},
+            plan_pool=_model_dump(pool),
+            safe_apply_result={"decision": "block", "status": "blocked", "reasons": clarification_blocks},
+        )
     adapter_obj = getattr(request.app.state, 'atlas_safe_apply_adapter', None)
     safe_apply_adapter = adapter_obj() if callable(adapter_obj) else adapter_obj
     if safe_apply_adapter is None:

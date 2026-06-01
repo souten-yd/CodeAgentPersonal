@@ -8,10 +8,9 @@
  * AtlasDashboard JS lookups still resolve.
  *
  * Backend authority is preserved: every action maps to an existing
- * AtlasPipelineAPI method or to a backend route. The shell does not bypass
- * backend gates, but selecting the Autonomous Bounded Dev or Autonomous
- * Self-Improvement preset DOES pre-authorise the autonomous loop via the
- * envelope manifest so chat-driven full automation becomes possible.
+ * AtlasPipelineAPI method or to a backend route. Profile selection alone never
+ * starts or pre-authorizes an autonomous loop; bounded autonomous execution
+ * requires backend workflow state, an active bounded envelope, and gates.
  */
 (function () {
   'use strict';
@@ -28,7 +27,7 @@
     transcript: [],
     presets: [],
     envelopes: [],
-    selectedPresetId: 'autonomous_bounded_dev',
+    selectedPresetId: 'review_only',
     workTarget: 'software_development_or_repair',
     latestSafetyProfile: null,
     latestEnvelope: null,

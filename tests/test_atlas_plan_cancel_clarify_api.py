@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.server import create_app
+from app.api.atlas_pipeline import _clarification_execution_block_reasons
 from agent.atlas_approval_service import POOL_CRITICAL_DECISION_ITEM_ID
 from agent.atlas_critical_event_policy import normalize_critical_event
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
@@ -150,6 +151,55 @@ def test_auto_safe_apply_blocks_until_clarification_replan_gate_rerun(tmp_path: 
     assert body["status"] == "blocked"
     assert "plan_revision_required_after_clarification" in body["warnings"]
     assert "gate_rerun_required_after_clarification" in body["warnings"]
+    assert "missing_revised_plan_snapshot_after_clarification" in body["warnings"]
+    assert "missing_gate_rerun_evidence_after_clarification" in body["warnings"]
+    assert body["metadata"]["clarification_execution_blocked"] is True
+
+
+def test_clarification_execution_block_reasons_cover_required_tokens():
+    pool = _pool(metadata={
+        "clarification_required": True,
+        "clarification_answers": [{"question_id": "clar_q_1", "option_id": "minimal_scope"}],
+        "plan_revision_required_after_clarification": True,
+        "gate_rerun_required_after_clarification": True,
+    })
+    reasons = _clarification_execution_block_reasons(pool)
+    assert reasons == [
+        "clarification_required",
+        "plan_revision_required_after_clarification",
+        "gate_rerun_required_after_clarification",
+        "missing_revised_plan_snapshot_after_clarification",
+        "missing_gate_rerun_evidence_after_clarification",
+    ]
+
+
+def test_clarification_execution_block_allows_historical_answers_with_evidence():
+    pool = _pool(metadata={
+        "clarification_answers": [{"question_id": "clar_q_1", "option_id": "minimal_scope"}],
+        "revised_plan_snapshot": {"root_goal": "Revised"},
+        "rerun_critique_gate_after_clarification": {"status": "passed"},
+        "rerun_safety_gate_after_clarification": {"status": "passed"},
+        "plan_revision_required_after_clarification": False,
+        "gate_rerun_required_after_clarification": False,
+    })
+    assert _clarification_execution_block_reasons(pool) == []
+
+
+def test_manual_safe_apply_blocks_before_service_for_clarification(tmp_path: Path):
+    pool = _pool(status="ready", item_status="ready", metadata={
+        "clarification_required": True,
+        "clarification_answers": [{"question_id": "clar_q_1", "option_id": "minimal_scope"}],
+    })
+    client = _client(tmp_path, pool)
+    r = client.post(
+        "/api/atlas/safe-apply/execute",
+        json={"pool_id": "pool_x", "item_id": "i1", "run_id": "run_1"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "blocked"
+    assert body["metadata"]["clarification_execution_blocked"] is True
+    assert "clarification_required" in body["warnings"]
 
 
 def test_ambiguous_plan_pool_pauses_at_needs_scope_confirmation(tmp_path: Path):
