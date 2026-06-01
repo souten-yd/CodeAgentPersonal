@@ -262,6 +262,77 @@ def test_blocked_path_stops_before_generation(tmp_path: Path) -> None:
     assert autopilot.last_request is None
 
 
+def test_request_allowed_paths_cannot_expand_active_envelope(tmp_path: Path) -> None:
+    item = _item("i1")
+    item.target_files = ["docs/guide.md"]
+    svc, _storage, proposal, autopilot = _orchestrator(tmp_path, _pool([item]))
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+            allowed_paths=["docs/"],
+        )
+    )
+
+    assert out.status == "stopped"
+    assert out.stop_reason == "allowed_paths_expand_envelope"
+    assert out.metadata["preflight"]["requested_allowed_paths"] == ["docs/"]
+    assert out.metadata["preflight"]["paths"] == ["docs/guide.md"]
+    assert proposal.calls == []
+    assert autopilot.last_request is None
+
+
+def test_envelope_bounds_clamp_autonomous_request_limits(tmp_path: Path) -> None:
+    items = [_item(f"i{i}") for i in range(1, 8)]
+    svc, _storage, _proposal, autopilot = _orchestrator(tmp_path, _pool(items))
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+            max_actions=20,
+            max_items=20,
+            max_runtime_seconds=600,
+            max_changed_files_total=20,
+            max_changed_files_per_item=20,
+        )
+    )
+
+    assert out.status == "completed"
+    effective = out.metadata["preflight"]["effective_limits"]
+    assert effective["max_actions"] == 5
+    assert effective["max_items"] == 5
+    assert effective["max_runtime_seconds"] == 60
+    assert effective["max_changed_files_total"] == 5
+    assert effective["max_changed_files_per_item"] == 5
+    assert "request_limits_clamped_to_envelope" in out.warnings
+    assert autopilot.last_request is not None
+    assert autopilot.last_request.max_items == 5
+    assert autopilot.last_request.max_runtime_seconds == 60
+    assert autopilot.last_request.max_changed_files_total == 5
+
+
+def test_allowed_verification_commands_are_blocked_until_supported(tmp_path: Path) -> None:
+    svc, _storage, proposal, autopilot = _orchestrator(tmp_path, _pool([_item("i1")]))
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+            allowed_verification_commands=["python -m pytest tests/test_example.py"],
+        )
+    )
+
+    assert out.status == "stopped"
+    assert out.stop_reason == "allowed_verification_commands_unsupported"
+    assert proposal.calls == []
+    assert autopilot.last_request is None
+
+
 def test_unknown_profile_falls_back_safely_without_running(tmp_path: Path) -> None:
     svc, _storage, proposal, autopilot = _orchestrator(tmp_path, _pool([_item("i1")]))
 
