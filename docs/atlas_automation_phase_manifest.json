@@ -529,12 +529,13 @@
   "practical_full_automation_plan": "docs/atlas_practical_full_automation_experience_plan.md",
   "practical_full_automation_complete": false,
   "ui_practical_experience_complete": false,
-  "stable_runtime_mutation_apply_complete": true,
+  "stable_runtime_mutation_apply_complete": false,
   "self_improvement_practical_loop_complete": false,
   "draft_pr_experience_complete": false,
   "practical_full_automation_truthfulness_status": "corrective_checkpoint_in_progress",
   "practical_full_automation_incomplete_reasons": [
     "acceptance_tests_are_focused_contracts_not_full_end_to_end_proof",
+    "stable_runtime_mutation_apply_is_forbidden_by_current_safety_contract",
     "self_improvement_practical_loop_not_end_to_end_verified",
     "draft_pr_experience_artifact_exists_but_not_full_review_workflow_complete",
     "bounded_repair_evidence_is_planned_not_executed_in_all_failure_cases"
