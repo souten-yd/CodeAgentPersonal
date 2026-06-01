@@ -168,6 +168,76 @@ def test_apply_low_risk_item_does_not_call_executor_when_requires_approval() -> 
     assert executor.calls == []
 
 
+# ── full_auto relaxation (single source of truth via atlas_full_auto_gate) ────
+
+
+def test_full_auto_allows_high_risk_update_without_approval() -> None:
+    item = make_item(risk_level="high")
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(item, make_pool(item), preset_id="full_auto")
+
+    assert result.decision == "allow"
+    assert "full_auto_approval_bypassed" in result.categories
+
+
+def test_full_auto_bypasses_patch_metadata_dependency_change() -> None:
+    item = make_item(risk_level="high")
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(
+        item, make_pool(item), patch_metadata={"dependency_change": True}, preset_id="full_auto"
+    )
+
+    assert result.decision == "allow"
+
+
+def test_full_auto_relaxes_patch_metadata_data_loss_to_allow() -> None:
+    # User opted into maximum autonomy. data_loss is reversible via the pre-apply change
+    # snapshot/rollback (AtlasChangeSnapshotService), and safety-sensitive plans are blocked
+    # earlier at the plan-time critique gate.
+    item = make_item()
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(
+        item, make_pool(item), patch_metadata={"data_loss": True}, preset_id="full_auto"
+    )
+
+    assert result.decision == "allow"
+
+
+def test_full_auto_bypasses_low_risk_requires_user_confirmation() -> None:
+    # Previously leaked through the medium/high-only hardcode; full_auto must bypass at any risk.
+    item = make_item(risk_level="low", requires_user_confirmation=True)
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(item, make_pool(item), preset_id="full_auto")
+
+    assert result.decision == "allow"
+
+
+def test_autonomous_preset_ids_treated_as_full_auto() -> None:
+    for preset in ("full_auto_multi_item_v1", "autonomous_bounded_dev", "autonomous_custom"):
+        item = make_item(risk_level="high")
+        result = AtlasSafeApplyAdapter().evaluate_safe_apply(item, make_pool(item), preset_id=preset)
+        assert result.decision == "allow", preset
+
+
+def test_full_auto_keeps_block_on_critical_risk() -> None:
+    item = make_item(risk_level="critical")
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(item, make_pool(item), preset_id="full_auto")
+
+    assert result.decision == "block"
+    assert "critical_risk_not_allowed" in result.reasons
+
+
+def test_full_auto_keeps_approval_on_protected_path() -> None:
+    item = make_item(risk_level="high", target_files=["ca_data/x.json"])
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(item, make_pool(item), preset_id="full_auto")
+
+    assert result.decision == "require_approval"
+    assert "protected_path" in result.categories
+
+
+def test_guarded_low_risk_preset_still_blocks_high_risk() -> None:
+    item = make_item(risk_level="high")
+    result = AtlasSafeApplyAdapter().evaluate_safe_apply(item, make_pool(item), preset_id="guarded_low_risk")
+
+    assert result.decision == "block"
+
+
 def test_adapter_has_no_direct_file_command_side_effect_tokens() -> None:
     text = ADAPTER_PATH.read_text(encoding="utf-8")
 

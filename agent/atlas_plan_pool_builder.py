@@ -352,6 +352,10 @@ class AtlasPlanPoolBuilder:
             root_goal=effective_root_goal,
             project_path=project_path or str(payload.get("project_path") or ""),
             project_name=project_name or str(payload.get("project_name") or ""),
+            # Carry the automation level from the payload so a full-automation run yields a pool
+            # tagged "full_autopilot"; the single-item pipeline reads this to relax its policy gate
+            # (atlas_full_auto_gate). Defaults preserve the prior "plan_then_ask" behaviour.
+            automation_level=_normalize_choice(payload.get("automation_level"), VALID_AUTOMATION_LEVELS, "plan_then_ask"),
             items=items,
             linked_autopilot_id=linked_autopilot_id,
             warnings=coerce_list(payload.get("warnings")),

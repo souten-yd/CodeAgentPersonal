@@ -146,6 +146,31 @@ def test_pipeline_pauses_when_pool_requires_approval(tmp_path: Path) -> None:
     assert any(event.event_type in {"policy_evaluated", "pipeline_paused"} for event in state.events)
 
 
+def test_full_autopilot_pool_does_not_pause_high_risk_item(tmp_path: Path) -> None:
+    # A high-risk item normally pauses for approval (see test above). Under a full_autopilot
+    # pool the single-item pipeline relaxes the decision through atlas_full_auto_gate, so the
+    # item proceeds to dry-run without a human approval gate.
+    executor = FakeExecutor()
+    pool = AtlasPlanPool(
+        pool_id="pool_1",
+        root_goal="Goal",
+        status="ready",
+        automation_level="full_autopilot",
+        items=[make_item("item_1", risk_level="high")],
+    )
+    storage = make_storage(tmp_path, pool)
+
+    state = AtlasPipelineRunner(storage=storage, implementation_executor=executor).run_dry_run(
+        AtlasPipelineRunRequest(pool_id="pool_1")
+    )
+
+    assert state.status != "paused"
+    assert "item_1" not in state.metadata.get("approval_required_item_ids", [])
+    loaded = storage.load_pool("pool_1")
+    assert loaded.get_item("item_1").status == "completed"
+    assert executor.calls and executor.calls[0]["item_id"] == "item_1"
+
+
 def test_pipeline_requests_approval_when_item_requires_approval(tmp_path: Path) -> None:
     executor = FakeExecutor()
     approval_gate = AtlasApprovalGate()

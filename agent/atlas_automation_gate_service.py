@@ -58,6 +58,9 @@ class AtlasAutomationGateService:
 
         decision = "allow"
         if reasons:
+            # Hard-block reasons that stop autonomous apply even under a full-automation preset.
+            # Keep the safety-critical members (critical_risk / forbidden actions / protected_path)
+            # in sync with atlas_full_auto_gate.FULL_AUTO_HARD_BLOCK_CATEGORIES + KEEP_APPROVAL.
             block_reasons = {"forbidden_action_type", "unsupported_action", "risk_not_allowed", "critical_risk_not_allowed", "target_files_too_many", "target_files_missing", "unsafe_path", "protected_path", "content_missing", "terminal_status"}
             decision = "block" if any(r in block_reasons for r in reasons) else "require_manual"
         return AtlasAutomationDecision(pool_id=pool.pool_id, item_id=item.item_id, preset_id=preset.preset_id, decision=decision, phase="pre_safe_apply", reasons=sorted(set(reasons)), warnings=sorted(set(warnings)), metadata={"action_type": action_type, "risk_level": risk, "target_file_count": len(target_files)})
