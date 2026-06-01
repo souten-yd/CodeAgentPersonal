@@ -4,7 +4,7 @@ from typing import Any
 
 from agent.atlas_approval_gate import AtlasApprovalGate
 from agent.atlas_autopilot_policy import AtlasAutopilotPolicyGate
-from agent.atlas_critical_event_policy import normalize_critical_event
+from agent.atlas_critical_event_policy import is_separately_gated_forbidden_category, normalize_critical_event
 from agent.atlas_critical_handling_policy import resolve_default_critical_handling
 from agent.atlas_full_auto_gate import relax_evaluation_for_full_auto
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
@@ -14,6 +14,15 @@ from agent.atlas_safe_apply_adapter_schema import AtlasSafeApplyRequest, AtlasSa
 _TERMINAL_ITEM_STATUSES = {"completed", "failed", "blocked", "cancelled"}
 _SUPPORTED_ACTION_TYPES = {"create", "update"}
 _FORBIDDEN_ACTION_TYPES = {"delete", "run_command"}
+_HARD_FORBIDDEN_CRITICAL_CATEGORIES = {
+    "delete_forbidden",
+    "run_command_forbidden",
+    "direct_merge",
+    "remote_push",
+    "self_apply",
+    "stable_runtime_mutation",
+    "unbounded_automation",
+}
 _SAFE_CATEGORY_BY_POLICY_CATEGORY = {
     "protected_path": "protected_path",
     "delete_forbidden": "delete_forbidden",
@@ -57,10 +66,26 @@ class AtlasSafeApplyAdapter:
             explicit=(meta.get("automation_features") or {}).get("critical_handling"),
         )
         risk = (item.risk_level or "").lower()
+        critical_event = self._critical_event_for_item(item)
+        if self._has_hard_forbidden_critical_category(item, critical_event):
+            category = str((critical_event or {}).get("category") or self._category_for_action(action_type) or "forbidden_critical_operation")
+            self._add(result.reasons, f"{category} requires separate backend gate")
+            self._add(result.categories, category)
+            result.metadata["critical_event"] = critical_event or normalize_critical_event(
+                category=category,
+                severity="critical",
+                reason="Forbidden critical operation is disabled unless separately gated",
+                affected_files=list(item.target_files or []),
+                affected_capabilities=[category],
+                source_gate="safe_apply_gate",
+            )
+            result.metadata["status"] = "waiting_for_critical_decision"
+            return self._blocked(result)
+
+        critical_approval_valid = False
+        critical_event_approval_missing = False
         if risk == "critical":
-            self._add(result.reasons, "critical_risk_not_allowed")
-            self._add(result.categories, "non_low_risk")
-            result.metadata["critical_event"] = normalize_critical_event(
+            critical_event = critical_event or normalize_critical_event(
                 category="critical_risk",
                 severity="critical",
                 reason="Critical risk safe_apply requires explicit user decision",
@@ -68,9 +93,19 @@ class AtlasSafeApplyAdapter:
                 affected_capabilities=["safe_apply_gate"],
                 source_gate="safe_apply_gate",
             )
-            result.metadata["status"] = "waiting_for_critical_decision"
-            result.decision = "require_approval"
-            return result
+            critical_approval_valid = self.has_valid_critical_approval(item, pool, critical_event)
+            self._add(result.reasons, "critical_risk_not_allowed")
+            self._add(result.categories, "non_low_risk")
+            result.metadata["critical_event"] = critical_event
+            if critical_approval_valid:
+                self._add(result.categories, "critical_approval_present")
+                result.metadata["critical_approval"] = dict(((item.metadata or {}).get("approval") or {}))
+                allowed_risks = set(allowed_risks) | {"critical"}
+            else:
+                self._add(result.categories, "critical_approval_missing_or_invalid")
+                result.metadata["status"] = "waiting_for_critical_decision"
+                result.decision = "require_approval"
+                return result
         if risk not in allowed_risks:
             self._add(result.reasons, "risk_not_allowed")
             self._add(result.categories, "non_low_risk")
@@ -111,11 +146,17 @@ class AtlasSafeApplyAdapter:
         self._add_policy_categories(result, item_evaluation.categories)
         item_evaluation = relax_evaluation_for_full_auto(item_evaluation, preset_id=preset_id, critical_handling=critical_handling)
         if item_evaluation.metadata.get("critical_event"):
-            result.metadata["critical_event"] = item_evaluation.metadata.get("critical_event")
-            result.metadata["status"] = "waiting_for_critical_decision"
+            item_critical_event = item_evaluation.metadata.get("critical_event")
+            result.metadata["critical_event"] = item_critical_event
+            if not (critical_approval_valid and set(str(c) for c in item_evaluation.categories).issubset({"critical_risk"})):
+                critical_event_approval_missing = True
+                result.metadata["status"] = "waiting_for_critical_decision"
         if item_evaluation.decision == "block":
-            self._add(result.categories, "policy_blocked")
-            return self._blocked(result)
+            if critical_approval_valid and set(str(c) for c in item_evaluation.categories).issubset({"critical_risk"}):
+                self._add(result.categories, "critical_policy_block_approved_for_bounded_scope")
+            else:
+                self._add(result.categories, "policy_blocked")
+                return self._blocked(result)
         if item_evaluation.decision == "require_approval":
             approval_needed = True
             self._add(result.categories, "policy_requires_approval")
@@ -129,8 +170,11 @@ class AtlasSafeApplyAdapter:
             self._add_policy_categories(result, patch_evaluation.categories)
             patch_evaluation = relax_evaluation_for_full_auto(patch_evaluation, preset_id=preset_id, critical_handling=critical_handling)
             if patch_evaluation.metadata.get("critical_event"):
-                result.metadata["critical_event"] = patch_evaluation.metadata.get("critical_event")
-                result.metadata["status"] = "waiting_for_critical_decision"
+                patch_critical_event = patch_evaluation.metadata.get("critical_event")
+                result.metadata["critical_event"] = patch_critical_event
+                if not self.has_valid_critical_approval(item, pool, patch_critical_event):
+                    critical_event_approval_missing = True
+                    result.metadata["status"] = "waiting_for_critical_decision"
             if patch_evaluation.decision == "block":
                 self._add(result.categories, "policy_blocked")
                 return self._blocked(result)
@@ -158,6 +202,10 @@ class AtlasSafeApplyAdapter:
             self._add(result.categories, "policy_requires_approval")
 
         if approval_needed:
+            if critical_event_approval_missing:
+                self._add(result.categories, "critical_approval_missing_or_invalid")
+                result.decision = "require_approval"
+                return result
             if self.has_required_approval(item, pool):
                 self._add(result.categories, "approval_present")
                 result.decision = "allow"
@@ -247,6 +295,42 @@ class AtlasSafeApplyAdapter:
             return True
         return action_type == "" and (item.risk_level or "").lower() == "low"
 
+
+    def has_valid_critical_approval(
+        self,
+        item: AtlasPlanItem,
+        pool: AtlasPlanPool,
+        critical_event: dict | None = None,
+    ) -> bool:
+        approval = dict(((item.metadata or {}).get("approval") or {}))
+        if str(approval.get("decision") or "").strip().lower() != "approved":
+            return False
+
+        bounded_continuation = bool(approval.get("bounded_continuation") or approval.get("bounded_scope_approved"))
+        if not bounded_continuation and approval.get("one_action_only") is not True:
+            return False
+
+        event = dict(critical_event or self._critical_event_for_item(item) or {})
+        approved_event = dict(approval.get("critical_event") or {})
+        event_category = str(event.get("category") or "").strip().lower()
+        approved_category = str(approved_event.get("category") or approval.get("critical_event_category") or "").strip().lower()
+        if event_category and approved_category != event_category:
+            return False
+        if event_category and is_separately_gated_forbidden_category(event_category):
+            return False
+
+        approved_files = {self._normalize_path(path) for path in (approval.get("approved_files") or approval.get("approved_scope") or [])}
+        target_files = {self._normalize_path(path) for path in (item.target_files or [])}
+        if target_files and not target_files.issubset({path for path in approved_files if path}):
+            return False
+
+        approved_capabilities = {str(cap).strip().lower() for cap in (approval.get("approved_capabilities") or []) if str(cap).strip()}
+        affected_capabilities = {str(cap).strip().lower() for cap in (event.get("affected_capabilities") or []) if str(cap).strip()}
+        if affected_capabilities and not affected_capabilities.issubset(approved_capabilities):
+            return False
+
+        return True
+
     def has_required_approval(
         self,
         item: AtlasPlanItem,
@@ -263,6 +347,33 @@ class AtlasSafeApplyAdapter:
         if request is not None:
             return not request.require_approval
         return False
+
+
+    def _critical_event_for_item(self, item: AtlasPlanItem) -> dict:
+        approval = dict(((item.metadata or {}).get("approval") or {}))
+        event = (item.metadata or {}).get("critical_event") or approval.get("critical_event") or {}
+        return dict(event or {})
+
+    def _has_hard_forbidden_critical_category(self, item: AtlasPlanItem, critical_event: dict | None = None) -> bool:
+        action_category = self._category_for_action(self._action_type(item))
+        categories = {str(action_category or "").strip().lower()}
+        event = dict(critical_event or {})
+        categories.add(str(event.get("category") or "").strip().lower())
+        categories.update(str(c).strip().lower() for c in ((item.metadata or {}).get("critical_categories") or []) if str(c).strip())
+        categories.update(str(c).strip().lower() for c in ((item.metadata or {}).get("forbidden_categories") or []) if str(c).strip())
+        return any(category in _HARD_FORBIDDEN_CRITICAL_CATEGORIES for category in categories if category)
+
+    @staticmethod
+    def _category_for_action(action_type: str) -> str:
+        if action_type == "delete":
+            return "delete_forbidden"
+        if action_type == "run_command":
+            return "run_command_forbidden"
+        return ""
+
+    @staticmethod
+    def _normalize_path(path: str) -> str:
+        return str(path or "").replace("\\", "/").strip().strip("/")
 
     def _call_executor(self, item: AtlasPlanItem, pool: AtlasPlanPool) -> dict:
         executor = self.implementation_executor

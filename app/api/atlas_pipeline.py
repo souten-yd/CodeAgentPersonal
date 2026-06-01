@@ -1489,6 +1489,52 @@ def decide_approval(req: AtlasApprovalDecisionRequest, request: Request) -> Atla
     return AtlasApprovalDecisionResponse(pool_id=req.pool_id, item_id=req.item_id, decision=req.decision, status=pool.status, approval_record=approval_record, plan_pool=_model_dump(pool), recovery_summary=recovery, orchestration_summary=orchestration, continuation_prompt=continuation)
 
 
+@router.post("/critical-decisions/decide", response_model=AtlasApprovalDecisionResponse)
+def decide_critical_event(req: AtlasApprovalDecisionRequest, request: Request) -> AtlasApprovalDecisionResponse:
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    try:
+        pool = storage.load_pool(req.pool_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="plan pool not found") from exc
+    item = pool.get_item(req.item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="item not found")
+    critical_event = dict((item.metadata or {}).get("critical_event") or (req.metadata or {}).get("critical_event") or {})
+    if not critical_event.get("critical_event") and item.status != "waiting_for_critical_decision":
+        raise HTTPException(status_code=400, detail="critical_decision_requires_critical_event")
+    decision_map = {
+        "approve": "approved",
+        "approved": "approved",
+        "reject_ng_safer_replan": "rejected",
+        "rejected": "rejected",
+        "cancel": "cancelled",
+        "cancelled": "cancelled",
+        "edit_scope": "needs_revision",
+        "needs_revision": "needs_revision",
+    }
+    mapped_decision = decision_map.get(str(req.decision or "").strip().lower())
+    if mapped_decision is None:
+        raise HTTPException(status_code=400, detail="invalid_critical_decision")
+    service = AtlasApprovalService(journal)
+    metadata = {
+        **dict(req.metadata or {}),
+        "critical_decision_path": True,
+        "critical_decision": str(req.decision or ""),
+        "critical_event": critical_event,
+    }
+    try:
+        approval_record = service.decide(pool, item_id=req.item_id, run_id=req.run_id, decision=mapped_decision, reason=req.reason, approver=req.approver, metadata=metadata)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
+    orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None, recovery=recovery).model_dump()
+    continuation = AtlasContinuationService(journal).build_pool_summary(pool.pool_id, req.run_id).continuation_prompt
+    journal.write_checkpoint(pool=pool, next_action=_checkpoint_next_action(pool.status))
+    return AtlasApprovalDecisionResponse(pool_id=req.pool_id, item_id=req.item_id, decision=str(req.decision or mapped_decision), status=pool.status, approval_record=approval_record, plan_pool=_model_dump(pool), recovery_summary=recovery, orchestration_summary=orchestration, continuation_prompt=continuation)
+
+
 class AtlasPlanCancelRequest(BaseModel):
     workspace_id: str = "default"
     reason: str = ""
