@@ -213,6 +213,7 @@ class AtlasClarificationService:
                 "risk_level": "low",
                 "gate_rerun_required": True,
                 "can_continue_after_answer": False,
+                "requires_text": False,
                 "recommended": True,
                 "effect": {"plan_revision": True, "risk": "reduced"},
             },
@@ -225,6 +226,7 @@ class AtlasClarificationService:
                 "risk_level": "low",
                 "gate_rerun_required": True,
                 "can_continue_after_answer": False,
+                "requires_text": False,
                 "effect": {"scope": "minimal", "plan_revision": True},
             },
             {
@@ -236,6 +238,7 @@ class AtlasClarificationService:
                 "risk_level": "low",
                 "gate_rerun_required": True,
                 "can_continue_after_answer": False,
+                "requires_text": False,
                 "effect": {"scope": "deferred", "plan_revision": True},
             },
             {

@@ -56,6 +56,7 @@ class AtlasClarificationReplanningService:
                     extracted_paths=extracted_paths,
                     risk_raised=risk_raised,
                     scope_reduced=scope_reduced,
+                    selected_option_impacts=selected_option_impacts,
                 )
             )
 
@@ -128,34 +129,72 @@ class AtlasClarificationReplanningService:
         extracted_paths: list[str],
         risk_raised: bool,
         scope_reduced: bool,
+        selected_option_impacts: list[dict],
     ) -> AtlasPlanItem:
+        changed_fields: list[str] = []
+        primary_impact = selected_option_impacts[0] if selected_option_impacts else {}
+        plan_change_summary = str(primary_impact.get("plan_change_summary") or "").strip()
+        implementation_scope = str(primary_impact.get("implementation_scope") or "").strip()
+        risk_level_from_option = str(primary_impact.get("risk_level") or "").strip()
         item.metadata.setdefault("clarification_revision", {})
         item.metadata["clarification_revision"].update(
             {
                 "answer_summary": answer_summary,
                 "risk_raised": risk_raised,
                 "scope_reduced": scope_reduced,
+                "selected_option_impacts": selected_option_impacts,
                 "revised_at": _utc_now_iso(),
             }
         )
         if answer_summary:
+            goal_addition = plan_change_summary or answer_summary
+            item.goal = self._append_sentence(item.goal, f"Clarification decision: {goal_addition}")
             item.description = self._append_sentence(item.description, f"Clarification: {answer_summary}")
             item.expected_changes = self._append_unique(item.expected_changes, f"Apply clarification answer: {answer_summary}")
             item.done_definition = self._append_unique(item.done_definition, f"Clarification reflected: {answer_summary}")
+            changed_fields.extend(["goal", "description", "expected_changes", "done_definition"])
+        if implementation_scope:
+            item.metadata["implementation_scope_after_clarification"] = implementation_scope
+            item.done_definition = self._append_unique(
+                item.done_definition,
+                f"Implementation scope after clarification: {implementation_scope}",
+            )
+            if "done_definition" not in changed_fields:
+                changed_fields.append("done_definition")
+        if risk_level_from_option:
+            item.metadata["option_risk_level_after_clarification"] = risk_level_from_option
         if extracted_paths:
             item.target_files = extracted_paths
             item.metadata["allowed_paths_after_clarification"] = extracted_paths
+            changed_fields.append("target_files")
         elif scope_reduced and len(item.target_files) > 1:
             item.target_files = item.target_files[:1]
             item.metadata["allowed_paths_after_clarification"] = list(item.target_files)
+            changed_fields.append("target_files")
+        if selected_option_impacts:
+            item.metadata["verification_intent_after_clarification"] = {
+                "gate_rerun_required": any(bool(i.get("gate_rerun_required")) for i in selected_option_impacts),
+                "can_continue_after_answer": all(bool(i.get("can_continue_after_answer")) for i in selected_option_impacts),
+                "selected_option_impacts": selected_option_impacts,
+            }
+            item.test_commands = self._append_unique(
+                item.test_commands,
+                "rerun critique and safety gates after clarification",
+            )
+            changed_fields.append("test_commands")
         if "test" in answer_summary.lower() or "smoke" in answer_summary.lower():
             item.metadata["verification_intent_after_clarification"] = answer_summary
             item.test_commands = self._append_unique(item.test_commands, "focused verification selected by clarification")
+            if "test_commands" not in changed_fields:
+                changed_fields.append("test_commands")
         if risk_raised:
             item.risk_level = "high"
             item.requires_user_confirmation = True
+            changed_fields.extend(["risk_level", "requires_user_confirmation"])
             if item.status in {"queued", "ready", "approved"}:
                 item.status = "approval_required"
+                changed_fields.append("status")
+        item.metadata["clarification_revision"]["changed_fields"] = sorted(set(changed_fields))
         return item
 
     @staticmethod

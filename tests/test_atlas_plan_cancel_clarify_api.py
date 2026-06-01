@@ -174,6 +174,12 @@ def test_clarification_replanning_consumes_selected_option_impact(tmp_path: Path
     answer = reloaded.metadata["clarification_answers"][0]
     assert answer["selected_option_impact"]["plan_change_summary"].startswith("Add playing")
     assert "playing -> game_over -> restart" in reloaded.root_goal
+    item = reloaded.items[0]
+    assert "playing -> game_over -> restart" in item.goal
+    assert "small_state_model" in item.done_definition[-1]
+    assert "rerun critique and safety gates after clarification" in item.test_commands
+    assert item.metadata["verification_intent_after_clarification"]["gate_rerun_required"] is True
+    assert item.metadata["clarification_revision"]["changed_fields"]
     impacts = reloaded.metadata["plan_revision_diff"]["selected_option_impacts"]
     assert impacts[0]["implementation_scope"] == "small_state_model"
 
