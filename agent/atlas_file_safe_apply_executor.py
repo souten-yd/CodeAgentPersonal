@@ -12,9 +12,17 @@ from agent.atlas_plan_item_file_changes import (
     normalize_plan_item_file_changes,
     validate_protected_relative_path,
 )
+from agent.atlas_placeholder_detector import is_placeholder_only_content
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 
 _MAX_CONTENT_BYTES = 1024 * 1024
+
+
+def _quality_block_enforced(pool: AtlasPlanPool) -> bool:
+    """True when the pool's Features set quality_gate_enforcement="block" (pre-apply gate).
+    Absent/legacy pools default to non-enforcing so existing flows are unaffected."""
+    features = (getattr(pool, "metadata", {}) or {}).get("automation_features") or {}
+    return str(features.get("quality_gate_enforcement") or "warn").lower() == "block"
 
 # Back-compat alias retained for callers that import the original name.
 normalize_safe_apply_action_type = normalize_action_type
@@ -61,6 +69,10 @@ class AtlasFileSafeApplyExecutor:
         content = parse["content"]
         if len(content.encode("utf-8")) > _MAX_CONTENT_BYTES:
             return self._blocked("content_too_large")
+        # Pre-apply quality gate: refuse to write placeholder-only "implementations" when the
+        # Features set quality_gate_enforcement="block" (stops empty deliverables before disk I/O).
+        if _quality_block_enforced(pool) and is_placeholder_only_content(content, file_path=rel_target):
+            return self._blocked("placeholder_only_content")
 
         effective_action = action_type
         if action_type == "update":
@@ -137,6 +149,23 @@ class AtlasFileSafeApplyExecutor:
                 "file_results": [self._public_file_result(result) for result in ready_results],
                 "summary": "multi-file preflight failed",
             }
+
+        # Pre-apply quality gate (block mode): reject the whole batch if any file is placeholder-only.
+        if _quality_block_enforced(pool):
+            placeholder_paths = [
+                str(r.get("path") or "")
+                for r in ready_results
+                if is_placeholder_only_content(str(r.get("_content") or ""), file_path=str(r.get("path") or ""))
+            ]
+            if placeholder_paths:
+                return {
+                    "status": "blocked",
+                    "actual_file_changed": False,
+                    "changed_files": [],
+                    "reasons": ["placeholder_only_content"],
+                    "file_results": [self._public_file_result(result) for result in ready_results],
+                    "summary": "blocked: placeholder-only content (" + ", ".join(placeholder_paths) + ")",
+                }
 
         changed_files: list[str] = []
         applied_results: list[dict] = []

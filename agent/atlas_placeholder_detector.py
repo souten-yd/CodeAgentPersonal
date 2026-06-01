@@ -68,6 +68,29 @@ def detect_placeholders(content: str, *, file_path: str = "") -> list[dict]:
     return unique
 
 
+def is_placeholder_only_content(content: str, *, file_path: str = "") -> bool:
+    """True if, after stripping comments/blanks, the file is essentially stubs (pass /
+    console.log / empty bodies) AND it carries placeholder markers. Shared by the post-apply
+    quality rollup and the pre-apply safe-apply gate so both judge "no real implementation"
+    identically. The >2-substantive-line guard avoids false positives on small real files."""
+    findings = detect_placeholders(content, file_path=file_path)
+    if not findings:
+        return False
+    substantive = 0
+    for raw in content.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith(("#", "//", "/*", "*", "<!--")):
+            continue
+        if line in ("pass", "{", "}", "});", ")", "(", "</script>", "<script>"):
+            continue
+        if line.lower().startswith(("console.log", "todo", "pass", "return none")):
+            continue
+        substantive += 1
+    return substantive <= 2
+
+
 def scan_file_for_placeholders(path: str | Path) -> list[dict]:
     path = Path(path)
     if not path.exists():

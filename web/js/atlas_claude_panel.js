@@ -208,6 +208,7 @@
     appendMessage('system', '指示を入力してください', false);
     refreshPolicies();
     loadAtlasCapabilityPreferences();
+    loadAtlasAutomationFeatures();
   }
 
   function bindInputs() {
@@ -597,7 +598,7 @@
     // free_text_goal: create a plan pool with the user's goal, then render
     // the generated plan in chat so the user can see what Atlas produced.
     setBusy(true);
-    const resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_path: projectPath(), metadata: { preset_id: state.selectedPresetId }, capability_preferences: getAtlasCapabilityPreferences() });
+    const resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_path: projectPath(), metadata: { preset_id: state.selectedPresetId }, capability_preferences: getAtlasCapabilityPreferences(), automation_features: getAtlasAutomationFeatures() });
     if (!resp.ok) {
       setBusy(false);
       pushAtlasMessage(`PlanPool creation failed: ${formatError(resp)}`);
@@ -635,7 +636,9 @@
     }
   }
 
-  function appendApprovalPrompt(poolId) {
+  // Plan action prompt: approve / request-revision / cancel. State-driven so it is re-rendered on
+  // reload from pool.status (see renderPlanPoolMarkdown). Backwards-compatible alias kept below.
+  function appendPlanActionPrompt(poolId) {
     if (!dom.transcript) return;
     const node = document.createElement('div');
     node.className = 'atlas-claude-msg';
@@ -643,32 +646,129 @@
     node.style.flexDirection = 'column';
     node.style.gap = '6px';
     const text = document.createElement('div');
-    text.textContent = 'この Plan を実行しますか？';
+    text.textContent = 'この Plan を実行しますか？（承認 / 改訂依頼 / キャンセル）';
     const actions = document.createElement('div');
     actions.style.display = 'flex';
     actions.style.gap = '6px';
+
     const approve = document.createElement('button');
     approve.type = 'button';
     approve.className = 'atlas-claude-primary-btn';
     approve.textContent = '承認して実行';
+
+    const revise = document.createElement('button');
+    revise.type = 'button';
+    revise.className = 'atlas-claude-secondary-btn';
+    revise.textContent = '改訂を依頼';
+
     const cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.className = 'atlas-claude-secondary-btn';
     cancel.textContent = 'キャンセル';
+
     approve.addEventListener('click', () => {
       node.remove();
       approveAndRunPipeline(poolId);
     });
+    revise.addEventListener('click', () => {
+      const note = (root.prompt && root.prompt('改訂依頼の内容（任意）')) || '';
+      node.remove();
+      requestPlanRevision(poolId, note);
+    });
     cancel.addEventListener('click', () => {
       node.remove();
-      pushSystemMessage('キャンセルしました');
+      cancelPlan(poolId);
     });
     actions.appendChild(approve);
+    actions.appendChild(revise);
     actions.appendChild(cancel);
     node.appendChild(text);
     node.appendChild(actions);
     dom.transcript.appendChild(node);
     dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  // Backwards-compatible alias for the original creation-time call site.
+  function appendApprovalPrompt(poolId) {
+    appendPlanActionPrompt(poolId);
+  }
+
+  async function requestPlanRevision(poolId, note) {
+    if (!root.AtlasPipelineAPI) return;
+    try {
+      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
+      const items = (pool && pool.data && (pool.data.items || pool.data.plan_items)) || [];
+      const targets = items.filter((it) => String(it.status || '') === 'approval_required');
+      const list = targets.length ? targets : items;
+      for (const it of list) {
+        await root.AtlasPipelineAPI.decideApproval({
+          pool_id: poolId, item_id: it.item_id, decision: 'needs_revision',
+          reason: note || 'revision requested', workspace_id: workspaceId(),
+        });
+      }
+      pushSystemMessage('改訂を依頼しました（needs_revision）。');
+    } catch (e) {
+      pushSystemMessage('改訂依頼に失敗しました: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  async function cancelPlan(poolId) {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.cancelPlanPool) {
+      pushSystemMessage('キャンセルしました');
+      return;
+    }
+    try {
+      await root.AtlasPipelineAPI.cancelPlanPool(poolId, { reason: 'user cancelled', workspace_id: workspaceId() });
+      pushSystemMessage('Plan をキャンセルしました（cancelled）。');
+    } catch (e) {
+      pushSystemMessage('キャンセルに失敗しました: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  // Claude-style clarification question: render the structured options as buttons; the user's
+  // choice is recorded server-side and the gate cleared. State-driven (survives reload).
+  function appendClarificationPrompt(poolId, options) {
+    if (!dom.transcript || !Array.isArray(options) || !options.length) return;
+    const node = document.createElement('div');
+    node.className = 'atlas-claude-msg';
+    node.dataset.role = 'system';
+    node.style.flexDirection = 'column';
+    node.style.gap = '6px';
+    const text = document.createElement('div');
+    text.textContent = '確認が必要です。以下から選択してください:';
+    node.appendChild(text);
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.flexDirection = 'column';
+    actions.style.gap = '6px';
+    options.forEach((opt) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'atlas-claude-secondary-btn';
+      btn.style.textAlign = 'left';
+      const label = String(opt.label || opt.option_id || 'option');
+      const desc = String(opt.description || '');
+      btn.textContent = desc ? `${label} — ${desc}` : label;
+      btn.addEventListener('click', () => {
+        node.remove();
+        submitClarification(poolId, opt.option_id);
+      });
+      actions.appendChild(btn);
+    });
+    node.appendChild(actions);
+    dom.transcript.appendChild(node);
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  async function submitClarification(poolId, optionId) {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.clarifyPlanPool) return;
+    try {
+      await root.AtlasPipelineAPI.clarifyPlanPool(poolId, { option_id: optionId, workspace_id: workspaceId() });
+      pushSystemMessage('選択を記録しました。Plan を続行します。');
+      await renderPlanPoolMarkdown(poolId);
+    } catch (e) {
+      pushSystemMessage('選択の送信に失敗しました: ' + (e && e.message ? e.message : e));
+    }
   }
 
   async function approveAndRunPipeline(poolId) {
@@ -1114,11 +1214,15 @@
     // <details> so the execution steps are readable at a glance.
     let items = [];
     let strategic = null;
+    let poolStatus = '';
+    let poolMeta = {};
     try {
       const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
       if (pool && pool.ok && pool.data) {
         items = pool.data.items || pool.data.plan_items || [];
+        poolStatus = String(pool.data.status || (pool.data.plan_pool && pool.data.plan_pool.status) || '');
         const meta = pool.data.metadata || (pool.data.plan_pool && pool.data.plan_pool.metadata) || {};
+        poolMeta = meta || {};
         if (meta && typeof meta.strategic_plan === 'object') strategic = meta.strategic_plan;
       }
     } catch (_e) { items = []; }
@@ -1140,6 +1244,14 @@
       return;
     }
     appendStrategicPlanCard(strategic, items, rawMarkdown);
+    // State-driven prompts (survive a browser reload): re-derive from the server pool.status /
+    // metadata instead of in-memory flags, so the approval / clarification controls reappear.
+    const clarification = poolMeta.critique_clarification_options || {};
+    if (poolMeta.clarification_required && Array.isArray(clarification.options) && clarification.options.length) {
+      appendClarificationPrompt(poolId, clarification.options);
+    } else if (poolStatus === 'approval_required') {
+      appendPlanActionPrompt(poolId);
+    }
   }
 
   // Render a Claude/Codex-style strategic plan the user can review before approving: goal, approach,
@@ -1544,6 +1656,45 @@
   // Expose for external callers (e.g., pipeline API payload builders)
   window.saveAtlasCapabilityPreferences = saveAtlasCapabilityPreferences;
   window.getAtlasCapabilityPreferences = getAtlasCapabilityPreferences;
+
+  // ── Automation features (human-in-the-loop): critical_handling / clarification_mode /
+  // quality_gate_enforcement. Read from <select> controls in the Features panel; sent with the
+  // plan-pool create request and persisted server-side via /api/atlas/automation-features. ──
+  const _FEATURE_SELECTS = {
+    'feat-critical-handling': 'critical_handling',
+    'feat-clarification-mode': 'clarification_mode',
+    'feat-quality-enforcement': 'quality_gate_enforcement',
+  };
+
+  function getAtlasAutomationFeatures() {
+    const features = {};
+    Object.entries(_FEATURE_SELECTS).forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      if (el && el.value) features[key] = el.value;
+    });
+    return features;
+  }
+
+  async function persistAtlasAutomationFeatures() {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.setAutomationFeatures) return;
+    try { await root.AtlasPipelineAPI.setAutomationFeatures({ features: getAtlasAutomationFeatures() }); } catch (e) { /* best-effort */ }
+  }
+
+  async function loadAtlasAutomationFeatures() {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getAutomationFeatures) return;
+    try {
+      const r = await root.AtlasPipelineAPI.getAutomationFeatures();
+      const f = (r && r.ok && r.data && r.data.features) || {};
+      Object.entries(_FEATURE_SELECTS).forEach(([id, key]) => {
+        const el = document.getElementById(id);
+        if (el && f[key]) el.value = f[key];
+        if (el && !el._featBound) { el.addEventListener('change', persistAtlasAutomationFeatures); el._featBound = true; }
+      });
+    } catch (e) { /* defaults shown */ }
+  }
+
+  window.getAtlasAutomationFeatures = getAtlasAutomationFeatures;
+  window.loadAtlasAutomationFeatures = loadAtlasAutomationFeatures;
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

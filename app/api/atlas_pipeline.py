@@ -42,6 +42,8 @@ from agent.atlas_capability_preference_schema import (
     get_default_preferences as _default_capability_preferences,
     normalize_ui_preferences as _normalize_capability_preferences,
 )
+from agent.atlas_automation_features import resolve_features as _resolve_automation_features
+from agent.atlas_plan_depth_gate import evaluate_plan_depth
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
@@ -119,6 +121,9 @@ class CreatePlanPoolRequest(BaseModel):
     enable_repo_context: bool = True
     repo_context_mode: str = "scope_summary"
     capability_preferences: dict = Field(default_factory=dict)
+    # Human-in-the-loop automation features (critical_handling / clarification_mode /
+    # quality_gate_enforcement). Empty -> server-side default (atlas_automation_features).
+    automation_features: dict = Field(default_factory=dict)
 
 
 class CreatePlanPoolResponse(BaseModel):
@@ -942,19 +947,39 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
     # Evaluates the planner's POST-revision adversarial critique. full_auto + non-safety high
     # findings proceed as a recorded policy continuation; supervised/lower presets or any
     # safety-sensitive high finding pause at the approval gate with plan_revision_required.
+    # Resolve human-in-the-loop features (request override > server-side default > built-in).
+    _features = _resolve_automation_features(
+        request_features=dict(req.automation_features or {}), ca_data_root=ca_data_root
+    )
+    pool.metadata["automation_features"] = _features
+    # ── Pre-approval plan-depth gate (WS6-1): reject shallow plans (no implementation items,
+    # missing target files, one-line step descriptions) before approval/apply. Blocking only when
+    # quality_gate_enforcement="block"; otherwise surfaced as warnings. ──
+    _depth = evaluate_plan_depth(pool)
+    pool.metadata["plan_depth_gate"] = _depth
+    _enforce_quality = _features.get("quality_gate_enforcement") == "block"
+    if not _depth["ok"]:
+        for _r in _depth["warnings"]:
+            if _r not in pool.warnings:
+                pool.warnings.append(_r)
+        if _enforce_quality:
+            pool.metadata["plan_revision_required"] = True
+            pool.status = "approval_required"
     quality_gate = apply_plan_quality_gate(
         plan,
         automation_level=req.automation_level,
         preset_id=str(req.metadata.get("preset_id") or ""),
+        critical_handling=_features["critical_handling"],
     )
     pool.metadata["critique_gate"] = quality_gate["critique_gate"]
     if quality_gate["plan_revision_required"]:
         pool.metadata["plan_revision_required"] = True
     if quality_gate["clarification"]:
         pool.metadata["critique_clarification"] = quality_gate["clarification"]
-    # ── Structured clarification options (PR-9d): when plan_revision_required, produce
-    # option/merit/risk/recommendation items so the UI can present choices. ──
-    if quality_gate["plan_revision_required"]:
+    # ── Structured clarification options (PR-9d): produce option/merit/risk/recommendation items
+    # whenever the gate needs a human (plan_revision_required OR an "ask" pause) so the UI can
+    # present choices. When clarification_mode=="pause" mark the pool clarification_required. ──
+    if quality_gate["plan_revision_required"] or quality_gate["require_approval"]:
         _plan_text = str(plan.get("summary") or plan.get("task_summary") or root_goal)
         _ambiguities = AtlasClarificationGateService().detect_ambiguities(_plan_text)
         _blocking = list((quality_gate.get("critique_gate") or {}).get("blocking_findings") or [])
@@ -975,6 +1000,11 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
             "options": _options,
             "gate_evaluation": _clarification_eval,
         }
+        # When clarification_mode is "pause" and we have something to ask about (options or
+        # detected ambiguity), flag the pool so the UI surfaces a Claude-style options question
+        # that survives reload. "auto" proceeds with the safe-default assumption (legacy).
+        if _features.get("clarification_mode") == "pause" and (_options or _ambiguities):
+            pool.metadata["clarification_required"] = True
     for _w in quality_gate["warnings"]:
         if _w not in pool.warnings:
             pool.warnings.append(_w)
@@ -1454,6 +1484,61 @@ def decide_approval(req: AtlasApprovalDecisionRequest, request: Request) -> Atla
     continuation = AtlasContinuationService(journal).build_pool_summary(pool.pool_id, req.run_id).continuation_prompt
     journal.write_checkpoint(pool=pool, next_action=_checkpoint_next_action(pool.status))
     return AtlasApprovalDecisionResponse(pool_id=req.pool_id, item_id=req.item_id, decision=req.decision, status=pool.status, approval_record=approval_record, plan_pool=_model_dump(pool), recovery_summary=recovery, orchestration_summary=orchestration, continuation_prompt=continuation)
+
+
+class AtlasPlanCancelRequest(BaseModel):
+    workspace_id: str = "default"
+    reason: str = ""
+
+
+_CANCELLABLE_ITEM_STATUSES = {"queued", "ready", "pending", "approval_required", "needs_revision", "paused", "waiting", "dependency_waiting"}
+
+
+@router.post("/plan-pools/{pool_id}/cancel")
+def cancel_plan_pool(pool_id: str, req: AtlasPlanCancelRequest, request: Request) -> dict:
+    """Cancel a plan: mark the pool cancelled and stop any not-yet-terminal items. This is the
+    plan-level counterpart to the per-item approval decisions (approve/reject/needs_revision)."""
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    try:
+        pool = storage.load_pool(pool_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="plan pool not found") from exc
+    cancelled_ids: list[str] = []
+    for item in (pool.items or []):
+        if str(getattr(item, "status", "")).lower() in _CANCELLABLE_ITEM_STATUSES:
+            item.status = "cancelled"
+            cancelled_ids.append(item.item_id)
+    pool.status = "cancelled"
+    pool.metadata["cancelled"] = {"reason": req.reason, "cancelled_item_ids": cancelled_ids}
+    pool.metadata.pop("clarification_required", None)
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    journal.write_checkpoint(pool=pool, next_action=_checkpoint_next_action(pool.status))
+    return {"pool_id": pool_id, "status": pool.status, "cancelled_item_ids": cancelled_ids, "plan_pool": _model_dump(pool)}
+
+
+class AtlasPlanClarifyRequest(BaseModel):
+    workspace_id: str = "default"
+    option_id: str = ""
+    note: str = ""
+
+
+@router.post("/plan-pools/{pool_id}/clarify")
+def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Request) -> dict:
+    """Record the user's answer to a Claude-style clarification question and clear the gate so the
+    plan can continue. The chosen option is persisted for audit and downstream revision."""
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    try:
+        pool = storage.load_pool(pool_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="plan pool not found") from exc
+    options = list(((pool.metadata or {}).get("critique_clarification_options") or {}).get("options") or [])
+    chosen = next((o for o in options if str(o.get("option_id")) == req.option_id), None)
+    pool.metadata["clarification_decision"] = {"option_id": req.option_id, "note": req.note, "chosen": chosen or {}}
+    pool.metadata.pop("clarification_required", None)
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    return {"pool_id": pool_id, "status": pool.status, "clarification_decision": pool.metadata["clarification_decision"], "plan_pool": _model_dump(pool)}
 
 
 

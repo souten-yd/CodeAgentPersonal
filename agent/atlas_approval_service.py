@@ -91,7 +91,7 @@ class AtlasApprovalService:
         item = pool.get_item(item_id)
         if item is None:
             raise ValueError("item not found")
-        if decision not in {"approved", "rejected", "needs_revision"}:
+        if decision not in {"approved", "rejected", "needs_revision", "cancelled"}:
             raise ValueError("invalid decision")
 
         gate = AtlasApprovalGate()
@@ -103,6 +103,10 @@ class AtlasApprovalService:
         elif decision == "rejected":
             gate.reject(record.approval_id, decided_by=approver, reason=reason)
             item.status = "blocked"
+        elif decision == "cancelled":
+            # User cancelled the plan/item: revoke the approval request and stop the item.
+            gate.revoke(record.approval_id, decided_by=approver, reason=reason)
+            item.status = "cancelled"
         else:
             gate.reject(record.approval_id, decided_by=approver, reason=reason)
             item.status = "needs_revision"

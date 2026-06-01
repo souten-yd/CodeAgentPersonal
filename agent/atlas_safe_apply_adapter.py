@@ -43,6 +43,9 @@ class AtlasSafeApplyAdapter:
 
         full_auto = is_full_auto_preset(preset_id=preset_id)
         allowed_risks = {"low", "medium", "high"} if full_auto else {"low"}
+        # The shared human-in-the-loop knob (Features) routes safety-sensitive findings at the
+        # apply layer exactly as the plan-time critique gate does.
+        critical_handling = str(((getattr(pool, "metadata", {}) or {}).get("automation_features") or {}).get("critical_handling") or "auto")
         risk = (item.risk_level or "").lower()
         if risk == "critical":
             self._add(result.reasons, "critical_risk_not_allowed")
@@ -82,7 +85,7 @@ class AtlasSafeApplyAdapter:
         result.reasons.extend(str(reason) for reason in item_evaluation.reasons)
         result.warnings.extend(str(warning) for warning in item_evaluation.warnings)
         self._add_policy_categories(result, item_evaluation.categories)
-        item_evaluation = relax_evaluation_for_full_auto(item_evaluation, preset_id=preset_id)
+        item_evaluation = relax_evaluation_for_full_auto(item_evaluation, preset_id=preset_id, critical_handling=critical_handling)
         if item_evaluation.decision == "block":
             self._add(result.categories, "policy_blocked")
             return self._blocked(result)
@@ -97,7 +100,7 @@ class AtlasSafeApplyAdapter:
             result.reasons.extend(str(reason) for reason in patch_evaluation.reasons)
             result.warnings.extend(str(warning) for warning in patch_evaluation.warnings)
             self._add_policy_categories(result, patch_evaluation.categories)
-            patch_evaluation = relax_evaluation_for_full_auto(patch_evaluation, preset_id=preset_id)
+            patch_evaluation = relax_evaluation_for_full_auto(patch_evaluation, preset_id=preset_id, critical_handling=critical_handling)
             if patch_evaluation.decision == "block":
                 self._add(result.categories, "policy_blocked")
                 return self._blocked(result)

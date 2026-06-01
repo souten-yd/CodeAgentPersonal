@@ -213,6 +213,29 @@
               </label>
             </fieldset>
 
+            <fieldset class="atlas-claude-feature-group atlas-automation-features" aria-label="Automation Features" id="atlas-automation-features-fieldset">
+              <legend>Automation Features <span class="atlas-claude-muted-inline">(human-in-the-loop control)</span></legend>
+              <label class="atlas-cap-row">クリティカル事象
+                <select id="feat-critical-handling">
+                  <option value="ask">ask（ユーザに確認）</option>
+                  <option value="block">block（停止して改訂）</option>
+                  <option value="auto">auto（自動継続）</option>
+                </select>
+              </label>
+              <label class="atlas-cap-row">曖昧時の質問
+                <select id="feat-clarification-mode">
+                  <option value="pause">pause（選択肢で質問）</option>
+                  <option value="auto">auto（安全既定で続行）</option>
+                </select>
+              </label>
+              <label class="atlas-cap-row">品質ゲート
+                <select id="feat-quality-enforcement">
+                  <option value="block">block（事前ブロック）</option>
+                  <option value="warn">warn（警告のみ）</option>
+                </select>
+              </label>
+            </fieldset>
+
             <div class="atlas-claude-feature-actions">
               <input type="text" id="atlas-claude-confirm-text" class="atlas-claude-confirm-text" placeholder="Profile 3-5 のみ要確認: SELECT AUTOMATION PROFILE" autocomplete="off">
               <button type="button" id="atlas-claude-preview-profile-btn" class="atlas-claude-secondary-btn">Preview</button>

@@ -40,7 +40,7 @@ def _finding_is_safety_sensitive(finding: dict) -> bool:
     return any(kw in haystack for kw in _SAFETY_SENSITIVE_KEYWORDS)
 
 
-def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id: str = "") -> dict:
+def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id: str = "", critical_handling: str = "ask") -> dict:
     """Evaluate the critique gate over a planner's (post-revision) plan and decide flow control.
 
     Returns:
@@ -71,7 +71,69 @@ def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id
     safety_sensitive = any(_finding_is_safety_sensitive(f) for f in blocking)
     residual_risk = str(critique_dict.get("consensus_risk") or "")
 
-    if full_auto and not safety_sensitive:
+    plan_text = " ".join(str(plan.get(k) or "") for k in ("requirement_summary", "goal", "selected_architecture"))
+
+    def _clarification() -> dict:
+        # Build clarification options from ambiguity in the plan summary text, if any.
+        return AtlasClarificationGateService().evaluate(
+            AtlasClarificationGateService().detect_ambiguities(plan_text)
+        )
+
+    # ── Safety-sensitive high/critical findings: routed by the configurable critical_handling knob.
+    # This is the single human-in-the-loop boundary shared with the apply-time full_auto gate.
+    if safety_sensitive:
+        handling = str(critical_handling or "ask").strip().lower()
+        if handling == "auto":
+            # Maximum autonomy — proceed without approval but record an audit trail.
+            warnings.append("critical_handling_auto_continued_safety_sensitive")
+            return {
+                "critique_gate": {
+                    "gate_status": "critical_auto_continued",
+                    "reason": "safety_sensitive_high_critique",
+                    "residual_risk": residual_risk,
+                    "blocking_findings": blocking,
+                    "safety_sensitive": True,
+                    "auditable_note": "proceeded under critical_handling=auto despite safety-sensitive critique",
+                },
+                "plan_revision_required": False,
+                "require_approval": False,
+                "warnings": warnings,
+                "clarification": {},
+            }
+        if handling == "ask":
+            # Pause for a user decision (approval/clarification) but do NOT force a re-plan.
+            warnings.append("safety_sensitive_high_critique_ask")
+            return {
+                "critique_gate": {
+                    "gate_status": "ask",
+                    "reason": "safety_sensitive_high_critique",
+                    "residual_risk": residual_risk,
+                    "blocking_findings": blocking,
+                    "safety_sensitive": True,
+                },
+                "plan_revision_required": False,
+                "require_approval": True,
+                "warnings": warnings,
+                "clarification": _clarification(),
+            }
+        # block (default for safety): stop and require a revised plan.
+        warnings.append("safety_sensitive_high_critique")
+        return {
+            "critique_gate": {
+                "gate_status": "blocked",
+                "reason": "safety_sensitive_high_critique",
+                "residual_risk": residual_risk,
+                "blocking_findings": blocking,
+                "safety_sensitive": True,
+            },
+            "plan_revision_required": True,
+            "require_approval": True,
+            "warnings": warnings,
+            "clarification": _clarification(),
+        }
+
+    # ── Non-safety-sensitive high findings ──
+    if full_auto:
         # Recorded full_auto policy continuation — NOT a user-safety override.
         warnings.append("full_auto_continued_with_unresolved_non_safety_critique")
         return {
@@ -88,24 +150,18 @@ def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id
             "clarification": {},
         }
 
-    # supervised / lower preset, OR safety-sensitive high finding under any preset → block + ask.
-    reason = "safety_sensitive_high_critique" if safety_sensitive else "high_critique_requires_revision"
-    warnings.append(reason)
-    # Build clarification options from ambiguity in the plan summary text, if any.
-    plan_text = " ".join(str(plan.get(k) or "") for k in ("requirement_summary", "goal", "selected_architecture"))
-    clarification = AtlasClarificationGateService().evaluate(
-        AtlasClarificationGateService().detect_ambiguities(plan_text)
-    )
+    # supervised / lower preset, non-safety high finding → block + ask for revision.
+    warnings.append("high_critique_requires_revision")
     return {
         "critique_gate": {
             "gate_status": "blocked",
-            "reason": reason,
+            "reason": "high_critique_requires_revision",
             "residual_risk": residual_risk,
             "blocking_findings": blocking,
-            "safety_sensitive": safety_sensitive,
+            "safety_sensitive": False,
         },
         "plan_revision_required": True,
         "require_approval": True,
         "warnings": warnings,
-        "clarification": clarification,
+        "clarification": _clarification(),
     }

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent.atlas_integration_checker import AtlasIntegrationChecker
-from agent.atlas_placeholder_detector import detect_placeholders
+from agent.atlas_placeholder_detector import detect_placeholders, is_placeholder_only_content
 from agent.atlas_repair_intent_classifier import is_test_only_repair_plan
 from agent.atlas_requirement_tracer import AtlasRequirementTracer
 
@@ -112,25 +112,8 @@ def _integration_scan(project_path: str, changed_files: list[str]) -> tuple[list
 
 
 def _is_placeholder_only(content: str) -> bool:
-    """A file is placeholder-only if, after removing comments/blanks, the remaining lines are
-    just stubs (pass / console.log / empty bodies) and it carries placeholder markers."""
-    findings = detect_placeholders(content)
-    if not findings:
-        return False
-    substantive = 0
-    for raw in content.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        if line.startswith(("#", "//", "/*", "*", "<!--")):
-            continue
-        if line in ("pass", "{", "}", "});", ")", "(", "</script>", "<script>"):
-            continue
-        if line.lower().startswith(("console.log", "todo", "pass", "return none")):
-            continue
-        substantive += 1
-    # Mostly stubs → placeholder-only.
-    return substantive <= 2
+    """Delegates to the shared helper so pre-apply and post-apply judge stubs identically."""
+    return is_placeholder_only_content(content)
 
 
 def _placeholder_scan(project_path: str, changed_files: list[str]) -> tuple[list[dict], bool]:

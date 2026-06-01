@@ -253,11 +253,17 @@ class AtlasMultiItemAutopilotService:
                 if w not in out.warnings:
                     out.warnings.append(w)
             if rollup.get("degraded") and out.status in {"completed"}:
-                out.status, out.stop_reason = "partial", (rollup.get("degrade_reasons") or ["quality_rollup_degraded"])[0]
+                # Quality enforcement (Features): "block" elevates a degraded run (disconnected
+                # module / placeholder-only / no implementation evidence) to needs_revision so it
+                # is NOT reported as success; "warn" keeps the legacy partial degrade.
+                _features = (getattr(final_pool, "metadata", {}) or {}).get("automation_features") or {}
+                _enforce = str(_features.get("quality_gate_enforcement") or "warn").lower() == "block"
+                out.status = "needs_revision" if _enforce else "partial"
+                out.stop_reason = (rollup.get("degrade_reasons") or ["quality_rollup_degraded"])[0]
         except Exception as ex:  # noqa: BLE001
             out.warnings.append(f"quality_rollup_failed:{ex}")
         self.save_result(out)
-        self.emit("completed" if out.status in {"completed", "partial"} else "failed" if out.status == "failed" else "stopped", request, autopilot_run_id, status=out.status)
+        self.emit("completed" if out.status in {"completed", "partial"} else "failed" if out.status in {"failed", "needs_revision"} else "stopped", request, autopilot_run_id, status=out.status)
         return out
 
     def resolve_project_path(self, request, pool, item):

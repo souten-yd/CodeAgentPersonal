@@ -77,24 +77,51 @@ def test_full_auto_non_safety_high_finding_proceeds():
     assert "full_auto_continued_with_unresolved_non_safety_critique" in out["warnings"]
 
 
-# ── full_auto: safety-sensitive high finding still blocks ─────────────────────
+# ── full_auto: safety-sensitive finding routed by critical_handling (default "ask") ───────
 
-def test_full_auto_safety_sensitive_high_finding_blocks():
-    out = apply_plan_quality_gate(
-        _plan(findings=[_finding("high", "auth logic not validated", category="security",
-                                 detail="credential handling is unsafe")]),
-        preset_id="autonomous_bounded_dev",
-    )
-    assert out["plan_revision_required"] is True
+def _security_plan():
+    return _plan(findings=[_finding("high", "auth logic not validated", category="security",
+                                    detail="credential handling is unsafe")])
+
+
+def test_full_auto_safety_sensitive_default_ask_pauses_for_approval():
+    # New default critical_handling="ask": still gated (require_approval) but does NOT force a
+    # re-plan; it pauses for a user decision.
+    out = apply_plan_quality_gate(_security_plan(), preset_id="autonomous_bounded_dev")
     assert out["require_approval"] is True
+    assert out["plan_revision_required"] is False
     assert out["critique_gate"]["safety_sensitive"] is True
+    assert out["critique_gate"]["gate_status"] == "ask"
     assert out["critique_gate"]["reason"] == "safety_sensitive_high_critique"
 
 
+def test_full_auto_safety_sensitive_block_mode_requires_revision():
+    out = apply_plan_quality_gate(_security_plan(), preset_id="autonomous_bounded_dev", critical_handling="block")
+    assert out["plan_revision_required"] is True
+    assert out["require_approval"] is True
+    assert out["critique_gate"]["gate_status"] == "blocked"
+    assert out["critique_gate"]["safety_sensitive"] is True
+
+
+def test_full_auto_safety_sensitive_auto_mode_continues():
+    out = apply_plan_quality_gate(_security_plan(), preset_id="autonomous_bounded_dev", critical_handling="auto")
+    assert out["plan_revision_required"] is False
+    assert out["require_approval"] is False
+    assert out["critique_gate"]["gate_status"] == "critical_auto_continued"
+
+
 def test_full_auto_critical_finding_treated_as_safety_sensitive():
+    # critical severity is always safety-sensitive. Under block mode it forces a re-plan.
     out = apply_plan_quality_gate(
         _plan(findings=[_finding("critical", "missing core game loop", category="completeness")]),
         preset_id="autonomous_bounded_dev",
+        critical_handling="block",
     )
-    # critical severity is always safety-sensitive → blocks even under full_auto
     assert out["plan_revision_required"] is True
+    # Default "ask" gates without forcing revision.
+    out_ask = apply_plan_quality_gate(
+        _plan(findings=[_finding("critical", "missing core game loop", category="completeness")]),
+        preset_id="autonomous_bounded_dev",
+    )
+    assert out_ask["require_approval"] is True
+    assert out_ask["plan_revision_required"] is False

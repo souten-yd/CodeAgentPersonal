@@ -174,6 +174,18 @@
     decideApproval(payload) {
       return atlasFetch('/api/atlas/approvals/decide', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    cancelPlanPool(poolId, payload) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/cancel`, { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    clarifyPlanPool(poolId, payload) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/clarify`, { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    getAutomationFeatures() {
+      return atlasFetch('/api/atlas/automation-features');
+    },
+    setAutomationFeatures(payload) {
+      return atlasFetch('/api/atlas/automation-features', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     executeSafeApply(payload) {
       return atlasFetch('/api/atlas/safe-apply/execute', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
