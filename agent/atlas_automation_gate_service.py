@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent.atlas_auto_policy_schema import AtlasAutoPolicyPreset, AtlasAutomationDecision
+from agent.atlas_critical_event_policy import normalize_critical_event
 from agent.atlas_plan_item_file_changes import has_file_change_content, normalize_plan_item_file_changes
 
 
@@ -57,10 +58,26 @@ class AtlasAutomationGateService:
             reasons.append("content_missing")
 
         decision = "allow"
+        critical_reasons = {"critical_risk_not_allowed", "forbidden_action_type", "unsafe_path", "protected_path"}
+        critical_event = None
+        if any(r in critical_reasons for r in reasons):
+            critical_event = normalize_critical_event(
+                category="safe_apply_gate",
+                severity="critical" if "critical_risk_not_allowed" in reasons else "high",
+                reason="Critical event detected before safe_apply",
+                affected_files=target_files,
+                affected_capabilities=sorted(set(reasons) & critical_reasons),
+                estimated_impact="Autonomous safe_apply may affect protected paths, forbidden actions, or critical-risk work.",
+                source_gate="safe_apply_gate",
+                extra={"full_auto_bypass_allowed": False},
+            )
         if reasons:
-            # Hard-block reasons that stop autonomous apply even under a full-automation preset.
-            # Keep the safety-critical members (critical_risk / forbidden actions / protected_path)
-            # in sync with atlas_full_auto_gate.FULL_AUTO_HARD_BLOCK_CATEGORIES + KEEP_APPROVAL.
-            block_reasons = {"forbidden_action_type", "unsupported_action", "risk_not_allowed", "critical_risk_not_allowed", "target_files_too_many", "target_files_missing", "unsafe_path", "protected_path", "content_missing", "terminal_status"}
-            decision = "block" if any(r in block_reasons for r in reasons) else "require_manual"
-        return AtlasAutomationDecision(pool_id=pool.pool_id, item_id=item.item_id, preset_id=preset.preset_id, decision=decision, phase="pre_safe_apply", reasons=sorted(set(reasons)), warnings=sorted(set(warnings)), metadata={"action_type": action_type, "risk_level": risk, "target_file_count": len(target_files)})
+            # Forbidden/direct execution invariants remain disabled unless separately gated, but every
+            # critical finding is still surfaced as a critical decision instead of being auto-continued.
+            block_reasons = {"forbidden_action_type", "unsupported_action", "risk_not_allowed", "target_files_too_many", "target_files_missing", "unsafe_path", "content_missing", "terminal_status"}
+            decision = "require_manual" if critical_event and "critical_risk_not_allowed" in reasons else ("block" if any(r in block_reasons for r in reasons) else "require_manual")
+        metadata = {"action_type": action_type, "risk_level": risk, "target_file_count": len(target_files)}
+        if critical_event:
+            metadata["critical_event"] = critical_event
+            metadata["status"] = "waiting_for_critical_decision"
+        return AtlasAutomationDecision(pool_id=pool.pool_id, item_id=item.item_id, preset_id=preset.preset_id, decision=decision, phase="pre_safe_apply", reasons=sorted(set(reasons)), warnings=sorted(set(warnings)), metadata=metadata)

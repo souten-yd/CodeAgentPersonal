@@ -38,8 +38,8 @@ def _security_eval():
     "handling, plan_requires_approval, plan_revision, apply_decision",
     [
         ("ask", True, False, "require_approval"),
-        ("block", True, True, "block"),
-        ("auto", False, False, "allow"),
+        ("block", True, False, "require_approval"),
+        ("auto", True, False, "require_approval"),
     ],
 )
 def test_critical_handling_consistent_across_plan_and_apply(handling, plan_requires_approval, plan_revision, apply_decision):
@@ -52,8 +52,8 @@ def test_critical_handling_consistent_across_plan_and_apply(handling, plan_requi
 
 
 def test_hard_block_categories_ignore_handling_at_apply():
-    # critical/delete/run_command always block regardless of the knob.
-    for cat in ("critical_risk", "delete_forbidden", "run_command_forbidden"):
+    # forbidden direct actions stay blocked regardless of the knob.
+    for cat in ("delete_forbidden", "run_command_forbidden"):
         ev = AtlasPolicyEvaluation(evaluation_id="e", scope="item", decision="block", categories=[cat], blocked=True)
         for handling in ("ask", "block", "auto"):
             out = relax_evaluation_for_full_auto(ev, preset_id="full_auto", critical_handling=handling)

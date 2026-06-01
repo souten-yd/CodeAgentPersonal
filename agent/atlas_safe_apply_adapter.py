@@ -4,6 +4,7 @@ from typing import Any
 
 from agent.atlas_approval_gate import AtlasApprovalGate
 from agent.atlas_autopilot_policy import AtlasAutopilotPolicyGate
+from agent.atlas_critical_event_policy import normalize_critical_event
 from agent.atlas_critical_handling_policy import resolve_default_critical_handling
 from agent.atlas_full_auto_gate import relax_evaluation_for_full_auto
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
@@ -59,7 +60,17 @@ class AtlasSafeApplyAdapter:
         if risk == "critical":
             self._add(result.reasons, "critical_risk_not_allowed")
             self._add(result.categories, "non_low_risk")
-            return self._blocked(result)
+            result.metadata["critical_event"] = normalize_critical_event(
+                category="critical_risk",
+                severity="critical",
+                reason="Critical risk safe_apply requires explicit user decision",
+                affected_files=list(item.target_files or []),
+                affected_capabilities=["safe_apply_gate"],
+                source_gate="safe_apply_gate",
+            )
+            result.metadata["status"] = "waiting_for_critical_decision"
+            result.decision = "require_approval"
+            return result
         if risk not in allowed_risks:
             self._add(result.reasons, "risk_not_allowed")
             self._add(result.categories, "non_low_risk")
@@ -75,10 +86,14 @@ class AtlasSafeApplyAdapter:
         if action_type == "delete":
             self._add(result.reasons, "delete action is forbidden")
             self._add(result.categories, "delete_forbidden")
+            result.metadata["critical_event"] = normalize_critical_event(category="delete_forbidden", severity="critical", reason="Destructive delete action is disabled unless separately gated", affected_files=list(item.target_files or []), affected_capabilities=["delete"], source_gate="safe_apply_gate")
+            result.metadata["status"] = "waiting_for_critical_decision"
             return self._blocked(result)
         if action_type == "run_command":
             self._add(result.reasons, "command action is forbidden")
             self._add(result.categories, "run_command_forbidden")
+            result.metadata["critical_event"] = normalize_critical_event(category="run_command_forbidden", severity="critical", reason="Command execution is disabled unless separately gated", affected_files=list(item.target_files or []), affected_capabilities=["run_command"], source_gate="safe_apply_gate")
+            result.metadata["status"] = "waiting_for_critical_decision"
             return self._blocked(result)
         if not self.is_supported_action(item):
             self._add(result.reasons, "item action is not supported for guarded apply")
@@ -95,6 +110,9 @@ class AtlasSafeApplyAdapter:
         result.warnings.extend(str(warning) for warning in item_evaluation.warnings)
         self._add_policy_categories(result, item_evaluation.categories)
         item_evaluation = relax_evaluation_for_full_auto(item_evaluation, preset_id=preset_id, critical_handling=critical_handling)
+        if item_evaluation.metadata.get("critical_event"):
+            result.metadata["critical_event"] = item_evaluation.metadata.get("critical_event")
+            result.metadata["status"] = "waiting_for_critical_decision"
         if item_evaluation.decision == "block":
             self._add(result.categories, "policy_blocked")
             return self._blocked(result)
@@ -110,6 +128,9 @@ class AtlasSafeApplyAdapter:
             result.warnings.extend(str(warning) for warning in patch_evaluation.warnings)
             self._add_policy_categories(result, patch_evaluation.categories)
             patch_evaluation = relax_evaluation_for_full_auto(patch_evaluation, preset_id=preset_id, critical_handling=critical_handling)
+            if patch_evaluation.metadata.get("critical_event"):
+                result.metadata["critical_event"] = patch_evaluation.metadata.get("critical_event")
+                result.metadata["status"] = "waiting_for_critical_decision"
             if patch_evaluation.decision == "block":
                 self._add(result.categories, "policy_blocked")
                 return self._blocked(result)
@@ -125,6 +146,8 @@ class AtlasSafeApplyAdapter:
             self._add(result.reasons, "target files include protected paths")
             self._add(result.categories, "protected_path")
             result.warnings.extend(protected_files)
+            result.metadata["critical_event"] = normalize_critical_event(category="protected_path", severity="high", reason="Protected path change requires explicit user decision", affected_files=protected_files, affected_capabilities=["protected_path"], source_gate="safe_apply_gate")
+            result.metadata["status"] = "waiting_for_critical_decision"
 
         # requires_user_confirmation is a quality signal, not a true-safety gate: once full_auto
         # is opted into it is bypassed regardless of risk level (previously a low-risk item that

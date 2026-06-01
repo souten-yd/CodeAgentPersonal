@@ -484,7 +484,7 @@ class AtlasPatchProposalService:
             else reason
         )
         summary = (
-            f"LLM failed to generate patch content after {self.MAX_LLM_GENERATION_ATTEMPTS} attempt(s): {human_reason}. "
+            f"Patch content generation incomplete after {self.MAX_LLM_GENERATION_ATTEMPTS} attempt(s): {human_reason}. "
             "No file was written. Retry generation or refine the plan item."
         )
         return AtlasPatchProposal(

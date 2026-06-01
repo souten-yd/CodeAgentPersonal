@@ -972,6 +972,9 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         critical_handling=_features["critical_handling"],
     )
     pool.metadata["critique_gate"] = quality_gate["critique_gate"]
+    if quality_gate.get("critical_event"):
+        pool.metadata["critical_event"] = quality_gate["critical_event"]
+        pool.metadata["critical_event_status"] = "waiting_for_critical_decision"
     if quality_gate["plan_revision_required"]:
         pool.metadata["plan_revision_required"] = True
     if quality_gate["clarification"]:
@@ -1009,7 +1012,7 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         if _w not in pool.warnings:
             pool.warnings.append(_w)
     if quality_gate["require_approval"]:
-        pool.status = "approval_required"
+        pool.status = "waiting_for_critical_decision" if quality_gate.get("critical_event") else "approval_required"
 
     # ── Requirement trace + repair intent (PR-8d): persist on pool metadata so the autopilot
     # final-status rollup can compute coverage and detect test-only repair plans. ──

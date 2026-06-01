@@ -6,11 +6,12 @@ critique). It has three values:
 
 * ``block`` — stop and require a revised plan.
 * ``ask``   — pause for an explicit user decision.
-* ``auto``  — proceed without per-action approval (full autonomy).
+* ``auto``  — continue eligible non-critical automation without per-action approval.
 
 Historically the apply-time gates defaulted to ``auto`` regardless of the selected
 profile, which meant a non-autonomous profile could silently auto-allow
-safety-sensitive changes. This module makes the *default* depend on the selected
+safety-sensitive changes. Critical events are now handled by ``atlas_critical_event_policy``
+and always require user judgment even when this resolver returns ``auto`` for non-critical work. This module makes the *default* depend on the selected
 profile / preset / envelope so that defaults sit on the safe end and only the
 explicitly autonomous profiles relax to ``auto``.
 
@@ -32,7 +33,7 @@ _VALID_HANDLING = {"auto", "ask", "block"}
 # profile alone is intentionally ``ask`` here: the profile is Level-8 *capable*, but
 # without a preset/envelope signal we do not assume the bounded full-automation
 # context, so the safe default is to ask. Preset/envelope context escalates to
-# ``auto`` below.
+# ``auto`` below for non-critical continuation only.
 CRITICAL_HANDLING_BY_PROFILE: dict[str, str] = {
     "review_only": "block",
     "guarded_single_action": "ask",

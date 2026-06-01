@@ -91,33 +91,34 @@ def test_full_auto_safety_sensitive_default_ask_pauses_for_approval():
     assert out["require_approval"] is True
     assert out["plan_revision_required"] is False
     assert out["critique_gate"]["safety_sensitive"] is True
-    assert out["critique_gate"]["gate_status"] == "ask"
-    assert out["critique_gate"]["reason"] == "safety_sensitive_high_critique"
+    assert out["critique_gate"]["gate_status"] == "waiting_for_critical_decision"
+    assert out["critique_gate"]["reason"] == "Critical event detected"
 
 
-def test_full_auto_safety_sensitive_block_mode_requires_revision():
+def test_full_auto_safety_sensitive_block_mode_still_waits_for_critical_decision():
     out = apply_plan_quality_gate(_security_plan(), preset_id="autonomous_bounded_dev", critical_handling="block")
-    assert out["plan_revision_required"] is True
+    assert out["plan_revision_required"] is False
     assert out["require_approval"] is True
-    assert out["critique_gate"]["gate_status"] == "blocked"
+    assert out["critique_gate"]["gate_status"] == "waiting_for_critical_decision"
     assert out["critique_gate"]["safety_sensitive"] is True
 
 
-def test_full_auto_safety_sensitive_auto_mode_continues():
+def test_full_auto_safety_sensitive_auto_mode_still_waits_for_critical_decision():
     out = apply_plan_quality_gate(_security_plan(), preset_id="autonomous_bounded_dev", critical_handling="auto")
     assert out["plan_revision_required"] is False
-    assert out["require_approval"] is False
-    assert out["critique_gate"]["gate_status"] == "critical_auto_continued"
+    assert out["require_approval"] is True
+    assert out["critique_gate"]["gate_status"] == "waiting_for_critical_decision"
 
 
 def test_full_auto_critical_finding_treated_as_safety_sensitive():
-    # critical severity is always safety-sensitive. Under block mode it forces a re-plan.
+    # critical severity is always safety-sensitive and now waits for explicit user judgment.
     out = apply_plan_quality_gate(
         _plan(findings=[_finding("critical", "missing core game loop", category="completeness")]),
         preset_id="autonomous_bounded_dev",
         critical_handling="block",
     )
-    assert out["plan_revision_required"] is True
+    assert out["plan_revision_required"] is False
+    assert out["critique_gate"]["gate_status"] == "waiting_for_critical_decision"
     # Default "ask" gates without forcing revision.
     out_ask = apply_plan_quality_gate(
         _plan(findings=[_finding("critical", "missing core game loop", category="completeness")]),

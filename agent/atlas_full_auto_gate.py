@@ -1,72 +1,44 @@
 """Single source of truth for full-automation (full_auto) safety relaxation.
 
-The autonomous dev profile (`autonomous_dev_agent` / preset `autonomous_bounded_dev` /
-multi-item policy `full_auto_multi_item_v1`) opts into autonomous code generation. Several
-gates historically each re-derived "is this full_auto?" with ad-hoc string checks
-(`preset_id == "full_auto" and risk in {"medium", "high"}`), which left gaps (the patch
-metadata branch had no bypass; a low-risk item carrying `requires_user_confirmation` was not
-bypassed) and scattered the policy across three layers.
-
-This module centralizes the rule: under full_auto, a raw policy-gate evaluation is relaxed so
-that only *true safety* findings still stop autonomous apply. Everything that is a quality
-gate (high/medium risk, dependency/api/ui/docker/db changes, security, large patch, file count,
-`requires_user_confirmation`) is allowed without approval. The compensating controls are the
-plan-time critique gate (`atlas_plan_quality_gate._SAFETY_SENSITIVE_KEYWORDS`, which blocks
-safety-sensitive findings before a plan is ever approved) and the pre-apply change snapshot +
-rollback (`AtlasChangeSnapshotService` / `AtlasFileSafeApplyExecutor`).
+full_auto may continue non-critical quality findings, but it must not bypass critical events.
+Critical risk, safety-sensitive, protected-path, data-loss, and destructive findings are normalized
+into a critical-event payload and paused for an explicit user decision. Forbidden direct operations
+(such as delete/run-command policy violations) remain blocked unless a separate backend gate
+authorizes them.
 
 `is_full_auto_preset` is reused from `atlas_plan_quality_gate` so the "what counts as full_auto"
-decision lives in exactly one place.
-"""
+decision lives in exactly one place."""
 
 from __future__ import annotations
 
-from agent.atlas_critical_handling_policy import (
-    normalize_critical_handling,
-    resolve_default_critical_handling,
-)
+from agent.atlas_critical_event_policy import critical_event_from_policy_evaluation
 from agent.atlas_plan_quality_gate import is_full_auto_preset  # shared single source of truth
 
-# Categories that ALWAYS stop autonomous apply, even under full_auto. These are structural /
-# forbidden-operation invariants, not quality gates.
-FULL_AUTO_HARD_BLOCK_CATEGORIES = frozenset({
-    "critical_risk",
+# Categories that remain disabled unless a separate backend gate explicitly authorizes them.
+FULL_AUTO_FORBIDDEN_CATEGORIES = frozenset({
     "delete_forbidden",
     "run_command_forbidden",
 })
 
-# Categories that keep requiring human approval even under full_auto. Writing into protected
-# paths (.git / ca_data / models / venv ...) stays gated by user decision.
-FULL_AUTO_KEEP_APPROVAL_CATEGORIES = frozenset({
+# Critical categories always require an explicit user decision under full_auto; critical_handling=auto
+# is intentionally ignored for these categories.
+FULL_AUTO_CRITICAL_DECISION_CATEGORIES = frozenset({
+    "critical_risk",
     "protected_path",
-})
-
-# Safety-sensitive categories whose handling is routed by the shared critical_handling knob
-# (Features). data-loss changes are reversible via the pre-apply snapshot/rollback, security /
-# destructive changes mirror the plan-time critique gate's safety set. Under critical_handling:
-#   auto  -> allow (maximum autonomy), ask -> require_approval (pause), block -> block.
-FULL_AUTO_SAFETY_SENSITIVE_CATEGORIES = frozenset({
     "security",
     "data_loss",
     "destructive_change",
 })
-
-_SAFETY_DECISION_BY_HANDLING = {
-    "auto": "allow",
-    "ask": "require_approval",
-    "block": "block",
-}
 
 
 def relax_evaluation_for_full_auto(evaluation, *, preset_id: str = "", automation_level: str = "", critical_handling: str | None = None):
     """Return a full_auto-relaxed copy of a policy-gate evaluation.
 
     - Non full_auto presets/levels: the evaluation is returned unchanged (backward compatible).
-    - Hard-block categories (critical/delete/run_command) always stay ``block``.
-    - Safety-sensitive categories (security/data_loss/destructive) are routed by
-      ``critical_handling``: auto->allow, ask->require_approval, block->block. This is the single
-      human-in-the-loop knob shared with the plan-time critique gate.
-    - ``protected_path`` keeps ``require_approval``.
+    - Critical categories (critical/security/data_loss/destructive/protected_path) always become
+      ``require_approval`` with a ``waiting_for_critical_decision`` payload.
+    - Forbidden direct operations (delete/run_command policy violations) remain ``block`` unless a
+      separate backend gate authorizes them, but are still surfaced as critical events.
     - Any other ``block`` (terminal-status / generic manual_gate) is NOT relaxed — a
       failed/blocked/cancelled item is never resurrected.
     - A pure quality ``require_approval`` (high/medium/dependency/api/ui/docker/db/files/size/
@@ -81,38 +53,30 @@ def relax_evaluation_for_full_auto(evaluation, *, preset_id: str = "", automatio
 
     categories = set(evaluation.categories or [])
     decision = evaluation.decision
-    # An explicit recognised value wins; otherwise resolve the default from the selected
-    # preset (only the autonomous presets that reach this point resolve to "auto").
-    handling = normalize_critical_handling(critical_handling)
-    if handling is None:
-        handling = resolve_default_critical_handling(preset_id=preset_id)
-    safety_decision = _SAFETY_DECISION_BY_HANDLING.get(handling, "require_approval")
-
-    hard_block = bool(categories & FULL_AUTO_HARD_BLOCK_CATEGORIES)
-    keep_approval = bool(categories & FULL_AUTO_KEEP_APPROVAL_CATEGORIES)
-    safety = bool(categories & FULL_AUTO_SAFETY_SENSITIVE_CATEGORIES)
+    _ = critical_handling  # critical_handling=auto must not bypass critical events.
+    forbidden = bool(categories & FULL_AUTO_FORBIDDEN_CATEGORIES)
+    critical = bool(categories & FULL_AUTO_CRITICAL_DECISION_CATEGORIES)
 
     if decision == "block":
-        if hard_block:
+        if forbidden:
             new_decision = "block"
-        elif safety:
-            new_decision = safety_decision
+        elif critical:
+            new_decision = "require_approval"
         else:
             # Generic / terminal-status block — never resurrected.
             new_decision = "block"
     elif decision == "require_approval":
-        if hard_block:
+        if forbidden:
             new_decision = "block"
-        elif keep_approval:
+        elif critical:
             new_decision = "require_approval"
-        elif safety:
-            new_decision = safety_decision
         else:
             new_decision = "allow"
     else:
         new_decision = decision
 
-    if new_decision == decision:
+    critical_event = critical_event_from_policy_evaluation(evaluation, source_gate="safe_apply_gate") if (critical or forbidden) else None
+    if new_decision == decision and not critical_event:
         return evaluation
 
     relaxed = evaluation.model_copy(deep=True)
@@ -123,5 +87,8 @@ def relax_evaluation_for_full_auto(evaluation, *, preset_id: str = "", automatio
     relaxed.metadata = dict(relaxed.metadata or {})
     relaxed.metadata["full_auto_relaxed"] = True
     relaxed.metadata["full_auto_original_decision"] = decision
-    relaxed.metadata["full_auto_critical_handling"] = handling
+    relaxed.metadata["full_auto_critical_handling"] = "user_decision_required_for_critical_events"
+    if critical_event:
+        relaxed.metadata["critical_event"] = critical_event
+        relaxed.metadata["status"] = "waiting_for_critical_decision"
     return relaxed
