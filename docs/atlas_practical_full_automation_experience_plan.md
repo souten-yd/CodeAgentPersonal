@@ -1,278 +1,569 @@
 # Atlas Practical Full Automation Experience Plan
 
-## Purpose
+## Status
 
-This plan bridges the gap between:
+This is the latest practical Atlas plan. It supersedes the previous post-SCALE-160
+practical automation plan and restructures the work from PR-A onward.
 
-- backend full-autonomy milestone completion (`PR-ATLAS-SCALE-160` and `final_goal_backend_milestone_reached = true`), and
-- practical user-facing completion of Atlas as a usable autonomous development platform.
+The central missing loop is now explicit:
 
-Backend milestone completion is necessary but not sufficient. Practical completion requires end-to-end usability through a conversational FastUI / ThinUX experience with visible safety gates, candidate isolation, verification, recovery, and draft-PR outcomes.
+```text
+unclear requirement
+-> ask user
+-> revise plan from the answer
+-> rerun critique
+-> rerun safety gates
+-> continue only when safe, approved, and bounded
+```
 
-## 1) Current status
+## Task
 
-- Backend autonomous milestone has been reached.
-- Backend workflow state is authoritative.
-- Autonomous execution track is active in the post-SCALE-160 phase.
-- Practical completion flags remain incomplete and must be completed through explicit post-SCALE-160 milestones.
+Complete Atlas as a practical fully autonomous code-generation agent.
 
-## 2) What is already complete
+## Goal
 
-- Canonical roadmap, policy, and manifest structure are established.
-- Level progression through `PR-ATLAS-SCALE-160` is complete.
-- Candidate workspace, recovery supervisor, and checkpoint foundations exist.
-- Conversational shell contract/model foundations exist.
-- UI default policy is guarded Atlas Next default with valid dist + fallback.
-- Future FastUI default gate requirement exists.
+Atlas must become a practical fully autonomous code-generation agent with
+safe backend-owned automation.
 
-## 3) What is still not complete
+## Final target behavior
 
-- Practical end-to-end developer experience is not yet complete.
-- Stable runtime mutation apply must remain tightly gated and evidenced.
-- Self-improvement practical loop must be usable while remaining candidate-first.
-- Draft PR experience must be practical and user-visible in the normal flow.
-- FastUI / ThinUX shell must be usable as a practical coding-agent interface.
-- Direct merge gate is not part of the immediate practical completion path and remains a later, separately approved gate.
+```text
+User requirement
+-> requirement intake
+-> initial plan
+-> adversarial critique
+-> clarification check
+-> if unclear, ask user
+-> revise plan from user answer
+-> rerun critique and safety gates
+-> if critical/high-risk, ask user for explicit decision
+-> if user rejects/NGs, generate lower-impact alternative
+-> revise/replan from lower-impact alternative
+-> rerun gates
+-> if safe/approved/bounded, perform autonomous code generation
+-> apply candidate changes within allowed scope
+-> run allowlisted verification
+-> analyze failures
+-> perform bounded repair attempts
+-> produce final evidence-backed summary
+-> prepare or update draft PR artifact when allowed
+```
 
-## 4) Practical completion criteria
+## Global constraints
 
-Practical full automation is complete only when a user can:
+- Read `AGENTS.md` and existing Atlas docs before editing when the file exists.
+- Read main branch files directly; do not rely only on PR descriptions.
+- Keep PRs small and safe.
+- Prefer multiple focused PRs over one large risky PR.
+- Do not duplicate active roadmap/current/next pointers in new docs.
+- Do not enable direct merge.
+- Do not enable remote git push.
+- Do not enable self-apply.
+- Do not enable stable runtime mutation.
+- Do not make Vue authoritative.
+- Do not add arbitrary shell execution.
+- Do not add unbounded autonomous loops.
+- Do not fabricate execution or verification results.
+- Backend `workflow_state` remains authoritative.
+- UI remains display/supervision only.
+- Buildless ThinUX/FastUI remains usable.
+- Do not require `npm install`, Vite build, Vue build, or Atlas Next dist at server startup.
+- Critical events always require user judgment, even under `full_auto` or autonomous modes.
+- If CI passes and scope is safe, auto-merge is allowed.
 
-1. Describe a development goal conversationally.
-2. See Atlas produce a bounded plan.
-3. See candidate workspace edits and changed-file summary.
-4. See verification/check outcomes.
-5. See recovery/fix loop behavior when checks fail.
-6. Obtain draft PR preparation/update artifacts.
-7. Track phase/progress/safety clearly in UI.
+## Implementation efficiency rules
 
-All of the above must occur with backend workflow state authoritative and safety gates enforceable.
+Apply these rules before implementing any PR from this plan:
 
-## 5) UI / UX completion criteria
+1. Read only canonical sources first: `AGENTS.md` when present, `docs/atlas_scale_master_roadmap.md`, `docs/atlas_automation_phase_manifest.json`, `docs/atlas_autonomous_execution_readiness_policy.md`, and this file.
+2. Treat manifest and roadmap as the source of truth for current/next state.
+3. Do not reread broad docs repeatedly or summarize the whole roadmap unless needed.
+4. Search for and reuse existing Atlas helpers before creating new modules. Prefer extending existing services over adding parallel normalizers, validators, policy files, or schemas.
+5. Work narrowly per PR. Do not refactor, rename, update unrelated docs, touch UI, or change runtime semantics outside the current PR scope.
+6. Keep progress output short: files changed, key behavior added, tests run, and blockers.
+7. Search efficiently with exact symbols such as `critical_event`, `lower_impact_alternative`, `waiting_for_critical_decision`, `clarification`, `automation_profile`, `envelope`, `safe_apply`, verification allowlist, and autonomous loop.
+8. Open only files needed for the current PR and prefer nearby call sites over broad repository scans.
+9. Test the smallest focused set first, then broaden only when touched code is central. Always run `py_compile` for changed Python files and `node --check` only for changed JS files.
+10. Preserve safety invariants without broad restatement: backend `workflow_state` authoritative, UI display/supervision only, no direct merge, no remote push, no self-apply, no stable runtime mutation, no Vue authority, no arbitrary unbounded command execution, and no fabricated verification results.
+11. Keep diffs minimal and readable. Add docstrings only when they clarify a new contract. Avoid dependencies.
+12. Update only canonical docs needed for the PR. Do not duplicate current/next PR pointers outside canonical files. Clearly label historical text when needed.
+13. Completion reports must be concise and include Summary, Files changed, Tests run, Safety invariants preserved, and Remaining follow-up when applicable.
 
-The practical FastUI / ThinUX shell must provide:
-
-- conversation-first screen
-- goal input
-- current phase card
-- next action card
-- safety/profile badge
-- work target selector (intent only; not authority)
-- changed files summary
-- verification/check summary
-- recovery status
-- one primary CTA
-- settings drawer
-- theme + accent-color continuity
-- lightweight progress effects
-- summary-first and lazy detail loading
-
-The practical default shell direction must remain buildless:
-
-- no required npm install
-- no required Vite build
-- no required Vue compilation
-
-## 6) Stable runtime mutation completion criteria
-
-Stable runtime mutation apply is complete only when all are true for each apply event:
-
-- stable runtime mutation gate is ready
-- candidate workspace is verified
-- stable snapshot exists
-- rollback evidence exists
-- recovery evidence exists
-- exact approval text or explicit backend-approved policy is present
-
-And the following must remain false/unavailable unless separately approved later:
-
-- direct merge
-- remote push
-- UI authority over backend workflow state
-
-## 7) Self-improvement completion criteria
-
-Self-improvement practical loop is complete only when:
-
-- candidate workspace is mandatory
-- stable runtime is not directly modified
-- candidate verification is mandatory
-- promotion gate is mandatory
-- recovery plan exists before promotion
-- failures preserve stable runtime integrity
-- UI surfaces self-improvement scope, changed files, verification, and recovery state
-
-## 8) End-to-end developer experience completion criteria
-
-For normal development/repair tasks, Atlas must provide a bounded practical loop:
-
-- goal → plan → candidate patch → verification gate → recovery/fix loop → draft PR artifact update
-
-Required safety constraints:
-
-- bounded iterations
-- max iteration enforcement
-- allowed action enforcement
-- clear stop condition
-- clear user-visible progress
-- no arbitrary command execution
-- no direct merge
-- no remote push
-- no stable runtime mutation unless separate stable-mutation gate is active
-
-## 9) Post-SCALE-160 milestone sequence
-
-1. `POST-SCALE-160-PRACTICAL-AUTOMATION-PLAN`
-2. `POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY`
-3. `POST-SCALE-160-FASTUI-SHELL-MVP`
-4. `POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP`
-5. `POST-SCALE-160-SELF-IMPROVEMENT-PRACTICAL-LOOP`
-6. `POST-SCALE-160-DRAFT-PR-EXPERIENCE`
-7. `POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT`
-
-## 10) Acceptance criteria for each milestone
-
-### Milestone 1: POST-SCALE-160-PRACTICAL-AUTOMATION-PLAN
+## PR-A: Critical-event NG replanning connection
 
 Purpose:
 
-- Create this plan and wire it into manifest.
-- No runtime behavior change.
+Atlas already detects critical events and can create `lower_impact_alternative`
+metadata after user NG/rejects. Complete the missing connection so NG actually
+creates a revised candidate, reruns gates, and blocks the original unsafe path.
 
-Acceptance:
+Files to inspect:
 
-- New plan exists.
-- Manifest points to it.
-- Current active track remains safe.
-- No stable mutation, self-apply, direct merge, remote push, or UI authority changes.
+- `agent/atlas_critical_event_policy.py`
+- `agent/atlas_plan_quality_gate.py`
+- `agent/atlas_approval_service.py`
+- `agent/atlas_automation_gate_service.py`
+- `agent/atlas_full_auto_gate.py`
+- `agent/atlas_safe_apply_adapter.py`
+- `app/api/atlas_pipeline.py`
+- `web/js/atlas_dashboard.js`
+- `web/js/atlas_claude_panel.js`
+- `tests/test_atlas_critical_event_policy.py`
+- existing plan pool / `PlanItem` schemas
 
-### Milestone 2: POST-SCALE-160-STABLE-RUNTIME-MUTATION-APPLY
+Required implementation:
 
-Purpose:
+1. Add backend-owned service: `agent/atlas_critical_replanning_service.py`.
+2. The service must support creating a lower-impact revised candidate from a rejected critical event, marking the original item/path as not allowed to continue, rerunning plan critique gate, rerunning automation/safety gate, and producing next status plus next required action.
+3. Inputs must include pool, original item when item-level, pool-level critical event when pool-level, user decision record, `lower_impact_alternative` payload, profile/preset/envelope context, and current workflow state.
+4. Output must include revised `PlanItem` or revised plan candidate, `revision_id`, `original_item_id` / `original_pool_id`, rerun critique gate, rerun safety gate, rerun result status, next required user action, and evidence metadata.
+5. Persist metadata for original critical event, original user decision, `original_path_blocked: true`, lower-impact alternative, `created_from_critical_event: true`, `revision_id`, revised plan snapshot, gate rerun required/performed, rerun critique/safety gates, rerun result status, and next required user action.
+6. If user rejects/NGs a critical event, the original item must not continue.
+7. Original item status should become `needs_revision` or `superseded_by_lower_impact_revision`.
+8. A new/revised candidate must be created from `lower_impact_alternative`.
+9. The candidate must be rechecked by the same critique/safety gates.
+10. If the revised candidate still has critical/safety-sensitive findings, status must remain `waiting_for_critical_decision`.
+11. If the revised candidate is non-critical but still requires approval, status should be `approval_required`.
+12. If it is safe and within an active bounded envelope, it may become `ready`.
+13. This PR must not apply patches, run commands, verify, push, merge, self-apply, or mutate stable runtime.
+14. In `AtlasApprovalService.decide()`, when `decision == rejected` and `critical_event` exists, generate `lower_impact_alternative`, call the critical replanning service, attach revised candidate / gate rerun metadata, and persist approval record with revision reference.
+15. API response must show that the original critical path was rejected, lower-impact alternative was generated, gates reran, and next action is required.
 
-- Record stable-runtime-mutation apply readiness using existing gate evidence; this milestone may remain record-only.
+Tests:
 
-Acceptance:
+- Rejecting/NGing a critical item creates a lower-impact revision.
+- Original critical item cannot continue.
+- Revised candidate has reduced file scope.
+- Revised candidate reruns critique/safety metadata.
+- If rerun finds critical event, status remains `waiting_for_critical_decision`.
+- If rerun is safe but needs approval, status becomes `approval_required`.
+- No patch apply, command execution, verification, push, merge, or self-apply occurs.
 
-- Requires ready stable runtime mutation gate.
-- Requires verified candidate workspace.
-- Requires stable snapshot.
-- Requires rollback evidence.
-- Requires recovery evidence.
-- Requires exact approval text or explicit backend-approved policy.
-- If this milestone is record-only, `stable_runtime_mutation_apply_record_only = true` and runtime mutation remains not performed.
-- Does not enable direct merge or remote push.
-- Does not make UI authoritative.
-
-### Milestone 3: POST-SCALE-160-FASTUI-SHELL-MVP
-
-Purpose:
-
-- Implement the first practical FastUI / ThinUX shell.
-
-Acceptance:
-
-- Conversation-first screen.
-- Goal input.
-- Current phase card.
-- Next action card.
-- Safety/profile badge.
-- Work target selector.
-- Changed files summary.
-- Verification/check summary.
-- Recovery status.
-- One primary CTA.
-- Settings drawer.
-- Theme and accent-color continuity.
-- Lightweight progress effects.
-- No required npm install, Vite build, or Vue compile for the default FastUI shell.
-- Browser uses summary-first and lazy detail loading.
-
-### Milestone 4: POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP
+## PR-B: Pool-level critical-event approval visibility
 
 Purpose:
 
-- Make the autonomous loop useful for real development tasks.
+Critical events may be stored on `pool.metadata`, not only `item.metadata`.
+Ensure pool-level critical events are never hidden from approval endpoints or UI.
 
-Acceptance:
+Files to inspect:
 
-- Goal → plan → candidate patch → verification gate → recovery/fix loop → draft PR/update artifact.
-- Bounded loop only.
-- Max iterations enforced.
-- Allowed actions enforced.
-- Clear stop condition.
-- Clear user-visible progress.
-- No arbitrary command execution.
-- No direct merge.
+- `app/api/atlas_pipeline.py`
+- `agent/atlas_approval_service.py`
+- `agent/atlas_critical_event_policy.py`
+- `web/js/atlas_dashboard.js`
+- `web/js/atlas_claude_panel.js`
+- tests covering approval/list endpoints and dashboard strings
+
+Required implementation:
+
+1. Add normalized backend decision representation for pool-level critical events. It may be a virtual decision item, but backend must own it.
+2. When `pool.status == waiting_for_critical_decision` or `pool.metadata.critical_event` exists, approval/list response must include `scope: pool`, `pool_id`, status, critical event, required options, safer alternatives, recommended decision, and next required user action.
+3. UI must show critical event detected, reason, affected files, affected capabilities, estimated impact, recommended decision, safer alternatives, approve with explicit consent, reject/NG and request safer alternative, cancel, and edit requirement/scope.
+4. Persist user decision as one of `approved`, `rejected_ng_safer_replan`, `cancelled`, or `edit_scope_requested`.
+5. If user rejects/NGs a pool-level critical event, call the PR-A critical replanning service, create lower-impact replanning metadata, and keep original critical path blocked.
+6. Do not require item-level `critical_event` for visibility.
+7. UI posts decision, backend validates and persists, and backend computes next state.
+
+Tests:
+
+- `pool.status == waiting_for_critical_decision` appears in approval list.
+- `pool.metadata.critical_event` appears even without item critical event.
+- Pool-level Reject/NG creates lower-impact replanning metadata.
+- Pool-level Approve persists bounded approval metadata.
+- UI string/snapshot test confirms critical decision options are visible.
+
+## PR-C: Unify profile / preset / envelope / automation-level schema
+
+Purpose:
+
+Atlas currently has several overlapping concepts:
+
+- automation safety profile
+- preset id
+- automation level
+- critical handling
+- full-auto detection
+- pre-authorized envelope
+- self-improvement mode
+
+Unify them into one backend resolver so complete automation behavior is consistent.
+
+Files to inspect:
+
+- `agent/atlas_auto_policy_schema.py`
+- `agent/atlas_plan_quality_gate.py`
+- `agent/atlas_full_auto_gate.py`
+- `agent/atlas_critical_handling_policy.py`
+- `agent/atlas_automation_gate_service.py`
+- `app/atlas/automation_safety_profile.py`
+- `app/atlas/pre_authorized_bounded_dev_envelope.py`
+- `app/atlas/autonomous_loop_envelope_runner.py`
+- `app/api/atlas_automation_safety_profile.py`
+- `web/js/atlas_claude_panel.js`
+- `docs/atlas_automation_phase_manifest.json`
+- tests for profiles/presets/envelopes
+
+Required implementation:
+
+1. Add `agent/atlas_automation_profile_resolver.py`.
+2. Normalize profiles: `review_only`, `guarded_single_action`, `supervised_bounded_auto`, `autonomous_dev_agent`.
+3. Normalize presets: `review_only`, `single_action`, `supervised_auto`, `autonomous_custom`, `autonomous_bounded_dev`, `full_auto`, `full_auto_multi_item_v1`.
+4. Normalize legacy automation levels: `manual_only`, `guarded_low_risk`, `supervised_auto`, `full_autopilot`.
+5. Normalize envelopes: `none`, `pre_authorized_bounded_dev_envelope`, `pre_authorized_self_improvement_envelope`.
+6. Normalized output must include profile, preset id, automation level, envelope id, envelope active, self-improvement, runtime level, full-auto capable, autonomous loop active, critical handling default, whether critical user approval is required, false safety invariants for direct merge / remote push / self-apply / stable runtime mutation / Vue authority / arbitrary command execution, max actions, max retries, max changed files, max runtime seconds, allowed paths, and blocked paths.
+7. Unknown profile/preset falls back safely.
+8. Profile selection alone must not activate a loop.
+9. `autonomous_dev_agent` means Level-8 capable, not loop-active by itself.
+10. Active pre-authorized bounded dev envelope may activate a bounded dev loop.
+11. Pre-authorized self-improvement envelope requires strict self-improvement gate.
+12. Critical events always require user judgment.
+13. Direct merge, remote push, self-apply, and stable runtime mutation remain false.
+14. Update plan quality gate, full-auto gate, critical handling policy, automation gate service, and API exposure to use or align with the resolver.
+15. Existing `AtlasAutoPolicyPreset` callers must still work. If changing existing Pydantic schema is risky, add v2 schema and adapter.
+
+Tests:
+
+- All supported profile/preset/envelope combinations normalize.
+- Unknown values fall back to safe `review_only` / ask / block behavior.
+- `autonomous_dev_agent` without envelope does not start loop.
+- `autonomous_bounded_dev` with active bounded envelope can start bounded loop.
+- Self-improvement envelope requires strict gate.
+- `critical_handling=auto` cannot bypass critical events.
+- Direct merge, remote push, self-apply, stable runtime mutation, and Vue authority remain false.
+
+## PR-D: Align docs, manifest, and active policy wording
+
+Purpose:
+
+Remove stale active wording and pointer drift. Manifest, roadmap, and policy docs
+must agree.
+
+Files to inspect:
+
+- `docs/atlas_scale_master_roadmap.md`
+- `docs/atlas_automation_phase_manifest.json`
+- `docs/atlas_autonomous_execution_readiness_policy.md`
+- `docs/atlas_practical_full_automation_experience_plan.md`
+- `scripts/validate_atlas_automation_plan.py`
+- `tests/test_atlas_scale_113_master_plan_consolidation_contract.py`
+
+Required implementation:
+
+1. Treat `docs/atlas_automation_phase_manifest.json` as machine-readable source of truth.
+2. Update `docs/atlas_autonomous_execution_readiness_policy.md` so the active section matches manifest, `runtime_level_model` is `profile_dependent`, current level is described as maximum backend milestone rather than always-on runtime, default behavior remains safe/profile-dependent, current/next automation tracks match manifest, and old SCALE-152 / Level-4 text moves into a clearly labeled historical baseline section.
+3. Do not leave stale active `Current level: Level 4` wording in the active section.
+4. Update validators to fail on stale active SCALE-152 current-boundary wording, current/next track drift between manifest and roadmap, duplicate active pointers in deleted docs, and to allow historical text only in clearly marked historical sections.
+5. Do not change runtime behavior in this PR.
+
+Tests:
+
+- Plan validator passes.
+- Stale active Level-4 wording is detected.
+- Manifest and roadmap current/next tracks are consistent.
+- Historical section is allowed.
+
+## PR-E: Clarification-driven plan revision loop
+
+Purpose:
+
+Unclear requirement handling must not stop at asking a question. User answers
+must revise the plan, update constraints/acceptance criteria/target files/tests,
+and rerun gates before implementation.
+
+Files to inspect:
+
+- `agent/atlas_clarification_gate_service.py`
+- `agent/atlas_critique_gate_service.py`
+- `agent/atlas_plan_quality_gate.py`
+- `agent/atlas_plan_pool_schema.py`
+- `app/api/atlas_pipeline.py`
+- `web/js/atlas_claude_panel.js`
+- `web/js/atlas_dashboard.js`
+- relevant clarification / pipeline tests
+
+Required implementation:
+
+1. Add `agent/atlas_clarification_replanning_service.py`.
+2. When ambiguity or missing required info is detected, set status to `needs_scope_confirmation`.
+3. Ask one focused question at a time.
+4. Provide selectable options where possible.
+5. Explain why the answer matters.
+6. Persist clarification decision.
+7. Update requirement summary, plan, PlanItem fields, target files, allowed/blocked paths, acceptance criteria, done definition, expected changes, verification intent/test commands, and risk level when the answer changes risk.
+8. Persist metadata for clarification required, question, options, answer, decision id, original/revised requirement summaries, original/revised plan snapshots, plan revision diff, gate rerun required/performed, rerun critique/safety gates, and next required user action.
+9. Required flow is `needs_scope_confirmation` -> user answers -> revise plan -> rerun adversarial critique -> rerun safety/automation gates -> continue only if revised plan is safe or approved.
+10. Do not proceed directly from `needs_scope_confirmation` to implementation.
+11. Do not proceed without `revised_plan_snapshot` and gate rerun.
+12. Do not silently use default assumption unless `clarification_mode == auto`.
+13. Safe default assumption must be recorded.
+14. Full auto may use safe default only for non-critical ambiguity.
+15. Security, deletion, data loss, runtime, self-improvement, command execution, remote git, direct merge, and stable runtime ambiguity must always ask the user.
+16. If user answer expands scope or raises risk, status must require approval or critical decision.
+17. If answer reduces scope, update target files and allowed paths.
+18. If answer changes tests, update verification intent.
+19. UI must show one question at a time, options, why Atlas is asking, effect of selected option when known, and `use safe default` only when backend allows it. UI posts the answer; backend revises the plan.
+
+Tests:
+
+- Ambiguous request pauses at `needs_scope_confirmation`.
+- User answer creates `revised_plan_snapshot`.
+- Revised plan differs from original plan.
+- PlanItem fields are updated.
+- Gates rerun after answer.
+- Implementation cannot start before revised plan exists.
+- Safe default is recorded when `clarification_mode == auto`.
+- Critical ambiguity never auto-defaults.
+- Answer expanding scope triggers higher risk / approval.
+- Answer reducing scope updates target files.
+
+## PR-F: Practical autonomous code-generation loop v1
+
+Purpose:
+
+Implement the actual bounded autonomous code-generation runner. This is the core
+practical automation loop.
+
+Files to inspect:
+
+- `agent/atlas_multi_item_autopilot_service.py`
+- `agent/atlas_autonomous_codegen_orchestrator_service.py`
+- `app/api/atlas_autonomous_codegen.py`
+- `app/atlas/autonomous_loop_envelope_runner.py`
+- `app/atlas/pre_authorized_bounded_dev_envelope.py`
+- `agent/atlas_automation_gate_service.py`
+- `agent/atlas_safe_apply_adapter.py`
+- `agent/atlas_plan_quality_gate.py`
+- `agent/atlas_critical_replanning_service.py`
+- `agent/atlas_clarification_replanning_service.py`
+- verification allowlist modules
+- `agent/atlas_plan_pool_schema.py`
+- `web/js/atlas_claude_panel.js`
+- `web/js/atlas_dashboard.js`
+
+Required implementation:
+
+1. Add or complete bounded autonomous code-generation runner.
+2. Runner input must include user requirement, project path, selected profile, selected preset, envelope, max actions, max changed files, max retries, max runtime, allowed paths, blocked paths, allowed verification commands, clarification mode, critical handling mode, and self-improvement flag.
+3. Runner phases are `idle`, `understanding_goal`, `planning`, `adversarial_review`, `needs_scope_confirmation`, `revising_plan_from_clarification`, `waiting_for_critical_decision`, `replanning_lower_impact`, `candidate_generation`, `candidate_apply`, `verification`, `failure_analysis`, `bounded_repair`, `final_summary`, and `draft_pr_preparation`.
+4. Hard stops include critical event, missing project path, unsafe path, protected path, forbidden action, content missing, verification allowlist mismatch, max actions/retries/runtime exceeded, user stop/cancel, ambiguous scope with pause clarification mode, self-improvement without strict gate, and selected profile with inactive envelope.
+5. Candidate mutation must operate only on allowed target project/candidate scope and must not mutate stable runtime, remote push, direct merge, self-apply, mutate outside allowed paths, or touch blocked paths.
+6. Reuse existing safe apply / patch transaction path.
+7. Require executor-readable patch or file changes content.
+8. Capture before/after evidence, changed files, and rollback metadata.
+9. Do not create fake execution results.
+10. Use only allowlist-resolved verification commands.
+11. Capture stdout, stderr, and exit status when actually run.
+12. If command execution is unavailable, record `verification_not_run` with reason.
+13. Verification failure triggers bounded repair if retries remain.
+14. Bounded repair analyzes failure, generates repair candidate, reruns safety gates before repair apply, stops on forbidden/protected paths, stops after max retries, and records every attempt.
+15. Final summary must include status, changed files, applied/skipped actions, verification results, repair attempts, unresolved risks, user decisions required, draft PR readiness, and evidence paths.
+16. API must add or complete start/status/read endpoints, return workflow-state-compatible summary, support polling and stop/cancel, and expose current phase plus next action.
+17. UI must show phase, progress, changed files, verification status, clarification question, critical decision panel, lower-impact replanning, repair attempts, and final summary. UI must not approve or execute by itself.
+
+Tests:
+
+- Happy path low-risk file change completes.
+- Missing project path stops safely.
+- Unsafe path stops.
+- Critical event stops for user decision.
+- NG creates lower-impact replanning path.
+- Clarification answer revises plan before implementation.
+- Verification failure triggers bounded repair.
+- Max retries stops.
+- Stop/cancel stops continuation.
+- Unknown profile falls back safely.
+- `autonomous_dev_agent` without active envelope does not run.
+- Active bounded envelope allows bounded loop.
+- No direct merge, remote push, self-apply, or stable runtime mutation.
+
+## PR-G: Candidate workspace and recovery integration for autonomous loop
+
+Purpose:
+
+The autonomous loop must not casually mutate stable runtime or unsafe workspaces.
+Connect candidate workspace and recovery evidence to practical automation.
+
+Files to inspect:
+
+- candidate workspace manager modules
+- recovery supervisor modules
+- boot self-diagnosis / stable checkpoint modules
+- `app/atlas/autonomous_loop_envelope_runner.py`
+- `agent/atlas_safe_apply_adapter.py`
+- `docs/atlas_full_automation_self_recovery_ux_plan.md`
+- tests for candidate workspace/recovery
+
+Required implementation:
+
+1. Before autonomous mutation, resolve work target as ordinary project repair/development, platform self-improvement, candidate workspace, or stable runtime.
+2. Ordinary project work must validate project path, allowed paths, blocked paths, and snapshot/rollback metadata where available.
+3. Platform self-improvement must require self-improvement profile/scope, strict gate, active pre-authorized self-improvement envelope, candidate-first boundaries, and no self-apply to stable runtime.
+4. If candidate workspace exists, use it.
+5. If no candidate workspace exists, produce `candidate_workspace_required` or `workspace_not_available`.
+6. Do not silently fall back to stable runtime mutation.
+7. Capture recovery manifest references and restore/rollback plan references when available.
+8. If recovery evidence is missing, record explicit warning.
+9. Do not execute recovery unless already allowed by existing policy.
+10. Do not fabricate recovery results.
+11. If platform work is requested, require stable checkpoint evidence and stop clearly when missing.
+
+Tests:
+
+- Ordinary project path validates.
+- Blocked path prevents mutation.
+- Self-improvement without strict gate stops.
+- Candidate workspace missing stops or records required state.
+- No stable runtime mutation occurs.
+- Recovery metadata is recorded but not executed.
+
+## PR-H: Draft PR preparation and update experience
+
+Purpose:
+
+Complete the final output of autonomous development. Atlas should produce a
+reviewable PR artifact and use existing safe injected-client draft PR mechanisms
+only when allowed.
+
+Files to inspect:
+
+- existing draft PR policy modules
+- existing injected PR client helpers
+- `app/api/atlas_autonomous_codegen.py`
+- `agent/atlas_multi_item_autopilot_service.py`
+- `app/atlas/autonomous_loop_envelope_runner.py`
+- `docs/atlas_scale_master_roadmap.md`
+- tests for draft PR creation/update
+
+Required implementation:
+
+1. After successful bounded autonomous run, collect changed files, verification evidence, risk summary, user decisions, critical events, clarification answers, repair attempts, remaining warnings, and rollback notes.
+2. Produce PR summary artifact.
+3. If draft PR creation/update is allowed, use existing injected client only. Do not direct remote push, direct merge, runtime auto-merge, or bypass draft PR metadata/result.
+4. If draft PR creation is not allowed, produce copyable PR body and branch instructions, and explain what was not done and why.
+5. PR body must include Summary, Scope, Safety constraints, Changed files, Tests / verification, Clarification decisions, Critical events / user decisions, Repair attempts, Remaining risks, and Rollback notes.
+
+Tests:
+
+- Successful run produces PR artifact.
+- Draft PR path uses injected client only.
 - No remote push.
-- No stable runtime mutation unless the separate stable mutation gate is active.
-
-### Milestone 5: POST-SCALE-160-SELF-IMPROVEMENT-PRACTICAL-LOOP
-
-Purpose:
-
-- Make self-improvement usable without mutating stable runtime directly.
-
-Acceptance:
-
-- Candidate workspace required.
-- Stable repo must not be modified directly.
-- Candidate verification required.
-- Promotion gate required.
-- Recovery plan required before promotion.
-- Failure leaves stable runtime intact.
-- UI shows self-improvement scope, changed files, verification, and recovery state.
-
-### Milestone 6: POST-SCALE-160-DRAFT-PR-EXPERIENCE
-
-Purpose:
-
-- Make draft PR preparation/update usable as part of the agent flow.
-
-Acceptance:
-
-- Draft PR summary artifact.
-- Changed files summary.
-- Verification summary.
-- Risk summary.
-- Recovery summary.
-- User-visible "ready for review" state.
 - No direct merge.
-- No remote push unless a future explicit policy allows it.
+- Failed/needs_revision run does not claim PR ready.
+- Critical decisions and clarification answers appear in PR body.
 
-### Milestone 7: POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT
+## PR-I: UI and API practical automation experience
 
 Purpose:
 
-- Mark practical full automation complete.
+Make the autonomous loop visible and controllable. The user must understand what
+Atlas is doing, why it stopped, what it changed, and what decision is needed.
+
+Files to inspect:
+
+- `web/js/atlas_claude_panel.js`
+- `web/js/atlas_dashboard.js`
+- `web/css` or relevant UI files
+- `app/api/atlas_pipeline.py`
+- `app/api/atlas_autonomous_codegen.py`
+- `app/api/atlas_automation_safety_profile.py`
+- existing UI tests
+
+Required implementation:
+
+1. UI must show current phase, active profile/preset/envelope, runtime level resolved from backend, goal/requirement summary, current plan summary, clarification question, critical event decision panel, lower-impact replanning state, changed files, verification status, repair attempts, final summary, and next required user action.
+2. Required controls are Start, Stop, Cancel, Answer clarification, Approve critical event, Reject/NG and request safer alternative, Edit scope, and Continue after backend says ready.
+3. UI sends user intent/decision only. Backend computes next state.
+4. UI must display backend-provided state.
+5. Do not expose raw internal JSON by default. Diagnostics may show raw JSON only in explicit diagnostics mode.
+6. API must return normalized workflow state, phase, next action, decision targets, evidence summaries, user-visible warnings, and whether automation is active/stopped/blocked.
+
+Tests:
+
+- UI displays clarification state.
+- UI displays critical event state.
+- UI displays lower-impact replanning state.
+- UI displays verification and repair attempt state.
+- UI does not show execute/apply controls unless backend allows next action.
+- Backend remains source of truth.
+
+## PR-J: End-to-end acceptance tests for practical full automation
+
+Purpose:
+
+Add realistic tests proving Atlas behaves as a practical autonomous code-generation
+agent under safe constraints.
+
+Required scenarios:
+
+1. Simple documentation update: requirement, plan, critique, safe apply, completed.
+2. Simple low-risk code fix: single file, safe apply, allowlisted test, completed.
+3. Clarification: ambiguous requirement, `needs_scope_confirmation`, user answer, revised plan, gate rerun, implementation starts only after revision.
+4. Critical event: security/destructive/protected path, `waiting_for_critical_decision`, full auto cannot bypass.
+5. NG lower-impact: user rejects critical path, lower-impact alternative generated, original path blocked, gates rerun, revised candidate created.
+6. Verification failure repair: first patch fails test, repair candidate generated, gates rerun, second attempt passes or stops after max retry.
+7. Envelope behavior: `autonomous_dev_agent` without envelope cannot start autonomous loop, `autonomous_bounded_dev` with active bounded envelope can start bounded loop, and self-improvement envelope requires strict gate.
+8. Forbidden operations: direct merge, remote push, self-apply, stable runtime mutation, Vue authority, and arbitrary command execution remain false.
+9. UI/API state: status endpoint reports current phase, clarification visible, critical decision visible, verification visible, repair visible, final summary visible.
+
+Run:
+
+- focused pytest suite
+- `py_compile` for changed Python files
+- `node --check` for changed JS files
 
 Acceptance:
 
-- Backend autonomous milestone remains true.
-- FastUI shell is usable.
-- User can run a bounded development task end-to-end through UI.
-- Candidate workspace flow works.
-- Verification/recovery gates are visible.
-- Self-improvement remains candidate-first.
-- Stable runtime mutation has gate evidence.
-- Direct merge remains forbidden.
-- Remote push remains disabled unless later explicitly planned.
-- UI is not source of truth.
-- Backend workflow state remains authoritative.
+- No fake verification success.
+- No hidden critical event.
+- No implementation from ambiguous plan without revision.
+- No loop activation by profile alone.
 
-## 11) Anti-drift rules
+## Final milestone acceptance criteria
 
-- Do not treat backend milestone completion as practical completion.
-- Do not flip practical completion flags to true before milestone acceptance evidence exists.
-- Do not let UI become workflow authority.
-- Do not enable direct merge by implication.
-- Do not enable remote push by implication.
-- Do not bypass candidate workspace for self-improvement.
-- Do not allow stable runtime mutation without snapshot, rollback, and recovery evidence.
-- Do not require npm/Vite/Vue build chain for default practical FastUI shell.
-- Do not change default route or UI authority as part of planning-only milestones.
-- Manifest and policy remain authoritative over stale roadmap pointers when conflicts exist.
+Atlas reaches practical fully autonomous code generation only when all are true:
 
-## Buildless Claude chat panel as practical-experience milestone artefact
+1. User can submit a development/repair requirement from Atlas UI/API.
+2. Atlas creates and persists an initial plan.
+3. Atlas runs adversarial critique.
+4. Atlas detects ambiguity.
+5. Atlas asks user for clarification when needed.
+6. User answer revises the plan, not only metadata.
+7. Revised plan updates requirement summary, target files, allowed/blocked paths, expected changes, acceptance criteria, verification intent, and risk level.
+8. Atlas reruns critique and safety gates after clarification.
+9. Atlas detects critical events.
+10. Critical events always require explicit user judgment.
+11. User can approve, reject/NG, cancel, or edit scope.
+12. Reject/NG blocks original critical path.
+13. Reject/NG generates lower-impact alternative.
+14. Lower-impact alternative becomes a revised candidate.
+15. Revised candidate reruns gates.
+16. Approved/safe/bounded work can proceed under allowed profile/envelope.
+17. Atlas can generate candidate code changes.
+18. Atlas can apply candidate changes only inside allowed scope.
+19. Atlas can run allowlisted verification or honestly record not-run reason.
+20. Atlas can analyze verification failure.
+21. Atlas can perform bounded repair attempts.
+22. Atlas stops cleanly on critical event, unclear scope, unsafe path, forbidden action, max actions, max retries, max runtime, user stop/cancel, missing envelope, and missing strict gate for self-improvement.
+23. Atlas produces evidence-backed final summary.
+24. Atlas can prepare/update draft PR artifact when allowed.
+25. Atlas never directly merges, remote pushes, self-applies, mutates stable runtime, gives Vue authority, executes arbitrary unbounded commands, or fabricates verification results.
+26. Tests prove the above.
 
-The buildless Claude-Code-style chat panel at `#atlas-claude-col` (POST-SCALE-160-CLAUDE-CHAT-*) is a practical-experience milestone for the buildless track. It surfaces a single Automation Profile preset selector and pre-authorised envelopes that let the user pre-authorise the autonomous loop within a bounded scope without lifting the safety profile manifest invariants. See `docs/atlas_claude_chat_panel_ux_plan.md` for the canonical UX requirements.
+## Recommended implementation order
+
+1. PR-A Critical-event NG replanning connection
+2. PR-B Pool-level critical-event approval visibility
+3. PR-C Profile/preset/envelope schema unification
+4. PR-D Docs/manifest/policy alignment
+5. PR-E Clarification-driven plan revision loop
+6. PR-F Practical autonomous code-generation loop v1
+7. PR-G Candidate workspace and recovery integration
+8. PR-H Draft PR preparation and update experience
+9. PR-I UI and API practical automation experience
+10. PR-J End-to-end acceptance tests
+
+The most important implementation step is PR-E. Practical autonomous code
+generation cannot stop at asking clarifying questions. The answer must be
+reflected into the plan, the plan must be revised, and critique / safety gates
+must rerun before implementation proceeds.
