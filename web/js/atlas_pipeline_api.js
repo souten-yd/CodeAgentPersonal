@@ -472,6 +472,17 @@
         method: 'POST', body: JSON.stringify(payload || {})
       });
     },
+    runAutonomousCodegen(payload) {
+      return atlasFetch('/api/atlas/autonomous-codegen/start', {
+        method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 1800000,
+      });
+    },
+    getAutonomousCodegenStatus(poolId, orchestratorRunId) {
+      return atlasFetch(`/api/atlas/autonomous-codegen/status/${encodeURIComponent(poolId)}/${encodeURIComponent(orchestratorRunId)}`);
+    },
+    getLatestAutonomousCodegen(poolId) {
+      return atlasFetch(`/api/atlas/autonomous-codegen/latest/${encodeURIComponent(poolId)}`);
+    },
 
   };
 

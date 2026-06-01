@@ -41,6 +41,7 @@ AtlasPlanItemStatus = Literal[
 
 AtlasPlanPoolStatus = Literal[
     "draft",
+    "needs_scope_confirmation",
     "ready",
     "approval_required",
     "waiting_for_critical_decision",

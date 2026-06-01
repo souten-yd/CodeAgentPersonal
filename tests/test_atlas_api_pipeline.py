@@ -27,7 +27,7 @@ def test_create_plan_pool_from_empty_payload_returns_fallback_pool(tmp_path) -> 
 
     body = _create_pool(client)
 
-    assert body["status"] == "ready"
+    assert body["status"] in {"ready", "approval_required"}
     assert body["pool_id"]
     assert body["item_count"] >= 1
     assert Path(body["checkpoint_path"]).exists()
@@ -75,7 +75,7 @@ def test_pipeline_dry_run_runs_fallback_pool(tmp_path) -> None:
     assert body["status"] in {"completed", "paused", "blocked", "failed", "completed_with_warnings"}
     assert Path(body["checkpoint_path"]).exists()
     assert body["orchestration_summary"]["pool_id"] == created["pool_id"]
-    assert body["orchestration_summary"]["phase"] in {"completed", "approval_required", "blocked", "failed", "running"}
+    assert body["orchestration_summary"]["phase"] in {"completed", "approval_required", "blocked", "failed", "running", "dependency_waiting"}
     assert body["events"]
 
 

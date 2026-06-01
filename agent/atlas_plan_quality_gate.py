@@ -2,18 +2,8 @@ from __future__ import annotations
 
 from agent.atlas_clarification_gate_service import AtlasClarificationGateService
 from agent.atlas_critique_gate_service import AtlasCritiqueGateService
+from agent.atlas_automation_profile_resolver import is_full_auto_context
 from agent.atlas_critical_event_policy import normalize_critical_event
-
-# Presets / automation levels treated as "full automation policy" (profiles 3-4).
-# When selected, high/critical non-safety critique does NOT dead-stop the run: it proceeds
-# as a recorded full_auto policy continuation after the planner's post-revision critique.
-_FULL_AUTO_PRESETS = frozenset({
-    "full_auto",
-    "full_auto_multi_item_v1",
-    "autonomous_bounded_dev",
-    "autonomous_custom",
-})
-_FULL_AUTO_AUTOMATION_LEVELS = frozenset({"full_autopilot"})
 
 # Keywords marking a finding as safety-sensitive — these always require user
 # clarification/approval, even under full_auto.
@@ -26,10 +16,7 @@ _SAFETY_SENSITIVE_KEYWORDS = (
 
 
 def is_full_auto_preset(*, automation_level: str = "", preset_id: str = "") -> bool:
-    return (
-        str(automation_level or "").strip().lower() in _FULL_AUTO_AUTOMATION_LEVELS
-        or str(preset_id or "").strip().lower() in _FULL_AUTO_PRESETS
-    )
+    return is_full_auto_context(preset_id=preset_id, automation_level=automation_level)
 
 
 def _finding_is_safety_sensitive(finding: dict) -> bool:

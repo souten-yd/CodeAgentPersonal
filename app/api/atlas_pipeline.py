@@ -26,8 +26,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from agent.atlas_clarification_schema import AtlasClarificationSubmitRequest, AtlasClarificationSubmitResult
+from agent.atlas_clarification_replanning_service import AtlasClarificationReplanningService
 from agent.atlas_clarification_service import AtlasClarificationService
-from agent.atlas_approval_service import AtlasApprovalService
+from agent.atlas_approval_service import AtlasApprovalService, POOL_CRITICAL_DECISION_ITEM_ID
 from agent.atlas_continuation_service import AtlasContinuationService
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_orchestration_summary import AtlasOrchestrationSummaryBuilder
@@ -403,8 +404,8 @@ def _normalize_planner_mode(value: str) -> str:
 
 def _checkpoint_next_action(status: str) -> str:
     normalized = str(status or "").lower()
-    if normalized == "waiting_for_clarification":
-        return "Review planner questions and refine the goal before creating a PlanPool."
+    if normalized in {"waiting_for_clarification", "needs_scope_confirmation"}:
+        return "Answer clarification so Atlas can revise the plan and rerun gates."
     if normalized == "ready":
         return "Start Dry-run to validate the generated PlanPool."
     if normalized in {"stale", "interrupted"}:
@@ -1007,11 +1008,47 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         # detected ambiguity), flag the pool so the UI surfaces a Claude-style options question
         # that survives reload. "auto" proceeds with the safe-default assumption (legacy).
         if _features.get("clarification_mode") == "pause" and (_options or _ambiguities):
+            pool.metadata["clarification_questions"] = AtlasClarificationService().build_question_queue(
+                ambiguity_signals=_ambiguities,
+                options=_options,
+            )
+            pool.metadata["current_question_index"] = 1 if pool.metadata["clarification_questions"] else 0
+            pool.metadata["pending_question_count"] = len(pool.metadata["clarification_questions"])
+            pool.metadata["answered_question_count"] = 0
             pool.metadata["clarification_required"] = True
+            pool.status = "needs_scope_confirmation"
+    _direct_clarification_text = str(plan.get("summary") or plan.get("task_summary") or root_goal)
+    _direct_ambiguities = AtlasClarificationGateService().detect_ambiguities(_direct_clarification_text)
+    if _direct_ambiguities and not pool.metadata.get("clarification_questions"):
+        critical_ambiguity = any(
+            AtlasClarificationReplanningService.critical_ambiguity_requires_user(signal)
+            for signal in _direct_ambiguities
+        ) or AtlasClarificationReplanningService.critical_ambiguity_requires_user(_direct_clarification_text)
+        if _features.get("clarification_mode") == "pause" or critical_ambiguity:
+            pool.metadata["clarification_questions"] = AtlasClarificationService().build_question_queue(
+                ambiguity_signals=_direct_ambiguities,
+                options=[],
+            )
+            pool.metadata["current_question_index"] = 1
+            pool.metadata["pending_question_count"] = len(pool.metadata["clarification_questions"])
+            pool.metadata["answered_question_count"] = 0
+            pool.metadata["clarification_required"] = True
+            pool.metadata["critique_clarification_options"] = {
+                "ambiguity_signals": _direct_ambiguities,
+                "options": [],
+                "gate_evaluation": {"clarification_required": True, "gate_status": "clarification_required"},
+            }
+            pool.status = "needs_scope_confirmation"
+        else:
+            pool.metadata["safe_default_assumption_after_clarification"] = {
+                "assumption": "Proceed with the narrowest low-risk interpretation and record the assumption.",
+                "ambiguity_signals": _direct_ambiguities,
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+            }
     for _w in quality_gate["warnings"]:
         if _w not in pool.warnings:
             pool.warnings.append(_w)
-    if quality_gate["require_approval"]:
+    if quality_gate["require_approval"] and pool.status != "needs_scope_confirmation":
         pool.status = "waiting_for_critical_decision" if quality_gate.get("critical_event") else "approval_required"
 
     # ── Requirement trace + repair intent (PR-8d): persist on pool metadata so the autopilot
@@ -1497,6 +1534,54 @@ def decide_critical_event(req: AtlasApprovalDecisionRequest, request: Request) -
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="plan pool not found") from exc
     item = pool.get_item(req.item_id)
+    pool_critical_event = dict((pool.metadata or {}).get("critical_event") or {})
+    is_pool_scope = (
+        req.item_id in {"", POOL_CRITICAL_DECISION_ITEM_ID}
+        or (item is None and pool_critical_event.get("critical_event"))
+    )
+    if is_pool_scope:
+        critical_event = dict(pool_critical_event or (req.metadata or {}).get("critical_event") or {})
+        if not critical_event.get("critical_event") and pool.status != "waiting_for_critical_decision":
+            raise HTTPException(status_code=400, detail="critical_decision_requires_critical_event")
+        decision_map = {
+            "approve": "approved",
+            "approved": "approved",
+            "reject_ng_safer_replan": "rejected",
+            "rejected": "rejected",
+            "cancel": "cancelled",
+            "cancelled": "cancelled",
+            "edit_scope": "needs_revision",
+            "needs_revision": "needs_revision",
+        }
+        mapped_decision = decision_map.get(str(req.decision or "").strip().lower())
+        if mapped_decision is None:
+            raise HTTPException(status_code=400, detail="invalid_critical_decision")
+        service = AtlasApprovalService(journal)
+        metadata = {
+            **dict(req.metadata or {}),
+            "critical_decision_path": True,
+            "critical_decision_scope": "pool",
+            "critical_decision": str(req.decision or ""),
+            "critical_event": critical_event,
+        }
+        try:
+            approval_record = service.decide_pool_critical(
+                pool,
+                run_id=req.run_id,
+                decision=mapped_decision,
+                reason=req.reason,
+                approver=req.approver,
+                metadata=metadata,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        storage.save_pool(pool)
+        journal.save_plan_pool(pool)
+        recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
+        orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None, recovery=recovery).model_dump()
+        continuation = AtlasContinuationService(journal).build_pool_summary(pool.pool_id, req.run_id).continuation_prompt
+        journal.write_checkpoint(pool=pool, next_action=_checkpoint_next_action(pool.status))
+        return AtlasApprovalDecisionResponse(pool_id=req.pool_id, item_id=POOL_CRITICAL_DECISION_ITEM_ID, decision=str(req.decision or mapped_decision), status=pool.status, approval_record=approval_record, plan_pool=_model_dump(pool), recovery_summary=recovery, orchestration_summary=orchestration, continuation_prompt=continuation)
     if item is None:
         raise HTTPException(status_code=404, detail="item not found")
     critical_event = dict((item.metadata or {}).get("critical_event") or (req.metadata or {}).get("critical_event") or {})
@@ -1543,6 +1628,19 @@ class AtlasPlanCancelRequest(BaseModel):
 _CANCELLABLE_ITEM_STATUSES = {"queued", "ready", "pending", "approval_required", "needs_revision", "paused", "waiting", "dependency_waiting"}
 
 
+def _clarification_execution_block_reasons(pool: AtlasPlanPool) -> list[str]:
+    metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
+    reasons: list[str] = []
+    if metadata.get("clarification_required"):
+        reasons.append("clarification_required")
+    if metadata.get("plan_revision_required_after_clarification") and not metadata.get("revised_plan_snapshot"):
+        reasons.append("plan_revision_required_after_clarification")
+    gate_rerun = metadata.get("gate_rerun_after_clarification") or metadata.get("gate_rerun_evidence_after_clarification")
+    if metadata.get("gate_rerun_required_after_clarification") and not gate_rerun:
+        reasons.append("gate_rerun_required_after_clarification")
+    return reasons
+
+
 @router.post("/plan-pools/{pool_id}/cancel")
 def cancel_plan_pool(pool_id: str, req: AtlasPlanCancelRequest, request: Request) -> dict:
     """Cancel a plan: mark the pool cancelled and stop any not-yet-terminal items. This is the
@@ -1568,26 +1666,69 @@ def cancel_plan_pool(pool_id: str, req: AtlasPlanCancelRequest, request: Request
 
 class AtlasPlanClarifyRequest(BaseModel):
     workspace_id: str = "default"
+    question_id: str = ""
     option_id: str = ""
+    answer_text: str = ""
     note: str = ""
 
 
 @router.post("/plan-pools/{pool_id}/clarify")
 def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Request) -> dict:
-    """Record the user's answer to a Claude-style clarification question and clear the gate so the
-    plan can continue. The chosen option is persisted for audit and downstream revision."""
+    """Record one queued clarification answer while preserving remaining questions."""
     _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     try:
         pool = storage.load_pool(pool_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="plan pool not found") from exc
-    options = list(((pool.metadata or {}).get("critique_clarification_options") or {}).get("options") or [])
-    chosen = next((o for o in options if str(o.get("option_id")) == req.option_id), None)
-    pool.metadata["clarification_decision"] = {"option_id": req.option_id, "note": req.note, "chosen": chosen or {}}
-    pool.metadata.pop("clarification_required", None)
+    clarification = (pool.metadata or {}).get("critique_clarification_options") or {}
+    questions = list((pool.metadata or {}).get("clarification_questions") or [])
+    if not questions:
+        questions = AtlasClarificationService().build_question_queue(
+            ambiguity_signals=list(clarification.get("ambiguity_signals") or []),
+            options=list(clarification.get("options") or []),
+        )
+    progress = AtlasClarificationService().apply_answer_to_question_queue(
+        questions=questions,
+        answers=list((pool.metadata or {}).get("clarification_answers") or []),
+        question_id=req.question_id,
+        option_id=req.option_id,
+        answer_text=req.answer_text,
+        note=req.note,
+    )
+    pool.metadata["clarification_questions"] = progress["questions"]
+    pool.metadata["clarification_answers"] = progress["answers"]
+    pool.metadata["current_question_index"] = progress["current_question_index"]
+    pool.metadata["pending_question_count"] = progress["pending_count"]
+    pool.metadata["answered_question_count"] = progress["answered_count"]
+    pool.metadata["latest_clarification_decision"] = progress["latest_decision"]
+    pool.metadata["clarification_decision"] = progress["latest_decision"]
+    pool.metadata["plan_revision_required_after_clarification"] = True
+    pool.metadata["gate_rerun_required_after_clarification"] = True
+    replan_result: dict[str, Any] = {}
+    if progress["pending_count"]:
+        pool.metadata["clarification_required"] = True
+    else:
+        pool.metadata.pop("clarification_required", None)
+        replan_result = AtlasClarificationReplanningService().revise_after_answers(
+            pool,
+            preset_id=str((pool.metadata or {}).get("preset_id") or "guarded_low_risk"),
+            automation_level=str(getattr(pool, "automation_level", "") or ""),
+            critical_handling=str(((pool.metadata or {}).get("automation_features") or {}).get("critical_handling") or "ask"),
+        )
+    if pool.status == "ready" and not replan_result:
+        pool.status = "approval_required"
     storage.save_pool(pool)
     journal.save_plan_pool(pool)
-    return {"pool_id": pool_id, "status": pool.status, "clarification_decision": pool.metadata["clarification_decision"], "plan_pool": _model_dump(pool)}
+    return {
+        "pool_id": pool_id,
+        "status": pool.status,
+        "clarification_decision": pool.metadata["clarification_decision"],
+        "clarification_questions": pool.metadata["clarification_questions"],
+        "pending_question_count": pool.metadata["pending_question_count"],
+        "answered_question_count": pool.metadata["answered_question_count"],
+        "clarification_replanning": replan_result,
+        "plan_pool": _model_dump(pool),
+    }
 
 
 
@@ -1674,6 +1815,18 @@ def atlas_automation_safe_apply_one(request_body: AtlasAutoSafeApplyRequest, req
         pool = storage.load_pool(request_body.pool_id)
     except FileNotFoundError:
         return AtlasAutoSafeApplyResult(pool_id=request_body.pool_id, item_id=request_body.item_id, run_id=request_body.run_id, preset_id=request_body.preset_id, status="blocked", warnings=["pool_not_found"])
+    clarification_blocks = _clarification_execution_block_reasons(pool)
+    if clarification_blocks:
+        return AtlasAutoSafeApplyResult(
+            pool_id=request_body.pool_id,
+            item_id=request_body.item_id,
+            run_id=request_body.run_id,
+            preset_id=request_body.preset_id,
+            status="blocked",
+            warnings=clarification_blocks,
+            metadata={"clarification_execution_blocked": True, "blocked_reasons": clarification_blocks},
+            plan_pool=_model_dump(pool),
+        )
     workspace_root = _resolve_pool_workspace_root(storage=storage, ca_data_root=Path(getattr(request.app.state, 'atlas_ca_data_dir', './ca_data')), workspace_id=request_body.workspace_id, pool_id=request_body.pool_id)
     adapter_obj = getattr(request.app.state, 'atlas_safe_apply_adapter', None)
     safe_apply_adapter = adapter_obj() if callable(adapter_obj) else adapter_obj

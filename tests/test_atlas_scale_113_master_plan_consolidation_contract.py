@@ -46,14 +46,16 @@ def test_scale_113_closes_local_only_metadata_phase_and_points_to_level1() -> No
     phase = json.loads(read(PHASE_MANIFEST))
     master = read(MASTER_PLAN)
 
-    assert phase["completed_phase"] == "readiness_metadata_review"
-    assert phase["automation_phase"] == "level_1_advancement_preparation"
+    assert phase["completed_phase"] == "practical_full_automation_experience"
+    assert phase["automation_phase"] == "practical_full_automation_experience"
     assert phase["local_only_readiness_metadata_phase_complete"] is True
-    assert phase["current_level"] == "level_0_manual_only"
-    assert phase["target_level"] == "level_1_guarded_single_step"
+    assert phase["runtime_level_model"] == "profile_dependent"
+    assert phase["current_level_semantics"] == "max_backend_runtime_milestone_not_single_active_runtime"
+    assert phase["default_runtime_level"] == "level_4_self_improvement_platform"
+    assert phase["max_runtime_level"] == "level_8_fully_autonomous_code_agent"
     assert "SCALE-100 through SCALE-112 are complete" in master
-    assert "SCALE-113 starts the Level-1 Advancement Preparation phase" in master
-    assert "Next PRs must advance Level-1 readiness evidence" in master
+    assert "Practical Full Automation Experience" in master
+    assert "profile-dependent runtime" in master
 
 
 def test_scale_113_pr_plan_is_explicit_and_allows_pr_b_repairs_only() -> None:
@@ -66,7 +68,7 @@ def test_scale_113_pr_plan_is_explicit_and_allows_pr_b_repairs_only() -> None:
     assert planned["PR-ATLAS-SCALE-127"]["runtime_change_allowed"] is True
     assert planned["PR-ATLAS-SCALE-146"]["runtime_change_allowed"] is True
     assert phase["allowed_pr_b_policy"]["scope"] == "repair_only"
-    assert phase["allowed_pr_b_policy"]["must_not_delay_level_1_advancement"] is True
+    assert phase["allowed_pr_b_policy"]["must_not_delay_post_level4_advancement"] is True
     assert "PR-B is allowed only when" in master
     assert "must not introduce a new feature family" in master
 

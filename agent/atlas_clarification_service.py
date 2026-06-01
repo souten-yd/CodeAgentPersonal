@@ -18,6 +18,158 @@ class AtlasClarificationService:
     def __init__(self, *, journal: AtlasJournal | None = None):
         self.journal = journal
 
+    def build_question_queue(
+        self,
+        *,
+        ambiguity_signals: list[str] | None = None,
+        options: list[dict] | None = None,
+    ) -> list[dict]:
+        """Normalize independent clarification findings into one question each."""
+        findings: list[dict] = []
+        for i, option in enumerate(options or [], start=1):
+            if not isinstance(option, dict):
+                continue
+            label = str(option.get("label") or option.get("option_id") or f"Finding {i}")
+            detail = str(option.get("description") or option.get("detail") or option.get("summary") or label)
+            findings.append(
+                {
+                    "kind": "finding",
+                    "title": f"Clarify {label}",
+                    "prompt": f"How should Atlas address this finding: {label}?",
+                    "reason": detail,
+                    "source_finding": dict(option),
+                }
+            )
+        for i, signal in enumerate(ambiguity_signals or [], start=1):
+            text = str(signal or "").strip()
+            if not text:
+                continue
+            findings.append(
+                {
+                    "kind": "ambiguity",
+                    "title": f"Clarify ambiguity {i}",
+                    "prompt": f"How should Atlas resolve this ambiguity: {text}?",
+                    "reason": text,
+                    "source_finding": {"ambiguity_signal": text},
+                }
+            )
+
+        total = len(findings)
+        questions: list[dict] = []
+        for i, finding in enumerate(findings, start=1):
+            questions.append(
+                {
+                    "question_id": f"clar_q_{i}",
+                    "index": i,
+                    "total": total,
+                    "title": finding["title"],
+                    "prompt": finding["prompt"],
+                    "reason": finding["reason"],
+                    "source_finding": finding["source_finding"],
+                    "options": self._default_question_options(finding["kind"]),
+                    "status": "pending",
+                }
+            )
+        return questions
+
+    def apply_answer_to_question_queue(
+        self,
+        *,
+        questions: list[dict],
+        answers: list[dict] | None = None,
+        question_id: str = "",
+        option_id: str = "",
+        answer_text: str = "",
+        note: str = "",
+    ) -> dict:
+        normalized_questions = [dict(q) for q in (questions or []) if isinstance(q, dict)]
+        if not normalized_questions:
+            return {
+                "questions": [],
+                "answers": list(answers or []),
+                "latest_decision": {},
+                "pending_count": 0,
+                "answered_count": 0,
+                "all_answered": True,
+                "current_question_index": 0,
+            }
+
+        target_id = question_id or self._first_pending_question_id(normalized_questions)
+        target = next((q for q in normalized_questions if str(q.get("question_id") or "") == target_id), None)
+        if target is None:
+            target = next((q for q in normalized_questions if str(q.get("status") or "pending") == "pending"), normalized_questions[0])
+            target_id = str(target.get("question_id") or "")
+        selected = next(
+            (dict(o) for o in target.get("options") or [] if str(o.get("option_id") or "") == str(option_id or "")),
+            {},
+        )
+        answer_record = {
+            "question_id": target_id,
+            "option_id": option_id,
+            "answer_text": answer_text or note,
+            "note": note,
+            "selected_option": selected,
+            "source_finding": dict(target.get("source_finding") or {}),
+            "reason": str(target.get("reason") or ""),
+            "answered_at": _utc_now_iso(),
+        }
+        for q in normalized_questions:
+            if str(q.get("question_id") or "") == target_id:
+                q["status"] = "answered"
+                q["selected_option_id"] = option_id
+                q["answer_text"] = answer_text or note
+                q["answered_at"] = answer_record["answered_at"]
+        merged_answers = [a for a in list(answers or []) if str(a.get("question_id") or "") != target_id]
+        merged_answers.append(answer_record)
+        pending = [q for q in normalized_questions if str(q.get("status") or "pending") != "answered"]
+        answered_count = len(normalized_questions) - len(pending)
+        return {
+            "questions": normalized_questions,
+            "answers": merged_answers,
+            "latest_decision": answer_record,
+            "pending_count": len(pending),
+            "answered_count": answered_count,
+            "all_answered": not pending,
+            "current_question_index": int(pending[0].get("index") or answered_count + 1) if pending else answered_count,
+        }
+
+    @staticmethod
+    def _default_question_options(kind: str) -> list[dict]:
+        return [
+            {
+                "option_id": "safest_recommended",
+                "label": "Safest recommended approach",
+                "description": "Revise the plan to address this issue before implementation.",
+                "effect": {"plan_revision": True, "risk": "reduced"},
+            },
+            {
+                "option_id": "minimal_scope",
+                "label": "Minimal-scope approach",
+                "description": "Constrain the work to the smallest safe change that satisfies the requirement.",
+                "effect": {"scope": "minimal", "plan_revision": True},
+            },
+            {
+                "option_id": "defer_or_change_scope",
+                "label": "Defer or change scope",
+                "description": "Remove or defer the uncertain part from this plan.",
+                "effect": {"scope": "deferred", "plan_revision": True},
+            },
+            {
+                "option_id": "custom",
+                "label": "自由入力 / Custom",
+                "description": "Provide a custom answer for this question.",
+                "requires_text": True,
+                "effect": {"custom_answer": True, "source": kind},
+            },
+        ]
+
+    @staticmethod
+    def _first_pending_question_id(questions: list[dict]) -> str:
+        for question in questions:
+            if str(question.get("status") or "pending") != "answered":
+                return str(question.get("question_id") or "")
+        return str((questions[0] if questions else {}).get("question_id") or "")
+
     def create_session_from_plan_response(self, original_input: str, response: dict, request_payload: dict) -> AtlasClarificationSession:
         session_id = f"clar_{uuid4().hex[:12]}"
         return AtlasClarificationSession(

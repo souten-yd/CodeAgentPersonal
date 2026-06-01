@@ -31,6 +31,45 @@ def test_merge_answers_into_requirement_adds_answered_questions():
     assert req['open_questions'] == []
 
 
+def test_build_question_queue_creates_independent_questions():
+    svc = AtlasClarificationService()
+    questions = svc.build_question_queue(
+        ambiguity_signals=["scope not defined"],
+        options=[
+            {"option_id": "missing_steps", "label": "missing_steps", "description": "Need implementation steps"},
+            {"option_id": "maintainability", "label": "maintainability", "description": "Need simpler structure"},
+        ],
+    )
+    assert [q["question_id"] for q in questions] == ["clar_q_1", "clar_q_2", "clar_q_3"]
+    assert [q["index"] for q in questions] == [1, 2, 3]
+    assert all(q["total"] == 3 for q in questions)
+    assert all(len(q["options"]) >= 4 for q in questions)
+    assert all(any(o["option_id"] == "custom" and o.get("requires_text") for o in q["options"]) for q in questions)
+
+
+def test_apply_answer_marks_only_one_question_answered():
+    svc = AtlasClarificationService()
+    questions = svc.build_question_queue(
+        options=[
+            {"option_id": "missing_steps", "label": "missing_steps", "description": "Need implementation steps"},
+            {"option_id": "maintainability", "label": "maintainability", "description": "Need simpler structure"},
+            {"option_id": "requirement_alignment", "label": "requirement_alignment", "description": "Need requirement fit"},
+        ],
+    )
+    progress = svc.apply_answer_to_question_queue(
+        questions=questions,
+        question_id="clar_q_1",
+        option_id="minimal_scope",
+        answer_text="Keep one file",
+    )
+    assert progress["answered_count"] == 1
+    assert progress["pending_count"] == 2
+    assert progress["all_answered"] is False
+    assert progress["questions"][0]["status"] == "answered"
+    assert progress["questions"][1]["status"] == "pending"
+    assert progress["answers"][0]["question_id"] == "clar_q_1"
+
+
 def test_save_load_session_with_journal(tmp_path):
     journal = AtlasJournal(tmp_path, workspace_id='default')
     svc = AtlasClarificationService(journal=journal)

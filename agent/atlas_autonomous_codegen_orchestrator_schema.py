@@ -12,18 +12,31 @@ class AtlasAutonomousCodegenRequest(BaseModel):
     """
 
     pool_id: str
+    user_requirement: str = ""
     run_id: str = ""
     workspace_id: str = "default"
     project_path: str = ""
     item_ids: list[str] = Field(default_factory=list)
+    selected_profile: str = "review_only"
+    selected_preset: str = "guarded_low_risk"
+    envelope: dict = Field(default_factory=dict)
+    max_actions: int = 20
+    max_items: int = 20
+    max_retries: int = 2
+    max_runtime_seconds: int = 600
+    max_changed_files_total: int = 20
+    max_changed_files_per_item: int = 8
+    allowed_paths: list[str] = Field(default_factory=list)
+    blocked_paths: list[str] = Field(default_factory=list)
+    allowed_verification_commands: list[str] = Field(default_factory=list)
+    clarification_mode: str = "pause"
+    critical_handling: str = "ask"
+    self_improvement: bool = False
     # The multi-item policy that opts into full automation (low/medium/high create/update,
     # no per-item approval). Critical risk + delete/run_command stay blocked downstream.
     policy_id: str = "full_auto_multi_item_v1"
     # Phase 2: generate a first patch for any item that has no applicable content yet.
     generate_missing_patches: bool = True
-    max_items: int = 20
-    max_runtime_seconds: int = 600
-    max_changed_files_total: int = 20
     metadata: dict = Field(default_factory=dict)
 
 

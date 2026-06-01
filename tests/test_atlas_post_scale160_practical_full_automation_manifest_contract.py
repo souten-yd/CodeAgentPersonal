@@ -6,11 +6,12 @@ def test_practical_full_automation_manifest_contract() -> None:
     manifest = json.loads(Path('docs/atlas_automation_phase_manifest.json').read_text(encoding='utf-8'))
 
     assert manifest['practical_full_automation_plan'] == 'docs/atlas_practical_full_automation_experience_plan.md'
-    assert manifest['practical_full_automation_complete'] is False
-    assert manifest['ui_practical_experience_complete'] is False
-    assert manifest['stable_runtime_mutation_apply_complete'] is False
-    assert manifest['self_improvement_practical_loop_complete'] is False
-    assert manifest['draft_pr_experience_complete'] is False
+    assert manifest['practical_full_automation_complete'] is True
+    assert manifest['ui_practical_experience_complete'] is True
+    assert manifest['stable_runtime_mutation_apply_complete'] is True
+    assert manifest['self_improvement_practical_loop_complete'] is True
+    assert manifest['draft_pr_experience_complete'] is True
+    assert manifest['practical_full_automation_acceptance_tests'] == 'tests/test_atlas_practical_full_automation_acceptance.py'
 
     planned_prs = [item['pr'] for item in manifest['planned_prs']]
     for required in [
@@ -25,7 +26,7 @@ def test_practical_full_automation_manifest_contract() -> None:
 
     assert manifest['backend_workflow_state_authoritative'] is True
     assert manifest['current_automation_track'] == 'POST-SCALE-160-FASTUI-SHELL-MVP'
-    assert manifest['next_automation_track'] == 'POST-SCALE-160-PRACTICAL-AUTONOMOUS-DEV-LOOP'
+    assert manifest['next_automation_track'] == 'POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT'
     assert manifest['next_level_advancement_pr'] == 'POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT'
     assert manifest['self_modification_enabled'] is False
     assert manifest['stable_runtime_mutation_enabled'] is False

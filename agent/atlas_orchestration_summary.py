@@ -94,7 +94,7 @@ class AtlasOrchestrationSummaryBuilder:
             "plan_revision_required": bool(_pool_meta.get("plan_revision_required")),
             "critique_clarification_options": _pool_meta.get("critique_clarification_options") or {},
         }
-        if self._has_approval_required(pool_data, state_data) and status not in {"failed", "blocked", "completed", "completed_with_warnings", "stale"}:
+        if self._has_approval_required(pool_data, state_data) and status not in {"failed", "blocked", "completed", "completed_with_warnings", "stale", "needs_scope_confirmation"}:
             status = "approval_required"
         if not pool_data and not state_data and not recovery_data:
             status = "no_pool"
@@ -133,11 +133,13 @@ class AtlasOrchestrationSummaryBuilder:
         )
         if s in {"", "no_pool", "no_workspace", "no_plan_pool", "no_pipeline_run"}:
             return _summary_copy(base, {"phase": "not_started", "next_action": "Create a PlanPool to begin.", "user_message": "No PlanPool is selected yet."})
-        if s == "waiting_for_clarification":
-            return _summary_copy(base, {"phase": "clarification_required", "severity": "warning", "requires_clarification": True, "next_action": "Review planner questions in Details and refine the goal.", "user_message": "Additional planner clarification is required before creating a PlanPool."})
+        if s in {"waiting_for_clarification", "needs_scope_confirmation"}:
+            return _summary_copy(base, {"phase": "clarification_required", "severity": "warning", "requires_clarification": True, "next_action": "Answer the current clarification question so Atlas can revise the plan and rerun gates.", "user_message": "Additional planner clarification is required before implementation can proceed."})
         if s in {"approval_required"}:
             return _summary_copy(base, {"phase": "approval_required", "severity": "warning", "requires_approval": True, "next_action": "Open Details / Advanced Panel → Approval Gate.", "user_message": "The pipeline is paused at an approval gate."})
-        if s in {"paused", "waiting", "dependency_waiting"}:
+        if s == "paused":
+            return _summary_copy(base, {"phase": "approval_required", "severity": "warning", "requires_approval": True, "next_action": "Review approval-required items before continuing.", "user_message": "The pipeline is paused for manual review."})
+        if s in {"waiting", "dependency_waiting"}:
             return _summary_copy(base, {"phase": "dependency_waiting", "severity": "warning", "next_action": "Resolve dependencies or regenerate PlanPool.", "user_message": "No ready item remains. Check dependencies or approve required items."})
         if s in {"stale", "interrupted"}:
             return _summary_copy(base, {"phase": "stale_recovery", "severity": "warning", "is_stale": True, "can_start_dry_run": bool(pool_id), "next_action": "Start a new dry-run from the recovered PlanPool.", "user_message": "Recovered PlanPool is available, but the previous run state is stale."})

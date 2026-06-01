@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent.atlas_auto_policy_schema import AtlasAutoPolicyPreset, AtlasAutomationDecision
+from agent.atlas_automation_profile_resolver import normalize_automation_profile
 from agent.atlas_critical_event_policy import normalize_critical_event
 from agent.atlas_plan_item_file_changes import has_file_change_content, normalize_plan_item_file_changes
 
@@ -21,9 +22,17 @@ class AtlasAutomationGateService:
         approval = str((meta.get("approval") or {}).get("decision") or "").lower()
         patch_approval = str((meta.get("patch_proposal_approval") or {}).get("decision") or "").lower()
         source_proposal_id = str((meta.get("patch_proposal_planitem") or {}).get("source_proposal_id") or meta.get("source_proposal_id") or "")
+        resolved_profile = normalize_automation_profile(
+            preset_id=str(getattr(preset, "preset_id", "") or ""),
+            automation_level=str(getattr(preset, "automation_level", "") or ""),
+            envelope_id=str(meta.get("envelope_id") or ""),
+            envelope_active=bool(meta.get("envelope_active")),
+            self_improvement=bool(meta.get("self_improvement")),
+            strict_gate_approved=bool(meta.get("strict_gate_approved")),
+        )
 
         if preset.preset_id == "manual_only":
-            return AtlasAutomationDecision(pool_id=pool.pool_id, item_id=item.item_id, preset_id=preset.preset_id, decision="require_manual", reasons=["manual_only_preset"], warnings=[], metadata={"action_type": action_type})
+            return AtlasAutomationDecision(pool_id=pool.pool_id, item_id=item.item_id, preset_id=preset.preset_id, decision="require_manual", reasons=["manual_only_preset"], warnings=[], metadata={"action_type": action_type, "automation_profile": resolved_profile})
 
         if action_type in set(preset.forbidden_action_types): reasons.append("forbidden_action_type")
         if action_type not in set(preset.allowed_action_types): reasons.append("unsupported_action")
@@ -76,7 +85,7 @@ class AtlasAutomationGateService:
             # critical finding is still surfaced as a critical decision instead of being auto-continued.
             block_reasons = {"forbidden_action_type", "unsupported_action", "risk_not_allowed", "target_files_too_many", "target_files_missing", "unsafe_path", "content_missing", "terminal_status"}
             decision = "require_manual" if critical_event and "critical_risk_not_allowed" in reasons else ("block" if any(r in block_reasons for r in reasons) else "require_manual")
-        metadata = {"action_type": action_type, "risk_level": risk, "target_file_count": len(target_files)}
+        metadata = {"action_type": action_type, "risk_level": risk, "target_file_count": len(target_files), "automation_profile": resolved_profile}
         if critical_event:
             metadata["critical_event"] = critical_event
             metadata["status"] = "waiting_for_critical_decision"
