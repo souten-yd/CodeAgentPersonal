@@ -114,6 +114,7 @@ def include_routers(app: FastAPI) -> None:
     from app.api.atlas_context_refresh import router as atlas_context_refresh_router
     from app.api.atlas_llm_evaluator import router as atlas_llm_evaluator_router
     from app.api.atlas_multi_item_autopilot import router as atlas_multi_item_autopilot_router
+    from app.api.atlas_autonomous_codegen import router as atlas_autonomous_codegen_router
     from app.api.atlas_bounded_retry import router as atlas_bounded_retry_router
     from app.api.atlas_supervised_patch_regen import router as atlas_patch_regen_router
     from app.api.atlas_patch_candidate_approval import router as atlas_patch_candidate_approval_router, handoff_router as atlas_safe_apply_handoffs_router
@@ -150,6 +151,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(atlas_context_refresh_router)
     app.include_router(atlas_llm_evaluator_router)
     app.include_router(atlas_multi_item_autopilot_router)
+    app.include_router(atlas_autonomous_codegen_router)
     app.include_router(atlas_bounded_retry_router)
     app.include_router(atlas_patch_regen_router)
     app.include_router(atlas_patch_candidate_approval_router)
