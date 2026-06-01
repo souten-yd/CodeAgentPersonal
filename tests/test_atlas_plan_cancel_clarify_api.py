@@ -182,6 +182,10 @@ def test_clarification_replanning_consumes_selected_option_impact(tmp_path: Path
     assert item.metadata["clarification_revision"]["changed_fields"]
     impacts = reloaded.metadata["plan_revision_diff"]["selected_option_impacts"]
     assert impacts[0]["implementation_scope"] == "small_state_model"
+    changed = reloaded.metadata["plan_revision_diff"]["item_changed_fields"]
+    assert changed[0]["item_id"] == "i1"
+    assert "goal" in changed[0]["changed_fields"]
+    assert "test_commands" in changed[0]["changed_fields"]
 
 
 def test_auto_safe_apply_blocks_until_clarification_replan_gate_rerun(tmp_path: Path):
@@ -458,6 +462,8 @@ def test_answer_reducing_scope_updates_target_files_from_answer(tmp_path: Path):
     assert reloaded.metadata["blocked_paths_after_clarification"] == []
     assert reloaded.metadata["plan_revision_diff"]["allowed_paths_after_clarification"] == ["src/a.py"]
     assert reloaded.items[0].metadata["allowed_paths_after_clarification"] == ["src/a.py"]
+    changed = reloaded.metadata["plan_revision_diff"]["item_changed_fields"]
+    assert changed == [{"item_id": "i1", "changed_fields": ["description", "done_definition", "expected_changes", "goal", "target_files"]}]
     assert reloaded.metadata["plan_revision_diff"]["scope_reduced"] is True
 
 
