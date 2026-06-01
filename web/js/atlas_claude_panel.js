@@ -827,6 +827,34 @@
     }
   }
 
+  function clarificationExecutionBlockReasons(metadata) {
+    const meta = metadata && typeof metadata === 'object' ? metadata : {};
+    const reasons = [];
+    const add = (reason) => {
+      if (reason && !reasons.includes(reason)) reasons.push(reason);
+    };
+    if (meta.clarification_required) add('clarification_required');
+    if (Number(meta.pending_question_count || 0) > 0) add('clarification_pending_questions');
+    const questions = Array.isArray(meta.clarification_questions) ? meta.clarification_questions : [];
+    if (questions.some((q) => q && String(q.status || 'pending') !== 'answered')) {
+      add('clarification_questions_unanswered');
+    }
+    const answers = Array.isArray(meta.clarification_answers) ? meta.clarification_answers : [];
+    const hasAnswers = answers.length > 0;
+    const hasRevisedPlan = !!meta.revised_plan_snapshot;
+    const hasGateRerunEvidence = !!(
+      meta.gate_rerun_performed_after_clarification
+      || meta.gate_rerun_after_clarification
+      || meta.gate_rerun_evidence_after_clarification
+      || (meta.rerun_critique_gate_after_clarification && meta.rerun_safety_gate_after_clarification)
+    );
+    if (meta.plan_revision_required_after_clarification) add('plan_revision_required_after_clarification');
+    if (meta.gate_rerun_required_after_clarification) add('gate_rerun_required_after_clarification');
+    if (hasAnswers && !hasRevisedPlan) add('missing_revised_plan_snapshot_after_clarification');
+    if (hasAnswers && !hasGateRerunEvidence) add('missing_gate_rerun_evidence_after_clarification');
+    return reasons;
+  }
+
   async function approveAndRunPipeline(poolId) {
     if (!root.AtlasPipelineAPI) return;
     setBusy(true);
@@ -840,11 +868,9 @@
         return;
       }
       const poolMeta = pool.data.metadata || (pool.data.plan_pool && pool.data.plan_pool.metadata) || {};
-      const clarificationBlocked = poolMeta.clarification_required
-        || poolMeta.plan_revision_required_after_clarification
-        || poolMeta.gate_rerun_required_after_clarification;
-      if (clarificationBlocked) {
-        updateStage(stages, 'plan', 'failed', 'clarification revision/gate rerun required');
+      const clarificationBlocks = clarificationExecutionBlockReasons(poolMeta);
+      if (clarificationBlocks.length) {
+        updateStage(stages, 'plan', 'failed', `clarification blocked: ${clarificationBlocks.join(', ')}`);
         renderPipelineSummary(stages, { status: 'clarification_blocked', failed_count: 1, stop_reason: 'clarification_required' });
         return;
       }

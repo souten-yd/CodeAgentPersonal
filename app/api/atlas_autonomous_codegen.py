@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from app.api.atlas_multi_item_autopilot import _service as _build_multi_item_service, _validate_id
+from agent.atlas_clarification_execution_blocker import clarification_execution_block_reasons
 from agent.atlas_autonomous_codegen_orchestrator_schema import AtlasAutonomousCodegenRequest
 from agent.atlas_autonomous_codegen_orchestrator_service import AtlasAutonomousCodegenOrchestratorService
 from agent.atlas_journal import AtlasJournal
@@ -43,10 +45,39 @@ def run(payload: AtlasAutonomousCodegenRequest, request: Request):
         payload.run_id = _validate_id(payload.run_id, "run_id")
     payload.item_ids = [_validate_id(v, "item_id") for v in (payload.item_ids or [])]
     root = resolve_atlas_ca_data_root(request)
+    storage = AtlasPlanPoolStorage(root)
     try:
-        AtlasPlanPoolStorage(root).load_pool(payload.pool_id)
+        pool = storage.load_pool(payload.pool_id)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=404, detail={"error": "pool_not_found", "reason": f"pool_not_found:{payload.pool_id}"}) from exc
+    clarification_blocks = clarification_execution_block_reasons(pool)
+    if clarification_blocks:
+        pending_tokens = {
+            "clarification_required",
+            "clarification_pending_questions",
+            "clarification_questions_unanswered",
+        }
+        pending = any(reason in pending_tokens for reason in clarification_blocks)
+        return {
+            "pool_id": payload.pool_id,
+            "run_id": payload.run_id,
+            "orchestrator_run_id": "",
+            "phase": "needs_scope_confirmation" if pending else "revising_plan_from_clarification",
+            "status": "blocked_safety_review",
+            "generated_count": 0,
+            "skipped_generation_count": 0,
+            "proposal_results": [],
+            "autopilot_result": {},
+            "stop_reason": "clarification_pending" if pending else "clarification_revision_gate_rerun_required",
+            "warnings": clarification_blocks,
+            "errors": [],
+            "metadata": {
+                "clarification_execution_blocked": True,
+                "blocked_reasons": clarification_blocks,
+                "plan_pool": pool.model_dump(),
+            },
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
     try:
         return _orchestrator_service(request, payload.workspace_id, pool_id=payload.pool_id).run(payload).model_dump()
     except HTTPException:

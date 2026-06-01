@@ -26,6 +26,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from agent.atlas_clarification_schema import AtlasClarificationSubmitRequest, AtlasClarificationSubmitResult
+from agent.atlas_clarification_execution_blocker import (
+    clarification_execution_block_reasons as _clarification_execution_block_reasons,
+)
 from agent.atlas_clarification_replanning_service import AtlasClarificationReplanningService
 from agent.atlas_clarification_service import AtlasClarificationService
 from agent.atlas_approval_service import AtlasApprovalService, POOL_CRITICAL_DECISION_ITEM_ID
@@ -1404,13 +1407,24 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
         raise HTTPException(status_code=400, detail="invalid identifier")
     ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
-    service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=_resolve_atlas_llm_json_fn(request))
-    try:
-        result = service.propose_for_item(req)
-    except FileNotFoundError:
-        result = AtlasPatchProposalResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, status="blocked", warnings=["pool_not_found"])
     try:
         pool = storage.load_pool(req.pool_id)
+    except FileNotFoundError:
+        return AtlasPatchProposalResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, status="blocked", warnings=["pool_not_found"])
+    clarification_blocks = _clarification_execution_block_reasons(pool)
+    if clarification_blocks:
+        return AtlasPatchProposalResult(
+            pool_id=req.pool_id,
+            item_id=req.item_id,
+            run_id=req.run_id,
+            status="blocked",
+            warnings=clarification_blocks,
+            metadata={"clarification_execution_blocked": True, "blocked_reasons": clarification_blocks},
+            plan_pool=pool.model_dump(),
+        )
+    service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=_resolve_atlas_llm_json_fn(request))
+    result = service.propose_for_item(req)
+    try:
         recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
         orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None, recovery=recovery).model_dump()
         continuation = AtlasContinuationService(journal).build_pool_summary(req.pool_id, req.run_id)
@@ -1430,6 +1444,22 @@ def decide_patch_proposal(req: AtlasPatchProposalApprovalRequest, request: Reque
         raise HTTPException(status_code=400, detail="invalid identifier")
     ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
+    try:
+        pool = storage.load_pool(req.pool_id)
+    except FileNotFoundError:
+        return AtlasPatchProposalApprovalResult(pool_id=req.pool_id, item_id=req.item_id, proposal_id=req.proposal_id, status="blocked", warnings=["pool_not_found"])
+    clarification_blocks = _clarification_execution_block_reasons(pool)
+    approval_decisions = {"approve", "approved", "accept", "accepted", "apply", "run", "execute"}
+    if clarification_blocks and str(req.decision or "").strip().lower() in approval_decisions:
+        return AtlasPatchProposalApprovalResult(
+            pool_id=req.pool_id,
+            item_id=req.item_id,
+            proposal_id=req.proposal_id,
+            status="blocked",
+            warnings=clarification_blocks,
+            metadata={"clarification_execution_blocked": True, "blocked_reasons": clarification_blocks},
+            plan_pool=pool.model_dump(),
+        )
     service = AtlasPatchProposalApprovalService(journal=journal, storage=storage)
     try:
         result = service.decide(req)
@@ -1626,41 +1656,6 @@ class AtlasPlanCancelRequest(BaseModel):
 
 
 _CANCELLABLE_ITEM_STATUSES = {"queued", "ready", "pending", "approval_required", "needs_revision", "paused", "waiting", "dependency_waiting"}
-
-
-def _clarification_execution_block_reasons(pool: AtlasPlanPool) -> list[str]:
-    metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
-    reasons: list[str] = []
-
-    def add(reason: str) -> None:
-        if reason not in reasons:
-            reasons.append(reason)
-
-    if metadata.get("clarification_required"):
-        add("clarification_required")
-
-    clarification_answers = metadata.get("clarification_answers")
-    has_clarification_answers = bool(clarification_answers) if isinstance(clarification_answers, list) else False
-    has_revised_plan = bool(metadata.get("revised_plan_snapshot"))
-    has_gate_rerun_evidence = bool(
-        metadata.get("gate_rerun_performed_after_clarification")
-        or metadata.get("gate_rerun_after_clarification")
-        or metadata.get("gate_rerun_evidence_after_clarification")
-        or (
-            metadata.get("rerun_critique_gate_after_clarification")
-            and metadata.get("rerun_safety_gate_after_clarification")
-        )
-    )
-
-    if metadata.get("plan_revision_required_after_clarification"):
-        add("plan_revision_required_after_clarification")
-    if metadata.get("gate_rerun_required_after_clarification"):
-        add("gate_rerun_required_after_clarification")
-    if has_clarification_answers and not has_revised_plan:
-        add("missing_revised_plan_snapshot_after_clarification")
-    if has_clarification_answers and not has_gate_rerun_evidence:
-        add("missing_gate_rerun_evidence_after_clarification")
-    return reasons
 
 
 @router.post("/plan-pools/{pool_id}/cancel")

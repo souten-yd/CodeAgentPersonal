@@ -3,6 +3,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.server import create_app
+from app.api import atlas_autonomous_codegen
+from app.api import atlas_pipeline
 from app.api.atlas_pipeline import _clarification_execution_block_reasons
 from agent.atlas_approval_service import POOL_CRITICAL_DECISION_ITEM_ID
 from agent.atlas_critical_event_policy import normalize_critical_event
@@ -153,6 +155,97 @@ def test_auto_safe_apply_blocks_until_clarification_replan_gate_rerun(tmp_path: 
     assert "gate_rerun_required_after_clarification" in body["warnings"]
     assert "missing_revised_plan_snapshot_after_clarification" in body["warnings"]
     assert "missing_gate_rerun_evidence_after_clarification" in body["warnings"]
+    assert body["metadata"]["clarification_execution_blocked"] is True
+
+
+def test_patch_proposal_generation_blocks_before_service_for_clarification_required(tmp_path: Path, monkeypatch):
+    pool = _pool(status="ready", item_status="ready", metadata={"clarification_required": True})
+    client = _client(tmp_path, pool)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("proposal service must not run while clarification is blocked")
+
+    monkeypatch.setattr(atlas_pipeline.AtlasPatchProposalService, "propose_for_item", fail_if_called)
+    r = client.post(
+        "/api/atlas/patch-proposals/generate",
+        json={"pool_id": "pool_x", "item_id": "i1", "source_type": "plan_item"},
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "blocked"
+    assert body["metadata"]["clarification_execution_blocked"] is True
+    assert body["metadata"]["blocked_reasons"] == ["clarification_required"]
+    assert body["plan_pool"]["pool_id"] == "pool_x"
+
+
+def test_patch_proposal_generation_blocks_missing_revised_plan_snapshot(tmp_path: Path):
+    pool = _pool(status="ready", item_status="ready", metadata={
+        "clarification_answers": [{"question_id": "clar_q_1", "option_id": "minimal_scope"}],
+        "rerun_critique_gate_after_clarification": {"status": "passed"},
+        "rerun_safety_gate_after_clarification": {"status": "passed"},
+    })
+    client = _client(tmp_path, pool)
+    r = client.post(
+        "/api/atlas/patch-proposals/generate",
+        json={"pool_id": "pool_x", "item_id": "i1", "source_type": "plan_item"},
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "blocked"
+    assert body["warnings"] == ["missing_revised_plan_snapshot_after_clarification"]
+
+
+def test_patch_proposal_generation_blocks_missing_gate_rerun_evidence(tmp_path: Path):
+    pool = _pool(status="ready", item_status="ready", metadata={
+        "clarification_answers": [{"question_id": "clar_q_1", "option_id": "minimal_scope"}],
+        "revised_plan_snapshot": {"root_goal": "Revised"},
+    })
+    client = _client(tmp_path, pool)
+    r = client.post(
+        "/api/atlas/patch-proposals/generate",
+        json={"pool_id": "pool_x", "item_id": "i1", "source_type": "plan_item"},
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "blocked"
+    assert body["warnings"] == ["missing_gate_rerun_evidence_after_clarification"]
+
+
+def test_patch_proposal_decide_blocks_approval_during_clarification(tmp_path: Path):
+    pool = _pool(status="ready", item_status="ready", metadata={"clarification_required": True})
+    client = _client(tmp_path, pool)
+    r = client.post(
+        "/api/atlas/patch-proposals/decide",
+        json={"pool_id": "pool_x", "item_id": "i1", "proposal_id": "p1", "decision": "approved"},
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "blocked"
+    assert body["metadata"]["clarification_execution_blocked"] is True
+
+
+def test_autonomous_codegen_start_blocks_before_orchestrator_for_clarification(tmp_path: Path, monkeypatch):
+    pool = _pool(status="ready", item_status="ready", metadata={
+        "clarification_answers": [{"question_id": "clar_q_1", "option_id": "minimal_scope"}],
+        "plan_revision_required_after_clarification": True,
+    })
+    client = _client(tmp_path, pool)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("orchestrator must not run while clarification is blocked")
+
+    monkeypatch.setattr(atlas_autonomous_codegen, "_orchestrator_service", fail_if_called)
+    r = client.post("/api/atlas/autonomous-codegen/start", json={"pool_id": "pool_x"})
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "blocked_safety_review"
+    assert body["phase"] == "revising_plan_from_clarification"
+    assert body["stop_reason"] == "clarification_revision_gate_rerun_required"
     assert body["metadata"]["clarification_execution_blocked"] is True
 
 
