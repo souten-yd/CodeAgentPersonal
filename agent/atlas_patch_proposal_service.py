@@ -213,6 +213,7 @@ class AtlasPatchProposalService:
                 "current_file_truncated": bool(existing_target["truncated"]),
                 "project_symbols": code_context["symbols"],
                 "related_tests": code_context["related_tests"],
+                "clarification_implementation_directives": list(item_metadata.get("clarification_implementation_directives") or []),
             },
             "debug_review": {
                 "root_cause_category": str(debug_review.get("root_cause_category") or ("plan_item" if source_type == "plan_item" else "")),
@@ -358,11 +359,14 @@ class AtlasPatchProposalService:
         # If this is a self-correction regeneration, surface the failing verification output so the
         # model fixes the ROOT CAUSE instead of re-emitting the same broken content.
         verification_feedback = self._verification_feedback(input_payload)
+        clarification_directives = self._clarification_directives(input_payload)
         last_failure = "llm_no_output"
         parse_failures = 0
         empty_content_attempts = 0
         for attempt in range(1, self.MAX_LLM_GENERATION_ATTEMPTS + 1):
             user_obj: dict = {"task": base_task, "input": input_payload}
+            if clarification_directives:
+                user_obj["clarification_directives"] = clarification_directives
             if verification_feedback:
                 user_obj["fix_verification_failure"] = verification_feedback
             if attempt > 1:
@@ -402,6 +406,40 @@ class AtlasPatchProposalService:
         fallback.warnings.append("llm_invalid_json_fallback_proposal")
         fallback.metadata["generation_failure_reason"] = last_failure
         return fallback
+
+    def _clarification_directives(self, input_payload: dict) -> dict | None:
+        item = input_payload.get("item") or {}
+        directives = item.get("clarification_implementation_directives")
+        if not isinstance(directives, list) or not directives:
+            return None
+        required_elements: list[str] = []
+        for directive in directives:
+            if not isinstance(directive, dict):
+                continue
+            for signal in directive.get("signals") or []:
+                if not isinstance(signal, dict):
+                    continue
+                instruction = str(signal.get("instruction") or "").strip()
+                signal_name = str(signal.get("signal") or "").strip()
+                if instruction:
+                    required_elements.append(f"{signal_name}: {instruction}" if signal_name else instruction)
+            plan_change = str(directive.get("plan_change_summary") or "").strip()
+            scope = str(directive.get("implementation_scope") or "").strip()
+            custom = str(directive.get("custom_answer") or "").strip()
+            for value in (plan_change, scope, custom):
+                if value and value not in required_elements:
+                    required_elements.append(value)
+        if not required_elements:
+            return None
+        return {
+            "instruction": (
+                "The user answered a clarification question and the revised plan requires these "
+                "implementation elements. Include them in the generated patch content; do not satisfy "
+                "the clarification by adding comments or generic prose only."
+            ),
+            "required_elements": required_elements,
+            "raw_directives": directives,
+        }
 
     def _build_proposal_from_output(self, output: dict, input_payload: dict) -> tuple[AtlasPatchProposal, bool]:
         debug = input_payload.get("debug_review") or {}
