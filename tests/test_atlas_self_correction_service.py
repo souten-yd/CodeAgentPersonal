@@ -123,3 +123,33 @@ def test_stops_when_regeneration_yields_no_content():
     out = svc.run(_req())
     assert out.status == "exhausted"
     assert out.reason == "patch_regeneration_no_content"
+
+
+def test_configurable_risk_levels_allow_high_when_widened():
+    """A caller may widen risk_levels to repair higher-risk items."""
+    storage, journal = _setup(risk="high")
+    apply = _FakeApply("applied")
+    svc = AtlasSelfCorrectionService(storage=storage, journal=journal,
+                                     patch_proposal_service=_FakePatchService(has_content=True),
+                                     auto_safe_apply_service=apply,
+                                     auto_verification_service=_FakeVerify(fail_times=1))
+    req = AtlasSelfCorrectionRequest(pool_id="p", item_id="step_1", run_id="r1",
+                                     verification_result={"status": "failed"}, max_attempts=2,
+                                     risk_levels=["low", "medium", "high"])
+    out = svc.run(req)
+    assert out.status == "recovered"
+    assert apply.calls >= 1  # high-risk item was re-applied because the gate was widened
+
+
+def test_default_risk_levels_still_skip_high():
+    """With the default (low/medium) a high-risk item is still skipped — guard preserved."""
+    storage, journal = _setup(risk="high")
+    apply = _FakeApply("applied")
+    svc = AtlasSelfCorrectionService(storage=storage, journal=journal,
+                                     patch_proposal_service=_FakePatchService(has_content=True),
+                                     auto_safe_apply_service=apply,
+                                     auto_verification_service=_FakeVerify(fail_times=0))
+    out = svc.run(_req())  # default risk_levels = ["low", "medium"]
+    assert out.status == "skipped"
+    assert "risk_level_not_auto_reapplyable" in out.reason
+    assert apply.calls == 0

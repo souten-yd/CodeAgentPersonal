@@ -146,7 +146,7 @@ class AtlasMultiItemAutopilotService:
                         # test/compile output back to the patch generator, re-apply, re-verify (bounded,
                         # low/medium risk only). This is the generate->verify->fix loop.
                         if request.include_self_correction and self.self_correction_service and vr.status == "failed":
-                            sc_request = AtlasSelfCorrectionRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), verification_result=vr.model_dump(), changed_files=actual_changed_files, file_results=actual_file_results, max_attempts=request.self_correction_max_attempts)
+                            sc_request = AtlasSelfCorrectionRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), verification_result=vr.model_dump(), changed_files=actual_changed_files, file_results=actual_file_results, max_attempts=request.self_correction_max_attempts, risk_levels=request.self_correction_risk_levels)
                             # Route the failure to the right artifact (code vs test) when enabled; the
                             # router internally falls back to plain self-correction on the failing item.
                             if request.include_correction_routing and self.correction_router_service:
@@ -154,6 +154,12 @@ class AtlasMultiItemAutopilotService:
                             else:
                                 sc = self.self_correction_service.run(sc_request)
                             result.metadata["self_correction_result"] = sc.model_dump()
+                            # Surface *why* the repair loop didn't run (e.g. the item's risk level
+                            # is above the auto-reapply threshold) so the stop is explained in the
+                            # UI instead of looking like a silent halt.
+                            if sc.status == "skipped" and str(sc.reason or "").startswith("risk_level_not_auto_reapplyable"):
+                                if sc.reason not in result.warnings:
+                                    result.warnings.append(sc.reason)
                             if sc.status == "recovered":
                                 result.status = "completed"
                                 result.reason = "self_correction_recovered"

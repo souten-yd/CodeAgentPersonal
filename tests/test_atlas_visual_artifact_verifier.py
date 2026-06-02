@@ -140,3 +140,83 @@ def test_checks_list_contains_all_expected_keys(tmp_path):
     for check in result['checks']:
         assert 'check' in check
         assert 'status' in check
+
+
+# ── Regression: multi-file artifacts (index.html + external css/js) ────────────────
+# The RunPod failure was a false-negative visual_contract_failed for the common layout
+# where animation/color/motion code lives in external js/game.js + css/style.css and the
+# entry HTML only links to them. The static contract must scan the linked assets too.
+
+_SHELL_HTML = """\
+<!doctype html>
+<html>
+<head><link rel="stylesheet" href="css/style.css"></head>
+<body><canvas id="c"></canvas><script src="js/game.js"></script></body>
+</html>
+"""
+_EXTERNAL_CSS = """\
+:root { --hue: 0; }
+@keyframes colorShift { from { background-color: hsl(0,100%,50%); } to { background-color: hsl(360,100%,50%); } }
+canvas { transform: translateY(0); }
+"""
+_EXTERNAL_JS = """\
+const ctx = document.getElementById('c').getContext('2d');
+let phase = 0;
+function loop(t) {
+  ctx.fillStyle = 'hsl(' + (phase * 10 % 360) + ',100%,50%)';
+  phase += 0.01;
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+"""
+
+
+def _write_multifile_artifact(tmp_path):
+    (tmp_path / 'css').mkdir()
+    (tmp_path / 'js').mkdir()
+    (tmp_path / 'index.html').write_text(_SHELL_HTML, encoding='utf-8')
+    (tmp_path / 'css' / 'style.css').write_text(_EXTERNAL_CSS, encoding='utf-8')
+    (tmp_path / 'js' / 'game.js').write_text(_EXTERNAL_JS, encoding='utf-8')
+    return tmp_path / 'index.html'
+
+
+def test_multifile_artifact_signals_in_external_assets_pass(tmp_path):
+    """index.html links to external css/js holding the animation/color/motion code.
+    Scanning only the HTML would false-negative; the verifier must read linked assets."""
+    f = _write_multifile_artifact(tmp_path)
+    result = _VFY.verify_static(f, task_description='animate color motion game')
+    assert result['status'] == 'passed', result
+    assert result['missing'] == []
+    passed = [c['check'] for c in result['checks'] if c['status'] == 'passed']
+    assert 'animation_signal' in passed
+    assert 'color_mutation_signal' in passed
+    assert 'motion_signal' in passed
+
+
+def test_multifile_shell_without_real_logic_still_fails(tmp_path):
+    """A genuinely empty external file must still fail — we are not weakening the contract."""
+    (tmp_path / 'js').mkdir()
+    (tmp_path / 'index.html').write_text(
+        '<!doctype html><html><body><h1>Hi</h1><script src="js/game.js"></script></body></html>',
+        encoding='utf-8',
+    )
+    (tmp_path / 'js' / 'game.js').write_text('// nothing animated here\n', encoding='utf-8')
+    result = _VFY.verify_static(tmp_path / 'index.html', task_description='animate color motion')
+    assert result['status'] == 'failed'
+    assert 'animation_signal' in result['missing']
+
+
+def test_external_asset_traversal_outside_dir_is_ignored(tmp_path):
+    """A linked path escaping the artifact dir must not be read (sandboxed to parent)."""
+    outside = tmp_path / 'secret.js'
+    outside.write_text('requestAnimationFrame(()=>{}); getContext(); hsl(0,0,0);', encoding='utf-8')
+    art = tmp_path / 'app'
+    art.mkdir()
+    (art / 'index.html').write_text(
+        '<!doctype html><html><body><script src="../secret.js"></script></body></html>',
+        encoding='utf-8',
+    )
+    result = _VFY.verify_static(art / 'index.html', task_description='animate color motion')
+    # The traversal target is ignored, so the animation signals remain missing → failed.
+    assert result['status'] == 'failed'
+    assert 'animation_signal' in result['missing']
