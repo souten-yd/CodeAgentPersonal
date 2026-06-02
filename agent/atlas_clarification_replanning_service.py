@@ -12,9 +12,26 @@ from agent.atlas_plan_quality_gate import apply_plan_quality_gate
 
 _HIGH_RISK_TERMS = (
     "security", "credential", "secret", "token", "delete", "destructive",
-    "data loss", "runtime", "self-improvement", "self improvement",
+    "data loss", "self-improvement", "self improvement",
     "command execution", "run_command", "shell", "remote git",
     "direct merge", "stable runtime",
+)
+_CONTEXTUAL_HIGH_RISK_TERMS = ("runtime",)
+_FRONTEND_EXTENSIONS = (".html", ".css", ".js")
+_EXECUTION_EXTENSIONS = (".py", ".sh", ".bash", ".ps1", ".sql", ".yaml", ".yml", ".toml")
+_IMPLEMENTATION_SIGNAL_PATTERNS = (
+    (re.compile(r"\brequestAnimationFrame\b", re.IGNORECASE), "requestAnimationFrame", "Drive visible animation with a requestAnimationFrame loop."),
+    (re.compile(r"@keyframes|\bkeyframes\b", re.IGNORECASE), "css_keyframes", "Include CSS keyframes for visible animation."),
+    (re.compile(r"\bhsl\s*\(|\bhsl\b", re.IGNORECASE), "hsl", "Use HSL color mutation so color changes are statically detectable."),
+    (re.compile(r"\brgb\s*\(|\brgb\b", re.IGNORECASE), "rgb", "Use RGB color mutation so color changes are statically detectable."),
+    (re.compile(r"\bstyle\.color\b", re.IGNORECASE), "style_color", "Mutate style.color as part of the visual state."),
+    (re.compile(r"--[a-z][\w-]*(?:color|hue|fill)\b", re.IGNORECASE), "css_color_variable", "Use a CSS color/hue/fill variable for visible color mutation."),
+    (re.compile(r"\bhue-rotate\b", re.IGNORECASE), "hue_rotate", "Use hue-rotate for visible color mutation."),
+    (re.compile(r"\btransform\b", re.IGNORECASE), "transform", "Use transform for visible motion."),
+    (re.compile(r"\btranslate[XYZ]?\b", re.IGNORECASE), "translate", "Use translate for visible motion."),
+    (re.compile(r"\bcanvas\b|\bgetContext\s*\(", re.IGNORECASE), "canvas_context", "Use canvas/getContext when the artifact is canvas-driven."),
+    (re.compile(r"\bfilter\s*:\s*blur|\bfilter\s*\(\s*blur|\bblur\s*\(", re.IGNORECASE), "filter_blur", "Use filter: blur() or equivalent blur interpolation when requested."),
+    (re.compile(r"\btransition\b", re.IGNORECASE), "transition", "Use transition timing for smooth visual changes when requested."),
 )
 
 _PATH_RE = re.compile(r"(?P<path>[\w./-]+\.(?:py|js|ts|tsx|jsx|html|css|md|json|yaml|yml|txt))")
@@ -61,8 +78,18 @@ class AtlasClarificationReplanningService:
         selected_option_impacts = self._selected_option_impacts(answers)
         revised_requirement = self._revised_requirement_summary(original_requirement, answer_summary)
         extracted_paths = self._extract_target_files(answer_summary)
-        risk_raised = self._raises_risk(answer_summary, answers)
+        risk_scope_files = extracted_paths or [
+            str(path)
+            for item in pool.items
+            for path in (item.target_files or [])
+            if str(path).strip()
+        ]
+        risk_raised = self._raises_risk(answer_summary, answers, target_files=risk_scope_files)
         scope_reduced = self._reduces_scope(answers)
+        implementation_directives = self._clarification_implementation_directives(
+            answers,
+            selected_option_impacts,
+        )
 
         pool.root_goal = revised_requirement
         revised_items = []
@@ -75,6 +102,7 @@ class AtlasClarificationReplanningService:
                     risk_raised=risk_raised,
                     scope_reduced=scope_reduced,
                     selected_option_impacts=selected_option_impacts,
+                    implementation_directives=implementation_directives,
                 )
             )
         allowed_paths_after_clarification = self._allowed_paths_after_clarification(revised_items)
@@ -113,6 +141,7 @@ class AtlasClarificationReplanningService:
                     "allowed_paths_after_clarification": allowed_paths_after_clarification,
                     "item_changed_fields": item_changed_fields,
                     "selected_option_impacts": selected_option_impacts,
+                    "clarification_implementation_directives": implementation_directives,
                 },
                 "original_requirement_summary": original_requirement,
                 "revised_requirement_summary": revised_requirement,
@@ -127,6 +156,7 @@ class AtlasClarificationReplanningService:
                     "blocked_paths_after_clarification": [],
                     "item_changed_fields": item_changed_fields,
                     "selected_option_impacts": selected_option_impacts,
+                    "clarification_implementation_directives": implementation_directives,
                 },
                 "allowed_paths_after_clarification": allowed_paths_after_clarification,
                 "blocked_paths_after_clarification": [],
@@ -208,6 +238,7 @@ class AtlasClarificationReplanningService:
         risk_raised: bool,
         scope_reduced: bool,
         selected_option_impacts: list[dict],
+        implementation_directives: list[dict],
     ) -> AtlasPlanItem:
         changed_fields: list[str] = []
         primary_impact = selected_option_impacts[0] if selected_option_impacts else {}
@@ -221,14 +252,22 @@ class AtlasClarificationReplanningService:
                 "risk_raised": risk_raised,
                 "scope_reduced": scope_reduced,
                 "selected_option_impacts": selected_option_impacts,
+                "clarification_implementation_directives": implementation_directives,
                 "revised_at": _utc_now_iso(),
             }
         )
+        if implementation_directives:
+            item.metadata["clarification_implementation_directives"] = implementation_directives
+            for expected_change in self._directive_expected_changes(implementation_directives):
+                item.expected_changes = self._append_unique(item.expected_changes, expected_change)
+            if "expected_changes" not in changed_fields:
+                changed_fields.append("expected_changes")
         if answer_summary:
             goal_addition = plan_change_summary or answer_summary
             item.goal = self._append_sentence(item.goal, f"Clarification decision: {goal_addition}")
             item.description = self._append_sentence(item.description, f"Clarification: {answer_summary}")
-            item.expected_changes = self._append_unique(item.expected_changes, f"Apply clarification answer: {answer_summary}")
+            if not implementation_directives:
+                item.expected_changes = self._append_unique(item.expected_changes, f"Apply clarification answer: {answer_summary}")
             item.done_definition = self._append_unique(item.done_definition, f"Clarification reflected: {answer_summary}")
             changed_fields.extend(["goal", "description", "expected_changes", "done_definition"])
         if implementation_scope:
@@ -367,10 +406,93 @@ class AtlasClarificationReplanningService:
                 paths.append(path)
         return paths[:8]
 
-    def _raises_risk(self, answer_summary: str, answers: list[dict]) -> bool:
+    def _raises_risk(self, answer_summary: str, answers: list[dict], *, target_files: list[str] | None = None) -> bool:
         if self.critical_ambiguity_requires_user(answer_summary):
             return True
-        return any(self.critical_ambiguity_requires_user(str(a.get("reason") or "")) for a in answers)
+        if any(self.critical_ambiguity_requires_user(str(a.get("reason") or "")) for a in answers):
+            return True
+        contextual_text = " ".join([answer_summary, *[str(a.get("reason") or "") for a in answers]]).lower()
+        if any(term in contextual_text for term in _CONTEXTUAL_HIGH_RISK_TERMS):
+            return not self._is_frontend_only_file_scope(target_files or [])
+        return False
+
+    @staticmethod
+    def _is_frontend_only_file_scope(files: list[str]) -> bool:
+        normalized = [str(f).lower().strip() for f in files or [] if str(f).strip()]
+        if not normalized:
+            return False
+        if any(path.endswith(_EXECUTION_EXTENSIONS) for path in normalized):
+            return False
+        return all(path.endswith(_FRONTEND_EXTENSIONS) for path in normalized)
+
+    @staticmethod
+    def _clarification_implementation_directives(answers: list[dict], selected_option_impacts: list[dict]) -> list[dict]:
+        directives: list[dict] = []
+        for answer in answers:
+            question_id = str(answer.get("question_id") or "")
+            option = answer.get("selected_option") if isinstance(answer.get("selected_option"), dict) else {}
+            impact = answer.get("selected_option_impact") if isinstance(answer.get("selected_option_impact"), dict) else {}
+            custom_answer = str(answer.get("answer_text") or answer.get("note") or "").strip()
+            plan_change = str(impact.get("plan_change_summary") or option.get("plan_change_summary") or "").strip()
+            scope = str(impact.get("implementation_scope") or option.get("implementation_scope") or "").strip()
+            text = " ".join(part for part in (plan_change, scope, custom_answer) if part)
+            signals = AtlasClarificationReplanningService._implementation_signals_from_text(text)
+            if plan_change or scope or custom_answer or signals:
+                directives.append(
+                    {
+                        "source": "clarification_answer",
+                        "question_id": question_id,
+                        "option_id": str(answer.get("option_id") or ""),
+                        "implementation_scope": scope,
+                        "plan_change_summary": plan_change,
+                        "custom_answer": custom_answer,
+                        "signals": signals,
+                    }
+                )
+        for impact in selected_option_impacts:
+            question_id = str(impact.get("question_id") or "")
+            if any(d.get("question_id") == question_id and d.get("source") == "clarification_answer" for d in directives):
+                continue
+            plan_change = str(impact.get("plan_change_summary") or "").strip()
+            scope = str(impact.get("implementation_scope") or "").strip()
+            text = " ".join(part for part in (plan_change, scope) if part)
+            signals = AtlasClarificationReplanningService._implementation_signals_from_text(text)
+            if plan_change or scope or signals:
+                directives.append(
+                    {
+                        "source": "selected_option_impact",
+                        "question_id": question_id,
+                        "implementation_scope": scope,
+                        "plan_change_summary": plan_change,
+                        "custom_answer": "",
+                        "signals": signals,
+                    }
+                )
+        return directives
+
+    @staticmethod
+    def _implementation_signals_from_text(text: str) -> list[dict]:
+        found: list[dict] = []
+        for pattern, signal, instruction in _IMPLEMENTATION_SIGNAL_PATTERNS:
+            if pattern.search(text or "") and signal not in {item["signal"] for item in found}:
+                found.append({"signal": signal, "instruction": instruction})
+        return found
+
+    @staticmethod
+    def _directive_expected_changes(directives: list[dict]) -> list[str]:
+        out: list[str] = []
+        for directive in directives:
+            for signal in directive.get("signals") or []:
+                instruction = str((signal or {}).get("instruction") or "").strip()
+                if instruction:
+                    out.append(f"Implement clarification directive: {instruction}")
+            plan_change = str(directive.get("plan_change_summary") or "").strip()
+            if plan_change and not out:
+                out.append(f"Implement clarification plan change: {plan_change}")
+            scope = str(directive.get("implementation_scope") or "").strip()
+            if scope and not out:
+                out.append(f"Implement clarification scope: {scope}")
+        return out
 
     @staticmethod
     def _reduces_scope(answers: list[dict]) -> bool:
@@ -386,14 +508,14 @@ class AtlasClarificationReplanningService:
                     "severity": "critical",
                     "angle": "clarification_risk",
                     "title": "Clarification raised safety-sensitive scope",
-                    "detail": "User clarification mentioned security, deletion, runtime, command execution, remote git, direct merge, stable runtime, or self-improvement scope.",
+                    "detail": "User clarification mentioned security, deletion, command execution, remote git, direct merge, stable runtime, self-improvement scope, or runtime scope on non-frontend files.",
                     "recommendation": "Require explicit user decision before implementation.",
                 }
             )
         return {
             "requirement_summary": pool.root_goal,
             "goal": pool.root_goal,
-            "implementation_steps": [item.model_dump() for item in pool.items],
+            "implementation_steps": AtlasClarificationReplanningService._implementation_steps_with_directives(pool),
             "clarification_answers": answers,
             "adversarial_critique": {
                 "requires_revision": bool(findings),
@@ -401,6 +523,31 @@ class AtlasClarificationReplanningService:
                 "findings": findings,
             },
         }
+
+    @staticmethod
+    def _implementation_steps_with_directives(pool: AtlasPlanPool) -> list[dict]:
+        steps: list[dict] = []
+        for item in pool.items:
+            steps.append(item.model_dump())
+            directives = item.metadata.get("clarification_implementation_directives") if isinstance(item.metadata, dict) else []
+            for directive in directives or []:
+                for signal in directive.get("signals") or []:
+                    instruction = str((signal or {}).get("instruction") or "").strip()
+                    signal_name = str((signal or {}).get("signal") or "").strip()
+                    if not instruction:
+                        continue
+                    steps.append(
+                        {
+                            "item_id": item.item_id,
+                            "title": f"Apply clarification implementation directive: {signal_name}",
+                            "description": instruction,
+                            "target_files": list(item.target_files or []),
+                            "risk_level": item.risk_level,
+                            "source": "clarification_implementation_directive",
+                            "clarification_signal": signal_name,
+                        }
+                    )
+        return steps
 
     @staticmethod
     def _rerun_safety_gate(pool: AtlasPlanPool, item: AtlasPlanItem | None, preset_id: str) -> dict:

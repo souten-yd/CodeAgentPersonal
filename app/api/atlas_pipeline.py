@@ -82,6 +82,7 @@ from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest, A
 from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_failure_stop_schema import AtlasFailureStopSuggestion
 from agent.atlas_failure_stop_service import AtlasFailureStopService
+from agent.atlas_self_correction_schema import AtlasSelfCorrectionRequest
 from agent.atlas_verification_allowlist import atlas_verification_allowlist
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
 from agent.atlas_repo_context_service import AtlasRepoContextService
@@ -97,6 +98,7 @@ from agent.atlas_verification_recommendation_service import AtlasVerificationRec
 from agent.atlas_verification_recommendation_handoff_service import AtlasVerificationRecommendationHandoffService
 from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
+from app.api.atlas_autopilot_factory import build_self_correction_service
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from app.atlas.level1_dry_run_result_artifact_capture import capture_level1_dry_run_result_artifact
 from app.atlas.level1_dry_run_endpoint_skeleton import build_level1_dry_run_only_result
@@ -2085,20 +2087,65 @@ def atlas_automation_safe_apply_one_and_verify(request_body: AtlasAutoSafeApplyA
     elif verify.status == "passed":
         status = "applied_and_verified"
     elif verify.status == "failed":
-        status = "applied_but_verification_failed"
         _, storage, journal = _atlas_components(request, workspace_id=request_body.workspace_id)
-        pool = storage.load_pool(request_body.pool_id)
-        item = pool.get_item(request_body.item_id)
-        if item is not None:
-            suggestion = AtlasFailureStopService(journal=journal).build_for_verification_failure(pool, item, request_body.run_id, verify.model_dump())
-            suggestion_payload = suggestion.model_dump()
-            safe_snapshot = (safe.model_dump().get("change_snapshot") or {})
-            if safe_snapshot.get("manifest_path") and not suggestion_payload.get("snapshot_manifest_path"):
-                suggestion_payload["snapshot_manifest_path"] = str(safe_snapshot.get("manifest_path") or "")
-                suggestion_payload["changed_files"] = list(safe_snapshot.get("changed_files") or [])
-                suggestion_payload["restore_candidate"] = {"manifest_path": suggestion_payload["snapshot_manifest_path"], "changed_files": suggestion_payload["changed_files"], "snapshot_id": str(safe_snapshot.get("snapshot_id") or "")}
-            failure_stop_suggestion = suggestion_payload
-            continuation_prompt = (continuation_prompt + "\n\nManual next steps: Review verification failure. Inspect changed files. Restore from Change Snapshot manually if needed. Run Debug Review manually if restore is not desired.").strip()
+        workspace_root = _resolve_pool_workspace_root(
+            storage=storage,
+            ca_data_root=Path(getattr(request.app.state, "atlas_ca_data_dir", "./ca_data")),
+            workspace_id=request_body.workspace_id,
+            pool_id=request_body.pool_id,
+        )
+        self_correction_result = None
+        self_correction_service = build_self_correction_service(
+            request=request,
+            storage=storage,
+            journal=journal,
+            workspace_root=workspace_root,
+            command_runner=_resolve_atlas_test_command_runner(request),
+        )
+        if self_correction_service is not None:
+            self_correction_result = self_correction_service.run(
+                AtlasSelfCorrectionRequest(
+                    pool_id=request_body.pool_id,
+                    item_id=request_body.item_id,
+                    run_id=request_body.run_id,
+                    workspace_id=request_body.workspace_id,
+                    verification_result=verify.model_dump(),
+                    max_attempts=2,
+                )
+            )
+        if self_correction_result is not None and self_correction_result.status == "recovered":
+            status = "applied_and_verified"
+            verify_payload = dict((self_correction_result.metadata or {}).get("final_verification_result") or verify.model_dump())
+            verify_metadata = dict(verify_payload.get("metadata") or {})
+            verify_metadata.update({
+                "recovered_by_self_correction": True,
+                "attempt_count": int(self_correction_result.attempts or 0),
+                "final_verification_status": str(self_correction_result.final_verification_status or ""),
+                "self_correction_result": self_correction_result.model_dump(),
+            })
+            verify_payload["status"] = str(self_correction_result.final_verification_status or "passed")
+            verify_payload["metadata"] = verify_metadata
+            verify_payload["warnings"] = list(dict.fromkeys([*list(verify_payload.get("warnings") or []), "recovered_by_self_correction"]))
+            verify = AtlasAutoVerificationResult(**verify_payload)
+        else:
+            status = "applied_but_verification_failed"
+            pool = storage.load_pool(request_body.pool_id)
+            item = pool.get_item(request_body.item_id)
+            if item is not None:
+                suggestion = AtlasFailureStopService(journal=journal).build_for_verification_failure(pool, item, request_body.run_id, verify.model_dump())
+                suggestion_payload = suggestion.model_dump()
+                safe_snapshot = (safe.model_dump().get("change_snapshot") or {})
+                if safe_snapshot.get("manifest_path") and not suggestion_payload.get("snapshot_manifest_path"):
+                    suggestion_payload["snapshot_manifest_path"] = str(safe_snapshot.get("manifest_path") or "")
+                    suggestion_payload["changed_files"] = list(safe_snapshot.get("changed_files") or [])
+                    suggestion_payload["restore_candidate"] = {"manifest_path": suggestion_payload["snapshot_manifest_path"], "changed_files": suggestion_payload["changed_files"], "snapshot_id": str(safe_snapshot.get("snapshot_id") or "")}
+                suggestion_payload.setdefault("metadata", {})
+                if self_correction_result is not None:
+                    suggestion_payload["metadata"]["self_correction_result"] = self_correction_result.model_dump()
+                else:
+                    suggestion_payload["metadata"]["self_correction"] = "skipped:no_llm"
+                failure_stop_suggestion = suggestion_payload
+                continuation_prompt = (continuation_prompt + "\n\nManual next steps: Review verification failure. Inspect changed files. Restore from Change Snapshot manually if needed. Run Debug Review manually if restore is not desired.").strip()
     elif verify.status == "blocked":
         status = "verification_blocked"
     return AtlasAutoSafeApplyAndVerifyResult(auto_safe_apply_result=safe.model_dump(), auto_verification_result=verify.model_dump(), status=status, failure_stop_suggestion=failure_stop_suggestion, continuation_prompt=continuation_prompt)

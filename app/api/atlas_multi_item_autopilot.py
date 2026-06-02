@@ -21,14 +21,12 @@ from agent.atlas_multi_item_autopilot_schema import AtlasMultiItemAutopilotReque
 from agent.atlas_multi_item_autopilot_service import AtlasMultiItemAutopilotService
 from agent.atlas_patch_proposal_service import AtlasPatchProposalService
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
-from agent.atlas_self_correction_service import AtlasSelfCorrectionService
 from agent.atlas_correction_router_service import AtlasCorrectionRouterService
 from agent.atlas_failure_diagnosis_service import AtlasFailureDiagnosisService
 from agent.atlas_test_harness_provisioner import AtlasTestHarnessProvisioner
-from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
-from agent.atlas_safe_apply_execution_service import AtlasSafeApplyExecutionService
 from agent.atlas_workspace_root import resolve_atlas_workspace_root
 from agent.test_command_runner import TestCommandRunner
+from app.api.atlas_autopilot_factory import build_safe_apply_execution_service, build_self_correction_service
 
 router = APIRouter(prefix="/api/atlas/multi-item-autopilot", tags=["atlas-multi-item-autopilot"])
 
@@ -57,51 +55,27 @@ def _resolve_pool_workspace_root(*, storage: AtlasPlanPoolStorage, ca_data_root,
     return resolve_atlas_workspace_root(ca_data_root=ca_data_root, workspace_id=workspace_id, project_path=project_path)
 
 
-def _build_safe_apply_execution_service(*, request, storage, journal, workspace_root) -> AtlasSafeApplyExecutionService:
-    # Mirror the pipeline API wiring (app/api/atlas_pipeline.py:1158-1171): without an
-    # implementation_executor + adapter, every item is blocked with
-    # safe_apply_adapter_unavailable / safe_apply_executor_unavailable and nothing is ever applied.
-    adapter_obj = getattr(getattr(request, "app", None), "state", None)
-    adapter_obj = getattr(adapter_obj, "atlas_safe_apply_adapter", None) if adapter_obj is not None else None
-    safe_apply_adapter = adapter_obj() if callable(adapter_obj) else adapter_obj
-    if safe_apply_adapter is None:
-        implementation_executor = getattr(getattr(request, "app", None), "state", None)
-        implementation_executor = getattr(implementation_executor, "atlas_implementation_executor", None) if implementation_executor is not None else None
-        if implementation_executor is None:
-            implementation_executor = AtlasFileSafeApplyExecutor(workspace_root=workspace_root)
-        safe_apply_adapter = AtlasSafeApplyAdapter(implementation_executor=implementation_executor)
-    # The app.state executor is pinned to Path.cwd() (main.py); rebind it to the pool workspace.
-    impl = getattr(safe_apply_adapter, "implementation_executor", None)
-    if impl is not None and hasattr(impl, "workspace_root"):
-        try:
-            safe_apply_adapter.implementation_executor = impl.__class__(workspace_root=workspace_root)
-        except Exception:
-            impl.workspace_root = workspace_root
-    return AtlasSafeApplyExecutionService(storage=storage, journal=journal, safe_apply_adapter=safe_apply_adapter, workspace_root=workspace_root)
-
-
 def _service(request: Request | None = None, workspace_id: str = "default", pool_id: str = "") -> AtlasMultiItemAutopilotService:
     root = resolve_atlas_ca_data_root(request)
     storage = AtlasPlanPoolStorage(root)
     journal = AtlasJournal(root, workspace_id=workspace_id or "default")
     workspace_root = _resolve_pool_workspace_root(storage=storage, ca_data_root=root, workspace_id=workspace_id or "default", pool_id=pool_id)
-    safe_apply_service = _build_safe_apply_execution_service(request=request, storage=storage, journal=journal, workspace_root=workspace_root)
+    safe_apply_service = build_safe_apply_execution_service(request=request, storage=storage, journal=journal, workspace_root=workspace_root)
     auto_safe_apply_service = AtlasAutoSafeApplyService(automation_gate=AtlasAutomationGateService(), safe_apply_service=safe_apply_service, journal=journal, storage=storage)
     auto_verification_service = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner())
     # Self-correction reuses the same apply/verify services and a patch generator backed by the app's
     # LLM json fn (None in tests -> the service is simply not constructed and the loop is a no-op).
     llm_json_fn = getattr(getattr(getattr(request, "app", None), "state", None), "atlas_llm_json_fn", None)
-    self_correction_service = None
+    self_correction_service = build_self_correction_service(
+        request=request,
+        storage=storage,
+        journal=journal,
+        workspace_root=workspace_root,
+        command_runner=TestCommandRunner(),
+    )
     correction_router_service = None
-    if llm_json_fn is not None:
+    if llm_json_fn is not None and self_correction_service is not None:
         patch_proposal_service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_json_fn)
-        self_correction_service = AtlasSelfCorrectionService(
-            storage=storage,
-            journal=journal,
-            patch_proposal_service=patch_proposal_service,
-            auto_safe_apply_service=auto_safe_apply_service,
-            auto_verification_service=auto_verification_service,
-        )
         # Routes a test failure caused by a code bug back to regenerating the implementation item.
         correction_router_service = AtlasCorrectionRouterService(
             storage=storage,

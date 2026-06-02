@@ -928,6 +928,7 @@
             }
             const parts = [`status=${status}`, cause];
             if (warnings.length) parts.push(`warnings=${warnings.join('; ')}`);
+            if (plannerFallback && plannerFallback.reason) parts.push(`planner_fallback=${plannerFallback.reason}`);
             if (errors.length) parts.push(`errors=${errors.join('; ')}`);
             msg = parts.join(' / ');
           }

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from uuid import uuid4
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
@@ -32,6 +32,24 @@ class AtlasPatchProposalService:
     # A plan_item that must write a file gets more than one shot at the LLM: weak models often emit
     # an empty/invalid first response but succeed when told the prior attempt was unusable.
     MAX_LLM_GENERATION_ATTEMPTS = 2
+    _SIGNAL_REPAIR_HINTS = {
+        "color_mutation_signal": (
+            "色の変化が静的解析で検出できなかった。描画コードで色を動的に変える表現を使うこと"
+            "（例: ctx.fillStyle に hsl(...) / rgb(...) を使い、requestAnimationFrame ループ内で"
+            "色相や成分を毎フレーム更新する）。16進数固定色のみは不可。"
+        ),
+        "animation_signal": (
+            "アニメーション信号が検出できなかった。requestAnimationFrame による描画ループ、"
+            "または CSS @keyframes を実装すること。"
+        ),
+        "motion_signal": (
+            "動きの信号が検出できなかった。canvas の getContext 描画更新、CSS transform/translate を"
+            "実装すること。"
+        ),
+        "wave_signal": (
+            "波形/位相信号が検出できなかった。Math.sin/Math.cos と phase/amplitude/frequency を用いること。"
+        ),
+    }
 
     def __init__(self, *, journal: AtlasJournal, storage: AtlasPlanPoolStorage, llm_json_fn: Callable[[str, str], dict | None] | None = None):
         self.journal = journal
@@ -51,6 +69,9 @@ class AtlasPatchProposalService:
         # until the plan is revised / approved. full_auto-continuation pools never set this flag.
         if bool((pool.metadata or {}).get("plan_revision_required")):
             warnings = ["plan_revision_required_blocks_patch"]
+            planner_fallback = (pool.metadata or {}).get("planner_fallback")
+            if isinstance(planner_fallback, dict) and planner_fallback.get("reason"):
+                warnings.append(f"planner_fallback:{planner_fallback.get('reason')}")
             self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_blocked", item, "blocked", warnings=warnings)
             self._record_trace(pool.pool_id, request.run_id, "blocked", "plan_revision_required_blocks_patch", {"llm_called": False})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump())
@@ -225,6 +246,7 @@ class AtlasPatchProposalService:
                 "current_file_truncated": bool(existing_target["truncated"]),
                 "project_symbols": code_context["symbols"],
                 "related_tests": code_context["related_tests"],
+                "clarification_implementation_directives": list(item_metadata.get("clarification_implementation_directives") or []),
             },
             "debug_review": {
                 "root_cause_category": str(debug_review.get("root_cause_category") or ("plan_item" if source_type == "plan_item" else "")),
@@ -297,7 +319,14 @@ class AtlasPatchProposalService:
         meta_reason = str(((verification.get("metadata") or {}).get("primary_verification_reason") or ""))
         if meta_reason:
             return meta_reason
-        for prefix in ("browser_smoke_failed:", "visual_contract_failed", "visual_missing:", "browser_smoke_warning:"):
+        priority = (
+            "browser_smoke_failed:js_error",
+            "browser_smoke_failed:",
+            "visual_missing:",
+            "browser_smoke_warning:",
+            "visual_contract_failed",
+        )
+        for prefix in priority:
             for warning in warnings:
                 if warning == prefix or warning.startswith(prefix):
                     return warning
@@ -312,13 +341,20 @@ class AtlasPatchProposalService:
                 "and global-scope wiring. Do NOT generate a Python test as the only repair. Return corrected, "
                 "COMPLETE browser file content."
             )
-        if primary_reason.startswith("visual_missing") or "animation_not_detected" in primary_reason:
-            return (
-                "The generated browser game files were applied, then visual verification could not detect "
-                f"required motion/animation ({primary_reason}). Fix the IMPLEMENTATION files (Renderer, "
-                "GameEngine, index.html, and relevant canvas code) so requestAnimationFrame drives visible "
-                "canvas updates. Do NOT generate a Python test as the only repair. Return corrected, COMPLETE file content."
+        signal = primary_reason.split("visual_missing:", 1)[-1] if primary_reason.startswith("visual_missing:") else ""
+        hint = self._SIGNAL_REPAIR_HINTS.get(signal)
+        if (
+            hint
+            or primary_reason.startswith("visual_missing")
+            or primary_reason == "visual_contract_failed"
+            or "animation_not_detected" in primary_reason
+        ):
+            base = (
+                "適用したブラウザ成果物が visual contract 検証に FAILED した "
+                f"({primary_reason})。実装ファイル（index.html と関連する js/*.js, Renderer, GameEngine など）を"
+                "修正すること。Python テストだけを生成して通すのは禁止。修正後の COMPLETE なファイル内容を返すこと。"
             )
+            return f"{base}\n対処指針: {hint}" if hint else base
         return (
             "Your previous proposed_content was applied to the target file and then FAILED "
             "verification. Fix the root cause shown below and return corrected, COMPLETE file "
@@ -370,11 +406,14 @@ class AtlasPatchProposalService:
         # If this is a self-correction regeneration, surface the failing verification output so the
         # model fixes the ROOT CAUSE instead of re-emitting the same broken content.
         verification_feedback = self._verification_feedback(input_payload)
+        clarification_directives = self._clarification_directives(input_payload)
         last_failure = "llm_no_output"
         parse_failures = 0
         empty_content_attempts = 0
         for attempt in range(1, self.MAX_LLM_GENERATION_ATTEMPTS + 1):
             user_obj: dict = {"task": base_task, "input": input_payload}
+            if clarification_directives:
+                user_obj["clarification_directives"] = clarification_directives
             if verification_feedback:
                 user_obj["fix_verification_failure"] = verification_feedback
             if attempt > 1:
@@ -414,6 +453,40 @@ class AtlasPatchProposalService:
         fallback.warnings.append("llm_invalid_json_fallback_proposal")
         fallback.metadata["generation_failure_reason"] = last_failure
         return fallback
+
+    def _clarification_directives(self, input_payload: dict) -> dict | None:
+        item = input_payload.get("item") or {}
+        directives = item.get("clarification_implementation_directives")
+        if not isinstance(directives, list) or not directives:
+            return None
+        required_elements: list[str] = []
+        for directive in directives:
+            if not isinstance(directive, dict):
+                continue
+            for signal in directive.get("signals") or []:
+                if not isinstance(signal, dict):
+                    continue
+                instruction = str(signal.get("instruction") or "").strip()
+                signal_name = str(signal.get("signal") or "").strip()
+                if instruction:
+                    required_elements.append(f"{signal_name}: {instruction}" if signal_name else instruction)
+            plan_change = str(directive.get("plan_change_summary") or "").strip()
+            scope = str(directive.get("implementation_scope") or "").strip()
+            custom = str(directive.get("custom_answer") or "").strip()
+            for value in (plan_change, scope, custom):
+                if value and value not in required_elements:
+                    required_elements.append(value)
+        if not required_elements:
+            return None
+        return {
+            "instruction": (
+                "The user answered a clarification question and the revised plan requires these "
+                "implementation elements. Include them in the generated patch content; do not satisfy "
+                "the clarification by adding comments or generic prose only."
+            ),
+            "required_elements": required_elements,
+            "raw_directives": directives,
+        }
 
     def _build_proposal_from_output(self, output: dict, input_payload: dict) -> tuple[AtlasPatchProposal, bool]:
         debug = input_payload.get("debug_review") or {}
@@ -562,7 +635,8 @@ class AtlasPatchProposalService:
                 ignored = True
                 continue
             path_obj = Path(candidate)
-            if path_obj.is_absolute() or ".." in path_obj.parts:
+            posix_path = PurePosixPath(candidate.replace("\\", "/"))
+            if path_obj.is_absolute() or posix_path.is_absolute() or ".." in path_obj.parts or ".." in posix_path.parts:
                 ignored = True
                 continue
             safe_files.append(candidate)
@@ -581,7 +655,8 @@ class AtlasPatchProposalService:
                 continue
             path = str(raw.get("path") or "").strip()
             action = normalize_safe_apply_action_type(raw.get("action_type"))
-            if not path or Path(path).is_absolute() or ".." in Path(path).parts:
+            posix_path = PurePosixPath(path.replace("\\", "/"))
+            if not path or Path(path).is_absolute() or posix_path.is_absolute() or ".." in Path(path).parts or ".." in posix_path.parts:
                 warnings.append("unsafe_file_change_ignored")
                 continue
             if path in seen:

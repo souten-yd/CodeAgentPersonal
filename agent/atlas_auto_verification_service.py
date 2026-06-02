@@ -92,6 +92,9 @@ class AtlasAutoVerificationService:
             ev = self._evaluate_visual(Path(workspace_root) / html_rel, self._visual_task_description(item, pool))
             metadata["visual_contract"] = ev["static"]
             metadata["browser_smoke"] = ev["smoke"]
+            missing = list((ev["static"] or {}).get("missing") or [])
+            if missing:
+                metadata["primary_verification_reason"] = f"visual_missing:{missing[0]}"
             warnings = [*warnings, *ev["warnings"]]
             if status == "passed":
                 if ev["hard_failed"]:
@@ -222,6 +225,9 @@ class AtlasAutoVerificationService:
         ev = self._evaluate_visual(html_path, self._visual_task_description(item, pool))
         warnings = list(ev["warnings"])
         metadata: dict = {"workspace_root": workspace_root, "visual_contract": ev["static"], "browser_smoke": ev["smoke"]}
+        missing = list((ev["static"] or {}).get("missing") or [])
+        if missing:
+            metadata["primary_verification_reason"] = f"visual_missing:{missing[0]}"
         if ev["verify_level"]:
             metadata["verify_level"] = ev["verify_level"]
         status = "failed" if ev["hard_failed"] else "passed"

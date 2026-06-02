@@ -123,15 +123,21 @@ class PlannerPhase1:
             f"Planning Mode: {planning_mode or 'standard'}",
         ])
         raw_payload = call_llm_json(self.llm_json_fn, prompt, planner_input, json_schema=plan_generation_json_schema())
+        fallback_reason = ""
+        fallback_raw_tail = ""
         if raw_payload is None:
+            fallback_reason = "parse_error"
             warnings.append("Plan generation LLM output could not be parsed. Fallback plan was generated.")
             payload: dict = {}
         elif not isinstance(raw_payload, dict):
+            fallback_reason = "not_object"
+            fallback_raw_tail = str(raw_payload)[-500:]
             warnings.append("Plan generation LLM output was not a JSON object. Fallback plan was generated.")
             payload = {}
         else:
             payload = raw_payload
             if not payload:
+                fallback_reason = "empty"
                 warnings.append("Plan generation LLM output was empty. Fallback plan was generated.")
         plan_id = f"plan_{uuid.uuid4().hex[:12]}"
         raw_steps = payload.get("implementation_steps") if isinstance(payload.get("implementation_steps"), list) else []
@@ -210,6 +216,7 @@ class PlannerPhase1:
             destructive_change_detected=bool(payload.get("destructive_change_detected", False)),
             requires_user_confirmation=bool(payload.get("requires_user_confirmation", False)),
             status="planned",
+            metadata={"planner_fallback": {"reason": fallback_reason, "raw_output_tail": fallback_raw_tail}} if fallback_reason else {},
         )
         if not plan.test_plan:
             plan.test_plan = ["APIレスポンス構造の確認", "保存ファイル(JSON/Markdown)の存在確認"]
