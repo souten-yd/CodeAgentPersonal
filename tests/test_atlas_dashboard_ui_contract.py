@@ -348,10 +348,14 @@ def test_claude_panel_renders_user_facing_clarification_issue_and_impact() -> No
 def test_claude_panel_renders_autonomous_repair_failure_summary() -> None:
     assert "function renderAutonomousFailureSummary" in ATLAS_CLAUDE_PANEL_JS
     assert "function renderAutonomousRepairPlan" in ATLAS_CLAUDE_PANEL_JS
+    assert "function renderAutonomousCIFailure" in ATLAS_CLAUDE_PANEL_JS
     assert "verification_failure_summary" in ATLAS_CLAUDE_PANEL_JS
     assert "repairable verification failure" in ATLAS_CLAUDE_PANEL_JS
     assert "Bounded repair plan" in ATLAS_CLAUDE_PANEL_JS
     assert "post-repair verification required" in ATLAS_CLAUDE_PANEL_JS
+    assert "CI failure evidence" in ATLAS_CLAUDE_PANEL_JS
+    assert "CI bounded repair plan" in ATLAS_CLAUDE_PANEL_JS
+    assert "post-CI repair verification required" in ATLAS_CLAUDE_PANEL_JS
 
 
 def test_claude_panel_renders_practical_workbench_flow_without_ui_execution_authority() -> None:

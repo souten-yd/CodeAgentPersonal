@@ -394,6 +394,39 @@ def test_visual_verification_failure_creates_bounded_repair_plan(tmp_path: Path)
     assert status_view["evidence_summary"]["repair_attempts"][0]["kind"] == "bounded_repair_plan"
 
 
+def test_ci_failure_evidence_blocks_draft_readiness_until_bounded_repair_verified(tmp_path: Path) -> None:
+    svc, _proposal, _auto = _service(tmp_path / "ci_failure", _pool([_item("code", "tests/test_app.py")]))
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope={**_active_envelope(), "bounds": {"allowed_paths": ["tests/"], "blocked_paths": [".git/"], "max_actions_per_loop": 4}},
+            allowed_paths=["tests/"],
+            metadata={
+                "ci_failure_evidence": {
+                    "source": "github_actions",
+                    "run_id": "run-1",
+                    "job_id": "job-1",
+                    "failing_command": "python -m pytest -q tests/test_app.py",
+                    "log_text": "FAILED tests/test_app.py::test_feature - AssertionError",
+                }
+            },
+        )
+    )
+
+    assert out.status == "completed"
+    assert out.metadata["ci_failure_evidence"]["confidence"] == "high"
+    assert out.metadata["ci_repair_plan"]["status"] == "planned"
+    assert out.metadata["post_ci_repair_verification_required"] is True
+    assert out.metadata["draft_pr_readiness"]["ready"] is False
+    assert "post_ci_repair_verification_required" in out.metadata["draft_pr_readiness"]["blocked_reasons"]
+    assert "ci_failure_repair_unverified" in out.metadata["draft_pr_readiness"]["blocked_reasons"]
+    status_view = _normalized_status(out.model_dump())
+    assert status_view["evidence_summary"]["ci_failure_evidence"]["source"] == "github_actions"
+    assert status_view["evidence_summary"]["ci_repair_plan"]["post_repair_verification_required"] is True
+    assert status_view["controls"]["can_execute"] is False
+
+
 def test_bounded_repair_plan_limits_files_to_allowed_changed_paths(tmp_path: Path) -> None:
     visual_failed = _Autopilot(
         status="failed",

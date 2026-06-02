@@ -13,6 +13,8 @@ from agent.atlas_autonomous_codegen_orchestrator_schema import (
     AtlasAutonomousCodegenRequest,
     AtlasAutonomousCodegenResult,
 )
+from agent.atlas_ci_failure_repair_schema import AtlasCIFailureRepairRequest
+from agent.atlas_ci_failure_repair_service import AtlasCIFailureRepairService
 from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
 from agent.atlas_multi_item_autopilot_schema import AtlasMultiItemAutopilotRequest
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
@@ -68,6 +70,9 @@ class AtlasAutonomousCodegenOrchestratorService:
         out.metadata["preflight"] = preflight
         out.metadata["workspace_evidence"] = preflight.get("workspace_evidence", {})
         out.metadata["recovery_evidence"] = preflight.get("recovery_evidence", {})
+        ci_failure_metadata = self._ci_failure_metadata(request, pool)
+        if ci_failure_metadata:
+            out.metadata.update(ci_failure_metadata)
         for warning in preflight.get("warnings", []):
             if warning not in out.warnings:
                 out.warnings.append(warning)
@@ -273,6 +278,29 @@ class AtlasAutonomousCodegenOrchestratorService:
         self._emit("autonomous_codegen_completed", request.pool_id, run_id, orchestrator_run_id, status=out.status)
         self.save_result(out)
         return out
+
+    def _ci_failure_metadata(self, request: AtlasAutonomousCodegenRequest, pool: AtlasPlanPool) -> dict[str, Any]:
+        metadata = request.metadata or {}
+        supplied = metadata.get("ci_failure_evidence") if isinstance(metadata.get("ci_failure_evidence"), dict) else {}
+        log_text = str(metadata.get("ci_failure_log") or supplied.get("log_text") or supplied.get("log_excerpt") or "")
+        failing_tests = list(metadata.get("ci_failing_tests") or supplied.get("failing_test_names") or [])
+        affected_files = list(metadata.get("ci_affected_files") or supplied.get("affected_files") or [])
+        if not (log_text.strip() or failing_tests or affected_files):
+            return {}
+        plan_items = [item.model_dump() for item in getattr(pool, "items", []) or []]
+        return AtlasCIFailureRepairService().build(
+            AtlasCIFailureRepairRequest(
+                source=str(supplied.get("source") or metadata.get("ci_failure_source") or "manual"),
+                run_id=str(supplied.get("run_id") or metadata.get("ci_run_id") or ""),
+                job_id=str(supplied.get("job_id") or metadata.get("ci_job_id") or ""),
+                failing_command=str(supplied.get("failing_command") or metadata.get("ci_failing_command") or ""),
+                log_text=log_text,
+                failing_test_names=[str(item) for item in failing_tests],
+                affected_files=[str(path) for path in affected_files],
+                allowed_paths=list(request.allowed_paths or []),
+                plan_items=plan_items,
+            )
+        )
 
     def _preflight(self, request: AtlasAutonomousCodegenRequest, pool: AtlasPlanPool) -> dict:
         project_path = str(request.project_path or getattr(pool, "project_path", "") or "").strip()
@@ -945,6 +973,12 @@ class AtlasAutonomousCodegenOrchestratorService:
             blocked_reasons.append("post_repair_verification_required")
         if metadata.get("verification_failure_summary"):
             blocked_reasons.append("verification_failure_unresolved")
+        ci_plan = metadata.get("ci_repair_plan") if isinstance(metadata.get("ci_repair_plan"), dict) else {}
+        ci_post_repair = metadata.get("post_ci_repair_verification_result") if isinstance(metadata.get("post_ci_repair_verification_result"), dict) else {}
+        if metadata.get("post_ci_repair_verification_required") and str(ci_post_repair.get("status") or "") != "passed":
+            blocked_reasons.append("post_ci_repair_verification_required")
+        if ci_plan.get("status") == "planned":
+            blocked_reasons.append("ci_failure_repair_unverified")
         if result.stop_reason in {"clarification_required", "critical_event_waiting_for_user_decision"}:
             blocked_reasons.append(result.stop_reason)
         return {

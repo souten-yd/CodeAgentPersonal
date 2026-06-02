@@ -1339,6 +1339,7 @@
     renderAutonomousList(summary, 'Verification', Object.keys(verification).map((key) => `${key}: ${verification[key]}`));
     renderAutonomousFailureSummary(summary, evidence.verification_failure_summary || {});
     renderAutonomousRepairPlan(summary, evidence.repair_plan || {});
+    renderAutonomousCIFailure(summary, evidence.ci_failure_evidence || {}, evidence.ci_repair_plan || {});
     renderAutonomousList(summary, 'Repair attempts', (evidence.repair_attempts || []).map((r) => `${r.item_id}: ${r.kind} ${r.status || ''}`));
     renderAutonomousList(summary, 'User-visible warnings', view.user_visible_warnings || []);
     renderWorkbenchControls(summary, controls);
@@ -1422,6 +1423,22 @@
     if ((plan.concrete_repair_steps || []).length) {
       renderAutonomousList(parent, 'Concrete repair steps', plan.concrete_repair_steps || []);
     }
+  }
+
+  function renderAutonomousCIFailure(parent, evidence, plan) {
+    if ((!evidence || !Object.keys(evidence).length) && (!plan || !Object.keys(plan).length)) return;
+    renderAutonomousList(parent, 'CI failure evidence', [
+      evidence.source ? `source: ${evidence.source}` : '',
+      evidence.failing_command ? `command: ${evidence.failing_command}` : '',
+      (evidence.failing_test_names || []).length ? `tests: ${(evidence.failing_test_names || []).join(', ')}` : '',
+      evidence.confidence ? `confidence: ${evidence.confidence}` : '',
+    ]);
+    renderAutonomousList(parent, 'CI bounded repair plan', [
+      plan.status ? `status: ${plan.status}` : '',
+      plan.failure_class ? `class: ${plan.failure_class}` : '',
+      (plan.allowed_repair_files || []).length ? `allowed files: ${(plan.allowed_repair_files || []).join(', ')}` : '',
+      plan.post_repair_verification_required ? 'post-CI repair verification required' : '',
+    ]);
   }
 
   function appendAutonomousDecision(parent, label, enabled) {
