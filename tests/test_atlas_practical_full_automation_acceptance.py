@@ -677,3 +677,88 @@ def test_manifest_truthfulness_acceptance_flags_remain_corrective_checkpoint() -
     assert manifest["ui_practical_experience_complete"] is False
     assert manifest["stable_runtime_mutation_apply_complete"] is False
     assert manifest["self_improvement_practical_loop_complete"] is False
+
+
+def test_practical_full_automation_e2e_acceptance_matrix_preserves_blockers(tmp_path: Path) -> None:
+    happy_items = [_item("doc", "docs/atlas.md"), _item("code", "src/fix.py")]
+    svc, proposal, auto = _service(tmp_path / "happy", _pool(happy_items))
+    happy = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+            allowed_paths=["docs/", "src/"],
+        )
+    )
+    happy_status = _normalized_status(happy.model_dump())
+    assert happy.status == "completed"
+    assert proposal.calls == []
+    assert auto.last_request is not None
+    assert sorted(happy.metadata["changed_files"]) == ["src/code.py", "src/doc.py"]
+    assert happy_status["evidence_summary"]["final_summary"]["draft_pr_ready"] is True
+    assert happy_status["controls"]["can_execute"] is False
+
+    clarification_pool = _pool(
+        [_item("amb", "src/a.py")],
+        status="needs_scope_confirmation",
+        metadata={"clarification_required": True, "clarification_questions": [{"question_id": "q1", "status": "pending"}]},
+    )
+    svc, proposal, auto = _service(tmp_path / "clarification_matrix", clarification_pool)
+    clarification = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_accept"))
+    clarification_status = _normalized_status(clarification.model_dump())
+    assert clarification.stop_reason == "clarification_required"
+    assert proposal.calls == []
+    assert auto.last_request is None
+    assert clarification_status["controls"]["can_answer_clarification"] is True
+    assert clarification_status["controls"]["can_execute"] is False
+
+    critical_item = _item("crit", "src/security.py", status="waiting_for_critical_decision", risk_level="critical")
+    critical_pool = _pool([critical_item], status="waiting_for_critical_decision")
+    svc, proposal, auto = _service(tmp_path / "critical_matrix", critical_pool)
+    critical = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_accept"))
+    critical_status = _normalized_status(critical.model_dump())
+    assert critical.stop_reason == "critical_event_waiting_for_user_decision"
+    assert proposal.calls == []
+    assert auto.last_request is None
+    assert critical_status["controls"]["can_approve_critical_event"] is True
+    assert critical_status["controls"]["can_execute"] is False
+
+    visual_failed = _Autopilot(
+        status="failed",
+        item_results=[
+            AtlasAutopilotItemResult(
+                item_id="game",
+                status="failed",
+                reason="verification_failed:visual_contract_failed",
+                changed_files=["index.html"],
+                verification_result={"status": "failed", "warnings": ["visual_contract_failed", "visual_missing:motion_signal"]},
+            )
+        ],
+    )
+    svc, _proposal, _auto = _service(tmp_path / "visual_matrix", _pool([_item("game", "index.html")]), visual_failed)
+    visual = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_accept", max_retries=1))
+    assert visual.phase == "failure_analysis"
+    assert visual.metadata["repair_plan"]["post_repair_verification_required"] is True
+    assert visual.metadata["draft_pr_readiness"]["ready"] is False
+
+    svc, proposal, auto = _service(tmp_path / "path_matrix", _pool([_item("blocked", "src/blocked.py")]))
+    path_blocked = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+            allowed_paths=["docs/"],
+        )
+    )
+    assert path_blocked.stop_reason == "path_outside_allowed_paths"
+    assert proposal.calls == []
+    assert auto.last_request is None
+
+    manifest = json.loads(Path("docs/atlas_automation_phase_manifest.json").read_text(encoding="utf-8"))
+    policy = Path("docs/atlas_autonomous_execution_readiness_policy.md").read_text(encoding="utf-8")
+    assert manifest["practical_full_automation_complete"] is False
+    assert manifest["direct_merge_enabled"] is False
+    assert manifest["remote_git_push_enabled"] is False
+    assert manifest["self_apply_enabled"] is False
+    assert manifest["vue_source_of_truth"] is False
+    assert "critical events always require user judgment" in policy.lower()
