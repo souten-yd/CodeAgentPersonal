@@ -16,7 +16,7 @@ def _client(tmp_path):
 
 
 def _create_pool(c):
-    return c.post('/api/atlas/plan-pools', json={'input': 'snapshot restore'}).json()
+    return c.post('/api/atlas/plan-pools?sync=1', json={'input': 'snapshot restore'}).json()
 
 
 def _mutate_item(tmp_path, pool_id, item_id, **updates):
