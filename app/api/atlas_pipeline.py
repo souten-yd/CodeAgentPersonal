@@ -1774,6 +1774,7 @@ def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Reque
         pool.status = "approval_required"
     storage.save_pool(pool)
     journal.save_plan_pool(pool)
+    blocked_reasons = _clarification_execution_block_reasons(pool)
     return {
         "pool_id": pool_id,
         "status": pool.status,
@@ -1782,6 +1783,13 @@ def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Reque
         "pending_question_count": pool.metadata["pending_question_count"],
         "answered_question_count": pool.metadata["answered_question_count"],
         "clarification_replanning": replan_result,
+        "revised_plan_snapshot": pool.metadata.get("revised_plan_snapshot"),
+        "plan_revision_diff": pool.metadata.get("plan_revision_diff"),
+        "gate_rerun_summary": pool.metadata.get("gate_rerun_summary"),
+        "revised_plan_summary": pool.metadata.get("revised_plan_summary"),
+        "changed_scope_summary": pool.metadata.get("changed_scope_summary"),
+        "next_required_user_action": pool.metadata.get("next_required_user_action"),
+        "blocked_reasons": blocked_reasons,
         "plan_pool": _model_dump(pool),
     }
 

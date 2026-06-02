@@ -323,6 +323,11 @@ def test_claude_panel_mirrors_clarification_execution_blocker_contract() -> None
     assert "確認回答と plan revision / gate rerun が完了するまで承認できません" in render_snippet
     assert render_snippet.index("clarificationBlocks.length") < render_snippet.index("poolStatus === 'approval_required'")
     assert render_snippet.index("clarificationBlocks.length") < render_snippet.index("appendPlanActionPrompt(poolId)")
+    assert "Plan revised and gates rerun" in render_snippet
+    assert "changed_scope_summary" in render_snippet
+    assert "gate_rerun_summary" in render_snippet
+    assert "allowed_paths_after_clarification" in render_snippet
+    assert "item_changed_fields" in render_snippet
 
 
 def test_claude_panel_renders_user_facing_clarification_issue_and_impact() -> None:
