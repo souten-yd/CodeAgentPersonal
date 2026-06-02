@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Callable
 
@@ -96,15 +97,21 @@ class PlannerPhase1:
             f"Planning Mode: {planning_mode or 'standard'}",
         ])
         raw_payload = call_llm_json(self.llm_json_fn, prompt, planner_input, json_schema=plan_generation_json_schema())
+        fallback_reason = ""
+        fallback_raw_tail = ""
         if raw_payload is None:
+            fallback_reason = "parse_error"
             warnings.append("Plan generation LLM output could not be parsed. Fallback plan was generated.")
             payload: dict = {}
         elif not isinstance(raw_payload, dict):
+            fallback_reason = "not_object"
+            fallback_raw_tail = str(raw_payload)[-500:]
             warnings.append("Plan generation LLM output was not a JSON object. Fallback plan was generated.")
             payload = {}
         else:
             payload = raw_payload
             if not payload:
+                fallback_reason = "empty"
                 warnings.append("Plan generation LLM output was empty. Fallback plan was generated.")
         plan_id = f"plan_{uuid.uuid4().hex[:12]}"
         raw_steps = payload.get("implementation_steps") if isinstance(payload.get("implementation_steps"), list) else []
@@ -125,19 +132,38 @@ class PlannerPhase1:
                 )
             )
         if not steps:
-            steps = [
-                ImplementationStep(
-                    step_id="step_1",
-                    title="現状調査と変更方針の確定",
-                    description="関連ファイルと既存API/UIフローを確認し、変更範囲を確定する。",
-                    target_files=[],
-                    action_type="inspect",
-                    risk_level="low",
-                    verification="対象の既存機能が把握できていること",
-                    rollback="変更未実施のため不要",
-                )
-            ]
-            warnings.append("Plan generation LLM output did not include implementation_steps. Fallback inspection step was generated.")
+            if not fallback_reason:
+                fallback_reason = "no_implementation_steps"
+                fallback_raw_tail = str(raw_payload)[-500:]
+            skeleton_target = _infer_simple_fallback_target(requirement)
+            if skeleton_target:
+                steps = [
+                    ImplementationStep(
+                        step_id="step_1",
+                        title="要件に基づく実装",
+                        description=f"{requirement.user_input} を満たす {skeleton_target} を生成する。",
+                        target_files=[skeleton_target],
+                        action_type="create",
+                        risk_level="low",
+                        verification="生成物が要件の done_definition を満たすこと",
+                        rollback=f"{skeleton_target} を削除",
+                    )
+                ]
+                warnings.append("Plan generation LLM output did not include implementation_steps. Fallback implementation skeleton was generated.")
+            else:
+                steps = [
+                    ImplementationStep(
+                        step_id="step_1",
+                        title="現状調査と変更方針の確定",
+                        description="関連ファイルと既存API/UIフローを確認し、変更範囲を確定する。",
+                        target_files=[],
+                        action_type="inspect",
+                        risk_level="low",
+                        verification="対象の既存機能が把握できていること",
+                        rollback="変更未実施のため不要",
+                    )
+                ]
+                warnings.append("Plan generation LLM output did not include implementation_steps. Fallback inspection step was generated.")
 
         selected_arch = str(payload.get("selected_architecture", "Incremental additive changes"))
         mode = planning_mode if planning_mode in {"fast", "standard", "deep_nexus"} else "standard"
@@ -166,6 +192,7 @@ class PlannerPhase1:
             destructive_change_detected=bool(payload.get("destructive_change_detected", False)),
             requires_user_confirmation=bool(payload.get("requires_user_confirmation", False)),
             status="planned",
+            metadata={"planner_fallback": {"reason": fallback_reason, "raw_output_tail": fallback_raw_tail}} if fallback_reason else {},
         )
         if not plan.test_plan:
             plan.test_plan = ["APIレスポンス構造の確認", "保存ファイル(JSON/Markdown)の存在確認"]
@@ -213,3 +240,82 @@ def _format_nexus_context(nexus_context: dict) -> str:
         else:
             lines.append(f"- {str(item)[:220]}")
     return "\n".join([x for x in lines if x]).strip()[:9000]
+
+
+def _infer_simple_fallback_target(requirement: RequirementDefinition) -> str:
+    text = " ".join(
+        [
+            requirement.user_input or "",
+            requirement.interpreted_goal or "",
+            " ".join(requirement.functional_requirements or []),
+            " ".join(requirement.done_definition or []),
+        ]
+    ).lower()
+    if not text.strip() or _contains_high_risk_fallback_intent(text):
+        return ""
+    if not _contains_create_or_edit_intent(text):
+        return ""
+
+    explicit_files = re.findall(r"[\w./-]+\.(?:html|css|js|ts|tsx|jsx|py|md|json|txt)", text)
+    safe_explicit = [path for path in explicit_files if not path.startswith(("/", "\\")) and ".." not in path.split("/")]
+    if len(set(safe_explicit)) == 1:
+        return safe_explicit[0]
+    if len(set(safe_explicit)) > 1:
+        return ""
+
+    candidates: list[str] = []
+    if any(keyword in text for keyword in ("html", ".html", "web page", "webページ", "ページ", "サイト")):
+        candidates.append("index.html")
+    if any(keyword in text for keyword in ("javascript", "script", "スクリプト")):
+        candidates.append("script.js")
+    if any(keyword in text for keyword in ("css", "style", "スタイル")):
+        candidates.append("style.css")
+    if any(keyword in text for keyword in ("python", ".py")):
+        candidates.append("main.py")
+    unique = list(dict.fromkeys(candidates))
+    return unique[0] if len(unique) == 1 else ""
+
+
+def _contains_create_or_edit_intent(text: str) -> bool:
+    return any(
+        keyword in text
+        for keyword in (
+            "作って",
+            "作成",
+            "生成",
+            "追加",
+            "実装",
+            "作る",
+            "create",
+            "implement",
+            "add",
+            "write",
+            "build",
+        )
+    )
+
+
+def _contains_high_risk_fallback_intent(text: str) -> bool:
+    return any(
+        keyword in text
+        for keyword in (
+            "delete",
+            "remove",
+            "rm ",
+            "削除",
+            "破壊",
+            "run_command",
+            "shell",
+            "execute",
+            "実行",
+            "credential",
+            "secret",
+            "password",
+            "token",
+            "database",
+            "db",
+            "migration",
+            "production",
+            "本番",
+        )
+    )

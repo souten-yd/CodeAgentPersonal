@@ -85,6 +85,24 @@ def test_inspect_action_becomes_research_item() -> None:
     assert item.item_type == "research"
 
 
+def test_inspect_action_with_target_files_is_reclassified_as_implementation() -> None:
+    payload = {
+        "implementation_steps": [
+            {
+                "action_type": "inspect",
+                "title": "Create index.html",
+                "description": "Create an HTML file for the requested page.",
+                "target_files": ["index.html"],
+            }
+        ]
+    }
+
+    item = AtlasPlanPoolBuilder().build_from_plan_payload(payload, root_goal="HTML を作って", pool_id="pool_test").items[0]
+
+    assert item.item_type == "implementation"
+    assert item.metadata["action_type"] == "create"
+
+
 def test_high_risk_requires_confirmation_and_disables_auto_execution() -> None:
     payload = {"implementation_steps": [{"title": "Risky", "risk_level": "high"}]}
 

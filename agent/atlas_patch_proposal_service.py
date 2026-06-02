@@ -49,6 +49,9 @@ class AtlasPatchProposalService:
         # until the plan is revised / approved. full_auto-continuation pools never set this flag.
         if bool((pool.metadata or {}).get("plan_revision_required")):
             warnings = ["plan_revision_required_blocks_patch"]
+            planner_fallback = (pool.metadata or {}).get("planner_fallback")
+            if isinstance(planner_fallback, dict) and planner_fallback.get("reason"):
+                warnings.append(f"planner_fallback:{planner_fallback.get('reason')}")
             self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_blocked", item, "blocked", warnings=warnings)
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump())
         ok, warnings = self.validate_item_for_patch_proposal(pool, item, request)

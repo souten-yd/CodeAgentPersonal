@@ -918,8 +918,18 @@
             const status = r.data.status || 'unknown';
             const warnings = Array.isArray(r.data.warnings) ? r.data.warnings : [];
             const errors = Array.isArray(r.data.errors) ? r.data.errors : [];
-            const parts = [`status=${status}`, 'LLMがパッチ内容を生成できませんでした'];
+            const planPoolMeta = (r.data.plan_pool && r.data.plan_pool.metadata) || {};
+            const plannerFallback = planPoolMeta.planner_fallback || null;
+            const warningText = warnings.join('; ');
+            let cause = 'LLMがパッチ内容を生成できませんでした';
+            if (status === 'blocked' && warnings.includes('plan_revision_required_blocks_patch')) {
+              cause = 'プランがレビュー必要状態のためパッチ生成前に停止しました（プラン修正が必要）。';
+            } else if (status === 'blocked' && (warnings.includes('no_implementation_items') || warningText.includes('planner_fallback') || plannerFallback)) {
+              cause = 'プランナーLLMが期待形式（implementation_steps）で応答しなかったため、簡易プランに退避しています。LLMの出力形式を確認してください。';
+            }
+            const parts = [`status=${status}`, cause];
             if (warnings.length) parts.push(`warnings=${warnings.join('; ')}`);
+            if (plannerFallback && plannerFallback.reason) parts.push(`planner_fallback=${plannerFallback.reason}`);
             if (errors.length) parts.push(`errors=${errors.join('; ')}`);
             msg = parts.join(' / ');
           }
