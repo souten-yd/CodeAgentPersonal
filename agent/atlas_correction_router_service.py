@@ -62,7 +62,7 @@ class AtlasCorrectionRouterService:
             out.metadata["linked_implementation_item"] = impl_link["item_id"]
             self._emit(request, "correction_route_diagnosis", status=decision, extra={"impl_item": impl_link["item_id"], "source": diag.get("source")})
 
-            if decision == FIX_CODE and impl_item is not None and self._is_applied(impl_item) and self._risk_ok(impl_item):
+            if decision == FIX_CODE and impl_item is not None and self._is_applied(impl_item) and self._risk_ok(impl_item, request):
                 routed = self._fix_code(request, pool, impl_item, test_item, vr, test_content)
                 if routed.status == "recovered":
                     routed.metadata.update(out.metadata)
@@ -129,8 +129,9 @@ class AtlasCorrectionRouterService:
         auto = str((md.get("auto_safe_apply") or {}).get("status") or "").lower()
         return safe == "applied" or auto == "applied"
 
-    def _risk_ok(self, item) -> bool:
-        return str(getattr(item, "risk_level", "") or "").lower() in AUTO_REAPPLY_RISK_LEVELS
+    def _risk_ok(self, item, request: AtlasSelfCorrectionRequest | None = None) -> bool:
+        allowed = {str(r).lower() for r in (getattr(request, "risk_levels", None) or [])} or AUTO_REAPPLY_RISK_LEVELS
+        return str(getattr(item, "risk_level", "") or "").lower() in allowed
 
     def _read_item_file(self, pool, request: AtlasSelfCorrectionRequest, item) -> str:
         """Best-effort read of an item's single target file from the workspace; "" on any problem."""

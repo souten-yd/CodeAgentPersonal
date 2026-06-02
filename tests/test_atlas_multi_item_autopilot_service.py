@@ -154,3 +154,61 @@ def test_self_correction_receives_actual_changed_files_and_file_results(tmp_path
 
     assert captured['changed_files'] == ['actual.txt']
     assert captured['file_results'] == file_results
+
+
+def test_skipped_self_correction_risk_reason_surfaced_as_warning(tmp_path):
+    """When the repair loop is skipped because the item's risk level is above the
+    auto-reapply threshold, the reason must be visible on the item result and the
+    configured risk levels threaded into the self-correction request."""
+    pool = AtlasPlanPool(
+        pool_id='p1', root_goal='g', project_path=str(tmp_path),
+        items=[AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g',
+                             item_type='implementation', risk_level='medium', status='ready',
+                             target_files=['a.txt'],
+                             metadata={'action_type': 'create', 'proposed_content': 'a\n'})],
+    )
+    captured = {}
+
+    class Storage:
+        def load_pool(self, pool_id):
+            return pool
+        def save_pool(self, p):
+            pass
+
+    class Journal:
+        def append_event(self, *args, **kwargs):
+            pass
+
+    class AutoSafe:
+        def execute_one(self, request):
+            return SimpleNamespace(status='applied', changed_files=['a.txt'],
+                                   model_dump=lambda: {'status': 'applied', 'changed_files': ['a.txt'], 'actual_file_changed': True})
+
+    class Verification:
+        def run_after_auto_safe_apply(self, request):
+            return SimpleNamespace(status='failed', warnings=['visual_contract_failed'],
+                                   model_dump=lambda: {'status': 'failed', 'warnings': ['visual_contract_failed']})
+
+    class SelfCorrection:
+        def run(self, request):
+            captured['risk_levels'] = request.risk_levels
+            return SimpleNamespace(status='skipped', reason='risk_level_not_auto_reapplyable:high',
+                                   changed_files=[], model_dump=lambda: {'status': 'skipped', 'reason': 'risk_level_not_auto_reapplyable:high'})
+
+    svc = AtlasMultiItemAutopilotService(
+        storage=Storage(), journal=Journal(), automation_gate=AtlasAutomationGateService(),
+        auto_safe_apply_service=AutoSafe(), auto_verification_service=Verification(),
+        context_refresh_service=SimpleNamespace(refresh=lambda request: SimpleNamespace(status='available', bundle_id='ctx1')),
+        evaluator_service=SimpleNamespace(evaluate=lambda request: SimpleNamespace(metadata={'eval_id': 'ev1'}, decision=SimpleNamespace(model_dump=lambda: {'decision': 'continue'}))),
+        self_correction_service=SelfCorrection(),
+    )
+
+    out = svc.run(AtlasMultiItemAutopilotRequest(
+        pool_id='p1', project_path=str(tmp_path), policy_id='full_auto_multi_item_v1',
+        require_approval=False, include_context_refresh=False, include_evaluator=False,
+        include_harness_provisioning=False, include_self_correction=True,
+        self_correction_risk_levels=['low', 'medium', 'high'],
+    ))
+
+    assert captured['risk_levels'] == ['low', 'medium', 'high']
+    assert 'risk_level_not_auto_reapplyable:high' in out.item_results[0].warnings

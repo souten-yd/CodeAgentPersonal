@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import re
+import threading
 import time
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import quote
 
 try:
     from playwright.sync_api import sync_playwright  # type: ignore[import]
@@ -14,14 +19,50 @@ except ImportError:
 _ANIMATION_TASK_HINT = ("animat", "wave", "oscillat", "bounce", "spin", "rotat", "pulse", "fade",
                         "move", "motion", "color chang", "hue")
 
-# How long to wait for animations to produce a change (ms)
+# How long to wait for animations to produce a change (ms). Generous enough for slow
+# first-frame animations and games that start a beat after load.
 _ANIMATION_POLL_INTERVAL_MS = 100
-_ANIMATION_MAX_WAIT_MS = 2000
+_ANIMATION_MAX_WAIT_MS = 3500
 
 
 def _is_animation_task(task_description: str) -> bool:
     desc = task_description.lower()
     return any(hint in desc for hint in _ANIMATION_TASK_HINT)
+
+
+class _QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
+    """SimpleHTTPRequestHandler that doesn't spam stderr with per-request log lines."""
+
+    def log_message(self, *_args) -> None:  # noqa: D401 — silence access logs
+        return
+
+
+@contextlib.contextmanager
+def _serve_artifact_dir(root: Path):
+    """Serve ``root`` over an ephemeral loopback HTTP server.
+
+    Generated apps frequently load ``<script type="module">`` or use ``fetch()``, both of
+    which the browser blocks under ``file://`` (origin ``null``). Serving over
+    ``http://127.0.0.1`` lets those execute so animation detection isn't a false negative.
+
+    Yields the base URL, or ``None`` if a server can't be bound (caller falls back to
+    ``file://``). Constrained: loopback only, ephemeral port, static read-only serving.
+    """
+    server = None
+    try:
+        handler = partial(_QuietHTTPRequestHandler, directory=str(root))
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    except Exception:  # noqa: BLE001 — any bind/serve failure falls back to file://
+        yield None
+    finally:
+        if server is not None:
+            try:
+                server.shutdown()
+                server.server_close()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 class AtlasPlaywrightSmokeVerifier:
@@ -41,19 +82,19 @@ class AtlasPlaywrightSmokeVerifier:
         if not _PLAYWRIGHT_AVAILABLE:
             return self._result("browser_smoke_skipped", reason="playwright_not_installed")
 
-        uri = html_path.as_uri()
         is_anim = _is_animation_task(task_description)
         console_errors: list[str] = []
 
         try:
-            with sync_playwright() as pw:
+            with sync_playwright() as pw, _serve_artifact_dir(html_path.parent) as base_url:
+                target = f"{base_url}/{quote(html_path.name)}" if base_url else html_path.as_uri()
                 browser = pw.chromium.launch(headless=True)
                 page = browser.new_page()
                 page.on("console", lambda msg: console_errors.append(msg.text)
                         if msg.type in ("error", "warning") else None)
                 page.on("pageerror", lambda err: console_errors.append(str(err)))
 
-                page.goto(uri, wait_until="domcontentloaded", timeout=10000)
+                page.goto(target, wait_until="domcontentloaded", timeout=10000)
 
                 # Check for JS errors (ReferenceError / SyntaxError are hard failures).
                 # Add local static diagnostics so repair planning can target common
@@ -83,6 +124,10 @@ class AtlasPlaywrightSmokeVerifier:
                 # canvas games because pixels mutate while canvas CSS stays constant.
                 # First check styles, then sample canvas pixels/toDataURL over file:// only.
                 if is_anim:
+                    # Many generated games gate their loop on a first interaction (click to
+                    # start / key to move). A single guarded nudge starts them before sampling
+                    # so an interaction-gated animation isn't reported as "not detected".
+                    self._nudge_interaction(page)
                     style_changed = self._check_style_changes_over_time(page)
                     canvas = self._check_canvas_changes_over_time(page)
                     browser.close()
@@ -109,6 +154,21 @@ class AtlasPlaywrightSmokeVerifier:
         except Exception as exc:  # noqa: BLE001
             return self._result("browser_smoke_failed", reason=f"playwright_error: {exc}",
                                 console_errors=console_errors)
+
+    def _nudge_interaction(self, page) -> None:
+        """Best-effort: start interaction-gated animations/games with one click in the
+        viewport centre plus a couple of common start/move keys. No arbitrary or
+        user-supplied automation — failures are swallowed so sampling proceeds regardless."""
+        try:
+            size = page.viewport_size or {"width": 800, "height": 600}
+            page.mouse.click(int(size["width"]) // 2, int(size["height"]) // 2)
+        except Exception:  # noqa: BLE001
+            pass
+        for key in ("Space", "ArrowRight", "Enter"):
+            try:
+                page.keyboard.press(key)
+            except Exception:  # noqa: BLE001
+                pass
 
     def _check_style_changes_over_time(self, page) -> bool:
         """Poll computed transform + color on body/canvas for up to _ANIMATION_MAX_WAIT_MS."""

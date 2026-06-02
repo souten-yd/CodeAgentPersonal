@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from agent.atlas_artifact_asset_utils import collect_linked_asset_text
+
 # Static signals checked in HTML/CSS/JS visual artifacts
 _ANIMATION_SIGNALS = [
     (re.compile(r'\brequestAnimationFrame\b'), 'requestAnimationFrame'),
@@ -52,9 +54,15 @@ class AtlasVisualArtifactVerifier:
             return self._result("failed", checks=[], missing=["html_file_missing"])
 
         try:
-            content = html_path.read_text(encoding="utf-8", errors="replace")
+            html_content = html_path.read_text(encoding="utf-8", errors="replace")
         except Exception as exc:
             return self._result("failed", checks=[], missing=[f"html_read_error: {exc}"])
+
+        # Generated apps routinely split logic into external files (e.g. index.html +
+        # js/game.js + css/style.css), so the animation/color/motion signals live outside
+        # the entry HTML. Scan the linked/sibling CSS & JS too — checking only the HTML
+        # produces a false-negative "visual_contract_failed" for any multi-file artifact.
+        content = html_content + "\n" + collect_linked_asset_text(html_path, html_content)
 
         task_desc = task_description.lower()
         is_animation_task = bool(_ANIMATION_TASK_KEYWORDS.search(task_desc))

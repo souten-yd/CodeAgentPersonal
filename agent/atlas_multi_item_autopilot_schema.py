@@ -29,6 +29,9 @@ class AtlasMultiItemAutopilotRequest(BaseModel):
     max_retry_attempts_per_item: int = 2
     include_self_correction: bool = True
     self_correction_max_attempts: int = 2
+    # Risk levels the self-correction loop may auto-reapply. Default low/medium preserves the
+    # human-review guard on high/critical items; widen explicitly to repair higher-risk items.
+    self_correction_risk_levels: list[str] = Field(default_factory=lambda: ["low", "medium"])
     include_harness_provisioning: bool = True
     # Route a verification failure to the right artifact: if a failing test is caused by a code bug,
     # regenerate the implementation item (not just the test). Falls back to self-correction.

@@ -44,9 +44,11 @@ class AtlasSelfCorrectionService:
             out.status, out.reason = "not_attempted", "item_not_found"
             return out
 
-        # Gate: only auto-reapply low/medium risk items. high/critical stop for human review.
+        # Gate: only auto-reapply the configured risk levels (default low/medium). high/critical
+        # stop for human review unless the caller explicitly widens request.risk_levels.
+        allowed_risk = {str(r).lower() for r in (request.risk_levels or [])} or AUTO_REAPPLY_RISK_LEVELS
         risk = str(getattr(item, "risk_level", "") or "").lower()
-        if risk not in AUTO_REAPPLY_RISK_LEVELS:
+        if risk not in allowed_risk:
             out.status, out.reason = "skipped", f"risk_level_not_auto_reapplyable:{risk or 'unknown'}"
             return out
 

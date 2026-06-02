@@ -14,6 +14,9 @@ class AtlasSelfCorrectionRequest(BaseModel):
     changed_files: list[str] = Field(default_factory=list)
     file_results: list[dict] = Field(default_factory=list)
     max_attempts: int = 2
+    # Risk levels eligible for automatic re-apply. Default low/medium keeps the human-review
+    # guard on high/critical; callers may widen it explicitly.
+    risk_levels: list[str] = Field(default_factory=lambda: ["low", "medium"])
 
 
 class AtlasSelfCorrectionResult(BaseModel):
