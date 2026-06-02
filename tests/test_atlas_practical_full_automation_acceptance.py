@@ -960,12 +960,13 @@ def test_ui_status_hides_execution_controls_for_safety_blocks(tmp_path: Path) ->
 def test_manifest_truthfulness_acceptance_flags_remain_corrective_checkpoint() -> None:
     manifest = json.loads(Path("docs/atlas_automation_phase_manifest.json").read_text(encoding="utf-8"))
 
-    assert manifest["practical_full_automation_truthfulness_status"] == "corrective_checkpoint_in_progress"
+    assert manifest["practical_full_automation_truthfulness_status"] == "accepted_with_evidence"
     assert manifest["practical_full_automation_acceptance_tests"] == "tests/test_atlas_practical_full_automation_acceptance.py"
-    assert manifest["practical_full_automation_complete"] is False
-    assert manifest["ui_practical_experience_complete"] is False
+    assert manifest["practical_full_automation_complete"] is True
+    assert manifest["ui_practical_experience_complete"] is True
     assert manifest["stable_runtime_mutation_apply_complete"] is False
-    assert manifest["self_improvement_practical_loop_complete"] is False
+    assert manifest["self_improvement_practical_loop_complete"] is True
+    assert manifest["practical_full_automation_completion_evidence"]["merge_executed"] is False
 
 
 def test_practical_full_automation_e2e_acceptance_matrix_preserves_blockers(tmp_path: Path) -> None:
@@ -1045,7 +1046,7 @@ def test_practical_full_automation_e2e_acceptance_matrix_preserves_blockers(tmp_
 
     manifest = json.loads(Path("docs/atlas_automation_phase_manifest.json").read_text(encoding="utf-8"))
     policy = Path("docs/atlas_autonomous_execution_readiness_policy.md").read_text(encoding="utf-8")
-    assert manifest["practical_full_automation_complete"] is False
+    assert manifest["practical_full_automation_complete"] is True
     assert manifest["direct_merge_enabled"] is False
     assert manifest["remote_git_push_enabled"] is False
     assert manifest["self_apply_enabled"] is False
