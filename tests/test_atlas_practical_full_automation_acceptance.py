@@ -546,6 +546,94 @@ def test_envelope_and_forbidden_operation_acceptance(tmp_path: Path) -> None:
     assert auto.last_request is None
 
 
+def test_self_platform_candidate_mode_requires_strict_candidate_workspace(tmp_path: Path) -> None:
+    runtime_item = _item("runtime", "agent/atlas_runtime.py")
+
+    svc, _proposal, auto = _service(tmp_path / "self_platform_no_flag", _pool([runtime_item]))
+    missing_flag = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope={**_active_envelope(), "bounds": {"allowed_paths": ["agent/"], "blocked_paths": [".git/"], "max_actions_per_loop": 4}},
+            allowed_paths=["agent/"],
+        )
+    )
+    assert missing_flag.status == "stopped"
+    assert missing_flag.stop_reason == "self_platform_requires_self_improvement"
+    assert auto.last_request is None
+
+    svc, _proposal, auto = _service(tmp_path / "self_platform_no_strict", _pool([runtime_item]))
+    no_strict = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            self_improvement=True,
+            envelope={
+                **_active_envelope(),
+                "envelope_id": "pre_authorized_self_improvement_envelope",
+                "bounds": {"allowed_paths": ["agent/"], "blocked_paths": [".git/"], "max_actions_per_loop": 4},
+            },
+            allowed_paths=["agent/"],
+        )
+    )
+    assert no_strict.status == "stopped"
+    assert no_strict.stop_reason == "self_improvement_without_strict_gate"
+    assert auto.last_request is None
+
+    candidate_root = tmp_path / "candidate_self_platform"
+    svc, _proposal, auto = _service(tmp_path / "self_platform_candidate", _pool([runtime_item]))
+    candidate = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            self_improvement=True,
+            envelope={
+                **_active_envelope(),
+                "envelope_id": "pre_authorized_self_improvement_envelope",
+                "strict_gate_approved": True,
+                "level4_checkpoint_path": "checkpoints/level4.json",
+                "bounds": {"allowed_paths": ["agent/"], "blocked_paths": [".git/"], "max_actions_per_loop": 4},
+            },
+            allowed_paths=["agent/"],
+            metadata={"candidate_workspace_path": str(candidate_root), "work_target": "platform_self_improvement"},
+        )
+    )
+    assert candidate.status == "completed"
+    assert auto.last_request is not None
+    assert auto.last_request.project_path == str(candidate_root)
+    target = candidate.metadata["preflight"]["self_platform_target"]
+    assert target["is_self_platform"] is True
+    assert target["candidate_only"] is True
+    assert target["stable_runtime_mutation_enabled"] is False
+    assert target["self_apply_enabled"] is False
+    assert target["release_pointer_switch_enabled"] is False
+    assert candidate.metadata["workspace_evidence"]["candidate_workspace_root"] == str(candidate_root)
+    assert candidate.metadata["workspace_evidence"]["stable_runtime_mutation_enabled"] is False
+
+    manifest_item = _item("manifest", "docs/atlas_automation_phase_manifest.json")
+    svc, _proposal, _auto = _service(tmp_path / "self_platform_manifest", _pool([manifest_item]))
+    manifest_candidate = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            self_improvement=True,
+            envelope={
+                **_active_envelope(),
+                "envelope_id": "pre_authorized_self_improvement_envelope",
+                "strict_gate_approved": True,
+                "level4_checkpoint_path": "checkpoints/level4.json",
+                "bounds": {"allowed_paths": ["docs/"], "blocked_paths": [".git/"], "max_actions_per_loop": 4},
+            },
+            allowed_paths=["docs/"],
+            metadata={"candidate_workspace_path": str(candidate_root), "work_target": "platform_self_improvement"},
+        )
+    )
+    manifest_target = manifest_candidate.metadata["preflight"]["self_platform_target"]
+    assert manifest_target["categories"]["policy_or_manifest"] == ["docs/atlas_automation_phase_manifest.json"]
+    assert manifest_target["strict_review_required"] is True
+    assert manifest_target["manual_review_required"] is True
+
+
 def test_preflight_path_and_verification_command_acceptance(tmp_path: Path) -> None:
     svc, _proposal, auto = _service(tmp_path / "outside_allowed", _pool([_item("code", "src/fix.py")]))
     outside = svc.run(
