@@ -147,6 +147,12 @@ def test_simple_doc_and_code_fix_complete_with_evidence_backed_pr_artifact(tmp_p
     assert "## Tests / verification" in body
     assert "## Safety constraints" in body
     assert "no remote git push" in body
+    assert "no Vue authority" in body
+    assert "## Recovery info" in body
+    assert "## Remaining manual review steps" in body
+    assert out.metadata["draft_pr_artifact"]["readiness"]["verification_evidence_present"] is True
+    assert out.metadata["draft_pr_readiness"]["blocked_reasons"] == []
+    assert out.metadata["draft_pr_readiness"]["draft_pr_url"] == ""
 
 
 def test_no_content_patch_proposal_is_skipped_and_not_applied(tmp_path: Path) -> None:
@@ -294,6 +300,53 @@ def test_verification_failure_repair_is_visible_and_failed_run_is_not_pr_ready(t
     assert out.status == "failed"
     assert out.metadata["draft_pr_readiness"]["ready"] is False
     assert out.metadata["draft_pr_artifact"]["ready"] is False
+    assert "autonomous_run_not_successful" in out.metadata["draft_pr_readiness"]["blocked_reasons"]
+
+
+def test_draft_pr_readiness_requires_changed_files_and_verification_evidence(tmp_path: Path) -> None:
+    missing_verification = _Autopilot(
+        item_results=[
+            AtlasAutopilotItemResult(
+                item_id="code",
+                status="completed",
+                changed_files=["src/fix.py"],
+                verification_result={},
+            )
+        ]
+    )
+    svc, _proposal, _auto = _service(
+        tmp_path / "missing_verification",
+        _pool([_item("code", "src/fix.py")]),
+        missing_verification,
+    )
+    out = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_accept"))
+    assert out.status == "completed"
+    assert out.metadata["draft_pr_readiness"]["ready"] is False
+    assert out.metadata["draft_pr_readiness"]["changed_files_present"] is True
+    assert out.metadata["draft_pr_readiness"]["verification_evidence_present"] is False
+    assert "verification_evidence_required" in out.metadata["draft_pr_readiness"]["blocked_reasons"]
+
+    missing_changes = _Autopilot(
+        item_results=[
+            AtlasAutopilotItemResult(
+                item_id="code",
+                status="completed",
+                changed_files=[],
+                verification_result={"status": "passed"},
+            )
+        ]
+    )
+    svc, _proposal, _auto = _service(
+        tmp_path / "missing_changes",
+        _pool([_item("code", "src/fix.py")]),
+        missing_changes,
+    )
+    out = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_accept"))
+    assert out.status == "completed"
+    assert out.metadata["draft_pr_readiness"]["ready"] is False
+    assert out.metadata["draft_pr_readiness"]["changed_files_present"] is False
+    assert out.metadata["draft_pr_readiness"]["verification_evidence_present"] is True
+    assert "changed_files_required" in out.metadata["draft_pr_readiness"]["blocked_reasons"]
 
 
 def test_visual_verification_failure_creates_bounded_repair_plan(tmp_path: Path) -> None:
@@ -332,6 +385,8 @@ def test_visual_verification_failure_creates_bounded_repair_plan(tmp_path: Path)
     assert plan["post_repair_verification_required"] is True
     assert out.metadata["post_repair_verification_result"]["status"] == "not_run"
     assert out.metadata["draft_pr_readiness"]["ready"] is False
+    assert "post_repair_verification_required" in out.metadata["draft_pr_readiness"]["blocked_reasons"]
+    assert "verification_failure_unresolved" in out.metadata["draft_pr_readiness"]["blocked_reasons"]
     status_view = _normalized_status(out.model_dump())
     assert status_view["current_phase"] == "failure_analysis"
     assert status_view["evidence_summary"]["verification_failure_summary"]["failed_contracts"]
