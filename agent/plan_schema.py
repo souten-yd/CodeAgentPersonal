@@ -54,3 +54,4 @@ class Plan(BaseModel):
     requires_user_confirmation: bool = False
     status: str = "planned"
     deep_planning: dict[str, Any] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)

@@ -138,6 +138,11 @@ def _pool_metadata_from_plan_payload(plan_payload: dict[str, Any]) -> dict[str, 
     if "review_result" in plan_payload:
         review = plan_payload["review_result"]
         metadata["review_result_summary"] = _compact_review_summary(review)
+    payload_metadata = plan_payload.get("metadata")
+    if isinstance(payload_metadata, dict):
+        for key in ("planner_fallback",):
+            if key in payload_metadata:
+                metadata[key] = payload_metadata[key]
     return metadata
 
 
