@@ -315,6 +315,14 @@ def test_claude_panel_mirrors_clarification_execution_blocker_contract() -> None
     assert "appendApprovalPrompt(poolId)" in snippet
     assert snippet.index("clarificationExecutionBlockReasons") < snippet.index("appendApprovalPrompt(poolId)")
     assert "確認回答と plan revision / gate rerun が完了するまで実行できません" in snippet
+    render_snippet = ATLAS_CLAUDE_PANEL_JS[
+        ATLAS_CLAUDE_PANEL_JS.index("async function renderPlanPoolMarkdown"):
+        ATLAS_CLAUDE_PANEL_JS.index("function preparePlanCardForUpsert")
+    ]
+    assert "const clarificationBlocks = clarificationExecutionBlockReasons(poolMeta);" in render_snippet
+    assert "確認回答と plan revision / gate rerun が完了するまで承認できません" in render_snippet
+    assert render_snippet.index("clarificationBlocks.length") < render_snippet.index("poolStatus === 'approval_required'")
+    assert render_snippet.index("clarificationBlocks.length") < render_snippet.index("appendPlanActionPrompt(poolId)")
 
 
 def test_claude_panel_renders_user_facing_clarification_issue_and_impact() -> None:
