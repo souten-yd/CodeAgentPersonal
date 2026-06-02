@@ -609,6 +609,14 @@ def test_self_platform_candidate_mode_requires_strict_candidate_workspace(tmp_pa
     assert target["release_pointer_switch_enabled"] is False
     assert candidate.metadata["workspace_evidence"]["candidate_workspace_root"] == str(candidate_root)
     assert candidate.metadata["workspace_evidence"]["stable_runtime_mutation_enabled"] is False
+    gate = candidate.metadata["self_platform_review_gate"]
+    assert gate["status"] == "passed"
+    assert gate["required_manual_review"] is True
+    assert gate["draft_pr_allowed"] is True
+    assert gate["stable_runtime_mutation_enabled"] is False
+    assert gate["self_apply_enabled"] is False
+    assert gate["direct_merge_enabled"] is False
+    assert gate["remote_git_push_enabled"] is False
 
     manifest_item = _item("manifest", "docs/atlas_automation_phase_manifest.json")
     svc, _proposal, _auto = _service(tmp_path / "self_platform_manifest", _pool([manifest_item]))
@@ -632,6 +640,81 @@ def test_self_platform_candidate_mode_requires_strict_candidate_workspace(tmp_pa
     assert manifest_target["categories"]["policy_or_manifest"] == ["docs/atlas_automation_phase_manifest.json"]
     assert manifest_target["strict_review_required"] is True
     assert manifest_target["manual_review_required"] is True
+    assert manifest_candidate.metadata["self_platform_review_gate"]["required_manual_review"] is True
+
+    docs_item = _item("docs", "docs/atlas_safe_note.md")
+    svc, _proposal, _auto = _service(tmp_path / "self_platform_docs", _pool([docs_item]))
+    docs_candidate = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            self_improvement=True,
+            envelope={
+                **_active_envelope(),
+                "envelope_id": "pre_authorized_self_improvement_envelope",
+                "strict_gate_approved": True,
+                "level4_checkpoint_path": "checkpoints/level4.json",
+                "bounds": {"allowed_paths": ["docs/"], "blocked_paths": [".git/"], "max_actions_per_loop": 4},
+            },
+            allowed_paths=["docs/"],
+            metadata={"candidate_workspace_path": str(candidate_root), "work_target": "platform_self_improvement"},
+        )
+    )
+    docs_gate = docs_candidate.metadata["self_platform_review_gate"]
+    assert docs_gate["status"] == "passed"
+    assert docs_gate["required_manual_review"] is True
+    assert docs_gate["draft_pr_allowed"] is True
+
+    raw_source_item = _item("raw", "app/api/atlas_pipeline.py")
+    raw_source_item.metadata["proposed_content"] = "raw_source_serving_enabled = True\n"
+    svc, _proposal, _auto = _service(tmp_path / "self_platform_raw_source", _pool([raw_source_item]))
+    raw_source = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            self_improvement=True,
+            envelope={
+                **_active_envelope(),
+                "envelope_id": "pre_authorized_self_improvement_envelope",
+                "strict_gate_approved": True,
+                "level4_checkpoint_path": "checkpoints/level4.json",
+                "bounds": {"allowed_paths": ["app/"], "blocked_paths": [".git/"], "max_actions_per_loop": 4},
+            },
+            allowed_paths=["app/"],
+            metadata={"candidate_workspace_path": str(candidate_root), "work_target": "platform_self_improvement"},
+        )
+    )
+    raw_gate = raw_source.metadata["self_platform_review_gate"]
+    assert raw_gate["status"] == "blocked"
+    assert raw_gate["draft_pr_allowed"] is False
+    assert raw_source.metadata["draft_pr_readiness"]["ready"] is False
+    assert "self_platform_review_gate_blocked" in raw_source.metadata["draft_pr_readiness"]["blocked_reasons"]
+    assert any(finding["code"] == "raw_source_serving_enabled" for finding in raw_gate["blocking_findings"])
+
+    vue_item = _item("vue", "docs/atlas_automation_phase_manifest.json")
+    vue_item.metadata["proposed_content"] = '{"vue_source_of_truth": true}'
+    svc, _proposal, _auto = _service(tmp_path / "self_platform_vue", _pool([vue_item]))
+    vue_block = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            self_improvement=True,
+            envelope={
+                **_active_envelope(),
+                "envelope_id": "pre_authorized_self_improvement_envelope",
+                "strict_gate_approved": True,
+                "level4_checkpoint_path": "checkpoints/level4.json",
+                "bounds": {"allowed_paths": ["docs/"], "blocked_paths": [".git/"], "max_actions_per_loop": 4},
+            },
+            allowed_paths=["docs/"],
+            metadata={"candidate_workspace_path": str(candidate_root), "work_target": "platform_self_improvement"},
+        )
+    )
+    assert vue_block.metadata["self_platform_review_gate"]["status"] == "blocked"
+    assert any(
+        finding["code"] == "vue_authority_enabled"
+        for finding in vue_block.metadata["self_platform_review_gate"]["blocking_findings"]
+    )
 
 
 def test_preflight_path_and_verification_command_acceptance(tmp_path: Path) -> None:

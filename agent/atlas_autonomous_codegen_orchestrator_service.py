@@ -252,6 +252,9 @@ class AtlasAutonomousCodegenOrchestratorService:
         )
         if repair_evidence:
             out.metadata.update(repair_evidence)
+        self_platform_review_gate = self._self_platform_review_gate(out.metadata, self.storage.load_pool(request.pool_id))
+        if self_platform_review_gate:
+            out.metadata["self_platform_review_gate"] = self_platform_review_gate
         draft_pr_artifact = self._prepare_draft_pr_artifact(
             result=out,
             request=request,
@@ -561,6 +564,107 @@ class AtlasAutonomousCodegenOrchestratorService:
             "remote_git_push_enabled": False,
             "release_pointer_switch_enabled": False,
         }
+
+    def _self_platform_review_gate(self, metadata: dict[str, Any], pool: AtlasPlanPool) -> dict[str, Any]:
+        preflight = metadata.get("preflight") if isinstance(metadata.get("preflight"), dict) else {}
+        target = preflight.get("self_platform_target") if isinstance(preflight.get("self_platform_target"), dict) else {}
+        if not target.get("is_self_platform"):
+            return {}
+        findings: list[dict[str, Any]] = []
+        blocking: list[dict[str, Any]] = []
+
+        def add(code: str, message: str, *, severity: str = "info", blocking_finding: bool = False, path: str = "") -> None:
+            finding = {"code": code, "severity": severity, "message": message, "path": path, "blocking": blocking_finding}
+            findings.append(finding)
+            if blocking_finding:
+                blocking.append(finding)
+
+        add("manual_review_required", "Self-platform changes require manual review before draft PR readiness.", severity="warning")
+        if target.get("strict_review_required"):
+            add("strict_review_required", "Runtime or manifest/policy target requires strict review metadata.", severity="warning")
+        for key in ("stable_runtime_mutation_enabled", "self_apply_enabled", "direct_merge_enabled", "remote_git_push_enabled", "release_pointer_switch_enabled"):
+            if target.get(key) is not False:
+                add(f"{key}_not_false", f"{key} must remain false for candidate-only self-platform work.", severity="error", blocking_finding=True)
+
+        manifest_flags = self._manifest_self_platform_safety_flags()
+        for key, value in manifest_flags.items():
+            if value is not False:
+                add(f"manifest_{key}_not_false", f"Manifest safety flag {key} must remain false.", severity="error", blocking_finding=True)
+
+        for path, code in self._self_platform_forbidden_content_findings(pool):
+            add(code, f"Forbidden self-platform enablement pattern detected in candidate content: {code}.", severity="error", blocking_finding=True, path=path)
+
+        return {
+            "status": "blocked" if blocking else "passed",
+            "target_files": list(target.get("target_files") or []),
+            "risk_level": target.get("risk_level", "high"),
+            "findings": findings,
+            "blocking_findings": blocking,
+            "required_manual_review": True,
+            "draft_pr_allowed": not blocking,
+            "candidate_only": True,
+            "stable_runtime_mutation_enabled": False,
+            "self_apply_enabled": False,
+            "direct_merge_enabled": False,
+            "remote_git_push_enabled": False,
+            "release_pointer_switch_enabled": False,
+        }
+
+    @staticmethod
+    def _manifest_self_platform_safety_flags() -> dict[str, Any]:
+        try:
+            data = json.loads(Path("docs/atlas_automation_phase_manifest.json").read_text(encoding="utf-8"))
+        except Exception:
+            return {"manifest_read_failed": True}
+        return {
+            "stable_runtime_mutation_enabled": data.get("stable_runtime_mutation_enabled"),
+            "self_apply_enabled": data.get("self_apply_enabled"),
+            "direct_merge_enabled": data.get("direct_merge_enabled"),
+            "remote_git_push_enabled": data.get("remote_git_push_enabled"),
+            "vue_source_of_truth": data.get("vue_source_of_truth"),
+            "default_conversational_shell_requires_vue": data.get("default_conversational_shell_requires_vue"),
+            "default_conversational_shell_requires_vite": data.get("default_conversational_shell_requires_vite"),
+        }
+
+    @staticmethod
+    def _self_platform_forbidden_content_findings(pool: AtlasPlanPool) -> list[tuple[str, str]]:
+        patterns = {
+            "raw_source_serving_enabled": ("raw_source_serving_enabled", "send_file(", "FileResponse("),
+            "startup_npm_vite_vue_build_enabled": ("npm run vite", "vite --host", "startup_npm_vite_vue_build_enabled"),
+            "arbitrary_unbounded_command_execution_enabled": ("arbitrary_unbounded_command_execution", "shell=True"),
+            "vue_authority_enabled": ("vue_source_of_truth", "vue_authority_enabled"),
+            "direct_merge_enabled": ("direct_merge_enabled",),
+            "remote_git_push_enabled": ("remote_git_push_enabled",),
+            "self_apply_enabled": ("self_apply_enabled",),
+            "stable_runtime_mutation_enabled": ("stable_runtime_mutation_enabled",),
+        }
+        findings: list[tuple[str, str]] = []
+        for item in getattr(pool, "items", []) or []:
+            path = ",".join(getattr(item, "target_files", []) or [])
+            metadata = getattr(item, "metadata", {}) or {}
+            candidates = [str(metadata.get("proposed_content") or "")]
+            for change in normalize_plan_item_file_changes(item):
+                candidates.append(str(getattr(change, "content", "") or ""))
+            content = "\n".join(candidates).lower()
+            for code, tokens in patterns.items():
+                if any(token.lower() in content for token in tokens) and ("true" in content or code in {"raw_source_serving_enabled", "startup_npm_vite_vue_build_enabled", "arbitrary_unbounded_command_execution_enabled"}):
+                    findings.append((path, code))
+        return findings
+
+    @staticmethod
+    def _self_platform_review_lines(metadata: dict) -> list[str]:
+        gate = metadata.get("self_platform_review_gate") if isinstance(metadata.get("self_platform_review_gate"), dict) else {}
+        if not gate:
+            return ["not applicable"]
+        lines = [
+            f"status: {gate.get('status', 'unknown')}",
+            f"required_manual_review: {bool(gate.get('required_manual_review'))}",
+            f"draft_pr_allowed: {bool(gate.get('draft_pr_allowed'))}",
+        ]
+        for finding in gate.get("findings") or []:
+            if isinstance(finding, dict):
+                lines.append(f"{finding.get('severity', 'info')}: {finding.get('code', '')}")
+        return lines
 
     @staticmethod
     def _critical_continuation_scope(
@@ -999,6 +1103,9 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "- no stable runtime mutation",
                 "- no Vue authority",
                 "",
+                "## Self-platform review gate",
+                self._markdown_list(self._self_platform_review_lines(result.metadata if isinstance(result.metadata, dict) else {})),
+                "",
                 "## Changed files",
                 self._markdown_list(changed_files),
                 "",
@@ -1049,6 +1156,9 @@ class AtlasAutonomousCodegenOrchestratorService:
             blocked_reasons.append("post_ci_repair_verification_required")
         if ci_plan.get("status") == "planned":
             blocked_reasons.append("ci_failure_repair_unverified")
+        self_platform_gate = metadata.get("self_platform_review_gate") if isinstance(metadata.get("self_platform_review_gate"), dict) else {}
+        if self_platform_gate and not self_platform_gate.get("draft_pr_allowed"):
+            blocked_reasons.append("self_platform_review_gate_blocked")
         if result.stop_reason in {"clarification_required", "critical_event_waiting_for_user_decision"}:
             blocked_reasons.append(result.stop_reason)
         return {
