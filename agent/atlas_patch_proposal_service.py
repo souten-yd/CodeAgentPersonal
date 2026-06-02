@@ -14,6 +14,7 @@ from agent.atlas_plan_item_file_changes import DEFAULT_CHANGE_SET, has_file_chan
 from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProposalRequest, AtlasPatchProposalResult
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_plan_trace import PlanTrace
 from agent.atlas_workspace_root import resolve_atlas_workspace_root
 
 
@@ -44,16 +45,19 @@ class AtlasPatchProposalService:
         if item is None:
             warnings = ["item_not_found"]
             self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_blocked", None, "blocked", warnings=warnings)
+            self._record_trace(pool.pool_id, request.run_id, "blocked", "item_not_found", {"llm_called": False})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=request.item_id, run_id=request.run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump())
         # Critique gate (PR-8b): a plan flagged plan_revision_required must not generate patches
         # until the plan is revised / approved. full_auto-continuation pools never set this flag.
         if bool((pool.metadata or {}).get("plan_revision_required")):
             warnings = ["plan_revision_required_blocks_patch"]
             self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_blocked", item, "blocked", warnings=warnings)
+            self._record_trace(pool.pool_id, request.run_id, "blocked", "plan_revision_required_blocks_patch", {"llm_called": False})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump())
         ok, warnings = self.validate_item_for_patch_proposal(pool, item, request)
         if not ok:
             self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_blocked", item, "blocked", warnings=warnings)
+            self._record_trace(pool.pool_id, request.run_id, "blocked", ";".join(warnings), {"llm_called": False})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump())
         try:
             payload = self.build_proposal_input(pool, item, request)
@@ -69,6 +73,13 @@ class AtlasPatchProposalService:
             _file_changes = _pmeta.get("file_changes") if isinstance(_pmeta.get("file_changes"), list) else []
             has_file_changes_content = bool(_file_changes) and all(has_file_change_content(fc) for fc in _file_changes)
             has_content = bool(proposal.unified_diff_preview or _pmeta.get("proposed_content") or _pmeta.get("edits") or has_file_changes_content)
+            self._record_trace(
+                pool.pool_id,
+                request.run_id,
+                "generated",
+                "patch_proposal_generated",
+                {"llm_called": bool(self.llm_json_fn), "has_content": has_content},
+            )
             result = AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="proposed", proposal=proposal, proposal_json_path=json_path, proposal_md_path=md_path, metadata={"patch_content_available": has_content})
             self.mark_item_from_patch_proposal(pool, item, result)
             self.storage.save_pool(pool)
@@ -79,6 +90,7 @@ class AtlasPatchProposalService:
         except Exception as exc:
             errors = [str(exc) or exc.__class__.__name__]
             self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_failed", item, "failed", errors=errors)
+            self._record_trace(pool.pool_id, request.run_id, "failed", "patch_proposal_exception", {"llm_called": bool(self.llm_json_fn), "errors": errors})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="failed", errors=errors, plan_pool=pool.model_dump())
 
     def validate_item_for_patch_proposal(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> tuple[bool, list[str]]:
@@ -720,3 +732,13 @@ class AtlasPatchProposalService:
         if not run_id:
             return
         self.journal.append_event(pool_id, run_id, {"event_type": event_type, "pool_id": pool_id, "run_id": run_id, "item_id": item.item_id if item else "", "status": status, "warnings": list(warnings or []), "errors": list(errors or []), "created_at": datetime.now(timezone.utc).isoformat()})
+
+    def _record_trace(self, pool_id: str, run_id: str, decision: str, reason: str, detail: dict) -> None:
+        if not run_id:
+            return
+        try:
+            trace = PlanTrace(data_root=self.journal.root_dir, pool_id=pool_id, run_id=run_id)
+            trace.record(stage="patch_proposal", decision=decision, reason=reason, detail=detail)
+            trace.to_journal(self.journal)
+        except Exception:
+            return

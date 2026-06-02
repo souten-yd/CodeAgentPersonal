@@ -48,6 +48,7 @@ from agent.atlas_capability_preference_schema import (
 )
 from agent.atlas_automation_features import resolve_features as _resolve_automation_features
 from agent.atlas_plan_depth_gate import evaluate_plan_depth
+from agent.atlas_plan_trace import PlanTrace, read_plan_trace, summarize_root_cause
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
@@ -296,6 +297,27 @@ def _model_dump(value: Any) -> dict[str, Any]:
     if hasattr(value, "dict"):
         return value.dict()
     return dict(value)
+
+
+def _record_plan_trace(
+    *,
+    data_root: Path,
+    journal: AtlasJournal,
+    pool_id: str,
+    run_id: str,
+    stage: str,
+    decision: str,
+    reason: str,
+    detail: dict[str, Any] | None = None,
+) -> None:
+    if not pool_id or not run_id:
+        return
+    try:
+        trace = PlanTrace(data_root=data_root, pool_id=pool_id, run_id=run_id)
+        trace.record(stage=stage, decision=decision, reason=reason, detail=detail or {})
+        trace.to_journal(journal)
+    except Exception:
+        return
 
 
 
@@ -792,6 +814,18 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         if bridge_result.pool is None:
             raise HTTPException(status_code=500, detail="planner bridge did not return a PlanPool")
         pool = bridge_result.pool
+        if any("implementation_steps" in str(w) for w in bridge_warnings):
+            decision = "skeleton" if "planner_fallback_skeleton_generated" in bridge_warnings else "fallback"
+            _record_plan_trace(
+                data_root=ca_data_root,
+                journal=journal,
+                pool_id=pool.pool_id,
+                run_id="plan_create",
+                stage="planner_llm",
+                decision=decision,
+                reason="no_implementation_steps",
+                detail={"warnings": bridge_warnings},
+            )
 
     pool.status = "ready"
     if req.enable_repo_context and (req.project_path or "").strip():
@@ -963,6 +997,19 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
     pool.metadata["plan_depth_gate"] = _depth
     _enforce_quality = _features.get("quality_gate_enforcement") == "block"
     if not _depth["ok"]:
+        _record_plan_trace(
+            data_root=ca_data_root,
+            journal=journal,
+            pool_id=pool.pool_id,
+            run_id="plan_create",
+            stage="plan_depth_gate",
+            decision="block" if _enforce_quality else "warn",
+            reason=";".join(_depth.get("reasons") or []),
+            detail={
+                "impl_item_count": len([it for it in pool.items if str(getattr(it, "item_type", "")).lower() in {"implementation", "documentation"}]),
+                "item_types": [str(getattr(it, "item_type", "") or "") for it in pool.items],
+            },
+        )
         for _r in _depth["warnings"]:
             if _r not in pool.warnings:
                 pool.warnings.append(_r)
@@ -981,6 +1028,16 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         pool.metadata["critical_event_status"] = "waiting_for_critical_decision"
     if quality_gate["plan_revision_required"]:
         pool.metadata["plan_revision_required"] = True
+        _record_plan_trace(
+            data_root=ca_data_root,
+            journal=journal,
+            pool_id=pool.pool_id,
+            run_id="plan_create",
+            stage="plan_quality_gate",
+            decision="block",
+            reason="plan_revision_required",
+            detail={"critique_gate": quality_gate.get("critique_gate") or {}},
+        )
     if quality_gate["clarification"]:
         pool.metadata["critique_clarification"] = quality_gate["clarification"]
     # ── Structured clarification options (PR-9d): produce option/merit/risk/recommendation items
@@ -2057,3 +2114,23 @@ def atlas_automation_failure_suggestion(request_body: AtlasFailureSuggestionRequ
         return AtlasFailureStopSuggestion(pool_id=request_body.pool_id, item_id=request_body.item_id, run_id=request_body.run_id, failure_phase="auto_verification", status="blocked", reason="item_not_found", errors=["item_not_found"])
     verification_result = ((item.metadata or {}).get("auto_verification") or {})
     return AtlasFailureStopService(journal=journal).build_for_verification_failure(pool, item, request_body.run_id, verification_result)
+
+
+@router.get("/runs/{run_id}/plan-trace")
+def atlas_plan_trace_route(
+    run_id: str,
+    request: Request,
+    pool_id: str = Query(..., min_length=1),
+    workspace_id: str = Query("default"),
+) -> dict[str, Any]:
+    if ".." in pool_id or ".." in run_id:
+        raise HTTPException(status_code=400, detail="invalid identifier")
+    ca_data_root, _storage, _journal = _atlas_components(request, workspace_id=workspace_id)
+    records = read_plan_trace(ca_data_root, pool_id=pool_id, run_id=run_id)
+    summary = summarize_root_cause(records)
+    return {
+        "pool_id": pool_id,
+        "run_id": run_id,
+        "records": records,
+        **summary,
+    }

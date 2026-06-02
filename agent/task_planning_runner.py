@@ -79,6 +79,7 @@ class TaskPlanningRunner:
         requirement_mode: str = "ask_when_needed",
         execution_mode: str = "plan_only",
         use_nexus: bool = True,
+        advisory_context: str = "",
     ) -> dict:
         task_id = f"task_{uuid.uuid4().hex[:12]}"
         warnings: list[str] = []
@@ -91,6 +92,13 @@ class TaskPlanningRunner:
             warnings.append("Project path was not found. Repository context fallback was used.")
         elif repository_context.startswith("Repository scan warning:"):
             warnings.append("Repository scan failed partially. Repository context fallback was used.")
+        advisory_context = str(advisory_context or "").strip()
+        if advisory_context:
+            repository_context = (
+                f"{repository_context}\n\n"
+                "=== Advisory Repository Context (read-only; do not execute) ===\n"
+                f"{advisory_context}"
+            )
 
         nexus_context = self.nexus_builder.build(
             user_input,
@@ -200,6 +208,7 @@ class TaskPlanningRunner:
         task_id: str | None = None,
         nexus_context: dict | None = None,
         repository_context: str | None = None,
+        advisory_context: str = "",
         warnings: list[str] | None = None,
     ) -> dict:
         req_data = self.storage.load_requirement(requirement_id)
@@ -264,6 +273,13 @@ class TaskPlanningRunner:
                 warnings.append("Project path was not found. Repository context fallback was used.")
             elif repository_context.startswith("Repository scan warning:"):
                 warnings.append("Repository scan failed partially. Repository context fallback was used.")
+        advisory_context = str(advisory_context or "").strip()
+        if advisory_context:
+            repository_context = (
+                f"{repository_context}\n\n"
+                "=== Advisory Repository Context (read-only; do not execute) ===\n"
+                f"{advisory_context}"
+            )
 
         # Research-first: survey the codebase before planning so the planner works from grounded
         # evidence (Claude Code's "explore before you plan"). Findings are injected into the planner's

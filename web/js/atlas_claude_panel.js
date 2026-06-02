@@ -918,7 +918,15 @@
             const status = r.data.status || 'unknown';
             const warnings = Array.isArray(r.data.warnings) ? r.data.warnings : [];
             const errors = Array.isArray(r.data.errors) ? r.data.errors : [];
-            const parts = [`status=${status}`, 'LLMがパッチ内容を生成できませんでした'];
+            let cause = 'パッチ生成がブロックされました';
+            if (warnings.includes('plan_revision_required_blocks_patch')) {
+              cause = 'プラン修正が必要なため、パッチ生成は開始されませんでした';
+            } else if (warnings.includes('llm_no_patch_content_generated') || warnings.includes('plan_item_patch_content_missing')) {
+              cause = 'LLMがパッチ内容を生成できませんでした';
+            } else if (status === 'proposed') {
+              cause = 'パッチ内容が空の提案です';
+            }
+            const parts = [`status=${status}`, cause];
             if (warnings.length) parts.push(`warnings=${warnings.join('; ')}`);
             if (errors.length) parts.push(`errors=${errors.join('; ')}`);
             msg = parts.join(' / ');

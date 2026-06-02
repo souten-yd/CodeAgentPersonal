@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Callable
 
@@ -8,6 +9,32 @@ from agent.atlas_llm_schemas import plan_generation_json_schema
 from agent.plan_schema import ImplementationStep, Plan
 from agent.requirement_schema import RequirementCategoryScores, RequirementDefinition
 
+_HIGH_RISK_EN = (
+    "delete",
+    "remove",
+    "rm",
+    "run_command",
+    "shell",
+    "execute",
+    "credential",
+    "secret",
+    "password",
+    "token",
+    "database",
+    "migration",
+    "production",
+)
+_HIGH_RISK_JA = ("削除", "破壊", "実行", "本番")
+_ADVISORY_NOISE = (
+    "advisory repository context",
+    "do not execute",
+    "don't execute",
+    "do not run",
+    "エージェントは実行しない",
+)
+_CREATE_INTENT_EN = ("create", "make", "build", "generate", "add", "write")
+_CREATE_INTENT_JA = ("作って", "作成", "生成", "追加", "実装")
+_HTML_HINTS = ("html", "web page", "webpage", "browser", "ページ", "画面", "虹色", "ぼかし", "hello world")
 
 class PlannerPhase1:
     def __init__(self, llm_json_fn: Callable[[str, str], dict | None]) -> None:
@@ -125,19 +152,36 @@ class PlannerPhase1:
                 )
             )
         if not steps:
-            steps = [
-                ImplementationStep(
-                    step_id="step_1",
-                    title="現状調査と変更方針の確定",
-                    description="関連ファイルと既存API/UIフローを確認し、変更範囲を確定する。",
-                    target_files=[],
-                    action_type="inspect",
-                    risk_level="low",
-                    verification="対象の既存機能が把握できていること",
-                    rollback="変更未実施のため不要",
-                )
-            ]
-            warnings.append("Plan generation LLM output did not include implementation_steps. Fallback inspection step was generated.")
+            fallback_target = _infer_simple_fallback_target(requirement.user_input)
+            warnings.append("Plan generation LLM output did not include implementation_steps. Fallback plan was generated.")
+            if fallback_target:
+                steps = [
+                    ImplementationStep(
+                        step_id="step_1",
+                        title=f"実装スケルトンを作成する ({fallback_target})",
+                        description=f"ユーザー要件に沿って {fallback_target} を作成し、最小の動作確認ができる実装スケルトンを用意する。",
+                        target_files=[fallback_target],
+                        action_type="create",
+                        risk_level="low",
+                        verification=f"{fallback_target} が作成され、要求された表示内容の土台が含まれること",
+                        rollback=f"{fallback_target} を削除する",
+                    )
+                ]
+                warnings.append("planner_fallback_skeleton_generated")
+            else:
+                steps = [
+                    ImplementationStep(
+                        step_id="step_1",
+                        title="現状調査と変更方針の確定",
+                        description="関連ファイルと既存API/UIフローを確認し、変更範囲を確定する。",
+                        target_files=[],
+                        action_type="inspect",
+                        risk_level="low",
+                        verification="対象の既存機能が把握できていること",
+                        rollback="変更未実施のため不要",
+                    )
+                ]
+                warnings.append("Fallback inspection step was generated.")
 
         selected_arch = str(payload.get("selected_architecture", "Incremental additive changes"))
         mode = planning_mode if planning_mode in {"fast", "standard", "deep_nexus"} else "standard"
@@ -213,3 +257,41 @@ def _format_nexus_context(nexus_context: dict) -> str:
         else:
             lines.append(f"- {str(item)[:220]}")
     return "\n".join([x for x in lines if x]).strip()[:9000]
+
+
+def _strip_high_risk_noise(text: str) -> str:
+    t = str(text or "").lower()
+    for noise in _ADVISORY_NOISE:
+        t = t.replace(noise, " ")
+    t = re.sub(r"\bdo\s+not\s+(execute|run)\b", " ", t)
+    t = re.sub(r"\bdon't\s+(execute|run)\b", " ", t)
+    return t
+
+
+def _contains_high_risk_fallback_intent(text: str) -> bool:
+    t = _strip_high_risk_noise(text)
+    if any(re.search(rf"\b{re.escape(keyword)}\b", t) for keyword in _HIGH_RISK_EN):
+        return True
+    return any(keyword in t for keyword in _HIGH_RISK_JA)
+
+
+def _infer_simple_fallback_target(text: str) -> str:
+    t = _strip_high_risk_noise(text)
+    if not t.strip():
+        return ""
+    if _contains_high_risk_fallback_intent(text):
+        return ""
+    explicit = re.findall(r"(?<![\w./-])([A-Za-z0-9_-]+\.html)\b", str(text or ""), flags=re.IGNORECASE)
+    explicit = list(dict.fromkeys(explicit))
+    if len(explicit) == 1:
+        return explicit[0]
+    if len(explicit) > 1:
+        return ""
+    has_create_intent = any(re.search(rf"\b{re.escape(keyword)}\b", t) for keyword in _CREATE_INTENT_EN) or any(
+        keyword in str(text or "") for keyword in _CREATE_INTENT_JA
+    )
+    if not has_create_intent:
+        return ""
+    if any(keyword in t for keyword in _HTML_HINTS):
+        return "index.html"
+    return ""

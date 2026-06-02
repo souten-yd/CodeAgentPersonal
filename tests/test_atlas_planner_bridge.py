@@ -9,12 +9,14 @@ BRIDGE_FILE = Path("agent/atlas_planner_bridge.py")
 class FakeRunner:
     calls = 0
     result = {}
+    last_kwargs = {}
 
     def __init__(self, **_kwargs) -> None:
         pass
 
     def run(self, **_kwargs) -> dict:
         type(self).calls += 1
+        type(self).last_kwargs = dict(_kwargs)
         if isinstance(type(self).result, Exception):
             raise type(self).result
         return dict(type(self).result)
@@ -100,6 +102,7 @@ def test_bridge_forces_fallback_only(tmp_path) -> None:
 
 def test_bridge_runs_real_planner_with_fake_llm(tmp_path) -> None:
     FakeRunner.calls = 0
+    FakeRunner.last_kwargs = {}
     FakeRunner.result = _planner_result()
     bridge = AtlasPlannerBridge(
         ca_data_dir=str(tmp_path),
@@ -117,6 +120,29 @@ def test_bridge_runs_real_planner_with_fake_llm(tmp_path) -> None:
     assert result.pool.items[1].item_type == "verification"
     assert result.pool.metadata["source"] == "real_planner"
     assert FakeRunner.calls == 1
+
+
+def test_bridge_keeps_advisory_out_of_user_input(tmp_path) -> None:
+    FakeRunner.calls = 0
+    FakeRunner.last_kwargs = {}
+    FakeRunner.result = _planner_result()
+    bridge = AtlasPlannerBridge(
+        ca_data_dir=str(tmp_path),
+        llm_json_fn=_fake_llm,
+        planning_runner_factory=FakeRunner,
+    )
+
+    result = bridge.create_plan_pool(
+        _request(
+            input="Hello world の HTML を作って",
+            planner_context_text_v2="Repo context. DO NOT EXECUTE.",
+        )
+    )
+
+    assert result.status == "planned"
+    assert FakeRunner.last_kwargs["user_input"] == "Hello world の HTML を作って"
+    assert "DO NOT EXECUTE" not in FakeRunner.last_kwargs["user_input"]
+    assert "DO NOT EXECUTE" in FakeRunner.last_kwargs["advisory_context"]
 
 
 def test_bridge_handles_planner_exception_with_fallback(tmp_path) -> None:
