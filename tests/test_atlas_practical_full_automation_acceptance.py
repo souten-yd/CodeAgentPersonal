@@ -383,11 +383,60 @@ def test_envelope_and_forbidden_operation_acceptance(tmp_path: Path) -> None:
     )
     assert active.status == "completed"
     assert auto.last_request is not None
+    workspace = active.metadata["workspace_evidence"]
+    assert workspace["status"] == "ready"
+    assert workspace["effective_project_path"] == "/tmp/project"
+    assert workspace["stable_runtime_mutation_enabled"] is False
+    assert workspace["self_apply_enabled"] is False
+    recovery = active.metadata["recovery_evidence"]
+    assert recovery["status"]
+    assert sorted(recovery["changed_files"]) == ["src/code.py", "src/doc.py"]
+    assert recovery["restore_available"] is False
+    assert recovery["restore_executed"] is False
+    assert recovery["rollback_executed"] is False
+    assert recovery["recovery_execution_performed"] is False
     safety = active.metadata["draft_pr_artifact"]["safety"]
     assert safety["direct_merge_enabled"] is False
     assert safety["remote_git_push_enabled"] is False
     assert safety["self_apply_enabled"] is False
     assert safety["stable_runtime_mutation_enabled"] is False
+
+    candidate_root = tmp_path / "candidate_root"
+    recovery_manifest = tmp_path / "recovery.json"
+    svc, _proposal, auto = _service(tmp_path / "candidate_workspace", _pool([_item("code", "src/fix.py")]))
+    candidate = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope={**_active_envelope(), "candidate_workspace_required": True},
+            allowed_paths=["src/"],
+            metadata={
+                "work_target": "candidate_workspace",
+                "candidate_workspace_id": "cand-1",
+                "candidate_workspace_path": str(candidate_root),
+                "recovery_manifest_path": str(recovery_manifest),
+            },
+        )
+    )
+    assert candidate.status == "completed"
+    assert auto.last_request is not None
+    assert auto.last_request.project_path == str(candidate_root)
+    workspace = candidate.metadata["workspace_evidence"]
+    assert workspace["status"] == "ready"
+    assert workspace["candidate_workspace_id"] == "cand-1"
+    assert workspace["candidate_workspace_root"] == str(candidate_root)
+    assert workspace["stable_runtime_mutation_enabled"] is False
+    assert workspace["self_apply_enabled"] is False
+    recovery = candidate.metadata["recovery_evidence"]
+    assert recovery["snapshot_manifest_path"] == str(recovery_manifest)
+    assert sorted(recovery["changed_files"]) == ["src/code.py", "src/doc.py"]
+    assert recovery["restore_available"] is True
+    assert recovery["restore_executed"] is False
+    assert recovery["rollback_executed"] is False
+    status_view = _normalized_status(candidate.model_dump())
+    assert status_view["evidence_summary"]["workspace"]["candidate_workspace_root"] == str(candidate_root)
+    assert status_view["evidence_summary"]["recovery"]["restore_available"] is True
+    assert status_view["evidence_summary"]["recovery"]["restore_executed"] is False
 
     svc, _proposal, auto = _service(tmp_path / "self_improvement", _pool([_item("code", "src/fix.py")]))
     self_improvement = svc.run(

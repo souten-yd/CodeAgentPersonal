@@ -219,6 +219,15 @@ class AtlasAutonomousCodegenOrchestratorService:
         if repair_evidence:
             out.phase = "failure_analysis"
             out.stop_reason = out.stop_reason or "repairable_verification_failed"
+        changed_files = self._changed_files_from_autopilot(autopilot)
+        recovery_evidence = dict(out.metadata.get("recovery_evidence") or {})
+        recovery_evidence["changed_files"] = changed_files
+        recovery_evidence["restore_available"] = bool(
+            recovery_evidence.get("snapshot_manifest_path")
+            or (recovery_evidence.get("references") or {}).get("restore_plan_ref")
+            or (recovery_evidence.get("references") or {}).get("rollback_plan_ref")
+        )
+        out.metadata["recovery_evidence"] = recovery_evidence
         out.metadata.update(
             {
                 "autopilot_run_id": autopilot.autopilot_run_id,
@@ -226,7 +235,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "completed_count": autopilot.completed_count,
                 "failed_count": autopilot.failed_count,
                 "blocked_count": autopilot.blocked_count,
-                "changed_files": self._changed_files_from_autopilot(autopilot),
+                "changed_files": changed_files,
                 "draft_pr_readiness": {
                     "ready": out.status in {"completed", "partial"},
                     "direct_merge_enabled": False,
@@ -643,10 +652,20 @@ class AtlasAutonomousCodegenOrchestratorService:
             warnings.append("recovery_manifest_missing")
 
         effective_project_path = candidate_path if candidate_available else project_path
+        status = "blocked" if blocking_reason else ("ready" if effective_project_path else "missing")
+        candidate_workspace_id = str(
+            metadata.get("candidate_workspace_id")
+            or (candidate_plan or {}).get("candidate_workspace_id")
+            or (candidate_plan or {}).get("workspace_id")
+            or (Path(candidate_plan_path).stem if candidate_plan_path else "")
+        ).strip()
         return {
+            "status": status,
             "work_target": work_target,
             "project_path": project_path,
             "effective_project_path": effective_project_path,
+            "candidate_workspace_id": candidate_workspace_id,
+            "candidate_workspace_root": candidate_path,
             "candidate_workspace_required": candidate_required,
             "candidate_workspace_available": candidate_available,
             "candidate_workspace_path": candidate_path,
@@ -692,8 +711,14 @@ class AtlasAutonomousCodegenOrchestratorService:
             summary = {"status": "unavailable", "errors": [f"recovery_summary_unavailable:{type(exc).__name__}"]}
         if summary.get("status") in {"no_workspace", "no_plan_pool", "no_pipeline_run", "unavailable"}:
             warnings.append(f"recovery_summary_{summary.get('status')}")
+        snapshot_manifest_path = refs["recovery_manifest_path"]
+        restore_available = bool(snapshot_manifest_path or refs["restore_plan_ref"] or refs["rollback_plan_ref"])
         return {
+            "status": str(summary.get("status") or "unknown"),
             "references": refs,
+            "snapshot_manifest_path": snapshot_manifest_path,
+            "changed_files": [],
+            "restore_available": restore_available,
             "summary": summary,
             "restore_executed": False,
             "rollback_executed": False,

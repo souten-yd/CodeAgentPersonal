@@ -172,7 +172,13 @@ def _normalized_status(payload: dict) -> dict:
             },
             "workspace": workspace_evidence,
             "recovery": {
-                "status": ((recovery_evidence.get("summary") or {}) if isinstance(recovery_evidence.get("summary"), dict) else {}).get("status", ""),
+                "status": str(
+                    recovery_evidence.get("status")
+                    or ((recovery_evidence.get("summary") or {}) if isinstance(recovery_evidence.get("summary"), dict) else {}).get("status", "")
+                ),
+                "snapshot_manifest_path": str(recovery_evidence.get("snapshot_manifest_path") or ""),
+                "changed_files": list(recovery_evidence.get("changed_files") or []),
+                "restore_available": bool(recovery_evidence.get("restore_available")),
                 "restore_executed": bool(recovery_evidence.get("restore_executed")),
                 "rollback_executed": bool(recovery_evidence.get("rollback_executed")),
                 "recovery_execution_performed": bool(recovery_evidence.get("recovery_execution_performed")),
