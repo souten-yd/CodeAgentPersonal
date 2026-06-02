@@ -13,7 +13,7 @@ def test_current_status_matches_post_scale160_practical_plan_track() -> None:
     assert manifest['self_improvement_practical_loop_complete'] is False
     assert manifest['draft_pr_experience_complete'] is False
     assert manifest['practical_full_automation_truthfulness_status'] == 'corrective_checkpoint_in_progress'
-    assert manifest['stable_runtime_mutation_apply_complete'] is True
+    assert manifest['stable_runtime_mutation_apply_complete'] is False
     assert manifest['stable_runtime_mutation_enabled'] is False
     assert manifest['direct_merge_enabled'] is False
     assert manifest['remote_git_push_enabled'] is False
