@@ -35,6 +35,24 @@ class AtlasClarificationReplanningService:
         automation_level: str = "",
         critical_handling: str = "ask",
     ) -> dict:
+        try:
+            return self._revise_after_answers_success(
+                pool,
+                preset_id=preset_id,
+                automation_level=automation_level,
+                critical_handling=critical_handling,
+            )
+        except Exception as exc:
+            return self.mark_replanning_failed(pool, exc)
+
+    def _revise_after_answers_success(
+        self,
+        pool: AtlasPlanPool,
+        *,
+        preset_id: str = "guarded_low_risk",
+        automation_level: str = "",
+        critical_handling: str = "ask",
+    ) -> dict:
         metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
         answers = [dict(a) for a in metadata.get("clarification_answers") or [] if isinstance(a, dict)]
         original_pool_snapshot = self._pool_payload(pool)
@@ -74,9 +92,17 @@ class AtlasClarificationReplanningService:
         pool.status = next_status
 
         revision_id = f"clar_rev_{uuid4().hex[:12]}"
+        revised_plan_summary = self._revised_plan_summary(revised_requirement, len(revised_items))
+        changed_scope_summary = self._changed_scope_summary(
+            allowed_paths_after_clarification,
+            scope_reduced=scope_reduced,
+            risk_raised=risk_raised,
+        )
+        gate_rerun_summary = self._gate_rerun_summary(critique_gate, safety_gate)
         metadata.update(
             {
                 "clarification_replanning": {
+                    "status": "completed",
                     "revision_id": revision_id,
                     "decision_id": f"clar_decision_{uuid4().hex[:12]}",
                     "answered_question_count": len(answers),
@@ -109,6 +135,9 @@ class AtlasClarificationReplanningService:
                 "plan_revision_required_after_clarification": False,
                 "rerun_critique_gate_after_clarification": critique_gate,
                 "rerun_safety_gate_after_clarification": safety_gate,
+                "revised_plan_summary": revised_plan_summary,
+                "changed_scope_summary": changed_scope_summary,
+                "gate_rerun_summary": gate_rerun_summary,
                 "next_required_user_action": self._next_required_user_action(next_status),
             }
         )
@@ -121,8 +150,47 @@ class AtlasClarificationReplanningService:
             "status": next_status,
             "allowed_paths_after_clarification": allowed_paths_after_clarification,
             "revised_plan_snapshot": metadata["revised_plan_snapshot"],
+            "plan_revision_diff": metadata["plan_revision_diff"],
             "rerun_critique_gate": critique_gate,
             "rerun_safety_gate": safety_gate,
+            "revised_plan_summary": revised_plan_summary,
+            "changed_scope_summary": changed_scope_summary,
+            "gate_rerun_summary": gate_rerun_summary,
+            "next_required_user_action": metadata["next_required_user_action"],
+        }
+
+    def mark_replanning_failed(self, pool: AtlasPlanPool, exc: Exception) -> dict:
+        metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
+        answers = [dict(a) for a in metadata.get("clarification_answers") or [] if isinstance(a, dict)]
+        failure = {
+            "status": "failed",
+            "revision_id": f"clar_rev_failed_{uuid4().hex[:12]}",
+            "decision_id": f"clar_decision_failed_{uuid4().hex[:12]}",
+            "answered_question_count": len(answers),
+            "failed_at": _utc_now_iso(),
+            "error_summary": self._bounded_error_summary(exc),
+        }
+        metadata.update(
+            {
+                "clarification_replanning": failure,
+                "plan_revision_required_after_clarification": True,
+                "gate_rerun_required_after_clarification": True,
+                "gate_rerun_performed_after_clarification": False,
+                "revised_plan_summary": "Plan revision failed; original unclarified plan remains blocked.",
+                "changed_scope_summary": "No revised scope was accepted.",
+                "gate_rerun_summary": "Gate rerun was not accepted because clarification replanning failed.",
+                "next_required_user_action": "Review the clarification failure and request a safer revised plan or cancel.",
+            }
+        )
+        pool.metadata = metadata
+        if pool.status == "ready":
+            pool.status = "approval_required"
+        return {
+            **failure,
+            "blocked_reasons": [
+                "plan_revision_required_after_clarification",
+                "gate_rerun_required_after_clarification",
+            ],
             "next_required_user_action": metadata["next_required_user_action"],
         }
 
@@ -359,6 +427,35 @@ class AtlasClarificationReplanningService:
         if status == "approval_required":
             return "Review revised plan and approve or request another revision."
         return "Revised plan is gate-checked and ready for bounded execution."
+
+    @staticmethod
+    def _revised_plan_summary(revised_requirement: str, item_count: int) -> str:
+        summary = str(revised_requirement or "Revised plan").strip()
+        if len(summary) > 160:
+            summary = summary[:157].rstrip() + "..."
+        return f"Plan revised and gates rerun for {item_count} item(s): {summary}"
+
+    @staticmethod
+    def _changed_scope_summary(allowed_paths: list[str], *, scope_reduced: bool, risk_raised: bool) -> str:
+        parts = []
+        if allowed_paths:
+            parts.append("allowed paths: " + ", ".join(allowed_paths[:8]))
+        if scope_reduced:
+            parts.append("scope reduced")
+        if risk_raised:
+            parts.append("risk raised for user review")
+        return "; ".join(parts) if parts else "No explicit path scope change."
+
+    @staticmethod
+    def _gate_rerun_summary(critique_gate: dict, safety_gate: dict) -> str:
+        critique_status = str(critique_gate.get("status") or critique_gate.get("decision") or "checked")
+        safety_status = str(safety_gate.get("decision") or safety_gate.get("status") or "checked")
+        return f"critique gate: {critique_status}; safety gate: {safety_status}"
+
+    @staticmethod
+    def _bounded_error_summary(exc: Exception) -> str:
+        message = f"{exc.__class__.__name__}: {exc}".replace("\n", " ").strip()
+        return message[:200] if len(message) <= 200 else message[:197].rstrip() + "..."
 
     @staticmethod
     def _pool_payload(pool: AtlasPlanPool) -> dict:

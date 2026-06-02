@@ -1497,6 +1497,18 @@
     // metadata instead of in-memory flags, so the approval / clarification controls reappear.
     const clarification = poolMeta.critique_clarification_options || {};
     const clarificationBlocks = clarificationExecutionBlockReasons(poolMeta);
+    if (poolMeta.gate_rerun_performed_after_clarification && !clarificationBlocks.length) {
+      const summary = [
+        poolMeta.revised_plan_summary || 'Plan revised and gates rerun',
+        poolMeta.changed_scope_summary ? `Changed scope: ${poolMeta.changed_scope_summary}` : '',
+        poolMeta.gate_rerun_summary ? `Gate rerun: ${poolMeta.gate_rerun_summary}` : '',
+        Array.isArray(poolMeta.allowed_paths_after_clarification) && poolMeta.allowed_paths_after_clarification.length
+          ? `Allowed paths: ${poolMeta.allowed_paths_after_clarification.join(', ')}` : '',
+        Array.isArray(poolMeta.item_changed_fields) && poolMeta.item_changed_fields.length
+          ? `Changed fields: ${poolMeta.item_changed_fields.map((item) => `${item.item_id || 'item'}=${(item.changed_fields || []).join('/')}`).join(', ')}` : '',
+      ].filter(Boolean).join('\n');
+      pushSystemMessage(summary);
+    }
     if (poolMeta.clarification_required && Array.isArray(poolMeta.clarification_questions) && poolMeta.clarification_questions.length) {
       appendClarificationPrompt(poolId, poolMeta);
     } else if (poolMeta.clarification_required && Array.isArray(clarification.options) && clarification.options.length) {

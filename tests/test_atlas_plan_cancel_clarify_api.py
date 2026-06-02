@@ -126,12 +126,22 @@ def test_clarify_clears_required_only_after_all_questions_answered(tmp_path: Pat
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["pending_question_count"] == 0
+    assert body["clarification_replanning"]["status"] in {"ready", "approval_required", "waiting_for_critical_decision"}
+    assert body["revised_plan_snapshot"]
+    assert body["plan_revision_diff"]["root_goal_changed"] is True
+    assert body["gate_rerun_summary"]
+    assert body["revised_plan_summary"].startswith("Plan revised and gates rerun")
+    assert body["next_required_user_action"]
+    assert body["blocked_reasons"] == []
     reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
     assert "clarification_required" not in (reloaded.metadata or {})
     assert reloaded.metadata["gate_rerun_required_after_clarification"] is False
     assert reloaded.metadata["gate_rerun_performed_after_clarification"] is True
     assert reloaded.metadata["plan_revision_required_after_clarification"] is False
     assert reloaded.metadata["revised_plan_snapshot"]
+    assert reloaded.metadata["clarification_replanning"]["status"] == "completed"
+    assert reloaded.metadata["revised_plan_summary"].startswith("Plan revised and gates rerun")
+    assert reloaded.metadata["gate_rerun_summary"]
     assert "one file" in reloaded.root_goal
     assert reloaded.items[0].metadata["clarification_revision"]["answer_summary"]
 
@@ -182,10 +192,53 @@ def test_clarification_replanning_consumes_selected_option_impact(tmp_path: Path
     assert item.metadata["clarification_revision"]["changed_fields"]
     impacts = reloaded.metadata["plan_revision_diff"]["selected_option_impacts"]
     assert impacts[0]["implementation_scope"] == "small_state_model"
+    assert reloaded.metadata["changed_scope_summary"]
+    assert reloaded.metadata["clarification_replanning"]["status"] == "completed"
     changed = reloaded.metadata["plan_revision_diff"]["item_changed_fields"]
     assert changed[0]["item_id"] == "i1"
     assert "goal" in changed[0]["changed_fields"]
     assert "test_commands" in changed[0]["changed_fields"]
+
+
+def test_clarification_replanning_failure_keeps_execution_blocked(tmp_path: Path, monkeypatch):
+    pool = _pool(status="ready", item_status="ready", metadata={
+        "clarification_required": True,
+        "clarification_questions": [
+            {
+                "question_id": "clar_q_1",
+                "index": 1,
+                "total": 1,
+                "prompt": "Pick scope",
+                "reason": "scope unclear",
+                "options": [{"option_id": "minimal_scope", "label": "Minimal"}],
+                "status": "pending",
+            },
+        ],
+    })
+
+    def fail_gate(*_args, **_kwargs):
+        raise RuntimeError("synthetic gate rerun failure with internal detail")
+
+    monkeypatch.setattr(atlas_pipeline.AtlasClarificationReplanningService, "_rerun_safety_gate", fail_gate)
+    client = _client(tmp_path, pool)
+    r = client.post(
+        "/api/atlas/plan-pools/pool_x/clarify",
+        json={"question_id": "clar_q_1", "option_id": "minimal_scope", "answer_text": "one file"},
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["clarification_replanning"]["status"] == "failed"
+    assert "RuntimeError: synthetic gate rerun failure" in body["clarification_replanning"]["error_summary"]
+    assert "Traceback" not in body["clarification_replanning"]["error_summary"]
+    assert "plan_revision_required_after_clarification" in body["blocked_reasons"]
+    assert "gate_rerun_required_after_clarification" in body["blocked_reasons"]
+    reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
+    assert reloaded.status != "ready"
+    assert reloaded.metadata["clarification_replanning"]["status"] == "failed"
+    assert reloaded.metadata["plan_revision_required_after_clarification"] is True
+    assert reloaded.metadata["gate_rerun_required_after_clarification"] is True
+    assert reloaded.metadata["gate_rerun_performed_after_clarification"] is False
 
 
 def test_auto_safe_apply_blocks_until_clarification_replan_gate_rerun(tmp_path: Path):
