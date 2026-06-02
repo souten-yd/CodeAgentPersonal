@@ -118,6 +118,8 @@ def _normalized_status(payload: dict) -> dict:
     recovery_evidence = metadata.get("recovery_evidence") if isinstance(metadata.get("recovery_evidence"), dict) else {}
     draft_pr_readiness = metadata.get("draft_pr_readiness") if isinstance(metadata.get("draft_pr_readiness"), dict) else {}
     draft_pr_artifact = metadata.get("draft_pr_artifact") if isinstance(metadata.get("draft_pr_artifact"), dict) else {}
+    ci_failure_evidence = metadata.get("ci_failure_evidence") if isinstance(metadata.get("ci_failure_evidence"), dict) else {}
+    ci_repair_plan = metadata.get("ci_repair_plan") if isinstance(metadata.get("ci_repair_plan"), dict) else {}
     phase = str(payload.get("phase") or "")
     status = str(payload.get("status") or "")
     stop_reason = str(payload.get("stop_reason") or "")
@@ -158,6 +160,9 @@ def _normalized_status(payload: dict) -> dict:
             "verification": _verification_summary(item_results),
             "verification_failure_summary": metadata.get("verification_failure_summary") or {},
             "repair_plan": metadata.get("repair_plan") or {},
+            "ci_failure_evidence": ci_failure_evidence,
+            "ci_repair_plan": ci_repair_plan,
+            "post_ci_repair_verification_required": bool(metadata.get("post_ci_repair_verification_required")),
             "repair_attempts": _repair_summary(item_results, metadata),
             "final_summary": {
                 "status": status,
