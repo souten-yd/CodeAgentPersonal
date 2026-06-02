@@ -427,6 +427,91 @@ def test_ci_failure_evidence_blocks_draft_readiness_until_bounded_repair_verifie
     assert status_view["controls"]["can_execute"] is False
 
 
+def test_auto_merge_readiness_report_is_evidence_backed_and_never_merges(tmp_path: Path) -> None:
+    svc, _proposal, _auto = _service(tmp_path / "auto_merge_missing_ci", _pool([_item("code", "src/fix.py")]))
+    missing_ci = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            metadata={
+                "safety_grep_result": {"status": "passed"},
+                "manifest_policy_drift_result": {"status": "clean"},
+                "user_approval_state": "approved",
+            },
+        )
+    )
+    readiness = missing_ci.metadata["auto_merge_readiness"]
+    assert readiness["ready"] is False
+    assert "ci_green_required_missing" in readiness["blocking_reasons"]
+    assert readiness["direct_merge_enabled"] is False
+    assert readiness["merge_executed"] is False
+
+    svc, _proposal, _auto = _service(tmp_path / "auto_merge_safety_failed", _pool([_item("code", "src/fix.py")]))
+    safety_failed = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            metadata={
+                "ci_status": "green",
+                "safety_grep_result": {"status": "failed"},
+                "manifest_policy_drift_result": {"status": "clean"},
+                "user_approval_state": "approved",
+            },
+        )
+    )
+    assert "safety_grep_pass_required" in safety_failed.metadata["auto_merge_readiness"]["blocking_reasons"]
+
+    svc, _proposal, _auto = _service(tmp_path / "auto_merge_ready", _pool([_item("code", "src/fix.py")]))
+    ready = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            metadata={
+                "ci_status": "green",
+                "safety_grep_result": {"status": "passed"},
+                "manifest_policy_drift_result": {"status": "clean"},
+                "user_approval_state": "approved",
+            },
+        )
+    )
+    readiness = ready.metadata["auto_merge_readiness"]
+    assert readiness["status"] == "ready"
+    assert readiness["ready"] is True
+    assert readiness["required_manual_approvals"] == []
+    assert readiness["future_merge_gate_required"] is True
+    assert readiness["manual_action_required_for_merge"] is True
+    assert readiness["merge_executed"] is False
+    assert readiness["merged"] is False
+    status_view = _normalized_status(ready.model_dump())
+    assert status_view["evidence_summary"]["auto_merge_readiness"]["ready"] is True
+
+    missing_self_platform_gate = svc._auto_merge_readiness(
+        {
+            "changed_files": ["agent/atlas_runtime.py"],
+            "draft_pr_readiness": {"ready": True},
+            "preflight": {"self_platform_target": {"is_self_platform": True}},
+        },
+        _Autopilot(
+            item_results=[
+                AtlasAutopilotItemResult(
+                    item_id="runtime",
+                    status="completed",
+                    changed_files=["agent/atlas_runtime.py"],
+                    verification_result={"status": "passed"},
+                )
+            ]
+        ),
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            metadata={
+                "ci_status": "green",
+                "safety_grep_result": {"status": "passed"},
+                "manifest_policy_drift_result": {"status": "clean"},
+                "user_approval_state": "approved",
+            },
+        ),
+    )
+    assert missing_self_platform_gate["ready"] is False
+    assert "self_platform_review_gate_required" in missing_self_platform_gate["blocking_reasons"]
+
+
 def test_bounded_repair_plan_limits_files_to_allowed_changed_paths(tmp_path: Path) -> None:
     visual_failed = _Autopilot(
         status="failed",

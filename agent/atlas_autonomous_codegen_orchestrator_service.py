@@ -278,6 +278,7 @@ class AtlasAutonomousCodegenOrchestratorService:
             "self_apply_enabled": False,
             "stable_runtime_mutation_enabled": False,
         }
+        out.metadata["auto_merge_readiness"] = self._auto_merge_readiness(out.metadata, autopilot, request)
         self._emit("autonomous_codegen_completed", request.pool_id, run_id, orchestrator_run_id, status=out.status)
         self.save_result(out)
         return out
@@ -1106,6 +1107,9 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "## Self-platform review gate",
                 self._markdown_list(self._self_platform_review_lines(result.metadata if isinstance(result.metadata, dict) else {})),
                 "",
+                "## Supervised auto-merge readiness",
+                self._markdown_list(self._auto_merge_readiness_lines(result.metadata if isinstance(result.metadata, dict) else {})),
+                "",
                 "## Changed files",
                 self._markdown_list(changed_files),
                 "",
@@ -1168,6 +1172,58 @@ class AtlasAutonomousCodegenOrchestratorService:
             "verification_evidence_present": bool(self._verification_evidence(autopilot)),
         }
 
+    def _auto_merge_readiness(self, metadata: dict[str, Any], autopilot, request: AtlasAutonomousCodegenRequest) -> dict[str, Any]:
+        request_metadata = request.metadata or {}
+        draft = metadata.get("draft_pr_readiness") if isinstance(metadata.get("draft_pr_readiness"), dict) else {}
+        preflight = metadata.get("preflight") if isinstance(metadata.get("preflight"), dict) else {}
+        self_platform_target = preflight.get("self_platform_target") if isinstance(preflight.get("self_platform_target"), dict) else {}
+        self_platform_gate = metadata.get("self_platform_review_gate") if isinstance(metadata.get("self_platform_review_gate"), dict) else {}
+        safety_grep = request_metadata.get("safety_grep_result") if isinstance(request_metadata.get("safety_grep_result"), dict) else {}
+        drift = request_metadata.get("manifest_policy_drift_result") if isinstance(request_metadata.get("manifest_policy_drift_result"), dict) else {}
+        ci_status = str(request_metadata.get("ci_status") or request_metadata.get("ci_state") or "").lower()
+        user_approval_state = str(request_metadata.get("user_approval_state") or "").lower()
+        blocking_reasons: list[str] = []
+        required_manual_approvals: list[str] = []
+
+        if not metadata.get("changed_files"):
+            blocking_reasons.append("changed_files_required")
+        if not self._verification_evidence(autopilot):
+            blocking_reasons.append("verification_evidence_required")
+        if not draft.get("ready"):
+            blocking_reasons.append("draft_pr_readiness_required")
+        if ci_status not in {"green", "passed", "success"}:
+            blocking_reasons.append("ci_green_required_missing")
+        if str(safety_grep.get("status") or "").lower() != "passed":
+            blocking_reasons.append("safety_grep_pass_required")
+        if str(drift.get("status") or "").lower() not in {"passed", "clean"}:
+            blocking_reasons.append("manifest_policy_drift_check_required")
+        if self_platform_target.get("is_self_platform") and not self_platform_gate:
+            blocking_reasons.append("self_platform_review_gate_required")
+        if self_platform_gate and not self_platform_gate.get("draft_pr_allowed"):
+            blocking_reasons.append("self_platform_review_gate_blocked")
+        if user_approval_state != "approved":
+            blocking_reasons.append("user_approval_required")
+            required_manual_approvals.append("explicit_supervised_merge_readiness_approval")
+
+        ready = not blocking_reasons
+        return {
+            "status": "ready" if ready else "blocked",
+            "ready": ready,
+            "blocking_reasons": sorted(set(blocking_reasons)),
+            "required_manual_approvals": required_manual_approvals,
+            "ci_green_required": True,
+            "ci_status": ci_status or "missing",
+            "safety_grep_status": str(safety_grep.get("status") or "missing"),
+            "manifest_policy_drift_status": str(drift.get("status") or "missing"),
+            "self_platform_gate_status": str(self_platform_gate.get("status") or ("missing" if self_platform_target.get("is_self_platform") else "not_applicable")),
+            "future_merge_gate_required": True,
+            "manual_action_required_for_merge": True,
+            "direct_merge_enabled": False,
+            "remote_git_push_enabled": False,
+            "merge_executed": False,
+            "merged": False,
+        }
+
     @staticmethod
     def _verification_evidence(autopilot) -> list[str]:
         lines: list[str] = []
@@ -1203,6 +1259,27 @@ class AtlasAutonomousCodegenOrchestratorService:
         if blocked:
             steps.append("Resolve readiness blockers: " + ", ".join(str(b) for b in blocked))
         return steps
+
+    @staticmethod
+    def _auto_merge_readiness_lines(metadata: dict) -> list[str]:
+        readiness = metadata.get("auto_merge_readiness") if isinstance(metadata.get("auto_merge_readiness"), dict) else {}
+        if not readiness:
+            return ["not evaluated"]
+        lines = [
+            f"status: {readiness.get('status', 'unknown')}",
+            f"ready: {bool(readiness.get('ready'))}",
+            f"ci_green_required: {bool(readiness.get('ci_green_required'))}",
+            "direct_merge_enabled: false",
+            "merge_executed: false",
+            "merge requires explicit future gate/manual action",
+        ]
+        blockers = list(readiness.get("blocking_reasons") or [])
+        if blockers:
+            lines.append("blocking_reasons: " + ", ".join(str(item) for item in blockers))
+        approvals = list(readiness.get("required_manual_approvals") or [])
+        if approvals:
+            lines.append("required_manual_approvals: " + ", ".join(str(item) for item in approvals))
+        return lines
 
     @staticmethod
     def _repair_attempts(autopilot) -> list[str]:
