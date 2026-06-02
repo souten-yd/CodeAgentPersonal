@@ -530,8 +530,8 @@
       pushAtlasMessage(warnings.length ? `Backend warnings:\n${warnings.map((w) => `- ${w}`).join('\n')}` : 'No backend warnings.');
       return;
     }
-    // free_text_goal: create a plan pool with the user's goal, then render
-    // the generated plan in chat so the user can see what Atlas produced.
+    // free_text_goal: treat plain text as Atlas Workbench requirement input,
+    // then render the generated plan in chat so the user can supervise it.
     setBusy(true);
     const resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_path: projectPath(), metadata: { preset_id: state.selectedPresetId }, capability_preferences: getAtlasCapabilityPreferences(), automation_features: getAtlasAutomationFeatures() });
     if (!resp.ok) {
@@ -549,6 +549,7 @@
     // a reload can re-render the plan, then auto-name the provisional project
     // from this first instruction before any further workspace-scoped calls.
     appendMessage('atlas', `PlanPool 作成: \`${poolId}\``, true, { active_pool_id: poolId });
+    renderWorkbenchFlow(poolId, text, { status: 'plan_review', controls: {} });
     if (state.provisional) await maybeAutoRename(text);
     if (resp.data && resp.data.planner_status === 'fallback_used') {
       pushSystemMessage('注意: LLM 未接続のため fallback プランです。実際のコード生成は LLM 起動が必要です。');
@@ -675,6 +676,61 @@
     if (existing) existing.replaceWith(node);
     else dom.transcript.appendChild(node);
     dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  function renderWorkbenchFlow(poolId, requirement, view) {
+    if (!dom.transcript) return;
+    const block = document.createElement('div');
+    block.className = 'atlas-claude-msg atlas-claude-stage-block';
+    block.dataset.role = 'atlas';
+    block.dataset.atlasWorkbenchBlock = 'true';
+    block.dataset.poolId = String(poolId || '');
+
+    const head = document.createElement('div');
+    head.className = 'atlas-claude-summary-head';
+    head.textContent = 'Atlas Workbench';
+    block.appendChild(head);
+
+    const details = document.createElement('div');
+    details.className = 'atlas-claude-summary-block';
+    const flow = [
+      'Requirement input',
+      'Start Atlas',
+      'Plan Review',
+      'Clarification / Critical Decision',
+      'Execute Preview',
+      'Verification / Repair',
+      'Draft PR Artifact',
+    ];
+    renderAutonomousList(details, 'Workbench flow', flow);
+    renderAutonomousList(details, 'Backend authority', [
+      requirement ? `requirement: ${String(requirement).slice(0, 240)}` : '',
+      'Backend workflow_state / PlanPool decide controls.',
+      'Profile selection alone never starts an autonomous loop.',
+      'Active envelope is required for the autonomous profile.',
+      'Direct merge, remote git push, and self-apply are disabled.',
+    ]);
+    renderWorkbenchControls(details, (view && view.controls) || {});
+    block.appendChild(details);
+
+    upsertTranscriptNode(
+      (el) => el.dataset
+        && el.dataset.atlasWorkbenchBlock === 'true'
+        && el.dataset.poolId === String(poolId || ''),
+      block,
+    );
+  }
+
+  function renderWorkbenchControls(parent, controls) {
+    const c = controls || {};
+    renderAutonomousList(parent, 'Status-driven controls', [
+      `can_answer_clarification: ${!!c.can_answer_clarification}`,
+      `can_approve_critical_event: ${!!c.can_approve_critical_event}`,
+      `can_reject_critical_event: ${!!c.can_reject_critical_event}`,
+      `can_continue: ${!!c.can_continue}`,
+      'can_execute: false',
+      'execute_apply_visible: false',
+    ]);
   }
 
   // Claude-style clarification queue: render exactly one pending question, preserving the rest.
@@ -1239,6 +1295,7 @@
   function renderAutonomousWorkflowState(view) {
     if (!dom.transcript || !view) return;
     const poolId = view.pool_id || '';
+    renderWorkbenchFlow(poolId || 'autonomous', view.requirement_summary || view.user_requirement || '', view);
     const block = appendStageBlock(poolId || 'autonomous');
     if (!block) return;
     const phase = String(view.current_phase || 'idle');
@@ -1284,6 +1341,7 @@
     renderAutonomousRepairPlan(summary, evidence.repair_plan || {});
     renderAutonomousList(summary, 'Repair attempts', (evidence.repair_attempts || []).map((r) => `${r.item_id}: ${r.kind} ${r.status || ''}`));
     renderAutonomousList(summary, 'User-visible warnings', view.user_visible_warnings || []);
+    renderWorkbenchControls(summary, controls);
     if (decisions.clarification && decisions.clarification.visible) {
       appendAutonomousDecision(summary, 'Clarification required', controls.can_answer_clarification);
     }

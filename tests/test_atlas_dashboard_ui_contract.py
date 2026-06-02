@@ -354,6 +354,33 @@ def test_claude_panel_renders_autonomous_repair_failure_summary() -> None:
     assert "post-repair verification required" in ATLAS_CLAUDE_PANEL_JS
 
 
+def test_claude_panel_renders_practical_workbench_flow_without_ui_execution_authority() -> None:
+    assert "function renderWorkbenchFlow" in ATLAS_CLAUDE_PANEL_JS
+    assert "Atlas Workbench" in ATLAS_CLAUDE_PANEL_JS
+    for token in (
+        "Requirement input",
+        "Start Atlas",
+        "Plan Review",
+        "Clarification / Critical Decision",
+        "Execute Preview",
+        "Verification / Repair",
+        "Draft PR Artifact",
+        "Backend workflow_state / PlanPool decide controls.",
+        "Profile selection alone never starts an autonomous loop.",
+        "Active envelope is required for the autonomous profile.",
+        "Direct merge, remote git push, and self-apply are disabled.",
+        "can_answer_clarification",
+        "can_approve_critical_event",
+        "can_reject_critical_event",
+        "can_continue",
+        "can_execute: false",
+        "execute_apply_visible: false",
+    ):
+        assert token in ATLAS_CLAUDE_PANEL_JS
+    assert "renderWorkbenchFlow(poolId, text" in ATLAS_CLAUDE_PANEL_JS
+    assert "dataset.atlasWorkbenchBlock" in ATLAS_CLAUDE_PANEL_JS
+
+
 def test_dashboard_supports_llm_backend_unavailable_warning_strings() -> None:
     assert "llm_backend_unavailable" in ATLAS_DASHBOARD_JS
     assert "real_planner_unavailable" in ATLAS_DASHBOARD_JS
