@@ -100,6 +100,7 @@ class AtlasSelfCorrectionService:
                 AtlasAutoVerificationRequest(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id)
             )
             last_verification = vr.model_dump()
+            out.metadata["final_verification_result"] = dict(last_verification)
             out.final_verification_status = str(vr.status)
             self._emit(request, "self_correction_verification", attempt=attempt, status=str(vr.status))
 
@@ -120,6 +121,9 @@ class AtlasSelfCorrectionService:
         md = dict(item.metadata or {})
         md["verification"] = dict(verification or {})
         item.metadata = md
+        item.status = "ready"
+        if hasattr(pool, "completed_item_ids"):
+            pool.completed_item_ids = [i for i in list(pool.completed_item_ids or []) if i != item_id]
         self.storage.save_pool(pool)
         return True
 
