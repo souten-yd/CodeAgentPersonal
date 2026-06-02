@@ -2,12 +2,11 @@
 
 ## Status
 
-This is the latest practical Atlas plan. It supersedes the previous post-SCALE-160
-practical automation plan and restructures the work from PR-A onward.
-The manifest places this plan after `POST-SCALE-160-FASTUI-SHELL-MVP` and before
-the practical autonomous development loop.
+This is the accepted practical Atlas plan for bounded, backend-owned automation.
+PR-O marks this checkpoint complete with PR-E-0-G through PR-N evidence while
+preserving the safety invariants in the phase manifest and readiness policy.
 
-The central missing loop is now explicit:
+The completed bounded loop is:
 
 ```text
 unclear requirement
@@ -20,12 +19,14 @@ unclear requirement
 
 ## Task
 
-Complete Atlas as a practical fully autonomous code-generation agent.
+Maintain Atlas as a practical fully autonomous code-generation agent within the
+accepted bounded backend-owned automation contract.
 
 ## Goal
 
 Atlas must become a practical fully autonomous code-generation agent with
-safe backend-owned automation.
+safe backend-owned automation. This does not enable direct merge, remote push,
+self-apply, stable runtime mutation, Vue authority, or unbounded command execution.
 
 ## Final target behavior
 

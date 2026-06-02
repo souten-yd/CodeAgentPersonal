@@ -28,6 +28,12 @@ Atlas runtime level is profile-dependent: it is resolved from the selected autom
 
 The current active boundary is the manifest state above. Profile selection alone never starts an autonomous loop. Bounded autonomous execution requires an active pre-authorized envelope and still preserves direct-merge, remote-push, self-apply, stable-runtime-mutation, Vue-authority, and arbitrary-unbounded-command prohibitions.
 
+## PR-O Practical Completion Boundary
+
+PR-O accepts the practical full automation checkpoint only as bounded, backend-authoritative automation with evidence from PR-E-0-G through PR-N. This acceptance covers clarification blocking, clarification-driven revision, bounded code generation, candidate workspace and recovery evidence, draft PR artifacts, workbench status UX, E2E acceptance coverage, CI failure repair planning, self-platform candidate-only mode, self-platform review gating, and supervised auto-merge readiness reporting.
+
+This acceptance does not enable unbounded automation. Self-platform work remains candidate-workspace-only and review-gated. Supervised auto-merge readiness is a report; it does not merge, push, self-apply, mutate the stable runtime, or mark a PR as merged. Direct merge remains disabled and still requires a separate future gate/manual action if policy ever changes.
+
 ## Historical baseline after PR-ATLAS-SCALE-152
 
 PR-ATLAS-SCALE-152 adds a buildless conversational Atlas shell model. It can turn the SCALE-151 contract into backend-owned display/supervision regions for transcript, goal input, current phase, next action, safety profile, work target selector, changed files, verification, recovery, and one primary CTA.
