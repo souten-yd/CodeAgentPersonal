@@ -349,6 +349,7 @@ def test_claude_panel_renders_autonomous_repair_failure_summary() -> None:
     assert "function renderAutonomousFailureSummary" in ATLAS_CLAUDE_PANEL_JS
     assert "function renderAutonomousRepairPlan" in ATLAS_CLAUDE_PANEL_JS
     assert "function renderAutonomousCIFailure" in ATLAS_CLAUDE_PANEL_JS
+    assert "function renderAutoMergeReadiness" in ATLAS_CLAUDE_PANEL_JS
     assert "verification_failure_summary" in ATLAS_CLAUDE_PANEL_JS
     assert "repairable verification failure" in ATLAS_CLAUDE_PANEL_JS
     assert "Bounded repair plan" in ATLAS_CLAUDE_PANEL_JS
@@ -356,6 +357,9 @@ def test_claude_panel_renders_autonomous_repair_failure_summary() -> None:
     assert "CI failure evidence" in ATLAS_CLAUDE_PANEL_JS
     assert "CI bounded repair plan" in ATLAS_CLAUDE_PANEL_JS
     assert "post-CI repair verification required" in ATLAS_CLAUDE_PANEL_JS
+    assert "Supervised auto-merge readiness" in ATLAS_CLAUDE_PANEL_JS
+    assert "merge requires explicit future gate/manual action" in ATLAS_CLAUDE_PANEL_JS
+    assert "merge_executed: false" in ATLAS_CLAUDE_PANEL_JS
 
 
 def test_claude_panel_renders_practical_workbench_flow_without_ui_execution_authority() -> None:

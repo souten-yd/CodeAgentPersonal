@@ -1340,6 +1340,7 @@
     renderAutonomousFailureSummary(summary, evidence.verification_failure_summary || {});
     renderAutonomousRepairPlan(summary, evidence.repair_plan || {});
     renderAutonomousCIFailure(summary, evidence.ci_failure_evidence || {}, evidence.ci_repair_plan || {});
+    renderAutoMergeReadiness(summary, evidence.auto_merge_readiness || {});
     renderAutonomousList(summary, 'Repair attempts', (evidence.repair_attempts || []).map((r) => `${r.item_id}: ${r.kind} ${r.status || ''}`));
     renderAutonomousList(summary, 'User-visible warnings', view.user_visible_warnings || []);
     renderWorkbenchControls(summary, controls);
@@ -1438,6 +1439,19 @@
       plan.failure_class ? `class: ${plan.failure_class}` : '',
       (plan.allowed_repair_files || []).length ? `allowed files: ${(plan.allowed_repair_files || []).join(', ')}` : '',
       plan.post_repair_verification_required ? 'post-CI repair verification required' : '',
+    ]);
+  }
+
+  function renderAutoMergeReadiness(parent, readiness) {
+    if (!readiness || !Object.keys(readiness).length) return;
+    renderAutonomousList(parent, 'Supervised auto-merge readiness', [
+      readiness.status ? `status: ${readiness.status}` : '',
+      `ready: ${!!readiness.ready}`,
+      `ci_green_required: ${!!readiness.ci_green_required}`,
+      'direct_merge_enabled: false',
+      'merge_executed: false',
+      'merge requires explicit future gate/manual action',
+      (readiness.blocking_reasons || []).length ? `blocked: ${(readiness.blocking_reasons || []).join(', ')}` : '',
     ]);
   }
 
