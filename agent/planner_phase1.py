@@ -9,6 +9,32 @@ from agent.atlas_llm_schemas import plan_generation_json_schema
 from agent.plan_schema import ImplementationStep, Plan
 from agent.requirement_schema import RequirementCategoryScores, RequirementDefinition
 
+_HIGH_RISK_EN = (
+    "delete",
+    "remove",
+    "rm",
+    "run_command",
+    "shell",
+    "execute",
+    "credential",
+    "secret",
+    "password",
+    "token",
+    "database",
+    "migration",
+    "production",
+)
+_HIGH_RISK_JA = ("削除", "破壊", "実行", "本番")
+_ADVISORY_NOISE = (
+    "advisory repository context",
+    "do not execute",
+    "don't execute",
+    "do not run",
+    "エージェントは実行しない",
+)
+_CREATE_INTENT_EN = ("create", "make", "build", "generate", "add", "write")
+_CREATE_INTENT_JA = ("作って", "作成", "生成", "追加", "実装")
+_HTML_HINTS = ("html", "web page", "webpage", "browser", "ページ", "画面", "虹色", "ぼかし", "hello world")
 
 class PlannerPhase1:
     def __init__(self, llm_json_fn: Callable[[str, str], dict | None]) -> None:
@@ -132,24 +158,22 @@ class PlannerPhase1:
                 )
             )
         if not steps:
-            if not fallback_reason:
-                fallback_reason = "no_implementation_steps"
-                fallback_raw_tail = str(raw_payload)[-500:]
-            skeleton_target = _infer_simple_fallback_target(requirement)
-            if skeleton_target:
+            fallback_target = _infer_simple_fallback_target(requirement.user_input)
+            warnings.append("Plan generation LLM output did not include implementation_steps. Fallback plan was generated.")
+            if fallback_target:
                 steps = [
                     ImplementationStep(
                         step_id="step_1",
-                        title="要件に基づく実装",
-                        description=f"{requirement.user_input} を満たす {skeleton_target} を生成する。",
-                        target_files=[skeleton_target],
+                        title=f"実装スケルトンを作成する ({fallback_target})",
+                        description=f"ユーザー要件に沿って {fallback_target} を作成し、最小の動作確認ができる実装スケルトンを用意する。",
+                        target_files=[fallback_target],
                         action_type="create",
                         risk_level="low",
-                        verification="生成物が要件の done_definition を満たすこと",
-                        rollback=f"{skeleton_target} を削除",
+                        verification=f"{fallback_target} が作成され、要求された表示内容の土台が含まれること",
+                        rollback=f"{fallback_target} を削除する",
                     )
                 ]
-                warnings.append("Plan generation LLM output did not include implementation_steps. Fallback implementation skeleton was generated.")
+                warnings.append("planner_fallback_skeleton_generated")
             else:
                 steps = [
                     ImplementationStep(
@@ -163,7 +187,7 @@ class PlannerPhase1:
                         rollback="変更未実施のため不要",
                     )
                 ]
-                warnings.append("Plan generation LLM output did not include implementation_steps. Fallback inspection step was generated.")
+                warnings.append("Fallback inspection step was generated.")
 
         selected_arch = str(payload.get("selected_architecture", "Incremental additive changes"))
         mode = planning_mode if planning_mode in {"fast", "standard", "deep_nexus"} else "standard"
@@ -242,80 +266,39 @@ def _format_nexus_context(nexus_context: dict) -> str:
     return "\n".join([x for x in lines if x]).strip()[:9000]
 
 
-def _infer_simple_fallback_target(requirement: RequirementDefinition) -> str:
-    text = " ".join(
-        [
-            requirement.user_input or "",
-            requirement.interpreted_goal or "",
-            " ".join(requirement.functional_requirements or []),
-            " ".join(requirement.done_definition or []),
-        ]
-    ).lower()
-    if not text.strip() or _contains_high_risk_fallback_intent(text):
-        return ""
-    if not _contains_create_or_edit_intent(text):
-        return ""
-
-    explicit_files = re.findall(r"[\w./-]+\.(?:html|css|js|ts|tsx|jsx|py|md|json|txt)", text)
-    safe_explicit = [path for path in explicit_files if not path.startswith(("/", "\\")) and ".." not in path.split("/")]
-    if len(set(safe_explicit)) == 1:
-        return safe_explicit[0]
-    if len(set(safe_explicit)) > 1:
-        return ""
-
-    candidates: list[str] = []
-    if any(keyword in text for keyword in ("html", ".html", "web page", "webページ", "ページ", "サイト")):
-        candidates.append("index.html")
-    if any(keyword in text for keyword in ("javascript", "script", "スクリプト")):
-        candidates.append("script.js")
-    if any(keyword in text for keyword in ("css", "style", "スタイル")):
-        candidates.append("style.css")
-    if any(keyword in text for keyword in ("python", ".py")):
-        candidates.append("main.py")
-    unique = list(dict.fromkeys(candidates))
-    return unique[0] if len(unique) == 1 else ""
-
-
-def _contains_create_or_edit_intent(text: str) -> bool:
-    return any(
-        keyword in text
-        for keyword in (
-            "作って",
-            "作成",
-            "生成",
-            "追加",
-            "実装",
-            "作る",
-            "create",
-            "implement",
-            "add",
-            "write",
-            "build",
-        )
-    )
+def _strip_high_risk_noise(text: str) -> str:
+    t = str(text or "").lower()
+    for noise in _ADVISORY_NOISE:
+        t = t.replace(noise, " ")
+    t = re.sub(r"\bdo\s+not\s+(execute|run)\b", " ", t)
+    t = re.sub(r"\bdon't\s+(execute|run)\b", " ", t)
+    return t
 
 
 def _contains_high_risk_fallback_intent(text: str) -> bool:
-    return any(
-        keyword in text
-        for keyword in (
-            "delete",
-            "remove",
-            "rm ",
-            "削除",
-            "破壊",
-            "run_command",
-            "shell",
-            "execute",
-            "実行",
-            "credential",
-            "secret",
-            "password",
-            "token",
-            "database",
-            "db",
-            "migration",
-            "production",
-            "本番",
-        )
+    t = _strip_high_risk_noise(text)
+    if any(re.search(rf"\b{re.escape(keyword)}\b", t) for keyword in _HIGH_RISK_EN):
+        return True
+    return any(keyword in t for keyword in _HIGH_RISK_JA)
+
+
+def _infer_simple_fallback_target(text: str) -> str:
+    t = _strip_high_risk_noise(text)
+    if not t.strip():
+        return ""
+    if _contains_high_risk_fallback_intent(text):
+        return ""
+    explicit = re.findall(r"(?<![\w./-])([A-Za-z0-9_-]+\.html)\b", str(text or ""), flags=re.IGNORECASE)
+    explicit = list(dict.fromkeys(explicit))
+    if len(explicit) == 1:
+        return explicit[0]
+    if len(explicit) > 1:
+        return ""
+    has_create_intent = any(re.search(rf"\b{re.escape(keyword)}\b", t) for keyword in _CREATE_INTENT_EN) or any(
+        keyword in str(text or "") for keyword in _CREATE_INTENT_JA
     )
+    if not has_create_intent:
+        return ""
+    if any(keyword in t for keyword in _HTML_HINTS):
+        return "index.html"
+    return ""
