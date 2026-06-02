@@ -254,8 +254,12 @@ class AtlasAutonomousCodegenOrchestratorService:
             autopilot=autopilot,
         )
         out.metadata["draft_pr_artifact"] = draft_pr_artifact
+        artifact_readiness = (
+            draft_pr_artifact.get("readiness") if isinstance(draft_pr_artifact.get("readiness"), dict) else {}
+        )
         out.metadata["draft_pr_readiness"] = {
             **(out.metadata.get("draft_pr_readiness") or {}),
+            **artifact_readiness,
             "ready": bool(draft_pr_artifact.get("ready")),
             "artifact_path": str(draft_pr_artifact.get("artifact_path") or ""),
             "body_path": str(draft_pr_artifact.get("body_path") or ""),
@@ -734,8 +738,9 @@ class AtlasAutonomousCodegenOrchestratorService:
         pool: AtlasPlanPool,
         autopilot,
     ) -> dict[str, Any]:
-        success = result.status in {"completed", "partial"}
         changed_files = self._changed_files_from_autopilot(autopilot)
+        readiness = self._draft_pr_readiness(result=result, changed_files=changed_files, autopilot=autopilot)
+        success = bool(readiness.get("ready"))
         metadata = request.metadata or {}
         title = str(metadata.get("draft_pr_title") or f"Atlas autonomous update: {pool.root_goal[:80]}").strip()
         base_ref = str(metadata.get("base_ref") or "main").strip() or "main"
@@ -772,7 +777,7 @@ class AtlasAutonomousCodegenOrchestratorService:
             creation_result = {
                 **creation_result,
                 "status": "not_ready",
-                "blocked_reasons": ["autonomous_run_not_successful"],
+                "blocked_reasons": list(readiness.get("blocked_reasons") or ["autonomous_run_not_ready"]),
             }
 
         artifact = {
@@ -780,6 +785,7 @@ class AtlasAutonomousCodegenOrchestratorService:
             "artifact_id": artifact_id,
             "status": "ready" if success else "not_ready",
             "ready": success,
+            "readiness": readiness,
             "pool_id": result.pool_id,
             "run_id": result.run_id,
             "orchestrator_run_id": result.orchestrator_run_id,
@@ -820,6 +826,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "artifact_path",
                 "body_path",
                 "changed_files",
+                "readiness",
                 "safety",
                 "creation_result",
             )
@@ -892,6 +899,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "- no remote git push",
                 "- no self-apply",
                 "- no stable runtime mutation",
+                "- no Vue authority",
                 "",
                 "## Changed files",
                 self._markdown_list(changed_files),
@@ -908,13 +916,43 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "## Repair attempts",
                 self._markdown_list(self._repair_attempts(autopilot)),
                 "",
+                "## Recovery info",
+                self._markdown_list(self._recovery_lines(result.metadata if isinstance(result.metadata, dict) else {})),
+                "",
                 "## Remaining risks",
                 self._markdown_list(list(result.warnings or []) + list(result.errors or [])),
                 "",
                 "## Rollback notes",
                 self._markdown_list(self._rollback_notes(pool)),
+                "",
+                "## Remaining manual review steps",
+                self._markdown_list(self._manual_review_steps(result.metadata if isinstance(result.metadata, dict) else {})),
             ]
         )
+
+    def _draft_pr_readiness(self, *, result: AtlasAutonomousCodegenResult, changed_files: list[str], autopilot) -> dict[str, Any]:
+        blocked_reasons: list[str] = []
+        if result.status not in {"completed", "partial"}:
+            blocked_reasons.append("autonomous_run_not_successful")
+        if not changed_files:
+            blocked_reasons.append("changed_files_required")
+        if not self._verification_evidence(autopilot):
+            blocked_reasons.append("verification_evidence_required")
+        metadata = result.metadata if isinstance(result.metadata, dict) else {}
+        repair_plan = metadata.get("repair_plan") if isinstance(metadata.get("repair_plan"), dict) else {}
+        post_repair = metadata.get("post_repair_verification_result") if isinstance(metadata.get("post_repair_verification_result"), dict) else {}
+        if repair_plan.get("post_repair_verification_required") and str(post_repair.get("status") or "") != "passed":
+            blocked_reasons.append("post_repair_verification_required")
+        if metadata.get("verification_failure_summary"):
+            blocked_reasons.append("verification_failure_unresolved")
+        if result.stop_reason in {"clarification_required", "critical_event_waiting_for_user_decision"}:
+            blocked_reasons.append(result.stop_reason)
+        return {
+            "ready": not blocked_reasons,
+            "blocked_reasons": blocked_reasons,
+            "changed_files_present": bool(changed_files),
+            "verification_evidence_present": bool(self._verification_evidence(autopilot)),
+        }
 
     @staticmethod
     def _verification_evidence(autopilot) -> list[str]:
@@ -924,6 +962,33 @@ class AtlasAutonomousCodegenOrchestratorService:
             if isinstance(verification, dict) and verification:
                 lines.append(f"{getattr(item, 'item_id', '')}: {verification.get('status', 'unknown')}")
         return lines
+
+    @staticmethod
+    def _recovery_lines(metadata: dict) -> list[str]:
+        evidence = metadata.get("recovery_evidence") if isinstance(metadata.get("recovery_evidence"), dict) else {}
+        if not evidence:
+            return ["No recovery evidence recorded."]
+        return [
+            f"status: {evidence.get('status') or 'unknown'}",
+            f"snapshot_manifest_path: {evidence.get('snapshot_manifest_path') or '(none)'}",
+            f"changed_files: {', '.join(evidence.get('changed_files') or []) or '(none)'}",
+            f"restore_available: {bool(evidence.get('restore_available'))}",
+            f"restore_executed: {bool(evidence.get('restore_executed'))}",
+            f"rollback_executed: {bool(evidence.get('rollback_executed'))}",
+            f"recovery_execution_performed: {bool(evidence.get('recovery_execution_performed'))}",
+        ]
+
+    @staticmethod
+    def _manual_review_steps(metadata: dict) -> list[str]:
+        readiness = metadata.get("draft_pr_readiness") if isinstance(metadata.get("draft_pr_readiness"), dict) else {}
+        steps = [
+            "Review changed files and verification evidence.",
+            "Confirm safety constraints remain false before opening or updating any PR.",
+        ]
+        blocked = list(readiness.get("blocked_reasons") or [])
+        if blocked:
+            steps.append("Resolve readiness blockers: " + ", ".join(str(b) for b in blocked))
+        return steps
 
     @staticmethod
     def _repair_attempts(autopilot) -> list[str]:
