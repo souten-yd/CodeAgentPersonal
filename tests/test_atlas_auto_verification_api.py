@@ -1,4 +1,7 @@
 from agent.test_command_runner import TestCommandRunner
+from agent.atlas_journal import AtlasJournal
+from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
+from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from fastapi.testclient import TestClient
 import main
 
@@ -38,6 +41,32 @@ def _pool_file(tmp_path, pool_id):
     return Path(tmp_path) / 'atlas' / 'workspaces' / 'default' / 'plan_pools' / pool_id / 'plan_pool.json'
 
 
+def _create_pool(tmp_path, *, project_path=None):
+    item = AtlasPlanItem(
+        item_id='i1',
+        pool_id='p1',
+        title='Implementation item',
+        goal='x',
+        item_type='implementation',
+        status='ready',
+        risk_level='low',
+        target_files=['app.py'],
+        metadata={'action_type': 'update'},
+    )
+    pool = AtlasPlanPool(
+        pool_id='p1',
+        root_goal='x',
+        project_path=str(project_path) if project_path is not None else '',
+        status='ready',
+        items=[item],
+    )
+    storage = AtlasPlanPoolStorage(Path(tmp_path))
+    journal = AtlasJournal(Path(tmp_path), workspace_id='default')
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    return pool.model_dump()
+
+
 def _set_item(tmp_path, pool_id, item_id, metadata=None):
     p = _pool_file(tmp_path, pool_id)
     pool = json.loads(p.read_text())
@@ -65,7 +94,7 @@ def _set_impl_item(tmp_path, pool_id, item_id):
 
 def test_auto_verification_blocks_arbitrary_command_api(tmp_path):
     c = _client(tmp_path)
-    created = c.post('/api/atlas/plan-pools', json={'input': 'x', 'project_path': str(tmp_path)}).json()['plan_pool']
+    created = _create_pool(tmp_path, project_path=tmp_path)
     item = created['items'][0]
     _set_item(tmp_path, created['pool_id'], item['item_id'])
     res = c.post('/api/atlas/automation/verify-one', json={'pool_id': created['pool_id'], 'item_id': item['item_id'], 'run_id': 'r1', 'metadata': {'command': 'echo hi'}}).json()
@@ -75,7 +104,7 @@ def test_auto_verification_blocks_arbitrary_command_api(tmp_path):
 
 def test_auto_verification_blocks_unsafe_test_path_api(tmp_path):
     c = _client(tmp_path)
-    created = c.post('/api/atlas/plan-pools', json={'input': 'x', 'project_path': str(tmp_path)}).json()['plan_pool']
+    created = _create_pool(tmp_path, project_path=tmp_path)
     item = created['items'][0]
     _set_item(tmp_path, created['pool_id'], item['item_id'], metadata={'verification': {'command_id': 'pytest_selected', 'test_path': '../secret'}})
     res = c.post('/api/atlas/automation/verify-one', json={'pool_id': created['pool_id'], 'item_id': item['item_id'], 'run_id': 'r1'}).json()
@@ -103,7 +132,7 @@ def test_safe_apply_one_and_verify_success(tmp_path):
     (Path(tmp_path) / 'tests').mkdir(parents=True, exist_ok=True)
     (Path(tmp_path) / 'tests' / 'test_app.py').write_text('def test_app_file_exists():\n    from pathlib import Path\n    assert Path("app.py").read_text() == "new\\n"\n', encoding='utf-8')
     c = _client(tmp_path)
-    created = c.post('/api/atlas/plan-pools', json={'input': 'x', 'project_path': str(tmp_path)}).json()['plan_pool']
+    created = _create_pool(tmp_path, project_path=tmp_path)
     item = created['items'][0]
     _set_impl_item(tmp_path, created['pool_id'], item['item_id'])
     _set_item(tmp_path, created['pool_id'], item['item_id'], metadata={'verification': {'command_id': 'pytest_selected', 'test_path': 'tests/test_app.py'}})
@@ -127,7 +156,7 @@ def test_safe_apply_one_and_verify_verification_failed_no_auto_rollback(tmp_path
     (Path(tmp_path) / 'tests').mkdir(parents=True, exist_ok=True)
     (Path(tmp_path) / 'tests' / 'test_app.py').write_text('def test_app_file_exists():\n    assert False\n', encoding='utf-8')
     c = _client(tmp_path)
-    created = c.post('/api/atlas/plan-pools', json={'input': 'x', 'project_path': str(tmp_path)}).json()['plan_pool']
+    created = _create_pool(tmp_path, project_path=tmp_path)
     item = created['items'][0]
     _set_impl_item(tmp_path, created['pool_id'], item['item_id'])
     _set_item(tmp_path, created['pool_id'], item['item_id'], metadata={'verification': {'command_id': 'pytest_selected', 'test_path': 'tests/test_app.py'}})
@@ -148,7 +177,7 @@ def test_safe_apply_one_and_verify_verification_failed_no_auto_rollback(tmp_path
 
 def test_safe_apply_one_and_verify_safe_apply_blocked_skips_verification(tmp_path):
     c = _client(tmp_path)
-    created = c.post('/api/atlas/plan-pools', json={'input': 'x'}).json()['plan_pool']
+    created = _create_pool(tmp_path)
     item = created['items'][0]
     res = c.post('/api/atlas/automation/safe-apply-one-and-verify', json={'pool_id': created['pool_id'], 'item_id': item['item_id'], 'run_id': 'r1'}).json()
     assert res['status'] == 'safe_apply_blocked'
