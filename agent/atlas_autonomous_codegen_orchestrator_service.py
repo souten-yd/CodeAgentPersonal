@@ -112,12 +112,14 @@ class AtlasAutonomousCodegenOrchestratorService:
         effective_max_items = int(effective_limits.get("max_items") or request.max_items)
         effective_max_runtime_seconds = int(effective_limits.get("max_runtime_seconds") or request.max_runtime_seconds)
         effective_max_changed_files_total = int(effective_limits.get("max_changed_files_total") or request.max_changed_files_total)
+        requested_item_ids = request.item_ids or [i.item_id for i in pool.items]
+        excluded_apply_item_ids: set[str] = set()
         if request.generate_missing_patches:
-            ids = request.item_ids or [i.item_id for i in pool.items]
-            for item_id in ids[: max(0, min(effective_max_items, effective_max_actions))]:
+            for item_id in requested_item_ids[: max(0, min(effective_max_items, effective_max_actions))]:
                 pool = self.storage.load_pool(request.pool_id)  # pick up content persisted so far
                 item = pool.get_item(item_id)
                 if item is None:
+                    excluded_apply_item_ids.add(item_id)
                     continue
                 normalize_plan_item_file_changes(item)
                 if self._item_has_patch_content(item):
@@ -125,6 +127,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                     continue
                 if self._is_hard_blocked_item(item):
                     out.skipped_generation_count += 1
+                    excluded_apply_item_ids.add(item_id)
                     out.proposal_results.append(AtlasAutonomousCodegenProposalResult(item_id=item_id, status="skipped", reason="hard_blocked_item"))
                     continue
                 pres = self.patch_proposal_service.propose_for_item(
@@ -140,14 +143,46 @@ class AtlasAutonomousCodegenOrchestratorService:
                 out.proposal_results.append(
                     AtlasAutonomousCodegenProposalResult(
                         item_id=item_id,
-                        status=pres.status,
+                        status=pres.status if available else "no_content",
                         patch_content_available=available,
-                        reason="" if available else (pres.warnings[0] if pres.warnings else ""),
+                        reason="" if available else (pres.warnings[0] if pres.warnings else "patch_content_unavailable"),
                     )
                 )
                 if available:
                     out.generated_count += 1
+                else:
+                    out.skipped_generation_count += 1
+                    excluded_apply_item_ids.add(item_id)
             self._emit("autonomous_codegen_patch_generation_completed", request.pool_id, run_id, orchestrator_run_id, status="completed", generated_count=out.generated_count, skipped_count=out.skipped_generation_count)
+
+        apply_item_ids = [item_id for item_id in requested_item_ids if item_id not in excluded_apply_item_ids]
+        if requested_item_ids and not apply_item_ids:
+            out.phase = "final_summary"
+            out.status = "no_content"
+            out.stop_reason = "no_patch_content"
+            out.metadata.update(
+                {
+                    "preflight": preflight,
+                    "processed_count": 0,
+                    "completed_count": 0,
+                    "failed_count": 0,
+                    "blocked_count": len(excluded_apply_item_ids),
+                    "changed_files": [],
+                    "no_content_item_ids": sorted(excluded_apply_item_ids),
+                    "draft_pr_readiness": {
+                        "ready": False,
+                        "reason": "no_verified_patch_content",
+                        "direct_merge_enabled": False,
+                        "remote_git_push_enabled": False,
+                        "self_apply_enabled": False,
+                        "stable_runtime_mutation_enabled": False,
+                    },
+                    "draft_pr_artifact": {"ready": False, "reason": "no_verified_patch_content"},
+                }
+            )
+            self._emit("autonomous_codegen_completed", request.pool_id, run_id, orchestrator_run_id, status=out.status)
+            self.save_result(out)
+            return out
 
         # ── Phase 3: multi-item apply (inherits full_auto relaxation + verify/self-correct) ───
         out.phase = "candidate_apply"
@@ -157,7 +192,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 run_id=run_id,
                 workspace_id=request.workspace_id,
                 project_path=str(preflight.get("effective_project_path") or request.project_path),
-                item_ids=request.item_ids,
+                item_ids=apply_item_ids if excluded_apply_item_ids else request.item_ids,
                 policy_id=request.policy_id,
                 require_approval=False,
                 max_items=min(effective_max_items, effective_max_actions),

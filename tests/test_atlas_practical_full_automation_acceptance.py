@@ -149,6 +149,80 @@ def test_simple_doc_and_code_fix_complete_with_evidence_backed_pr_artifact(tmp_p
     assert "no remote git push" in body
 
 
+def test_no_content_patch_proposal_is_skipped_and_not_applied(tmp_path: Path) -> None:
+    item = _item("empty", "src/empty.py")
+    item.metadata.pop("proposed_content", None)
+    svc, proposal, auto = _service(tmp_path / "no_content", _pool([item]))
+
+    def no_content(_request) -> AtlasPatchProposalResult:
+        proposal.calls.append(_request.item_id)
+        return AtlasPatchProposalResult(
+            pool_id=_request.pool_id,
+            item_id=_request.item_id,
+            run_id=_request.run_id,
+            status="proposed",
+            warnings=["llm_returned_no_patch"],
+            metadata={"patch_content_available": False},
+        )
+
+    proposal.propose_for_item = no_content
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+            allowed_paths=["src/"],
+        )
+    )
+
+    assert proposal.calls == ["empty"]
+    assert auto.last_request is None
+    assert out.status == "no_content"
+    assert out.stop_reason == "no_patch_content"
+    assert out.proposal_results[0].status == "no_content"
+    assert out.proposal_results[0].patch_content_available is False
+    assert out.metadata["no_content_item_ids"] == ["empty"]
+    assert out.metadata["draft_pr_readiness"]["ready"] is False
+    assert out.metadata["draft_pr_artifact"]["ready"] is False
+
+
+def test_no_content_item_is_excluded_from_apply_when_other_patch_content_exists(tmp_path: Path) -> None:
+    ready = _item("ready", "src/ready.py")
+    empty = _item("empty", "src/empty.py")
+    empty.metadata.pop("proposed_content", None)
+    svc, proposal, auto = _service(tmp_path / "mixed_no_content", _pool([ready, empty]))
+
+    def no_content(_request) -> AtlasPatchProposalResult:
+        proposal.calls.append(_request.item_id)
+        return AtlasPatchProposalResult(
+            pool_id=_request.pool_id,
+            item_id=_request.item_id,
+            run_id=_request.run_id,
+            status="proposed",
+            warnings=["llm_returned_no_patch"],
+            metadata={"patch_content_available": False},
+        )
+
+    proposal.propose_for_item = no_content
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_accept",
+            selected_profile="autonomous_dev_agent",
+            envelope=_active_envelope(),
+            allowed_paths=["src/"],
+            item_ids=["ready", "empty"],
+        )
+    )
+
+    assert proposal.calls == ["empty"]
+    assert auto.last_request is not None
+    assert auto.last_request.item_ids == ["ready"]
+    assert out.proposal_results[0].status == "no_content"
+    assert out.proposal_results[0].reason == "llm_returned_no_patch"
+    assert out.status == "completed"
+    assert out.metadata["draft_pr_readiness"]["ready"] is True
+
+
 def test_ambiguous_and_critical_plans_block_before_implementation(tmp_path: Path) -> None:
     svc, proposal, auto = _service(tmp_path, _pool([_item("amb", "src/a.py")], status="needs_scope_confirmation"))
     ambiguous = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_accept"))
