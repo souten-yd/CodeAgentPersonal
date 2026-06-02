@@ -20,6 +20,9 @@ from agent.atlas_self_correction_schema import AtlasSelfCorrectionRequest, Atlas
 
 # Risk levels that may be auto-reapplied without a human. High/critical are intentionally excluded.
 AUTO_REAPPLY_RISK_LEVELS = {"low", "medium"}
+_FRONTEND_EXTENSIONS = (".html", ".css", ".js")
+_NON_FRONTEND_OR_EXECUTION_EXTENSIONS = (".py", ".sh", ".bash", ".ps1", ".sql", ".yaml", ".yml", ".toml")
+_RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
 
 class AtlasSelfCorrectionService:
@@ -49,8 +52,13 @@ class AtlasSelfCorrectionService:
         allowed_risk = {str(r).lower() for r in (request.risk_levels or [])} or AUTO_REAPPLY_RISK_LEVELS
         risk = str(getattr(item, "risk_level", "") or "").lower()
         if risk not in allowed_risk:
-            out.status, out.reason = "skipped", f"risk_level_not_auto_reapplyable:{risk or 'unknown'}"
-            return out
+            exception = self._high_risk_frontend_exception(pool, item, risk)
+            if not exception.get("allowed"):
+                out.status, out.reason = "skipped", exception.get("reason") or f"risk_level_not_auto_reapplyable:{risk or 'unknown'}"
+                out.metadata = {**(out.metadata or {}), **exception}
+                return out
+            out.metadata = {**(out.metadata or {}), **exception, "high_risk_frontend_exception": True}
+            self._emit(request, "self_correction_high_risk_frontend_exception", attempt=0, status="allowed")
 
         max_attempts = max(1, int(request.max_attempts or 1))
         last_verification = dict(request.verification_result or {})
@@ -130,6 +138,67 @@ class AtlasSelfCorrectionService:
     def _no_verification_configured(self, vr) -> bool:
         warnings = list(getattr(vr, "warnings", []) or [])
         return any(w in warnings for w in ("verification_command_missing", "no_test_commands"))
+
+    def _high_risk_frontend_exception(self, pool, item, risk: str) -> dict:
+        if risk != "high":
+            return {"allowed": False, "reason": f"risk_level_not_auto_reapplyable:{risk or 'unknown'}"}
+        if not self._is_frontend_only_artifact(item):
+            return {"allowed": False, "reason": "risk_level_not_auto_reapplyable:high"}
+        if bool(getattr(item, "requires_user_confirmation", False)):
+            envelope = self._active_envelope(pool)
+            if not envelope:
+                return {"allowed": False, "reason": "high_risk_frontend_exception_requires_active_envelope"}
+            if not self._envelope_allows_high(envelope):
+                return {"allowed": False, "reason": "high_risk_frontend_exception_exceeds_envelope_risk"}
+            allowed_paths = list(((envelope.get("bounds") or {}).get("allowed_paths") or envelope.get("allowed_paths") or []))
+            target_files = [str(f).replace("\\", "/") for f in (getattr(item, "target_files", []) or [])]
+            if not self._paths_within_allowed_paths(target_files, allowed_paths):
+                return {"allowed": False, "reason": "high_risk_frontend_exception_outside_envelope_paths"}
+        return {
+            "allowed": True,
+            "reason": "high_risk_frontend_exception_allowed",
+            "exception_scope": "frontend_only_artifact",
+            "target_files": list(getattr(item, "target_files", []) or []),
+        }
+
+    @staticmethod
+    def _is_frontend_only_artifact(item) -> bool:
+        files = [str(f).lower().strip() for f in (getattr(item, "target_files", []) or []) if str(f).strip()]
+        if not files:
+            return False
+        if any(path.endswith(_NON_FRONTEND_OR_EXECUTION_EXTENSIONS) for path in files):
+            return False
+        return all(path.endswith(_FRONTEND_EXTENSIONS) for path in files)
+
+    @staticmethod
+    def _active_envelope(pool) -> dict:
+        metadata = getattr(pool, "metadata", None) or {}
+        candidates = [
+            metadata.get("envelope"),
+            metadata.get("active_envelope"),
+            metadata.get("pre_authorized_envelope"),
+        ]
+        for candidate in candidates:
+            if isinstance(candidate, dict) and str(candidate.get("status") or "").lower() == "active":
+                return candidate
+        return {}
+
+    @staticmethod
+    def _envelope_allows_high(envelope: dict) -> bool:
+        bounds = envelope.get("bounds") if isinstance(envelope.get("bounds"), dict) else {}
+        max_risk = str(bounds.get("max_risk_level") or envelope.get("max_risk_level") or "").lower()
+        return _RISK_ORDER.get(max_risk, -1) >= _RISK_ORDER["high"]
+
+    @staticmethod
+    def _paths_within_allowed_paths(target_files: list[str], allowed_paths: list[str]) -> bool:
+        allowed = [str(path).replace("\\", "/").strip().rstrip("/") for path in allowed_paths or [] if str(path).strip()]
+        if not target_files or not allowed:
+            return False
+        for raw_path in target_files:
+            path = str(raw_path).replace("\\", "/").strip().lstrip("/")
+            if not any(path == root or path.startswith(root.rstrip("/") + "/") for root in allowed):
+                return False
+        return True
 
     def _emit(self, request: AtlasSelfCorrectionRequest, event_type: str, *, attempt: int, status: str) -> None:
         if not request.run_id:
