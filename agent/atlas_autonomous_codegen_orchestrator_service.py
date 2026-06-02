@@ -378,6 +378,31 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "recovery_evidence": recovery_evidence,
             }
         paths = self._requested_paths(request, pool)
+        self_platform_target = self._classify_self_platform_target(paths)
+        if self_platform_target.get("is_self_platform") and not request.self_improvement:
+            return {
+                "status": "blocked",
+                "phase": "understanding_goal",
+                "reason": "self_platform_requires_self_improvement",
+                "paths": paths,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+                "effective_limits": effective_limits,
+                "self_platform_target": self_platform_target,
+            }
+        if self_platform_target.get("is_self_platform") and envelope_id != "pre_authorized_self_improvement_envelope":
+            return {
+                "status": "blocked",
+                "phase": "understanding_goal",
+                "reason": "self_platform_requires_self_improvement_envelope",
+                "paths": paths,
+                "warnings": warnings,
+                "workspace_evidence": workspace_evidence,
+                "recovery_evidence": recovery_evidence,
+                "effective_limits": effective_limits,
+                "self_platform_target": self_platform_target,
+            }
         critical_scope = self._critical_continuation_scope(request, pool, paths)
         if critical_scope.get("status") == "blocked":
             return {
@@ -487,9 +512,54 @@ class AtlasAutonomousCodegenOrchestratorService:
             "effective_limits": effective_limits,
             "critical_scope": critical_scope,
             "clarification_scope": clarification_scope,
+            "self_platform_target": self_platform_target,
             "warnings": warnings,
             "workspace_evidence": workspace_evidence,
             "recovery_evidence": recovery_evidence,
+        }
+
+    @staticmethod
+    def _classify_self_platform_target(paths: list[str]) -> dict[str, Any]:
+        categories: dict[str, list[str]] = {
+            "runtime": [],
+            "policy_or_manifest": [],
+            "tests": [],
+            "docs": [],
+        }
+        for raw in paths:
+            path = str(raw or "").replace("\\", "/").lstrip("./")
+            if not path:
+                continue
+            if path.startswith(("agent/", "app/")) or path.startswith("web/js/atlas_") or path == "ui.html":
+                categories["runtime"].append(path)
+            elif path in {
+                "docs/atlas_automation_phase_manifest.json",
+                "docs/atlas_autonomous_execution_readiness_policy.md",
+            }:
+                categories["policy_or_manifest"].append(path)
+            elif path.startswith("tests/test_atlas"):
+                categories["tests"].append(path)
+            elif path.startswith("docs/atlas_"):
+                categories["docs"].append(path)
+        matched = []
+        for values in categories.values():
+            matched.extend(values)
+        is_self_platform = bool(matched)
+        strict_review_required = bool(categories["runtime"] or categories["policy_or_manifest"])
+        return {
+            "is_self_platform": is_self_platform,
+            "target_files": sorted(set(matched)),
+            "categories": {key: sorted(set(value)) for key, value in categories.items() if value},
+            "risk_level": "strict_gate" if strict_review_required else ("high" if is_self_platform else "low"),
+            "strict_review_required": strict_review_required,
+            "manual_review_required": bool(is_self_platform),
+            "candidate_only": bool(is_self_platform),
+            "candidate_workspace_required": bool(is_self_platform),
+            "stable_runtime_mutation_enabled": False,
+            "self_apply_enabled": False,
+            "direct_merge_enabled": False,
+            "remote_git_push_enabled": False,
+            "release_pointer_switch_enabled": False,
         }
 
     @staticmethod
