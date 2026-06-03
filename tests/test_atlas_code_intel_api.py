@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
 import main
+from agent.atlas_code_intel_schema import AtlasRelatedTestsRequest
+from agent.atlas_code_intel_service import AtlasCodeIntelService
 
 
 def test_code_intel_endpoints_read_only_and_project_path_required(tmp_path):
@@ -30,3 +32,22 @@ def test_static_contract_no_shell_run_command_or_remote_git():
     assert 'shell=True' not in text
     assert 'run_command' not in text
     assert 'git push' not in text and 'git fetch' not in text and 'git pull' not in text
+
+
+def test_related_tests_metadata_ranks_dependency_related_files(tmp_path):
+    repo = tmp_path / 'repo'
+    (repo / 'src').mkdir(parents=True)
+    (repo / 'tests').mkdir()
+    (repo / 'src' / 'main.js').write_text("import { helper } from './helper.js';\nhelper();\n", encoding='utf-8')
+    (repo / 'src' / 'helper.js').write_text("export function helper() { return 1; }\n", encoding='utf-8')
+    (repo / 'src' / 'neighbor.js').write_text("export const n = 1;\n", encoding='utf-8')
+    (repo / 'tests' / 'main.test.js').write_text("import '../src/main.js';\n", encoding='utf-8')
+
+    out = AtlasCodeIntelService().find_related_tests(
+        AtlasRelatedTestsRequest(project_path=str(repo), changed_files=['src/main.js'])
+    )
+
+    related_files = out.metadata['related_files']
+    assert related_files[0]['path'] == 'src/helper.js'
+    assert 'outgoing_dependency' in related_files[0]['reasons']
+    assert any(item['path'] == 'src/neighbor.js' for item in related_files)

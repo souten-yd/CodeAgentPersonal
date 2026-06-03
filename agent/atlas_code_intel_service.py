@@ -259,4 +259,55 @@ class AtlasCodeIntelService:
                 add_result(t, 'fallback representative tests', 'low', '')
 
         confidence = 'high' if any(r['confidence'] == 'high' for r in related) else 'medium' if any(r['confidence'] == 'medium' for r in related) else 'low'
-        return AtlasRelatedTestsResult(project_path=str(root), changed_files=changed, related_tests=related[: request.max_tests], confidence=confidence, metadata={'test_file_count': len(tests)})
+        related_files = self._related_files_from_dependencies(root, changed, max_files=25)
+        return AtlasRelatedTestsResult(
+            project_path=str(root),
+            changed_files=changed,
+            related_tests=related[: request.max_tests],
+            confidence=confidence,
+            metadata={
+                'test_file_count': len(tests),
+                'related_files': related_files,
+                'related_file_count': len(related_files),
+            },
+        )
+
+    def _related_files_from_dependencies(self, root: Path, changed: list[str], *, max_files: int) -> list[dict]:
+        if not changed:
+            return []
+        try:
+            graph = self.build_dependency_graph(AtlasDependencyGraphRequest(project_path=str(root), max_files=2000))
+        except Exception:
+            return []
+        changed_set = set(changed)
+        scores: dict[str, dict] = {}
+
+        def add(path: str, *, score: int, reason: str, via: str):
+            if not path or path in changed_set:
+                return
+            rec = scores.setdefault(path, {'path': path, 'score': 0, 'reasons': [], 'via': []})
+            rec['score'] += score
+            if reason not in rec['reasons']:
+                rec['reasons'].append(reason)
+            if via and via not in rec['via']:
+                rec['via'].append(via)
+
+        for edge in graph.edges:
+            resolved = str((edge.metadata or {}).get('resolved_target_path') or '')
+            target = resolved or str(edge.target or '')
+            source = str(edge.source or '')
+            if source in changed_set:
+                add(target, score=3 if resolved else 1, reason='outgoing_dependency', via=source)
+            if target in changed_set or resolved in changed_set:
+                add(source, score=4, reason='incoming_dependency', via=target or resolved)
+        for rel in changed:
+            base = (root / rel).parent
+            if not base.exists():
+                continue
+            for neighbor in base.glob('*'):
+                if not neighbor.is_file():
+                    continue
+                nrel = neighbor.relative_to(root).as_posix()
+                if nrel not in changed_set:
+                    add(nrel, score=1, reason='directory_neighbor', via=rel)
+        return sorted(scores.values(), key=lambda r: (-int(r.get('score') or 0), str(r.get('path') or '')))[:max_files]

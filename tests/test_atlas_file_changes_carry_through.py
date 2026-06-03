@@ -87,6 +87,40 @@ def test_patch_proposal_result_metadata_detects_file_changes_content(tmp_path):
     assert result.proposal.metadata['file_changes'] == file_changes
 
 
+def test_patch_proposal_self_review_regenerates_invalid_or_incomplete_content(tmp_path):
+    storage = AtlasPlanPoolStorage(tmp_path)
+    journal = AtlasJournal(tmp_path)
+    item = AtlasPlanItem(
+        item_id='i1',
+        pool_id='p1',
+        title='Create greeting module',
+        goal='Expose Hello World greeting',
+        done_definition=['Hello World appears in the generated content'],
+        target_files=['greeting.py'],
+        metadata={'action_type': 'create'},
+    )
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g', project_path=str(tmp_path), items=[item])
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    calls = []
+
+    def llm_json_fn(system_prompt, user_prompt, **kwargs):
+        calls.append(user_prompt)
+        if len(calls) == 1:
+            return {'target_files': ['greeting.py'], 'proposed_content': 'def greet(:\n    return "Hi"\n', 'risk_level': 'low'}
+        assert 'self_review_feedback' in user_prompt
+        return {'target_files': ['greeting.py'], 'proposed_content': 'def greet():\n    return "Hello World"\n', 'risk_level': 'low'}
+
+    svc = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_json_fn)
+    result = svc.propose_for_item(AtlasPatchProposalRequest(pool_id='p1', item_id='i1', run_id='r1', source_type='plan_item'))
+
+    assert result.status == 'proposed'
+    assert len(calls) == 2
+    assert result.proposal.metadata['self_review']['status'] == 'passed'
+    assert result.proposal.metadata['self_review']['regenerated'] is True
+    assert 'Hello World' in result.proposal.metadata['proposed_content']
+
+
 def test_patch_proposal_planitem_draft_carries_file_changes(tmp_path):
     storage = AtlasPlanPoolStorage(tmp_path)
     journal = AtlasJournal(tmp_path)

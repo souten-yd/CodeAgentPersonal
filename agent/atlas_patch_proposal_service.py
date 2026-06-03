@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import json
+import re
 from datetime import datetime, timezone
 from uuid import uuid4
 from pathlib import Path, PurePosixPath
@@ -410,12 +412,21 @@ class AtlasPatchProposalService:
         last_failure = "llm_no_output"
         parse_failures = 0
         empty_content_attempts = 0
+        self_review_feedback: dict | None = None
         for attempt in range(1, self.MAX_LLM_GENERATION_ATTEMPTS + 1):
             user_obj: dict = {"task": base_task, "input": input_payload}
             if clarification_directives:
                 user_obj["clarification_directives"] = clarification_directives
             if verification_feedback:
                 user_obj["fix_verification_failure"] = verification_feedback
+            if self_review_feedback:
+                user_obj["self_review_feedback"] = {
+                    "instruction": (
+                        "The previous generated patch content failed a pre-apply self review. "
+                        "Fix these findings before returning the next JSON response."
+                    ),
+                    **self_review_feedback,
+                }
             if attempt > 1:
                 # Escalate: tell the model exactly why the previous attempt was unusable.
                 user_obj["retry_note"] = (
@@ -433,6 +444,20 @@ class AtlasPatchProposalService:
                 last_failure = f"llm_output_unparseable:{str(exc) or exc.__class__.__name__}"
                 continue
             if has_content or not content_required:
+                review = self._self_review_proposal(proposal, input_payload, has_content=has_content)
+                review["attempt_count"] = attempt
+                review["regenerated"] = attempt > 1
+                proposal.metadata["self_review"] = review
+                if review.get("status") == "failed" and attempt < self.MAX_LLM_GENERATION_ATTEMPTS:
+                    proposal.warnings.append(f"self_review_failed_attempt_{attempt}")
+                    self_review_feedback = {
+                        "status": "failed",
+                        "findings": list(review.get("findings") or []),
+                    }
+                    last_failure = "self_review_failed"
+                    continue
+                if review.get("status") == "failed":
+                    proposal.warnings.append("self_review_findings_unresolved")
                 if attempt > 1:
                     proposal.warnings.append(f"llm_generation_succeeded_on_attempt_{attempt}")
                 return proposal
@@ -557,6 +582,113 @@ class AtlasPatchProposalService:
             "metadata": metadata,
         })
         return normalized, has_content
+
+    def _self_review_proposal(self, proposal: AtlasPatchProposal, input_payload: dict, *, has_content: bool) -> dict:
+        """Lightweight pre-apply review for generated content.
+
+        This is intentionally static and bounded: no shell, no imports, no project mutation.
+        It catches obvious Python syntax errors and missing literal requirement keywords before
+        safe-apply sees the proposal.
+        """
+        findings: list[dict] = []
+        if self._plan_item_requires_content(input_payload) and not has_content:
+            findings.append({"type": "content_missing", "severity": "blocking", "message": "patch content is required"})
+        content_by_path = self._proposal_content_by_path(proposal)
+        for path, content in content_by_path.items():
+            if str(path).lower().endswith(".py"):
+                try:
+                    ast.parse(content or "")
+                except SyntaxError as exc:
+                    findings.append({
+                        "type": "python_syntax_error",
+                        "severity": "blocking",
+                        "path": path,
+                        "message": str(exc),
+                    })
+        combined_content = "\n".join(content_by_path.values())
+        for missing in self._missing_requirement_keywords(input_payload, combined_content):
+            findings.append({
+                "type": "requirement_keyword_missing",
+                "severity": "blocking",
+                **missing,
+            })
+        return {
+            "status": "failed" if findings else "passed",
+            "checks": ["python_ast_parse", "requirement_keyword_match"],
+            "findings": findings,
+        }
+
+    def _proposal_content_by_path(self, proposal: AtlasPatchProposal) -> dict[str, str]:
+        metadata = proposal.metadata or {}
+        out: dict[str, str] = {}
+        target_files = [str(p) for p in (proposal.target_files or []) if str(p)]
+        if metadata.get("proposed_content"):
+            out[target_files[0] if target_files else "proposed_content"] = str(metadata.get("proposed_content") or "")
+        for fc in metadata.get("file_changes") or []:
+            if not isinstance(fc, dict):
+                continue
+            path = str(fc.get("path") or "").strip()
+            if not path:
+                continue
+            pieces = [
+                str(fc.get("proposed_content") or ""),
+                str(fc.get("patch") or ""),
+                str(fc.get("unified_diff_preview") or ""),
+                str(fc.get("append_content") or ""),
+            ]
+            edits = fc.get("edits") if isinstance(fc.get("edits"), list) else []
+            for edit in edits:
+                if isinstance(edit, dict):
+                    pieces.append(str(edit.get("new_string") or ""))
+            content = "\n".join(piece for piece in pieces if piece)
+            if content:
+                out[path] = content
+        edits = metadata.get("edits") if isinstance(metadata.get("edits"), list) else []
+        if edits:
+            path = target_files[0] if target_files else "edits"
+            out[path] = "\n".join(str(e.get("new_string") or "") for e in edits if isinstance(e, dict))
+        if proposal.unified_diff_preview and not out:
+            out[target_files[0] if target_files else "unified_diff_preview"] = proposal.unified_diff_preview
+        return out
+
+    def _missing_requirement_keywords(self, input_payload: dict, content: str) -> list[dict]:
+        item = input_payload.get("item") or {}
+        requirements = [
+            str(v).strip()
+            for v in [item.get("goal"), *list(item.get("done_definition") or [])]
+            if str(v).strip()
+        ]
+        content_l = (content or "").lower()
+        missing: list[dict] = []
+        for idx, req in enumerate(requirements, start=1):
+            tokens = self._requirement_tokens(req)
+            if not tokens:
+                continue
+            matched = [tok for tok in tokens if tok in content_l]
+            required_count = max(1, min(len(tokens), (len(tokens) + 1) // 2))
+            if len(matched) < required_count:
+                missing.append({
+                    "requirement_id": f"req_{idx:03d}",
+                    "description": req,
+                    "missing_keywords": [tok for tok in tokens if tok not in matched],
+                })
+        return missing
+
+    @staticmethod
+    def _requirement_tokens(text: str) -> list[str]:
+        stopwords = {
+            "the", "and", "for", "with", "that", "this", "should", "must", "shall", "need",
+            "needs", "please", "add", "create", "make", "ensure", "show", "display", "update",
+            "page", "code", "implement", "implementation", "from", "into", "when", "where",
+            "which", "have", "has", "will", "your", "use", "using", "value", "values", "file",
+            "files", "text", "appears", "contain", "contains",
+        }
+        tokens = [
+            t.lower()
+            for t in re.findall(r"[a-zA-Z][a-zA-Z0-9_]{2,}", text or "")
+            if t.lower() not in stopwords
+        ]
+        return list(dict.fromkeys(tokens))[:8]
 
     def _no_content_failure_proposal(self, input_payload: dict, *, reason: str, parse_failures: int, empty_content_attempts: int) -> AtlasPatchProposal:
         # Honest "the LLM could not produce patch content" proposal: patch_content_available stays

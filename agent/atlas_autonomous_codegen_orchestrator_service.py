@@ -1001,12 +1001,20 @@ class AtlasAutonomousCodegenOrchestratorService:
         root = self.data_root / "atlas" / "autonomous_codegen" / result.pool_id / result.orchestrator_run_id
         artifact_path = root / "draft_pr_artifact.json"
         body_path = root / "draft_pr_body.md"
-        creation_allowed = bool(metadata.get("allow_draft_pr_creation") or (request.envelope or {}).get("allow_draft_pr_creation"))
+        envelope = request.envelope or {}
+        creation_requested = bool(metadata.get("allow_draft_pr_creation") or envelope.get("allow_draft_pr_creation"))
+        creation_allowed = bool(envelope.get("allow_draft_pr_creation"))
         creation_result: dict[str, Any] = {
             "attempted": False,
+            "requested": creation_requested,
             "allowed": creation_allowed,
-            "status": "not_requested" if not creation_allowed else "blocked",
-            "blocked_reasons": [] if not creation_allowed else ["draft_pr_client_required"],
+            "status": "not_requested" if not creation_requested else "blocked",
+            "blocked_reasons": (
+                []
+                if not creation_requested
+                else ["draft_pr_envelope_permission_required"] if not creation_allowed
+                else ["draft_pr_client_required"]
+            ),
             "draft_pr_created": False,
             "draft_pr_updated": False,
             "direct_merge_performed": False,
@@ -1049,6 +1057,8 @@ class AtlasAutonomousCodegenOrchestratorService:
             ],
             "safety": {
                 "injected_client_only": True,
+                "draft_pr_envelope_required": True,
+                "draft_pr_creation_allowed": creation_allowed,
                 "direct_merge_enabled": False,
                 "direct_merge_performed": False,
                 "remote_git_push_enabled": False,
