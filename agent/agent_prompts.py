@@ -41,7 +41,7 @@ Required keys:
 - architecture_options: string[]
 - selected_architecture: string
 - rejected_architectures: string[]
-- implementation_steps: [{title,description,target_files,action_type,risk_level,verification,rollback}]
+- implementation_steps: [{title,description,goal,acceptance_criteria,target_files,action_type,risk_level,verification,rollback}]
 - target_files: string[]
 - expected_file_changes: string[]
 - risks: string[]
@@ -53,6 +53,12 @@ Required keys:
 - requires_user_confirmation: boolean
 
 Testing:
+- Every implementation step must include a non-empty description, a one-sentence goal explaining
+  which part of the requirement it satisfies, at least one observable acceptance_criteria entry, and
+  concrete verification.
+- Include the user's key phrases (visible text, colors, behavior, file names, or other explicit
+  requirements) in the relevant step description. Do not output empty description or empty
+  acceptance_criteria.
 - Only write an automated test for executable CODE with logic (e.g. a Python/JS module that exposes
   functions or classes). When such code is produced, include a dedicated implementation step that
   WRITES a test file (action_type=create, target_files=["tests/test_<name>.py"]) covering the new

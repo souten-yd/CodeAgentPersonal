@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import ast
 import json
+import re
 from datetime import datetime, timezone
 from uuid import uuid4
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
@@ -14,6 +16,7 @@ from agent.atlas_plan_item_file_changes import DEFAULT_CHANGE_SET, has_file_chan
 from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProposalRequest, AtlasPatchProposalResult
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_plan_trace import PlanTrace
 from agent.atlas_workspace_root import resolve_atlas_workspace_root
 
 
@@ -31,6 +34,24 @@ class AtlasPatchProposalService:
     # A plan_item that must write a file gets more than one shot at the LLM: weak models often emit
     # an empty/invalid first response but succeed when told the prior attempt was unusable.
     MAX_LLM_GENERATION_ATTEMPTS = 2
+    _SIGNAL_REPAIR_HINTS = {
+        "color_mutation_signal": (
+            "色の変化が静的解析で検出できなかった。描画コードで色を動的に変える表現を使うこと"
+            "（例: ctx.fillStyle に hsl(...) / rgb(...) を使い、requestAnimationFrame ループ内で"
+            "色相や成分を毎フレーム更新する）。16進数固定色のみは不可。"
+        ),
+        "animation_signal": (
+            "アニメーション信号が検出できなかった。requestAnimationFrame による描画ループ、"
+            "または CSS @keyframes を実装すること。"
+        ),
+        "motion_signal": (
+            "動きの信号が検出できなかった。canvas の getContext 描画更新、CSS transform/translate を"
+            "実装すること。"
+        ),
+        "wave_signal": (
+            "波形/位相信号が検出できなかった。Math.sin/Math.cos と phase/amplitude/frequency を用いること。"
+        ),
+    }
 
     def __init__(self, *, journal: AtlasJournal, storage: AtlasPlanPoolStorage, llm_json_fn: Callable[[str, str], dict | None] | None = None):
         self.journal = journal
@@ -44,16 +65,22 @@ class AtlasPatchProposalService:
         if item is None:
             warnings = ["item_not_found"]
             self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_blocked", None, "blocked", warnings=warnings)
+            self._record_trace(pool.pool_id, request.run_id, "blocked", "item_not_found", {"llm_called": False})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=request.item_id, run_id=request.run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump())
         # Critique gate (PR-8b): a plan flagged plan_revision_required must not generate patches
         # until the plan is revised / approved. full_auto-continuation pools never set this flag.
         if bool((pool.metadata or {}).get("plan_revision_required")):
             warnings = ["plan_revision_required_blocks_patch"]
+            planner_fallback = (pool.metadata or {}).get("planner_fallback")
+            if isinstance(planner_fallback, dict) and planner_fallback.get("reason"):
+                warnings.append(f"planner_fallback:{planner_fallback.get('reason')}")
             self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_blocked", item, "blocked", warnings=warnings)
+            self._record_trace(pool.pool_id, request.run_id, "blocked", "plan_revision_required_blocks_patch", {"llm_called": False})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump())
         ok, warnings = self.validate_item_for_patch_proposal(pool, item, request)
         if not ok:
             self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_blocked", item, "blocked", warnings=warnings)
+            self._record_trace(pool.pool_id, request.run_id, "blocked", ";".join(warnings), {"llm_called": False})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump())
         try:
             payload = self.build_proposal_input(pool, item, request)
@@ -69,6 +96,13 @@ class AtlasPatchProposalService:
             _file_changes = _pmeta.get("file_changes") if isinstance(_pmeta.get("file_changes"), list) else []
             has_file_changes_content = bool(_file_changes) and all(has_file_change_content(fc) for fc in _file_changes)
             has_content = bool(proposal.unified_diff_preview or _pmeta.get("proposed_content") or _pmeta.get("edits") or has_file_changes_content)
+            self._record_trace(
+                pool.pool_id,
+                request.run_id,
+                "generated",
+                "patch_proposal_generated",
+                {"llm_called": bool(self.llm_json_fn), "has_content": has_content},
+            )
             result = AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="proposed", proposal=proposal, proposal_json_path=json_path, proposal_md_path=md_path, metadata={"patch_content_available": has_content})
             self.mark_item_from_patch_proposal(pool, item, result)
             self.storage.save_pool(pool)
@@ -79,6 +113,7 @@ class AtlasPatchProposalService:
         except Exception as exc:
             errors = [str(exc) or exc.__class__.__name__]
             self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_failed", item, "failed", errors=errors)
+            self._record_trace(pool.pool_id, request.run_id, "failed", "patch_proposal_exception", {"llm_called": bool(self.llm_json_fn), "errors": errors})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="failed", errors=errors, plan_pool=pool.model_dump())
 
     def validate_item_for_patch_proposal(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> tuple[bool, list[str]]:
@@ -213,6 +248,7 @@ class AtlasPatchProposalService:
                 "current_file_truncated": bool(existing_target["truncated"]),
                 "project_symbols": code_context["symbols"],
                 "related_tests": code_context["related_tests"],
+                "clarification_implementation_directives": list(item_metadata.get("clarification_implementation_directives") or []),
             },
             "debug_review": {
                 "root_cause_category": str(debug_review.get("root_cause_category") or ("plan_item" if source_type == "plan_item" else "")),
@@ -285,7 +321,14 @@ class AtlasPatchProposalService:
         meta_reason = str(((verification.get("metadata") or {}).get("primary_verification_reason") or ""))
         if meta_reason:
             return meta_reason
-        for prefix in ("browser_smoke_failed:", "visual_contract_failed", "visual_missing:", "browser_smoke_warning:"):
+        priority = (
+            "browser_smoke_failed:js_error",
+            "browser_smoke_failed:",
+            "visual_missing:",
+            "browser_smoke_warning:",
+            "visual_contract_failed",
+        )
+        for prefix in priority:
             for warning in warnings:
                 if warning == prefix or warning.startswith(prefix):
                     return warning
@@ -300,13 +343,20 @@ class AtlasPatchProposalService:
                 "and global-scope wiring. Do NOT generate a Python test as the only repair. Return corrected, "
                 "COMPLETE browser file content."
             )
-        if primary_reason.startswith("visual_missing") or "animation_not_detected" in primary_reason:
-            return (
-                "The generated browser game files were applied, then visual verification could not detect "
-                f"required motion/animation ({primary_reason}). Fix the IMPLEMENTATION files (Renderer, "
-                "GameEngine, index.html, and relevant canvas code) so requestAnimationFrame drives visible "
-                "canvas updates. Do NOT generate a Python test as the only repair. Return corrected, COMPLETE file content."
+        signal = primary_reason.split("visual_missing:", 1)[-1] if primary_reason.startswith("visual_missing:") else ""
+        hint = self._SIGNAL_REPAIR_HINTS.get(signal)
+        if (
+            hint
+            or primary_reason.startswith("visual_missing")
+            or primary_reason == "visual_contract_failed"
+            or "animation_not_detected" in primary_reason
+        ):
+            base = (
+                "適用したブラウザ成果物が visual contract 検証に FAILED した "
+                f"({primary_reason})。実装ファイル（index.html と関連する js/*.js, Renderer, GameEngine など）を"
+                "修正すること。Python テストだけを生成して通すのは禁止。修正後の COMPLETE なファイル内容を返すこと。"
             )
+            return f"{base}\n対処指針: {hint}" if hint else base
         return (
             "Your previous proposed_content was applied to the target file and then FAILED "
             "verification. Fix the root cause shown below and return corrected, COMPLETE file "
@@ -358,13 +408,25 @@ class AtlasPatchProposalService:
         # If this is a self-correction regeneration, surface the failing verification output so the
         # model fixes the ROOT CAUSE instead of re-emitting the same broken content.
         verification_feedback = self._verification_feedback(input_payload)
+        clarification_directives = self._clarification_directives(input_payload)
         last_failure = "llm_no_output"
         parse_failures = 0
         empty_content_attempts = 0
+        self_review_feedback: dict | None = None
         for attempt in range(1, self.MAX_LLM_GENERATION_ATTEMPTS + 1):
             user_obj: dict = {"task": base_task, "input": input_payload}
+            if clarification_directives:
+                user_obj["clarification_directives"] = clarification_directives
             if verification_feedback:
                 user_obj["fix_verification_failure"] = verification_feedback
+            if self_review_feedback:
+                user_obj["self_review_feedback"] = {
+                    "instruction": (
+                        "The previous generated patch content failed a pre-apply self review. "
+                        "Fix these findings before returning the next JSON response."
+                    ),
+                    **self_review_feedback,
+                }
             if attempt > 1:
                 # Escalate: tell the model exactly why the previous attempt was unusable.
                 user_obj["retry_note"] = (
@@ -382,6 +444,20 @@ class AtlasPatchProposalService:
                 last_failure = f"llm_output_unparseable:{str(exc) or exc.__class__.__name__}"
                 continue
             if has_content or not content_required:
+                review = self._self_review_proposal(proposal, input_payload, has_content=has_content)
+                review["attempt_count"] = attempt
+                review["regenerated"] = attempt > 1
+                proposal.metadata["self_review"] = review
+                if review.get("status") == "failed" and attempt < self.MAX_LLM_GENERATION_ATTEMPTS:
+                    proposal.warnings.append(f"self_review_failed_attempt_{attempt}")
+                    self_review_feedback = {
+                        "status": "failed",
+                        "findings": list(review.get("findings") or []),
+                    }
+                    last_failure = "self_review_failed"
+                    continue
+                if review.get("status") == "failed":
+                    proposal.warnings.append("self_review_findings_unresolved")
                 if attempt > 1:
                     proposal.warnings.append(f"llm_generation_succeeded_on_attempt_{attempt}")
                 return proposal
@@ -402,6 +478,40 @@ class AtlasPatchProposalService:
         fallback.warnings.append("llm_invalid_json_fallback_proposal")
         fallback.metadata["generation_failure_reason"] = last_failure
         return fallback
+
+    def _clarification_directives(self, input_payload: dict) -> dict | None:
+        item = input_payload.get("item") or {}
+        directives = item.get("clarification_implementation_directives")
+        if not isinstance(directives, list) or not directives:
+            return None
+        required_elements: list[str] = []
+        for directive in directives:
+            if not isinstance(directive, dict):
+                continue
+            for signal in directive.get("signals") or []:
+                if not isinstance(signal, dict):
+                    continue
+                instruction = str(signal.get("instruction") or "").strip()
+                signal_name = str(signal.get("signal") or "").strip()
+                if instruction:
+                    required_elements.append(f"{signal_name}: {instruction}" if signal_name else instruction)
+            plan_change = str(directive.get("plan_change_summary") or "").strip()
+            scope = str(directive.get("implementation_scope") or "").strip()
+            custom = str(directive.get("custom_answer") or "").strip()
+            for value in (plan_change, scope, custom):
+                if value and value not in required_elements:
+                    required_elements.append(value)
+        if not required_elements:
+            return None
+        return {
+            "instruction": (
+                "The user answered a clarification question and the revised plan requires these "
+                "implementation elements. Include them in the generated patch content; do not satisfy "
+                "the clarification by adding comments or generic prose only."
+            ),
+            "required_elements": required_elements,
+            "raw_directives": directives,
+        }
 
     def _build_proposal_from_output(self, output: dict, input_payload: dict) -> tuple[AtlasPatchProposal, bool]:
         debug = input_payload.get("debug_review") or {}
@@ -472,6 +582,113 @@ class AtlasPatchProposalService:
             "metadata": metadata,
         })
         return normalized, has_content
+
+    def _self_review_proposal(self, proposal: AtlasPatchProposal, input_payload: dict, *, has_content: bool) -> dict:
+        """Lightweight pre-apply review for generated content.
+
+        This is intentionally static and bounded: no shell, no imports, no project mutation.
+        It catches obvious Python syntax errors and missing literal requirement keywords before
+        safe-apply sees the proposal.
+        """
+        findings: list[dict] = []
+        if self._plan_item_requires_content(input_payload) and not has_content:
+            findings.append({"type": "content_missing", "severity": "blocking", "message": "patch content is required"})
+        content_by_path = self._proposal_content_by_path(proposal)
+        for path, content in content_by_path.items():
+            if str(path).lower().endswith(".py"):
+                try:
+                    ast.parse(content or "")
+                except SyntaxError as exc:
+                    findings.append({
+                        "type": "python_syntax_error",
+                        "severity": "blocking",
+                        "path": path,
+                        "message": str(exc),
+                    })
+        combined_content = "\n".join(content_by_path.values())
+        for missing in self._missing_requirement_keywords(input_payload, combined_content):
+            findings.append({
+                "type": "requirement_keyword_missing",
+                "severity": "blocking",
+                **missing,
+            })
+        return {
+            "status": "failed" if findings else "passed",
+            "checks": ["python_ast_parse", "requirement_keyword_match"],
+            "findings": findings,
+        }
+
+    def _proposal_content_by_path(self, proposal: AtlasPatchProposal) -> dict[str, str]:
+        metadata = proposal.metadata or {}
+        out: dict[str, str] = {}
+        target_files = [str(p) for p in (proposal.target_files or []) if str(p)]
+        if metadata.get("proposed_content"):
+            out[target_files[0] if target_files else "proposed_content"] = str(metadata.get("proposed_content") or "")
+        for fc in metadata.get("file_changes") or []:
+            if not isinstance(fc, dict):
+                continue
+            path = str(fc.get("path") or "").strip()
+            if not path:
+                continue
+            pieces = [
+                str(fc.get("proposed_content") or ""),
+                str(fc.get("patch") or ""),
+                str(fc.get("unified_diff_preview") or ""),
+                str(fc.get("append_content") or ""),
+            ]
+            edits = fc.get("edits") if isinstance(fc.get("edits"), list) else []
+            for edit in edits:
+                if isinstance(edit, dict):
+                    pieces.append(str(edit.get("new_string") or ""))
+            content = "\n".join(piece for piece in pieces if piece)
+            if content:
+                out[path] = content
+        edits = metadata.get("edits") if isinstance(metadata.get("edits"), list) else []
+        if edits:
+            path = target_files[0] if target_files else "edits"
+            out[path] = "\n".join(str(e.get("new_string") or "") for e in edits if isinstance(e, dict))
+        if proposal.unified_diff_preview and not out:
+            out[target_files[0] if target_files else "unified_diff_preview"] = proposal.unified_diff_preview
+        return out
+
+    def _missing_requirement_keywords(self, input_payload: dict, content: str) -> list[dict]:
+        item = input_payload.get("item") or {}
+        requirements = [
+            str(v).strip()
+            for v in [item.get("goal"), *list(item.get("done_definition") or [])]
+            if str(v).strip()
+        ]
+        content_l = (content or "").lower()
+        missing: list[dict] = []
+        for idx, req in enumerate(requirements, start=1):
+            tokens = self._requirement_tokens(req)
+            if not tokens:
+                continue
+            matched = [tok for tok in tokens if tok in content_l]
+            required_count = max(1, min(len(tokens), (len(tokens) + 1) // 2))
+            if len(matched) < required_count:
+                missing.append({
+                    "requirement_id": f"req_{idx:03d}",
+                    "description": req,
+                    "missing_keywords": [tok for tok in tokens if tok not in matched],
+                })
+        return missing
+
+    @staticmethod
+    def _requirement_tokens(text: str) -> list[str]:
+        stopwords = {
+            "the", "and", "for", "with", "that", "this", "should", "must", "shall", "need",
+            "needs", "please", "add", "create", "make", "ensure", "show", "display", "update",
+            "page", "code", "implement", "implementation", "from", "into", "when", "where",
+            "which", "have", "has", "will", "your", "use", "using", "value", "values", "file",
+            "files", "text", "appears", "contain", "contains",
+        }
+        tokens = [
+            t.lower()
+            for t in re.findall(r"[a-zA-Z][a-zA-Z0-9_]{2,}", text or "")
+            if t.lower() not in stopwords
+        ]
+        return list(dict.fromkeys(tokens))[:8]
 
     def _no_content_failure_proposal(self, input_payload: dict, *, reason: str, parse_failures: int, empty_content_attempts: int) -> AtlasPatchProposal:
         # Honest "the LLM could not produce patch content" proposal: patch_content_available stays
@@ -550,7 +767,8 @@ class AtlasPatchProposalService:
                 ignored = True
                 continue
             path_obj = Path(candidate)
-            if path_obj.is_absolute() or ".." in path_obj.parts:
+            posix_path = PurePosixPath(candidate.replace("\\", "/"))
+            if path_obj.is_absolute() or posix_path.is_absolute() or ".." in path_obj.parts or ".." in posix_path.parts:
                 ignored = True
                 continue
             safe_files.append(candidate)
@@ -569,7 +787,8 @@ class AtlasPatchProposalService:
                 continue
             path = str(raw.get("path") or "").strip()
             action = normalize_safe_apply_action_type(raw.get("action_type"))
-            if not path or Path(path).is_absolute() or ".." in Path(path).parts:
+            posix_path = PurePosixPath(path.replace("\\", "/"))
+            if not path or Path(path).is_absolute() or posix_path.is_absolute() or ".." in Path(path).parts or ".." in posix_path.parts:
                 warnings.append("unsafe_file_change_ignored")
                 continue
             if path in seen:
@@ -720,3 +939,13 @@ class AtlasPatchProposalService:
         if not run_id:
             return
         self.journal.append_event(pool_id, run_id, {"event_type": event_type, "pool_id": pool_id, "run_id": run_id, "item_id": item.item_id if item else "", "status": status, "warnings": list(warnings or []), "errors": list(errors or []), "created_at": datetime.now(timezone.utc).isoformat()})
+
+    def _record_trace(self, pool_id: str, run_id: str, decision: str, reason: str, detail: dict) -> None:
+        if not run_id:
+            return
+        try:
+            trace = PlanTrace(data_root=self.journal.root_dir, pool_id=pool_id, run_id=run_id)
+            trace.record(stage="patch_proposal", decision=decision, reason=reason, detail=detail)
+            trace.to_journal(self.journal)
+        except Exception:
+            return

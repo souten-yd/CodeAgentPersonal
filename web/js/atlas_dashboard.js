@@ -294,6 +294,20 @@
     if (old) old.outerHTML = badge(status || 'idle', status || 'idle');
   }
 
+  function renderPlanItemDetail(item) {
+    const acceptance = arr(item.acceptance_criteria || item.done_definition);
+    const rollback = arr(item.rollback_plan || item.rollback);
+    const verification = item.verification || arr(item.test_commands).join(', ');
+    const raw = JSON.stringify(item || {}, null, 2);
+    return `<div class="atlas-plan-structured-detail">
+      <div><b>Goal</b>: ${esc(item.goal || item.description || '-')}</div>
+      <div><b>Acceptance</b>: ${acceptance.length ? acceptance.map((v) => `<span>${esc(v)}</span>`).join(' ') : '-'}</div>
+      <div><b>Verification</b>: ${esc(verification || '-')}</div>
+      <div><b>Rollback</b>: ${rollback.length ? rollback.map((v) => `<span>${esc(v)}</span>`).join(' ') : '-'}</div>
+      <details><summary>Raw plan</summary><pre>${esc(raw)}</pre></details>
+    </div>`;
+  }
+
   function renderPlanList() {
     const host = $('atlas-plan-list');
     if (!host) return;
@@ -312,6 +326,7 @@
           <div class="atlas-plan-item-title"><span>${typeIcon(item.item_type)}</span><b>${esc(item.title || item.item_id || `PlanItem ${index + 1}`)}</b></div>
           <div class="atlas-badge-row">${badge(item.item_type, 'muted')}${badge(item.status, item.status)}${badge(item.risk_level || 'medium', item.risk_level)}</div>
           <p>${esc(description)}</p>
+          ${renderPlanItemDetail(item)}
           <div class="atlas-plan-item-meta"><span>depends_on: ${esc(arr(item.depends_on).join(', ') || '-')}</span><span>target_files: ${arr(item.target_files).length}</span></div>
         </div>
       </article>`;

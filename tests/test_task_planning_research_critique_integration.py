@@ -71,3 +71,50 @@ def test_planning_runs_without_llm_research_is_noop(tmp_path: Path):
     result = runner.run(user_input="x", project_path=str(tmp_path), planning_mode="standard", requirement_mode="auto")
     assert result["plan_id"]
     assert result["research_findings"]["warnings"]  # research_no_output or similar
+
+
+def test_revision_without_steps_keeps_original_and_warns(tmp_path: Path):
+    state = {"plan_calls": 0}
+
+    def llm(prompt: str, user_input: str):
+        p = prompt.lower()
+        if "requirement analyst" in p:
+            return {
+                "interpreted_goal": "show Hello World in rainbow",
+                "task_type": "feature",
+                "functional_requirements": ["Hello World"],
+                "done_definition": ["rainbow"],
+            }
+        if "adversarial plan reviewer" in p:
+            return {
+                "findings": [{"angle": "quality", "severity": "high", "title": "missing detail", "detail": "x", "recommendation": "revise"}],
+                "angle_risk": "high",
+                "requires_revision": True,
+            }
+        if "planning specialist" in p:
+            state["plan_calls"] += 1
+            if state["plan_calls"] == 1:
+                return {
+                    "selected_architecture": "Incremental",
+                    "implementation_steps": [
+                        {
+                            "title": "Create rainbow HTML",
+                            "description": "Create HTML that shows Hello World in rainbow.",
+                            "goal": "Show Hello World in rainbow.",
+                            "acceptance_criteria": ["Hello World is visible", "Rainbow styling is visible"],
+                            "action_type": "create",
+                            "risk_level": "low",
+                        }
+                    ],
+                    "test_plan": ["manual check"],
+                    "rollback_plan": ["delete file"],
+                }
+            return {"selected_architecture": "Invalid", "implementation_steps": []}
+        return {}
+
+    runner = TaskPlanningRunner(ca_data_dir=str(tmp_path), llm_json_fn=llm)
+    result = runner.run(user_input="show Hello World in rainbow", project_path=str(tmp_path), planning_mode="standard", requirement_mode="auto")
+
+    assert result["plan"]["implementation_steps"][0]["description"] == "Create HTML that shows Hello World in rainbow."
+    assert "plan_revision_failed_kept_original" in result["warnings"]
+    assert result["status"] == "needs_confirmation"

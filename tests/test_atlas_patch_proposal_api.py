@@ -3,7 +3,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import main
+from agent.atlas_journal import AtlasJournal
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
+from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
+from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 
 
 def _client(tmp_path):
@@ -13,22 +16,45 @@ def _client(tmp_path):
 
 
 def _create_pool(c):
-    return c.post('/api/atlas/plan-pools', json={'input': 'patch proposal'}).json()
+    item = AtlasPlanItem(
+        item_id='i1',
+        pool_id='p1',
+        title='Patch proposal item',
+        goal='patch proposal',
+        item_type='implementation',
+        status='ready',
+        risk_level='low',
+        target_files=['a.py'],
+        metadata={'action_type': 'update'},
+    )
+    pool = AtlasPlanPool(
+        pool_id='p1',
+        root_goal='patch proposal',
+        project_path=str(Path(c.app.state.atlas_ca_data_dir)),
+        status='ready',
+        items=[item],
+    )
+    storage = AtlasPlanPoolStorage(Path(c.app.state.atlas_ca_data_dir))
+    journal = AtlasJournal(Path(c.app.state.atlas_ca_data_dir), workspace_id='default')
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    payload = pool.model_dump()
+    return {'pool_id': pool.pool_id, 'plan_pool': payload, **payload}
 
 
 def _set_debug_review(c, pool_id, item_id, analyzed=True):
-    data = c.get(f'/api/atlas/plan-pools/{pool_id}').json()['plan_pool']
-    for item in data['items']:
-        if item['item_id'] == item_id:
-            item.setdefault('metadata', {})['debug_review'] = {
-                'status': 'analyzed' if analyzed else 'failed',
-                'root_cause_category': 'test_failure',
-                'proposed_fix': 'Adjust failing assertion and update guard logic.',
-            }
-    import json
-    path = Path(c.app.state.atlas_ca_data_dir, 'atlas', 'plan_pools', f'{pool_id}.json')
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data), encoding='utf-8')
+    storage = AtlasPlanPoolStorage(Path(c.app.state.atlas_ca_data_dir))
+    journal = AtlasJournal(Path(c.app.state.atlas_ca_data_dir), workspace_id='default')
+    pool = storage.load_pool(pool_id)
+    item = pool.get_item(item_id)
+    item.metadata.setdefault('debug_review', {})
+    item.metadata['debug_review'] = {
+        'status': 'analyzed' if analyzed else 'failed',
+        'root_cause_category': 'test_failure',
+        'proposed_fix': 'Adjust failing assertion and update guard logic.',
+    }
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
 
 
 def test_patch_proposal_requires_debug_review_analyzed(tmp_path):

@@ -16,7 +16,7 @@ def test_planpool_integration_plan_payload_has_metadata(tmp_path):
             ]
         },
     }
-    r = c.post('/api/atlas/plan-pools', json=payload)
+    r = c.post('/api/atlas/plan-pools?sync=1', json=payload)
     assert r.status_code == 200
     pool = r.json()["plan_pool"]
     pim = pool.get("metadata", {}).get("plan_item_impact_map", {})
@@ -42,7 +42,7 @@ def test_planpool_changed_target_top_level_priority(tmp_path, monkeypatch):
         return AtlasPlanItemImpactMap(status="missing")
 
     monkeypatch.setattr('agent.atlas_plan_item_impact_map_service.AtlasPlanItemImpactMapService.build_map', fake_build_map)
-    r = c.post('/api/atlas/plan-pools', json={
+    r = c.post('/api/atlas/plan-pools?sync=1', json={
         "input": "do x",
         "project_path": str(tmp_path),
         "enable_repo_context": True,
@@ -67,7 +67,7 @@ def test_planpool_changed_target_metadata_fallback(tmp_path, monkeypatch):
         return AtlasPlanItemImpactMap(status="missing")
 
     monkeypatch.setattr('agent.atlas_plan_item_impact_map_service.AtlasPlanItemImpactMapService.build_map', fake_build_map)
-    r = c.post('/api/atlas/plan-pools', json={
+    r = c.post('/api/atlas/plan-pools?sync=1', json={
         "input": "do x",
         "project_path": str(tmp_path),
         "enable_repo_context": True,
@@ -80,6 +80,6 @@ def test_planpool_changed_target_metadata_fallback(tmp_path, monkeypatch):
 
 def test_disable_repo_context_no_map(tmp_path):
     c = TestClient(create_app())
-    r = c.post('/api/atlas/plan-pools', json={"input": "do x", "project_path": str(tmp_path), "enable_repo_context": False})
+    r = c.post('/api/atlas/plan-pools?sync=1', json={"input": "do x", "project_path": str(tmp_path), "enable_repo_context": False})
     pool = r.json()["plan_pool"]
     assert "plan_item_impact_map" not in pool.get("metadata", {})

@@ -941,6 +941,40 @@ def _get_auto_role_model_map(catalog: dict | None = None) -> dict:
     return task_map
 
 
+def _norm_model_path(value: str) -> str:
+    if not value:
+        return ""
+    try:
+        return os.path.normcase(os.path.normpath(str(value).strip()))
+    except Exception:
+        return str(value).strip().lower()
+
+
+def _resolve_role_override_model_key(override: str, catalog: dict) -> tuple[str, str]:
+    override = (override or "").strip()
+    if not override:
+        return "", ""
+    if override in catalog:
+        return override, "exact"
+    slug = _slugify_model_key(override)
+    if slug in catalog:
+        return slug, "slug"
+
+    override_path = _norm_model_path(override)
+    override_base_slug = _slugify_model_key(os.path.splitext(os.path.basename(override))[0])
+    for key, spec in catalog.items():
+        path = str(spec.get("path") or "").strip()
+        if path and override_path and _norm_model_path(path) == override_path:
+            return key, "path"
+        name_slug = _slugify_model_key(str(spec.get("name") or ""))
+        path_slug = _slugify_model_key(os.path.splitext(os.path.basename(path))[0]) if path else ""
+        if slug and slug in {name_slug, path_slug}:
+            return key, "normalized_name"
+        if override_base_slug and override_base_slug in {key, name_slug, path_slug}:
+            return key, "normalized_path_name"
+    return "", ""
+
+
 def get_runtime_task_model_map(catalog: dict | None = None, include_disabled: bool = False) -> dict:
     catalog = catalog or get_runtime_model_catalog(include_disabled=include_disabled)
     auto_map = _get_auto_role_model_map(catalog)
@@ -948,9 +982,20 @@ def get_runtime_task_model_map(catalog: dict | None = None, include_disabled: bo
     task_map = {}
     for role in MODEL_ROLE_OPTIONS:
         override = _safe_settings_get(_role_setting_key(role), "").strip()
-        if override and override in catalog:
-            task_map[role] = override
+        resolved_override, resolve_source = _resolve_role_override_model_key(override, catalog)
+        if resolved_override:
+            if resolved_override != override:
+                print(
+                    f"[ModelManager][WARN] role '{role}' override '{override}' resolved to "
+                    f"catalog key '{resolved_override}' by {resolve_source}"
+                )
+            task_map[role] = resolved_override
             continue
+        if override:
+            print(
+                f"[ModelManager][WARN] role '{role}' override '{override}' not in catalog "
+                f"(catalog keys={list(catalog.keys())}); falling back"
+            )
         if role in auto_map:
             task_map[role] = auto_map[role]
             continue
@@ -995,6 +1040,7 @@ def _choose_default_startup_model() -> str:
         if int(m.get("enabled", 1) or 1) != 0
         and m.get("path")
         and os.path.isfile(str(m.get("path")))
+        and (IS_RUNPOD_RUNTIME or not _is_bundled_gemma_model(m))
     }
     for role in ("plan", "chat", "code"):
         key = choose_model_for_role(role, include_disabled=True)
@@ -1119,6 +1165,7 @@ def schedule_default_model_load(reason: str = "", force: bool = False) -> tuple[
         if int(m.get("enabled", 1) or 1) != 0
         and m.get("path")
         and os.path.isfile(str(m.get("path")))
+        and (IS_RUNPOD_RUNTIME or not _is_bundled_gemma_model(m))
     ]
     if not models:
         return False, "no_existing_enabled_model_files"
@@ -1299,6 +1346,7 @@ class ModelManager:
         self._switch_callbacks = []
         self._last_start_cmd = ""
         self._last_startup_hints: list[str] = []
+        self._last_startup_failure_reason = "unknown"
         self._last_llama_gpu_log: dict[str, Any] = {}
         self._last_runtime_decision: dict[str, Any] = {}
         self._last_nvidia_smi_before: list[dict[str, int | str]] = []
@@ -1871,7 +1919,19 @@ class ModelManager:
         """必要なら切り替え、不要なら即return True"""
         catalog = self._catalog()
         if not catalog.get(key, {}).get("path"):
-            key = self._task_model_map().get("chat") or choose_model_for_role("chat")
+            requested_key = key
+            fallback = self._task_model_map().get("chat") or choose_model_for_role("chat")
+            print(
+                f"[ModelManager][WARN] requested key '{requested_key}' has no usable path "
+                f"(file missing?); substituting '{fallback}'"
+            )
+            self._last_startup_hints = list(self._last_startup_hints or []) + [
+                f"requested model '{requested_key}' has no usable path; substituted '{fallback}'"
+            ]
+            key = fallback
+            if not catalog.get(key, {}).get("path"):
+                self._set_model_load_state("error", f"Requested model '{requested_key}' and fallback '{fallback}' have no usable path")
+                return False
         if not key or key not in catalog:
             return False
         if key == self.current_key and self._status == "ready":
@@ -1981,12 +2041,12 @@ class ModelManager:
 
         # ─── プラットフォーム別の起動フロー ────────────────────
         if os.name == "nt":
-            return self._start_windows(spec, eff_ck, eff_cv, gpu_vendor, emit)
+            return self._start_windows(spec, eff_ck, eff_cv, gpu_vendor, emit, calc_gpu_layers, proven_ngl)
         else:
             return self._start_linux(spec, eff_ck, eff_cv, gpu_vendor, emit,
                                      calc_gpu_layers, proven_ngl, runtime)
 
-    def _start_windows(self, spec, eff_ck, eff_cv, gpu_vendor, emit) -> bool:
+    def _start_windows(self, spec, eff_ck, eff_cv, gpu_vendor, emit, calc_gpu_layers=None, proven_ngl=-1) -> bool:
         """Windows: auto-fit のみ（-ngl 省略、llama.cppに任せる）。"""
         print(f"[ModelManager] Windows: auto-fit で起動")
         emit("model_switching", f"Loading {spec['name']}... (auto-fit)", 10, 0)
@@ -1999,6 +2059,40 @@ class ModelManager:
             if actual_ngl is not None:
                 self._save_proven_ngl(spec, actual_ngl)
             return True
+        if str(gpu_vendor or "").lower() != "amd":
+            return False
+        if self._last_startup_failure_reason in {"gpu_unsupported", "model_load_error"}:
+            print(f"[ModelManager] AMD retry skipped: reason={self._last_startup_failure_reason}")
+            return False
+
+        try:
+            initial_ngl = int(proven_ngl if int(proven_ngl or -1) > 0 else (calc_gpu_layers or spec.get("gpu_layers", 0) or 0))
+        except Exception:
+            initial_ngl = 0
+        if initial_ngl <= 0:
+            initial_ngl = 999
+
+        retry_values: list[int] = []
+        current = max(0, initial_ngl // 2)
+        for _ in range(2):
+            if current not in retry_values:
+                retry_values.append(current)
+            current = max(0, current // 2)
+
+        for attempt, ngl in enumerate(retry_values, start=1):
+            self._kill_process()
+            print(f"[ModelManager] AMD startup retry {attempt}/{len(retry_values)} with -ngl={ngl}")
+            emit("model_switching", f"AMD VRAM retry... -ngl={ngl}", 20 + attempt * 10, 0)
+            result = self._try_start_once(
+                spec, gpu_layers=ngl, eff_ck=eff_ck, eff_cv=eff_cv,
+                gpu_vendor=gpu_vendor, emit=emit,
+            )
+            if result == "ok":
+                self._save_proven_ngl(spec, ngl)
+                return True
+            if result != "oom" or self._last_startup_failure_reason == "gpu_unsupported":
+                print(f"[ModelManager] AMD retry stopped: result={result} reason={self._last_startup_failure_reason}")
+                break
         return False
 
     def _start_linux(self, spec, eff_ck, eff_cv, gpu_vendor, emit,
@@ -2314,6 +2408,7 @@ class ModelManager:
         Returns: "ok" | "oom" | "fail"
         """
         self._last_llama_gpu_log = {}
+        self._last_startup_failure_reason = "unknown"
         self._set_model_load_state("loading", None, gpu_status="pending", gpu_reason=None, gpu_path=None)
         self._last_nvidia_smi_before = []
         self._last_nvidia_smi_after = []
@@ -2493,7 +2588,13 @@ class ModelManager:
                         self._kill_process()
                         return "fail"
             if self._process.poll() is not None:
-                print("[ModelManager] process exited during load")
+                tail = _read_text_tail_lines(LLAMA_STARTUP_LOG_PATH, tail_lines=50)
+                reason = _classify_llama_startup_failure_text("\n".join(tail))
+                self._last_startup_failure_reason = reason
+                print(f"[ModelManager] process exited during load: reason={reason}")
+                for line in tail[-10:]:
+                    if line.strip():
+                        print(f"[llama-server] {line}")
                 if runpod_linux:
                     parsed = self._parse_llama_gpu_startup_log()
                     parsed["llama_readiness_signals"] = {
@@ -2507,7 +2608,9 @@ class ModelManager:
                         default_error="llama-server process exited during GPU validation",
                     ):
                         break
-                self._set_model_load_state("error", "llama-server process exited during load")
+                hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+                self._last_startup_hints = [f"llama-server exited during load ({reason})"] + hints + tail[-10:]
+                self._set_model_load_state("error", f"llama-server exited during load ({reason})")
                 break
 
         # ─── 失敗判定: OOMか否か ──────────────────────────────
@@ -2524,7 +2627,14 @@ class ModelManager:
                 default_error="llama-server GPU validation failed during load",
             ):
                 return "fail"
-        self._last_startup_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+        tail = _read_text_tail_lines(LLAMA_STARTUP_LOG_PATH, tail_lines=50)
+        reason = _classify_llama_startup_failure_text("\n".join(tail))
+        self._last_startup_failure_reason = reason
+        inferred_hints = _infer_startup_failure_hints(LLAMA_STARTUP_LOG_PATH)
+        if reason != "unknown":
+            self._last_startup_hints = [f"llama-server startup failure classified as {reason}"] + inferred_hints + tail[-10:]
+        else:
+            self._last_startup_hints = inferred_hints + tail[-10:]
         if self._last_startup_hints:
             print(f"[ModelManager] startup hints: {self._last_startup_hints}")
         hints_text = " ".join(self._last_startup_hints).lower()
@@ -2533,9 +2643,12 @@ class ModelManager:
             "failed to allocate", "cuda allocation", "allocation failed",
             "ggml_cuda_device_malloc", "not enough memory", "メモリ",
         )
-        if any(kw in hints_text for kw in _oom_keywords):
+        if reason == "oom" or any(kw in hints_text for kw in _oom_keywords):
             self._set_model_load_state("error", "llama-server failed with OOM during load")
             return "oom"
+        if reason in {"gpu_unsupported", "model_load_error"}:
+            self._set_model_load_state("error", f"llama-server failed during load ({reason})")
+            return "fail"
         self._set_model_load_state("error", "; ".join(self._last_startup_hints) or "llama-server failed during load")
         return "fail"
 
@@ -10567,13 +10680,23 @@ def _infer_startup_failure_hints(log_path: str, tail_lines: int = 200) -> list[s
         hints.append("Metal初期化失敗の可能性（CPUフォールバック）。")
     if "hip" in blob and ("failed" in blob or "not found" in blob):
         hints.append("ROCm/HIP初期化失敗の可能性（CPUフォールバック）。")
+    if (
+        "unsupported gfx" in blob
+        or "hiperrornobinaryforgpu" in blob
+        or "no usable gpu" in blob
+        or "load library failed" in blob
+        or "failed to load library" in blob
+    ):
+        hints.append("GPU非対応またはGPUバックエンド初期化失敗の可能性。llama.cppビルド/ドライバ/GPU対応状況を確認してください。")
     # llama-serverの内部ログでのn_gpu_layers=0のみ検知（起動コマンドのログ行は除外）
     if "n_gpu_layers = 0" in blob:
         hints.append("GPUレイヤーが0で起動している可能性。gpu_layers設定を確認してください。")
     if ("insufficient vram" in blob or "out of memory" in blob
             or "cudamalloc failed" in blob or "failed to allocate" in blob
-            or "ggml_cuda_device_malloc" in blob):
+            or "ggml_cuda_device_malloc" in blob or "ggml_backend_alloc" in blob):
         hints.append("VRAM不足（OOM）の可能性。ctx_size/gpu_layers/modelサイズを下げてください。")
+    if "error loading model" in blob or "failed to load model" in blob or "failed to open model" in blob:
+        hints.append("モデルファイルの読み込み失敗の可能性。path/ファイル破損/対応アーキテクチャを確認してください。")
     if "warning" in blob and "mmap" in blob:
         hints.append("mmap関連警告あり。ストレージや権限で読み込み性能が低下している可能性。")
     if "mmproj" in blob and ("not found" in blob or "missing" in blob or "failed" in blob):
@@ -10589,6 +10712,63 @@ def _infer_startup_failure_hints(log_path: str, tail_lines: int = 200) -> list[s
         # 正常にGPUオフロードされていることを示す（ヒントなし）
         pass
     return list(dict.fromkeys(hints))
+
+
+def _read_text_tail_lines(path: str, tail_lines: int = 50) -> list[str]:
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            all_lines = f.readlines()
+    except Exception:
+        return []
+    last_section_start = 0
+    for i, line in enumerate(all_lines):
+        if "model-start ===" in line:
+            last_section_start = i + 1
+    return [line.rstrip("\r\n") for line in all_lines[last_section_start:][-tail_lines:]]
+
+
+def _classify_llama_startup_failure_text(text: str) -> str:
+    blob = (text or "").lower()
+    if any(
+        marker in blob
+        for marker in (
+            "unsupported gfx",
+            "hiperrornobinaryforgpu",
+            "no kernel image is available",
+            "no usable gpu",
+            "load library failed",
+            "failed to load library",
+            "vulkan initialization failed",
+        )
+    ):
+        return "gpu_unsupported"
+    if any(
+        marker in blob
+        for marker in (
+            "failed to allocate",
+            "out of memory",
+            "cudamalloc failed",
+            "ggml_backend_alloc",
+            "ggml_cuda_device_malloc",
+            "insufficient vram",
+            "not enough memory",
+        )
+    ):
+        return "oom"
+    if any(
+        marker in blob
+        for marker in (
+            "error loading model",
+            "failed to load model",
+            "failed to open model",
+            "invalid model",
+            "unknown model architecture",
+        )
+    ):
+        return "model_load_error"
+    return "unknown"
 
 
 def _resolve_runtime_llm_url(requested_url: str = "") -> str:
@@ -16810,8 +16990,9 @@ def model_roles_payload() -> dict:
     for role in MODEL_ROLE_OPTIONS:
         explicit = settings_get(_role_setting_key(role)).strip()
         chosen = task_map.get(role, "")
-        if explicit and explicit in catalog:
-            source = "explicit"
+        resolved_explicit, _resolve_source = _resolve_role_override_model_key(explicit, catalog)
+        if explicit and resolved_explicit:
+            source = "explicit" if explicit in catalog else "explicit_resolved"
         elif role in auto_map:
             source = "auto"
         elif chosen:

@@ -19,6 +19,8 @@ class ImplementationStep(BaseModel):
     step_id: str
     title: str
     description: str = ""
+    goal: str = ""
+    acceptance_criteria: list[str] = Field(default_factory=list)
     target_files: list[str] = Field(default_factory=list)
     action_type: ActionType = "inspect"
     risk_level: RiskLevel = "low"
@@ -54,3 +56,4 @@ class Plan(BaseModel):
     requires_user_confirmation: bool = False
     status: str = "planned"
     deep_planning: dict[str, Any] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)

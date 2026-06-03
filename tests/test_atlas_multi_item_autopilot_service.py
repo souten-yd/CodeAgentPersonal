@@ -82,6 +82,10 @@ def test_full_auto_multi_item_passes_full_auto_preset(tmp_path):
     out = svc.run(AtlasMultiItemAutopilotRequest(pool_id='p1', project_path=str(tmp_path), policy_id='full_auto_multi_item_v1', require_approval=False, include_context_refresh=False, include_evaluator=False))
     assert captured['preset_id'] == 'full_auto'
     assert out.item_results[0].changed_files == ['a.txt']
+    phases = out.item_results[0].sub_phases
+    assert [p["name"] for p in phases] == ["safe_apply", "verify", "done"]
+    assert phases[0]["detail"]["changed_files"] == ["a.txt"]
+    assert phases[1]["detail"]["output_summary"] == ""
 
 
 def test_self_correction_receives_actual_changed_files_and_file_results(tmp_path):

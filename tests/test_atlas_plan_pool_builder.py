@@ -39,6 +39,8 @@ def test_step_fields_are_mapped_to_plan_item() -> None:
             {
                 "title": "Update builder",
                 "description": "Map fields",
+                "goal": "Preserve planner goal",
+                "acceptance_criteria": ["Acceptance is preserved"],
                 "target_files": ["agent/x.py"],
                 "risk_level": "critical",
                 "verification": ["Run focused tests"],
@@ -51,11 +53,11 @@ def test_step_fields_are_mapped_to_plan_item() -> None:
     item = AtlasPlanPoolBuilder().build_from_plan_payload(payload, root_goal="Goal", pool_id="pool_test").items[0]
 
     assert item.title == "Update builder"
-    assert item.goal == "Map fields"
+    assert item.goal == "Preserve planner goal"
     assert item.description == "Map fields"
     assert item.target_files == ["agent/x.py"]
     assert item.risk_level == "critical"
-    assert item.done_definition == ["Run focused tests"]
+    assert item.done_definition == ["Acceptance is preserved"]
     assert item.rollback_plan == ["Revert builder change"]
     assert item.expected_changes == ["Adds mapping"]
 
@@ -83,6 +85,24 @@ def test_inspect_action_becomes_research_item() -> None:
     item = AtlasPlanPoolBuilder().build_from_plan_payload(payload, root_goal="Goal", pool_id="pool_test").items[0]
 
     assert item.item_type == "research"
+
+
+def test_inspect_action_with_target_files_is_reclassified_as_implementation() -> None:
+    payload = {
+        "implementation_steps": [
+            {
+                "action_type": "inspect",
+                "title": "Create index.html",
+                "description": "Create an HTML file for the requested page.",
+                "target_files": ["index.html"],
+            }
+        ]
+    }
+
+    item = AtlasPlanPoolBuilder().build_from_plan_payload(payload, root_goal="HTML を作って", pool_id="pool_test").items[0]
+
+    assert item.item_type == "implementation"
+    assert item.metadata["action_type"] == "create"
 
 
 def test_high_risk_requires_confirmation_and_disables_auto_execution() -> None:

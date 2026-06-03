@@ -138,6 +138,11 @@ def _pool_metadata_from_plan_payload(plan_payload: dict[str, Any]) -> dict[str, 
     if "review_result" in plan_payload:
         review = plan_payload["review_result"]
         metadata["review_result_summary"] = _compact_review_summary(review)
+    payload_metadata = plan_payload.get("metadata")
+    if isinstance(payload_metadata, dict):
+        for key in ("planner_fallback",):
+            if key in payload_metadata:
+                metadata[key] = payload_metadata[key]
     return metadata
 
 
@@ -242,7 +247,10 @@ class AtlasPlanPoolBuilder:
                 expected_changes=coerce_list(step.get("expected_changes") or step.get("changes")),
                 test_commands=test_commands,
                 done_definition=coerce_list(
-                    step.get("done_definition") or step.get("verification") or payload.get("done_definition")
+                    step.get("acceptance_criteria")
+                    or step.get("done_definition")
+                    or step.get("verification")
+                    or payload.get("done_definition")
                 ),
                 rollback_plan=coerce_list(step.get("rollback") or payload.get("rollback_plan")),
                 requires_user_confirmation=requires_confirmation,

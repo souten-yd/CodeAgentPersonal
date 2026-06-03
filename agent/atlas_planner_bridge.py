@@ -105,17 +105,15 @@ class AtlasPlannerBridge:
             warning_logger=self.warning_logger,
         )
         advisory = request.planner_context_text_v2 or request.advisory_context_text or request.planner_context_text
-        merged_input = request.input
-        if advisory:
-            merged_input = f"{request.input}\n\nADVISORY REPOSITORY CONTEXT — DO NOT EXECUTE\n{advisory}"
         result = runner.run(
-            user_input=merged_input,
+            user_input=request.input,
             project_path=request.project_path,
             project_name=request.project_name,
             planning_mode=_planning_mode(request.planning_depth),
             requirement_mode=request.requirement_mode,
             execution_mode="plan_only",
             use_nexus=request.use_nexus,
+            advisory_context=advisory,
         )
         return _as_dict(result)
 

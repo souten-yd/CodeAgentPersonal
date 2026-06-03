@@ -48,6 +48,7 @@ from agent.atlas_capability_preference_schema import (
 )
 from agent.atlas_automation_features import resolve_features as _resolve_automation_features
 from agent.atlas_plan_depth_gate import evaluate_plan_depth
+from agent.atlas_plan_trace import PlanTrace, read_plan_trace, summarize_root_cause
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
 from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
@@ -81,6 +82,7 @@ from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest, A
 from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_failure_stop_schema import AtlasFailureStopSuggestion
 from agent.atlas_failure_stop_service import AtlasFailureStopService
+from agent.atlas_self_correction_schema import AtlasSelfCorrectionRequest
 from agent.atlas_verification_allowlist import atlas_verification_allowlist
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
 from agent.atlas_repo_context_service import AtlasRepoContextService
@@ -96,6 +98,7 @@ from agent.atlas_verification_recommendation_service import AtlasVerificationRec
 from agent.atlas_verification_recommendation_handoff_service import AtlasVerificationRecommendationHandoffService
 from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
+from app.api.atlas_autopilot_factory import build_self_correction_service
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from app.atlas.level1_dry_run_result_artifact_capture import capture_level1_dry_run_result_artifact
 from app.atlas.level1_dry_run_endpoint_skeleton import build_level1_dry_run_only_result
@@ -297,6 +300,27 @@ def _model_dump(value: Any) -> dict[str, Any]:
     if hasattr(value, "dict"):
         return value.dict()
     return dict(value)
+
+
+def _record_plan_trace(
+    *,
+    data_root: Path,
+    journal: AtlasJournal,
+    pool_id: str,
+    run_id: str,
+    stage: str,
+    decision: str,
+    reason: str,
+    detail: dict[str, Any] | None = None,
+) -> None:
+    if not pool_id or not run_id:
+        return
+    try:
+        trace = PlanTrace(data_root=data_root, pool_id=pool_id, run_id=run_id)
+        trace.record(stage=stage, decision=decision, reason=reason, detail=detail or {})
+        trace.to_journal(journal)
+    except Exception:
+        return
 
 
 
@@ -822,6 +846,18 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         if bridge_result.pool is None:
             raise HTTPException(status_code=500, detail="planner bridge did not return a PlanPool")
         pool = bridge_result.pool
+        if any("implementation_steps" in str(w) for w in bridge_warnings):
+            decision = "skeleton" if "planner_fallback_skeleton_generated" in bridge_warnings else "fallback"
+            _record_plan_trace(
+                data_root=ca_data_root,
+                journal=journal,
+                pool_id=pool.pool_id,
+                run_id="plan_create",
+                stage="planner_llm",
+                decision=decision,
+                reason="no_implementation_steps",
+                detail={"warnings": bridge_warnings},
+            )
 
     pool.status = "ready"
     if req.enable_repo_context and (req.project_path or "").strip():
@@ -993,6 +1029,19 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
     pool.metadata["plan_depth_gate"] = _depth
     _enforce_quality = _features.get("quality_gate_enforcement") == "block"
     if not _depth["ok"]:
+        _record_plan_trace(
+            data_root=ca_data_root,
+            journal=journal,
+            pool_id=pool.pool_id,
+            run_id="plan_create",
+            stage="plan_depth_gate",
+            decision="block" if _enforce_quality else "warn",
+            reason=";".join(_depth.get("reasons") or []),
+            detail={
+                "impl_item_count": len([it for it in pool.items if str(getattr(it, "item_type", "")).lower() in {"implementation", "documentation"}]),
+                "item_types": [str(getattr(it, "item_type", "") or "") for it in pool.items],
+            },
+        )
         for _r in _depth["warnings"]:
             if _r not in pool.warnings:
                 pool.warnings.append(_r)
@@ -1011,6 +1060,16 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         pool.metadata["critical_event_status"] = "waiting_for_critical_decision"
     if quality_gate["plan_revision_required"]:
         pool.metadata["plan_revision_required"] = True
+        _record_plan_trace(
+            data_root=ca_data_root,
+            journal=journal,
+            pool_id=pool.pool_id,
+            run_id="plan_create",
+            stage="plan_quality_gate",
+            decision="block",
+            reason="plan_revision_required",
+            detail={"critique_gate": quality_gate.get("critique_gate") or {}},
+        )
     if quality_gate["clarification"]:
         pool.metadata["critique_clarification"] = quality_gate["clarification"]
     # ── Structured clarification options (PR-9d): produce option/merit/risk/recommendation items
@@ -2058,20 +2117,65 @@ def atlas_automation_safe_apply_one_and_verify(request_body: AtlasAutoSafeApplyA
     elif verify.status == "passed":
         status = "applied_and_verified"
     elif verify.status == "failed":
-        status = "applied_but_verification_failed"
         _, storage, journal = _atlas_components(request, workspace_id=request_body.workspace_id)
-        pool = storage.load_pool(request_body.pool_id)
-        item = pool.get_item(request_body.item_id)
-        if item is not None:
-            suggestion = AtlasFailureStopService(journal=journal).build_for_verification_failure(pool, item, request_body.run_id, verify.model_dump())
-            suggestion_payload = suggestion.model_dump()
-            safe_snapshot = (safe.model_dump().get("change_snapshot") or {})
-            if safe_snapshot.get("manifest_path") and not suggestion_payload.get("snapshot_manifest_path"):
-                suggestion_payload["snapshot_manifest_path"] = str(safe_snapshot.get("manifest_path") or "")
-                suggestion_payload["changed_files"] = list(safe_snapshot.get("changed_files") or [])
-                suggestion_payload["restore_candidate"] = {"manifest_path": suggestion_payload["snapshot_manifest_path"], "changed_files": suggestion_payload["changed_files"], "snapshot_id": str(safe_snapshot.get("snapshot_id") or "")}
-            failure_stop_suggestion = suggestion_payload
-            continuation_prompt = (continuation_prompt + "\n\nManual next steps: Review verification failure. Inspect changed files. Restore from Change Snapshot manually if needed. Run Debug Review manually if restore is not desired.").strip()
+        workspace_root = _resolve_pool_workspace_root(
+            storage=storage,
+            ca_data_root=Path(getattr(request.app.state, "atlas_ca_data_dir", "./ca_data")),
+            workspace_id=request_body.workspace_id,
+            pool_id=request_body.pool_id,
+        )
+        self_correction_result = None
+        self_correction_service = build_self_correction_service(
+            request=request,
+            storage=storage,
+            journal=journal,
+            workspace_root=workspace_root,
+            command_runner=_resolve_atlas_test_command_runner(request),
+        )
+        if self_correction_service is not None:
+            self_correction_result = self_correction_service.run(
+                AtlasSelfCorrectionRequest(
+                    pool_id=request_body.pool_id,
+                    item_id=request_body.item_id,
+                    run_id=request_body.run_id,
+                    workspace_id=request_body.workspace_id,
+                    verification_result=verify.model_dump(),
+                    max_attempts=2,
+                )
+            )
+        if self_correction_result is not None and self_correction_result.status == "recovered":
+            status = "applied_and_verified"
+            verify_payload = dict((self_correction_result.metadata or {}).get("final_verification_result") or verify.model_dump())
+            verify_metadata = dict(verify_payload.get("metadata") or {})
+            verify_metadata.update({
+                "recovered_by_self_correction": True,
+                "attempt_count": int(self_correction_result.attempts or 0),
+                "final_verification_status": str(self_correction_result.final_verification_status or ""),
+                "self_correction_result": self_correction_result.model_dump(),
+            })
+            verify_payload["status"] = str(self_correction_result.final_verification_status or "passed")
+            verify_payload["metadata"] = verify_metadata
+            verify_payload["warnings"] = list(dict.fromkeys([*list(verify_payload.get("warnings") or []), "recovered_by_self_correction"]))
+            verify = AtlasAutoVerificationResult(**verify_payload)
+        else:
+            status = "applied_but_verification_failed"
+            pool = storage.load_pool(request_body.pool_id)
+            item = pool.get_item(request_body.item_id)
+            if item is not None:
+                suggestion = AtlasFailureStopService(journal=journal).build_for_verification_failure(pool, item, request_body.run_id, verify.model_dump())
+                suggestion_payload = suggestion.model_dump()
+                safe_snapshot = (safe.model_dump().get("change_snapshot") or {})
+                if safe_snapshot.get("manifest_path") and not suggestion_payload.get("snapshot_manifest_path"):
+                    suggestion_payload["snapshot_manifest_path"] = str(safe_snapshot.get("manifest_path") or "")
+                    suggestion_payload["changed_files"] = list(safe_snapshot.get("changed_files") or [])
+                    suggestion_payload["restore_candidate"] = {"manifest_path": suggestion_payload["snapshot_manifest_path"], "changed_files": suggestion_payload["changed_files"], "snapshot_id": str(safe_snapshot.get("snapshot_id") or "")}
+                suggestion_payload.setdefault("metadata", {})
+                if self_correction_result is not None:
+                    suggestion_payload["metadata"]["self_correction_result"] = self_correction_result.model_dump()
+                else:
+                    suggestion_payload["metadata"]["self_correction"] = "skipped:no_llm"
+                failure_stop_suggestion = suggestion_payload
+                continuation_prompt = (continuation_prompt + "\n\nManual next steps: Review verification failure. Inspect changed files. Restore from Change Snapshot manually if needed. Run Debug Review manually if restore is not desired.").strip()
     elif verify.status == "blocked":
         status = "verification_blocked"
     return AtlasAutoSafeApplyAndVerifyResult(auto_safe_apply_result=safe.model_dump(), auto_verification_result=verify.model_dump(), status=status, failure_stop_suggestion=failure_stop_suggestion, continuation_prompt=continuation_prompt)
@@ -2087,3 +2191,23 @@ def atlas_automation_failure_suggestion(request_body: AtlasFailureSuggestionRequ
         return AtlasFailureStopSuggestion(pool_id=request_body.pool_id, item_id=request_body.item_id, run_id=request_body.run_id, failure_phase="auto_verification", status="blocked", reason="item_not_found", errors=["item_not_found"])
     verification_result = ((item.metadata or {}).get("auto_verification") or {})
     return AtlasFailureStopService(journal=journal).build_for_verification_failure(pool, item, request_body.run_id, verification_result)
+
+
+@router.get("/runs/{run_id}/plan-trace")
+def atlas_plan_trace_route(
+    run_id: str,
+    request: Request,
+    pool_id: str = Query(..., min_length=1),
+    workspace_id: str = Query("default"),
+) -> dict[str, Any]:
+    if ".." in pool_id or ".." in run_id:
+        raise HTTPException(status_code=400, detail="invalid identifier")
+    ca_data_root, _storage, _journal = _atlas_components(request, workspace_id=workspace_id)
+    records = read_plan_trace(ca_data_root, pool_id=pool_id, run_id=run_id)
+    summary = summarize_root_cause(records)
+    return {
+        "pool_id": pool_id,
+        "run_id": run_id,
+        "records": records,
+        **summary,
+    }

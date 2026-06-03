@@ -27,7 +27,7 @@ def test_runtime_chain_contract():
     # Broken-case guard: fails if API response .data unwrap is removed.
     assert 'response?.data || response || {}' in dash
     assert 'project_path is required' in dash
-    assert 'atlas-dashboard-32' in html
+    assert '/static/js/atlas_dashboard.js' in html
 
     iife_end = dash.rfind('})();')
     query_idx = dash.find('queryPlanItemImpactMapFromUI')

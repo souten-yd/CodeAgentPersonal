@@ -27,7 +27,7 @@
     transcript: [],
     presets: [],
     envelopes: [],
-    selectedPresetId: 'review_only',
+    selectedPresetId: 'autonomous_bounded_dev',
     workTarget: 'software_development_or_repair',
     latestSafetyProfile: null,
     latestEnvelope: null,
@@ -242,6 +242,7 @@
         state.selectedPresetId = value;
         renderPresetSummary();
         updateSelectButtonState();
+        persistAtlasAutomationFeatures();
       });
     });
     document.querySelectorAll('input[name="atlas-claude-work-target"]').forEach((radio) => {
@@ -376,8 +377,14 @@
     if (!preset) return;
     const envelopeId = selectedEnvelopeId(preset);
     const envelopeRecipe = state.envelopes.find((e) => e.envelope_id === envelopeId) || null;
+    const profileLabel = preset.id === 'supervised_auto'
+      ? '3: Autonomous（毎回 bounds 指定・完全自動 OFF）'
+      : preset.id === 'autonomous_bounded_dev'
+        ? '4: Autonomous（envelope 内で完全自動・★完全自動コード生成）'
+        : preset.label;
     const lines = [
-      `# ${preset.label}`,
+      `# ${profileLabel}`,
+      `- badge: full_auto=${preset.enables_full_automation ? 'ON' : 'OFF'} / envelope=${envelopeId === 'none' ? 'none' : 'bounded_dev'}`,
       `- safety profile: \`${preset.safety_profile}\``,
       `- envelope: \`${envelopeId}\``,
       `- enables full automation: ${preset.enables_full_automation ? 'YES' : 'no'}`,
@@ -918,8 +925,17 @@
             const status = r.data.status || 'unknown';
             const warnings = Array.isArray(r.data.warnings) ? r.data.warnings : [];
             const errors = Array.isArray(r.data.errors) ? r.data.errors : [];
-            const parts = [`status=${status}`, 'LLMがパッチ内容を生成できませんでした'];
+            let cause = 'パッチ生成がブロックされました';
+            if (warnings.includes('plan_revision_required_blocks_patch')) {
+              cause = 'プラン修正が必要なため、パッチ生成は開始されませんでした';
+            } else if (warnings.includes('llm_no_patch_content_generated') || warnings.includes('plan_item_patch_content_missing')) {
+              cause = 'LLMがパッチ内容を生成できませんでした';
+            } else if (status === 'proposed') {
+              cause = 'パッチ内容が空の提案です';
+            }
+            const parts = [`status=${status}`, cause];
             if (warnings.length) parts.push(`warnings=${warnings.join('; ')}`);
+            if (plannerFallback && plannerFallback.reason) parts.push(`planner_fallback=${plannerFallback.reason}`);
             if (errors.length) parts.push(`errors=${errors.join('; ')}`);
             msg = parts.join(' / ');
           }
@@ -1342,6 +1358,7 @@
     renderAutonomousCIFailure(summary, evidence.ci_failure_evidence || {}, evidence.ci_repair_plan || {});
     renderAutoMergeReadiness(summary, evidence.auto_merge_readiness || {});
     renderAutonomousList(summary, 'Repair attempts', (evidence.repair_attempts || []).map((r) => `${r.item_id}: ${r.kind} ${r.status || ''}`));
+    renderAutonomousSubPhaseTimeline(summary, evidence.item_sub_phases || []);
     renderAutonomousList(summary, 'User-visible warnings', view.user_visible_warnings || []);
     renderWorkbenchControls(summary, controls);
     if (decisions.clarification && decisions.clarification.visible) {
@@ -1361,6 +1378,28 @@
         draft.body_path ? `body: ${draft.body_path}` : '',
       ]);
     }
+  }
+
+  function renderAutonomousSubPhaseTimeline(host, items) {
+    if (!host) return;
+    const rows = (items || []).filter((item) => (item.sub_phases || []).length);
+    if (!rows.length) return;
+    const block = document.createElement('details');
+    block.className = 'atlas-autonomous-subphase-timeline';
+    const title = document.createElement('summary');
+    title.textContent = 'Item timeline';
+    block.appendChild(title);
+    rows.forEach((item) => {
+      const card = document.createElement('div');
+      card.className = 'atlas-autonomous-subphase-item';
+      const phases = (item.sub_phases || []).map((phase) => {
+        const detail = phase.detail ? ` ${JSON.stringify(phase.detail)}` : '';
+        return `<li>${badge(phase.name || 'phase', phase.status || 'muted')} <span>${esc(phase.status || '')}</span><small>${esc(detail)}</small></li>`;
+      }).join('');
+      card.innerHTML = `<b>${esc(item.item_id || '-')}</b> ${badge(item.status || 'item', item.status || 'muted')}<ol>${phases}</ol>`;
+      block.appendChild(card);
+    });
+    host.appendChild(block);
   }
 
   function renderAutonomousList(parent, title, values) {
@@ -1709,6 +1748,7 @@
           para(row, s.description);
           bullets(row, textItems(s.acceptance_criteria).map((x) => `受入条件: ${x}`));
           if ((s.target_files || []).length) para(row, `files: ${s.target_files.join(', ')}`);
+          bullets(row, s.acceptance_criteria || s.done_definition || []);
           if (s.verification) para(row, `検証: ${s.verification}`);
           if (s.rollback) para(row, `ロールバック: ${s.rollback}`);
           sec.appendChild(row);
@@ -1723,9 +1763,13 @@
         if (review.overall_risk) para(sec, `総合リスク: ${review.overall_risk}`);
         if (review.summary) para(sec, review.summary);
         bullets(sec, strategic.risks);
-        (review.findings || []).forEach((f) => para(sec, `⚠ [${f.severity || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
+        const unresolvedReview = (review.findings || []).filter((f) => ['high', 'critical'].includes(String(f.severity || '').toLowerCase()) || f.requires_user_confirmation);
+        const resolvedReview = (review.findings || []).filter((f) => !unresolvedReview.includes(f));
+        unresolvedReview.forEach((f) => para(sec, `未解決 ⚠ [${f.severity || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
+        if (resolvedReview.length) para(sec, `解決済み/低リスク findings: ${resolvedReview.length} 件（折りたたみ対象）`);
         if (critique.requires_revision) para(sec, `敵対的批評: 要改訂 (${critique.consensus_risk || '-'})`);
-        (critique.findings || []).forEach((f) => para(sec, `⚔ [${f.severity || '-'}/${f.angle || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
+        const unresolvedCritique = (critique.findings || []).filter((f) => ['high', 'critical'].includes(String(f.severity || '').toLowerCase()));
+        unresolvedCritique.forEach((f) => para(sec, `未解決 ⚔ [${f.severity || '-'}/${f.angle || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
       });
     }
     // Done definition / tests
@@ -1989,6 +2033,13 @@
     'cap-web-evidence',
     'cap-sandboxed-install',
   ];
+  const _CAP_ID_TO_KEY = {
+    'cap-command-execution': 'command_execution_requested',
+    'cap-browser-automation': 'browser_automation_requested',
+    'cap-playwright-verification': 'playwright_visual_verification_requested',
+    'cap-web-evidence': 'web_evidence_gathering_requested',
+    'cap-sandboxed-install': 'sandboxed_package_installation_requested',
+  };
 
   function saveAtlasCapabilityPreferences() {
     const prefs = {};
@@ -2001,6 +2052,7 @@
     } catch (e) {
       // localStorage unavailable — preferences are in-memory only
     }
+    persistAtlasAutomationFeatures();
   }
 
   function loadAtlasCapabilityPreferences() {
@@ -2055,19 +2107,41 @@
 
   async function persistAtlasAutomationFeatures() {
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.setAutomationFeatures) return;
-    try { await root.AtlasPipelineAPI.setAutomationFeatures({ features: getAtlasAutomationFeatures() }); } catch (e) { /* best-effort */ }
+    try {
+      await root.AtlasPipelineAPI.setAutomationFeatures({
+        features: getAtlasAutomationFeatures(),
+        selected_preset_id: state.selectedPresetId || 'autonomous_bounded_dev',
+        capability_preferences: getAtlasCapabilityPreferences(),
+      });
+    } catch (e) { /* best-effort */ }
   }
 
   async function loadAtlasAutomationFeatures() {
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getAutomationFeatures) return;
     try {
       const r = await root.AtlasPipelineAPI.getAutomationFeatures();
-      const f = (r && r.ok && r.data && r.data.features) || {};
+      const data = (r && r.ok && r.data) || {};
+      const f = data.features || {};
+      if (data.selected_preset_id) {
+        state.selectedPresetId = data.selected_preset_id;
+        const radio = Array.from(document.querySelectorAll('input[name="atlas-claude-preset"]')).find((el) => el.value === state.selectedPresetId);
+        if (radio) radio.checked = true;
+      }
+      const caps = data.capability_preferences || {};
+      _CAP_IDS.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const key = _CAP_ID_TO_KEY[id] || id;
+        if (Object.prototype.hasOwnProperty.call(caps, id)) el.checked = Boolean(caps[id]);
+        else if (Object.prototype.hasOwnProperty.call(caps, key)) el.checked = Boolean(caps[key]);
+      });
       Object.entries(_FEATURE_SELECTS).forEach(([id, key]) => {
         const el = document.getElementById(id);
         if (el && f[key]) el.value = f[key];
         if (el && !el._featBound) { el.addEventListener('change', persistAtlasAutomationFeatures); el._featBound = true; }
       });
+      renderPresetSummary();
+      updateSelectButtonState();
     } catch (e) { /* defaults shown */ }
   }
 

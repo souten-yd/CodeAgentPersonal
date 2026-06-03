@@ -189,11 +189,11 @@ def test_draft_pr_creation_uses_injected_client_only(tmp_path: Path) -> None:
         AtlasAutonomousCodegenRequest(
             pool_id="pool_1",
             metadata={
-                "allow_draft_pr_creation": True,
                 "base_ref": "main",
                 "head_branch": "codex/atlas-generated",
                 "draft_pr_title": "Atlas generated change",
             },
+            envelope={"allow_draft_pr_creation": True},
         )
     )
 
@@ -204,6 +204,24 @@ def test_draft_pr_creation_uses_injected_client_only(tmp_path: Path) -> None:
     assert creation["direct_merge_performed"] is False
     assert client.calls[0]["base_ref"] == "main"
     assert client.calls[0]["head_branch"] == "codex/atlas-generated"
+
+
+def test_draft_pr_creation_requires_envelope_permission(tmp_path: Path) -> None:
+    client = FakeDraftPrClient()
+    svc, _storage, _proposal, _autopilot = _orchestrator(tmp_path, _pool([_item("i1")]), draft_pr_client=client)
+
+    out = svc.run(
+        AtlasAutonomousCodegenRequest(
+            pool_id="pool_1",
+            metadata={"allow_draft_pr_creation": True},
+        )
+    )
+
+    creation = out.metadata["draft_pr_artifact"]["creation_result"]
+    assert creation["draft_pr_created"] is False
+    assert creation["allowed"] is False
+    assert creation["blocked_reasons"] == ["draft_pr_envelope_permission_required"]
+    assert client.calls == []
 
 
 def test_failed_run_does_not_claim_pr_ready(tmp_path: Path) -> None:
@@ -714,4 +732,6 @@ def test_weak_model_empty_proposal_is_not_counted(tmp_path: Path) -> None:
     assert proposal.calls == ["i1"]
     assert out.generated_count == 0  # honest: no usable content produced
     assert out.proposal_results[0].patch_content_available is False
-    assert autopilot.last_request is not None  # apply still runs; engine will skip uncontented items
+    assert out.status == "no_content"
+    assert out.stop_reason == "no_patch_content"
+    assert autopilot.last_request is None

@@ -74,6 +74,13 @@ html.logo-svg-ready .logo-text{display:none}
 .phase1-md-view,.phase1-md-view *{word-break:break-word;overflow-wrap:anywhere}
 .phase1-md-view pre,.phase1-md-view code{max-width:100%}
 .phase1-md-view pre{overflow-x:auto}
+.atlas-plan-structured-detail{display:grid;gap:4px;margin-top:8px;font-size:11px;color:var(--text2)}
+.atlas-plan-structured-detail span{display:inline-block;margin:2px 4px 2px 0;padding:2px 5px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text)}
+.atlas-plan-structured-detail details{margin-top:4px}
+.atlas-plan-structured-detail pre{max-height:220px;overflow:auto;white-space:pre-wrap}
+.atlas-autonomous-subphase-timeline{margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg2)}
+.atlas-autonomous-subphase-item{margin-top:6px}
+.atlas-autonomous-subphase-item ol{margin-left:18px}
 .mode-wrap{display:flex;background:var(--bg2);border:1px solid var(--border);border-radius:6px;overflow:hidden;min-width:0;max-width:100%}
 .hdr-right .mode-wrap{flex:0 1 auto}
 .mode-btn{padding:5px 12px;font-size:12px;font-weight:600;font-family:var(--font-ui);letter-spacing:.04em;cursor:pointer;border:none;background:transparent;color:var(--text2);transition:all .15s}
