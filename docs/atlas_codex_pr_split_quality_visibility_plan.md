@@ -8,6 +8,18 @@
 > 現在の行番号・関数・データフローに紐づく。行番号は記載時点（`claude/confident-cannon-SH4sV`）の
 > ものなので、着手時は関数名・シンボルで再確認すること。
 
+### Codex 指示書インデックス（diff レベル・各 PR を Codex にそのまま渡せる）
+| PR | 指示書 | 依存 |
+|----|--------|------|
+| PR1 | `docs/atlas_codex_pr1_goal_feature_instruction.md` | なし（最優先） |
+| PR2 | `docs/atlas_codex_pr2_async_live_progress_instruction.md` | なし |
+| PR3 | `docs/atlas_codex_pr3_subphase_detail_instruction.md` | PR2 |
+| PR4 | `docs/atlas_codex_pr4_profile_capability_persistence_instruction.md` | なし |
+| PR5 | `docs/atlas_codex_pr5_ui_profile_plan_visibility_instruction.md` | PR1 |
+| F1〜F5 | `docs/atlas_codex_followups_opencode_parity_instruction.md` | 各記載 |
+
+推奨着手順: **PR1 → PR2**（体感改善大）→ PR3/PR4/PR5 → フォローアップ。
+
 ---
 
 ## 0. 背景：goal/done_definition データフロー（PR1 の根拠）
