@@ -8,6 +8,12 @@ from agent.atlas_capability_preference_schema import (
     get_default_preferences,
     normalize_ui_preferences,
 )
+# Canonical preset id source of truth. ``selected_preset_id`` is only a stored
+# Claude-style UI selection; it never starts a loop, applies, merges, or pushes
+# on its own (those stay gated by a separately-persisted envelope + explicit
+# command in agent/atlas_automation_profile_resolver.py). Importing PRESETS here
+# lets us fail closed on unknown ids instead of returning a 500.
+from agent.atlas_automation_profile_resolver import PRESETS as KNOWN_PRESET_IDS
 
 # Human-in-the-loop automation features. These control WHEN the autonomous pipeline stops for a
 # human, and are the single knob shared by the plan-time critique gate
@@ -42,7 +48,15 @@ KEY_QUALITY_GATE_ENFORCEMENT = "quality_gate_enforcement"
 KEY_REQUIREMENT_COVERAGE_ENFORCEMENT = "requirement_coverage_enforcement"
 KEY_SELECTED_PRESET_ID = "selected_preset_id"
 KEY_CAPABILITY_PREFERENCES = "capability_preferences"
+# Claude-style default preset that preserves the existing full-automatic code
+# generation configuration. It is a known preset in the canonical PRESETS source
+# of truth and matches the UI fallback in web/js/atlas_claude_panel.js. It is not
+# a Vue / Atlas Next preset.
 DEFAULT_SELECTED_PRESET_ID = "autonomous_bounded_dev"
+# Fail-closed guard: if the canonical catalogue ever drops this id, fall back to
+# whatever it considers safe rather than serving a phantom preset.
+if DEFAULT_SELECTED_PRESET_ID not in KNOWN_PRESET_IDS:  # pragma: no cover - defensive
+    DEFAULT_SELECTED_PRESET_ID = "review_only"
 
 DEFAULT_AUTOMATION_FEATURES: dict[str, str] = {
     KEY_CRITICAL_HANDLING: "ask",
@@ -76,8 +90,15 @@ def normalize_features(incoming: dict | None) -> dict[str, str]:
 
 
 def normalize_selected_preset_id(value: object) -> str:
+    """Return a known preset id, failing closed to the default.
+
+    Empty / None / unknown ids resolve to ``DEFAULT_SELECTED_PRESET_ID`` so the
+    automation-features API can never raise on a missing or malformed selection.
+    """
     text = str(value or "").strip()
-    return text or DEFAULT_SELECTED_PRESET_ID
+    if text in KNOWN_PRESET_IDS:
+        return text
+    return DEFAULT_SELECTED_PRESET_ID
 
 
 def normalize_capability_preferences(incoming: dict | None) -> dict[str, bool]:
