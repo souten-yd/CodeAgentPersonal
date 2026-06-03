@@ -27,7 +27,7 @@
     transcript: [],
     presets: [],
     envelopes: [],
-    selectedPresetId: 'review_only',
+    selectedPresetId: 'autonomous_bounded_dev',
     workTarget: 'software_development_or_repair',
     latestSafetyProfile: null,
     latestEnvelope: null,
@@ -242,6 +242,7 @@
         state.selectedPresetId = value;
         renderPresetSummary();
         updateSelectButtonState();
+        persistAtlasAutomationFeatures();
       });
     });
     document.querySelectorAll('input[name="atlas-claude-work-target"]').forEach((radio) => {
@@ -2014,6 +2015,13 @@
     'cap-web-evidence',
     'cap-sandboxed-install',
   ];
+  const _CAP_ID_TO_KEY = {
+    'cap-command-execution': 'command_execution_requested',
+    'cap-browser-automation': 'browser_automation_requested',
+    'cap-playwright-verification': 'playwright_visual_verification_requested',
+    'cap-web-evidence': 'web_evidence_gathering_requested',
+    'cap-sandboxed-install': 'sandboxed_package_installation_requested',
+  };
 
   function saveAtlasCapabilityPreferences() {
     const prefs = {};
@@ -2026,6 +2034,7 @@
     } catch (e) {
       // localStorage unavailable — preferences are in-memory only
     }
+    persistAtlasAutomationFeatures();
   }
 
   function loadAtlasCapabilityPreferences() {
@@ -2079,19 +2088,41 @@
 
   async function persistAtlasAutomationFeatures() {
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.setAutomationFeatures) return;
-    try { await root.AtlasPipelineAPI.setAutomationFeatures({ features: getAtlasAutomationFeatures() }); } catch (e) { /* best-effort */ }
+    try {
+      await root.AtlasPipelineAPI.setAutomationFeatures({
+        features: getAtlasAutomationFeatures(),
+        selected_preset_id: state.selectedPresetId || 'autonomous_bounded_dev',
+        capability_preferences: getAtlasCapabilityPreferences(),
+      });
+    } catch (e) { /* best-effort */ }
   }
 
   async function loadAtlasAutomationFeatures() {
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getAutomationFeatures) return;
     try {
       const r = await root.AtlasPipelineAPI.getAutomationFeatures();
-      const f = (r && r.ok && r.data && r.data.features) || {};
+      const data = (r && r.ok && r.data) || {};
+      const f = data.features || {};
+      if (data.selected_preset_id) {
+        state.selectedPresetId = data.selected_preset_id;
+        const radio = Array.from(document.querySelectorAll('input[name="atlas-claude-preset"]')).find((el) => el.value === state.selectedPresetId);
+        if (radio) radio.checked = true;
+      }
+      const caps = data.capability_preferences || {};
+      _CAP_IDS.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const key = _CAP_ID_TO_KEY[id] || id;
+        if (Object.prototype.hasOwnProperty.call(caps, id)) el.checked = Boolean(caps[id]);
+        else if (Object.prototype.hasOwnProperty.call(caps, key)) el.checked = Boolean(caps[key]);
+      });
       Object.entries(_FEATURE_SELECTS).forEach(([id, key]) => {
         const el = document.getElementById(id);
         if (el && f[key]) el.value = f[key];
         if (el && !el._featBound) { el.addEventListener('change', persistAtlasAutomationFeatures); el._featBound = true; }
       });
+      renderPresetSummary();
+      updateSelectButtonState();
     } catch (e) { /* defaults shown */ }
   }
 

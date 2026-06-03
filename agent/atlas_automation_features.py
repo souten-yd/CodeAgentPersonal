@@ -3,6 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from agent.atlas_capability_preference_schema import (
+    apply_preferences,
+    get_default_preferences,
+    normalize_ui_preferences,
+)
+
 # Human-in-the-loop automation features. These control WHEN the autonomous pipeline stops for a
 # human, and are the single knob shared by the plan-time critique gate
 # (agent/atlas_plan_quality_gate.py), the apply-time full_auto gate (agent/atlas_full_auto_gate.py)
@@ -28,6 +34,9 @@ QUALITY_GATE_ENFORCEMENT_VALUES = frozenset({"block", "warn"})
 KEY_CRITICAL_HANDLING = "critical_handling"
 KEY_CLARIFICATION_MODE = "clarification_mode"
 KEY_QUALITY_GATE_ENFORCEMENT = "quality_gate_enforcement"
+KEY_SELECTED_PRESET_ID = "selected_preset_id"
+KEY_CAPABILITY_PREFERENCES = "capability_preferences"
+DEFAULT_SELECTED_PRESET_ID = "autonomous_bounded_dev"
 
 DEFAULT_AUTOMATION_FEATURES: dict[str, str] = {
     KEY_CRITICAL_HANDLING: "ask",
@@ -58,6 +67,15 @@ def normalize_features(incoming: dict | None) -> dict[str, str]:
     return merged
 
 
+def normalize_selected_preset_id(value: object) -> str:
+    text = str(value or "").strip()
+    return text or DEFAULT_SELECTED_PRESET_ID
+
+
+def normalize_capability_preferences(incoming: dict | None) -> dict[str, bool]:
+    return apply_preferences(get_default_preferences(), normalize_ui_preferences(incoming or {}))
+
+
 def _features_path(ca_data_root: str | Path) -> Path:
     return Path(ca_data_root).joinpath(*_FEATURES_REL_PATH)
 
@@ -67,7 +85,10 @@ def load_automation_features(ca_data_root: str | Path) -> dict[str, str]:
     path = _features_path(ca_data_root)
     try:
         if path.exists():
-            return normalize_features(json.loads(path.read_text(encoding="utf-8")))
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict) and isinstance(payload.get("features"), dict):
+                payload = payload.get("features")
+            return normalize_features(payload)
     except Exception:
         pass
     return get_default_automation_features()
@@ -75,11 +96,55 @@ def load_automation_features(ca_data_root: str | Path) -> dict[str, str]:
 
 def save_automation_features(ca_data_root: str | Path, features: dict | None) -> dict[str, str]:
     """Persist (normalized) automation features server-side and return what was saved."""
-    normalized = normalize_features(features)
+    state = load_full_automation_state(ca_data_root)
+    saved = save_full_automation_state(
+        ca_data_root,
+        features=features,
+        selected_preset_id=state["selected_preset_id"],
+        capability_preferences=state["capability_preferences"],
+    )
+    return saved["features"]
+
+
+def load_full_automation_state(ca_data_root: str | Path) -> dict:
+    path = _features_path(ca_data_root)
+    try:
+        if path.exists():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                payload = {}
+            features_payload = payload.get("features") if isinstance(payload.get("features"), dict) else payload
+            return {
+                "features": normalize_features(features_payload),
+                "selected_preset_id": normalize_selected_preset_id(payload.get("selected_preset_id")),
+                "capability_preferences": normalize_capability_preferences(payload.get("capability_preferences") if isinstance(payload.get("capability_preferences"), dict) else {}),
+            }
+    except Exception:
+        pass
+    return {
+        "features": get_default_automation_features(),
+        "selected_preset_id": DEFAULT_SELECTED_PRESET_ID,
+        "capability_preferences": get_default_preferences(),
+    }
+
+
+def save_full_automation_state(
+    ca_data_root: str | Path,
+    *,
+    features: dict | None = None,
+    selected_preset_id: str | None = None,
+    capability_preferences: dict | None = None,
+) -> dict:
+    current = load_full_automation_state(ca_data_root)
+    state = {
+        "features": normalize_features(features if features is not None else current["features"]),
+        "selected_preset_id": normalize_selected_preset_id(selected_preset_id if selected_preset_id is not None else current["selected_preset_id"]),
+        "capability_preferences": normalize_capability_preferences(capability_preferences if capability_preferences is not None else current["capability_preferences"]),
+    }
     path = _features_path(ca_data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
-    return normalized
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    return state
 
 
 def resolve_features(*, request_features: dict | None = None, ca_data_root: str | Path | None = None) -> dict[str, str]:

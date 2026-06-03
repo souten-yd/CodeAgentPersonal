@@ -171,10 +171,9 @@ def test_ui_loads_cache_busted_static_assets() -> None:
     assert "AtlasDashboard" in ATLAS_DASHBOARD_JS
 
 
-def test_claude_panel_defaults_to_review_only_preset() -> None:
-    assert "selectedPresetId: 'review_only'" in ATLAS_CLAUDE_PANEL_JS
-    assert 'name="atlas-claude-preset" value="review_only" checked' in HTML
-    assert 'name="atlas-claude-preset" value="autonomous_bounded_dev" checked' not in HTML
+def test_claude_panel_defaults_to_profile4_selection_without_authorizing_execution() -> None:
+    assert "selectedPresetId: 'autonomous_bounded_dev'" in ATLAS_CLAUDE_PANEL_JS
+    assert "Profile selection alone never starts an autonomous loop." in ATLAS_CLAUDE_PANEL_JS
 
 
 def test_claude_profile_selection_has_no_preview_or_confirmation_input() -> None:
