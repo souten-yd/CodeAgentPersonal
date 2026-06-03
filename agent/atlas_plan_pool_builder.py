@@ -118,6 +118,12 @@ def _compact_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "risk_level",
         "priority",
         "status",
+        "goal",
+        "acceptance_criteria",
+        "done_definition",
+        "verification",
+        "rollback",
+        "depends_on",
     )
     return {key: payload[key] for key in summary_keys if key in payload}
 

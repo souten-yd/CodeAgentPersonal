@@ -524,9 +524,9 @@ def _build_strategic_plan_summary(*, requirement: dict, plan: dict, review_resul
             md = getattr(it, "metadata", {}) or {}
             original_payload = md.get("original_step_payload") if isinstance(md.get("original_step_payload"), dict) else {}
             acceptance_source = (
-                getattr(it, "done_definition", [])
-                or md.get("acceptance_criteria")
+                md.get("acceptance_criteria")
                 or original_payload.get("acceptance_criteria")
+                or getattr(it, "done_definition", [])
             )
             step = {
                 "id": _sp_str(getattr(it, "item_id", "") or md.get("step_id"), 80),
