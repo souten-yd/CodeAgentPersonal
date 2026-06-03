@@ -19,10 +19,43 @@ _STOPWORDS = frozenset({
     "will", "your", "use", "using", "value", "values", "file", "files", "user", "users",
 })
 
+_PHRASE_SYNONYMS: dict[str, set[str]] = {
+    "レインボー": {"rainbow", "hsl", "hue", "gradient", "color"},
+    "虹": {"rainbow", "hsl", "hue", "gradient", "color"},
+    "アニメ": {"animation", "animate", "keyframes", "requestanimationframe"},
+    "動き": {"animation", "animate", "keyframes", "requestanimationframe"},
+    "表示": {"display", "show", "render", "text"},
+    "色": {"color", "hsl", "hue", "rgb", "gradient"},
+}
+
+_BEHAVIOR_SIGNALS: dict[str, tuple[str, ...]] = {
+    "rainbow": ("rainbow", "hsl(", "hue-rotate", "linear-gradient", "@keyframes", "color:"),
+    "hsl": ("hsl(",),
+    "hue": ("hue-rotate", "hsl(",),
+    "gradient": ("linear-gradient", "radial-gradient"),
+    "animation": ("requestanimationframe", "@keyframes", "setinterval", "animation:"),
+    "animate": ("requestanimationframe", "@keyframes", "setinterval", "animation:"),
+    "keyframes": ("@keyframes",),
+    "requestanimationframe": ("requestanimationframe",),
+    "display": ("<body", "textcontent", "innerhtml", "display:"),
+    "render": ("<canvas", "render", "draw", "textcontent", "innerhtml"),
+    "color": ("color:", "background", "hsl(", "rgb(", "linear-gradient"),
+}
+
 
 def _keywords(text: str) -> set[str]:
     """Meaningful lowercase tokens (len>=4, not stopwords) used for requirement↔file mapping."""
-    return {t.lower() for t in _TOKEN_RE.findall(text or "") if len(t) >= 4 and t.lower() not in _STOPWORDS}
+    raw = text or ""
+    out = {t.lower() for t in _TOKEN_RE.findall(raw) if len(t) >= 4 and t.lower() not in _STOPWORDS}
+    lowered = raw.lower()
+    for phrase, synonyms in _PHRASE_SYNONYMS.items():
+        if phrase in raw:
+            out |= synonyms
+    # Keep common short CSS/code tokens only when they are semantically meaningful.
+    for token in ("hsl", "rgb", "hue"):
+        if token in lowered:
+            out.add(token)
+    return out
 
 
 def _file_matches(path: str, keywords: set[str]) -> bool:
@@ -31,6 +64,19 @@ def _file_matches(path: str, keywords: set[str]) -> bool:
         return False
     file_tokens = {t.lower() for t in _TOKEN_RE.findall(str(path) or "")}
     return bool(file_tokens & keywords)
+
+
+def _content_matches(content: str, keywords: set[str]) -> bool:
+    if not content or not keywords:
+        return False
+    lowered = content.lower()
+    for kw in keywords:
+        signals = _BEHAVIOR_SIGNALS.get(kw)
+        if signals and any(sig in lowered for sig in signals):
+            return True
+        if len(kw) >= 4 and kw in lowered:
+            return True
+    return False
 
 
 
@@ -89,6 +135,7 @@ class AtlasRequirementTracer:
         changed_files: list[str],
         verified_files: list[str] | None = None,
         done_definitions: list[str] | None = None,
+        file_contents: dict[str, str] | None = None,
     ) -> list[dict]:
         """Map each requirement to changed/verified files via keyword overlap (heuristic).
 
@@ -102,12 +149,16 @@ class AtlasRequirementTracer:
         changed = list(changed_files or [])
         verified = set(verified_files or [])
         done_text = " ".join(done_definitions or []).lower()
+        contents = dict(file_contents or {})
         out: list[dict] = []
         for req in requirements:
             kw = _keywords(str(req.get("description") or ""))
             # done_definition keywords reinforce the requirement's vocabulary
             kw |= (_keywords(done_text) & kw) if done_text else set()
-            matched = [f for f in changed if _file_matches(f, kw)]
+            matched = [
+                f for f in changed
+                if _file_matches(f, kw) or _content_matches(str(contents.get(f) or ""), kw)
+            ]
             if matched:
                 status = REQ_STATUS_VERIFIED if any(f in verified for f in matched) else REQ_STATUS_IMPLEMENTED
                 evidence = list(matched)

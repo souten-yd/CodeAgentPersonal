@@ -67,7 +67,10 @@ def test_rollup_degrade_reasons_empty_when_all_good(tmp_path):
 
 def test_rollup_degrades_on_no_evidence(tmp_path):
     reqs = AtlasRequirementTracer().extract_requirements("Add a renderer module.")
-    pool = _ns_pool(metadata={"requirement_trace": reqs})
+    pool = _ns_pool(metadata={
+        "requirement_trace": reqs,
+        "automation_features": {"requirement_coverage_enforcement": "enforce"},
+    })
     rollup = compute_run_quality_rollup(pool, [_result(status="failed", changed_files=[])],
                                         project_path=str(tmp_path))
     assert rollup["degraded"] is True

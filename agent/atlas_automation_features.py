@@ -31,23 +31,28 @@ CLARIFICATION_MODE_VALUES = frozenset({"pause", "auto"})
 #   warn  - only warn / degrade to partial (legacy behaviour)
 QUALITY_GATE_ENFORCEMENT_VALUES = frozenset({"block", "warn"})
 
+# How requirement coverage gaps affect final status.
+#   warn    - surface requirement_coverage_incomplete, but do not degrade status (default)
+#   enforce - degrade when coverage has no implementation evidence
+REQUIREMENT_COVERAGE_ENFORCEMENT_VALUES = frozenset({"warn", "enforce"})
+
 KEY_CRITICAL_HANDLING = "critical_handling"
 KEY_CLARIFICATION_MODE = "clarification_mode"
 KEY_QUALITY_GATE_ENFORCEMENT = "quality_gate_enforcement"
-KEY_SELECTED_PRESET_ID = "selected_preset_id"
-KEY_CAPABILITY_PREFERENCES = "capability_preferences"
-DEFAULT_SELECTED_PRESET_ID = "autonomous_bounded_dev"
+KEY_REQUIREMENT_COVERAGE_ENFORCEMENT = "requirement_coverage_enforcement"
 
 DEFAULT_AUTOMATION_FEATURES: dict[str, str] = {
     KEY_CRITICAL_HANDLING: "ask",
     KEY_CLARIFICATION_MODE: "pause",
     KEY_QUALITY_GATE_ENFORCEMENT: "block",
+    KEY_REQUIREMENT_COVERAGE_ENFORCEMENT: "warn",
 }
 
 _ALLOWED_VALUES: dict[str, frozenset[str]] = {
     KEY_CRITICAL_HANDLING: CRITICAL_HANDLING_VALUES,
     KEY_CLARIFICATION_MODE: CLARIFICATION_MODE_VALUES,
     KEY_QUALITY_GATE_ENFORCEMENT: QUALITY_GATE_ENFORCEMENT_VALUES,
+    KEY_REQUIREMENT_COVERAGE_ENFORCEMENT: REQUIREMENT_COVERAGE_ENFORCEMENT_VALUES,
 }
 
 _FEATURES_REL_PATH = ("atlas", "automation_features.json")

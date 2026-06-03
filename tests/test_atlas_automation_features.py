@@ -20,7 +20,12 @@ from agent.atlas_capability_preference_schema import get_default_preferences
 
 def test_defaults_are_ask_pause_block():
     d = get_default_automation_features()
-    assert d == {"critical_handling": "ask", "clarification_mode": "pause", "quality_gate_enforcement": "block"}
+    assert d == {
+        "critical_handling": "ask",
+        "clarification_mode": "pause",
+        "quality_gate_enforcement": "block",
+        "requirement_coverage_enforcement": "warn",
+    }
     assert d == DEFAULT_AUTOMATION_FEATURES
 
 
@@ -32,12 +37,18 @@ def test_normalize_drops_unknown_keys_and_invalid_values():
 
 
 def test_save_and_load_roundtrip(tmp_path: Path):
-    saved = save_automation_features(tmp_path, {"critical_handling": "auto", "quality_gate_enforcement": "warn"})
+    saved = save_automation_features(tmp_path, {
+        "critical_handling": "auto",
+        "quality_gate_enforcement": "warn",
+        "requirement_coverage_enforcement": "enforce",
+    })
     assert saved["critical_handling"] == "auto"
     assert saved["quality_gate_enforcement"] == "warn"
+    assert saved["requirement_coverage_enforcement"] == "enforce"
     loaded = load_automation_features(tmp_path)
     assert loaded["critical_handling"] == "auto"
     assert loaded["quality_gate_enforcement"] == "warn"
+    assert loaded["requirement_coverage_enforcement"] == "enforce"
     assert loaded["clarification_mode"] == "pause"
 
 

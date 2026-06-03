@@ -33,12 +33,25 @@ def test_repair_intent_passes_previous_changed_files():
 
 def test_no_implementation_evidence_degrades(tmp_path):
     reqs = AtlasRequirementTracer().extract_requirements("Show a wave animation. Move the ball.")
-    pool = _pool(metadata={"requirement_trace": reqs}, project_path=str(tmp_path))
+    pool = _pool(metadata={
+        "requirement_trace": reqs,
+        "automation_features": {"requirement_coverage_enforcement": "enforce"},
+    }, project_path=str(tmp_path))
     # No completed items, no changed files → missing → degrade
     rollup = compute_run_quality_rollup(pool, [_result(status="failed", changed_files=[])], project_path=str(tmp_path))
     assert rollup["requirement_coverage"]["no_implementation_evidence"] is True
     assert rollup["degraded"] is True
     assert "requirement_coverage_incomplete" in rollup["degrade_reasons"]
+
+
+def test_no_implementation_evidence_warns_by_default(tmp_path):
+    reqs = AtlasRequirementTracer().extract_requirements("Show a wave animation.")
+    pool = _pool(metadata={"requirement_trace": reqs}, project_path=str(tmp_path))
+    rollup = compute_run_quality_rollup(pool, [_result(status="failed", changed_files=[])], project_path=str(tmp_path))
+    assert rollup["requirement_coverage"]["no_implementation_evidence"] is True
+    assert rollup["degraded"] is False
+    assert "requirement_coverage_incomplete" in rollup["warnings"]
+    assert "requirement_coverage_incomplete" not in rollup["degrade_reasons"]
 
 
 def test_completed_with_changes_is_partial_not_degraded(tmp_path):
@@ -47,8 +60,8 @@ def test_completed_with_changes_is_partial_not_degraded(tmp_path):
     reqs = AtlasRequirementTracer().extract_requirements("Show a wave animation here.")
     pool = _pool(metadata={"requirement_trace": reqs}, project_path=str(tmp_path))
     rollup = compute_run_quality_rollup(pool, [_result(status="completed", changed_files=["index.html"])], project_path=str(tmp_path))
-    # partial, but not a hard degrade
-    assert rollup["requirement_coverage"]["by_status"].get("partial") == len(reqs)
+    # requestAnimationFrame is implementation evidence for animation requirements.
+    assert rollup["requirement_coverage"]["by_status"].get("implemented") == len(reqs)
     assert "requirement_coverage_incomplete" not in rollup["degrade_reasons"]
 
 

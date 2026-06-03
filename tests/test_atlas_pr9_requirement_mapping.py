@@ -77,11 +77,25 @@ def test_requirement_checked_only_when_all_verified(tmp_path):
 
 def test_no_evidence_marks_missing_and_degrades(tmp_path):
     reqs = _TRACER.extract_requirements("Add a renderer module. Add collision.")
-    pool = _pool(metadata={"requirement_trace": reqs}, project_path=str(tmp_path))
+    pool = _pool(metadata={
+        "requirement_trace": reqs,
+        "automation_features": {"requirement_coverage_enforcement": "enforce"},
+    }, project_path=str(tmp_path))
     rollup = compute_run_quality_rollup(pool, [_result(status="failed", changed_files=[])],
                                         project_path=str(tmp_path))
     assert rollup["requirement_coverage"]["no_implementation_evidence"] is True
     assert "requirement_coverage_incomplete" in rollup["degrade_reasons"]
+
+
+def test_no_evidence_warns_without_degrading_by_default(tmp_path):
+    reqs = _TRACER.extract_requirements("Add a renderer module.")
+    pool = _pool(metadata={"requirement_trace": reqs}, project_path=str(tmp_path))
+    rollup = compute_run_quality_rollup(pool, [_result(status="failed", changed_files=[])],
+                                        project_path=str(tmp_path))
+    assert rollup["requirement_coverage"]["no_implementation_evidence"] is True
+    assert rollup["requirement_coverage"]["enforcement"] == "warn"
+    assert "requirement_coverage_incomplete" in rollup["warnings"]
+    assert "requirement_coverage_incomplete" not in rollup["degrade_reasons"]
 
 
 def test_partial_does_not_degrade(tmp_path):
@@ -92,4 +106,21 @@ def test_partial_does_not_degrade(tmp_path):
     rollup = compute_run_quality_rollup(pool, [_result(changed_files=["css/style.css"], vr_status="passed")],
                                         project_path=str(tmp_path))
     assert rollup["requirement_coverage"]["by_status"].get("partial", 0) >= 1
+    assert "requirement_coverage_incomplete" not in rollup["degrade_reasons"]
+
+
+def test_japanese_rainbow_html_maps_to_implementation_signal(tmp_path):
+    (tmp_path / "index.html").write_text(
+        "<!doctype html><html><body><div class='rainbow'>虹</div>"
+        "<style>.rainbow{animation:shift 2s infinite;color:hsl(120 80% 50%)}"
+        "@keyframes shift{from{filter:hue-rotate(0deg)}to{filter:hue-rotate(360deg)}}"
+        "</style></body></html>",
+        encoding="utf-8",
+    )
+    reqs = _TRACER.extract_requirements("レインボー表示を追加する。")
+    pool = _pool(metadata={"requirement_trace": reqs}, project_path=str(tmp_path))
+    rollup = compute_run_quality_rollup(pool, [_result(changed_files=["index.html"], vr_status="passed")],
+                                        project_path=str(tmp_path))
+    assert rollup["requirement_coverage"]["by_status"].get("verified", 0) == len(reqs)
+    assert "requirement_coverage_incomplete" not in rollup["warnings"]
     assert "requirement_coverage_incomplete" not in rollup["degrade_reasons"]

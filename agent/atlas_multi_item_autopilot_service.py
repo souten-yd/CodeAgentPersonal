@@ -337,6 +337,9 @@ class AtlasMultiItemAutopilotService:
             final_pool = self.storage.load_pool(request.pool_id)
             rollup = compute_run_quality_rollup(final_pool, out.item_results, project_path=request.project_path or getattr(final_pool, "project_path", ""))
             out.metadata["quality_rollup"] = rollup
+            for w in rollup.get("warnings", []):
+                if w not in out.warnings:
+                    out.warnings.append(w)
             for w in rollup.get("degrade_reasons", []):
                 if w not in out.warnings:
                     out.warnings.append(w)
