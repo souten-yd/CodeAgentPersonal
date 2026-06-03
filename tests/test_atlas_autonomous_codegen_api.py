@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.server import create_app
+from app.api.atlas_autonomous_codegen import _normalized_status
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 
@@ -159,3 +160,34 @@ def test_status_surfaces_decision_targets_without_raw_summary(tmp_path: Path) ->
     assert body["decision_targets"]["clarification"]["visible"] is True
     assert body["controls"]["can_answer_clarification"] is True
     assert body["raw_json_included"] is False
+
+
+def test_status_surfaces_item_sub_phases() -> None:
+    body = _normalized_status(
+        {
+            "pool_id": "p1",
+            "run_id": "r1",
+            "orchestrator_run_id": "acg1",
+            "phase": "final_summary",
+            "status": "completed",
+            "autopilot_result": {
+                "processed_count": 1,
+                "item_results": [
+                    {
+                        "item_id": "i1",
+                        "status": "completed",
+                        "sub_phases": [
+                            {"name": "safe_apply", "status": "applied", "started_at": "s", "ended_at": "e", "detail": {"changed_files": ["a.txt"]}},
+                            {"name": "verify", "status": "passed", "started_at": "s", "ended_at": "e", "detail": {"command": "pytest"}},
+                            {"name": "done", "status": "completed", "started_at": "s", "ended_at": "e", "detail": {}},
+                        ],
+                    }
+                ],
+            },
+            "metadata": {},
+        }
+    )
+
+    item = body["evidence_summary"]["item_sub_phases"][0]
+    assert item["item_id"] == "i1"
+    assert [p["name"] for p in item["sub_phases"]] == ["safe_apply", "verify", "done"]

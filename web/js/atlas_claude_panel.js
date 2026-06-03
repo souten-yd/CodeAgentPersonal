@@ -1351,6 +1351,7 @@
     renderAutonomousCIFailure(summary, evidence.ci_failure_evidence || {}, evidence.ci_repair_plan || {});
     renderAutoMergeReadiness(summary, evidence.auto_merge_readiness || {});
     renderAutonomousList(summary, 'Repair attempts', (evidence.repair_attempts || []).map((r) => `${r.item_id}: ${r.kind} ${r.status || ''}`));
+    renderAutonomousSubPhaseTimeline(summary, evidence.item_sub_phases || []);
     renderAutonomousList(summary, 'User-visible warnings', view.user_visible_warnings || []);
     renderWorkbenchControls(summary, controls);
     if (decisions.clarification && decisions.clarification.visible) {
@@ -1370,6 +1371,28 @@
         draft.body_path ? `body: ${draft.body_path}` : '',
       ]);
     }
+  }
+
+  function renderAutonomousSubPhaseTimeline(host, items) {
+    if (!host) return;
+    const rows = (items || []).filter((item) => (item.sub_phases || []).length);
+    if (!rows.length) return;
+    const block = document.createElement('details');
+    block.className = 'atlas-autonomous-subphase-timeline';
+    const title = document.createElement('summary');
+    title.textContent = 'Item timeline';
+    block.appendChild(title);
+    rows.forEach((item) => {
+      const card = document.createElement('div');
+      card.className = 'atlas-autonomous-subphase-item';
+      const phases = (item.sub_phases || []).map((phase) => {
+        const detail = phase.detail ? ` ${JSON.stringify(phase.detail)}` : '';
+        return `<li>${badge(phase.name || 'phase', phase.status || 'muted')} <span>${esc(phase.status || '')}</span><small>${esc(detail)}</small></li>`;
+      }).join('');
+      card.innerHTML = `<b>${esc(item.item_id || '-')}</b> ${badge(item.status || 'item', item.status || 'muted')}<ol>${phases}</ol>`;
+      block.appendChild(card);
+    });
+    host.appendChild(block);
   }
 
   function renderAutonomousList(parent, title, values) {

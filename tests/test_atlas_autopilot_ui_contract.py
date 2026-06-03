@@ -19,6 +19,9 @@ def test_autonomous_codegen_ui_uses_backend_normalized_state() -> None:
     assert "/api/atlas/autonomous-codegen/status/" in ui
     assert "renderAutonomousWorkflowState" in ui
     assert "renderAutonomousWorkflowSummary" in ui
+    assert "renderAutonomousSubPhaseTimeline" in ui
+    assert "evidence.item_sub_phases" in ui
+    assert "atlas-autonomous-subphase-timeline" in ui
     assert "decision_targets" in ui
     assert "user_visible_warnings" in ui
     assert "raw_json_included" not in ui

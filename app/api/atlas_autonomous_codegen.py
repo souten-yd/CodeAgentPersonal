@@ -259,6 +259,7 @@ def _normalized_status(payload: dict) -> dict:
         "evidence_summary": {
             "changed_files": changed_files,
             "verification": _verification_summary(item_results),
+            "item_sub_phases": _item_sub_phases(item_results),
             "verification_failure_summary": metadata.get("verification_failure_summary") or {},
             "repair_plan": metadata.get("repair_plan") or {},
             "ci_failure_evidence": ci_failure_evidence,
@@ -462,6 +463,14 @@ def _verification_summary(item_results: list) -> dict:
         status = str((verification or {}).get("status") or "not_recorded")
         statuses[status] = statuses.get(status, 0) + 1
     return {"statuses": statuses, "visible": bool(item_results)}
+
+
+def _item_sub_phases(item_results: list) -> list[dict]:
+    out: list[dict] = []
+    for item in item_results:
+        if isinstance(item, dict):
+            out.append({"item_id": item.get("item_id", ""), "status": item.get("status", ""), "sub_phases": list(item.get("sub_phases") or [])})
+    return out
 
 
 def _repair_summary(item_results: list, metadata: dict | None = None) -> list[dict]:
