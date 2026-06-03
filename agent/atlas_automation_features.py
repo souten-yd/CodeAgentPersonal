@@ -40,6 +40,9 @@ KEY_CRITICAL_HANDLING = "critical_handling"
 KEY_CLARIFICATION_MODE = "clarification_mode"
 KEY_QUALITY_GATE_ENFORCEMENT = "quality_gate_enforcement"
 KEY_REQUIREMENT_COVERAGE_ENFORCEMENT = "requirement_coverage_enforcement"
+KEY_SELECTED_PRESET_ID = "selected_preset_id"
+KEY_CAPABILITY_PREFERENCES = "capability_preferences"
+DEFAULT_SELECTED_PRESET_ID = "autonomous_bounded_dev"
 
 DEFAULT_AUTOMATION_FEATURES: dict[str, str] = {
     KEY_CRITICAL_HANDLING: "ask",
