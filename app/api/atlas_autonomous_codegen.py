@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from app.api.atlas_multi_item_autopilot import _service as _build_multi_item_service, _validate_id
@@ -14,17 +18,20 @@ from agent.atlas_autonomous_codegen_orchestrator_service import AtlasAutonomousC
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_patch_proposal_service import AtlasPatchProposalService
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_codegen_progress import read_progress, request_stop, write_progress
 
 router = APIRouter(prefix="/api/atlas/autonomous-codegen", tags=["atlas-autonomous-codegen"])
 
 
-def _orchestrator_service(request: Request | None, workspace_id: str, pool_id: str) -> AtlasAutonomousCodegenOrchestratorService:
+def _orchestrator_service(request: Request | None, workspace_id: str, pool_id: str, orchestrator_run_id: str = "") -> AtlasAutonomousCodegenOrchestratorService:
     root = resolve_atlas_ca_data_root(request)
     storage = AtlasPlanPoolStorage(root)
     journal = AtlasJournal(root, workspace_id=workspace_id or "default")
     # Patch generation needs the app's LLM json fn; None in tests/offline -> the proposal yields no
     # content and Phase 3 honestly skips uncontented items rather than reporting fake success.
     llm_json_fn = getattr(getattr(getattr(request, "app", None), "state", None), "atlas_llm_json_fn", None)
+    if callable(llm_json_fn) and orchestrator_run_id:
+        llm_json_fn = _timeout_llm_json_fn(llm_json_fn, data_root=root, pool_id=pool_id, orchestrator_run_id=orchestrator_run_id)
     patch_proposal_service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_json_fn)
     # Reuse the multi-item autopilot wiring verbatim so the apply phase inherits the same executor,
     # gates and full_auto relaxation (single source of truth).
@@ -90,8 +97,52 @@ def run(payload: AtlasAutonomousCodegenRequest, request: Request):
 
 
 @router.post("/start")
-def start(payload: AtlasAutonomousCodegenRequest, request: Request):
-    return run(payload, request)
+def start(payload: AtlasAutonomousCodegenRequest, request: Request, background_tasks: BackgroundTasks):
+    payload.pool_id = _validate_id(payload.pool_id, "pool_id")
+    if payload.run_id:
+        payload.run_id = _validate_id(payload.run_id, "run_id")
+    payload.item_ids = [_validate_id(v, "item_id") for v in (payload.item_ids or [])]
+    root = resolve_atlas_ca_data_root(request)
+    storage = AtlasPlanPoolStorage(root)
+    try:
+        pool = storage.load_pool(payload.pool_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail={"error": "pool_not_found", "reason": f"pool_not_found:{payload.pool_id}"}) from exc
+    run_id = payload.run_id or f"autocodegen_{uuid4().hex[:10]}"
+    orchestrator_run_id = payload.orchestrator_run_id or f"acg_{uuid4().hex[:10]}"
+    payload = payload.model_copy(update={"run_id": run_id, "orchestrator_run_id": orchestrator_run_id})
+    write_progress(
+        root,
+        payload.pool_id,
+        orchestrator_run_id,
+        {
+            "pool_id": payload.pool_id,
+            "run_id": run_id,
+            "orchestrator_run_id": orchestrator_run_id,
+            "phase": "understanding_goal",
+            "status": "running",
+            "last_event": "autonomous_codegen_start_queued",
+        },
+    )
+    clarification_blocks = clarification_execution_block_reasons(pool)
+    if clarification_blocks:
+        def _blocked() -> None:
+            result = run(payload, request)
+            root_path = Path(resolve_atlas_ca_data_root(request)) / "atlas" / "autonomous_codegen" / payload.pool_id
+            root_path.mkdir(parents=True, exist_ok=True)
+            (root_path / f"{orchestrator_run_id}.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+            (root_path / "latest.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        background_tasks.add_task(_blocked)
+    else:
+        background_tasks.add_task(_orchestrator_service(request, payload.workspace_id, pool_id=payload.pool_id, orchestrator_run_id=orchestrator_run_id).run, payload)
+    return {
+        "pool_id": payload.pool_id,
+        "run_id": run_id,
+        "orchestrator_run_id": orchestrator_run_id,
+        "phase": "understanding_goal",
+        "status": "running",
+    }
 
 
 @router.get("/results/{pool_id}/{orchestrator_run_id}")
@@ -106,8 +157,56 @@ def read_result(pool_id: str, orchestrator_run_id: str, request: Request):
 
 @router.get("/status/{pool_id}/{orchestrator_run_id}")
 def read_status(pool_id: str, orchestrator_run_id: str, request: Request):
-    payload = read_result(pool_id, orchestrator_run_id, request)
-    return _normalized_status(payload)
+    try:
+        payload = read_result(pool_id, orchestrator_run_id, request)
+        return _normalized_status(payload)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+    pool_id = _validate_id(pool_id, "pool_id")
+    orchestrator_run_id = _validate_id(orchestrator_run_id, "orchestrator_run_id")
+    progress = read_progress(resolve_atlas_ca_data_root(request), pool_id, orchestrator_run_id)
+    if not progress:
+        raise HTTPException(status_code=404, detail={"error": "autonomous_codegen_result_not_found"})
+    return _normalized_progress_status(progress)
+
+
+def _normalized_progress_status(progress: dict) -> dict:
+    phase = str(progress.get("phase") or "understanding_goal")
+    status = str(progress.get("status") or ("stopped" if progress.get("stop_requested") else "running"))
+    processed = int(progress.get("processed_count") or progress.get("current_item_index") or 0)
+    total = int(progress.get("total_items") or 0)
+    return {
+        "pool_id": progress.get("pool_id", ""),
+        "run_id": progress.get("run_id", ""),
+        "orchestrator_run_id": progress.get("orchestrator_run_id", ""),
+        "status": status,
+        "automation_state": _automation_state(status),
+        "current_phase": phase,
+        "sub_phase": str(progress.get("sub_phase") or ""),
+        "attempt": int(progress.get("attempt") or 0),
+        "heartbeat_at": progress.get("heartbeat_at", ""),
+        "waiting_on_model_seconds": int(progress.get("waiting_on_model_seconds") or 0),
+        "next_action": "Stopping autonomous code-generation run." if progress.get("stop_requested") else "Poll status or inspect the autonomous code-generation result.",
+        "active_profile": {"profile": "review_only", "preset": "", "envelope_id": "", "runtime_level": "level_0_manual_only"},
+        "requirement_summary": "",
+        "plan_summary": {
+            "processed_count": processed,
+            "completed_count": int(progress.get("completed_count") or 0),
+            "failed_count": int(progress.get("failed_count") or 0),
+            "blocked_count": int(progress.get("blocked_count") or 0),
+            "total_count": total,
+        },
+        "decision_targets": {
+            "clarification": {"visible": False, "required": False, "action": ""},
+            "critical_event": {"visible": False, "required": False, "actions": []},
+            "lower_impact_replanning": {"visible": False, "required": False},
+        },
+        "evidence_summary": {"verification": {"statuses": {}, "visible": False}, "repair_attempts": [], "final_summary": {"status": status, "stop_reason": progress.get("stop_reason", "")}},
+        "user_visible_warnings": [],
+        "controls": _controls(status=status, phase=phase, decision_targets={}),
+        "raw_json_included": False,
+    }
 
 
 def _normalized_status(payload: dict) -> dict:
@@ -154,6 +253,7 @@ def _normalized_status(payload: dict) -> dict:
             "completed_count": autopilot.get("completed_count", metadata.get("completed_count", 0)),
             "failed_count": autopilot.get("failed_count", metadata.get("failed_count", 0)),
             "blocked_count": autopilot.get("blocked_count", metadata.get("blocked_count", 0)),
+            "total_count": len(item_results) or metadata.get("total_items", 0),
         },
         "decision_targets": decision_targets,
         "evidence_summary": {
@@ -221,7 +321,54 @@ def stop(payload: dict, request: Request):
         "next_action": "Review stopped autonomous code-generation run.",
     }
     (root / "stop_requested.json").write_text(json.dumps(marker, ensure_ascii=False, indent=2), encoding="utf-8")
+    request_stop(resolve_atlas_ca_data_root(request), pool_id, str(payload.get("orchestrator_run_id") or run_id), reason=marker["stop_reason"])
     return marker
+
+
+def _timeout_llm_json_fn(raw_fn, *, data_root, pool_id: str, orchestrator_run_id: str):
+    timeout_seconds = max(1, int(os.environ.get("ATLAS_LLM_CALL_TIMEOUT_SECONDS") or "180"))
+
+    def _wrapped(prompt: str, user_input: str):
+        started = time.monotonic()
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(raw_fn, prompt, user_input)
+        try:
+            while True:
+                try:
+                    result = future.result(timeout=0.25)
+                    executor.shutdown(wait=False)
+                    return result
+                except TimeoutError:
+                    elapsed = int(time.monotonic() - started)
+                    write_progress(
+                        data_root,
+                        pool_id,
+                        orchestrator_run_id,
+                        {
+                            "waiting_on_model_seconds": elapsed,
+                            "last_event": "model_call_waiting",
+                            "sub_phase": "model_call",
+                        },
+                    )
+                    if elapsed >= timeout_seconds:
+                        future.cancel()
+                        write_progress(
+                            data_root,
+                            pool_id,
+                            orchestrator_run_id,
+                            {
+                                "waiting_on_model_seconds": elapsed,
+                                "last_event": "model_call_timeout",
+                                "sub_phase": "model_call_timeout",
+                            },
+                        )
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        return None
+        except Exception:
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise
+
+    return _wrapped
 
 
 @router.post("/cancel")

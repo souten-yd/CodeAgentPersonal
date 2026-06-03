@@ -13,6 +13,7 @@ from agent.atlas_autonomous_codegen_orchestrator_schema import (
     AtlasAutonomousCodegenRequest,
     AtlasAutonomousCodegenResult,
 )
+from agent.atlas_codegen_progress import is_stop_requested, write_progress
 from agent.atlas_ci_failure_repair_schema import AtlasCIFailureRepairRequest
 from agent.atlas_ci_failure_repair_service import AtlasCIFailureRepairService
 from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
@@ -52,7 +53,7 @@ class AtlasAutonomousCodegenOrchestratorService:
 
     def run(self, request: AtlasAutonomousCodegenRequest) -> AtlasAutonomousCodegenResult:
         run_id = request.run_id or f"autocodegen_{uuid4().hex[:10]}"
-        orchestrator_run_id = f"acg_{uuid4().hex[:10]}"
+        orchestrator_run_id = request.orchestrator_run_id or f"acg_{uuid4().hex[:10]}"
         out = AtlasAutonomousCodegenResult(
             pool_id=request.pool_id,
             run_id=run_id,
@@ -61,10 +62,13 @@ class AtlasAutonomousCodegenOrchestratorService:
             created_at=datetime.now(timezone.utc).isoformat(),
         )
         out.metadata["phase_order"] = list(_AUTONOMOUS_PHASES)
+        self._progress(request.pool_id, run_id, orchestrator_run_id, phase="understanding_goal", last_event="autonomous_codegen_started")
         self._emit("autonomous_codegen_started", request.pool_id, run_id, orchestrator_run_id, status="started")
 
         # ── Phase 0: load + tag the pool as full_autopilot ───────────────────────────────────
         out.phase = "understanding_goal"
+        if self._stop_requested(request.pool_id, orchestrator_run_id):
+            return self._stopped_result(out, request.pool_id, run_id, orchestrator_run_id)
         pool = self.storage.load_pool(request.pool_id)
         preflight = self._preflight(request, pool)
         out.metadata["preflight"] = preflight
@@ -94,6 +98,9 @@ class AtlasAutonomousCodegenOrchestratorService:
 
         # ── Phase 1: safety gate (the hard boundary the user agreed to keep) ──────────────────
         out.phase = "adversarial_review"
+        self._progress(request.pool_id, run_id, orchestrator_run_id, phase=out.phase, last_event="adversarial_review_started")
+        if self._stop_requested(request.pool_id, orchestrator_run_id):
+            return self._stopped_result(out, request.pool_id, run_id, orchestrator_run_id)
         revision_required = bool((pool.metadata or {}).get("plan_revision_required"))
         approval_required = str(getattr(pool, "status", "")).lower() == "approval_required"
         if revision_required or approval_required or str(getattr(pool, "status", "")).lower() in {"needs_scope_confirmation", "waiting_for_critical_decision"}:
@@ -112,6 +119,9 @@ class AtlasAutonomousCodegenOrchestratorService:
 
         # ── Phase 2: batch first-patch generation for items lacking content ───────────────────
         out.phase = "candidate_generation"
+        self._progress(request.pool_id, run_id, orchestrator_run_id, phase=out.phase, sub_phase="patch_generation", last_event="candidate_generation_started")
+        if self._stop_requested(request.pool_id, orchestrator_run_id):
+            return self._stopped_result(out, request.pool_id, run_id, orchestrator_run_id)
         effective_limits = preflight.get("effective_limits") if isinstance(preflight.get("effective_limits"), dict) else {}
         effective_max_actions = int(effective_limits.get("max_actions") or request.max_actions)
         effective_max_items = int(effective_limits.get("max_items") or request.max_items)
@@ -121,6 +131,9 @@ class AtlasAutonomousCodegenOrchestratorService:
         excluded_apply_item_ids: set[str] = set()
         if request.generate_missing_patches:
             for item_id in requested_item_ids[: max(0, min(effective_max_items, effective_max_actions))]:
+                self._progress(request.pool_id, run_id, orchestrator_run_id, phase=out.phase, current_item_index=out.generated_count + out.skipped_generation_count, total_items=len(requested_item_ids), sub_phase="patch_generation", last_event="patch_generation_item_started")
+                if self._stop_requested(request.pool_id, orchestrator_run_id):
+                    return self._stopped_result(out, request.pool_id, run_id, orchestrator_run_id)
                 pool = self.storage.load_pool(request.pool_id)  # pick up content persisted so far
                 item = pool.get_item(item_id)
                 if item is None:
@@ -191,6 +204,9 @@ class AtlasAutonomousCodegenOrchestratorService:
 
         # ── Phase 3: multi-item apply (inherits full_auto relaxation + verify/self-correct) ───
         out.phase = "candidate_apply"
+        self._progress(request.pool_id, run_id, orchestrator_run_id, phase=out.phase, current_item_index=0, total_items=len(apply_item_ids), sub_phase="candidate_apply", last_event="candidate_apply_started")
+        if self._stop_requested(request.pool_id, orchestrator_run_id):
+            return self._stopped_result(out, request.pool_id, run_id, orchestrator_run_id)
         autopilot = self.multi_item_autopilot_service.run(
             AtlasMultiItemAutopilotRequest(
                 pool_id=request.pool_id,
@@ -209,6 +225,11 @@ class AtlasAutonomousCodegenOrchestratorService:
                 include_self_correction=True,
                 include_correction_routing=True,
                 include_harness_provisioning=True,
+                metadata={
+                    **(request.metadata or {}),
+                    "data_root": str(self.data_root),
+                    "orchestrator_run_id": orchestrator_run_id,
+                },
             )
         )
         out.autopilot_result = autopilot.model_dump()
@@ -220,6 +241,7 @@ class AtlasAutonomousCodegenOrchestratorService:
 
         # ── Phase 4: aggregate ────────────────────────────────────────────────────────────────
         out.phase = "final_summary"
+        self._progress(request.pool_id, run_id, orchestrator_run_id, phase=out.phase, sub_phase="final_summary", last_event="final_summary_started")
         out.status = autopilot.status or "completed"
         if repair_evidence:
             out.phase = "failure_analysis"
@@ -280,6 +302,27 @@ class AtlasAutonomousCodegenOrchestratorService:
         }
         out.metadata["auto_merge_readiness"] = self._auto_merge_readiness(out.metadata, autopilot, request)
         self._emit("autonomous_codegen_completed", request.pool_id, run_id, orchestrator_run_id, status=out.status)
+        self._progress(request.pool_id, run_id, orchestrator_run_id, phase=out.phase, status=out.status, sub_phase="", last_event="autonomous_codegen_completed", processed_count=out.metadata.get("processed_count", 0), completed_count=out.metadata.get("completed_count", 0), failed_count=out.metadata.get("failed_count", 0), blocked_count=out.metadata.get("blocked_count", 0))
+        self.save_result(out)
+        return out
+
+    def _progress(self, pool_id: str, run_id: str, orchestrator_run_id: str, **patch) -> None:
+        write_progress(
+            self.data_root,
+            pool_id,
+            orchestrator_run_id,
+            {"pool_id": pool_id, "run_id": run_id, "orchestrator_run_id": orchestrator_run_id, **patch},
+        )
+
+    def _stop_requested(self, pool_id: str, orchestrator_run_id: str) -> bool:
+        return is_stop_requested(self.data_root, pool_id, orchestrator_run_id)
+
+    def _stopped_result(self, out: AtlasAutonomousCodegenResult, pool_id: str, run_id: str, orchestrator_run_id: str) -> AtlasAutonomousCodegenResult:
+        out.status = "stopped"
+        out.stop_reason = "user_stop_requested"
+        out.phase = out.phase or "final_summary"
+        self._emit("autonomous_codegen_stopped", pool_id, run_id, orchestrator_run_id, status=out.status, reason=out.stop_reason)
+        self._progress(pool_id, run_id, orchestrator_run_id, phase=out.phase, status=out.status, last_event="autonomous_codegen_stopped", stop_requested=True, stop_reason=out.stop_reason)
         self.save_result(out)
         return out
 

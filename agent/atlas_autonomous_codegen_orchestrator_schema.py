@@ -14,6 +14,7 @@ class AtlasAutonomousCodegenRequest(BaseModel):
     pool_id: str
     user_requirement: str = ""
     run_id: str = ""
+    orchestrator_run_id: str = ""
     workspace_id: str = "default"
     project_path: str = ""
     item_ids: list[str] = Field(default_factory=list)
