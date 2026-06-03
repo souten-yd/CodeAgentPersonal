@@ -1748,7 +1748,6 @@
           para(row, s.description);
           bullets(row, textItems(s.acceptance_criteria).map((x) => `受入条件: ${x}`));
           if ((s.target_files || []).length) para(row, `files: ${s.target_files.join(', ')}`);
-          bullets(row, s.acceptance_criteria || s.done_definition || []);
           if (s.verification) para(row, `検証: ${s.verification}`);
           if (s.rollback) para(row, `ロールバック: ${s.rollback}`);
           sec.appendChild(row);
