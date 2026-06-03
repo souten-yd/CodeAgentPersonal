@@ -247,7 +247,10 @@ class AtlasPlanPoolBuilder:
                 expected_changes=coerce_list(step.get("expected_changes") or step.get("changes")),
                 test_commands=test_commands,
                 done_definition=coerce_list(
-                    step.get("done_definition") or step.get("verification") or payload.get("done_definition")
+                    step.get("acceptance_criteria")
+                    or step.get("done_definition")
+                    or step.get("verification")
+                    or payload.get("done_definition")
                 ),
                 rollback_plan=coerce_list(step.get("rollback") or payload.get("rollback_plan")),
                 requires_user_confirmation=requires_confirmation,

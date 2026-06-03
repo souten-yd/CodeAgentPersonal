@@ -333,7 +333,7 @@ class TaskPlanningRunner:
             warnings.extend(self.planner.get_last_warnings())
 
         # Adversarial critique: attack the plan from multiple angles before any code is written. If a
-        # high/critical gap is found, regenerate the plan ONCE with the critique appended, then re-critique
+        # high/critical gap is found, regenerate the plan with critique context, then re-critique
         # for the record. Complements (does not replace) the rule-based PlanReviewer below.
         critique = self.adversarial_critic.critique(
             plan_summary=self._plan_summary(plan),
@@ -341,23 +341,42 @@ class TaskPlanningRunner:
         )
         warnings.extend(critique.warnings)
         if critique.requires_revision and planning_mode != "deep_nexus":
-            revision_context = f"{repository_context}\n\n=== Adversarial Critique (fix high/critical gaps) ===\n{self._critique_text(critique)}"
-            revised = self.planner.build_plan(
-                requirement=requirement,
-                planning_mode=planning_mode,
-                prompt=PLAN_GENERATION_PROMPT,
-                nexus_context=nexus_context,
-                repository_context=revision_context,
-            )
-            warnings.extend(self.planner.get_last_warnings())
-            if revised.implementation_steps:
+            original_plan = plan
+            current_coverage = _requirement_phrase_coverage(requirement, plan)
+            revision_succeeded = False
+            for attempt in range(1, 3):
+                revision_context = (
+                    f"{repository_context}\n\n"
+                    f"=== Adversarial Critique Attempt {attempt} (fix high/critical gaps) ===\n"
+                    f"{self._critique_text(critique)}"
+                )
+                revised = self.planner.build_plan(
+                    requirement=requirement,
+                    planning_mode=planning_mode,
+                    prompt=PLAN_GENERATION_PROMPT,
+                    nexus_context=nexus_context,
+                    repository_context=revision_context,
+                )
+                warnings.extend(self.planner.get_last_warnings())
+                revised_coverage = _requirement_phrase_coverage(requirement, revised)
+                if not revised.implementation_steps or revised_coverage < current_coverage:
+                    warnings.append("plan_revision_failed_kept_original")
+                    plan = original_plan
+                    break
                 plan = revised
+                current_coverage = revised_coverage
                 warnings.append("plan_revised_after_adversarial_critique")
                 critique = self.adversarial_critic.critique(
                     plan_summary=self._plan_summary(plan),
                     requirement_summary=self._requirement_summary(requirement),
                 )
                 warnings.extend(critique.warnings)
+                revision_succeeded = not critique.requires_revision
+                if revision_succeeded:
+                    break
+            if not revision_succeeded and critique.requires_revision:
+                plan.status = "needs_revision"
+                warnings.append("plan_revision_failed_kept_original")
 
         review_result = self.plan_reviewer.review(
             requirement=requirement,
@@ -370,8 +389,13 @@ class TaskPlanningRunner:
         plan.requires_user_confirmation = bool(review_result.requires_user_confirmation)
         if review_result.overall_risk == "critical":
             plan.status = "rejected" if review_result.recommended_next_action == "reject_plan" else "needs_revision"
+        elif review_result.overall_risk == "high" and review_result.blocking_findings:
+            plan.requires_user_confirmation = True
+            plan.status = "needs_confirmation"
         elif review_result.requires_user_confirmation:
             plan.status = "needs_confirmation"
+        elif plan.status == "needs_revision":
+            pass
         else:
             plan.status = "planned"
 
@@ -476,3 +500,26 @@ class TaskPlanningRunner:
 
 def _dedup_warnings(warnings: list[str]) -> list[str]:
     return list(dict.fromkeys([w.strip() for w in warnings if isinstance(w, str) and w.strip()]))
+
+
+def _requirement_phrase_coverage(requirement: RequirementDefinition, plan) -> int:
+    phrases = [*list(requirement.functional_requirements or []), *list(requirement.done_definition or [])]
+    descriptions = " ".join(str(getattr(step, "description", "") or "") for step in (plan.implementation_steps or [])).lower()
+    count = 0
+    for phrase in phrases:
+        normalized = str(phrase or "").strip().lower()
+        if not normalized:
+            continue
+        if normalized in descriptions:
+            count += 1
+            continue
+        key_terms = [part for part in _split_requirement_phrase(normalized) if len(part) >= 2]
+        if key_terms and all(term in descriptions for term in key_terms[:4]):
+            count += 1
+    return count
+
+
+def _split_requirement_phrase(value: str) -> list[str]:
+    import re
+
+    return [part for part in re.split(r"[\s,.;:()\[\]{}、。・「」『』]+", value) if part]
