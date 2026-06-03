@@ -377,8 +377,14 @@
     if (!preset) return;
     const envelopeId = selectedEnvelopeId(preset);
     const envelopeRecipe = state.envelopes.find((e) => e.envelope_id === envelopeId) || null;
+    const profileLabel = preset.id === 'supervised_auto'
+      ? '3: Autonomous（毎回 bounds 指定・完全自動 OFF）'
+      : preset.id === 'autonomous_bounded_dev'
+        ? '4: Autonomous（envelope 内で完全自動・★完全自動コード生成）'
+        : preset.label;
     const lines = [
-      `# ${preset.label}`,
+      `# ${profileLabel}`,
+      `- badge: full_auto=${preset.enables_full_automation ? 'ON' : 'OFF'} / envelope=${envelopeId === 'none' ? 'none' : 'bounded_dev'}`,
       `- safety profile: \`${preset.safety_profile}\``,
       `- envelope: \`${envelopeId}\``,
       `- enables full automation: ${preset.enables_full_automation ? 'YES' : 'no'}`,
@@ -1734,7 +1740,9 @@
           t.innerHTML = `<strong>${escapeText(`${i + 1}. ${s.title || 'step'}`)}</strong>${meta ? ` <span class="atlas-claude-stage-detail">(${escapeText(meta)})</span>` : ''}`;
           row.appendChild(t);
           para(row, s.description);
+          para(row, s.goal ? `目標: ${s.goal}` : '');
           if ((s.target_files || []).length) para(row, `files: ${s.target_files.join(', ')}`);
+          bullets(row, s.acceptance_criteria || s.done_definition || []);
           if (s.verification) para(row, `検証: ${s.verification}`);
           if (s.rollback) para(row, `ロールバック: ${s.rollback}`);
           sec.appendChild(row);
@@ -1749,9 +1757,13 @@
         if (review.overall_risk) para(sec, `総合リスク: ${review.overall_risk}`);
         if (review.summary) para(sec, review.summary);
         bullets(sec, strategic.risks);
-        (review.findings || []).forEach((f) => para(sec, `⚠ [${f.severity || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
+        const unresolvedReview = (review.findings || []).filter((f) => ['high', 'critical'].includes(String(f.severity || '').toLowerCase()) || f.requires_user_confirmation);
+        const resolvedReview = (review.findings || []).filter((f) => !unresolvedReview.includes(f));
+        unresolvedReview.forEach((f) => para(sec, `未解決 ⚠ [${f.severity || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
+        if (resolvedReview.length) para(sec, `解決済み/低リスク findings: ${resolvedReview.length} 件（折りたたみ対象）`);
         if (critique.requires_revision) para(sec, `敵対的批評: 要改訂 (${critique.consensus_risk || '-'})`);
-        (critique.findings || []).forEach((f) => para(sec, `⚔ [${f.severity || '-'}/${f.angle || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
+        const unresolvedCritique = (critique.findings || []).filter((f) => ['high', 'critical'].includes(String(f.severity || '').toLowerCase()));
+        unresolvedCritique.forEach((f) => para(sec, `未解決 ⚔ [${f.severity || '-'}/${f.angle || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
       });
     }
     // Done definition / tests
