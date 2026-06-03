@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -101,6 +102,12 @@ class AtlasAutoVerificationService:
                     status = "failed"
                 elif ev["verify_level"]:
                     metadata["verify_level"] = ev["verify_level"]
+
+        coverage = self._requirement_coverage(pool, item, workspace_root, status=status)
+        metadata["requirement_coverage"] = coverage
+        if status == "passed" and not coverage.get("success_eligible", True):
+            status = "failed"
+            warnings.append("requirement_coverage_incomplete")
 
         event = {"passed": "auto_verification_passed", "blocked": "auto_verification_blocked"}.get(status, "auto_verification_failed")
         self._append_event(pool.pool_id, request.run_id, event, item.item_id, status=status, warnings=warnings)
@@ -231,6 +238,11 @@ class AtlasAutoVerificationService:
         if ev["verify_level"]:
             metadata["verify_level"] = ev["verify_level"]
         status = "failed" if ev["hard_failed"] else "passed"
+        coverage = self._requirement_coverage(pool, item, workspace_root, status=status)
+        metadata["requirement_coverage"] = coverage
+        if status == "passed" and not coverage.get("success_eligible", True):
+            status = "failed"
+            warnings.append("requirement_coverage_incomplete")
 
         event = {"passed": "auto_verification_passed"}.get(status, "auto_verification_failed")
         self._append_event(pool.pool_id, request.run_id, event, item.item_id, status=status, warnings=warnings)
@@ -258,6 +270,105 @@ class AtlasAutoVerificationService:
         if path.is_absolute() or ".." in path.parts:
             return False
         return True
+
+    def _requirement_coverage(self, pool, item, workspace_root: str, *, status: str) -> dict:
+        metadata = item.metadata or {}
+        requirements = [
+            str(v).strip()
+            for v in [
+                *list(getattr(item, "done_definition", []) or []),
+                *list(metadata.get("acceptance_criteria") or []),
+            ]
+            if str(v).strip()
+        ]
+        if not requirements:
+            return {
+                "total": 0,
+                "by_status": {},
+                "mapped": [],
+                "all_verified": False,
+                "success_eligible": True,
+            }
+        changed_files = self._changed_files_for_requirement_check(item)
+        content = self._read_requirement_evidence(workspace_root, changed_files)
+        mapped: list[dict] = []
+        by_status: dict[str, int] = {}
+        for idx, requirement in enumerate(requirements, start=1):
+            tokens = self._requirement_tokens(requirement)
+            if not tokens:
+                req_status = "partial"
+                missing = []
+            else:
+                matched = [tok for tok in tokens if tok in content]
+                required_count = max(1, min(len(tokens), (len(tokens) + 1) // 2))
+                if len(matched) >= required_count:
+                    req_status = "verified" if status == "passed" else "implemented"
+                else:
+                    req_status = "missing"
+                missing = [tok for tok in tokens if tok not in matched]
+            by_status[req_status] = by_status.get(req_status, 0) + 1
+            mapped.append({
+                "requirement_id": f"req_{idx:03d}",
+                "description": requirement,
+                "status": req_status,
+                "implementation_evidence": list(changed_files) if req_status in {"verified", "implemented"} else [],
+                "missing_keywords": missing,
+            })
+        all_verified = by_status.get("verified", 0) == len(requirements)
+        return {
+            "total": len(requirements),
+            "by_status": by_status,
+            "mapped": mapped,
+            "all_verified": all_verified,
+            "success_eligible": by_status.get("missing", 0) == 0,
+        }
+
+    def _changed_files_for_requirement_check(self, item) -> list[str]:
+        metadata = item.metadata or {}
+        safe_apply = metadata.get("safe_apply") if isinstance(metadata.get("safe_apply"), dict) else {}
+        auto_safe_apply = metadata.get("auto_safe_apply") if isinstance(metadata.get("auto_safe_apply"), dict) else {}
+        candidates = [
+            *list(safe_apply.get("changed_files") or []),
+            *list(auto_safe_apply.get("changed_files") or []),
+            *list(getattr(item, "target_files", []) or []),
+        ]
+        out: list[str] = []
+        for raw in candidates:
+            rel = str(raw or "").replace("\\", "/").strip()
+            if rel and self._safe_rel(rel) and rel not in out:
+                out.append(rel)
+        return out
+
+    def _read_requirement_evidence(self, workspace_root: str, rel_paths: list[str]) -> str:
+        chunks: list[str] = []
+        root = Path(workspace_root)
+        for rel in rel_paths:
+            if not self._safe_rel(rel):
+                continue
+            try:
+                target = (root / rel).resolve()
+                target.relative_to(root.resolve())
+                if target.is_file():
+                    chunks.append(target.read_text(encoding="utf-8", errors="replace")[:100000])
+            except Exception:
+                continue
+        return "\n".join(chunks).lower()
+
+    @staticmethod
+    def _requirement_tokens(text: str) -> list[str]:
+        stopwords = {
+            "the", "and", "for", "with", "that", "this", "should", "must", "shall", "need",
+            "needs", "please", "add", "create", "make", "ensure", "show", "display", "update",
+            "page", "code", "implement", "implementation", "from", "into", "when", "where",
+            "which", "have", "has", "will", "your", "use", "using", "value", "values", "file",
+            "files", "text", "appears", "contain", "contains",
+        }
+        tokens = [
+            t.lower()
+            for t in re.findall(r"[a-zA-Z][a-zA-Z0-9_]{2,}", text or "")
+            if t.lower() not in stopwords
+        ]
+        return list(dict.fromkeys(tokens))[:8]
 
     def _blocked(self, pool, item_id: str, request: AtlasAutoVerificationRequest, reason: str):
         self._append_event(pool.pool_id, request.run_id, "auto_verification_blocked", item_id, status="blocked", warnings=[reason])

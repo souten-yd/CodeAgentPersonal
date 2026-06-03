@@ -99,6 +99,44 @@ def test_auto_verification_passes_allowlisted_pytest(tmp_path):
     assert "\"event_type\": \"auto_verification_failed\"" not in events_text
 
 
+def test_auto_verification_fails_when_acceptance_content_is_missing(tmp_path):
+    (tmp_path / 'tests').mkdir(parents=True, exist_ok=True)
+    (tmp_path / 'tests' / 'test_ok.py').write_text('def test_ok():\n    assert True\n', encoding='utf-8')
+    (tmp_path / 'app.py').write_text('def greet():\n    return "Hi"\n', encoding='utf-8')
+    storage, journal, pool, item = _setup(tmp_path)
+    item.goal = 'Expose Hello World greeting'
+    item.done_definition = ['Hello World appears in app output']
+    item.target_files = ['app.py']
+    item.metadata['safe_apply']['changed_files'] = ['app.py']
+    item.metadata['verification'] = {'command_id': 'pytest_selected', 'test_path': 'tests/test_ok.py'}
+    storage.save_pool(pool)
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=_runner())
+    r = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id='r1'))
+    assert r.status == 'failed'
+    assert 'requirement_coverage_incomplete' in r.warnings
+    coverage = r.metadata['requirement_coverage']
+    assert coverage['success_eligible'] is False
+    assert coverage['by_status']['missing'] >= 1
+
+
+def test_auto_verification_records_requirement_coverage_when_acceptance_matches(tmp_path):
+    (tmp_path / 'tests').mkdir(parents=True, exist_ok=True)
+    (tmp_path / 'tests' / 'test_ok.py').write_text('def test_ok():\n    assert True\n', encoding='utf-8')
+    (tmp_path / 'app.py').write_text('def greet():\n    return "Hello World"\n', encoding='utf-8')
+    storage, journal, pool, item = _setup(tmp_path)
+    item.goal = 'Expose Hello World greeting'
+    item.done_definition = ['Hello World appears in app output']
+    item.target_files = ['app.py']
+    item.metadata['safe_apply']['changed_files'] = ['app.py']
+    item.metadata['verification'] = {'command_id': 'pytest_selected', 'test_path': 'tests/test_ok.py'}
+    storage.save_pool(pool)
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=_runner())
+    r = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id='r1'))
+    assert r.status == 'passed'
+    assert r.metadata['requirement_coverage']['success_eligible'] is True
+    assert r.metadata['requirement_coverage']['by_status']['verified'] >= 1
+
+
 def test_auto_verification_fails_but_does_not_restore_debug_or_patch(tmp_path):
     (tmp_path / 'tests').mkdir(parents=True, exist_ok=True)
     (tmp_path / 'tests' / 'test_fail.py').write_text('def test_fail():\n    assert False\n', encoding='utf-8')

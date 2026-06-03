@@ -77,6 +77,21 @@ def test_full_auto_non_safety_high_finding_proceeds():
     assert "full_auto_continued_with_unresolved_non_safety_critique" in out["warnings"]
 
 
+def test_full_auto_blocks_empty_step_acceptance_before_continuation():
+    out = apply_plan_quality_gate(
+        _plan(
+            findings=[_finding("high", "Lack of modularity", category="maintainability")],
+            consensus_risk="high",
+            implementation_steps=[{"title": "Create file", "description": "Create the requested file."}],
+        ),
+        preset_id="autonomous_bounded_dev",
+    )
+    assert out["plan_revision_required"] is True
+    assert out["require_approval"] is True
+    assert out["critique_gate"]["reason"] == "plan_structure_quality_gate_blocked"
+    assert out["critique_gate"]["blocking_findings"][0]["code"] == "empty_step_acceptance_criteria"
+
+
 # ── full_auto: safety-sensitive finding routed by critical_handling (default "ask") ───────
 
 def _security_plan():

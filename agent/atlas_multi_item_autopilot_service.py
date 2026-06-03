@@ -27,6 +27,60 @@ from agent.atlas_multi_item_autopilot_schema import (
     AtlasMultiItemAutopilotResult,
 )
 from agent.atlas_run_quality_rollup import compute_run_quality_rollup
+from agent.atlas_codegen_progress import is_stop_requested, write_progress
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _append_sub_phase(result: AtlasAutopilotItemResult, name: str, status: str, started_at: str, detail: dict | None = None) -> None:
+    result.sub_phases.append(
+        {
+            "name": name,
+            "status": status,
+            "started_at": started_at,
+            "ended_at": _now_iso(),
+            "detail": detail or {},
+        }
+    )
+
+
+def _safe_apply_subphase_detail(payload: dict) -> dict:
+    file_results = list(
+        ((payload or {}).get("safe_apply_result") or {}).get("file_results")
+        or ((payload or {}).get("metadata") or {}).get("file_results")
+        or []
+    )
+    diff_text = str((payload or {}).get("patch") or (payload or {}).get("unified_diff_preview") or "")
+    return {
+        "changed_files": list((payload or {}).get("changed_files") or []),
+        "diff_line_count": len([line for line in diff_text.splitlines() if line.strip()]),
+        "backup_present": bool((payload or {}).get("backup_path") or ((payload or {}).get("metadata") or {}).get("backup_path")),
+        "file_results": file_results,
+    }
+
+
+def _verification_subphase_detail(payload: dict) -> dict:
+    commands = list((payload or {}).get("commands") or (payload or {}).get("test_commands") or [])
+    command = ""
+    if commands:
+        first = commands[0]
+        command = str(first.get("command") if isinstance(first, dict) else first)
+    return {
+        "command": command or str((payload or {}).get("command") or ""),
+        "exit_code": (payload or {}).get("exit_code"),
+        "output_summary": str((payload or {}).get("output_summary") or (payload or {}).get("summary") or "")[:500],
+    }
+
+
+def _repair_subphase_detail(payload: dict) -> dict:
+    attempts = list((payload or {}).get("attempts") or [])
+    attempt_count = int((payload or {}).get("attempt_count") or len(attempts) or 0)
+    return {
+        "attempt_count": attempt_count,
+        "attempts": [{"status": str((item or {}).get("status") or "")} for item in attempts if isinstance(item, dict)],
+    }
 
 
 class AtlasMultiItemAutopilotService:
@@ -56,6 +110,10 @@ class AtlasMultiItemAutopilotService:
         ids = request.item_ids or [i.item_id for i in pool.items]
         changed_total = 0
         for idx, item_id in enumerate(ids):
+            self._progress(request, phase="candidate_apply", current_item_index=idx, total_items=len(ids), sub_phase="item_start", last_event="multi_item_item_started")
+            if self._stop_requested(request):
+                out.status, out.stop_reason = "stopped", "user_stop_requested"
+                break
             if out.processed_count >= min(request.max_items, policy.max_items):
                 out.status, out.stop_reason = "stopped", "max_items_reached"; break
             if (datetime.now(timezone.utc) - started).total_seconds() > min(request.max_runtime_seconds, policy.max_runtime_seconds):
@@ -88,15 +146,21 @@ class AtlasMultiItemAutopilotService:
             result.metadata = {"planned_steps": planned_steps}
             try:
                 if request.include_context_refresh:
+                    self._progress(request, phase="candidate_apply", current_item_index=idx, total_items=len(ids), sub_phase="context_refresh", last_event="context_refresh_started")
+                    phase_started = _now_iso()
                     ctx = self.context_refresh_service.refresh(AtlasContextRefreshRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, trigger="pre_safe_apply", workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), changed_files=target_files, policy_id=request.context_policy_id, include_local_tools=True, include_nexus_search=False, include_deep_research=False))
                     result.context_bundle_id = ctx.bundle_id
+                    _append_sub_phase(result, "context_refresh", ctx.status, phase_started, {"context_bundle_id": ctx.bundle_id})
                     self.emit("multi_item_autopilot_context_refresh_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=ctx.status, context_bundle_id=ctx.bundle_id)
                     if ctx.status in {"blocked", "failed"} and policy.require_context_refresh:
                         result.status, result.reason = "blocked", "context_refresh_failed"
                 if result.status != "blocked":
+                    self._progress(request, phase="candidate_apply", current_item_index=idx, total_items=len(ids), sub_phase="safe_apply", last_event="safe_apply_started")
+                    phase_started = _now_iso()
                     preset_id = "full_auto" if policy.policy_id == "full_auto_multi_item_v1" else "guarded_low_risk"
                     safe = self.auto_safe_apply_service.execute_one(AtlasAutoSafeApplyRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, preset_id=preset_id))
                     result.safe_apply_result = safe.model_dump()
+                    _append_sub_phase(result, "safe_apply", safe.status, phase_started, _safe_apply_subphase_detail(result.safe_apply_result))
                     self.emit("multi_item_autopilot_safe_apply_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=safe.status)
                     if safe.status != "applied":
                         result.status, result.reason = "failed", "safe_apply_not_applied"
@@ -115,8 +179,11 @@ class AtlasMultiItemAutopilotService:
                     if changed_total + len(actual_changed_files) > min(request.max_changed_files_total, policy.max_changed_files_total):
                         result.status, result.reason = "stopped", "max_changed_files_total_exceeded_pre_apply"
                     else:
+                        self._progress(request, phase="candidate_apply", current_item_index=idx, total_items=len(ids), sub_phase="verification", last_event="verification_started")
+                        phase_started = _now_iso()
                         vr = self.auto_verification_service.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id))
                         result.verification_result = vr.model_dump()
+                        _append_sub_phase(result, "verify", vr.status, phase_started, _verification_subphase_detail(result.verification_result))
                         self.emit("multi_item_autopilot_verification_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=vr.status)
                         # Harness auto-provisioning: if verification could not run because pytest is not
                         # installed, install it once and re-verify (see missing dep -> install -> re-run)
@@ -128,14 +195,19 @@ class AtlasMultiItemAutopilotService:
                             result.metadata["harness_provisioning"] = prov
                             self.emit("multi_item_autopilot_harness_provisioning", request, autopilot_run_id, item_id=item_id, item_index=idx, status=str(prov.get("status") or ""))
                             if prov.get("status") in {"installed", "already_present"}:
+                                phase_started = _now_iso()
                                 vr = self.auto_verification_service.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id))
                                 result.verification_result = vr.model_dump()
+                                _append_sub_phase(result, "verify", vr.status, phase_started, _verification_subphase_detail(result.verification_result))
                                 self.emit("multi_item_autopilot_verification_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=vr.status)
                         if vr.status == "failed":
                             result.failure_stop_suggestion = self.failure_stop_service.build_for_verification_failure(pool, item, run_id, vr.model_dump()).model_dump()
                         if request.include_bounded_retry and self.bounded_retry_service and vr.status != "passed" and result.failure_stop_suggestion:
+                            self._progress(request, phase="candidate_apply", current_item_index=idx, total_items=len(ids), sub_phase="bounded_retry", attempt=1, last_event="bounded_retry_started")
+                            phase_started = _now_iso()
                             rr = self.bounded_retry_service.run(AtlasBoundedRetryRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), policy_id=request.retry_policy_id, context_policy_id=request.context_policy_id, evaluator_policy_id=request.evaluator_policy_id, verification_result=vr.model_dump(), safe_apply_result=result.safe_apply_result, failure_stop_suggestion=result.failure_stop_suggestion, changed_files=actual_changed_files, max_attempts=request.max_retry_attempts_per_item))
                             result.metadata["bounded_retry_result"] = rr.model_dump()
+                            _append_sub_phase(result, "repair", rr.status, phase_started, _repair_subphase_detail(result.metadata["bounded_retry_result"]))
                             if rr.status == "recovered":
                                 result.status = "completed"
                                 result.reason = "bounded_retry_recovered"
@@ -146,6 +218,8 @@ class AtlasMultiItemAutopilotService:
                         # test/compile output back to the patch generator, re-apply, re-verify (bounded,
                         # low/medium risk only). This is the generate->verify->fix loop.
                         if request.include_self_correction and self.self_correction_service and vr.status == "failed":
+                            self._progress(request, phase="candidate_apply", current_item_index=idx, total_items=len(ids), sub_phase="self_correction", attempt=1, last_event="self_correction_started")
+                            phase_started = _now_iso()
                             sc_request = AtlasSelfCorrectionRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, workspace_id=request.workspace_id, project_path=self.resolve_project_path(request, pool, item), verification_result=vr.model_dump(), changed_files=actual_changed_files, file_results=actual_file_results, max_attempts=request.self_correction_max_attempts, risk_levels=request.self_correction_risk_levels)
                             # Route the failure to the right artifact (code vs test) when enabled; the
                             # router internally falls back to plain self-correction on the failing item.
@@ -154,6 +228,7 @@ class AtlasMultiItemAutopilotService:
                             else:
                                 sc = self.self_correction_service.run(sc_request)
                             result.metadata["self_correction_result"] = sc.model_dump()
+                            _append_sub_phase(result, "repair", sc.status, phase_started, _repair_subphase_detail(result.metadata["self_correction_result"]))
                             # Surface *why* the repair loop didn't run (e.g. the item's risk level
                             # is above the auto-reapply threshold) so the stop is explained in the
                             # UI instead of looking like a silent halt.
@@ -235,6 +310,7 @@ class AtlasMultiItemAutopilotService:
                 result.status, result.reason = "stopped", f"evaluator_{decision}"; out.status = "stopped"; out.stop_reason = result.reason
             elif result.status == "":
                 result.status = "completed"
+            _append_sub_phase(result, "done", result.status, _now_iso(), {"reason": result.reason})
             out.item_results.append(result); out.processed_count += 1
             out.completed_count += 1 if result.status == "completed" else 0
             out.applied_no_verification_count += 1 if result.status == "applied_no_verification" else 0
@@ -277,6 +353,20 @@ class AtlasMultiItemAutopilotService:
         self.save_result(out)
         self.emit("completed" if out.status in {"completed", "partial"} else "failed" if out.status in {"failed", "needs_revision"} else "stopped", request, autopilot_run_id, status=out.status)
         return out
+
+    def _progress(self, request: AtlasMultiItemAutopilotRequest, **patch) -> None:
+        metadata = request.metadata or {}
+        data_root = metadata.get("data_root")
+        orchestrator_run_id = str(metadata.get("orchestrator_run_id") or "")
+        if not data_root or not orchestrator_run_id:
+            return
+        write_progress(data_root, request.pool_id, orchestrator_run_id, {"run_id": request.run_id, "orchestrator_run_id": orchestrator_run_id, **patch})
+
+    def _stop_requested(self, request: AtlasMultiItemAutopilotRequest) -> bool:
+        metadata = request.metadata or {}
+        data_root = metadata.get("data_root")
+        orchestrator_run_id = str(metadata.get("orchestrator_run_id") or "")
+        return bool(data_root and orchestrator_run_id and is_stop_requested(data_root, request.pool_id, orchestrator_run_id))
 
     def resolve_project_path(self, request, pool, item):
         return str(request.project_path or getattr(pool, "project_path", "") or getattr(item, "project_path", "") or "")

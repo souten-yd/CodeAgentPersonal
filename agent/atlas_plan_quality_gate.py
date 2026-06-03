@@ -45,6 +45,21 @@ def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id
 
     full_auto = is_full_auto_preset(automation_level=automation_level, preset_id=preset_id)
     warnings: list[str] = []
+    structure_findings = _plan_structure_findings(plan) if full_auto else []
+    if structure_findings:
+        warnings.append("plan_structure_quality_gate_blocked")
+        return {
+            "critique_gate": {
+                "gate_status": "blocked",
+                "reason": "plan_structure_quality_gate_blocked",
+                "blocking_findings": structure_findings,
+                "safety_sensitive": False,
+            },
+            "plan_revision_required": True,
+            "require_approval": True,
+            "warnings": warnings,
+            "clarification": {},
+        }
 
     if not gate["blocked"]:
         return {
@@ -136,4 +151,42 @@ def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id
         "require_approval": True,
         "warnings": warnings,
         "clarification": _clarification(),
+    }
+
+
+def _plan_structure_findings(plan: dict) -> list[dict]:
+    findings: list[dict] = []
+    steps = plan.get("implementation_steps")
+    if isinstance(steps, list):
+        for index, step in enumerate(steps, start=1):
+            if not isinstance(step, dict):
+                continue
+            if not str(step.get("description") or "").strip():
+                findings.append(_structure_finding("empty_step_description", index))
+            if not _non_empty_list(step.get("acceptance_criteria")):
+                findings.append(_structure_finding("empty_step_acceptance_criteria", index))
+    metadata = plan.get("metadata") if isinstance(plan.get("metadata"), dict) else {}
+    warnings = [str(w) for w in (plan.get("warnings") or []) if str(w).strip()] if isinstance(plan.get("warnings"), list) else []
+    if metadata.get("planner_fallback") or metadata.get("fallback_plan_items_generated") or "planner_fallback_skeleton_generated" in warnings:
+        findings.append(_structure_finding("fallback_only_plan_pool", 0))
+    test_plan = plan.get("test_plan")
+    fallback_tests = {"APIレスポンス構造の確認", "保存ファイル(JSON/Markdown)の存在確認"}
+    if isinstance(test_plan, list) and test_plan and all(str(item) in fallback_tests for item in test_plan):
+        findings.append(_structure_finding("fallback_only_test_plan", 0))
+    return findings
+
+
+def _non_empty_list(value) -> bool:
+    return isinstance(value, list) and any(str(item).strip() for item in value)
+
+
+def _structure_finding(code: str, step_index: int) -> dict:
+    return {
+        "severity": "high",
+        "category": "plan_structure",
+        "title": code,
+        "detail": f"{code} detected" + (f" at step {step_index}" if step_index else ""),
+        "recommendation": "Regenerate the plan with non-empty step descriptions, acceptance criteria, and concrete tests.",
+        "code": code,
+        "step_index": step_index,
     }

@@ -87,6 +87,8 @@ def plan_generation_json_schema() -> dict:
         "properties": {
             "title": {"type": "string"},
             "description": {"type": "string"},
+            "goal": {"type": "string"},
+            "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
             "target_files": {"type": "array", "items": {"type": "string"}},
             "file_changes": {"type": "array", "items": FILE_CHANGE_SCHEMA},
             "action_type": {"type": "string", "enum": PLAN_ACTION_TYPES},
@@ -94,7 +96,7 @@ def plan_generation_json_schema() -> dict:
             "verification": {"type": "string"},
             "rollback": {"type": "string"},
         },
-        "required": ["title", "action_type"],
+        "required": ["title", "description", "goal", "acceptance_criteria", "action_type"],
         "additionalProperties": True,
     }
     properties = {
