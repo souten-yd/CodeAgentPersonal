@@ -126,7 +126,8 @@ class CreatePlanPoolRequest(BaseModel):
     repo_context_mode: str = "scope_summary"
     capability_preferences: dict = Field(default_factory=dict)
     # Human-in-the-loop automation features (critical_handling / clarification_mode /
-    # quality_gate_enforcement). Empty -> server-side default (atlas_automation_features).
+    # quality_gate_enforcement / requirement_coverage_enforcement).
+    # Empty -> server-side default (atlas_automation_features).
     automation_features: dict = Field(default_factory=dict)
 
 

@@ -2028,12 +2028,13 @@
   window.getAtlasCapabilityPreferences = getAtlasCapabilityPreferences;
 
   // ── Automation features (human-in-the-loop): critical_handling / clarification_mode /
-  // quality_gate_enforcement. Read from <select> controls in the Features panel; sent with the
+  // quality_gate_enforcement / requirement_coverage_enforcement. Read from <select> controls in the Features panel; sent with the
   // plan-pool create request and persisted server-side via /api/atlas/automation-features. ──
   const _FEATURE_SELECTS = {
     'feat-critical-handling': 'critical_handling',
     'feat-clarification-mode': 'clarification_mode',
     'feat-quality-enforcement': 'quality_gate_enforcement',
+    'feat-requirement-coverage-enforcement': 'requirement_coverage_enforcement',
   };
 
   function getAtlasAutomationFeatures() {

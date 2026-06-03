@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent.atlas_integration_checker import AtlasIntegrationChecker
+from agent.atlas_automation_features import KEY_REQUIREMENT_COVERAGE_ENFORCEMENT
 from agent.atlas_placeholder_detector import detect_placeholders, is_placeholder_only_content
 from agent.atlas_repair_intent_classifier import is_test_only_repair_plan
 from agent.atlas_requirement_tracer import AtlasRequirementTracer
@@ -35,6 +36,7 @@ def _requirement_coverage(
     *,
     verified_files: list[str] | None = None,
     done_definitions: list[str] | None = None,
+    file_contents: dict[str, str] | None = None,
 ) -> dict:
     """Map requirements to evidence (changed/verified files, done_definition) — conservative.
 
@@ -60,7 +62,7 @@ def _requirement_coverage(
         }
     mapped = AtlasRequirementTracer().map_requirements_to_evidence(
         requirements, changed_files=changed_files, verified_files=verified_files,
-        done_definitions=done_definitions,
+        done_definitions=done_definitions, file_contents=file_contents,
     )
     by_status: dict[str, int] = {}
     for r in mapped:
@@ -164,10 +166,19 @@ def compute_run_quality_rollup(pool, item_results, *, project_path: str = "") ->
     done_definitions: list[str] = []
     for it in (getattr(pool, "items", []) or []):
         done_definitions += list(getattr(it, "done_definition", []) or [])
+    file_contents = {
+        rel: text for rel in changed
+        if str(rel).lower().endswith(_IMPL_EXT) and (text := _read(project_path, rel)) is not None
+    }
     coverage = _requirement_coverage(
         requirements, changed, any_completed,
-        verified_files=verified_files, done_definitions=done_definitions,
+        verified_files=verified_files, done_definitions=done_definitions, file_contents=file_contents,
     )
+    features = (pool_meta.get("automation_features") or {}) if isinstance(pool_meta.get("automation_features"), dict) else {}
+    coverage_enforcement = str(features.get(KEY_REQUIREMENT_COVERAGE_ENFORCEMENT) or "warn").strip().lower()
+    if coverage_enforcement not in {"warn", "enforce"}:
+        coverage_enforcement = "warn"
+    coverage["enforcement"] = coverage_enforcement
 
     integration_warnings, integration_failed = _integration_scan(project_path, changed)
     placeholder_warnings, placeholder_failed = _placeholder_scan(project_path, changed)
@@ -188,7 +199,10 @@ def compute_run_quality_rollup(pool, item_results, *, project_path: str = "") ->
             repair_warning = "test_only_repair_plan"
 
     degrade_reasons: list[str] = []
+    warnings: list[str] = []
     if coverage.get("no_implementation_evidence"):
+        warnings.append("requirement_coverage_incomplete")
+    if coverage.get("no_implementation_evidence") and coverage_enforcement == "enforce":
         degrade_reasons.append("requirement_coverage_incomplete")
     if integration_failed:
         degrade_reasons.append("integration_failed")
@@ -202,6 +216,7 @@ def compute_run_quality_rollup(pool, item_results, *, project_path: str = "") ->
         "integration_warnings": integration_warnings,
         "placeholder_warnings": placeholder_warnings,
         "repair_warning": repair_warning,
+        "warnings": warnings,
         "degraded": bool(degrade_reasons),
         "degrade_reasons": degrade_reasons,
         "changed_files": changed,
