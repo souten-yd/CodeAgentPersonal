@@ -470,32 +470,61 @@ def _build_strategic_plan_summary(*, requirement: dict, plan: dict, review_resul
 
     steps_raw = plan.get("implementation_steps") if isinstance(plan.get("implementation_steps"), list) else []
     steps: list[dict] = []
-    for s in steps_raw[:30]:
+    for index, s in enumerate(steps_raw[:30], start=1):
         if not isinstance(s, dict):
             continue
-        steps.append({
+        step = {
+            "id": _sp_str(s.get("step_id") or s.get("item_id") or s.get("id"), 80),
+            "index": index,
             "title": _sp_str(s.get("title")),
             "description": _sp_str(s.get("description"), 600),
+            "goal": _sp_str(s.get("goal"), 600),
+            "acceptance_criteria": _sp_list(s.get("acceptance_criteria"), max_items=12, item_limit=300),
             "target_files": _sp_list(s.get("target_files"), max_items=10, item_limit=200),
             "action_type": _sp_str(s.get("action_type"), 40),
             "risk_level": _sp_str(s.get("risk_level"), 20),
             "verification": _sp_str(s.get("verification"), 300),
             "rollback": _sp_str(s.get("rollback"), 300),
-        })
+            "dependencies": _sp_list(s.get("dependencies") or s.get("depends_on"), max_items=12, item_limit=120),
+            "blockers": _sp_list(s.get("blockers"), max_items=12, item_limit=200),
+        }
+        for key in ("status", "phase", "progress"):
+            if key in s:
+                value = s.get(key)
+                step[key] = value if isinstance(value, (int, float, bool)) else _sp_str(value, 120)
+        steps.append(step)
     # Fallback: when the plan dict has no steps (e.g. plan_payload path), derive them from the pool
     # items so the strategic card still shows per-step detail.
     if not steps:
-        for it in (getattr(pool, "items", None) or [])[:30]:
+        for index, it in enumerate((getattr(pool, "items", None) or [])[:30], start=1):
             md = getattr(it, "metadata", {}) or {}
-            steps.append({
+            original_payload = md.get("original_step_payload") if isinstance(md.get("original_step_payload"), dict) else {}
+            acceptance_source = (
+                getattr(it, "done_definition", [])
+                or md.get("acceptance_criteria")
+                or original_payload.get("acceptance_criteria")
+            )
+            step = {
+                "id": _sp_str(getattr(it, "item_id", "") or md.get("step_id"), 80),
+                "index": index,
                 "title": _sp_str(getattr(it, "title", "")),
                 "description": _sp_str(getattr(it, "description", "") or getattr(it, "goal", ""), 600),
+                "goal": _sp_str(getattr(it, "goal", ""), 600),
+                "acceptance_criteria": _sp_list(acceptance_source, max_items=12, item_limit=300),
                 "target_files": _sp_list(getattr(it, "target_files", []), max_items=10, item_limit=200),
                 "action_type": _sp_str(md.get("action_type"), 40),
                 "risk_level": _sp_str(getattr(it, "risk_level", ""), 20),
                 "verification": _sp_str("; ".join(getattr(it, "done_definition", []) or []), 300),
                 "rollback": _sp_str("; ".join(getattr(it, "rollback_plan", []) or []), 300),
-            })
+                "dependencies": _sp_list(getattr(it, "depends_on", []), max_items=12, item_limit=120),
+                "blockers": _sp_list(getattr(it, "errors", []) or md.get("blockers"), max_items=12, item_limit=200),
+                "status": _sp_str(getattr(it, "status", ""), 120),
+            }
+            for key in ("phase", "progress"):
+                if key in md:
+                    value = md.get(key)
+                    step[key] = value if isinstance(value, (int, float, bool)) else _sp_str(value, 120)
+            steps.append(step)
 
     findings_raw = review_result.get("findings") if isinstance(review_result.get("findings"), list) else []
     findings: list[dict] = []

@@ -1674,6 +1674,11 @@
         parent.appendChild(d);
       });
     };
+    const textItems = (value) => {
+      if (Array.isArray(value)) return value.map((x) => String(x || '').trim()).filter(Boolean);
+      const s = String(value || '').trim();
+      return s ? [s] : [];
+    };
 
     // Goal / summary
     if (strategic.goal || strategic.requirement_summary) {
@@ -1700,7 +1705,9 @@
           const meta = [s.action_type, s.risk_level].filter(Boolean).join(' · ');
           t.innerHTML = `<strong>${escapeText(`${i + 1}. ${s.title || 'step'}`)}</strong>${meta ? ` <span class="atlas-claude-stage-detail">(${escapeText(meta)})</span>` : ''}`;
           row.appendChild(t);
+          if (s.goal) para(row, `ゴール: ${s.goal}`);
           para(row, s.description);
+          bullets(row, textItems(s.acceptance_criteria).map((x) => `受入条件: ${x}`));
           if ((s.target_files || []).length) para(row, `files: ${s.target_files.join(', ')}`);
           if (s.verification) para(row, `検証: ${s.verification}`);
           if (s.rollback) para(row, `ロールバック: ${s.rollback}`);
