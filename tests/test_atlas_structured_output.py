@@ -64,3 +64,15 @@ def test_none_llm_is_safe() -> None:
     result = generate_structured(None, "sys", "user", json_schema=_PLAN_SCHEMA, model=PlanGenerationOutput)
     assert result.ok is False
     assert result.data is None
+
+
+def test_raising_llm_never_propagates() -> None:
+    # A flaky transport must degrade to "no usable JSON", not crash the planner (which would discard
+    # the whole plan via the planner-bridge fallback).
+    def boom(_system: str, _user: str):
+        raise RuntimeError("network down")
+
+    result = generate_structured(boom, "sys", "user", json_schema=_PLAN_SCHEMA, model=PlanGenerationOutput)
+    assert result.ok is False
+    assert result.data is None
+    assert any("llm_call_failed" in w for w in result.warnings)

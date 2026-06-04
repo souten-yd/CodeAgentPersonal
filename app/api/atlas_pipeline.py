@@ -487,12 +487,25 @@ def _planner_metadata_with_repair(req: CreatePlanPoolRequest, changed_files_for_
     return md
 
 
-def _build_strategic_plan_summary(*, requirement: dict, plan: dict, review_result: dict, pool: Any) -> dict:
+def _build_strategic_plan_summary(
+    *,
+    requirement: dict,
+    plan: dict,
+    review_result: dict,
+    pool: Any,
+    used_fallback: bool = False,
+    fallback_reason: str = "",
+) -> dict:
     """Compact, size-bounded strategic plan for the UI to render a Claude/Codex-style plan card.
 
     Sourced from the planner's requirement/plan/review dicts (all available at creation). Persisted on
     pool.metadata so it survives the async job and reaches the frontend via GET /plan-pools/{id}
     (which returns the pool). Research/critique are included when the planner surfaced them on the plan.
+
+    When the real planner failed and the generic fallback pool was substituted, a ``fallback`` block is
+    attached so the plan card itself states *why* (the planner-bridge exception) — otherwise the user
+    only sees a tiny generic 3-step plan with no explanation, and any execution dead-ends at
+    safe_apply_not_applied because the fallback items carry no applicable changes.
     """
     requirement = requirement if isinstance(requirement, dict) else {}
     plan = plan if isinstance(plan, dict) else {}
@@ -617,6 +630,28 @@ def _build_strategic_plan_summary(*, requirement: dict, plan: dict, review_resul
             "consensus_risk": _sp_str(critique.get("consensus_risk"), 20),
             "requires_revision": bool(critique.get("requires_revision")),
             "findings": c_findings,
+        }
+
+    # Make a planner-bridge fallback impossible to miss on the plan card. ``fallback_reason`` carries the
+    # actual exception summary from the planner bridge; pool warnings carry the corroborating tags.
+    pool_metadata = getattr(pool, "metadata", {}) or {}
+    effective_reason = str(fallback_reason or pool_metadata.get("planner_bridge_reason") or "").strip()
+    if used_fallback or effective_reason:
+        pool_warnings = [str(w) for w in (getattr(pool, "warnings", []) or [])]
+        diagnostics = [
+            w for w in pool_warnings
+            if any(key in w for key in ("planner_bridge_failed", "real_planner", "fallback", "planner_error"))
+        ]
+        summary["fallback"] = {
+            "used_fallback": True,
+            "reason": _sp_str(effective_reason or "unknown", 400),
+            "detail": _sp_str(
+                "実プランナーが計画を生成できず、汎用フォールバックプランに切り替わりました。"
+                "このプランには適用可能な変更（file_changes）が含まれないため、実行しても safe_apply は"
+                "適用対象を持たず safe_apply_not_applied で停止します。上記 reason が実プランナーの失敗原因です。",
+                500,
+            ),
+            "diagnostics": _sp_list(diagnostics, max_items=8, item_limit=300),
         }
     return summary
 
@@ -1216,6 +1251,7 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
             "fallback_reason": fallback_reason,
             "strategic_plan": _build_strategic_plan_summary(
                 requirement=requirement, plan=plan, review_result=review_result, pool=pool,
+                used_fallback=used_fallback, fallback_reason=fallback_reason,
             ),
             **dict(req.metadata),
         }

@@ -139,3 +139,41 @@ def test_strategic_plan_summary_fallback_preserves_step_detail_fields():
     assert step["status"] == "queued"
     assert step["phase"] == "planning"
     assert step["progress"] == "0/1"
+
+
+def test_strategic_plan_surfaces_planner_bridge_fallback_reason() -> None:
+    """When the real planner failed and the generic fallback pool was substituted, the plan card must
+    state why — otherwise the user sees only a tiny 3-step plan that dead-ends at safe_apply_not_applied.
+    """
+    from app.api.atlas_pipeline import _build_strategic_plan_summary
+
+    class _Pool:
+        root_goal = "rainbow hello world"
+        warnings = ["planner_bridge_failed", "real_planner_unavailable", "fallback_plan_items_generated"]
+        metadata = {"planner_bridge_reason": "KeyError: 'implementation_steps'"}
+        items: list = []
+
+    sp = _build_strategic_plan_summary(
+        requirement={}, plan={}, review_result={}, pool=_Pool(),
+        used_fallback=True, fallback_reason="KeyError: 'implementation_steps'",
+    )
+    assert sp["fallback"]["used_fallback"] is True
+    assert sp["fallback"]["reason"] == "KeyError: 'implementation_steps'"
+    assert "planner_bridge_failed" in sp["fallback"]["diagnostics"]
+
+
+def test_strategic_plan_omits_fallback_block_on_normal_plan() -> None:
+    from app.api.atlas_pipeline import _build_strategic_plan_summary
+
+    class _Pool:
+        root_goal = "g"
+        warnings: list = []
+        metadata: dict = {}
+        items: list = []
+
+    sp = _build_strategic_plan_summary(
+        requirement={"interpreted_goal": "g"},
+        plan={"implementation_steps": [{"title": "a"}]},
+        review_result={}, pool=_Pool(),
+    )
+    assert "fallback" not in sp
