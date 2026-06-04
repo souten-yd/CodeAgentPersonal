@@ -444,6 +444,8 @@ def _checkpoint_next_action(status: str) -> str:
         return "Start a new dry-run from the recovered PlanPool."
     if normalized in {"paused", "approval_required"}:
         return "Review approval-required items before continuing."
+    if normalized == "blocked_safety_review":
+        return "Safety gate blocked the revised plan; review the reason, then grant an override, revise, or cancel."
     if normalized in {"completed", "completed_with_warnings"}:
         return "Review final report or create the next PlanPool."
     if normalized == "failed":
@@ -1887,6 +1889,64 @@ def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Reque
     }
 
 
+class AtlasSafetyOverrideRequest(BaseModel):
+    workspace_id: str = "default"
+    approver: str = ""
+    reason: str = ""
+
+
+@router.post("/plan-pools/{pool_id}/safety-override")
+def grant_safety_override(pool_id: str, req: AtlasSafetyOverrideRequest, request: Request) -> dict:
+    """Human exit path for a post-clarification safety block.
+
+    Valid only when the pool sits at ``blocked_safety_review`` (or the override was already granted,
+    making this idempotent). Records an explicit human override with {approver, reason, timestamp,
+    block_reason}, writes a journal checkpoint, and moves the pool to ``ready`` so the apply-time
+    safety gate honors the override (see AtlasAutomationGateService.decide_pre_safe_apply) instead of
+    silently re-blocking. It does NOT relax critical events (critical risk / forbidden action /
+    unsafe or protected path), which remain blocked at apply time.
+    """
+    if ".." in pool_id:
+        raise HTTPException(status_code=400, detail="invalid identifier")
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    try:
+        pool = storage.load_pool(pool_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="plan pool not found") from exc
+    metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
+    already_granted = bool(metadata.get("safety_override_granted_after_clarification"))
+    if str(pool.status or "").lower() != "blocked_safety_review" and not already_granted:
+        raise HTTPException(status_code=400, detail="safety_override_requires_blocked_safety_review")
+    block_reason = str(metadata.get("safety_gate_block_reason_after_clarification") or "")
+    record = dict(metadata.get("safety_override_after_clarification") or {})
+    if not already_granted:
+        record = {
+            "granted": True,
+            "approver": str(req.approver or "user"),
+            "reason": str(req.reason or ""),
+            "block_reason": block_reason,
+            "granted_at": datetime.now(timezone.utc).isoformat(),
+            "previous_status": str(pool.status or ""),
+        }
+    metadata["safety_override_granted_after_clarification"] = True
+    metadata["safety_override_after_clarification"] = record
+    metadata["next_required_user_action"] = (
+        "Safety override granted; start bounded execution (codegen/apply) to continue."
+    )
+    pool.metadata = metadata
+    pool.status = "ready"
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    journal.write_checkpoint(pool=pool, next_action=_checkpoint_next_action(pool.status))
+    return {
+        "pool_id": pool_id,
+        "status": pool.status,
+        "safety_override_granted_after_clarification": True,
+        "safety_override_after_clarification": record,
+        "block_reason": block_reason,
+        "next_required_user_action": metadata["next_required_user_action"],
+        "plan_pool": _model_dump(pool),
+    }
 
 
 @router.post("/change-snapshots/restore", response_model=AtlasChangeSnapshotRestoreResult)

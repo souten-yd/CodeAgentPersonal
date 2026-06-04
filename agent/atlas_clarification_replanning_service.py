@@ -37,6 +37,14 @@ _IMPLEMENTATION_SIGNAL_PATTERNS = (
 _PATH_RE = re.compile(r"(?P<path>[\w./-]+\.(?:py|js|ts|tsx|jsx|html|css|md|json|yaml|yml|txt))")
 
 
+class AtlasPlanningFailure(Exception):
+    """Revised plan has no gateable items (degenerate / fallback-only plan).
+
+    Raised instead of emitting a generic safety "block" so the caller treats the empty plan as a
+    planning failure that must be repaired/re-planned, rather than a dead-end the user cannot escape.
+    """
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -118,6 +126,10 @@ class AtlasClarificationReplanningService:
         safety_gate = self._rerun_safety_gate(pool, revised_items[0] if revised_items else None, preset_id)
         next_status = self._next_status(critique_gate, safety_gate, risk_raised)
         pool.status = next_status
+        safety_gate_decision = str(safety_gate.get("decision") or "")
+        safety_gate_block_reason = (
+            self._safety_gate_block_reason(safety_gate) if safety_gate_decision == "block" else ""
+        )
 
         revision_id = f"clar_rev_{uuid4().hex[:12]}"
         revised_plan_summary = self._revised_plan_summary(revised_requirement, len(revised_items))
@@ -168,6 +180,13 @@ class AtlasClarificationReplanningService:
                 "revised_plan_summary": revised_plan_summary,
                 "changed_scope_summary": changed_scope_summary,
                 "gate_rerun_summary": gate_rerun_summary,
+                # Surface WHY the apply-time safety gate would block so the UI shows a reason (not a
+                # silent 0/N spinner) and a human can decide between an override, a scope fix, or a
+                # revise. A fresh revision is a fresh evaluation, so any prior override is cleared —
+                # a human must re-grant it for the new block via the override endpoint.
+                "safety_gate_decision_after_clarification": safety_gate_decision,
+                "safety_gate_block_reason_after_clarification": safety_gate_block_reason,
+                "safety_override_granted_after_clarification": False,
                 "next_required_user_action": self._next_required_user_action(next_status),
             }
         )
@@ -186,12 +205,15 @@ class AtlasClarificationReplanningService:
             "revised_plan_summary": revised_plan_summary,
             "changed_scope_summary": changed_scope_summary,
             "gate_rerun_summary": gate_rerun_summary,
+            "safety_gate_decision_after_clarification": safety_gate_decision,
+            "safety_gate_block_reason_after_clarification": safety_gate_block_reason,
             "next_required_user_action": metadata["next_required_user_action"],
         }
 
     def mark_replanning_failed(self, pool: AtlasPlanPool, exc: Exception) -> dict:
         metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
         answers = [dict(a) for a in metadata.get("clarification_answers") or [] if isinstance(a, dict)]
+        is_planning_failure = isinstance(exc, AtlasPlanningFailure)
         failure = {
             "status": "failed",
             "revision_id": f"clar_rev_failed_{uuid4().hex[:12]}",
@@ -199,28 +221,47 @@ class AtlasClarificationReplanningService:
             "answered_question_count": len(answers),
             "failed_at": _utc_now_iso(),
             "error_summary": self._bounded_error_summary(exc),
+            "failure_kind": "planning_failure" if is_planning_failure else "replanning_error",
         }
+        # An empty/degenerate revised plan is a planning failure (fallback-only test plan), not a
+        # safety block: it must be repaired/re-planned. Give the user an explicit, actionable
+        # message instead of a dead-end "blocked" with no escape path.
+        revised_plan_summary = (
+            "Plan revision produced no executable items; the plan must be re-planned."
+            if is_planning_failure
+            else "Plan revision failed; original unclarified plan remains blocked."
+        )
+        next_required_user_action = (
+            "The revised plan has no executable items. Request a new plan or refine the requirement, "
+            "then retry — this is a planning failure, not a safety block."
+            if is_planning_failure
+            else "Review the clarification failure and request a safer revised plan or cancel."
+        )
         metadata.update(
             {
                 "clarification_replanning": failure,
                 "plan_revision_required_after_clarification": True,
                 "gate_rerun_required_after_clarification": True,
                 "gate_rerun_performed_after_clarification": False,
-                "revised_plan_summary": "Plan revision failed; original unclarified plan remains blocked.",
+                "planning_failure_after_clarification": is_planning_failure,
+                "revised_plan_summary": revised_plan_summary,
                 "changed_scope_summary": "No revised scope was accepted.",
                 "gate_rerun_summary": "Gate rerun was not accepted because clarification replanning failed.",
-                "next_required_user_action": "Review the clarification failure and request a safer revised plan or cancel.",
+                "next_required_user_action": next_required_user_action,
             }
         )
         pool.metadata = metadata
         if pool.status == "ready":
             pool.status = "approval_required"
+        blocked_reasons = [
+            "plan_revision_required_after_clarification",
+            "gate_rerun_required_after_clarification",
+        ]
+        if is_planning_failure:
+            blocked_reasons.append("planning_failure_after_clarification")
         return {
             **failure,
-            "blocked_reasons": [
-                "plan_revision_required_after_clarification",
-                "gate_rerun_required_after_clarification",
-            ],
+            "blocked_reasons": blocked_reasons,
             "next_required_user_action": metadata["next_required_user_action"],
         }
 
@@ -552,10 +593,22 @@ class AtlasClarificationReplanningService:
     @staticmethod
     def _rerun_safety_gate(pool: AtlasPlanPool, item: AtlasPlanItem | None, preset_id: str) -> dict:
         if item is None:
-            return {"decision": "block", "reason": "no_plan_items"}
+            # Degenerate plan (no items to gate): treat as a planning failure that must be
+            # repaired/re-planned, NOT a generic safety block with no exit path.
+            raise AtlasPlanningFailure(
+                "revised plan has no gateable items after clarification (empty plan); re-plan required"
+            )
         presets = atlas_auto_policy_presets()
         preset = presets.get(preset_id) or presets["guarded_low_risk"]
         return AtlasAutomationGateService().decide_pre_safe_apply(pool, item, preset).model_dump()
+
+    @staticmethod
+    def _safety_gate_block_reason(safety_gate: dict) -> str:
+        """Human-readable reason string for an apply-time safety block, surfaced in the UI."""
+        reasons = safety_gate.get("reasons")
+        if isinstance(reasons, list) and reasons:
+            return ", ".join(str(reason) for reason in reasons if str(reason).strip())
+        return str(safety_gate.get("reason") or "")
 
     @staticmethod
     def _next_status(critique_gate: dict, safety_gate: dict, risk_raised: bool) -> str:
@@ -563,14 +616,26 @@ class AtlasClarificationReplanningService:
             return "waiting_for_critical_decision"
         if risk_raised:
             return "approval_required"
-        if str(safety_gate.get("decision") or "") == "allow":
+        decision = str(safety_gate.get("decision") or "")
+        if decision == "allow":
             return "ready"
+        # A hard apply-time safety "block" (e.g. preset/scope too strict for the revised plan) is a
+        # distinct, recoverable state: the user can grant an override, fix scope/preset, or revise.
+        # Surfacing it as its own status (instead of a generic approval_required that does NOT
+        # survive the apply-time gate) is what gives the UI a real exit path.
+        if decision == "block":
+            return "blocked_safety_review"
         return "approval_required"
 
     @staticmethod
     def _next_required_user_action(status: str) -> str:
         if status == "waiting_for_critical_decision":
             return "Review critical clarification risk and choose approve, safer replan, edit scope, or cancel."
+        if status == "blocked_safety_review":
+            return (
+                "Safety gate blocked the revised plan. Review the block reason, then either grant a "
+                "safety override to continue, revise the plan/scope, or cancel."
+            )
         if status == "approval_required":
             return "Review revised plan and approve or request another revision."
         return "Revised plan is gate-checked and ready for bounded execution."
@@ -597,7 +662,12 @@ class AtlasClarificationReplanningService:
     def _gate_rerun_summary(critique_gate: dict, safety_gate: dict) -> str:
         critique_status = str(critique_gate.get("status") or critique_gate.get("decision") or "checked")
         safety_status = str(safety_gate.get("decision") or safety_gate.get("status") or "checked")
-        return f"critique gate: {critique_status}; safety gate: {safety_status}"
+        summary = f"critique gate: {critique_status}; safety gate: {safety_status}"
+        if str(safety_gate.get("decision") or "") == "block":
+            reason = AtlasClarificationReplanningService._safety_gate_block_reason(safety_gate)
+            if reason:
+                summary += f"; safety block reason: {reason}"
+        return summary
 
     @staticmethod
     def _bounded_error_summary(exc: Exception) -> str:

@@ -183,6 +183,9 @@
     clarifyPlanPool(poolId, payload) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/clarify`, { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    grantSafetyOverride(poolId, payload) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/safety-override`, { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     getAutomationFeatures() {
       return atlasFetch('/api/atlas/automation-features');
     },
