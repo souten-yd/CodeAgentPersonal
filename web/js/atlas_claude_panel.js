@@ -32,6 +32,7 @@
     latestSafetyProfile: null,
     latestEnvelope: null,
     workflowState: null,
+    dismissedApprovalPlanKeys: new Set(),
     activePresetActive: false,
     // Active Atlas project. name doubles as the workspace_id; projectPath is the
     // working dir the autopilot operates on. Set by app.js's project picker.
@@ -584,11 +585,65 @@
 
   // Plan action prompt: approve / request-revision / cancel. State-driven so it is re-rendered on
   // reload from pool.status (see renderPlanPoolMarkdown). Backwards-compatible alias kept below.
-  function appendPlanActionPrompt(poolId) {
+  function planApprovalIdentity(poolId, context = {}) {
+    const meta = (context && context.poolMeta) || {};
+    const strategic = (context && context.strategic) || {};
+    return String(
+      meta.plan_id
+      || strategic.plan_id
+      || meta.task_id
+      || strategic.task_id
+      || meta.run_id
+      || strategic.run_id
+      || meta.session_id
+      || strategic.session_id
+      || meta.plan_revision_id
+      || meta.revision_id
+      || strategic.revision_id
+      || poolId
+      || ''
+    ).trim();
+  }
+
+  function clearAtlasApprovalActions(filter = {}) {
     if (!dom.transcript) return;
+    const removeAll = filter.removeAll === true;
+    const poolId = Object.prototype.hasOwnProperty.call(filter, 'poolId') ? String(filter.poolId || '') : null;
+    const planId = Object.prototype.hasOwnProperty.call(filter, 'planId') ? String(filter.planId || '') : null;
+    Array.from(dom.transcript.querySelectorAll('[data-atlas-approval-actions="true"]')).forEach((el) => {
+      if (!removeAll && poolId !== null && String(el.dataset.poolId || '') !== poolId) return;
+      if (!removeAll && planId !== null && String(el.dataset.planId || '') !== planId) return;
+      el.remove();
+    });
+  }
+
+  function insertApprovalActionsNode(node, poolId, revisionId) {
+    if (!dom.transcript || !node) return;
+    const cards = Array.from(dom.transcript.querySelectorAll('[data-atlas-plan-card="true"]'));
+    const activeCard = cards.reverse().find((el) => {
+      if (String(el.dataset.poolId || '') !== String(poolId || '')) return false;
+      return !revisionId || String(el.dataset.planRevisionId || '') === String(revisionId || '');
+    });
+    if (activeCard && activeCard.parentNode === dom.transcript) {
+      dom.transcript.insertBefore(node, activeCard.nextSibling);
+    } else {
+      dom.transcript.appendChild(node);
+    }
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  function appendPlanActionPrompt(poolId, context = {}) {
+    if (!dom.transcript) return;
+    const planKey = planApprovalIdentity(poolId, context);
+    if (planKey && state.dismissedApprovalPlanKeys.has(planKey)) return;
+    clearAtlasApprovalActions({ planId: planKey });
+    clearAtlasApprovalActions({ removeAll: true });
     const node = document.createElement('div');
     node.className = 'atlas-claude-msg';
     node.dataset.role = 'system';
+    node.dataset.atlasApprovalActions = 'true';
+    node.dataset.poolId = String(poolId || '');
+    node.dataset.planId = planKey;
     node.style.flexDirection = 'column';
     node.style.gap = '6px';
     const text = document.createElement('div');
@@ -612,17 +667,23 @@
     cancel.className = 'atlas-claude-secondary-btn';
     cancel.textContent = 'キャンセル';
 
-    approve.addEventListener('click', () => {
+    const dismiss = () => {
+      if (planKey) state.dismissedApprovalPlanKeys.add(planKey);
+      Array.from(actions.querySelectorAll('button')).forEach((btn) => { btn.disabled = true; });
       node.remove();
+    };
+
+    approve.addEventListener('click', () => {
+      dismiss();
       approveAndRunPipeline(poolId);
     });
     revise.addEventListener('click', () => {
       const note = (root.prompt && root.prompt('改訂依頼の内容（任意）')) || '';
-      node.remove();
+      dismiss();
       requestPlanRevision(poolId, note);
     });
     cancel.addEventListener('click', () => {
-      node.remove();
+      dismiss();
       cancelPlan(poolId);
     });
     actions.appendChild(approve);
@@ -630,13 +691,12 @@
     actions.appendChild(cancel);
     node.appendChild(text);
     node.appendChild(actions);
-    dom.transcript.appendChild(node);
-    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    insertApprovalActionsNode(node, poolId, context && context.revisionId);
   }
 
   // Backwards-compatible alias for the original creation-time call site.
-  function appendApprovalPrompt(poolId) {
-    appendPlanActionPrompt(poolId);
+  function appendApprovalPrompt(poolId, context = {}) {
+    appendPlanActionPrompt(poolId, context);
   }
 
   async function requestPlanRevision(poolId, note) {
@@ -1644,6 +1704,10 @@
       ].filter(Boolean).join('\n');
       pushSystemMessage(summary);
     }
+    const approvalContext = { poolMeta, strategic, revisionId };
+    if (poolStatus !== 'approval_required' || poolMeta.clarification_required || clarificationBlocks.length) {
+      clearAtlasApprovalActions({ poolId });
+    }
     if (poolMeta.clarification_required && Array.isArray(poolMeta.clarification_questions) && poolMeta.clarification_questions.length) {
       appendClarificationPrompt(poolId, poolMeta);
     } else if (poolMeta.clarification_required && Array.isArray(clarification.options) && clarification.options.length) {
@@ -1655,7 +1719,7 @@
       // and give the user a real exit path instead of a stuck Patch spinner.
       appendSafetyBlockPrompt(poolId, poolMeta);
     } else if (poolStatus === 'approval_required') {
-      appendPlanActionPrompt(poolId);
+      appendPlanActionPrompt(poolId, approvalContext);
     }
   }
 
