@@ -2,7 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from agent.atlas_multi_item_autopilot_schema import AtlasMultiItemAutopilotRequest
-from agent.atlas_multi_item_autopilot_service import AtlasMultiItemAutopilotService
+from agent.atlas_multi_item_autopilot_service import AtlasMultiItemAutopilotService, _repair_subphase_detail
 from agent.atlas_multi_item_autopilot_policies import list_multi_item_policies
 from agent.atlas_automation_gate_service import AtlasAutomationGateService
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
@@ -24,6 +24,26 @@ def test_multi_item_autopilot_metadata_includes_queue_only_summary():
     t = Path('agent/atlas_multi_item_autopilot_service.py').read_text(encoding='utf-8')
     assert '"queue_only": True' in t
     assert '"next_action_executed": False' in t
+
+
+def test_repair_subphase_detail_accepts_self_correction_int_attempts():
+    # self_correction reports ``attempts`` as an int count (bounded_retry uses a
+    # list). This used to raise "'int' object is not iterable" and get mislabeled
+    # as safe_apply_exception even though safe_apply had already succeeded.
+    detail = _repair_subphase_detail({"status": "exhausted", "attempts": 2})
+    assert detail == {"attempt_count": 2, "attempts": []}
+
+
+def test_repair_subphase_detail_accepts_bounded_retry_list_attempts():
+    detail = _repair_subphase_detail(
+        {"attempt_count": 1, "attempts": [{"status": "retry_skipped"}]}
+    )
+    assert detail == {"attempt_count": 1, "attempts": [{"status": "retry_skipped"}]}
+
+
+def test_repair_subphase_detail_handles_missing_and_empty_payload():
+    assert _repair_subphase_detail({}) == {"attempt_count": 0, "attempts": []}
+    assert _repair_subphase_detail(None) == {"attempt_count": 0, "attempts": []}
 
 
 def test_full_auto_multi_item_passes_full_auto_preset(tmp_path):
