@@ -77,6 +77,16 @@ Always preserve:
 - critical events always require user judgment
 - profile/envelope/gate boundaries
 
+## Standalone corrective instructions
+
+Some corrective work is tracked as dedicated single-goal Codex instructions that are
+independent of the PR-E..PR-O order above:
+
+- `docs/atlas_codex_workflow_state_truthfulness_instruction.md` — make the read-only
+  `atlas.workflow_state.v1` contract truthful (profile/evidence-aware) so the supervision
+  view stops reporting stale `level_0` / `SCALE-94 not callable` state while backend full
+  automation is active. Display-only; adds no execution capability.
+
 ## Codex instruction
 
 When running Codex in goal mode, instruct it to start from this file, then follow the read order and implementation order above. Keep PRs small, run focused tests first, run `py_compile` for changed Python files, and run `node --check` for changed JS files.
