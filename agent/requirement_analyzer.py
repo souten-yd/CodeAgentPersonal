@@ -4,6 +4,9 @@ import logging
 import uuid
 from typing import Callable
 
+from agent.atlas_llm_output_models import RequirementAnalysisOutput
+from agent.atlas_llm_schemas import requirement_analysis_json_schema
+from agent.atlas_structured_output import generate_structured
 from agent.requirement_schema import RequirementCategoryScores, RequirementDefinition
 
 
@@ -39,7 +42,15 @@ class RequirementAnalyzer:
             f"Nexus Context:\n{nexus_text}",
             f"Repository Context: {repository_context}",
         ])
-        raw_payload = self.llm_json_fn(prompt, context_input)
+        structured = generate_structured(
+            self.llm_json_fn,
+            prompt,
+            context_input,
+            json_schema=requirement_analysis_json_schema(),
+            model=RequirementAnalysisOutput,
+        )
+        warnings.extend(structured.warnings)
+        raw_payload = structured.data
         if raw_payload is None:
             warnings.append("Requirement analysis LLM output could not be parsed. Fallback requirement was generated.")
             payload: dict = {}

@@ -80,6 +80,67 @@ def patch_proposal_json_schema(*, require_content: bool = False) -> dict:
     }
 
 
+def requirement_analysis_json_schema() -> dict:
+    """Schema for the requirement analyzer's output.
+
+    Shallow and fully optional: the analyzer normalizes messy scores/labels and coerces list-ish fields
+    downstream, so the value here is steering a capable server into syntactically valid, on-shape JSON.
+    """
+    str_list = {"type": "array", "items": {"type": "string"}}
+    properties = {
+        "interpreted_goal": {"type": "string"},
+        "user_intent": {"type": "string"},
+        "task_type": {"type": "string"},
+        "scope": str_list,
+        "out_of_scope": str_list,
+        "functional_requirements": str_list,
+        "non_functional_requirements": str_list,
+        "constraints": str_list,
+        "assumptions": str_list,
+        "open_questions": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "requirement_completeness_score": {"type": "number"},
+        "category_scores": {"type": "object", "additionalProperties": True},
+        "priority": {"type": "string"},
+        "done_definition": str_list,
+        "risks": str_list,
+    }
+    return {"type": "object", "properties": properties, "required": [], "additionalProperties": True}
+
+
+def deep_plan_json_schema() -> dict:
+    """Schema for the deep planner's three-option output."""
+    str_list = {"type": "array", "items": {"type": "string"}}
+    option = {
+        "type": "object",
+        "properties": {
+            "option_id": {"type": "string", "enum": ["A", "B", "C"]},
+            "title": {"type": "string"},
+            "summary": {"type": "string"},
+            "scope": str_list,
+            "benefits": str_list,
+            "drawbacks": str_list,
+            "risk_level": {"type": "string", "enum": RISK_LEVELS},
+            "estimated_complexity": {"type": "string"},
+            "target_files": str_list,
+            "why_selected": {"type": "string"},
+            "why_rejected": {"type": "string"},
+        },
+        "required": ["option_id"],
+        "additionalProperties": True,
+    }
+    properties = {
+        "user_goal": {"type": "string"},
+        "requirement_summary": {"type": "string"},
+        "architecture_options": {"type": "array", "items": option},
+        "selected_option_id": {"type": "string", "enum": ["A", "B", "C"]},
+        "reflection": {"type": "object", "additionalProperties": True},
+        "implementation_phases": str_list,
+        "verification_strategy": str_list,
+        "done_definition": str_list,
+    }
+    return {"type": "object", "properties": properties, "required": [], "additionalProperties": True}
+
+
 def plan_generation_json_schema() -> dict:
     """Schema for the planner's implementation_steps output."""
     step = {
