@@ -80,7 +80,17 @@ def generate_structured(
     attempts = max(1, int(max_attempts))
     for attempt in range(1, attempts + 1):
         result.attempts = attempt
-        raw = call_llm_json(llm_json_fn, system_prompt, attempt_prompt, json_schema=json_schema)
+        # Never let a flaky LLM transport crash the caller. The real adapter already swallows its own
+        # errors, but a plain callable (or a retry's extra call) could raise; a structured-output helper
+        # must degrade to "no usable JSON" exactly like a parse miss, so planning keeps its fallback
+        # instead of bubbling an exception up to the planner bridge (which would discard the whole plan).
+        try:
+            raw = call_llm_json(llm_json_fn, system_prompt, attempt_prompt, json_schema=json_schema)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("structured_output_llm_call_failed model=%s attempt=%s error=%s", model.__name__, attempt, exc)
+            result.warnings.append(f"structured_output_llm_call_failed:attempt_{attempt}")
+            attempt_prompt = user_prompt + _REINFORCEMENT
+            continue
         if not isinstance(raw, dict):
             result.warnings.append(f"structured_output_parse_failed:attempt_{attempt}")
             attempt_prompt = user_prompt + _REINFORCEMENT
