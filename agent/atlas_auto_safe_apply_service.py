@@ -30,6 +30,26 @@ class AtlasAutoSafeApplyService:
             self.storage.save_pool(pool)
             self.journal.save_plan_pool(pool)
         decision = self.automation_gate.decide_pre_safe_apply(pool, item, preset)
+        override = self._safety_override_after_clarification(pool)
+        if decision.decision == "block" and override:
+            decision.decision = "allow"
+            decision.warnings = sorted(set(list(decision.warnings) + ["safety_override_granted_after_clarification"]))
+            decision.metadata = {
+                **dict(decision.metadata or {}),
+                "safety_override_granted_after_clarification": True,
+                "safety_override_after_clarification": override,
+                "original_block_reasons": list(decision.reasons),
+                "runtime_level_after_override": "level_1_guarded_execution",
+            }
+            self._append_event(
+                pool.pool_id,
+                request.run_id,
+                "auto_safe_apply_safety_override_honored",
+                item.item_id,
+                status="allow",
+                warnings=list(decision.warnings),
+                errors=list(decision.reasons),
+            )
         self._append_event(pool.pool_id, request.run_id, "auto_safe_apply_decision", item.item_id, status=decision.decision, warnings=list(decision.warnings), errors=list(decision.reasons))
 
         if request.dry_run_decision_only:
@@ -70,3 +90,13 @@ class AtlasAutoSafeApplyService:
         if not run_id:
             return
         self.journal.append_event(pool_id, run_id, {"event_type": event_type, "pool_id": pool_id, "run_id": run_id, "item_id": item_id, "status": status, "warnings": list(warnings or []), "errors": list(errors or []), "created_at": datetime.now(timezone.utc).isoformat()})
+
+    @staticmethod
+    def _safety_override_after_clarification(pool) -> dict:
+        metadata = getattr(pool, "metadata", {}) if pool is not None else {}
+        if not isinstance(metadata, dict):
+            return {}
+        if metadata.get("safety_override_granted_after_clarification") is not True:
+            return {}
+        record = metadata.get("safety_override_after_clarification")
+        return dict(record) if isinstance(record, dict) else {"granted": True}

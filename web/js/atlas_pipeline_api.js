@@ -144,6 +144,9 @@
     getPlanPool(poolId) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}`);
     },
+    getPlanRuntimeStatus(poolId, workspaceId) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/runtime-status${query({ workspace_id: workspaceId })}`);
+    },
     getPlanPoolMarkdown(poolId, workspaceId) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/markdown${query({ workspace_id: workspaceId })}`);
     },
@@ -179,6 +182,9 @@
     },
     cancelPlanPool(poolId, payload) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/cancel`, { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    grantSafetyOverride(poolId, payload) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/safety-override`, { method: 'POST', body: JSON.stringify(payload || {}) });
     },
     clarifyPlanPool(poolId, payload) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/clarify`, { method: 'POST', body: JSON.stringify(payload || {}) });

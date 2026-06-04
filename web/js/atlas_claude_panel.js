@@ -159,12 +159,28 @@
           restored = true;
         }
       }
-    } catch (_err) { /* network errors are non-fatal */ }
+    } catch (err) {
+      console.warn('Atlas project restore failed', err);
+    }
     if (!restored) pushSystemMessage('指示を入力してください');
   }
 
   async function restoreLatestRun(poolId) {
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult) return;
+    try {
+      const runtime = await loadRuntimeStatus(poolId);
+      if (runtime) renderRuntimeStatusPanel(runtime);
+    } catch (err) {
+      console.warn('Atlas runtime status restore failed', err);
+      renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+        phase: 'failed',
+        status: 'failed',
+        message: 'Run status unavailable',
+        error: `endpoint=/api/atlas/plan-pools/${poolId}/runtime-status`,
+        requires_user_action: true,
+        next_actions: ['retry', 'revise plan', 'cancel'],
+      }));
+    }
     try {
       const peek = await root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult({ pool_id: poolId });
       if (peek && peek.ok && peek.data) {
@@ -178,7 +194,9 @@
           renderPipelineSummary(stages, d);
         }
       }
-    } catch (_err) { /* no prior run to restore */ }
+    } catch (err) {
+      console.warn('Atlas latest autopilot restore failed', err);
+    }
     await restoreLatestAutonomousRun(poolId);
   }
 
@@ -191,7 +209,9 @@
       if (status && status.ok && status.data) {
         renderAutonomousWorkflowState(status.data);
       }
-    } catch (_err) { /* no autonomous codegen result to restore */ }
+    } catch (err) {
+      console.warn('Atlas latest autonomous run restore failed', err);
+    }
   }
 
   function init() {
@@ -932,19 +952,110 @@
       const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
       if (!pool.ok || !pool.data) {
         updateStage(stages, 'plan', 'failed', formatError(pool));
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: 'failed',
+          status: 'failed',
+          message: 'Run status unavailable',
+          error: formatError(pool),
+          requires_user_action: true,
+          next_actions: ['retry', 'cancel'],
+        }), stages);
         return;
       }
       const poolMeta = pool.data.metadata || (pool.data.plan_pool && pool.data.plan_pool.metadata) || {};
+      const poolStatus = String(pool.data.status || (pool.data.plan_pool && pool.data.plan_pool.status) || '');
       const clarificationBlocks = clarificationExecutionBlockReasons(poolMeta);
       if (clarificationBlocks.length) {
         updateStage(stages, 'plan', 'failed', `clarification revision/gate rerun required: ${clarificationBlocks.join(', ')}`);
-        renderPipelineSummary(stages, { status: 'clarification_blocked', failed_count: 1, stop_reason: 'clarification_required' });
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: 'blocked_safety_review',
+          status: 'blocked',
+          message: 'Patch generation has not started',
+          block_reason: `clarification revision/gate rerun required: ${clarificationBlocks.join(', ')}`,
+          requires_user_action: true,
+          next_actions: ['revise plan', 'cancel'],
+          authoritative_source: 'PlanPool',
+        }), stages);
+        return;
+      }
+      if (poolStatus === 'blocked_safety_review') {
+        const reason = String(poolMeta.safety_gate_block_reason_after_clarification || 'safety_gate_blocked');
+        updateStage(stages, 'patch', 'failed', `Safety gate blocked: ${reason}`);
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: 'blocked_safety_review',
+          status: 'blocked',
+          items_total: (pool.data.items || pool.data.plan_items || []).length,
+          message: 'Blocked by safety gate',
+          block_reason: reason,
+          requires_user_action: true,
+          next_actions: ['override safety block', 'revise plan', 'cancel'],
+          authoritative_source: 'PlanPool',
+        }), stages);
+        appendSafetyBlockPrompt(poolId, poolMeta);
         return;
       }
       const items = pool.data.items || pool.data.plan_items || [];
       if (!items.length) {
         updateStage(stages, 'plan', 'failed', 'no items');
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: 'patch_generation',
+          status: 'waiting',
+          message: 'Patch generation has not started: no plan items are available',
+          requires_user_action: true,
+          next_actions: ['revise plan', 'cancel'],
+        }), stages);
         return;
+      }
+      const approvalTargets = poolStatus === 'approval_required'
+        ? items.filter((it) => {
+          const decision = String((((it.metadata || {}).approval || {}).decision) || '').toLowerCase();
+          const itemStatus = String(it.status || '').toLowerCase();
+          return decision !== 'approved' && (
+            itemStatus === 'approval_required'
+            || itemStatus === 'paused'
+            || itemStatus === 'waiting_for_critical_decision'
+            || it.requires_user_confirmation
+          );
+        })
+        : [];
+      if (approvalTargets.length) {
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: 'approving',
+          status: 'running',
+          items_total: items.length,
+          items_started: 0,
+          message: 'Approving plan items',
+          next_actions: ['wait'],
+          authoritative_source: '/api/atlas/approvals/decide',
+        }), stages);
+        updateStage(stages, 'plan', 'running', `approving 0/${approvalTargets.length}`);
+        for (let i = 0; i < approvalTargets.length; i += 1) {
+          const it = approvalTargets[i];
+          const approval = await root.AtlasPipelineAPI.decideApproval({
+            pool_id: poolId,
+            item_id: it.item_id || it.id,
+            decision: 'approved',
+            reason: 'user approved plan execution',
+            workspace_id: workspaceId(),
+            metadata: { ui: 'atlas_claude_panel', plan_approval: true },
+          });
+          if (!approval || approval.ok === false) {
+            const err = formatError(approval);
+            updateStage(stages, 'plan', 'failed', err);
+            renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+              phase: 'failed',
+              status: 'failed',
+              items_total: items.length,
+              message: 'Approval failed before patch generation',
+              error: err,
+              requires_user_action: true,
+              next_actions: ['retry', 'revise plan', 'cancel'],
+              authoritative_source: '/api/atlas/approvals/decide',
+            }), stages);
+            return;
+          }
+          updateStage(stages, 'plan', 'running', `approving ${i + 1}/${approvalTargets.length}`);
+        }
       }
       updateStage(stages, 'plan', 'done', `${items.length} items`);
 
@@ -952,6 +1063,16 @@
       // A proposal can return status="proposed" yet carry NO applicable content (weak/absent LLM
       // or fallback). Only items with real patch content can actually be applied, so count and
       // approve ONLY those — otherwise the UI shows fake "4/4 success" and Apply silently skips all.
+      renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+        phase: 'patch_generation',
+        status: 'waiting',
+        items_total: items.length,
+        items_started: 0,
+        items_completed: 0,
+        message: 'Patch generation has not started',
+        next_actions: ['wait', 'retry', 'cancel'],
+        authoritative_source: 'PlanPool',
+      }), stages);
       updateStage(stages, 'patch', 'running', `0/${items.length}`);
       let generated = 0;
       const genFailures = [];
@@ -1002,10 +1123,34 @@
           genFailures.push({ id: itemId, msg });
         }
         updateStage(stages, 'patch', 'running', `${i + 1}/${items.length}`);
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: 'patch_generation',
+          status: 'running',
+          items_total: items.length,
+          items_started: i + 1,
+          items_completed: generated,
+          current_item_index: i + 1,
+          current_item_title: it.title || itemId,
+          message: `Patch generation ${i + 1}/${items.length}`,
+          next_actions: ['wait', 'cancel'],
+          authoritative_source: '/api/atlas/patch-proposals/generate',
+        }), stages);
       }
       if (generated === 0) {
         updateStage(stages, 'patch', 'failed', `0/${items.length} (${genFailures.length} 件パッチ内容なし)`);
         renderPipelineSummary(stages, { status: 'patch_generation_failed', genFailures });
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: 'failed',
+          status: 'failed',
+          items_total: items.length,
+          items_started: items.length,
+          items_completed: 0,
+          message: 'Patch generation failed before first patch',
+          error: genFailures.map((f) => `${f.id}: ${f.msg}`).join('; ') || 'no_patch_content',
+          requires_user_action: true,
+          next_actions: ['retry', 'revise plan', 'cancel'],
+          authoritative_source: '/api/atlas/patch-proposals/generate',
+        }), stages);
         return;
       }
       updateStage(stages, 'patch', 'done', `${generated}/${items.length}`);
@@ -1028,6 +1173,16 @@
       const applyTotal = appliableIds.length;
       updateStage(stages, 'apply', 'running', 'starting');
       updateStage(stages, 'verify', 'pending', '');
+      renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+        phase: 'applying',
+        status: 'running',
+        items_total: applyTotal,
+        items_started: 0,
+        items_completed: 0,
+        message: 'Autopilot run starting',
+        next_actions: ['wait', 'cancel'],
+        authoritative_source: '/api/atlas/multi-item-autopilot/run',
+      }), stages);
       const autopilotPromise = root.AtlasPipelineAPI.runMultiItemAutopilot({
         pool_id: poolId,
         item_ids: appliableIds,
@@ -1059,8 +1214,32 @@
             if (completed + failed > 0) {
               updateStage(stages, 'verify', processed >= applyTotal ? 'done' : 'running', `pass ${completed} / fail ${failed}`);
             }
+            renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+              phase: completed + failed > 0 ? 'verifying' : 'applying',
+              status: peek.data.status || 'running',
+              run_id: peek.data.run_id || '',
+              autopilot_run_id: peek.data.autopilot_run_id || '',
+              items_total: applyTotal,
+              items_started: processed,
+              items_completed: completed,
+              message: `Autopilot ${peek.data.status || 'running'}`,
+              error: peek.data.stop_reason || '',
+              next_actions: ['wait', 'cancel'],
+              authoritative_source: 'multi_item_autopilot_result',
+            }), stages);
           }
-        } catch (_e) {}
+        } catch (err) {
+          console.warn('Atlas autopilot polling failed', err);
+          renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+            phase: 'failed',
+            status: 'failed',
+            items_total: applyTotal,
+            message: 'Run status unavailable',
+            error: 'endpoint=/api/atlas/multi-item-autopilot/latest',
+            requires_user_action: true,
+            next_actions: ['retry', 'cancel'],
+          }), stages);
+        }
       }, 1500);
       const result = await autopilotPromise;
       clearInterval(pollTimer);
@@ -1068,6 +1247,16 @@
       if (!result.ok) {
         updateStage(stages, 'apply', 'failed', formatError(result));
         renderPipelineSummary(stages, { status: 'autopilot_failed', error: formatError(result), genFailures });
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: 'failed',
+          status: 'failed',
+          items_total: applyTotal,
+          message: 'Autopilot failed before applying the first item',
+          error: formatError(result),
+          requires_user_action: true,
+          next_actions: ['retry', 'revise plan', 'cancel'],
+          authoritative_source: '/api/atlas/multi-item-autopilot/run',
+        }), stages);
         return;
       }
       const d = result.data || {};
@@ -1077,6 +1266,20 @@
       const verifyStatus = (d.failed_count || 0) === 0 ? 'done' : 'failed';
       updateStage(stages, 'verify', verifyStatus, `pass ${d.completed_count || 0} / fail ${d.failed_count || 0}`);
       renderPipelineSummary(stages, d);
+      renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+        phase: (d.failed_count || 0) === 0 ? 'completed' : 'failed',
+        status: d.status || ((d.failed_count || 0) === 0 ? 'completed' : 'failed'),
+        run_id: d.run_id || '',
+        autopilot_run_id: d.autopilot_run_id || '',
+        items_total: applyTotal,
+        items_started: d.processed_count || 0,
+        items_completed: d.completed_count || 0,
+        message: `Autopilot ${d.status || 'completed'}`,
+        error: (d.failed_count || 0) ? (d.stop_reason || 'verification_failed') : '',
+        requires_user_action: (d.failed_count || 0) > 0,
+        next_actions: (d.failed_count || 0) > 0 ? ['retry', 'revise plan', 'cancel'] : [],
+        authoritative_source: 'multi_item_autopilot_result',
+      }), stages);
       // Persist run pointer so the result block re-renders after a reload.
       persistMeta({ active_pool_id: poolId, latest_autopilot_run_id: d.autopilot_run_id || '' });
     } finally {
@@ -1146,13 +1349,115 @@
     if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;
   }
 
+  function runtimeStatusPayload(poolId, overrides) {
+    return {
+      ok: true,
+      pool_id: poolId,
+      run_id: '',
+      autopilot_run_id: '',
+      phase: 'patch_generation',
+      status: 'waiting',
+      items_total: 0,
+      items_started: 0,
+      items_completed: 0,
+      current_item_index: 0,
+      current_item_title: '',
+      message: '',
+      block_reason: null,
+      error: null,
+      requires_user_action: false,
+      next_actions: ['wait'],
+      authoritative_source: 'ui_runtime',
+      ...(overrides || {}),
+    };
+  }
+
+  async function loadRuntimeStatus(poolId) {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPlanRuntimeStatus) return null;
+    const resp = await root.AtlasPipelineAPI.getPlanRuntimeStatus(poolId, workspaceId());
+    if (resp && resp.ok && resp.data) return resp.data;
+    return runtimeStatusPayload(poolId, {
+      phase: 'failed',
+      status: 'failed',
+      message: 'Run status unavailable',
+      error: resp ? formatError(resp) : 'runtime_status_request_failed',
+      requires_user_action: true,
+      next_actions: ['retry', 'revise plan', 'cancel'],
+      authoritative_source: 'PlanPool runtime-status endpoint',
+    });
+  }
+
+  function renderRuntimeStatusPanel(view, block) {
+    if (!view) return block || null;
+    const poolId = view.pool_id || (block && block.dataset && block.dataset.poolId) || 'runtime';
+    const panel = block || appendStageBlock(poolId);
+    if (!panel) return null;
+    const phase = String(view.phase || 'patch_generation');
+    const status = String(view.status || 'waiting');
+    const total = Number(view.items_total || 0);
+    const started = Number(view.items_started || 0);
+    const completed = Number(view.items_completed || 0);
+    ['plan', 'patch', 'approve', 'apply', 'verify', 'summary'].forEach((stage) => updateStage(panel, stage, 'pending', ''));
+    updateStage(panel, 'plan', phase === 'approving' ? 'running' : 'done', phase === 'approving' ? (view.message || 'approving') : '');
+    if (phase === 'blocked_safety_review') {
+      updateStage(panel, 'patch', 'failed', `Blocked by safety gate: ${view.block_reason || 'safety_gate_blocked'}`);
+    } else if (phase === 'failed' || status === 'failed') {
+      updateStage(panel, 'patch', 'failed', view.error || view.message || 'failed before first patch');
+    } else if (phase === 'patch_generation') {
+      const detail = total ? `${started}/${total}` : (view.message || 'Patch generation has not started');
+      updateStage(panel, 'patch', status === 'running' ? 'running' : 'pending', detail);
+    } else if (phase === 'applying') {
+      updateStage(panel, 'patch', 'done', `${completed || started}/${total || '-'}`);
+      updateStage(panel, 'approve', 'done', '');
+      updateStage(panel, 'apply', 'running', `${started}/${total || '-'}`);
+    } else if (phase === 'verifying') {
+      updateStage(panel, 'patch', 'done', `${completed || started}/${total || '-'}`);
+      updateStage(panel, 'approve', 'done', '');
+      updateStage(panel, 'apply', 'done', `${started}/${total || '-'}`);
+      updateStage(panel, 'verify', 'running', `completed ${completed}`);
+    } else if (phase === 'completed') {
+      updateStage(panel, 'patch', 'done', `${completed || started}/${total || '-'}`);
+      updateStage(panel, 'approve', 'done', '');
+      updateStage(panel, 'apply', 'done', `${started || completed}/${total || '-'}`);
+      updateStage(panel, 'verify', 'done', `completed ${completed}`);
+      updateStage(panel, 'summary', 'done', status);
+    }
+
+    const summary = panel.querySelector('.atlas-claude-summary-block');
+    if (summary) {
+      summary.innerHTML = '';
+      const rows = [
+        `current phase: ${phase}`,
+        `status: ${status}`,
+        `pool_id: ${view.pool_id || '-'}`,
+        `run_id: ${view.autopilot_run_id || view.run_id || '-'}`,
+        `items: ${started}/${total}, completed ${completed}`,
+        view.current_item_title ? `current item: ${view.current_item_index || 0}. ${view.current_item_title}` : '',
+        `message: ${view.message || (phase === 'patch_generation' && started === 0 ? 'Patch generation has not started' : '-')}`,
+        view.block_reason ? `block reason: ${view.block_reason}` : '',
+        view.error ? `error: ${view.error}` : '',
+        `user action required: ${view.requires_user_action ? 'yes' : 'no'}`,
+        `next action: ${(view.next_actions || ['wait']).join(', ') || 'wait'}`,
+        `source: ${view.authoritative_source || 'PlanPool'}`,
+      ].filter(Boolean);
+      rows.forEach((text) => {
+        const div = document.createElement('div');
+        div.className = 'atlas-claude-stage-detail';
+        div.textContent = text;
+        summary.appendChild(div);
+      });
+    }
+    if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    return panel;
+  }
+
   function renderPipelineSummary(block, d) {
     if (!block) return;
     const summary = block.querySelector('.atlas-claude-summary-block');
     if (!summary) return;
     summary.innerHTML = '';
 
-    const stopped = d.status === 'patch_generation_failed' || d.status === 'autopilot_failed';
+    const stopped = d.status === 'patch_generation_failed' || d.status === 'autopilot_failed' || d.status === 'blocked_safety_review';
 
     // Counts: when autopilot did not run, the 0/0/0/0 line is misleading.
     // Show an explicit "stopped" line with the upstream failure instead.
@@ -1163,6 +1468,8 @@
       counts.textContent = `Patch 段階で停止 — ${n} 件の生成失敗。Autopilot は未実行。`;
     } else if (d.status === 'autopilot_failed') {
       counts.textContent = `Autopilot 起動失敗 — ${d.error || 'unknown'}`;
+    } else if (d.status === 'blocked_safety_review') {
+      counts.textContent = `Safety gate blocked — reason: ${d.stop_reason || 'safety_gate_blocked'}`;
     } else {
       counts.textContent = `完了 ${d.completed_count || 0}  失敗 ${d.failed_count || 0}  ブロック ${d.blocked_count || 0}  スキップ ${d.skipped_count || 0}`;
     }
@@ -1708,16 +2015,31 @@
     if (poolStatus !== 'approval_required' || poolMeta.clarification_required || clarificationBlocks.length) {
       clearAtlasApprovalActions({ poolId });
     }
+    if (poolStatus === 'blocked_safety_review') {
+      let runtime = null;
+      try {
+        runtime = await loadRuntimeStatus(poolId);
+      } catch (err) {
+        console.warn('Atlas runtime status render failed', err);
+      }
+      renderRuntimeStatusPanel(runtime || runtimeStatusPayload(poolId, {
+        phase: 'blocked_safety_review',
+        status: 'blocked',
+        message: 'Blocked by safety gate',
+        block_reason: poolMeta.safety_gate_block_reason_after_clarification || 'safety_gate_blocked',
+        requires_user_action: true,
+        next_actions: ['override safety block', 'revise plan', 'cancel'],
+        authoritative_source: 'PlanPool',
+      }));
+      appendSafetyBlockPrompt(poolId, poolMeta);
+      return;
+    }
     if (poolMeta.clarification_required && Array.isArray(poolMeta.clarification_questions) && poolMeta.clarification_questions.length) {
       appendClarificationPrompt(poolId, poolMeta);
     } else if (poolMeta.clarification_required && Array.isArray(clarification.options) && clarification.options.length) {
       appendClarificationPrompt(poolId, { clarification_questions: [{ question_id: 'clar_q_1', index: 1, total: 1, prompt: '確認が必要です。以下から選択してください:', options: clarification.options, status: 'pending' }] });
     } else if (clarificationBlocks.length) {
       pushSystemMessage(`確認回答と plan revision / gate rerun が完了するまで承認できません: ${clarificationBlocks.join(', ')}`);
-    } else if (poolStatus === 'blocked_safety_review') {
-      // Safety gate blocked the revised plan. Derive purely from backend status (survives reload)
-      // and give the user a real exit path instead of a stuck Patch spinner.
-      appendSafetyBlockPrompt(poolId, poolMeta);
     } else if (poolStatus === 'approval_required') {
       appendPlanActionPrompt(poolId, approvalContext);
     }
