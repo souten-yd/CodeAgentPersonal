@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -58,14 +59,101 @@ def build_level1_gate_source_map() -> list[dict[str, object]]:
             "evidence_required": evidence_required,
             "evidence_available": False,
             "current_status": "missing_evidence",
-            "blocker_reason": "Level-1 execution remains disabled; metadata checkpoint only.",
+            "blocker_reason": "Evidence has not been generated for this read-only checkpoint.",
             "test_requirement": f"Contract test coverage required for {gate_id} metadata gate mapping.",
-            "execution_relevance": "Future Level-1 guarded execution gate; not callable in SCALE-96.",
+            "execution_relevance": "Read-only checkpoint gate evidence for backend-supervised automation.",
             "mutable": False,
             "advisory_only": True,
         }
         for gate_id, label, owner, source, evidence_required in gates
     ]
+
+
+_POLICY_ENFORCED_GATES = {
+    "remote_git_restriction",
+    "data_root_path_safety",
+    "forbidden_command_execution_policy",
+    "backend_authority_enforcement",
+    "ui_non_authority_enforcement",
+    "audit_log",
+}
+
+_ARTIFACT_KEYS_BY_GATE = {
+    "snapshot_restore": ("snapshot",),
+    "patch_transaction": ("transaction",),
+    "risk_classification": ("risk",),
+    "dry_run_proof": ("dry_run",),
+    "allowlisted_verification": ("allowlist",),
+    "rollback_readiness": ("rollback",),
+    "artifact_capture": ("artifact_capture",),
+    "stop_kill_switch": ("stop",),
+    "self_improvement_gate": ("self_improvement",),
+}
+
+
+def build_level1_gate_source_map_with_evidence(
+    *,
+    artifacts: dict[str, Any] | None = None,
+    profile_resolution: dict[str, Any] | None = None,
+    manifest: dict[str, Any] | None = None,
+) -> list[dict[str, object]]:
+    artifacts_payload = artifacts if isinstance(artifacts, dict) else {}
+    profile_payload = profile_resolution if isinstance(profile_resolution, dict) else {}
+    manifest_payload = manifest if isinstance(manifest, dict) else {}
+    checkpoint = str(
+        manifest_payload.get("current_automation_track")
+        or manifest_payload.get("next_level_advancement_pr")
+        or "backend-supervised-automation-checkpoint"
+    )
+    gate_source_map = build_level1_gate_source_map()
+    for gate in gate_source_map:
+        gate_id = str(gate.get("gate_id") or "")
+        evidence_available = _gate_has_evidence(gate_id, artifacts_payload, profile_payload)
+        if gate_id in _POLICY_ENFORCED_GATES:
+            gate["evidence_available"] = True
+            gate["current_status"] = "policy_enforced"
+            gate["blocker_reason"] = ""
+        elif evidence_available:
+            gate["evidence_available"] = True
+            gate["current_status"] = "satisfied"
+            gate["blocker_reason"] = ""
+        else:
+            gate["evidence_available"] = False
+            gate["current_status"] = "missing_evidence"
+            gate["blocker_reason"] = f"Missing evidence for {gate_id} in {checkpoint}."
+        gate["execution_relevance"] = f"Read-only evidence for {checkpoint}; this report does not execute actions."
+    return gate_source_map
+
+
+def _gate_has_evidence(gate_id: str, artifacts: dict[str, Any], profile_resolution: dict[str, Any]) -> bool:
+    if gate_id == "explicit_approval_token":
+        metadata = artifacts.get("metadata") if isinstance(artifacts.get("metadata"), dict) else {}
+        return bool(
+            artifacts.get("approval_token")
+            or artifacts.get("explicit_approval_token")
+            or metadata.get("approval_token")
+            or metadata.get("explicit_approval_token")
+        )
+    if gate_id == "loop_bounds":
+        return bool(
+            artifacts.get("loop_bound")
+            or _positive_int(profile_resolution.get("max_actions"))
+            or _positive_int(profile_resolution.get("max_retries"))
+            or _positive_int(profile_resolution.get("max_changed_files"))
+            or _positive_int(profile_resolution.get("max_runtime_seconds"))
+        )
+    if gate_id == "self_improvement_gate" and bool(profile_resolution.get("self_improvement")):
+        return True
+    return any(bool(artifacts.get(key)) for key in _ARTIFACT_KEYS_BY_GATE.get(gate_id, ()))
+
+
+def _positive_int(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    try:
+        return int(value) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 class Level1GuardedExecutionSkeleton:
@@ -77,11 +165,34 @@ class Level1GuardedExecutionSkeleton:
 
     @staticmethod
     def build_disabled_level1_contract() -> dict[str, object]:
-        result = build_level1_disabled_readiness_result()
-        gate_source_map = build_level1_gate_source_map()
+        return Level1GuardedExecutionSkeleton.build_level1_contract(_zero_evidence_default=True)
+
+    @staticmethod
+    def build_level1_contract(
+        *,
+        artifacts: dict[str, Any] | None = None,
+        profile_resolution: dict[str, Any] | None = None,
+        manifest: dict[str, Any] | None = None,
+        _zero_evidence_default: bool = False,
+    ) -> dict[str, object]:
+        result = build_level1_readiness_result(profile_resolution=profile_resolution, manifest=manifest)
+        gate_source_map = (
+            build_level1_gate_source_map()
+            if _zero_evidence_default
+            else build_level1_gate_source_map_with_evidence(
+                artifacts=artifacts,
+                profile_resolution=profile_resolution,
+                manifest=manifest,
+            )
+        )
         missing_evidence_count = sum(1 for gate in gate_source_map if not gate["evidence_available"])
         satisfied_gate_count = len(gate_source_map) - missing_evidence_count
         unsatisfied_gate_count = missing_evidence_count
+        blockers = [
+            Level1DisabledReason(gate=str(gate["gate_id"]), blocker=str(gate["blocker_reason"]))
+            for gate in gate_source_map
+            if str(gate.get("current_status")) == "missing_evidence" and str(gate.get("blocker_reason"))
+        ]
         return {
             "enabled": result.metadata.enabled,
             "runtime_level": result.metadata.runtime_level,
@@ -93,7 +204,7 @@ class Level1GuardedExecutionSkeleton:
             "explicit_approval_required": result.metadata.explicit_approval_required,
             "single_action_only_required": result.metadata.single_action_only_required,
             "required_gates": result.required_gates,
-            "blockers": [asdict(item) for item in result.blockers],
+            "blockers": [asdict(item) for item in blockers],
             "gate_source_map": gate_source_map,
             "evidence_summary": {
                 "required_gate_count": len(gate_source_map),
@@ -113,6 +224,14 @@ class Level1GuardedExecutionSkeleton:
 
 
 def build_level1_disabled_readiness_result() -> Level1ExecutionReadinessResult:
+    return build_level1_readiness_result(profile_resolution=None, manifest=None)
+
+
+def build_level1_readiness_result(
+    *,
+    profile_resolution: dict[str, Any] | None = None,
+    manifest: dict[str, Any] | None = None,
+) -> Level1ExecutionReadinessResult:
     required_gates = [
         "snapshot_restore",
         "patch_transaction",
@@ -132,14 +251,24 @@ def build_level1_disabled_readiness_result() -> Level1ExecutionReadinessResult:
         "backend_authority_enforcement",
         "ui_non_authority_enforcement",
     ]
+    profile_payload = profile_resolution if isinstance(profile_resolution, dict) else {}
+    manifest_payload = manifest if isinstance(manifest, dict) else {}
+    runtime_level = str(
+        profile_payload.get("runtime_level")
+        or manifest_payload.get("default_runtime_level")
+        or "level_0_review_only"
+    )
+    profile = str(profile_payload.get("profile") or "review_only")
+    manifest_level1_enabled = bool(manifest_payload.get("level1_execution_enabled", False))
+    level1_execution_enabled = bool(manifest_level1_enabled and profile != "review_only")
     blockers = [
-        Level1DisabledReason(gate=gate, blocker="Disabled in SCALE-94 metadata-only backend skeleton; not callable.")
+        Level1DisabledReason(gate=gate, blocker="Evidence has not been generated for this read-only checkpoint.")
         for gate in required_gates
     ]
     metadata = Level1ExecutionRequestMetadata(
-        enabled=False,
-        runtime_level="level_0_manual_only",
-        level1_execution_enabled=False,
+        enabled=level1_execution_enabled,
+        runtime_level=runtime_level,
+        level1_execution_enabled=level1_execution_enabled,
         backend_skeleton_enabled=True,
         callable_execution_endpoint_enabled=False,
         vue_execution_controls_enabled=False,

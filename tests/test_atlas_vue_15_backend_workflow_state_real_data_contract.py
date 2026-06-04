@@ -35,7 +35,7 @@ def test_vue_15_backend_workflow_state_real_data_contract() -> None:
     assert review['verify_action_enabled'] is False
     assert review['rollback_action_enabled'] is False
     assert review['retry_continue_action_enabled'] is False
-    assert review['endpoint_contract_status'] == 'disabled_metadata_only'
+    assert review['endpoint_contract_status'] == 'read_only_display_of_active_backend_state'
     assert review['review_items']
     assert review['blocked_reasons']
 

@@ -12,7 +12,7 @@ def test_workflow_state_builds_guarded_execution_review_from_backend_skeleton() 
         primary_cta_label='Read-only',
     )
     review = payload['guarded_execution_review']
-    assert review['checkpoint'] == 'PR-ATLAS-SCALE-126'
+    assert review['checkpoint'] == 'POST-SCALE-160-PRACTICAL-FULL-AUTOMATION-CHECKPOINT'
     assert review['display_only'] is True
     assert review['backend_authoritative'] is True
     assert review['vue_authoritative'] is False
@@ -49,5 +49,5 @@ def test_workflow_state_guarded_execution_review_never_enables_actions() -> None
 
 def test_workflow_state_contract_source_uses_level1_skeleton_for_review() -> None:
     text = Path('app/atlas/workflow_state_contract.py').read_text(encoding='utf-8')
-    assert 'Level1GuardedExecutionSkeleton.build_disabled_level1_contract()' in text
-    assert '"guarded_execution_review": _build_guarded_execution_review()' in text
+    assert 'Level1GuardedExecutionSkeleton.build_level1_contract(' in text
+    assert '"guarded_execution_review": _build_guarded_execution_review(' in text

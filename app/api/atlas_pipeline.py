@@ -46,7 +46,11 @@ from agent.atlas_capability_preference_schema import (
     get_default_preferences as _default_capability_preferences,
     normalize_ui_preferences as _normalize_capability_preferences,
 )
-from agent.atlas_automation_features import resolve_features as _resolve_automation_features
+from agent.atlas_automation_features import (
+    load_full_automation_state as _load_full_automation_state,
+    resolve_features as _resolve_automation_features,
+)
+from agent.atlas_automation_profile_resolver import normalize_automation_profile as _normalize_automation_profile
 from agent.atlas_plan_depth_gate import evaluate_plan_depth
 from agent.atlas_plan_trace import PlanTrace, read_plan_trace, summarize_root_cause
 from agent.atlas_pipeline_runner import AtlasPipelineRunner
@@ -2020,7 +2024,15 @@ def atlas_automation_safe_apply_one(request_body: AtlasAutoSafeApplyRequest, req
 
 
 @router.get("/workflow-state/read-only")
-def atlas_workflow_state_read_only() -> dict[str, Any]:
+def atlas_workflow_state_read_only(request: Request) -> dict[str, Any]:
+    ca_data_root = resolve_atlas_ca_data_root(request)
+    try:
+        automation_state = _load_full_automation_state(ca_data_root)
+        profile_resolution = _normalize_automation_profile(
+            preset_id=str(automation_state.get("selected_preset_id") or "review_only")
+        )
+    except Exception:
+        profile_resolution = _normalize_automation_profile(preset_id="review_only")
     return build_read_only_workflow_state(
         goal="Atlas Next read-only supervision shell",
         project_path="Backend-provided project path when safe workflow_state is available",
@@ -2051,6 +2063,7 @@ def atlas_workflow_state_read_only() -> dict[str, Any]:
             "source_detail": "safe_read_only_backend_metadata",
             "workflow_snapshot_available": False,
         },
+        profile_resolution=profile_resolution,
     )
 
 

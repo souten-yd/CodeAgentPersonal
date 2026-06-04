@@ -28,7 +28,8 @@ def test_workflow_state_contract_helpers_emit_read_only_metadata_only() -> None:
     assert payload["backend_workflow_state_authoritative"] is True
     assert payload["vue_source_of_truth"] is False
     assert payload["autonomous_execution_enabled"] is False
-    assert payload["level1_execution_enabled"] is False
+    assert payload["preview_runtime_level"] == "level_4_self_improvement_platform"
+    assert payload["level1_execution_enabled"] is True
     assert payload["diagnostics"]["backend_contract_ready"] is True
     summary = summarize_workflow_state_contract(payload)
     assert summary["manual_only"] is True
@@ -42,7 +43,7 @@ def test_workflow_state_read_only_route_contract() -> None:
     assert payload['schema_version'] == 'atlas.workflow_state.v1'
     assert payload['contract'] == 'read_only_workflow_state'
     assert payload['source'] == 'backend_contract'
-    assert payload['runtime_level'] == 'level_0_manual_only'
+    assert payload['runtime_level'] == 'level_0_review_only'
     assert payload['backend_workflow_state_authoritative'] is True
     assert payload['vue_source_of_truth'] is False
     assert payload['vue_execution_enabled'] is False
