@@ -180,3 +180,35 @@ def test_runtime_status_uses_latest_autopilot_result_when_available(tmp_path):
     assert body["run_id"] == "run_runtime"
     assert body["autopilot_run_id"] == "auto_runtime"
     assert body["items_completed"] == 1
+
+def test_runtime_status_surfaces_plan_revision_required_block(tmp_path):
+    # A plan flagged plan_revision_required hard-blocks patch generation in propose_for_item; the
+    # runtime status must say so (blocked + revise plan), not look idle as "waiting / no user action".
+    pool = AtlasPlanPool(
+        pool_id="pool_runtime_revblock",
+        root_goal="Rainbow hello world",
+        status="approval_required",
+        items=[
+            _item(
+                "pool_runtime_revblock",
+                status="ready",
+                metadata={"approval": {"decision": "approved"}},
+            )
+        ],
+        metadata={
+            "plan_revision_required": True,
+            "critique_gate": {"gate_status": "blocked", "reason": "plan_structure_quality_gate_blocked"},
+        },
+    )
+    _save_pool(tmp_path, pool)
+    client = _client(tmp_path)
+
+    response = client.get("/api/atlas/plan-pools/pool_runtime_revblock/runtime-status")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["phase"] == "patch_generation"
+    assert body["status"] == "blocked"
+    assert body["requires_user_action"] is True
+    assert "plan_revision_required" in (body.get("block_reason") or "")
+    assert "revise plan" in body["next_actions"]

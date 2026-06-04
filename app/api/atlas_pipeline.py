@@ -1094,6 +1094,9 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         automation_level=req.automation_level,
         preset_id=str(req.metadata.get("preset_id") or ""),
         critical_handling=_features["critical_handling"],
+        # Honour the configured enforcement mode (default "warn"): a non-safety quality finding must
+        # not set plan_revision_required (a hard patch-generation block) unless enforcement is "block".
+        quality_gate_enforcement=str(_features.get("quality_gate_enforcement") or "warn"),
     )
     pool.metadata["critique_gate"] = quality_gate["critique_gate"]
     if quality_gate.get("critical_event"):
@@ -1551,6 +1554,23 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
         }
 
     if not patch_attempted:
+        # A plan flagged plan_revision_required hard-blocks patch generation in propose_for_item, so it
+        # would otherwise sit here forever as an ambiguous "waiting / no user action". Surface the real
+        # block reason and the corrective action instead of silently looking idle.
+        if bool(metadata.get("plan_revision_required")):
+            critique_gate = metadata.get("critique_gate") if isinstance(metadata.get("critique_gate"), dict) else {}
+            block_reason = str(critique_gate.get("reason") or "plan_revision_required")
+            return {
+                **base,
+                "phase": "patch_generation",
+                "status": "blocked",
+                "items_completed": 0,
+                "message": "Patch generation is blocked: the plan requires revision before patches can be generated",
+                "block_reason": f"plan_revision_required:{block_reason}",
+                "requires_user_action": True,
+                "next_actions": ["revise plan", "cancel"],
+                "approved_item_count": len(approved_items),
+            }
         action_required = not approved_items and pool_status not in {"approved", "ready", "running"}
         status = "approved_not_started" if len(approved_items) or pool_status in {"approved", "ready"} else "waiting"
         return {

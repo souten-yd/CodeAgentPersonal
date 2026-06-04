@@ -141,3 +141,62 @@ def test_full_auto_critical_finding_treated_as_safety_sensitive():
     )
     assert out_ask["require_approval"] is True
     assert out_ask["plan_revision_required"] is False
+
+
+# ── quality_gate_enforcement: "warn" must not hard-block non-safety quality findings ──────────
+# Regression: the planner injects a fallback test_plan when the LLM omits one; under a full_auto
+# preset the structure gate flagged that injected fallback as a high "fallback_only_test_plan" and set
+# plan_revision_required=True, which permanently blocked patch generation even though enforcement was
+# the default "warn".
+_FALLBACK_TEST_PLAN = ["APIレスポンス構造の確認", "保存ファイル(JSON/Markdown)の存在確認"]
+
+
+def test_structure_gate_warn_mode_does_not_block_patch_generation():
+    out = apply_plan_quality_gate(
+        _plan(test_plan=_FALLBACK_TEST_PLAN),
+        preset_id="autonomous_bounded_dev",
+        quality_gate_enforcement="warn",
+    )
+    assert out["plan_revision_required"] is False
+    assert out["require_approval"] is False
+    assert out["critique_gate"]["gate_status"] == "warn"
+    assert out["critique_gate"]["reason"] == "plan_structure_quality_gate_blocked"
+    assert "plan_structure_quality_gate_warn_only" in out["warnings"]
+
+
+def test_structure_gate_block_mode_still_blocks():
+    out = apply_plan_quality_gate(
+        _plan(test_plan=_FALLBACK_TEST_PLAN),
+        preset_id="autonomous_bounded_dev",
+        quality_gate_enforcement="block",
+    )
+    assert out["plan_revision_required"] is True
+    assert out["require_approval"] is True
+    assert out["critique_gate"]["gate_status"] == "blocked"
+
+
+def test_structure_gate_defaults_to_block_when_enforcement_unset():
+    # Backward-compatible default: omitting the knob keeps the strict (blocking) behaviour.
+    out = apply_plan_quality_gate(_plan(test_plan=_FALLBACK_TEST_PLAN), preset_id="autonomous_bounded_dev")
+    assert out["plan_revision_required"] is True
+
+
+def test_supervised_high_critique_warn_mode_does_not_block():
+    out = apply_plan_quality_gate(
+        _plan(findings=[_finding("high", "Lack of modularity", category="maintainability")]),
+        preset_id="supervised_auto",
+        quality_gate_enforcement="warn",
+    )
+    assert out["plan_revision_required"] is False
+    assert out["require_approval"] is False
+    assert out["critique_gate"]["gate_status"] == "warn"
+    assert "high_critique_warn_only" in out["warnings"]
+
+
+def test_safety_sensitive_still_pauses_for_approval_in_warn_mode():
+    # warn must never bypass a safety-sensitive / critical finding — those still require approval.
+    out = apply_plan_quality_gate(
+        _security_plan(), preset_id="autonomous_bounded_dev", quality_gate_enforcement="warn",
+    )
+    assert out["require_approval"] is True
+    assert out["critique_gate"]["safety_sensitive"] is True
