@@ -13,7 +13,8 @@ from typing import Callable
 
 from agent.adversarial_plan_critic_schema import AdversarialCritiqueResult, PlanCritiqueFinding
 from agent.agent_prompts import ADVERSARIAL_PLAN_CRITIQUE_PROMPT, ADVERSARIAL_PLAN_CRITIQUE_COMBINED_PROMPT
-from agent.atlas_llm_json_adapter import call_llm_json
+from agent.atlas_llm_output_models import AdversarialCritiqueOutput
+from agent.atlas_structured_output import generate_structured
 
 DEFAULT_ANGLES = ["security", "maintainability", "missing_steps", "requirement_alignment"]
 _SEVERITY_RANK = {"info": 0, "warning": 1, "high": 2, "critical": 3}
@@ -98,7 +99,8 @@ class AdversarialPlanCritic:
         finding self-tags its angle so the aggregated result is equivalent in shape."""
         payload = {"angles": self.angles, "plan": plan_summary, "requirement": requirement_summary}
         try:
-            raw = call_llm_json(self.llm_json_fn, ADVERSARIAL_PLAN_CRITIQUE_COMBINED_PROMPT, json.dumps(payload, ensure_ascii=False), json_schema=_CRITIQUE_SCHEMA)
+            structured = generate_structured(self.llm_json_fn, ADVERSARIAL_PLAN_CRITIQUE_COMBINED_PROMPT, json.dumps(payload, ensure_ascii=False), json_schema=_CRITIQUE_SCHEMA, model=AdversarialCritiqueOutput)
+            raw = structured.data
         except Exception as exc:  # noqa: BLE001
             return AdversarialCritiqueResult(warnings=[f"critique_failed:combined:{exc.__class__.__name__}"])
         if not isinstance(raw, dict) or not raw:
@@ -115,7 +117,8 @@ class AdversarialPlanCritic:
         for angle in self.angles:
             payload = {"angle": angle, "plan": plan_summary, "requirement": requirement_summary}
             try:
-                raw = call_llm_json(self.llm_json_fn, ADVERSARIAL_PLAN_CRITIQUE_PROMPT, json.dumps(payload, ensure_ascii=False), json_schema=_CRITIQUE_SCHEMA)
+                structured = generate_structured(self.llm_json_fn, ADVERSARIAL_PLAN_CRITIQUE_PROMPT, json.dumps(payload, ensure_ascii=False), json_schema=_CRITIQUE_SCHEMA, model=AdversarialCritiqueOutput)
+                raw = structured.data
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"critique_failed:{angle}:{exc.__class__.__name__}")
                 continue

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Callable
 
+from agent.atlas_llm_output_models import DeepPlanOutput
+from agent.atlas_llm_schemas import deep_plan_json_schema
+from agent.atlas_structured_output import generate_structured
 from agent.deep_planner_schema import DeepArchitectureOption, DeepPlanPayload, DeepPlanningReflection
 from agent.requirement_schema import RequirementDefinition
 
@@ -29,7 +32,15 @@ class DeepPlanner:
             f"Nexus context: {nexus_context}\n"
             f"Repository context: {repository_context}"
         )
-        raw_payload = self.llm_json_fn(prompt, planner_input)
+        structured = generate_structured(
+            self.llm_json_fn,
+            prompt,
+            planner_input,
+            json_schema=deep_plan_json_schema(),
+            model=DeepPlanOutput,
+        )
+        warnings.extend(structured.warnings)
+        raw_payload = structured.data
         payload = raw_payload if isinstance(raw_payload, dict) else {}
         if raw_payload is None:
             warnings.append("Deep planner LLM output could not be parsed. Fallback deep plan was generated.")

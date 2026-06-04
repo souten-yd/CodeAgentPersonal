@@ -4,8 +4,9 @@ import re
 import uuid
 from typing import Callable
 
-from agent.atlas_llm_json_adapter import call_llm_json
+from agent.atlas_llm_output_models import PlanGenerationOutput
 from agent.atlas_llm_schemas import plan_generation_json_schema
+from agent.atlas_structured_output import generate_structured
 from agent.plan_schema import ImplementationStep, Plan
 from agent.requirement_schema import RequirementCategoryScores, RequirementDefinition
 
@@ -122,7 +123,15 @@ class PlannerPhase1:
             f"Repository Context:\n{repository_context}",
             f"Planning Mode: {planning_mode or 'standard'}",
         ])
-        raw_payload = call_llm_json(self.llm_json_fn, prompt, planner_input, json_schema=plan_generation_json_schema())
+        structured = generate_structured(
+            self.llm_json_fn,
+            prompt,
+            planner_input,
+            json_schema=plan_generation_json_schema(),
+            model=PlanGenerationOutput,
+        )
+        raw_payload = structured.data
+        warnings.extend(structured.warnings)
         fallback_reason = ""
         fallback_raw_tail = ""
         if raw_payload is None:
@@ -160,6 +169,12 @@ class PlannerPhase1:
                 )
             )
         if not steps:
+            # The model returned a parseable payload but no usable steps. Record it as the fallback
+            # reason so the no-steps case (which otherwise strands patch generation at 0/N) stays
+            # visible in plan.metadata, matching parse_error/not_object/empty above.
+            if not fallback_reason:
+                fallback_reason = "no_implementation_steps"
+                fallback_raw_tail = str(raw_payload)[-500:]
             fallback_target = _infer_simple_fallback_target(requirement.user_input)
             warnings.append("Plan generation LLM output did not include implementation_steps. Fallback plan was generated.")
             if fallback_target:
