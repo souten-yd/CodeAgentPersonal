@@ -102,7 +102,10 @@ class AdversarialPlanCritic:
         except Exception as exc:  # noqa: BLE001
             return AdversarialCritiqueResult(warnings=[f"critique_failed:combined:{exc.__class__.__name__}"])
         if not isinstance(raw, dict) or not raw:
-            return AdversarialCritiqueResult(angles_evaluated=list(self.angles), warnings=["critique_no_output"])
+            # The LLM produced no usable JSON (empty, or unparseable even after repair + strict
+            # retry in the adapter). Surface it as an explicit warning so an effectively-skipped
+            # adversarial critique is visible in the plan instead of silently passing as low risk.
+            return AdversarialCritiqueResult(angles_evaluated=list(self.angles), warnings=["critique_no_or_unparseable_output"])
         return self._build_result(findings_raw=raw.get("findings"), evaluated=list(self.angles), warnings=[])
 
     def _critique_per_angle(self, *, plan_summary: dict, requirement_summary: dict) -> AdversarialCritiqueResult:
@@ -118,6 +121,9 @@ class AdversarialPlanCritic:
                 continue
             evaluated.append(angle)
             if not isinstance(raw, dict) or not raw:
+                # Visible signal that this angle's critique did not actually evaluate (no/unparseable
+                # LLM output), rather than a silent skip that looks like "no findings".
+                warnings.append(f"critique_no_or_unparseable_output:{angle}")
                 continue
             for f in (raw.get("findings") or []):
                 if isinstance(f, dict):
