@@ -4,6 +4,8 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
+from agent.atlas_automation_features import load_full_automation_state
+from agent.atlas_automation_profile_resolver import normalize_automation_profile
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from app.atlas.patch_transaction import build_latest_patch_transaction_workflow_metadata
 from app.atlas.practical_loop_metadata import build_latest_practical_loop_workflow_metadata
@@ -12,9 +14,18 @@ from app.atlas.workflow_state_contract import build_read_only_workflow_state
 router = APIRouter(prefix="/api/atlas", tags=["atlas"])
 
 
+def _resolve_read_only_profile_resolution(ca_data_root: Any) -> dict[str, Any]:
+    try:
+        state = load_full_automation_state(ca_data_root)
+        return normalize_automation_profile(preset_id=str(state.get("selected_preset_id") or "review_only"))
+    except Exception:
+        return normalize_automation_profile(preset_id="review_only")
+
+
 @router.get("/workflow-state/read-only")
 def atlas_workflow_state_read_only(request: Request) -> dict[str, Any]:
     ca_data_root = resolve_atlas_ca_data_root(request)
+    profile_resolution = _resolve_read_only_profile_resolution(ca_data_root)
     patch_transaction_metadata = build_latest_patch_transaction_workflow_metadata(data_root=ca_data_root)
     practical_loop_metadata = build_latest_practical_loop_workflow_metadata(data_root=ca_data_root)
     return build_read_only_workflow_state(
@@ -58,4 +69,5 @@ def atlas_workflow_state_read_only(request: Request) -> dict[str, Any]:
             **practical_loop_metadata,
             **patch_transaction_metadata,
         },
+        profile_resolution=profile_resolution,
     )

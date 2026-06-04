@@ -17,7 +17,19 @@ def _read_manifest_field(key: str, fallback: Any) -> Any:
     except Exception:
         return fallback
 
-_PRIMARY_REASON = "Metadata only. Execution remains in guarded backend/manual flow."
+def _read_manifest() -> dict[str, Any]:
+    try:
+        with _MANIFEST_PATH.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+_PRIMARY_REASON = (
+    "Read-only supervision view. Execution is handled by backend guarded operator loop / "
+    "authenticated backend routes; this endpoint never executes actions."
+)
 _ACTION_REASON = "Metadata only. This endpoint never executes actions."
 
 
@@ -62,8 +74,18 @@ def _optional_text(value: Any, fallback: str) -> str:
     return value if isinstance(value, str) and value.strip() else fallback
 
 
-def _build_guarded_execution_review() -> dict[str, Any]:
-    contract = Level1GuardedExecutionSkeleton.build_disabled_level1_contract()
+def _build_guarded_execution_review(
+    *,
+    artifacts: dict[str, Any] | None = None,
+    profile_resolution: dict[str, Any] | None = None,
+    manifest: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    manifest_payload = manifest if isinstance(manifest, dict) else {}
+    contract = Level1GuardedExecutionSkeleton.build_level1_contract(
+        artifacts=artifacts,
+        profile_resolution=profile_resolution,
+        manifest=manifest_payload,
+    )
     gate_source_map = contract.get("gate_source_map") if isinstance(contract.get("gate_source_map"), list) else []
     review_items = []
     for index, raw in enumerate(gate_source_map[:8]):
@@ -83,7 +105,7 @@ def _build_guarded_execution_review() -> dict[str, Any]:
         blocker = str(item.get("blocker") or "missing evidence")
         blocked_reasons.append(f"{gate}: {blocker}")
     return {
-        "checkpoint": "PR-ATLAS-SCALE-126",
+        "checkpoint": str(manifest_payload.get("current_automation_track") or "backend-supervised-automation-checkpoint"),
         "display_only": True,
         "backend_authoritative": True,
         "vue_authoritative": False,
@@ -99,7 +121,7 @@ def _build_guarded_execution_review() -> dict[str, Any]:
         "requires_dry_run": True,
         "requires_approval": True,
         "requires_runtime_transition": True,
-        "endpoint_contract_status": "disabled_metadata_only",
+        "endpoint_contract_status": "read_only_display_of_active_backend_state",
         "review_items": review_items,
         "blocked_reasons": blocked_reasons,
     }
@@ -151,9 +173,25 @@ def build_read_only_workflow_state(
     artifacts: dict[str, Any] | None = None,
     warnings: list[str] | None = None,
     workflow_metadata: dict[str, Any] | None = None,
+    profile_resolution: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     artifacts_payload = artifacts or {}
     metadata_payload = workflow_metadata or {}
+    manifest_payload = _read_manifest()
+    profile_payload = profile_resolution if isinstance(profile_resolution, dict) else {}
+    preview_runtime_level = str(
+        profile_payload.get("runtime_level")
+        or manifest_payload.get("default_runtime_level")
+        or _read_manifest_field("current_level", "level_8_fully_autonomous_code_agent")
+    )
+    active_profile = str(profile_payload.get("profile") or "manifest_default")
+    active_envelope = str(profile_payload.get("envelope_id") or "none")
+    autonomous_loop_active = bool(profile_payload.get("autonomous_loop_active", False))
+    level1_execution_enabled = bool(
+        profile_payload.get("profile") != "review_only"
+        and (profile_payload.get("runtime_level") or manifest_payload.get("level1_execution_enabled", False))
+        and manifest_payload.get("level1_execution_enabled", False)
+    )
     patch_transaction_available = bool(
         metadata_payload.get("patch_transaction_available", artifacts_payload.get("transaction", False))
     )
@@ -166,16 +204,23 @@ def build_read_only_workflow_state(
         "contract": "read_only_workflow_state",
         "contract_scope": "vue_next_preview_read_only",
         "source": "backend_contract",
-        "runtime_level": "level_0_manual_only",
-        "preview_runtime_level": "level_0_manual_only",
-        "canonical_runtime_level": _read_manifest_field("current_level", "level_8_fully_autonomous_code_agent"),
-        "canonical_autonomous_execution_enabled": _read_manifest_field("autonomous_execution_enabled", True),
+        "runtime_level": preview_runtime_level,
+        "preview_runtime_level": preview_runtime_level,
+        "canonical_runtime_level": manifest_payload.get("current_level", "level_8_fully_autonomous_code_agent"),
+        "canonical_autonomous_execution_enabled": bool(manifest_payload.get("autonomous_execution_enabled", True)),
         "backend_workflow_state_authoritative": True,
         "vue_source_of_truth": False,
         "vue_execution_enabled": False,
         "autonomous_execution_enabled": False,
-        "level1_execution_enabled": False,
-        "level1_disabled_backend_skeleton": Level1GuardedExecutionSkeleton.build_disabled_level1_contract(),
+        "level1_execution_enabled": level1_execution_enabled,
+        "level1_disabled_backend_skeleton": Level1GuardedExecutionSkeleton.build_level1_contract(
+            artifacts=artifacts_payload,
+            profile_resolution=profile_payload,
+            manifest=manifest_payload,
+        ),
+        "active_profile": active_profile,
+        "active_envelope": active_envelope,
+        "autonomous_loop_active": autonomous_loop_active,
         "goal": goal,
         "project_path": project_path,
         "phase": phase,
@@ -233,7 +278,11 @@ def build_read_only_workflow_state(
             "advisory_only": True,
         },
         "practical_loop_metadata": practical_loop_metadata,
-        "guarded_execution_review": _build_guarded_execution_review(),
+        "guarded_execution_review": _build_guarded_execution_review(
+            artifacts=artifacts_payload,
+            profile_resolution=profile_payload,
+            manifest=manifest_payload,
+        ),
         "diagnostics": {
             "backend_contract_ready": True,
             "warnings": list(warnings or []),
