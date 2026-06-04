@@ -13,6 +13,14 @@ from agent.atlas_llm_model_profiles import resolve_structured_mode
 
 logger = logging.getLogger(__name__)
 
+# Appended to the prompt on a one-shot retry after the first response failed to parse. Weak or
+# non-enforcing openai-compatible servers occasionally emit invalid JSON on the first attempt;
+# re-asking with a hard "valid JSON only" instruction at temperature 0 recovers most of these.
+_STRICT_JSON_REINFORCEMENT = (
+    "\n\nIMPORTANT: Respond with a SINGLE valid JSON object ONLY. No prose, no markdown, no code "
+    "fences, no trailing commas. Ensure every string is closed and every bracket is balanced."
+)
+
 
 def call_llm_json(
     fn: Callable[[str, str], dict | None] | None,
@@ -80,6 +88,18 @@ class AtlasLLMJsonAdapter:
             parsed = self.parse_json_response(raw_text)
             structured = bool(request.json_schema or request.grammar)
             if parsed is None:
+                # One-shot strict retry before giving up, so a single malformed response does not
+                # silently drop the result (e.g. an adversarial critique becoming a no-op).
+                retry_request = request.model_copy(
+                    update={
+                        "user_prompt": request.user_prompt + _STRICT_JSON_REINFORCEMENT,
+                        "temperature": 0.0,
+                    }
+                )
+                retry_raw = self.call_openai_compatible(retry_request)
+                retry_parsed = self.parse_json_response(retry_raw)
+                if retry_parsed is not None:
+                    return AtlasLLMJsonResult(ok=True, data=retry_parsed, raw_text=retry_raw, model=model_name, backend="openai_compatible", structured=structured, warnings=["llm_json_parse_retry_succeeded"])
                 logger.warning("llm_json_parse_failed backend=openai_compatible model=%s raw=%r", model_name, raw_text[:500])
                 return AtlasLLMJsonResult(ok=False, raw_text=raw_text, model=model_name, backend="openai_compatible", structured=structured, error="llm_json_parse_failed")
             return AtlasLLMJsonResult(ok=True, data=parsed, raw_text=raw_text, model=model_name, backend="openai_compatible", structured=structured)
@@ -105,6 +125,17 @@ class AtlasLLMJsonAdapter:
         # 3. Strip ANY fences (plain ``` or ```<lang>) and retry whole-body + brace scan.
         unfenced = self._strip_code_fences(text)
         obj = self._loads_object(unfenced)
+        if obj is not None:
+            return obj
+        # 3.5 Best-effort repair of a *truncated* or corrupt-tail object/array (a common weak-model
+        #     failure: output cut off at max_tokens, or the model degrading into invalid tokens
+        #     partway through). Reconstructs from the OUTERMOST '{' so the wrapper (e.g. the
+        #     "findings" array) is preserved, recovering the longest well-formed prefix and closing
+        #     open brackets. Runs before extract_json_object, which would otherwise grab the first
+        #     inner object and silently drop the wrapper. Only a result that re-parses to a valid
+        #     dict is accepted, so no fields are invented — at worst a partial trailing element is
+        #     dropped instead of losing the whole payload.
+        obj = self._repair_and_load(unfenced)
         if obj is not None:
             return obj
         obj = self.extract_json_object(unfenced)
@@ -164,6 +195,66 @@ class AtlasLLMJsonAdapter:
                         if obj is not None:
                             return obj
                         break  # this {...} span is not valid JSON; try the next '{'
+        return None
+
+    @staticmethod
+    def _needed_closers(fragment: str) -> str:
+        """The bracket closers needed to balance a fragment that ends outside any string."""
+        stack: list[str] = []
+        in_str = False
+        esc = False
+        for ch in fragment:
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                stack.append("}")
+            elif ch == "[":
+                stack.append("]")
+            elif ch in "}]" and stack:
+                stack.pop()
+        return "".join(reversed(stack))
+
+    def _repair_and_load(self, text: str) -> dict | None:
+        start = text.find("{")
+        if start == -1:
+            return None
+        body = text[start:]
+        # Candidate cut points are element boundaries: just after a closed string or a closed
+        # bracket. Trying the longest first keeps as many complete elements as possible while
+        # discarding a half-written / corrupt trailing element.
+        cuts: list[int] = []
+        in_str = False
+        esc = False
+        for i, ch in enumerate(body):
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                    cuts.append(i + 1)
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch in "}]":
+                cuts.append(i + 1)
+        for cut in sorted(set(cuts), reverse=True)[:128]:
+            fragment = body[:cut].rstrip()
+            if fragment.endswith(","):
+                fragment = fragment[:-1].rstrip()
+            candidate = fragment + self._needed_closers(fragment)
+            obj = self._loads_object(candidate)
+            if isinstance(obj, dict):
+                return obj
         return None
 
     def build_messages(self, request: AtlasLLMJsonRequest) -> list[dict]:

@@ -94,6 +94,71 @@ def test_openai_compatible_payload_shape_without_real_network(monkeypatch) -> No
     assert result.data == {"a": 1}
 
 
+def test_parse_repairs_truncated_object() -> None:
+    adapter = AtlasLLMJsonAdapter()
+    # Output cut off at max_tokens mid-array; the complete leading element is recovered and the
+    # half-written trailing element is dropped.
+    text = '{"findings": [{"severity": "high", "title": "A"}, {"sev'
+    parsed = adapter.parse_json_response(text)
+    assert parsed == {"findings": [{"severity": "high", "title": "A"}]}
+
+
+def test_parse_salvages_valid_prefix_before_corrupt_tail() -> None:
+    adapter = AtlasLLMJsonAdapter()
+    # The exact failure shape from the log: a well-formed finding prefix, then the model degrades
+    # into invalid tokens. The valid prefix (incl. the high-severity finding) is recovered.
+    raw = (
+        '{\n  "findings": [\n    {\n      "severity": "high",\n'
+        '      "title": "Missing Accessibility Considerations",\n'
+        '      "detail": "No ARIA",\n      "recommendation": "Add ARIA",\n'
+        '      "angle_risk": "high",\n      "category: ":-1,"\n      ":"angle"\n    },\n'
+    )
+    parsed = adapter.parse_json_response(raw)
+    assert isinstance(parsed, dict)
+    findings = parsed.get("findings")
+    assert isinstance(findings, list) and findings
+    assert findings[0]["severity"] == "high"
+    assert findings[0]["title"] == "Missing Accessibility Considerations"
+
+
+def test_parse_repair_rejects_unsalvageable_garbage() -> None:
+    adapter = AtlasLLMJsonAdapter()
+    assert adapter.parse_json_response('{ totally :: broken "') is None
+
+
+def test_generate_json_retries_once_on_parse_failure(monkeypatch) -> None:
+    calls = {"n": 0, "prompts": []}
+
+    class _Resp:
+        def __init__(self, content: str):
+            self._content = content
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": self._content}}]}).encode("utf-8")
+
+    def _fake_urlopen(req, timeout=0):
+        calls["n"] += 1
+        calls["prompts"].append(json.loads(req.data.decode("utf-8"))["messages"][-1]["content"])
+        # First response is broken JSON; the one-shot strict retry returns valid JSON.
+        return _Resp('{"a": 1, ' if calls["n"] == 1 else '{"a": 1}')
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    adapter = AtlasLLMJsonAdapter(base_url="http://127.0.0.1:8080", model="m")
+    result = adapter.generate_json(AtlasLLMJsonRequest(system_prompt="s", user_prompt="u"))
+    assert calls["n"] == 2
+    assert result.ok is True
+    assert result.data == {"a": 1}
+    assert "llm_json_parse_retry_succeeded" in result.warnings
+    # The retry reinforces a strict JSON-only instruction.
+    assert "valid JSON" in calls["prompts"][1]
+
+
 def test_adapter_has_no_forbidden_side_effect_tokens() -> None:
     source = Path("agent/atlas_llm_json_adapter.py").read_text(encoding="utf-8")
     for forbidden in [
