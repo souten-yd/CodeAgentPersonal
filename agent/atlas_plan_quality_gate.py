@@ -28,8 +28,14 @@ def _finding_is_safety_sensitive(finding: dict) -> bool:
     return any(kw in haystack for kw in _SAFETY_SENSITIVE_KEYWORDS)
 
 
-def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id: str = "", critical_handling: str = "ask") -> dict:
+def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id: str = "", critical_handling: str = "ask", quality_gate_enforcement: str = "block") -> dict:
     """Evaluate the critique gate over a planner's (post-revision) plan and decide flow control.
+
+    ``quality_gate_enforcement`` mirrors the rest of the pipeline (depth gate, safe-apply executor,
+    multi-item autopilot): only ``"block"`` hard-blocks; ``"warn"`` surfaces the same findings as
+    warnings WITHOUT setting ``plan_revision_required`` (which downstream ``propose_for_item`` treats as
+    a hard patch-generation block). Safety-sensitive / critical findings still pause for approval
+    regardless of this knob — only the non-safety *quality* blocks honour it.
 
     Returns:
         {
@@ -44,19 +50,26 @@ def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id
     gate = AtlasCritiqueGateService().evaluate(critique_dict)
 
     full_auto = is_full_auto_preset(automation_level=automation_level, preset_id=preset_id)
+    # Non-safety quality blocks are advisory unless enforcement is explicitly "block". This matches the
+    # depth gate / safe-apply / autopilot convention and prevents an auto-injected fallback test_plan
+    # (which the planner adds when the LLM omits one) from permanently blocking patch generation.
+    enforce = str(quality_gate_enforcement or "block").lower() == "block"
     warnings: list[str] = []
     structure_findings = _plan_structure_findings(plan) if full_auto else []
     if structure_findings:
         warnings.append("plan_structure_quality_gate_blocked")
+        if not enforce:
+            warnings.append("plan_structure_quality_gate_warn_only")
         return {
             "critique_gate": {
-                "gate_status": "blocked",
+                "gate_status": "blocked" if enforce else "warn",
                 "reason": "plan_structure_quality_gate_blocked",
                 "blocking_findings": structure_findings,
                 "safety_sensitive": False,
+                "enforced": enforce,
             },
-            "plan_revision_required": True,
-            "require_approval": True,
+            "plan_revision_required": enforce,
+            "require_approval": enforce,
             "warnings": warnings,
             "clarification": {},
         }
@@ -137,18 +150,21 @@ def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id
             "clarification": {},
         }
 
-    # supervised / lower preset, non-safety high finding → block + ask for revision.
+    # supervised / lower preset, non-safety high finding → block + ask for revision (when enforced).
     warnings.append("high_critique_requires_revision")
+    if not enforce:
+        warnings.append("high_critique_warn_only")
     return {
         "critique_gate": {
-            "gate_status": "blocked",
+            "gate_status": "blocked" if enforce else "warn",
             "reason": "high_critique_requires_revision",
             "residual_risk": residual_risk,
             "blocking_findings": blocking,
             "safety_sensitive": False,
+            "enforced": enforce,
         },
-        "plan_revision_required": True,
-        "require_approval": True,
+        "plan_revision_required": enforce,
+        "require_approval": enforce,
         "warnings": warnings,
         "clarification": _clarification(),
     }
