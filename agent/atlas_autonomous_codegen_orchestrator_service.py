@@ -101,16 +101,28 @@ class AtlasAutonomousCodegenOrchestratorService:
         self._progress(request.pool_id, run_id, orchestrator_run_id, phase=out.phase, last_event="adversarial_review_started")
         if self._stop_requested(request.pool_id, orchestrator_run_id):
             return self._stopped_result(out, request.pool_id, run_id, orchestrator_run_id)
+        pool_status = str(getattr(pool, "status", "")).lower()
         revision_required = bool((pool.metadata or {}).get("plan_revision_required"))
-        approval_required = str(getattr(pool, "status", "")).lower() == "approval_required"
-        if revision_required or approval_required or str(getattr(pool, "status", "")).lower() in {"needs_scope_confirmation", "waiting_for_critical_decision"}:
+        approval_required = pool_status == "approval_required"
+        # A post-clarification safety block stays blocked unless a human granted an explicit override
+        # (which also flips the pool back to "ready"). Without the override, surface a clean
+        # blocked_safety_review with the recorded reason — never silently dispatch a 0/N apply.
+        override_granted = bool((pool.metadata or {}).get("safety_override_granted_after_clarification"))
+        safety_blocked = pool_status == "blocked_safety_review" and not override_granted
+        if revision_required or approval_required or safety_blocked or pool_status in {"needs_scope_confirmation", "waiting_for_critical_decision"}:
             out.status = "blocked_safety_review"
-            if str(getattr(pool, "status", "")).lower() == "needs_scope_confirmation":
+            if pool_status == "needs_scope_confirmation":
                 out.phase = "needs_scope_confirmation"
                 out.stop_reason = "clarification_required"
-            elif str(getattr(pool, "status", "")).lower() == "waiting_for_critical_decision":
+            elif pool_status == "waiting_for_critical_decision":
                 out.phase = "waiting_for_critical_decision"
                 out.stop_reason = "critical_event_waiting_for_user_decision"
+            elif safety_blocked:
+                out.phase = "revising_plan_from_clarification"
+                out.stop_reason = str(
+                    (pool.metadata or {}).get("safety_gate_block_reason_after_clarification")
+                    or "safety_gate_blocked_after_clarification"
+                )
             else:
                 out.stop_reason = "plan_revision_required" if revision_required else "approval_required"
             self._emit("autonomous_codegen_blocked_safety_review", request.pool_id, run_id, orchestrator_run_id, status=out.status, reason=out.stop_reason)

@@ -126,7 +126,10 @@ def test_clarify_clears_required_only_after_all_questions_answered(tmp_path: Pat
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["pending_question_count"] == 0
-    assert body["clarification_replanning"]["status"] in {"ready", "approval_required", "waiting_for_critical_decision"}
+    # The default _pool item is medium-risk, which the guarded_low_risk preset blocks at apply time;
+    # the revised plan therefore surfaces as blocked_safety_review (a recoverable state with a
+    # reason + override exit path) rather than a generic approval_required that silently re-blocks.
+    assert body["clarification_replanning"]["status"] in {"ready", "approval_required", "waiting_for_critical_decision", "blocked_safety_review"}
     assert body["revised_plan_snapshot"]
     assert body["plan_revision_diff"]["root_goal_changed"] is True
     assert body["gate_rerun_summary"]

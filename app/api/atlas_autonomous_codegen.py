@@ -126,16 +126,16 @@ def start(payload: AtlasAutonomousCodegenRequest, request: Request, background_t
     )
     clarification_blocks = clarification_execution_block_reasons(pool)
     if clarification_blocks:
-        def _blocked() -> None:
-            result = run(payload, request)
-            root_path = Path(resolve_atlas_ca_data_root(request)) / "atlas" / "autonomous_codegen" / payload.pool_id
-            root_path.mkdir(parents=True, exist_ok=True)
-            (root_path / f"{orchestrator_run_id}.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-            (root_path / "latest.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        background_tasks.add_task(_blocked)
-    else:
-        background_tasks.add_task(_orchestrator_service(request, payload.workspace_id, pool_id=payload.pool_id, orchestrator_run_id=orchestrator_run_id).run, payload)
+        # The plan is blocked (clarification revision / gate rerun still required). Resolve the block
+        # synchronously and return it so the caller sees blocked_safety_review with a reason instead
+        # of a "running" status that never advances (silent spinner desync).
+        result = run(payload, request)
+        root_path = Path(resolve_atlas_ca_data_root(request)) / "atlas" / "autonomous_codegen" / payload.pool_id
+        root_path.mkdir(parents=True, exist_ok=True)
+        (root_path / f"{orchestrator_run_id}.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        (root_path / "latest.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        return result
+    background_tasks.add_task(_orchestrator_service(request, payload.workspace_id, pool_id=payload.pool_id, orchestrator_run_id=orchestrator_run_id).run, payload)
     return {
         "pool_id": payload.pool_id,
         "run_id": run_id,

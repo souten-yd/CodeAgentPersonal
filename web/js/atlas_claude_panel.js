@@ -1315,8 +1315,15 @@
     const block = appendStageBlock(poolId || 'autonomous');
     if (!block) return;
     const phase = String(view.current_phase || 'idle');
+    const status = String(view.status || view.automation_state || '');
     ['plan', 'patch', 'approve', 'apply', 'verify'].forEach((stage) => updateStage(block, stage, 'pending', ''));
-    if (phase === 'needs_scope_confirmation') updateStage(block, 'plan', 'failed', 'clarification required');
+    // A safety block must NOT leave the Patch/Apply stages spinning: stop on the block and surface the
+    // reason. Derived from backend status so a reload shows the same (no spinner desync).
+    if (status === 'blocked_safety_review' && phase !== 'needs_scope_confirmation' && phase !== 'waiting_for_critical_decision') {
+      const reason = String(view.stop_reason || (view.evidence_summary && view.evidence_summary.safety_block_reason) || 'safety gate blocked');
+      updateStage(block, 'plan', 'done', '');
+      updateStage(block, 'patch', 'failed', `safety gate blocked — ${reason}`);
+    } else if (phase === 'needs_scope_confirmation') updateStage(block, 'plan', 'failed', 'clarification required');
     else if (phase === 'waiting_for_critical_decision') updateStage(block, 'plan', 'failed', 'critical decision required');
     else if (phase === 'replanning_lower_impact') updateStage(block, 'plan', 'running', 'lower-impact replanning');
     else if (phase === 'candidate_generation') updateStage(block, 'patch', 'running', '');
@@ -1643,8 +1650,101 @@
       appendClarificationPrompt(poolId, { clarification_questions: [{ question_id: 'clar_q_1', index: 1, total: 1, prompt: '確認が必要です。以下から選択してください:', options: clarification.options, status: 'pending' }] });
     } else if (clarificationBlocks.length) {
       pushSystemMessage(`確認回答と plan revision / gate rerun が完了するまで承認できません: ${clarificationBlocks.join(', ')}`);
+    } else if (poolStatus === 'blocked_safety_review') {
+      // Safety gate blocked the revised plan. Derive purely from backend status (survives reload)
+      // and give the user a real exit path instead of a stuck Patch spinner.
+      appendSafetyBlockPrompt(poolId, poolMeta);
     } else if (poolStatus === 'approval_required') {
       appendPlanActionPrompt(poolId);
+    }
+  }
+
+  // Status-driven safety-block panel: shown when pool.status === 'blocked_safety_review'. Renders the
+  // block reason and three actions — Approve & continue (grant a human safety override), Revise, and
+  // Cancel — mapping to backend routes. No spinner is shown; the state comes purely from the backend.
+  function appendSafetyBlockPrompt(poolId, poolMeta) {
+    if (!dom.transcript) return;
+    const meta = poolMeta && typeof poolMeta === 'object' ? poolMeta : {};
+    const reason = String(meta.safety_gate_block_reason_after_clarification || '').trim()
+      || String(meta.gate_rerun_summary || '').trim()
+      || 'safety gate blocked the revised plan';
+    const node = document.createElement('div');
+    node.className = 'atlas-claude-msg';
+    node.dataset.role = 'system';
+    node.dataset.atlasSafetyBlockPrompt = 'true';
+    node.dataset.poolId = String(poolId);
+    node.style.flexDirection = 'column';
+    node.style.gap = '6px';
+
+    const text = document.createElement('div');
+    text.textContent = `Safety gate blocked — reason: ${reason}`;
+    node.appendChild(text);
+
+    const hint = document.createElement('div');
+    hint.className = 'atlas-claude-stage-detail';
+    hint.style.whiteSpace = 'normal';
+    hint.textContent = String(meta.next_required_user_action
+      || 'Grant a safety override to continue, revise the plan/scope, or cancel.');
+    node.appendChild(hint);
+
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '6px';
+
+    const approve = document.createElement('button');
+    approve.type = 'button';
+    approve.className = 'atlas-claude-primary-btn';
+    approve.textContent = 'Approve & continue';
+
+    const revise = document.createElement('button');
+    revise.type = 'button';
+    revise.className = 'atlas-claude-secondary-btn';
+    revise.textContent = 'Revise';
+
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'atlas-claude-secondary-btn';
+    cancel.textContent = 'Cancel';
+
+    approve.addEventListener('click', () => {
+      const note = (root.prompt && root.prompt('Reason for the safety override (optional)')) || '';
+      Array.from(actions.querySelectorAll('button')).forEach((b) => { b.disabled = true; });
+      grantSafetyOverrideAndContinue(poolId, note);
+    });
+    revise.addEventListener('click', () => {
+      const note = (root.prompt && root.prompt('改訂依頼の内容（任意）')) || '';
+      node.remove();
+      requestPlanRevision(poolId, note);
+    });
+    cancel.addEventListener('click', () => {
+      node.remove();
+      cancelPlan(poolId);
+    });
+    actions.append(approve, revise, cancel);
+    node.appendChild(actions);
+    upsertTranscriptNode(
+      (el) => el.dataset && el.dataset.atlasSafetyBlockPrompt === 'true' && el.dataset.poolId === String(poolId),
+      node,
+    );
+  }
+
+  async function grantSafetyOverrideAndContinue(poolId, reason) {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.grantSafetyOverride) {
+      pushSystemMessage('Safety override is not available in this client.');
+      return;
+    }
+    try {
+      const resp = await root.AtlasPipelineAPI.grantSafetyOverride(poolId, {
+        reason: reason || '', workspace_id: workspaceId(),
+      });
+      if (resp && resp.ok) {
+        pushSystemMessage('Safety override を記録しました（blocked_safety_review → ready）。実行を続行できます。');
+        await renderPlanPoolMarkdown(poolId);
+      } else {
+        pushSystemMessage(`Safety override に失敗しました: ${formatError(resp)}`);
+      }
+    } catch (e) {
+      pushSystemMessage('Safety override に失敗しました: ' + (e && e.message ? e.message : e));
     }
   }
 

@@ -45,6 +45,9 @@ AtlasPlanPoolStatus = Literal[
     "ready",
     "approval_required",
     "waiting_for_critical_decision",
+    # A post-clarification apply-time safety block the user can exit via override / revise / cancel
+    # (distinct from the terminal "blocked"); see AtlasClarificationReplanningService._next_status.
+    "blocked_safety_review",
     "approved",
     "running",
     "paused",

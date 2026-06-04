@@ -89,4 +89,17 @@ class AtlasAutomationGateService:
         if critical_event:
             metadata["critical_event"] = critical_event
             metadata["status"] = "waiting_for_critical_decision"
+        # Human override after a post-clarification safety block: when a user has explicitly granted a
+        # safety override for this pool (via the override endpoint, only reachable from
+        # "blocked_safety_review"), treat a NON-critical block/require_manual as approved-by-human so
+        # the apply-time gate proceeds instead of silently re-blocking (Patch 0/N). Critical events
+        # (critical risk / forbidden action / unsafe or protected path) are NEVER overridable here.
+        pool_meta = getattr(pool, "metadata", {}) or {}
+        override_granted = bool(pool_meta.get("safety_override_granted_after_clarification"))
+        if override_granted and not critical_event and decision in {"block", "require_manual"}:
+            warnings.append("safety_override_granted_after_clarification")
+            metadata["safety_override_applied"] = True
+            metadata["safety_override_original_decision"] = decision
+            metadata["safety_override_overridden_reasons"] = sorted(set(reasons))
+            decision = "allow"
         return AtlasAutomationDecision(pool_id=pool.pool_id, item_id=item.item_id, preset_id=preset.preset_id, decision=decision, phase="pre_safe_apply", reasons=sorted(set(reasons)), warnings=sorted(set(warnings)), metadata=metadata)
