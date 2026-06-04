@@ -27,6 +27,7 @@ AtlasPlanItemStatus = Literal[
     "reviewing",
     "approval_required",
     "waiting_for_critical_decision",
+    "blocked_safety_review",
     "approved",
     "executing",
     "testing",
@@ -53,10 +54,12 @@ AtlasPlanPoolStatus = Literal[
     "paused",
     "waiting",
     "dependency_waiting",
+    "needs_revision",
     "completed",
     "completed_with_warnings",
     "failed",
     "blocked",
+    "blocked_safety_review",
     "cancelled",
 ]
 

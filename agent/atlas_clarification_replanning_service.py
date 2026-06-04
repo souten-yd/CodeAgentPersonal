@@ -139,6 +139,7 @@ class AtlasClarificationReplanningService:
             risk_raised=risk_raised,
         )
         gate_rerun_summary = self._gate_rerun_summary(critique_gate, safety_gate)
+        safety_gate_block_reason = self._safety_gate_block_reason(safety_gate)
         metadata.update(
             {
                 "clarification_replanning": {
@@ -177,6 +178,7 @@ class AtlasClarificationReplanningService:
                 "plan_revision_required_after_clarification": False,
                 "rerun_critique_gate_after_clarification": critique_gate,
                 "rerun_safety_gate_after_clarification": safety_gate,
+                "safety_gate_block_reason_after_clarification": safety_gate_block_reason,
                 "revised_plan_summary": revised_plan_summary,
                 "changed_scope_summary": changed_scope_summary,
                 "gate_rerun_summary": gate_rerun_summary,
@@ -202,6 +204,7 @@ class AtlasClarificationReplanningService:
             "plan_revision_diff": metadata["plan_revision_diff"],
             "rerun_critique_gate": critique_gate,
             "rerun_safety_gate": safety_gate,
+            "safety_gate_block_reason_after_clarification": safety_gate_block_reason,
             "revised_plan_summary": revised_plan_summary,
             "changed_scope_summary": changed_scope_summary,
             "gate_rerun_summary": gate_rerun_summary,

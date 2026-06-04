@@ -1339,6 +1339,236 @@ def get_plan_pool(pool_id: str, request: Request) -> dict[str, Any]:
     return {"plan_pool": payload, **payload}
 
 
+def _latest_autopilot_result_payload(ca_data_root: Path, pool_id: str) -> dict[str, Any] | None:
+    roots = [
+        ca_data_root / "atlas" / "multi_item_autopilot" / pool_id,
+        Path("ca_data") / "atlas" / "multi_item_autopilot" / pool_id,
+    ]
+    seen: set[Path] = set()
+    files: list[Path] = []
+    for root in roots:
+        try:
+            resolved = root.resolve()
+        except Exception:
+            resolved = root
+        if resolved in seen or not root.exists():
+            continue
+        seen.add(resolved)
+        files.extend(root.glob("auto_*.json"))
+    files = sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
+    for path in files:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            continue
+    return None
+
+
+def _patch_content_available(item: AtlasPlanItem) -> bool:
+    metadata = item.metadata or {}
+    proposal = metadata.get("patch_proposal") if isinstance(metadata.get("patch_proposal"), dict) else {}
+    proposal_meta = proposal.get("metadata") if isinstance(proposal.get("metadata"), dict) else {}
+    file_changes = metadata.get("file_changes") if isinstance(metadata.get("file_changes"), list) else []
+    proposal_changes = proposal.get("file_changes") if isinstance(proposal.get("file_changes"), list) else []
+    return bool(
+        metadata.get("proposed_content")
+        or metadata.get("patch")
+        or metadata.get("unified_diff_preview")
+        or metadata.get("edits")
+        or proposal.get("proposed_content")
+        or proposal.get("patch")
+        or proposal.get("unified_diff_preview")
+        or proposal.get("edits")
+        or proposal_meta.get("proposed_content")
+        or proposal_meta.get("patch_content_available") is True
+        or file_changes
+        or proposal_changes
+    )
+
+
+def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, Any] | None = None) -> dict[str, Any]:
+    metadata = pool.metadata or {}
+    items = list(pool.items or [])
+    items_total = len(items)
+    current_item = pool.get_item(pool.current_item_id) if pool.current_item_id else None
+    patch_attempted = [item for item in items if isinstance((item.metadata or {}).get("patch_proposal"), dict)]
+    patch_ready = [item for item in patch_attempted if _patch_content_available(item)]
+    patch_failed = [
+        item
+        for item in patch_attempted
+        if not _patch_content_available(item)
+        or str((((item.metadata or {}).get("patch_proposal") or {}).get("status") or "")).lower() in {"failed", "blocked"}
+    ]
+    approved_items = [
+        item
+        for item in items
+        if str(((item.metadata or {}).get("approval") or {}).get("decision") or "").lower() == "approved"
+        or str(item.status or "").lower() in {"ready", "approved"}
+    ]
+    pending_approval_items = [
+        item
+        for item in items
+        if str(((item.metadata or {}).get("approval") or {}).get("decision") or "").lower() != "approved"
+        and (
+            str(item.status or "").lower() in {"approval_required", "paused", "waiting_for_critical_decision"}
+            or bool(getattr(item, "requires_user_confirmation", False))
+        )
+    ]
+    pool_status = str(pool.status or "")
+    base: dict[str, Any] = {
+        "ok": True,
+        "pool_id": pool.pool_id,
+        "run_id": "",
+        "phase": "patch_generation",
+        "status": "waiting",
+        "items_total": items_total,
+        "items_started": len(patch_attempted),
+        "items_completed": len(patch_ready),
+        "current_item_index": 0,
+        "current_item_title": getattr(current_item, "title", "") if current_item else "",
+        "message": "",
+        "block_reason": None,
+        "error": None,
+        "requires_user_action": False,
+        "next_actions": ["wait"],
+        "authoritative_source": "PlanPool",
+        "pool_status": pool_status,
+        "autopilot_run_id": "",
+    }
+    if current_item:
+        try:
+            base["current_item_index"] = items.index(current_item) + 1
+        except ValueError:
+            base["current_item_index"] = 0
+
+    if pool_status == "blocked_safety_review":
+        reason = str(
+            metadata.get("safety_gate_block_reason_after_clarification")
+            or metadata.get("safety_gate_block_reason")
+            or "safety_gate_blocked"
+        )
+        return {
+            **base,
+            "phase": "blocked_safety_review",
+            "status": "blocked",
+            "message": "Blocked by safety gate",
+            "block_reason": reason,
+            "requires_user_action": True,
+            "next_actions": ["override safety block", "revise plan", "cancel"],
+        }
+
+    if latest_autopilot:
+        run_id = str(latest_autopilot.get("run_id") or "")
+        autopilot_run_id = str(latest_autopilot.get("autopilot_run_id") or "")
+        status = str(latest_autopilot.get("status") or "running")
+        processed = int(latest_autopilot.get("processed_count") or 0)
+        completed = int(latest_autopilot.get("completed_count") or 0)
+        failed = int(latest_autopilot.get("failed_count") or 0)
+        blocked = int(latest_autopilot.get("blocked_count") or 0)
+        phase = "completed" if status in {"completed", "partial"} else "failed" if status in {"failed", "needs_revision"} else "verifying" if completed or failed else "applying"
+        next_actions = ["wait"]
+        requires_action = False
+        error = None
+        if phase == "failed":
+            error = str(latest_autopilot.get("stop_reason") or "; ".join(latest_autopilot.get("errors") or []) or "autopilot_failed")
+            next_actions = ["retry", "revise plan", "cancel"]
+            requires_action = True
+        elif phase == "completed":
+            next_actions = []
+        return {
+            **base,
+            "run_id": run_id,
+            "autopilot_run_id": autopilot_run_id,
+            "phase": phase,
+            "status": status,
+            "items_started": processed,
+            "items_completed": completed,
+            "message": f"Autopilot {status}",
+            "error": error,
+            "requires_user_action": requires_action,
+            "next_actions": next_actions,
+            "authoritative_source": "PlanPool + multi_item_autopilot_result",
+            "blocked_count": blocked,
+            "failed_count": failed,
+        }
+
+    if pool_status == "approval_required" and pending_approval_items:
+        return {
+            **base,
+            "phase": "approving",
+            "status": "waiting",
+            "message": "Waiting for explicit approval",
+            "requires_user_action": True,
+            "next_actions": ["approve", "revise plan", "cancel"],
+        }
+
+    if items_total == 0:
+        return {
+            **base,
+            "phase": "patch_generation",
+            "status": "waiting",
+            "message": "Patch generation has not started: no plan items are available",
+            "requires_user_action": True,
+            "next_actions": ["revise plan", "cancel"],
+        }
+
+    if not patch_attempted:
+        action_required = not approved_items and pool_status not in {"approved", "ready", "running"}
+        status = "approved_not_started" if len(approved_items) or pool_status in {"approved", "ready"} else "waiting"
+        return {
+            **base,
+            "phase": "patch_generation",
+            "status": status,
+            "items_completed": 0,
+            "message": "Patch generation has not started",
+            "requires_user_action": action_required,
+            "next_actions": ["revise plan", "retry", "cancel"] if action_required else ["wait", "retry", "cancel"],
+            "approved_item_count": len(approved_items),
+        }
+
+    if patch_ready:
+        status = "running" if len(patch_ready) < items_total else "completed"
+        return {
+            **base,
+            "phase": "patch_generation",
+            "status": status,
+            "message": f"Patch generation {len(patch_ready)}/{items_total}",
+            "next_actions": ["wait"] if status == "running" else ["wait", "retry", "cancel"],
+        }
+
+    reason_parts: list[str] = []
+    for item in patch_failed[:3]:
+        proposal = ((item.metadata or {}).get("patch_proposal") or {})
+        proposal_meta = proposal.get("metadata") if isinstance(proposal.get("metadata"), dict) else {}
+        warnings = list(proposal.get("warnings") or []) + list(proposal_meta.get("warnings") or [])
+        reason = str(proposal_meta.get("generation_failure_reason") or "; ".join(warnings) or proposal.get("status") or "no_patch_content")
+        reason_parts.append(f"{item.item_id}: {reason}")
+    return {
+        **base,
+        "phase": "failed",
+        "status": "failed",
+        "message": "Patch generation failed before first patch",
+        "error": "; ".join(reason_parts) or "no_patch_content",
+        "requires_user_action": True,
+        "next_actions": ["retry", "revise plan", "cancel"],
+    }
+
+
+@router.get("/plan-pools/{pool_id}/runtime-status")
+def get_plan_pool_runtime_status(pool_id: str, request: Request, workspace_id: str = "default") -> dict[str, Any]:
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=workspace_id)
+    _sync_pool_from_workspace_snapshot(storage, journal, pool_id)
+    try:
+        pool = storage.load_pool(pool_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"error": "plan_pool_not_found", "pool_id": pool_id}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _runtime_status_from_pool(pool, _latest_autopilot_result_payload(ca_data_root, pool.pool_id))
+
+
 @router.get("/plan-pools/{pool_id}/markdown")
 def get_plan_pool_markdown(pool_id: str, request: Request, workspace_id: str = "default") -> dict[str, str]:
     _, storage, journal = _atlas_components(request, workspace_id=workspace_id)
@@ -1881,6 +2111,7 @@ def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Reque
         "revised_plan_snapshot": pool.metadata.get("revised_plan_snapshot"),
         "plan_revision_diff": pool.metadata.get("plan_revision_diff"),
         "gate_rerun_summary": pool.metadata.get("gate_rerun_summary"),
+        "safety_gate_block_reason_after_clarification": pool.metadata.get("safety_gate_block_reason_after_clarification"),
         "revised_plan_summary": pool.metadata.get("revised_plan_summary"),
         "changed_scope_summary": pool.metadata.get("changed_scope_summary"),
         "next_required_user_action": pool.metadata.get("next_required_user_action"),
