@@ -175,9 +175,12 @@ class AtlasAutoVerificationService:
             return ""
         candidates = list(getattr(item, "target_files", []) or [])
         candidates += list(((item.metadata or {}).get("safe_apply") or {}).get("changed_files") or [])
-        for f in candidates:
-            if str(f).lower().endswith(".html"):
-                return str(f).replace("\\", "/")
+        html_candidates = [str(f).replace("\\", "/") for f in candidates if str(f).lower().endswith(".html")]
+        for f in html_candidates:
+            if PurePosixPath(f).name.lower() == "index.html":
+                return f
+        if html_candidates:
+            return html_candidates[0]
         return ""
 
     def _visual_task_description(self, item, pool) -> str:

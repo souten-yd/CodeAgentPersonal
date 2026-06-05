@@ -165,7 +165,7 @@ python -m pytest \
 - [x] WP-3 SVG/SMIL & transition signal（実装+テスト）
 - [x] WP-4 smoke 診断堅牢化（実装+テスト）
 - [x] WP-5 サンプリング堅牢化 & 明示診断（実装+テスト）
-- [ ] WP-6 エントリHTML解決 & CSS-only（実装+テスト）
+- [x] WP-6 エントリHTML解決 & CSS-only（実装+テスト）
 - [ ] WP-7 キーワード単語境界整合（実装+テスト）
 - [ ] WP-8 将来パターン（任意 / TODO 記載可）
 - [ ] 全体検証ゲート通過・既存緑・回帰なし
