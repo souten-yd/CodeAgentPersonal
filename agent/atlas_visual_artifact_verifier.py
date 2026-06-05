@@ -39,7 +39,7 @@ _WAVE_PHASE_SIGNALS = [
 
 # Keywords that suggest an animation task in task_description / goal
 _ANIMATION_TASK_KEYWORDS = re.compile(
-    r'\b(animat|wave|oscillat|bounce|spin\w*|rotat|pulse|fade|mov\w+|motion|color\s*chang|hue)',
+    r'\b(animat\w*|wave\w*|oscillat\w*|bounce\w*|spin\w*|rotat\w*|pulse\w*|fade\w*|mov\w*|motion|color\s*chang\w*|hue)\b',
     re.IGNORECASE,
 )
 _WAVE_TASK_KEYWORDS = re.compile(
@@ -51,9 +51,25 @@ _COLOR_TASK_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 _MOTION_TASK_KEYWORDS = re.compile(
-    r'\b(mov\w*|motion|wave|oscillat|bounce|spin\w*|rotat\w*|slide|drift|orbit|translat\w*|scroll|fall\w*|jump\w*|fly\w*|shake|swing)',
+    r'\b(mov\w*|motion|wave\w*|oscillat\w*|bounce\w*|spin\w*|rotat\w*|slide\w*|drift\w*|orbit\w*|translat\w*|scroll\w*|fall\w*|jump\w*|fly\w*|shake\w*|swing\w*)\b',
     re.IGNORECASE,
 )
+_HUE_ROTATE_TASK_KEYWORDS = re.compile(r'\bhue\s*-?\s*rotat\w*\b', re.IGNORECASE)
+
+
+def _is_animation_task_description(task_description: str) -> bool:
+    return bool(_ANIMATION_TASK_KEYWORDS.search(task_description or ""))
+
+
+def _wants_color_task(task_description: str) -> bool:
+    return bool(_COLOR_TASK_KEYWORDS.search(task_description or ""))
+
+
+def _wants_motion_task(task_description: str) -> bool:
+    text = task_description or ""
+    if _HUE_ROTATE_TASK_KEYWORDS.search(text):
+        return False
+    return bool(_MOTION_TASK_KEYWORDS.search(text))
 
 
 class AtlasVisualArtifactVerifier:
@@ -80,10 +96,10 @@ class AtlasVisualArtifactVerifier:
         content = html_content + "\n" + collect_linked_asset_text(html_path, html_content)
 
         task_desc = task_description.lower()
-        is_animation_task = bool(_ANIMATION_TASK_KEYWORDS.search(task_desc))
+        is_animation_task = _is_animation_task_description(task_desc)
         is_wave_task = bool(_WAVE_TASK_KEYWORDS.search(task_desc))
-        wants_color = bool(_COLOR_TASK_KEYWORDS.search(task_desc))
-        wants_motion = bool(_MOTION_TASK_KEYWORDS.search(task_desc))
+        wants_color = _wants_color_task(task_desc)
+        wants_motion = _wants_motion_task(task_desc)
 
         checks: list[dict] = []
         missing: list[str] = []

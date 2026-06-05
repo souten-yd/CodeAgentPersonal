@@ -8,6 +8,8 @@ import pytest
 from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest
 from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
+from agent.atlas_playwright_smoke_verifier import _is_animation_task as smoke_is_animation_task
+from agent.atlas_visual_artifact_verifier import _is_animation_task_description as static_is_animation_task
 from agent.atlas_visual_artifact_verifier import AtlasVisualArtifactVerifier
 from tests.visual_fixtures import AUTOVERIFY_EXPECTATIONS, STATIC_EXPECTATIONS, write_fixture
 
@@ -88,6 +90,20 @@ def test_auto_verification_visual_matrix(case, tmp_path):
         assert warning in out.warnings
     for warning in case.must_not_have_warnings:
         assert warning not in out.warnings
+
+
+@pytest.mark.parametrize(
+    ("task_description", "expected"),
+    [
+        ("show an inanimate object", False),
+        ("animate a color wave", True),
+        ("hue rotate", True),
+        ("make it move around", True),
+    ],
+)
+def test_static_and_smoke_animation_task_keywords_are_consistent(task_description, expected):
+    assert static_is_animation_task(task_description) is expected
+    assert smoke_is_animation_task(task_description) is expected
 
 
 def _pool_item(tmp_path: Path, *, html_path: Path, task_description: str):

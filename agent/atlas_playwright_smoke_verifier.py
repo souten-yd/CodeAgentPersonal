@@ -18,9 +18,14 @@ try:
 except ImportError:
     _PLAYWRIGHT_AVAILABLE = False
 
-# Animation tasks require computed style changes over time
+# Animation tasks require computed style changes over time. Keep the regex word-boundary
+# based so descriptions like "inanimate object" do not accidentally become animation tasks.
 _ANIMATION_TASK_HINT = ("animat", "wave", "oscillat", "bounce", "spin", "rotat", "pulse", "fade",
                         "move", "motion", "color chang", "hue")
+_ANIMATION_TASK_RE = re.compile(
+    r'\b(animat\w*|wave\w*|oscillat\w*|bounce\w*|spin\w*|rotat\w*|pulse\w*|fade\w*|mov\w*|motion|color\s*chang\w*|hue)\b',
+    re.IGNORECASE,
+)
 
 # How long to wait for animations to produce a change (ms). Generous enough for slow
 # first-frame animations and games that start a beat after load.
@@ -45,8 +50,7 @@ def _env_int(name: str, default: int, *, minimum: int) -> int:
 
 
 def _is_animation_task(task_description: str) -> bool:
-    desc = task_description.lower()
-    return any(hint in desc for hint in _ANIMATION_TASK_HINT)
+    return bool(_ANIMATION_TASK_RE.search(task_description or ""))
 
 
 # Playwright raises this class of error when the python package is present but the
