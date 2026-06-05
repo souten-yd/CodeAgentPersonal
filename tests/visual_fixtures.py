@@ -121,6 +121,7 @@ requestAnimationFrame(() => document.querySelector('.hello').classList.add('read
 STATIC_EXPECTATIONS: list[StaticCase] = [
     StaticCase("color_named_keyframes", "rainbow color text", "passed", ("animation_signal", "color_mutation_signal")),
     StaticCase("color_hsl_keyframes", "color animation", "passed", ("animation_signal", "color_mutation_signal")),
+    StaticCase("css_variable_hue_js", "hue color animation", "passed", ("animation_signal", "color_mutation_signal")),
     StaticCase("canvas_game", "canvas game", "passed", ("animation_signal", "color_mutation_signal", "motion_signal")),
     StaticCase("static_plain", "animate colors", "failed", (), ("animation_signal", "color_mutation_signal")),
     StaticCase("missing_script", "game animation", "failed", (), ("animation_signal",)),
@@ -128,12 +129,14 @@ STATIC_EXPECTATIONS: list[StaticCase] = [
     StaticCase("multifile_empty", "animate color motion", "failed", (), ("animation_signal", "color_mutation_signal", "motion_signal")),
     StaticCase("color_named_keyframes", "rainbow text", "passed", ("animation_signal", "color_mutation_signal")),
     StaticCase("color_named_keyframes", "make it move around", "failed", (), ("motion_signal",)),
+    StaticCase("transition_color", "color change on load", "passed", ("animation_signal", "color_mutation_signal")),
 ]
 
 
 AUTOVERIFY_EXPECTATIONS: list[AutoVerifyCase] = [
     AutoVerifyCase("color_named_keyframes", "rainbow color text", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
     AutoVerifyCase("color_hsl_keyframes", "color animation", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
+    AutoVerifyCase("css_variable_hue_js", "hue color animation", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
     AutoVerifyCase("canvas_game", "canvas game", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
     AutoVerifyCase("static_plain", "animate colors", {"status": "browser_smoke_failed", "reason": "animation_not_detected"}, "failed", None, ("visual_contract_failed", "visual_missing:animation_signal")),
     AutoVerifyCase("js_reference_error", "show page", {"status": "browser_smoke_failed", "reason": "js_error", "console_errors": ["ReferenceError: undefinedFn is not defined"]}, "failed", None, ("browser_smoke_failed:js_error",)),
@@ -144,6 +147,7 @@ AUTOVERIFY_EXPECTATIONS: list[AutoVerifyCase] = [
     AutoVerifyCase("expected_text_missing", "show page", {"status": "browser_smoke_failed", "reason": "expected_text_missing"}, "failed", None, ("browser_smoke_failed:expected_text_missing",)),
     AutoVerifyCase("color_named_keyframes", "rainbow text", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
     AutoVerifyCase("color_named_keyframes", "make it move around", {"status": "browser_smoke_failed", "reason": "animation_not_detected"}, "failed", None, ("visual_contract_failed", "visual_missing:motion_signal")),
+    AutoVerifyCase("transition_color", "color change on load", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
 ]
 
 

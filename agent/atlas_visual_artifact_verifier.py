@@ -11,6 +11,8 @@ _ANIMATION_SIGNALS = [
     (re.compile(r'@keyframes\s+\w+', re.IGNORECASE), 'css_keyframes'),
 ]
 _COLOR_SIGNALS = [
+    (re.compile(r'\bstyle\.setProperty\s*\(\s*[\'"]--[^\'"]*(?:color|hue|fill)', re.IGNORECASE), 'style_setProperty_color'),
+    (re.compile(r'\bstyle\.(?:color|backgroundColor|background)\s*=', re.IGNORECASE), 'style_color_assignment'),
     (re.compile(r'\bhsl\s*\(', re.IGNORECASE), 'hsl'),
     (re.compile(r'\brgb\s*\(', re.IGNORECASE), 'rgb'),
     (re.compile(r'style\.color\b'), 'style_color'),
@@ -103,7 +105,11 @@ class AtlasVisualArtifactVerifier:
                            "detail": anim_found})
 
         # 2. Color mutation signal (required only for animation tasks that ask for color)
-        color_found = self._check_signals(content, _COLOR_SIGNALS) or self._keyframe_color_mutation(content)
+        color_found = (
+            self._check_signals(content, _COLOR_SIGNALS)
+            or self._keyframe_color_mutation(content)
+            or self._transition_color_mutation(content)
+        )
         _record("color_mutation_signal", color_found, required=is_animation_task and wants_color)
 
         # 3. Motion signal (required only for animation tasks that ask for motion)
@@ -158,6 +164,17 @@ class AtlasVisualArtifactVerifier:
             values = re.findall(r'(?:background-)?color\s*:\s*([^;}\n]+)', block, re.IGNORECASE)
             if len({value.strip().lower() for value in values}) >= 2:
                 return 'keyframe_color_mutation'
+        return None
+
+    def _transition_color_mutation(self, content: str) -> str | None:
+        """Detect CSS transitions whose property list includes color mutation."""
+        transition_patterns = (
+            r'\btransition\s*:\s*[^;{}]*(?:background-)?color\b',
+            r'\btransition-property\s*:\s*[^;{}]*(?:background-)?color\b',
+        )
+        for pattern in transition_patterns:
+            if re.search(pattern, content, re.IGNORECASE):
+                return 'transition_color_mutation'
         return None
 
     @staticmethod
