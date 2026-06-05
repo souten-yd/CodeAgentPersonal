@@ -9,6 +9,9 @@ from agent.atlas_artifact_asset_utils import collect_linked_asset_text
 _ANIMATION_SIGNALS = [
     (re.compile(r'\brequestAnimationFrame\b'), 'requestAnimationFrame'),
     (re.compile(r'@keyframes\s+\w+', re.IGNORECASE), 'css_keyframes'),
+    (re.compile(r'\banimation\s*:', re.IGNORECASE), 'css_animation'),
+    (re.compile(r'\btransition(?:-property)?\s*:', re.IGNORECASE), 'css_transition'),
+    (re.compile(r'<\s*(?:animate|animateTransform|animateMotion|set)\b', re.IGNORECASE), 'svg_smil_animation'),
 ]
 _COLOR_SIGNALS = [
     (re.compile(r'\bstyle\.setProperty\s*\(\s*[\'"]--[^\'"]*(?:color|hue|fill)', re.IGNORECASE), 'style_setProperty_color'),
@@ -22,6 +25,7 @@ _COLOR_SIGNALS = [
 _MOTION_SIGNALS = [
     (re.compile(r'\bstyle\.transform\s*=', re.IGNORECASE), 'style_transform_assignment'),
     (re.compile(r'\btransform\s*[:(]', re.IGNORECASE), 'transform'),
+    (re.compile(r'<\s*animateTransform\b|<\s*animateMotion\b', re.IGNORECASE), 'svg_smil_motion'),
     (re.compile(r'\btranslate[XYZ]?\s*\(', re.IGNORECASE), 'translate'),
     (re.compile(r'\bcanvas\b.*\bcontext\b|\bgetContext\s*\(', re.IGNORECASE), 'canvas_context'),
 ]

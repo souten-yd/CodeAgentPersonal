@@ -112,7 +112,7 @@ requestAnimationFrame(draw);
 .hello { color: red; transition: color 0.2s linear; }
 .hello.ready { color: purple; }
 </style></head><body><h1 class="hello">Hello World</h1><script>
-requestAnimationFrame(() => document.querySelector('.hello').classList.add('ready'));
+setTimeout(() => document.querySelector('.hello').classList.add('ready'), 10);
 </script></body></html>
 """,
 }
@@ -122,6 +122,7 @@ STATIC_EXPECTATIONS: list[StaticCase] = [
     StaticCase("color_named_keyframes", "rainbow color text", "passed", ("animation_signal", "color_mutation_signal")),
     StaticCase("color_hsl_keyframes", "color animation", "passed", ("animation_signal", "color_mutation_signal")),
     StaticCase("css_variable_hue_js", "hue color animation", "passed", ("animation_signal", "color_mutation_signal")),
+    StaticCase("svg_smil", "rotate svg icon", "passed", ("animation_signal", "motion_signal")),
     StaticCase("rotate_only", "spin a cube", "passed", ("animation_signal", "motion_signal")),
     StaticCase("canvas_game", "canvas game", "passed", ("animation_signal", "color_mutation_signal", "motion_signal")),
     StaticCase("static_plain", "animate colors", "failed", (), ("animation_signal", "color_mutation_signal")),
@@ -138,6 +139,7 @@ AUTOVERIFY_EXPECTATIONS: list[AutoVerifyCase] = [
     AutoVerifyCase("color_named_keyframes", "rainbow color text", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
     AutoVerifyCase("color_hsl_keyframes", "color animation", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
     AutoVerifyCase("css_variable_hue_js", "hue color animation", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
+    AutoVerifyCase("svg_smil", "rotate svg icon", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
     AutoVerifyCase("rotate_only", "spin a cube", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
     AutoVerifyCase("canvas_game", "canvas game", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
     AutoVerifyCase("static_plain", "animate colors", {"status": "browser_smoke_failed", "reason": "animation_not_detected"}, "failed", None, ("visual_contract_failed", "visual_missing:animation_signal")),
