@@ -45,8 +45,8 @@ Codex は進捗に応じて本リストと各指示書内のチェックボッ�
 - [x] S2-P2: ウォッチドッグ Phase 2 実装完了
 - [x] S2-P2: Phase 2 テスト緑（streaming / inactivity timeout / トークン heartbeat）
 - [x] S2: 指示書「受け入れ基準」全チェック更新済み・コミット済み
-- [ ] FINAL: 全体検証ゲート（下記）通過、最終サマリを本書末尾に追記
-- [ ] FINAL: 作業ブランチへプッシュ済み（PR は未作成のまま、ユーザー指示待ち）
+- [x] FINAL: 全体検証ゲート（下記）通過、最終サマリを本書末尾に追記
+- [x] FINAL: 作業ブランチへプッシュ済み（PR は未作成のまま、ユーザー指示待ち）
 
 ---
 
@@ -112,3 +112,55 @@ python -m pytest \
 - 視覚コントラクト修正は **static 検証をブラウザ非依存で正す**根本対処（今回の `visual_contract_failed` を解消）。
 - ウォッチドッグは **プラン生成の誤タイムアウト**を解消（別系統）。
 - 両者は独立。PR #1565（runtime smoke override）のロジックは**変更しない**（併存）。
+
+## 実装完了サマリ
+
+### 変更ファイル一覧（タスク別）
+
+- 視覚コントラクト false-negative 修正:
+  - `agent/atlas_visual_artifact_verifier.py`
+  - `agent/atlas_playwright_smoke_verifier.py`
+  - `tests/test_atlas_visual_artifact_verifier.py`
+  - `tests/test_atlas_playwright_smoke_verifier.py`
+  - `docs/atlas_codex_visual_contract_falsenegative_instruction.md`
+- プラン生成ウォッチドッグ Phase 1:
+  - `app/api/atlas_pipeline.py`
+  - `agent/atlas_planner_bridge.py`
+  - `agent/task_planning_runner.py`
+  - `web/js/atlas_pipeline_api.js`
+  - `web/js/atlas_claude_panel.js`
+  - `tests/test_atlas_plan_pool_watchdog.py`
+  - `tests/test_atlas_plan_pool_poller_contract.py`
+  - `tests/test_atlas_planner_bridge.py`
+- プラン生成ウォッチドッグ Phase 2:
+  - `agent/atlas_llm_json_adapter.py`
+  - `agent/atlas_llm_json_adapter_schema.py`
+  - `app/api/atlas_pipeline.py`
+  - `tests/test_atlas_llm_json_streaming.py`
+  - `tests/test_atlas_plan_pool_watchdog.py`
+- FINAL 検証ゲート補正:
+  - `agent/atlas_playwright_smoke_verifier.py`
+  - `ui.html`
+  - `docs/atlas_codex_goal_visual_and_watchdog.md`
+  - `docs/atlas_codex_plan_watchdog_instruction.md`
+
+### 追加テストと結果
+
+- 追加: `tests/test_atlas_plan_pool_watchdog.py`
+- 追加: `tests/test_atlas_plan_pool_poller_contract.py`
+- 追加: `tests/test_atlas_llm_json_streaming.py`
+- 追記: `tests/test_atlas_visual_artifact_verifier.py`
+- 追記: `tests/test_atlas_playwright_smoke_verifier.py`
+- 追記: `tests/test_atlas_planner_bridge.py`
+- 最終 pytest: `112 passed in 39.00s`
+
+### 受け入れ基準の達成状況
+
+- 視覚コントラクト: 色名 `@keyframes` の color mutation を認識し、色課題では motion を必須にしない。動き課題・色課題の fail 条件は維持。
+- smoke 診断: 空の `playwright_error:` は例外型名を含む。Windows の `main.py` import 後も Playwright smoke が通るよう、実行中のみ event loop policy を局所切替。
+- Watchdog Phase 1: PlanPool job に phase heartbeat を記録し、`/status` が `is_stalled / seconds_since_progress / current_phase / stalled_reason / suggested_action` を返す。poller は固定 8 分 cap ではなく stall と絶対上限を見る。
+- Watchdog Phase 2: SSE streaming で delta を連結し、token heartbeat を Phase 1 sink へ流す。`socket.timeout` は `llm_stalled`、`ATLAS_LLM_STREAMING=0` は従来 blocking へ戻る。
+
+### 既知の残課題
+
+- `python -m ruff --version` は `No module named ruff` のため、この環境では ruff 実行不可。pytest の指定ゲートと追加テストは緑。

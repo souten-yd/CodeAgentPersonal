@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import contextlib
+import asyncio
 import re
+import sys
 import threading
 import time
 from functools import partial
@@ -38,6 +40,23 @@ def _is_browser_not_installed_error(exc: Exception) -> bool:
     return "executable doesn't exist" in msg or (
         "playwright install" in msg and "browsertype.launch" in msg
     )
+
+
+@contextlib.contextmanager
+def _playwright_event_loop_policy():
+    if sys.platform != "win32" or not hasattr(asyncio, "WindowsProactorEventLoopPolicy"):
+        yield
+        return
+    previous = asyncio.get_event_loop_policy()
+    try:
+        if hasattr(asyncio, "WindowsSelectorEventLoopPolicy") and isinstance(previous, asyncio.WindowsSelectorEventLoopPolicy):
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        yield
+    finally:
+        try:
+            asyncio.set_event_loop_policy(previous)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class _QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
@@ -96,7 +115,7 @@ class AtlasPlaywrightSmokeVerifier:
         console_errors: list[str] = []
 
         try:
-            with sync_playwright() as pw, _serve_artifact_dir(html_path.parent) as base_url:
+            with _playwright_event_loop_policy(), sync_playwright() as pw, _serve_artifact_dir(html_path.parent) as base_url:
                 target = f"{base_url}/{quote(html_path.name)}" if base_url else html_path.as_uri()
                 browser = pw.chromium.launch(headless=True)
                 page = browser.new_page()
