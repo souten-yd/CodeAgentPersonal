@@ -1557,6 +1557,61 @@ def _patch_content_available(item: AtlasPlanItem) -> bool:
     )
 
 
+def _runtime_action_controls(view: dict[str, Any]) -> dict[str, Any]:
+    actions = {
+        str(action or "").strip().lower().replace("_", " ")
+        for action in list(view.get("next_actions") or [])
+    }
+    action_text = " ".join(sorted(actions))
+    status = str(view.get("status") or "").strip().lower()
+    phase = str(view.get("phase") or "").strip().lower()
+
+    def has(*needles: str) -> bool:
+        return any(needle in actions or needle in action_text for needle in needles)
+
+    controls = {
+        "can_retry": has("retry"),
+        "can_repair": has("repair", "repair and continue", "fix and continue"),
+        "can_revise_plan": has("revise plan", "revise"),
+        "can_cancel": has("cancel") and status not in {"completed", "cancelled"},
+        "can_rerun_pool": has("rerun pool", "rerun"),
+        "can_execute": False,
+        "can_continue": has("continue") and phase not in {"blocked_safety_review"},
+        "can_details": bool(
+            view.get("requires_user_action")
+            or view.get("message")
+            or view.get("block_reason")
+            or view.get("error")
+            or [a for a in actions if a and a != "wait"]
+        ),
+    }
+    disabled_reasons: dict[str, str] = {}
+    reason_defaults = {
+        "can_retry": "Backend did not authorize retry for this status.",
+        "can_repair": "Backend did not authorize repair for this status.",
+        "can_revise_plan": "Backend did not authorize plan revision for this status.",
+        "can_cancel": "Backend did not authorize cancellation for this status.",
+        "can_rerun_pool": "PlanPool rerun is not available in this slice.",
+        "can_execute": "Direct execution is disabled; backend workflow state remains authoritative.",
+        "can_continue": "Backend did not authorize continue for this status.",
+        "can_details": "No runtime details are available.",
+    }
+    for key, allowed in controls.items():
+        if not allowed:
+            disabled_reasons[key] = reason_defaults[key]
+    controls["disabled_reasons"] = disabled_reasons
+    return controls
+
+
+def _with_runtime_controls(view: dict[str, Any]) -> dict[str, Any]:
+    controls = _runtime_action_controls(view)
+    return {
+        **view,
+        "controls": controls,
+        **{key: value for key, value in controls.items() if key.startswith("can_")},
+    }
+
+
 def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, Any] | None = None) -> dict[str, Any]:
     metadata = pool.metadata or {}
     items = list(pool.items or [])
@@ -1618,7 +1673,7 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
             or metadata.get("safety_gate_block_reason")
             or "safety_gate_blocked"
         )
-        return {
+        return _with_runtime_controls({
             **base,
             "phase": "blocked_safety_review",
             "status": "blocked",
@@ -1626,7 +1681,7 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
             "block_reason": reason,
             "requires_user_action": True,
             "next_actions": ["override safety block", "revise plan", "cancel"],
-        }
+        })
 
     if latest_autopilot:
         run_id = str(latest_autopilot.get("run_id") or "")
@@ -1646,7 +1701,7 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
             requires_action = True
         elif phase == "completed":
             next_actions = []
-        return {
+        return _with_runtime_controls({
             **base,
             "run_id": run_id,
             "autopilot_run_id": autopilot_run_id,
@@ -1661,27 +1716,27 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
             "authoritative_source": "PlanPool + multi_item_autopilot_result",
             "blocked_count": blocked,
             "failed_count": failed,
-        }
+        })
 
     if pool_status == "approval_required" and pending_approval_items:
-        return {
+        return _with_runtime_controls({
             **base,
             "phase": "approving",
             "status": "waiting",
             "message": "Waiting for explicit approval",
             "requires_user_action": True,
             "next_actions": ["approve", "revise plan", "cancel"],
-        }
+        })
 
     if items_total == 0:
-        return {
+        return _with_runtime_controls({
             **base,
             "phase": "patch_generation",
             "status": "waiting",
             "message": "Patch generation has not started: no plan items are available",
             "requires_user_action": True,
             "next_actions": ["revise plan", "cancel"],
-        }
+        })
 
     if not patch_attempted:
         # A plan flagged plan_revision_required hard-blocks patch generation in propose_for_item, so it
@@ -1690,7 +1745,7 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
         if bool(metadata.get("plan_revision_required")):
             critique_gate = metadata.get("critique_gate") if isinstance(metadata.get("critique_gate"), dict) else {}
             block_reason = str(critique_gate.get("reason") or "plan_revision_required")
-            return {
+            return _with_runtime_controls({
                 **base,
                 "phase": "patch_generation",
                 "status": "blocked",
@@ -1700,10 +1755,10 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
                 "requires_user_action": True,
                 "next_actions": ["revise plan", "cancel"],
                 "approved_item_count": len(approved_items),
-            }
+            })
         action_required = not approved_items and pool_status not in {"approved", "ready", "running"}
         status = "approved_not_started" if len(approved_items) or pool_status in {"approved", "ready"} else "waiting"
-        return {
+        return _with_runtime_controls({
             **base,
             "phase": "patch_generation",
             "status": status,
@@ -1712,17 +1767,17 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
             "requires_user_action": action_required,
             "next_actions": ["revise plan", "retry", "cancel"] if action_required else ["wait", "retry", "cancel"],
             "approved_item_count": len(approved_items),
-        }
+        })
 
     if patch_ready:
         status = "running" if len(patch_ready) < items_total else "completed"
-        return {
+        return _with_runtime_controls({
             **base,
             "phase": "patch_generation",
             "status": status,
             "message": f"Patch generation {len(patch_ready)}/{items_total}",
             "next_actions": ["wait"] if status == "running" else ["wait", "retry", "cancel"],
-        }
+        })
 
     reason_parts: list[str] = []
     for item in patch_failed[:3]:
@@ -1731,7 +1786,7 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
         warnings = list(proposal.get("warnings") or []) + list(proposal_meta.get("warnings") or [])
         reason = str(proposal_meta.get("generation_failure_reason") or "; ".join(warnings) or proposal.get("status") or "no_patch_content")
         reason_parts.append(f"{item.item_id}: {reason}")
-    return {
+    return _with_runtime_controls({
         **base,
         "phase": "failed",
         "status": "failed",
@@ -1739,7 +1794,7 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
         "error": "; ".join(reason_parts) or "no_patch_content",
         "requires_user_action": True,
         "next_actions": ["retry", "revise plan", "cancel"],
-    }
+    })
 
 
 @router.get("/plan-pools/{pool_id}/runtime-status")
