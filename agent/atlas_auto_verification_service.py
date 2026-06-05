@@ -94,7 +94,9 @@ class AtlasAutoVerificationService:
             metadata["visual_contract"] = ev["static"]
             metadata["browser_smoke"] = ev["smoke"]
             missing = list((ev["static"] or {}).get("missing") or [])
-            if missing:
+            # Only attribute the failure to a static miss when it actually hard-failed; a runtime
+            # smoke pass overrides static misses (advisory only), so don't label a pass as missing.
+            if missing and ev["hard_failed"]:
                 metadata["primary_verification_reason"] = f"visual_missing:{missing[0]}"
             warnings = [*warnings, *ev["warnings"]]
             if status == "passed":
@@ -195,15 +197,26 @@ class AtlasAutoVerificationService:
         static_failed = str(static_res.get("status")) == "failed"
         smoke_status = str(smoke.get("status"))
         smoke_reason = str(smoke.get("reason") or "")
+        smoke_passed = smoke_status == "browser_smoke_passed"
         smoke_hard = smoke_status == "browser_smoke_failed" and any(
             smoke_reason.startswith(r) for r in _HARD_SMOKE_REASONS
         )
         smoke_soft = smoke_status == "browser_smoke_failed" and not smoke_hard
+        # Runtime evidence beats the static heuristic: when the browser actually observed the
+        # required visual behaviour (style/color/canvas mutation over time), a static-contract
+        # false-negative — e.g. color expressed via named keywords instead of hsl()/rgb(), or no
+        # "motion" signal for a legitimately motionless color-cycling task — must not hard-fail the
+        # item. The static misses are still surfaced, but as advisories rather than failures.
+        static_overridden = static_failed and smoke_passed
 
-        if static_failed:
+        if static_failed and not static_overridden:
             warnings.append("visual_contract_failed")
             for miss in (static_res.get("missing") or []):
                 warnings.append(f"visual_missing:{miss}")
+        elif static_overridden:
+            warnings.append("visual_contract_overridden_by_runtime_smoke")
+            for miss in (static_res.get("missing") or []):
+                warnings.append(f"visual_advisory:{miss}")
         else:
             warnings.append("visual_contract_passed")
         if smoke_hard:
@@ -212,10 +225,10 @@ class AtlasAutoVerificationService:
             # Static passed but the browser style-sampling couldn't confirm motion → warn only.
             warnings.append(f"browser_smoke_warning:{smoke_reason}")
 
-        hard_failed = static_failed or smoke_hard
+        hard_failed = (static_failed and not smoke_passed) or smoke_hard
         if hard_failed:
             verify_level = None
-        elif smoke_status == "browser_smoke_passed":
+        elif smoke_passed:
             verify_level = "runtime_smoke_checked"
         else:
             verify_level = "static_checked"
@@ -223,6 +236,7 @@ class AtlasAutoVerificationService:
         return {
             "static": static_res, "smoke": smoke, "warnings": warnings,
             "hard_failed": hard_failed, "soft": smoke_soft, "verify_level": verify_level,
+            "static_overridden": static_overridden,
         }
 
     def _run_visual_verification(self, pool, item, request, workspace_root: str, html_rel: str):
@@ -233,7 +247,9 @@ class AtlasAutoVerificationService:
         warnings = list(ev["warnings"])
         metadata: dict = {"workspace_root": workspace_root, "visual_contract": ev["static"], "browser_smoke": ev["smoke"]}
         missing = list((ev["static"] or {}).get("missing") or [])
-        if missing:
+        # A runtime smoke pass overrides static misses (advisory only); only attribute the failure
+        # to a static miss when the item genuinely hard-failed.
+        if missing and ev["hard_failed"]:
             metadata["primary_verification_reason"] = f"visual_missing:{missing[0]}"
         if ev["verify_level"]:
             metadata["verify_level"] = ev["verify_level"]
