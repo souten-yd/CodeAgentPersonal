@@ -11,6 +11,9 @@ import pytest
 from agent.atlas_playwright_smoke_verifier import (
     AtlasPlaywrightSmokeVerifier,
     _PLAYWRIGHT_AVAILABLE,
+    _sample_interval_ms,
+    _sample_max_wait_ms,
+    _serve_artifact_dir,
     _is_browser_not_installed_error,
 )
 
@@ -232,12 +235,45 @@ def test_canvas_pixel_change_detects_animation_without_style_change():
     assert result["changed"] is True
 
 
-def test_static_canvas_no_frame_changes_reports_not_detected():
+def test_static_canvas_no_frame_changes_reports_not_detected(monkeypatch):
+    monkeypatch.setenv("ATLAS_VISUAL_SAMPLE_MAX_MS", "1")
+    monkeypatch.setenv("ATLAS_VISUAL_SAMPLE_INTERVAL_MS", "1")
     sample = {"present": True, "samples": [{"pixels": "0,0,0,255", "dataHash": "a"}]}
     page = _FakeCanvasPage([sample, sample])
     result = _VFY._check_canvas_changes_over_time(page)
     assert result["changed"] is False
     assert result["present"] is True
+
+
+def test_sampling_waits_are_env_configurable(monkeypatch):
+    monkeypatch.setenv("ATLAS_VISUAL_SAMPLE_MAX_MS", "7")
+    monkeypatch.setenv("ATLAS_VISUAL_SAMPLE_INTERVAL_MS", "2")
+    assert _sample_max_wait_ms() == 7
+    assert _sample_interval_ms() == 2
+    monkeypatch.setenv("ATLAS_VISUAL_SAMPLE_MAX_MS", "not-int")
+    assert _sample_max_wait_ms() > 7
+
+
+def test_canvas_inaccessible_reports_explicit_warning(monkeypatch):
+    monkeypatch.setenv("ATLAS_VISUAL_SAMPLE_MAX_MS", "1")
+    monkeypatch.setenv("ATLAS_VISUAL_SAMPLE_INTERVAL_MS", "1")
+
+    class _ThrowingPage:
+        def evaluate(self, _script):
+            raise RuntimeError("canvas tainted")
+
+    result = _VFY._check_canvas_changes_over_time(_ThrowingPage())
+    assert result["warning"] == "canvas_inaccessible"
+    assert "canvas tainted" in result["errors"][0]
+
+
+def test_serve_artifact_bind_failure_records_diagnostic(tmp_path):
+    diagnostics = []
+    with patch("agent.atlas_playwright_smoke_verifier.ThreadingHTTPServer", side_effect=OSError("address unavailable")):
+        with _serve_artifact_dir(tmp_path, diagnostics) as base_url:
+            assert base_url is None
+    assert diagnostics
+    assert diagnostics[0].startswith("serve_artifact_bind_failed:OSError")
 
 
 def test_non_module_script_with_exports_diagnoses_module_script_mismatch(tmp_path):
