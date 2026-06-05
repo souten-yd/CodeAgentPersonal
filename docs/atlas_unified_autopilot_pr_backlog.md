@@ -20,6 +20,7 @@
 - PR-ATLAS-PIPE-37: next
 - PR-ATLAS-PLAN-WATCHDOG: planned（詳細指示は `docs/atlas_codex_plan_watchdog_instruction.md`／入口は `AGENTS.md`）
 - PR-ATLAS-VISUAL-FALSENEG: planned（詳細指示は `docs/atlas_codex_visual_contract_falsenegative_instruction.md`／入口は `AGENTS.md`）
+- GOAL-VISUAL+WATCHDOG: planned（上記2件を連続実装する統括ランブック `docs/atlas_codex_goal_visual_and_watchdog.md`）
 
 ## PR-ATLAS-PIPE-0: 計画書とチャット継続用docs追加
 
