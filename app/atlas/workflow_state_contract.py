@@ -162,6 +162,178 @@ def _build_practical_loop_metadata(
     }
 
 
+def _build_visual_pipeline_metadata(
+    metadata_payload: dict[str, Any],
+    artifacts_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Expose visual pipeline state for UI debugging and observability.
+
+    Reads from pool metadata (set by AtlasAutoVerificationService) and surfaces
+    the contract, classification, missing signals, repair profile, and recovery
+    controls.  All values are read-only.
+    """
+    visual_pipeline = metadata_payload.get("visual_pipeline") if isinstance(
+        metadata_payload.get("visual_pipeline"), dict
+    ) else {}
+
+    contract_id = str(visual_pipeline.get("visual_contract_id") or "")
+    artifact_type = str(visual_pipeline.get("artifact_type") or "")
+    visual_intent = str(visual_pipeline.get("visual_intent") or "")
+    repair_profile = str(visual_pipeline.get("repair_profile") or "")
+    missing_signals = list(visual_pipeline.get("missing_signals") or [])[:16]
+    structured_failures = list(visual_pipeline.get("structured_failures") or [])[:16]
+    retry_count = _coerce_non_negative_int(
+        (metadata_payload.get("visual_pipeline") or {}).get("retry_count")
+    )
+    snapshot_available = bool(artifacts_payload.get("snapshot", False))
+
+    recovery_controls = _build_visual_recovery_controls(visual_pipeline, artifacts_payload)
+
+    return {
+        "contract_id": contract_id,
+        "artifact_type": artifact_type,
+        "visual_intent": visual_intent,
+        "missing_signals": missing_signals,
+        "checked_signals": list(visual_pipeline.get("checked_signals") or [])[:16],
+        "repair_profile": repair_profile,
+        "failures": structured_failures,
+        "retry_count": retry_count,
+        "snapshot_available": snapshot_available,
+        "recovery_controls": recovery_controls,
+        "display_only": True,
+        "backend_authoritative": True,
+    }
+
+
+def _build_visual_recovery_controls(
+    visual_pipeline: dict[str, Any],
+    artifacts_payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """
+    Build recovery control descriptors for the UI when visual verification has failed.
+
+    Controls are metadata-only (display supervision); they never execute anything.
+    Each control has:
+      id, label, kind, applicable, reason (why unavailable when applicable=False)
+
+    The UI is responsible for routing user action to the correct backend endpoint.
+    Backend workflow_state and PlanPool remain authoritative.
+    """
+    if not visual_pipeline:
+        return []
+
+    failures = visual_pipeline.get("structured_failures") or []
+    repair_profile = visual_pipeline.get("repair_profile") or ""
+    missing_signals = visual_pipeline.get("missing_signals") or []
+    snapshot_available = bool(artifacts_payload.get("snapshot", False))
+
+    has_failures = bool(failures or missing_signals)
+    has_safe_repair = bool(repair_profile) and repair_profile != "canvas_game_repair"
+    plan_revision_recommended = any(
+        bool(f.get("plan_revision_recommended")) for f in failures
+    )
+
+    controls: list[dict[str, Any]] = []
+
+    # Debug Repair — available when there is a safe auto-repair profile
+    controls.append({
+        "id": "debug_repair",
+        "label": "Debug Repair",
+        "kind": "recovery",
+        "applicable": has_failures and has_safe_repair,
+        "reason": (
+            "" if (has_failures and has_safe_repair)
+            else ("No failures to repair" if not has_failures
+                  else "Repair requires user review (no safe auto-repair profile)")
+        ),
+        "repair_profile": repair_profile,
+        "target_signals": missing_signals[:8],
+    })
+
+    # Revise Plan — recommended when classification or contract may be wrong
+    controls.append({
+        "id": "revise_plan",
+        "label": "Revise Plan",
+        "kind": "recovery",
+        "applicable": plan_revision_recommended or bool(
+            visual_pipeline.get("artifact_type") in ("unknown", "")
+        ),
+        "reason": (
+            "" if plan_revision_recommended
+            else "Plan revision not indicated by current failures"
+        ),
+    })
+
+    # Restore Snapshot — available only when a snapshot exists
+    controls.append({
+        "id": "restore_snapshot",
+        "label": "Restore Snapshot",
+        "kind": "recovery",
+        "applicable": snapshot_available,
+        "reason": (
+            "" if snapshot_available
+            else "No snapshot available to restore"
+        ),
+    })
+
+    # Inspect Changed Files — always shown
+    controls.append({
+        "id": "inspect_changed_files",
+        "label": "Inspect Changed Files",
+        "kind": "info",
+        "applicable": True,
+        "reason": "",
+    })
+
+    # Cancel — always shown
+    controls.append({
+        "id": "cancel",
+        "label": "Cancel",
+        "kind": "control",
+        "applicable": True,
+        "reason": "",
+    })
+
+    # Optional info controls
+    controls.append({
+        "id": "view_normalized_requirement",
+        "label": "View Normalized Requirement",
+        "kind": "info",
+        "applicable": bool(visual_pipeline.get("artifact_type")),
+        "reason": "" if visual_pipeline.get("artifact_type") else "No normalization data available",
+    })
+    controls.append({
+        "id": "view_task_classification",
+        "label": "View Task Classification",
+        "kind": "info",
+        "applicable": bool(visual_pipeline.get("artifact_type")),
+        "reason": "" if visual_pipeline.get("artifact_type") else "No classification data available",
+    })
+    controls.append({
+        "id": "view_visual_contract",
+        "label": "View Visual Contract",
+        "kind": "info",
+        "applicable": bool(visual_pipeline.get("visual_contract_id")),
+        "reason": (
+            "" if visual_pipeline.get("visual_contract_id")
+            else "No contract selected yet"
+        ),
+    })
+    controls.append({
+        "id": "view_verification_signals",
+        "label": "View Verification Signals",
+        "kind": "info",
+        "applicable": bool(missing_signals or failures),
+        "reason": (
+            "" if (missing_signals or failures)
+            else "No verification signals to display"
+        ),
+    })
+
+    return controls
+
+
 def build_read_only_workflow_state(
     *,
     goal: str,
@@ -287,6 +459,9 @@ def build_read_only_workflow_state(
             "backend_contract_ready": True,
             "warnings": list(warnings or []),
         },
+        "visual_pipeline_metadata": _build_visual_pipeline_metadata(
+            metadata_payload, artifacts_payload
+        ),
         "workflow_state_metadata": {
             "latest_pool_id": metadata_payload.get("latest_pool_id"),
             "latest_run_id": metadata_payload.get("latest_run_id"),

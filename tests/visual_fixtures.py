@@ -153,9 +153,69 @@ AUTOVERIFY_EXPECTATIONS: list[AutoVerifyCase] = [
     AutoVerifyCase("multifile_empty", "animate", {"status": "browser_smoke_failed", "reason": "animation_not_detected"}, "failed", None, ("visual_contract_failed",)),
     AutoVerifyCase("expected_text_missing", "show page", {"status": "browser_smoke_failed", "reason": "expected_text_missing"}, "failed", None, ("browser_smoke_failed:expected_text_missing",)),
     AutoVerifyCase("color_named_keyframes", "rainbow text", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
-    AutoVerifyCase("color_named_keyframes", "make it move around", {"status": "browser_smoke_failed", "reason": "animation_not_detected"}, "failed", None, ("visual_contract_failed", "visual_missing:motion_signal")),
+    AutoVerifyCase("color_named_keyframes", "make it move around", {"status": "browser_smoke_failed", "reason": "animation_not_detected"}, "failed", None, ("visual_contract_failed", "visual_missing:motion_detectable")),
     AutoVerifyCase("transition_color", "color change on load", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
 ]
+
+
+# New fixtures for contract-aware pipeline tests
+FIXTURES.update({
+    "static_page_no_animation": """\
+<!doctype html><html><head><title>Company</title></head>
+<body>
+  <h1>Acme Corp</h1>
+  <p>We build great products.</p>
+  <ul><li>Product A</li><li>Product B</li></ul>
+</body></html>
+""",
+    "chart_bar": """\
+<!doctype html><html><head>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head><body>
+<canvas id="myChart"></canvas>
+<script>
+const ctx = document.getElementById('myChart').getContext('2d');
+new Chart(ctx, {
+  type: 'bar',
+  data: {
+    labels: ['Jan', 'Feb', 'Mar'],
+    datasets: [{ label: 'Sales', data: [10, 20, 15] }]
+  }
+});
+</script></body></html>
+""",
+    "ui_form": """\
+<!doctype html><html><body>
+<form id="contact" action="#" method="post">
+  <label for="name">Name</label>
+  <input id="name" type="text" name="name" required />
+  <label for="email">Email</label>
+  <input id="email" type="email" name="email" required />
+  <button type="submit">Submit</button>
+</form>
+</body></html>
+""",
+    "canvas_balls": """\
+<!doctype html><html><body>
+<canvas id="c" width="300" height="200"></canvas>
+<script>
+const ctx = document.getElementById('c').getContext('2d');
+const balls = [{x:50,y:50,vx:2,vy:2,r:10}];
+function draw() {
+  ctx.clearRect(0,0,300,200);
+  for (const b of balls) {
+    b.x += b.vx; b.y += b.vy;
+    if (b.x < 0 || b.x > 300) b.vx *= -1;
+    if (b.y < 0 || b.y > 200) b.vy *= -1;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+    ctx.fillStyle = 'steelblue'; ctx.fill();
+  }
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script></body></html>
+""",
+})
 
 
 def write_fixture(tmp_path: Path, name: str) -> Path:
