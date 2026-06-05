@@ -129,16 +129,59 @@ class AtlasPlaywrightSmokeVerifier:
     - Results are supplemental to the static contract (AtlasVisualArtifactVerifier).
     """
 
-    def verify(self, html_path: str | Path, *, task_description: str = "",
-               expected_text: str | None = None) -> dict:
+    def verify(
+        self,
+        html_path: str | Path,
+        *,
+        task_description: str = "",
+        expected_text: str | None = None,
+        contract_id: str | None = None,
+    ) -> dict:
+        """Run browser smoke verification.
+
+        When contract_id is provided the verifier selects only the checks that
+        are relevant for that contract type:
+          static_html_visual_v1        — page loads + no hard JS errors; no animation sampling
+          animated_dom_visual_v1       — style-change sampling; canvas NOT required
+          ui_component_visual_v1       — page loads + controls; optional interaction smoke
+          interactive_web_app_visual_v1— page loads + state-change smoke
+          canvas_animation_visual_v1   — canvas + frame changes required; no input/game state
+          canvas_game_visual_v1        — full canvas + loop + optional input/game checks
+          chart_visualization_v1       — page loads + chart element; no animation sampling
+          None (legacy)                — falls back to keyword-based is_anim detection
+        """
         html_path = Path(html_path).resolve()
         if not html_path.exists():
-            return self._result("browser_smoke_failed", reason="html_file_missing")
+            return self._result("browser_smoke_failed", reason="html_file_missing",
+                                contract_id=contract_id)
 
         if not _PLAYWRIGHT_AVAILABLE:
-            return self._result("browser_smoke_skipped", reason="playwright_not_installed")
+            return self._result("browser_smoke_skipped", reason="playwright_not_installed",
+                                contract_id=contract_id)
 
-        is_anim = _is_animation_task(task_description)
+        # Determine animation/canvas requirements from contract when available.
+        # This prevents static_html or chart tasks from polling for style/canvas changes.
+        _STATIC_CONTRACTS = {"static_html_visual_v1", "chart_visualization_v1"}
+        _ANIMATION_CONTRACTS = {
+            "animated_dom_visual_v1", "ui_component_visual_v1",
+            "interactive_web_app_visual_v1",
+        }
+        _CANVAS_CONTRACTS = {"canvas_animation_visual_v1", "canvas_game_visual_v1"}
+
+        if contract_id in _STATIC_CONTRACTS:
+            require_animation = False
+            require_canvas = False
+        elif contract_id in _CANVAS_CONTRACTS:
+            require_animation = False   # canvas frame check replaces style-change check
+            require_canvas = True
+        elif contract_id in _ANIMATION_CONTRACTS:
+            require_animation = True
+            require_canvas = False
+        else:
+            # Legacy fallback: keyword-based detection
+            require_animation = _is_animation_task(task_description)
+            require_canvas = False   # canvas will be checked only if animation polling finds it
+
         console_errors: list[str] = []
         serve_warnings: list[str] = []
 
@@ -167,7 +210,8 @@ class AtlasPlaywrightSmokeVerifier:
                 }:
                     browser.close()
                     return self._result("browser_smoke_failed", reason=self._js_error_reason(diagnostic),
-                                        console_errors=console_errors, diagnostics=diagnostic)
+                                        console_errors=console_errors, diagnostics=diagnostic,
+                                        contract_id=contract_id)
 
                 # Check expected visible text
                 if expected_text:
@@ -176,39 +220,92 @@ class AtlasPlaywrightSmokeVerifier:
                     except Exception:
                         browser.close()
                         return self._result("browser_smoke_failed", reason="expected_text_missing",
-                                            console_errors=console_errors)
+                                            console_errors=console_errors, contract_id=contract_id)
 
-                # For animation/canvas-game tasks: computed style alone misses most
-                # canvas games because pixels mutate while canvas CSS stays constant.
-                # First check styles, then sample canvas pixels/toDataURL over file:// only.
-                if is_anim:
-                    # Many generated games gate their loop on a first interaction (click to
-                    # start / key to move). A single guarded nudge starts them before sampling
-                    # so an interaction-gated animation isn't reported as "not detected".
+                # --- Static-only contracts: skip all animation/canvas sampling ---
+                if contract_id in _STATIC_CONTRACTS:
+                    browser.close()
+                    return self._result(
+                        "browser_smoke_passed",
+                        console_errors=console_errors,
+                        diagnostics=self._diagnostics({}, serve_warnings),
+                        contract_id=contract_id,
+                    )
+
+                # --- Canvas contracts: require canvas frame changes ---
+                if require_canvas:
                     self._nudge_interaction(page)
-                    style_changed = self._check_style_changes_over_time(page)
                     canvas = self._check_canvas_changes_over_time(page)
                     browser.close()
-                    if style_changed or canvas.get("changed"):
-                        return self._result("browser_smoke_passed", console_errors=console_errors,
-                                            diagnostics=self._diagnostics({"style_changed": style_changed, "canvas": canvas}, serve_warnings))
-                    if canvas.get("warning"):
-                        return self._result("browser_smoke_failed",
-                                            reason=f"animation_not_detected:{canvas['warning']}",
-                                            console_errors=console_errors, diagnostics=self._diagnostics({"canvas": canvas}, serve_warnings))
-                    return self._result("browser_smoke_failed",
-                                        reason="animation_not_detected",
-                                        console_errors=console_errors, diagnostics=self._diagnostics({"canvas": canvas}, serve_warnings))
-                else:
+                    if canvas.get("changed"):
+                        return self._result(
+                            "browser_smoke_passed",
+                            console_errors=console_errors,
+                            diagnostics=self._diagnostics({"canvas": canvas}, serve_warnings),
+                            contract_id=contract_id,
+                        )
+                    if not canvas.get("present"):
+                        return self._result(
+                            "browser_smoke_failed",
+                            reason="canvas_frame_not_detected:canvas_missing",
+                            console_errors=console_errors,
+                            diagnostics=self._diagnostics({"canvas": canvas}, serve_warnings),
+                            contract_id=contract_id,
+                        )
+                    warning = canvas.get("warning", "no_frame_change")
+                    return self._result(
+                        "browser_smoke_failed",
+                        reason=f"canvas_frame_not_detected:{warning}",
+                        console_errors=console_errors,
+                        diagnostics=self._diagnostics({"canvas": canvas}, serve_warnings),
+                        contract_id=contract_id,
+                    )
+
+                # --- Animation contracts (DOM/CSS): style-change sampling, canvas NOT required ---
+                if require_animation:
+                    # Many generated animations gate their loop on a first interaction.
+                    # A single guarded nudge starts them before sampling.
+                    self._nudge_interaction(page)
+                    style_changed = self._check_style_changes_over_time(page)
+                    # For animated_dom contracts, canvas changes are acceptable as secondary evidence
+                    # but canvas is NOT required.
+                    canvas = self._check_canvas_changes_over_time(page) if not style_changed else {}
                     browser.close()
-                    # Static HTML with no animation — would fail for animation tasks, but here
-                    # task is not animation, so we just verify page loaded without errors
-                    if js_errors:
-                        return self._result("browser_smoke_failed", reason="js_error",
-                                            console_errors=console_errors)
+                    if style_changed or canvas.get("changed"):
+                        return self._result(
+                            "browser_smoke_passed",
+                            console_errors=console_errors,
+                            diagnostics=self._diagnostics({"style_changed": style_changed, "canvas": canvas}, serve_warnings),
+                            contract_id=contract_id,
+                        )
+                    # Contract-aware path uses motion_not_detected (signal name);
+                    # legacy fallback (no contract_id) keeps the original animation_not_detected.
+                    _base_reason = "motion_not_detected" if contract_id else "animation_not_detected"
+                    if canvas.get("warning"):
+                        return self._result(
+                            "browser_smoke_failed",
+                            reason=f"{_base_reason}:{canvas['warning']}",
+                            console_errors=console_errors,
+                            diagnostics=self._diagnostics({"canvas": canvas}, serve_warnings),
+                            contract_id=contract_id,
+                        )
+                    return self._result(
+                        "browser_smoke_failed",
+                        reason=_base_reason,
+                        console_errors=console_errors,
+                        diagnostics=self._diagnostics({"canvas": canvas}, serve_warnings),
+                        contract_id=contract_id,
+                    )
+
+                # --- No animation required (static page, non-animation component) ---
+                browser.close()
+                if js_errors:
+                    return self._result("browser_smoke_failed", reason="js_error",
+                                        console_errors=console_errors, contract_id=contract_id)
 
                 return self._result("browser_smoke_passed", console_errors=console_errors,
-                                    diagnostics=self._diagnostics({}, serve_warnings))
+                                    diagnostics=self._diagnostics({}, serve_warnings),
+                                    contract_id=contract_id)
 
         except Exception as exc:  # noqa: BLE001
             # The python package can be importable while the browser binary is missing
@@ -221,10 +318,11 @@ class AtlasPlaywrightSmokeVerifier:
                     "browser_smoke_skipped",
                     reason="playwright_browser_not_installed: run `playwright install chromium`",
                     console_errors=console_errors,
+                    contract_id=contract_id,
                 )
             detail = f"{type(exc).__name__}: {exc}".strip().rstrip(":").strip()
             return self._result("browser_smoke_failed", reason=f"playwright_error: {detail}",
-                                console_errors=console_errors)
+                                console_errors=console_errors, contract_id=contract_id)
 
     def _nudge_interaction(self, page) -> None:
         """Best-effort: start interaction-gated animations/games with one click in the
@@ -479,7 +577,14 @@ class AtlasPlaywrightSmokeVerifier:
         return out
 
     @staticmethod
-    def _result(status: str, *, reason: str = "", console_errors: list | None = None, diagnostics: dict | str | None = None) -> dict:
+    def _result(
+        status: str,
+        *,
+        reason: str = "",
+        console_errors: list | None = None,
+        diagnostics: dict | str | None = None,
+        contract_id: str | None = None,
+    ) -> dict:
         out: dict = {"status": status}
         if reason:
             out["reason"] = reason
@@ -487,4 +592,6 @@ class AtlasPlaywrightSmokeVerifier:
             out["console_errors"] = console_errors
         if diagnostics:
             out["diagnostics"] = diagnostics
+        if contract_id is not None:
+            out["contract_id"] = contract_id
         return out

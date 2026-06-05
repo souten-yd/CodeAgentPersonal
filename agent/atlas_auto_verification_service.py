@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -9,7 +10,15 @@ from agent.atlas_playwright_smoke_verifier import AtlasPlaywrightSmokeVerifier
 from agent.atlas_requirement_tracer import AtlasRequirementTracer
 from agent.atlas_verification_allowlist import atlas_verification_allowlist
 from agent.atlas_visual_artifact_verifier import AtlasVisualArtifactVerifier
+from agent.atlas_visual_contract_registry import VisualContract, VisualContractRegistry
+from agent.atlas_visual_failure_taxonomy import failures_from_missing_signals
+from agent.atlas_visual_requirement_normalizer import VisualRequirementNormalizer
+from agent.atlas_visual_task_classifier import VisualTaskClassifier
 from agent.test_command_runner_schema import AtlasTestCommandRequest
+
+_normalizer = VisualRequirementNormalizer()
+_classifier = VisualTaskClassifier()
+_registry = VisualContractRegistry()
 
 # Keywords in goal/done_definition/root_goal that mark a visual artifact task.
 _VISUAL_KEYWORDS = (
@@ -194,16 +203,37 @@ class AtlasAutoVerificationService:
     def _evaluate_visual(self, html_path: Path, task_desc: str) -> dict:
         """Run static visual contract + optional Playwright smoke; classify hard/soft outcomes.
 
+        Now contract-aware: normaliser → classifier → contract registry determines which
+        signals are required/forbidden before the verifiers are called.  Classification and
+        contract are returned for persistence in pool metadata.
+
         Returns:
             {
-              static, smoke, warnings, hard_failed, soft, verify_level
+              static, smoke, warnings, hard_failed, soft, verify_level,
+              classification, contract_id, structured_failures,
             }
         A browser_smoke_failed with a hard reason (js_error / expected_text_missing /
         html_file_missing) is a real defect. A soft reason (style-sampling / playwright_error)
         only warns when the static contract already passes.
         """
-        static_res = self.visual_verifier.verify_static(html_path, task_description=task_desc)
-        smoke = self.playwright_verifier.verify(html_path, task_description=task_desc)
+        normalized = _normalizer.normalize(task_desc)
+        classification = _classifier.classify(normalized, task_desc)
+        contract: VisualContract = _registry.select(classification)
+
+        # Promote task-specific optional signals to required based on what the user asked for
+        extra_required: list[str] = []
+        if normalized.motion_types:
+            extra_required.append("motion_detectable")
+        if normalized.color_types:
+            extra_required.append("color_change_detectable")
+
+        static_res = self.visual_verifier.verify_static(
+            html_path, task_description=task_desc, contract=contract,
+            extra_required_signals=extra_required,
+        )
+        smoke = self.playwright_verifier.verify(
+            html_path, task_description=task_desc, contract_id=contract.contract_id
+        )
         warnings: list[str] = []
         static_failed = str(static_res.get("status")) == "failed"
         smoke_status = str(smoke.get("status"))
@@ -244,10 +274,26 @@ class AtlasAutoVerificationService:
         else:
             verify_level = "static_checked"
 
+        # Build structured failures from missing signals using the selected contract
+        structured_failures = failures_from_missing_signals(
+            list((static_res or {}).get("missing") or []),
+            contract_id=contract.contract_id,
+            repair_profile=contract.repair_profile,
+            failure_message_template=contract.failure_message_template,
+            artifact_type=classification.artifact_type,
+            visual_intent=classification.visual_intent,
+            auto_repair_allowed=not hard_failed,
+        )
+
         return {
             "static": static_res, "smoke": smoke, "warnings": warnings,
             "hard_failed": hard_failed, "soft": smoke_soft, "verify_level": verify_level,
             "static_overridden": static_overridden,
+            "classification": asdict(classification),
+            "contract_id": contract.contract_id,
+            "contract_repair_profile": contract.repair_profile,
+            "structured_failures": [f.to_dict() for f in structured_failures],
+            "normalized_requirement": asdict(normalized),
         }
 
     def _run_visual_verification(self, pool, item, request, workspace_root: str, html_rel: str):
@@ -256,7 +302,11 @@ class AtlasAutoVerificationService:
         html_path = Path(workspace_root) / html_rel
         ev = self._evaluate_visual(html_path, self._visual_task_description(item, pool))
         warnings = list(ev["warnings"])
-        metadata: dict = {"workspace_root": workspace_root, "visual_contract": ev["static"], "browser_smoke": ev["smoke"]}
+        metadata: dict = {
+            "workspace_root": workspace_root,
+            "visual_contract": ev["static"],
+            "browser_smoke": ev["smoke"],
+        }
         missing = list((ev["static"] or {}).get("missing") or [])
         # A runtime smoke pass overrides static misses (advisory only); only attribute the failure
         # to a static miss when the item genuinely hard-failed.
@@ -264,6 +314,14 @@ class AtlasAutoVerificationService:
             metadata["primary_verification_reason"] = f"visual_missing:{missing[0]}"
         if ev["verify_level"]:
             metadata["verify_level"] = ev["verify_level"]
+
+        # Persist classification, contract, and structured failures for debugging/UI
+        metadata["visual_contract_id"] = ev.get("contract_id", "")
+        metadata["visual_contract_repair_profile"] = ev.get("contract_repair_profile", "")
+        metadata["visual_classification"] = ev.get("classification", {})
+        metadata["visual_structured_failures"] = ev.get("structured_failures", [])
+        metadata["normalized_requirement"] = ev.get("normalized_requirement", {})
+
         status = "failed" if ev["hard_failed"] else "passed"
         coverage = self._requirement_coverage(pool, item, workspace_root, status=status)
         metadata["requirement_coverage"] = coverage
@@ -288,9 +346,23 @@ class AtlasAutoVerificationService:
         item.metadata["auto_verification"].update({
             "status": status, "source": "visual_artifact",
             "visual_contract_status": ev["static"].get("status"),
+            "visual_contract_id": ev.get("contract_id", ""),
             "browser_smoke_status": ev["smoke"].get("status"),
             "verified_at": datetime.now(timezone.utc).isoformat(),
         })
+
+        # Persist classification + contract in pool metadata for UI observability
+        pool.metadata.setdefault("visual_pipeline", {})
+        pool.metadata["visual_pipeline"].update({
+            "visual_contract_id": ev.get("contract_id", ""),
+            "artifact_type": (ev.get("classification") or {}).get("artifact_type", ""),
+            "visual_intent": (ev.get("classification") or {}).get("visual_intent", ""),
+            "repair_profile": ev.get("contract_repair_profile", ""),
+            "structured_failures": ev.get("structured_failures", []),
+            "missing_signals": missing,
+            "verified_at": datetime.now(timezone.utc).isoformat(),
+        })
+
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
         out.plan_pool = pool.model_dump()
