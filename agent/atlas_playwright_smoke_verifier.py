@@ -30,6 +30,16 @@ def _is_animation_task(task_description: str) -> bool:
     return any(hint in desc for hint in _ANIMATION_TASK_HINT)
 
 
+# Playwright raises this class of error when the python package is present but the
+# browser binary was never downloaded (``playwright install``). The message is stable
+# across platforms ("Executable doesn't exist at ... playwright install").
+def _is_browser_not_installed_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "executable doesn't exist" in msg or (
+        "playwright install" in msg and "browsertype.launch" in msg
+    )
+
+
 class _QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
     """SimpleHTTPRequestHandler that doesn't spam stderr with per-request log lines."""
 
@@ -152,6 +162,17 @@ class AtlasPlaywrightSmokeVerifier:
                 return self._result("browser_smoke_passed", console_errors=console_errors)
 
         except Exception as exc:  # noqa: BLE001
+            # The python package can be importable while the browser binary is missing
+            # (a fresh machine that never ran ``playwright install``). That surfaced as an
+            # opaque ``playwright_error`` and got treated as a visual *failure*, hiding the
+            # one actionable fix. Detect it and report a clear, install-guided *skip* — the
+            # same soft handling as a missing package — instead of a product defect.
+            if _is_browser_not_installed_error(exc):
+                return self._result(
+                    "browser_smoke_skipped",
+                    reason="playwright_browser_not_installed: run `playwright install chromium`",
+                    console_errors=console_errors,
+                )
             return self._result("browser_smoke_failed", reason=f"playwright_error: {exc}",
                                 console_errors=console_errors)
 

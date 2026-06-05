@@ -5,7 +5,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from agent.atlas_playwright_smoke_verifier import AtlasPlaywrightSmokeVerifier, _PLAYWRIGHT_AVAILABLE
+from agent.atlas_playwright_smoke_verifier import (
+    AtlasPlaywrightSmokeVerifier,
+    _PLAYWRIGHT_AVAILABLE,
+    _is_browser_not_installed_error,
+)
 
 _VFY = AtlasPlaywrightSmokeVerifier()
 
@@ -49,6 +53,37 @@ def test_playwright_unavailable_returns_skipped(tmp_path):
         result = vfy.verify(f, task_description='animate')
     assert result['status'] == 'browser_smoke_skipped'
     assert result['reason'] == 'playwright_not_installed'
+
+
+def test_browser_not_installed_error_is_detected():
+    # The python package is importable but the browser binary was never downloaded.
+    # Playwright's real message on a fresh machine (stable across platforms).
+    msg = (
+        "BrowserType.launch: Executable doesn't exist at "
+        "C:\\Users\\x\\AppData\\Local\\ms-playwright\\chromium-1208\\chrome-win\\chrome.exe\n"
+        "Please run the following command to download new browsers:\n"
+        "    playwright install"
+    )
+    assert _is_browser_not_installed_error(Exception(msg)) is True
+
+
+def test_genuine_runtime_error_is_not_browser_not_installed():
+    assert _is_browser_not_installed_error(Exception("Timeout 10000ms exceeded")) is False
+    assert _is_browser_not_installed_error(Exception("net::ERR_CONNECTION_REFUSED")) is False
+
+
+def test_browser_not_installed_maps_to_skipped(tmp_path):
+    """A missing browser binary surfaces as a clear, install-guided skip — not a
+    visual *failure* that would be mistaken for a product defect."""
+    f = tmp_path / 'index.html'
+    f.write_text(_STATIC_HTML, encoding='utf-8')
+    vfy = AtlasPlaywrightSmokeVerifier()
+    boom = Exception("BrowserType.launch: Executable doesn't exist ... playwright install")
+    with patch('agent.atlas_playwright_smoke_verifier._PLAYWRIGHT_AVAILABLE', True), \
+            patch('agent.atlas_playwright_smoke_verifier.sync_playwright', side_effect=boom, create=True):
+        result = vfy.verify(f, task_description='animate color')
+    assert result['status'] == 'browser_smoke_skipped'
+    assert result['reason'].startswith('playwright_browser_not_installed')
 
 
 def test_missing_html_file_returns_failed(tmp_path):
