@@ -169,7 +169,7 @@ python -m pytest \
 - [x] WP-7 キーワード単語境界整合（実装+テスト）
 - [ ] WP-8 将来パターン（任意 / TODO 記載可）
 - [x] 全体検証ゲート通過・既存緑・回帰なし
-- [x] 本書末尾に「実装完了サマリ」追記、ブランチへ push（PR は未作成）
+- [x] 本書末尾に「実装完了サマリ」追記、ブランチへ push・PR #1575 作成/マージ
 
 ## ガードレール
 
@@ -195,4 +195,4 @@ python -m pytest \
 - 検証: `python -m pytest tests\test_visual_contract_matrix.py tests\test_atlas_visual_artifact_verifier.py tests\test_atlas_playwright_smoke_verifier.py tests\test_atlas_auto_verification_service.py tests\test_atlas_pr8_visual_verification_wiring.py tests\test_atlas_pr9_visual_depth.py -q` → `102 passed in 58.42s`。
 - 検証: `python -m unittest tests.test_phase30_0_debug_test_harness_contract tests.test_phase29_0_plan_approval_gate_readiness_contract tests.test_phase29_0c_plan_approval_invalid_selector_guard_contract tests.test_phase29_1_plan_approval_actionability_contract tests.test_phase31_2_atlas_mobile_ui_cleanup_contract tests.test_phase31_3_atlas_workflow_lifecycle_contract` → `Ran 76 tests in 0.351s` / `OK`。
 - 残 TODO: WP-8 は任意扱い。将来パターンとして JS `innerHTML` 構築、操作必須アニメの `_nudge_interaction` 強化、requirement_coverage の語幹/複数形許容を継続候補として残す。
-- PR: 未作成。マージも未実施。
+- PR: #1575 作成・マージ済み（merge commit `e3cef96a6615a02ae8c254cc97c0bf1c9c9adb25`）。
