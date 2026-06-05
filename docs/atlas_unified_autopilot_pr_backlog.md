@@ -21,6 +21,7 @@
 - PR-ATLAS-PLAN-WATCHDOG: planned（詳細指示は `docs/atlas_codex_plan_watchdog_instruction.md`／入口は `AGENTS.md`）
 - PR-ATLAS-VISUAL-FALSENEG: planned（詳細指示は `docs/atlas_codex_visual_contract_falsenegative_instruction.md`／入口は `AGENTS.md`）
 - GOAL-VISUAL+WATCHDOG: planned（上記2件を連続実装する統括ランブック `docs/atlas_codex_goal_visual_and_watchdog.md`）
+- GOAL-VISUAL-TEST-COVERAGE: planned（Playwright/視覚検証の網羅テスト＋既存実装改良。指示書＋ゴール一体 `docs/atlas_codex_visual_test_coverage_instruction.md`）
 
 ## PR-ATLAS-PIPE-0: 計画書とチャット継続用docs追加
 
