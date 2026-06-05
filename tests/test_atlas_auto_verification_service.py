@@ -3,8 +3,10 @@ from pathlib import Path
 from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest
 from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
+from agent.atlas_requirement_tracer import AtlasRequirementTracer
 from agent.test_command_runner import TestCommandRunner
 
 
@@ -135,6 +137,71 @@ def test_auto_verification_records_requirement_coverage_when_acceptance_matches(
     assert r.status == 'passed'
     assert r.metadata['requirement_coverage']['success_eligible'] is True
     assert r.metadata['requirement_coverage']['by_status']['verified'] >= 1
+
+
+def test_auto_verification_allows_first_item_when_pool_requirement_is_incomplete(tmp_path):
+    (tmp_path / 'tests').mkdir(parents=True, exist_ok=True)
+    (tmp_path / 'tests' / 'test_ok.py').write_text('def test_ok():\n    assert True\n', encoding='utf-8')
+    (tmp_path / 'index.html').write_text('<!doctype html><h1>Hello World</h1>', encoding='utf-8')
+    shared_pool_done = [
+        'Hello World text is visible',
+        'Rainbow CSS animation is implemented',
+    ]
+    item_1 = AtlasPlanItem(
+        item_id='item_001',
+        pool_id='pool_1',
+        title='Create Hello World scaffold',
+        goal='Create Hello World HTML page',
+        status='ready',
+        target_files=['index.html'],
+        done_definition=shared_pool_done,
+        metadata={
+            'safe_apply': {'status': 'applied', 'changed_files': ['index.html']},
+            'verification': {'command_id': 'pytest_selected', 'test_path': 'tests/test_ok.py'},
+            'original_step_payload': {'title': 'Create Hello World scaffold', 'goal': 'Create Hello World HTML page'},
+        },
+    )
+    item_2 = AtlasPlanItem(
+        item_id='item_002',
+        pool_id='pool_1',
+        title='Add rainbow CSS',
+        goal='Add rainbow CSS animation',
+        status='queued',
+        target_files=['index.html'],
+        done_definition=shared_pool_done,
+        metadata={'original_step_payload': {'title': 'Add rainbow CSS', 'goal': 'Add rainbow CSS animation'}},
+    )
+    pool = AtlasPlanPool(
+        pool_id='pool_1',
+        root_goal='Create a Hello World page. Add rainbow CSS animation.',
+        project_path=str(tmp_path),
+        status='approved',
+        items=[item_1, item_2],
+        metadata={
+            'requirement_trace': AtlasRequirementTracer().extract_requirements(
+                'Create a Hello World page. Add rainbow CSS animation.'
+            ),
+        },
+    )
+    storage = AtlasPlanPoolStorage(tmp_path)
+    journal = AtlasJournal(tmp_path)
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=_runner())
+    r = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id='pool_1', item_id='item_001', run_id='r1'))
+
+    assert r.status == 'passed'
+    assert 'requirement_coverage_incomplete' not in r.warnings
+    item_coverage = r.metadata['requirement_coverage']
+    assert item_coverage['scope'] == 'item'
+    assert item_coverage['success_eligible'] is True
+    assert item_coverage['by_status']['verified'] >= 1
+    pool_coverage = r.metadata['pool_requirement_coverage']
+    assert pool_coverage['scope'] == 'pool'
+    assert pool_coverage['progress_only'] is True
+    assert pool_coverage['all_verified'] is False
+    assert pool_coverage['by_status'].get('partial', 0) >= 1
 
 
 def test_auto_verification_fails_but_does_not_restore_debug_or_patch(tmp_path):

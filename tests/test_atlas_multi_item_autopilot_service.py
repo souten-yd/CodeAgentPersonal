@@ -1,11 +1,16 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+from agent.atlas_auto_verification_service import AtlasAutoVerificationService
+from agent.atlas_journal import AtlasJournal
 from agent.atlas_multi_item_autopilot_schema import AtlasMultiItemAutopilotRequest
 from agent.atlas_multi_item_autopilot_service import AtlasMultiItemAutopilotService, _repair_subphase_detail
 from agent.atlas_multi_item_autopilot_policies import list_multi_item_policies
 from agent.atlas_automation_gate_service import AtlasAutomationGateService
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
+from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_requirement_tracer import AtlasRequirementTracer
+from agent.test_command_runner import TestCommandRunner
 
 
 def test_policies_present():
@@ -106,6 +111,126 @@ def test_full_auto_multi_item_passes_full_auto_preset(tmp_path):
     assert [p["name"] for p in phases] == ["safe_apply", "verify", "done"]
     assert phases[0]["detail"]["changed_files"] == ["a.txt"]
     assert phases[1]["detail"]["output_summary"] == ""
+
+
+def test_multi_item_autopilot_continues_after_first_item_pool_coverage_partial(tmp_path):
+    (tmp_path / 'tests').mkdir(parents=True, exist_ok=True)
+    (tmp_path / 'tests' / 'test_ok.py').write_text('def test_ok():\n    assert True\n', encoding='utf-8')
+    shared_pool_done = [
+        'Hello World text is visible',
+        'Rainbow CSS animation is implemented',
+    ]
+    pool = AtlasPlanPool(
+        pool_id='p1',
+        root_goal='Create a Hello World page. Add rainbow CSS animation.',
+        project_path=str(tmp_path),
+        status='approved',
+        items=[
+            AtlasPlanItem(
+                item_id='item_001',
+                pool_id='p1',
+                title='Create Hello World scaffold',
+                goal='Create Hello World HTML page',
+                item_type='implementation',
+                risk_level='medium',
+                status='ready',
+                target_files=['index.html'],
+                done_definition=shared_pool_done,
+                metadata={
+                    'action_type': 'create',
+                    'approval': {'decision': 'approved'},
+                    'proposed_content': '<!doctype html><h1>Hello World</h1>',
+                    'verification': {'command_id': 'pytest_selected', 'test_path': 'tests/test_ok.py'},
+                    'original_step_payload': {'title': 'Create Hello World scaffold', 'goal': 'Create Hello World HTML page'},
+                },
+            ),
+            AtlasPlanItem(
+                item_id='item_002',
+                pool_id='p1',
+                title='Add rainbow CSS',
+                goal='Add rainbow CSS animation',
+                item_type='implementation',
+                risk_level='medium',
+                status='ready',
+                target_files=['index.html'],
+                done_definition=shared_pool_done,
+                metadata={
+                    'action_type': 'update',
+                    'approval': {'decision': 'approved'},
+                    'proposed_content': '<style>.rainbow{animation:shift 2s infinite;color:hsl(120 80% 50%)}</style>',
+                    'verification': {'command_id': 'pytest_selected', 'test_path': 'tests/test_ok.py'},
+                    'original_step_payload': {'title': 'Add rainbow CSS', 'goal': 'Add rainbow CSS animation'},
+                },
+            ),
+        ],
+        metadata={
+            'requirement_trace': AtlasRequirementTracer().extract_requirements(
+                'Create a Hello World page. Add rainbow CSS animation.'
+            ),
+        },
+    )
+    storage = AtlasPlanPoolStorage(tmp_path)
+    journal = AtlasJournal(tmp_path)
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+
+    class AutoSafe:
+        def execute_one(self, request):
+            reloaded = storage.load_pool(request.pool_id)
+            item = reloaded.get_item(request.item_id)
+            if request.item_id == 'item_001':
+                content = '<!doctype html><h1>Hello World</h1>'
+            else:
+                content = (
+                    '<!doctype html><h1>Hello World</h1>'
+                    '<style>.rainbow{animation:shift 2s infinite;color:hsl(120 80% 50%)}'
+                    '@keyframes shift{from{filter:hue-rotate(0deg)}to{filter:hue-rotate(360deg)}}'
+                    '</style>'
+                )
+            (tmp_path / 'index.html').write_text(content, encoding='utf-8')
+            item.metadata.setdefault('safe_apply', {})
+            item.metadata['safe_apply'].update({'status': 'applied', 'changed_files': ['index.html']})
+            storage.save_pool(reloaded)
+            journal.save_plan_pool(reloaded)
+            return SimpleNamespace(
+                status='applied',
+                changed_files=['index.html'],
+                model_dump=lambda: {
+                    'status': 'applied',
+                    'changed_files': ['index.html'],
+                    'actual_file_changed': True,
+                    'file_results': [{'path': 'index.html', 'status': 'applied'}],
+                },
+            )
+
+    runner = TestCommandRunner(allowed_commands=['python -m pytest -q', 'pytest -q'])
+    svc = AtlasMultiItemAutopilotService(
+        storage=storage,
+        journal=journal,
+        automation_gate=AtlasAutomationGateService(),
+        auto_safe_apply_service=AutoSafe(),
+        auto_verification_service=AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=runner),
+        context_refresh_service=SimpleNamespace(refresh=lambda request: SimpleNamespace(status='available', bundle_id='ctx1')),
+        evaluator_service=SimpleNamespace(evaluate=lambda request: SimpleNamespace(metadata={'eval_id': 'ev1'}, decision=SimpleNamespace(model_dump=lambda: {'decision': 'continue'}))),
+    )
+
+    out = svc.run(AtlasMultiItemAutopilotRequest(
+        pool_id='p1',
+        project_path=str(tmp_path),
+        policy_id='full_auto_multi_item_v1',
+        require_approval=False,
+        include_context_refresh=False,
+        include_evaluator=False,
+        include_harness_provisioning=False,
+        include_self_correction=False,
+    ))
+
+    assert out.status == 'completed'
+    assert out.processed_count == 2
+    assert [r.status for r in out.item_results] == ['completed', 'completed']
+    assert out.stop_reason == ''
+    assert 'requirement_coverage_incomplete' not in out.warnings
+    assert out.metadata['quality_rollup']['requirement_coverage']['all_verified'] is True
 
 
 def test_self_correction_receives_actual_changed_files_and_file_results(tmp_path):
