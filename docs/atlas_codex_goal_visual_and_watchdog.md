@@ -40,8 +40,8 @@ Codex は進捗に応じて本リストと各指示書内のチェックボッ�
 - [x] S1: 視覚コントラクト修正の実装（指示書 A/B）完了
 - [x] S1: 視覚コントラクト修正のテスト緑（`tests/test_atlas_visual_artifact_verifier.py` ほか）
 - [x] S1: 指示書「受け入れ基準」全チェック更新済み・コミット済み
-- [ ] S2-P1: ウォッチドッグ Phase 1 実装完了
-- [ ] S2-P1: Phase 1 テスト緑（status の is_stalled / poller 契約 / progress_cb 透過）
+- [x] S2-P1: ウォッチドッグ Phase 1 実装完了
+- [x] S2-P1: Phase 1 テスト緑（status の is_stalled / poller 契約 / progress_cb 透過）
 - [ ] S2-P2: ウォッチドッグ Phase 2 実装完了
 - [ ] S2-P2: Phase 2 テスト緑（streaming / inactivity timeout / トークン heartbeat）
 - [ ] S2: 指示書「受け入れ基準」全チェック更新済み・コミット済み

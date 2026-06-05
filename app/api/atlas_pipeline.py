@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 class _AppOnlyRequest:
@@ -670,6 +671,68 @@ def _write_plan_pool_job(ca_data_root: Path, pool_id: str, payload: dict) -> Non
         pass
 
 
+def _merge_plan_pool_job(ca_data_root: Path, pool_id: str, patch: dict) -> None:
+    path = _plan_pool_jobs_dir(ca_data_root) / f"{pool_id}.json"
+    try:
+        current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except Exception:
+        current = {}
+    if str(current.get("status") or "") in {"ready", "failed"} and "status" not in patch:
+        return
+    current.update(dict(patch or {}))
+    _write_plan_pool_job(ca_data_root, pool_id, current)
+
+
+def _seconds_since_iso(value: Any) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds())
+    except Exception:
+        return None
+
+
+def _latest_iso(*values: Any) -> str:
+    latest: datetime | None = None
+    latest_text = ""
+    for raw in values:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        try:
+            normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.astimezone(timezone.utc)
+        except Exception:
+            continue
+        if latest is None or dt > latest:
+            latest = dt
+            latest_text = text
+    return latest_text
+
+
+def _plan_stall_after_sec() -> float:
+    try:
+        return max(1.0, float(os.environ.get("ATLAS_PLAN_STALL_AFTER_SEC", "120") or "120"))
+    except Exception:
+        return 120.0
+
+
+def _plan_absolute_max_sec() -> float:
+    try:
+        return max(1.0, float(os.environ.get("ATLAS_PLAN_ABSOLUTE_MAX_SEC", "2700") or "2700"))
+    except Exception:
+        return 2700.0
+
+
 @router.post("/plan-pools")
 def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Query(0)) -> Any:
     root_goal = (req.input or "").strip()
@@ -691,12 +754,47 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
         app_ref = request.app
 
         def _runner() -> None:
-            _write_plan_pool_job(ca_data_root, pool_id, {"pool_id": pool_id, "status": "running", "created_at": now})
+            running_at = datetime.now(timezone.utc).isoformat()
+            _write_plan_pool_job(ca_data_root, pool_id, {
+                "pool_id": pool_id,
+                "status": "running",
+                "created_at": now,
+                "last_progress_at": running_at,
+                "phase": "starting",
+                "phase_index": 0,
+                "phase_total": 0,
+            })
+            pending_progress: dict[str, Any] = {}
+            last_write_monotonic = 0.0
+            last_phase = ""
+
+            def heartbeat(**details: Any) -> None:
+                nonlocal last_write_monotonic, last_phase
+                now_iso = datetime.now(timezone.utc).isoformat()
+                phase = str(details.get("phase") or pending_progress.get("phase") or last_phase or "running")
+                patch = {
+                    key: value for key, value in dict(details or {}).items()
+                    if value is not None
+                }
+                patch["phase"] = phase
+                patch["last_progress_at"] = now_iso
+                first_token = "last_token_at" in patch and "last_token_at" not in pending_progress
+                pending_progress.update(patch)
+                current_monotonic = time.monotonic()
+                phase_changed = phase != last_phase
+                if not phase_changed and not first_token and current_monotonic - last_write_monotonic < 1.0:
+                    return
+                last_phase = phase
+                last_write_monotonic = current_monotonic
+                _merge_plan_pool_job(ca_data_root, pool_id, dict(pending_progress))
+
             try:
-                result = _create_plan_pool_core(req, app_ref, forced_pool_id=pool_id)
+                result = _create_plan_pool_core(req, app_ref, forced_pool_id=pool_id, progress_cb=heartbeat)
                 _write_plan_pool_job(ca_data_root, pool_id, {
                     "pool_id": result.pool_id, "status": "ready", "created_at": now,
                     "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "last_progress_at": datetime.now(timezone.utc).isoformat(),
+                    "phase": "ready",
                 })
             except Exception as exc:  # noqa: BLE001 — never leak a raw traceback to the UI.
                 _write_plan_pool_job(ca_data_root, pool_id, {
@@ -719,12 +817,38 @@ def get_plan_pool_status(pool_id: str, request: Request, workspace_id: str = Que
     if not path.exists():
         raise HTTPException(status_code=404, detail={"error": "plan_pool_job_not_found", "pool_id": pool_id})
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        return {"pool_id": pool_id, "status": "running"}
+        data = {"pool_id": pool_id, "status": "running"}
+    status = str(data.get("status") or "")
+    progress_at = _latest_iso(data.get("last_token_at"), data.get("last_progress_at"), data.get("created_at"))
+    seconds_since = _seconds_since_iso(progress_at)
+    current_phase = str(data.get("phase") or ("running" if status == "running" else status))
+    is_stalled = bool(
+        status == "running"
+        and seconds_since is not None
+        and seconds_since > _plan_stall_after_sec()
+    )
+    data["seconds_since_progress"] = seconds_since
+    data["is_stalled"] = False if status in {"ready", "failed", "queued"} else is_stalled
+    data["current_phase"] = current_phase
+    data["absolute_max_seconds"] = _plan_absolute_max_sec()
+    if data["is_stalled"]:
+        data["stalled_reason"] = f"LLM生成のheartbeatが{int(seconds_since or 0)}秒更新されていません（フェーズ: {current_phase}）。"
+        data["suggested_action"] = "モデルが応答停止の可能性があります。少し待つか、再実行してください。"
+    else:
+        data.setdefault("stalled_reason", "")
+        data.setdefault("suggested_action", "")
+    return data
 
 
-def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_id: str = "") -> CreatePlanPoolResponse:
+def _create_plan_pool_core(
+    req: CreatePlanPoolRequest,
+    app: Any,
+    *,
+    forced_pool_id: str = "",
+    progress_cb: Callable[..., None] | None = None,
+) -> CreatePlanPoolResponse:
     root_goal = (req.input or "").strip()
     request = _AppOnlyRequest(app)
     # Keep the created pool's id equal to the async job id so the client can poll by it and then fetch
@@ -796,6 +920,7 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
             memory_search_fn=_resolve_callable_state(request, "atlas_memory_search_fn"),
             active_skills_fn=_resolve_callable_state(request, "atlas_active_skills_fn"),
             builder=builder,
+            progress_cb=progress_cb,
         )
         if req.enable_repo_context and (req.project_path or "").strip():
             try:
@@ -858,6 +983,8 @@ def _create_plan_pool_core(req: CreatePlanPoolRequest, app: Any, *, forced_pool_
         review_result = dict(bridge_result.review_result)
         bridge_warnings = list(bridge_result.warnings)
         bridge_errors = list(bridge_result.errors)
+        if not fallback_reason and any("Fallback plan was generated" in str(w) for w in bridge_warnings):
+            fallback_reason = "planner_internal_fallback"
         if bridge_result.status == "waiting_for_clarification" and bridge_result.pool is None:
             response_payload = {
                 "pool_id": "",

@@ -15,13 +15,13 @@
 このファイルが**唯一の正典（source of truth）**。実装は本書を参照しながら進め、各タスク完了時にこのチェックボックスを更新してコミットすること。
 
 ### Phase 1 — フェーズ単位 heartbeat（streaming 不要・誤タイムアウト解消）
-- [ ] T1-1: `app/api/atlas_pipeline.py` に `_merge_plan_pool_job()` と `_seconds_since_iso()` を追加
-- [ ] T1-2: `create_plan_pool._runner`（`693`）で `progress_cb(heartbeat)` を生成し `_create_plan_pool_core(..., progress_cb=...)` へ渡す。`running` 書込みに `last_progress_at` を含める
-- [ ] T1-3: `_create_plan_pool_core`（`727`）→ `AtlasPlannerBridge` → `TaskPlanningRunner.run()` まで `progress_cb` を透過（`None` 時は no-op で後方互換）
-- [ ] T1-4: `TaskPlanningRunner` 各フェーズ開始時に `progress_cb(phase, phase_index, phase_total)` を発火
-- [ ] T1-5: `get_plan_pool_status`（`715`）に `is_stalled / seconds_since_progress / current_phase / stalled_reason / suggested_action` を計算して付与
-- [ ] T1-6: `web/js/atlas_pipeline_api.js` の `pollPlanPoolUntilReady` を改修（8 分固定キャップ撤廃、`is_stalled` ベース、`ABSOLUTE_MAX_MS` バックストップ、フェーズ表示）
-- [ ] T1-7: テスト T2・T3・T4（後述）を追加し緑化
+- [x] T1-1: `app/api/atlas_pipeline.py` に `_merge_plan_pool_job()` と `_seconds_since_iso()` を追加
+- [x] T1-2: `create_plan_pool._runner`（`693`）で `progress_cb(heartbeat)` を生成し `_create_plan_pool_core(..., progress_cb=...)` へ渡す。`running` 書込みに `last_progress_at` を含める
+- [x] T1-3: `_create_plan_pool_core`（`727`）→ `AtlasPlannerBridge` → `TaskPlanningRunner.run()` まで `progress_cb` を透過（`None` 時は no-op で後方互換）
+- [x] T1-4: `TaskPlanningRunner` 各フェーズ開始時に `progress_cb(phase, phase_index, phase_total)` を発火
+- [x] T1-5: `get_plan_pool_status`（`715`）に `is_stalled / seconds_since_progress / current_phase / stalled_reason / suggested_action` を計算して付与
+- [x] T1-6: `web/js/atlas_pipeline_api.js` の `pollPlanPoolUntilReady` を改修（8 分固定キャップ撤廃、`is_stalled` ベース、`ABSOLUTE_MAX_MS` バックストップ、フェーズ表示）
+- [x] T1-7: テスト T2・T3・T4（後述）を追加し緑化
 
 ### Phase 2 — トークン・ウォッチドッグ（streaming 化）
 - [ ] T2-1: `AtlasLLMJsonRequest.stream` と `AtlasLLMJsonAdapter.on_progress` を追加
