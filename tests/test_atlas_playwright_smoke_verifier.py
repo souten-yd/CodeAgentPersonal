@@ -86,6 +86,17 @@ def test_browser_not_installed_maps_to_skipped(tmp_path):
     assert result['reason'].startswith('playwright_browser_not_installed')
 
 
+def test_playwright_runtime_error_reason_includes_exception_type(tmp_path):
+    f = tmp_path / 'index.html'
+    f.write_text(_STATIC_HTML, encoding='utf-8')
+    vfy = AtlasPlaywrightSmokeVerifier()
+    with patch('agent.atlas_playwright_smoke_verifier._PLAYWRIGHT_AVAILABLE', True), \
+            patch('agent.atlas_playwright_smoke_verifier.sync_playwright', side_effect=RuntimeError(), create=True):
+        result = vfy.verify(f, task_description='animate color')
+    assert result['status'] == 'browser_smoke_failed'
+    assert result['reason'] == 'playwright_error: RuntimeError'
+
+
 def test_missing_html_file_returns_failed(tmp_path):
     result = _VFY.verify(tmp_path / 'nonexistent.html', task_description='animate')
     assert result['status'] == 'browser_smoke_failed'

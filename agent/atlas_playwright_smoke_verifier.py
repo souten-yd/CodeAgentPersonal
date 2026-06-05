@@ -105,6 +105,7 @@ class AtlasPlaywrightSmokeVerifier:
                 page.on("pageerror", lambda err: console_errors.append(str(err)))
 
                 page.goto(target, wait_until="domcontentloaded", timeout=10000)
+                page.wait_for_timeout(100)
 
                 # Check for JS errors (ReferenceError / SyntaxError are hard failures).
                 # Add local static diagnostics so repair planning can target common
@@ -173,7 +174,8 @@ class AtlasPlaywrightSmokeVerifier:
                     reason="playwright_browser_not_installed: run `playwright install chromium`",
                     console_errors=console_errors,
                 )
-            return self._result("browser_smoke_failed", reason=f"playwright_error: {exc}",
+            detail = f"{type(exc).__name__}: {exc}".strip().rstrip(":").strip()
+            return self._result("browser_smoke_failed", reason=f"playwright_error: {detail}",
                                 console_errors=console_errors)
 
     def _nudge_interaction(self, page) -> None:
@@ -278,6 +280,7 @@ class AtlasPlaywrightSmokeVerifier:
         hard_markers = (
             "ReferenceError",
             "SyntaxError",
+            " is not defined",
             "Cannot use import statement",
             "Unexpected token 'export'",
             "Failed to resolve module specifier",
@@ -385,6 +388,8 @@ class AtlasPlaywrightSmokeVerifier:
                 if not spec.startswith(('.', '/')):
                     continue
                 target = self._safe_child_path(js.parent, spec)
+                if target and target.exists() and target.name != Path(spec).name:
+                    return "import_path_case_mismatch"
                 candidates = [target] if target else []
                 if target and target.suffix == "":
                     candidates.extend([target.with_suffix(".js"), target / "index.js"])
