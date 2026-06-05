@@ -683,6 +683,36 @@ def _merge_plan_pool_job(ca_data_root: Path, pool_id: str, patch: dict) -> None:
     _write_plan_pool_job(ca_data_root, pool_id, current)
 
 
+def _patchgen_jobs_dir(ca_data_root: Path) -> Path:
+    d = Path(ca_data_root) / "atlas" / "patchgen_jobs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _patchgen_job_key(pool_id: str, item_id: str) -> str:
+    return f"{pool_id}__{item_id}"
+
+
+def _write_patchgen_job(ca_data_root: Path, pool_id: str, item_id: str, payload: dict) -> None:
+    try:
+        path = _patchgen_jobs_dir(ca_data_root) / f"{_patchgen_job_key(pool_id, item_id)}.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _merge_patchgen_job(ca_data_root: Path, pool_id: str, item_id: str, patch: dict) -> None:
+    path = _patchgen_jobs_dir(ca_data_root) / f"{_patchgen_job_key(pool_id, item_id)}.json"
+    try:
+        current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except Exception:
+        current = {}
+    if str(current.get("status") or "") in {"done", "failed"} and "status" not in patch:
+        return
+    current.update(dict(patch or {}))
+    _write_patchgen_job(ca_data_root, pool_id, item_id, current)
+
+
 def _seconds_since_iso(value: Any) -> float | None:
     text = str(value or "").strip()
     if not text:
@@ -1971,8 +2001,25 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
             metadata={"clarification_execution_blocked": True, "blocked_reasons": clarification_blocks},
             plan_pool=pool.model_dump(),
         )
-    service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=_resolve_atlas_llm_json_fn(request))
+    now = datetime.now(timezone.utc).isoformat()
+    _write_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
+        "pool_id": req.pool_id, "item_id": req.item_id, "status": "running",
+        "started_at": now, "last_token_at": now, "tokens_generated": 0, "phase": "generating",
+    })
+    llm_json_fn = _resolve_atlas_llm_json_fn(request)
+    if isinstance(llm_json_fn, AtlasLLMJsonAdapter):
+        def _on_patchgen_progress(payload: dict) -> None:
+            _merge_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
+                "last_token_at": payload.get("last_token_at") or datetime.now(timezone.utc).isoformat(),
+                "tokens_generated": int(payload.get("tokens_generated") or 0),
+            })
+        llm_json_fn = llm_json_fn.with_progress(_on_patchgen_progress)
+    service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_json_fn)
     result = service.propose_for_item(req)
+    _write_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
+        "pool_id": req.pool_id, "item_id": req.item_id, "status": "done",
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+    })
     try:
         recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
         orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None, recovery=recovery).model_dump()
@@ -1985,6 +2032,37 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
         result.warnings.append("patch_proposal_enrichment_failed")
         result.warnings.append(str(exc) or exc.__class__.__name__)
     return result
+
+
+@router.get("/patch-proposals/status")
+def get_patchgen_status(request: Request, pool_id: str = Query(...), item_id: str = Query(...), workspace_id: str = Query("default")) -> dict[str, Any]:
+    if ".." in pool_id or ".." in item_id:
+        raise HTTPException(status_code=400, detail="invalid identifier")
+    ca_data_root, _storage, _journal = _atlas_components(request, workspace_id=workspace_id)
+    path = _patchgen_jobs_dir(ca_data_root) / f"{_patchgen_job_key(pool_id, item_id)}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail={"error": "patchgen_job_not_found", "pool_id": pool_id, "item_id": item_id})
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        data = {"pool_id": pool_id, "item_id": item_id, "status": "running"}
+    status = str(data.get("status") or "")
+    progress_at = _latest_iso(data.get("last_token_at"), data.get("started_at"))
+    seconds_since = _seconds_since_iso(progress_at)
+    is_stalled = bool(
+        status == "running"
+        and seconds_since is not None
+        and seconds_since > _plan_stall_after_sec()
+    )
+    data["seconds_since_progress"] = seconds_since
+    data["is_stalled"] = False if status in {"done", "failed"} else is_stalled
+    data["is_running"] = status == "running"
+    if data["is_stalled"]:
+        data["stalled_reason"] = f"パッチ生成LLMのheartbeatが{int(seconds_since or 0)}秒更新されていません。"
+        data["suggested_action"] = "モデルが応答停止の可能性があります。少し待つか、再実行してください。"
+    else:
+        data.setdefault("stalled_reason", "")
+    return data
 
 
 @router.post("/patch-proposals/decide", response_model=AtlasPatchProposalApprovalResult)

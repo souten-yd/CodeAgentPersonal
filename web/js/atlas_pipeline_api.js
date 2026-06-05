@@ -55,6 +55,7 @@
   // timeoutMs. On abort we synthesize a gateway-style timeout result instead of throwing raw.
   const DEFAULT_TIMEOUT_MS = 120000;
   const PLAN_POOL_ABSOLUTE_MAX_MS = 2700000;
+  const PATCHGEN_ABSOLUTE_MAX_MS = 3600000;
 
   async function atlasFetch(path, options) {
     const opts = options || {};
@@ -230,8 +231,45 @@
     runDebugReview(payload) {
       return atlasFetch('/api/atlas/debug-review/run', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
-    generatePatchProposal(payload) {
-      return atlasFetch('/api/atlas/patch-proposals/generate', { method: 'POST', body: JSON.stringify(payload || {}) });
+    getPatchGenStatus(poolId, itemId) {
+      return atlasFetch(`/api/atlas/patch-proposals/status${query({ pool_id: poolId, item_id: itemId })}`, { timeoutMs: 10000 });
+    },
+    async generatePatchProposal(payload) {
+      const poolId = payload && payload.pool_id;
+      const itemId = payload && payload.item_id;
+      const generatePromise = atlasFetch('/api/atlas/patch-proposals/generate', {
+        method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: PATCHGEN_ABSOLUTE_MAX_MS,
+      });
+      if (!poolId || !itemId) return generatePromise;
+      const self = this;
+      let watcherDone = false;
+      let resolveStall;
+      const stallPromise = new Promise((resolve) => { resolveStall = resolve; });
+      (async () => {
+        const startTime = Date.now();
+        while (!watcherDone && Date.now() - startTime < PATCHGEN_ABSOLUTE_MAX_MS) {
+          await new Promise((r) => setTimeout(r, 2000));
+          if (watcherDone) break;
+          try {
+            const st = await self.getPatchGenStatus(poolId, itemId);
+            if (!st.ok || !st.data) continue;
+            const d = st.data;
+            if (d.status === 'done') break;
+            if (d.is_stalled) {
+              const sec = Math.round(d.seconds_since_progress || 0);
+              resolveStall({
+                ok: false, status: 200, error: true, code: 'patchgen_stalled',
+                message: `パッチ生成のLLMが${sec}秒無進捗です。${d.suggested_action || 'モデルが停止の可能性があります。再実行してください。'}`,
+                detail: { error: 'patchgen_stalled', pool_id: poolId, item_id: itemId, seconds_since_progress: d.seconds_since_progress },
+              });
+              break;
+            }
+          } catch (_) { continue; }
+        }
+      })();
+      const result = await Promise.race([generatePromise, stallPromise]);
+      watcherDone = true;
+      return result;
     },
     decidePatchProposal(payload) {
       return atlasFetch('/api/atlas/patch-proposals/decide', { method: 'POST', body: JSON.stringify(payload || {}) });
