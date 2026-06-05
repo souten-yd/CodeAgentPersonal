@@ -9,8 +9,13 @@ from agent.atlas_artifact_asset_utils import collect_linked_asset_text
 _ANIMATION_SIGNALS = [
     (re.compile(r'\brequestAnimationFrame\b'), 'requestAnimationFrame'),
     (re.compile(r'@keyframes\s+\w+', re.IGNORECASE), 'css_keyframes'),
+    (re.compile(r'\banimation\s*:', re.IGNORECASE), 'css_animation'),
+    (re.compile(r'\btransition(?:-property)?\s*:', re.IGNORECASE), 'css_transition'),
+    (re.compile(r'<\s*(?:animate|animateTransform|animateMotion|set)\b', re.IGNORECASE), 'svg_smil_animation'),
 ]
 _COLOR_SIGNALS = [
+    (re.compile(r'\bstyle\.setProperty\s*\(\s*[\'"]--[^\'"]*(?:color|hue|fill)', re.IGNORECASE), 'style_setProperty_color'),
+    (re.compile(r'\bstyle\.(?:color|backgroundColor|background)\s*=', re.IGNORECASE), 'style_color_assignment'),
     (re.compile(r'\bhsl\s*\(', re.IGNORECASE), 'hsl'),
     (re.compile(r'\brgb\s*\(', re.IGNORECASE), 'rgb'),
     (re.compile(r'style\.color\b'), 'style_color'),
@@ -18,7 +23,9 @@ _COLOR_SIGNALS = [
     (re.compile(r'\bhue-rotate\b'), 'hue_rotate'),
 ]
 _MOTION_SIGNALS = [
+    (re.compile(r'\bstyle\.transform\s*=', re.IGNORECASE), 'style_transform_assignment'),
     (re.compile(r'\btransform\s*[:(]', re.IGNORECASE), 'transform'),
+    (re.compile(r'<\s*animateTransform\b|<\s*animateMotion\b', re.IGNORECASE), 'svg_smil_motion'),
     (re.compile(r'\btranslate[XYZ]?\s*\(', re.IGNORECASE), 'translate'),
     (re.compile(r'\bcanvas\b.*\bcontext\b|\bgetContext\s*\(', re.IGNORECASE), 'canvas_context'),
 ]
@@ -32,7 +39,7 @@ _WAVE_PHASE_SIGNALS = [
 
 # Keywords that suggest an animation task in task_description / goal
 _ANIMATION_TASK_KEYWORDS = re.compile(
-    r'\b(animat|wave|oscillat|bounce|spin\w*|rotat|pulse|fade|mov\w+|motion|color\s*chang|hue)',
+    r'\b(animat\w*|wave\w*|oscillat\w*|bounce\w*|spin\w*|rotat\w*|pulse\w*|fade\w*|mov\w*|motion|color\s*chang\w*|hue)\b',
     re.IGNORECASE,
 )
 _WAVE_TASK_KEYWORDS = re.compile(
@@ -44,9 +51,25 @@ _COLOR_TASK_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 _MOTION_TASK_KEYWORDS = re.compile(
-    r'\b(mov\w*|motion|wave|oscillat|bounce|spin\w*|rotat\w*|slide|drift|orbit|translat\w*|scroll|fall\w*|jump\w*|fly\w*|shake|swing)',
+    r'\b(mov\w*|motion|wave\w*|oscillat\w*|bounce\w*|spin\w*|rotat\w*|slide\w*|drift\w*|orbit\w*|translat\w*|scroll\w*|fall\w*|jump\w*|fly\w*|shake\w*|swing\w*)\b',
     re.IGNORECASE,
 )
+_HUE_ROTATE_TASK_KEYWORDS = re.compile(r'\bhue\s*-?\s*rotat\w*\b', re.IGNORECASE)
+
+
+def _is_animation_task_description(task_description: str) -> bool:
+    return bool(_ANIMATION_TASK_KEYWORDS.search(task_description or ""))
+
+
+def _wants_color_task(task_description: str) -> bool:
+    return bool(_COLOR_TASK_KEYWORDS.search(task_description or ""))
+
+
+def _wants_motion_task(task_description: str) -> bool:
+    text = task_description or ""
+    if _HUE_ROTATE_TASK_KEYWORDS.search(text):
+        return False
+    return bool(_MOTION_TASK_KEYWORDS.search(text))
 
 
 class AtlasVisualArtifactVerifier:
@@ -73,10 +96,10 @@ class AtlasVisualArtifactVerifier:
         content = html_content + "\n" + collect_linked_asset_text(html_path, html_content)
 
         task_desc = task_description.lower()
-        is_animation_task = bool(_ANIMATION_TASK_KEYWORDS.search(task_desc))
+        is_animation_task = _is_animation_task_description(task_desc)
         is_wave_task = bool(_WAVE_TASK_KEYWORDS.search(task_desc))
-        wants_color = bool(_COLOR_TASK_KEYWORDS.search(task_desc))
-        wants_motion = bool(_MOTION_TASK_KEYWORDS.search(task_desc))
+        wants_color = _wants_color_task(task_desc)
+        wants_motion = _wants_motion_task(task_desc)
 
         checks: list[dict] = []
         missing: list[str] = []
@@ -103,7 +126,11 @@ class AtlasVisualArtifactVerifier:
                            "detail": anim_found})
 
         # 2. Color mutation signal (required only for animation tasks that ask for color)
-        color_found = self._check_signals(content, _COLOR_SIGNALS) or self._keyframe_color_mutation(content)
+        color_found = (
+            self._check_signals(content, _COLOR_SIGNALS)
+            or self._keyframe_color_mutation(content)
+            or self._transition_color_mutation(content)
+        )
         _record("color_mutation_signal", color_found, required=is_animation_task and wants_color)
 
         # 3. Motion signal (required only for animation tasks that ask for motion)
@@ -158,6 +185,17 @@ class AtlasVisualArtifactVerifier:
             values = re.findall(r'(?:background-)?color\s*:\s*([^;}\n]+)', block, re.IGNORECASE)
             if len({value.strip().lower() for value in values}) >= 2:
                 return 'keyframe_color_mutation'
+        return None
+
+    def _transition_color_mutation(self, content: str) -> str | None:
+        """Detect CSS transitions whose property list includes color mutation."""
+        transition_patterns = (
+            r'\btransition\s*:\s*[^;{}]*(?:background-)?color\b',
+            r'\btransition-property\s*:\s*[^;{}]*(?:background-)?color\b',
+        )
+        for pattern in transition_patterns:
+            if re.search(pattern, content, re.IGNORECASE):
+                return 'transition_color_mutation'
         return None
 
     @staticmethod

@@ -41,6 +41,20 @@ def _is_browser_launch_infra_error(exc: Exception) -> bool:
   ])
 
 
+def _is_browser_not_installed_error(exc: Exception) -> bool:
+  text = f"{type(exc).__name__}: {exc}".lower()
+  return (
+    "executable doesn't exist" in text
+    or "browser executable" in text and "not found" in text
+    or "executable was not found" in text
+    or ("playwright install" in text and ("browsertype.launch" in text or "browser" in text or "executable" in text))
+  )
+
+
+def _playwright_error_detail(exc: Exception) -> str:
+  return f"{type(exc).__name__}: {exc}".strip().rstrip(":").strip()
+
+
 async def launch_browser_with_retry(p, *, attempts: int = 2):
   last_error = None
   for attempt in range(1, max(1, attempts) + 1):
@@ -48,12 +62,14 @@ async def launch_browser_with_retry(p, *, attempts: int = 2):
       return await p.chromium.launch()
     except Exception as exc:
       last_error = exc
+      if _is_browser_not_installed_error(exc):
+        raise AssertionError("playwright_browser_not_installed: run `playwright install chromium`") from exc
       if not _is_browser_launch_infra_error(exc):
-        raise
-      print(f"WARN: browser launch infra retry {attempt}/{attempts}: {type(exc).__name__}: {exc}")
+        raise AssertionError(f"playwright_error: {_playwright_error_detail(exc)}") from exc
+      print(f"WARN: browser launch infra retry {attempt}/{attempts}: {_playwright_error_detail(exc)}")
       if attempt < attempts:
         await asyncio.sleep(1)
-  raise AssertionError(f"infra_browser_launch_failed: {type(last_error).__name__}: {last_error}")
+  raise AssertionError(f"infra_browser_launch_failed: {_playwright_error_detail(last_error)}")
 
 
 MOCK_GET_ROUTES = {

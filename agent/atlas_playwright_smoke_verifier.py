@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import asyncio
+import os
 import re
 import sys
 import threading
@@ -17,9 +18,14 @@ try:
 except ImportError:
     _PLAYWRIGHT_AVAILABLE = False
 
-# Animation tasks require computed style changes over time
+# Animation tasks require computed style changes over time. Keep the regex word-boundary
+# based so descriptions like "inanimate object" do not accidentally become animation tasks.
 _ANIMATION_TASK_HINT = ("animat", "wave", "oscillat", "bounce", "spin", "rotat", "pulse", "fade",
                         "move", "motion", "color chang", "hue")
+_ANIMATION_TASK_RE = re.compile(
+    r'\b(animat\w*|wave\w*|oscillat\w*|bounce\w*|spin\w*|rotat\w*|pulse\w*|fade\w*|mov\w*|motion|color\s*chang\w*|hue)\b',
+    re.IGNORECASE,
+)
 
 # How long to wait for animations to produce a change (ms). Generous enough for slow
 # first-frame animations and games that start a beat after load.
@@ -27,18 +33,36 @@ _ANIMATION_POLL_INTERVAL_MS = 100
 _ANIMATION_MAX_WAIT_MS = 3500
 
 
+def _sample_interval_ms() -> int:
+    return _env_int("ATLAS_VISUAL_SAMPLE_INTERVAL_MS", _ANIMATION_POLL_INTERVAL_MS, minimum=1)
+
+
+def _sample_max_wait_ms() -> int:
+    return _env_int("ATLAS_VISUAL_SAMPLE_MAX_MS", _ANIMATION_MAX_WAIT_MS, minimum=1)
+
+
+def _env_int(name: str, default: int, *, minimum: int) -> int:
+    try:
+        value = int(str(os.environ.get(name, "") or "").strip())
+    except ValueError:
+        return default
+    return max(minimum, value)
+
+
 def _is_animation_task(task_description: str) -> bool:
-    desc = task_description.lower()
-    return any(hint in desc for hint in _ANIMATION_TASK_HINT)
+    return bool(_ANIMATION_TASK_RE.search(task_description or ""))
 
 
 # Playwright raises this class of error when the python package is present but the
 # browser binary was never downloaded (``playwright install``). The message is stable
 # across platforms ("Executable doesn't exist at ... playwright install").
 def _is_browser_not_installed_error(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    return "executable doesn't exist" in msg or (
-        "playwright install" in msg and "browsertype.launch" in msg
+    msg = f"{type(exc).__name__}: {exc}".lower()
+    return (
+        "executable doesn't exist" in msg
+        or "browser executable" in msg and "not found" in msg
+        or "executable was not found" in msg
+        or ("playwright install" in msg and ("browsertype.launch" in msg or "browser" in msg or "executable" in msg))
     )
 
 
@@ -67,7 +91,7 @@ class _QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
 
 
 @contextlib.contextmanager
-def _serve_artifact_dir(root: Path):
+def _serve_artifact_dir(root: Path, diagnostics: list[str] | None = None):
     """Serve ``root`` over an ephemeral loopback HTTP server.
 
     Generated apps frequently load ``<script type="module">`` or use ``fetch()``, both of
@@ -83,7 +107,10 @@ def _serve_artifact_dir(root: Path):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         yield f"http://127.0.0.1:{server.server_address[1]}"
-    except Exception:  # noqa: BLE001 — any bind/serve failure falls back to file://
+    except Exception as exc:  # noqa: BLE001 — any bind/serve failure falls back to file://
+        if diagnostics is not None:
+            detail = f"{type(exc).__name__}: {exc}".strip().rstrip(":").strip()
+            diagnostics.append(f"serve_artifact_bind_failed:{detail}")
         yield None
     finally:
         if server is not None:
@@ -113,9 +140,10 @@ class AtlasPlaywrightSmokeVerifier:
 
         is_anim = _is_animation_task(task_description)
         console_errors: list[str] = []
+        serve_warnings: list[str] = []
 
         try:
-            with _playwright_event_loop_policy(), sync_playwright() as pw, _serve_artifact_dir(html_path.parent) as base_url:
+            with _playwright_event_loop_policy(), sync_playwright() as pw, _serve_artifact_dir(html_path.parent, serve_warnings) as base_url:
                 target = f"{base_url}/{quote(html_path.name)}" if base_url else html_path.as_uri()
                 browser = pw.chromium.launch(headless=True)
                 page = browser.new_page()
@@ -163,14 +191,14 @@ class AtlasPlaywrightSmokeVerifier:
                     browser.close()
                     if style_changed or canvas.get("changed"):
                         return self._result("browser_smoke_passed", console_errors=console_errors,
-                                            diagnostics={"style_changed": style_changed, "canvas": canvas})
+                                            diagnostics=self._diagnostics({"style_changed": style_changed, "canvas": canvas}, serve_warnings))
                     if canvas.get("warning"):
                         return self._result("browser_smoke_failed",
                                             reason=f"animation_not_detected:{canvas['warning']}",
-                                            console_errors=console_errors, diagnostics={"canvas": canvas})
+                                            console_errors=console_errors, diagnostics=self._diagnostics({"canvas": canvas}, serve_warnings))
                     return self._result("browser_smoke_failed",
                                         reason="animation_not_detected",
-                                        console_errors=console_errors, diagnostics={"canvas": canvas})
+                                        console_errors=console_errors, diagnostics=self._diagnostics({"canvas": canvas}, serve_warnings))
                 else:
                     browser.close()
                     # Static HTML with no animation — would fail for animation tasks, but here
@@ -179,7 +207,8 @@ class AtlasPlaywrightSmokeVerifier:
                         return self._result("browser_smoke_failed", reason="js_error",
                                             console_errors=console_errors)
 
-                return self._result("browser_smoke_passed", console_errors=console_errors)
+                return self._result("browser_smoke_passed", console_errors=console_errors,
+                                    diagnostics=self._diagnostics({}, serve_warnings))
 
         except Exception as exc:  # noqa: BLE001
             # The python package can be importable while the browser binary is missing
@@ -223,9 +252,9 @@ class AtlasPlaywrightSmokeVerifier:
         """
         try:
             baseline = page.evaluate(script)
-            deadline = time.time() + _ANIMATION_MAX_WAIT_MS / 1000
+            deadline = time.time() + _sample_max_wait_ms() / 1000
             while time.time() < deadline:
-                time.sleep(_ANIMATION_POLL_INTERVAL_MS / 1000)
+                time.sleep(_sample_interval_ms() / 1000)
                 current = page.evaluate(script)
                 if current != baseline:
                     return True
@@ -280,9 +309,9 @@ class AtlasPlaywrightSmokeVerifier:
         """
         try:
             baseline = page.evaluate(script)
-            deadline = time.time() + _ANIMATION_MAX_WAIT_MS / 1000
+            deadline = time.time() + _sample_max_wait_ms() / 1000
             while time.time() < deadline:
-                time.sleep(_ANIMATION_POLL_INTERVAL_MS / 1000)
+                time.sleep(_sample_interval_ms() / 1000)
                 current = page.evaluate(script)
                 if current != baseline:
                     return {"present": True, "changed": True, "baseline": baseline, "current": current}
@@ -441,6 +470,13 @@ class AtlasPlaywrightSmokeVerifier:
             return target
         except Exception:  # noqa: BLE001
             return None
+
+    @staticmethod
+    def _diagnostics(payload: dict, serve_warnings: list[str]) -> dict:
+        out = dict(payload)
+        if serve_warnings:
+            out["serve_warnings"] = list(serve_warnings)
+        return out
 
     @staticmethod
     def _result(status: str, *, reason: str = "", console_errors: list | None = None, diagnostics: dict | str | None = None) -> dict:
