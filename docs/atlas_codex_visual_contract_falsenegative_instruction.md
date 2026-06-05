@@ -64,21 +64,21 @@
 このファイルが唯一の正典。各タスク完了ごとにチェックを更新してコミットすること。
 
 ### A. static 検証器: タスク連動の必須判定 + 色名 keyframes 認識
-- [ ] A-1: `_COLOR_TASK_KEYWORDS` / `_MOTION_TASK_KEYWORDS` を追加（下記）。
-- [ ] A-2: `_keyframe_color_mutation(content) -> str | None` を追加：`@keyframes` ブロックを brace スキャンで切り出し、内部に **`color:` / `background-color:` の異なる値が 2 つ以上**あれば色変化と判定（色名でも検出できる）。
-- [ ] A-3: `verify_static` の color/motion 判定を **タスク連動の required/advisory** に変更：
+- [x] A-1: `_COLOR_TASK_KEYWORDS` / `_MOTION_TASK_KEYWORDS` を追加（下記）。
+- [x] A-2: `_keyframe_color_mutation(content) -> str | None` を追加：`@keyframes` ブロックを brace スキャンで切り出し、内部に **`color:` / `background-color:` の異なる値が 2 つ以上**あれば色変化と判定（色名でも検出できる）。
+- [x] A-3: `verify_static` の color/motion 判定を **タスク連動の required/advisory** に変更：
   - `color_mutation_signal`：`is_animation_task and wants_color` のときのみ必須。検出は `_check_signals(_COLOR_SIGNALS) or _keyframe_color_mutation(content)`。
   - `motion_signal`：`is_animation_task and wants_motion` のときのみ必須。
   - **ベースライン**：`is_animation_task` かつ color も motion も要件語に無い汎用課題で、color も motion も検出されない場合のみ `visual_change_signal` を missing に積む（＝何も変化しないアニメは fail。弱体化防止）。
-- [ ] A-4: 既存テスト（`tests/test_atlas_visual_artifact_verifier.py`）が**全て緑のまま**であることを確認（下記「テスト互換性」を必読）。
+- [x] A-4: 既存テスト（`tests/test_atlas_visual_artifact_verifier.py`）が**全て緑のまま**であることを確認（下記「テスト互換性」を必読）。
 
 ### B. smoke 診断改善
-- [ ] B-1: `atlas_playwright_smoke_verifier.py` の例外ハンドラで `reason=f"playwright_error: {type(exc).__name__}: {exc}"`（末尾の `: ` は trim）に変更。`playwright_error:` プレフィックスは維持（hard/soft 分類・既存 startswith 消費者を壊さない）。
+- [x] B-1: `atlas_playwright_smoke_verifier.py` の例外ハンドラで `reason=f"playwright_error: {type(exc).__name__}: {exc}"`（末尾の `: ` は trim）に変更。`playwright_error:` プレフィックスは維持（hard/soft 分類・既存 startswith 消費者を壊さない）。
 
 ### C. テスト + 受け入れ
-- [ ] C-1: 新規テストを追加（下記「追加テスト」）。
-- [ ] C-2: 既存スイート（visual_artifact / auto_verification / pr9_visual_depth / playwright_smoke）緑。
-- [ ] C-3: 受け入れ基準を満たす。
+- [x] C-1: 新規テストを追加（下記「追加テスト」）。
+- [x] C-2: 既存スイート（visual_artifact / auto_verification / pr9_visual_depth / playwright_smoke）緑。
+- [x] C-3: 受け入れ基準を満たす。
 
 ---
 
@@ -196,11 +196,11 @@ def test_movement_task_still_requires_motion(tmp_path):
 
 ## 受け入れ基準（Acceptance）
 
-- [ ] 実測の `index.html`（色名 keyframes・動き無し）が `verify_static` で **passed**。
-- [ ] 色が要件なのに色変化が無い HTML は従来どおり fail。動きが要件なのに動きが無い HTML は従来どおり fail。
-- [ ] `tests/test_atlas_visual_artifact_verifier.py` の既存テストが全緑＋追加テスト緑。
-- [ ] `agent/atlas_playwright_smoke_verifier.py` の空 `playwright_error:` が例外型名を含むようになる。
-- [ ] auto_verification / pr9_visual_depth 等の関連スイート緑。PR #1565 の override ロジックは不変。
+- [x] 実測の `index.html`（色名 keyframes・動き無し）が `verify_static` で **passed**。
+- [x] 色が要件なのに色変化が無い HTML は従来どおり fail。動きが要件なのに動きが無い HTML は従来どおり fail。
+- [x] `tests/test_atlas_visual_artifact_verifier.py` の既存テストが全緑＋追加テスト緑。
+- [x] `agent/atlas_playwright_smoke_verifier.py` の空 `playwright_error:` が例外型名を含むようになる。
+- [x] auto_verification / pr9_visual_depth 等の関連スイート緑。PR #1565 の override ロジックは不変。
 
 ## 実装順序 / コミット
 

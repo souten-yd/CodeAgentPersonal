@@ -2383,7 +2383,7 @@
   function formatError(resp) {
     if (!resp) return 'no response';
     // Prefer the canned message produced by parseResponse for gateway/timeout/non-JSON errors.
-    if (resp.code === 'gateway_timeout' || resp.code === 'plan_pool_timeout' || resp.code === 'plan_pool_failed' || resp.code === 'network_error') {
+    if (resp.code === 'gateway_timeout' || resp.code === 'plan_pool_timeout' || resp.code === 'plan_pool_stalled' || resp.code === 'plan_pool_absolute_timeout' || resp.code === 'plan_pool_failed' || resp.code === 'network_error') {
       return sanitizeErrorText(resp.message || 'request failed');
     }
     const detail = resp && resp.detail && resp.detail.detail !== undefined ? resp.detail.detail : resp.message;

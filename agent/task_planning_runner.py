@@ -52,7 +52,9 @@ class TaskPlanningRunner:
         memory_search_fn: Callable[[str, int], list] | None = None,
         active_skills_fn: Callable[[], list] | None = None,
         warning_logger: Callable[[str], None] | None = None,
+        progress_cb: Callable[..., None] | None = None,
     ) -> None:
+        self.progress_cb = progress_cb
         self.storage = PlanStorage(ca_data_dir)
         self.planner = PlannerPhase1(llm_json_fn=llm_json_fn)
         self.deep_planner = DeepPlanner(llm_json_fn=llm_json_fn)
@@ -80,7 +82,9 @@ class TaskPlanningRunner:
         execution_mode: str = "plan_only",
         use_nexus: bool = True,
         advisory_context: str = "",
+        progress_cb: Callable[..., None] | None = None,
     ) -> dict:
+        callback = progress_cb or self.progress_cb
         task_id = f"task_{uuid.uuid4().hex[:12]}"
         warnings: list[str] = []
         project_path = (project_path or "").strip()
@@ -100,6 +104,7 @@ class TaskPlanningRunner:
                 f"{advisory_context}"
             )
 
+        _emit_progress(callback, phase="nexus_context", phase_index=1, phase_total=7)
         nexus_context = self.nexus_builder.build(
             user_input,
             use_nexus=use_nexus,
@@ -109,6 +114,7 @@ class TaskPlanningRunner:
         )
         warnings.extend([str(x) for x in (nexus_context.get("warnings") or []) if str(x).strip()])
 
+        _emit_progress(callback, phase="requirement_analysis", phase_index=2, phase_total=7)
         requirement = self.requirement_analyzer.analyze(
             source_task_id=task_id,
             user_input=user_input,
@@ -167,6 +173,7 @@ class TaskPlanningRunner:
             nexus_context=nexus_context,
             repository_context=repository_context,
             warnings=warnings,
+            progress_cb=callback,
         )
 
     def answer_requirement_questions(self, *, requirement_id: str, answers: list[dict]) -> dict:
@@ -210,7 +217,9 @@ class TaskPlanningRunner:
         repository_context: str | None = None,
         advisory_context: str = "",
         warnings: list[str] | None = None,
+        progress_cb: Callable[..., None] | None = None,
     ) -> dict:
+        callback = progress_cb or self.progress_cb
         req_data = self.storage.load_requirement(requirement_id)
         requirement = RequirementDefinition(**req_data)
         warnings = list(warnings or [])
@@ -239,6 +248,7 @@ class TaskPlanningRunner:
         self.storage.save_requirement(requirement)
 
         if nexus_context is None:
+            _emit_progress(callback, phase="nexus_context", phase_index=1, phase_total=7)
             nexus_context = self.nexus_builder.build(
                 requirement.user_input,
                 use_nexus=use_nexus,
@@ -287,6 +297,7 @@ class TaskPlanningRunner:
         nexus_text_for_research = ""
         if isinstance(nexus_context, dict):
             nexus_text_for_research = str(nexus_context.get("compact_text") or nexus_context.get("summary") or "")
+        _emit_progress(callback, phase="research_conductor", phase_index=3, phase_total=7)
         research_findings = self.research_conductor.conduct(
             user_input=requirement.user_input,
             interpreted_goal=requirement.interpreted_goal,
@@ -300,6 +311,7 @@ class TaskPlanningRunner:
             repository_context = f"{repository_context}\n\n=== Research Evidence ===\n{research_text}"
 
         if planning_mode == "deep_nexus":
+            _emit_progress(callback, phase="plan_generation", phase_index=4, phase_total=7)
             plan = self.planner.build_plan(
                 requirement=requirement,
                 planning_mode=planning_mode,
@@ -307,6 +319,7 @@ class TaskPlanningRunner:
                 nexus_context=nexus_context,
                 repository_context=repository_context,
             )
+            _emit_progress(callback, phase="deep_planner", phase_index=5, phase_total=7)
             deep_plan = self.deep_planner.build_deep_plan(
                 requirement=requirement,
                 prompt=DEEP_PLAN_GENERATION_PROMPT,
@@ -323,6 +336,7 @@ class TaskPlanningRunner:
             warnings.extend(self.deep_planner.get_last_warnings())
             warnings.extend(self.planner.get_last_warnings())
         else:
+            _emit_progress(callback, phase="plan_generation", phase_index=4, phase_total=7)
             plan = self.planner.build_plan(
                 requirement=requirement,
                 planning_mode=planning_mode,
@@ -335,6 +349,7 @@ class TaskPlanningRunner:
         # Adversarial critique: attack the plan from multiple angles before any code is written. If a
         # high/critical gap is found, regenerate the plan with critique context, then re-critique
         # for the record. Complements (does not replace) the rule-based PlanReviewer below.
+        _emit_progress(callback, phase="adversarial_critique", phase_index=5, phase_total=7)
         critique = self.adversarial_critic.critique(
             plan_summary=self._plan_summary(plan),
             requirement_summary=self._requirement_summary(requirement),
@@ -345,6 +360,7 @@ class TaskPlanningRunner:
             current_coverage = _requirement_phrase_coverage(requirement, plan)
             revision_succeeded = False
             for attempt in range(1, 3):
+                _emit_progress(callback, phase="plan_revision", phase_index=6, phase_total=7, attempt=attempt)
                 revision_context = (
                     f"{repository_context}\n\n"
                     f"=== Adversarial Critique Attempt {attempt} (fix high/critical gaps) ===\n"
@@ -378,6 +394,7 @@ class TaskPlanningRunner:
                 plan.status = "needs_revision"
                 warnings.append("plan_revision_failed_kept_original")
 
+        _emit_progress(callback, phase="plan_review", phase_index=6, phase_total=7)
         review_result = self.plan_reviewer.review(
             requirement=requirement,
             plan=plan,
@@ -399,6 +416,7 @@ class TaskPlanningRunner:
         else:
             plan.status = "planned"
 
+        _emit_progress(callback, phase="persist_plan", phase_index=7, phase_total=7)
         _req_json, req_md = self.storage.save_requirement(requirement)
         _plan_json, plan_md = self.storage.save_plan(
             plan,
@@ -500,6 +518,15 @@ class TaskPlanningRunner:
 
 def _dedup_warnings(warnings: list[str]) -> list[str]:
     return list(dict.fromkeys([w.strip() for w in warnings if isinstance(w, str) and w.strip()]))
+
+
+def _emit_progress(progress_cb: Callable[..., None] | None, **payload) -> None:
+    if progress_cb is None:
+        return
+    try:
+        progress_cb(**payload)
+    except Exception:
+        return
 
 
 def _requirement_phrase_coverage(requirement: RequirementDefinition, plan) -> int:
