@@ -112,8 +112,11 @@ class AtlasAutoVerificationService:
         if pool_coverage:
             metadata["pool_requirement_coverage"] = pool_coverage
         if status == "passed" and not coverage.get("success_eligible", True):
-            status = "failed"
-            warnings.append("requirement_coverage_incomplete")
+            if self._visual_evidence_satisfies(metadata):
+                warnings.append("requirement_coverage_advisory")
+            else:
+                status = "failed"
+                warnings.append("requirement_coverage_incomplete")
 
         event = {"passed": "auto_verification_passed", "blocked": "auto_verification_blocked"}.get(status, "auto_verification_failed")
         self._append_event(pool.pool_id, request.run_id, event, item.item_id, status=status, warnings=warnings)
@@ -265,8 +268,11 @@ class AtlasAutoVerificationService:
         if pool_coverage:
             metadata["pool_requirement_coverage"] = pool_coverage
         if status == "passed" and not coverage.get("success_eligible", True):
-            status = "failed"
-            warnings.append("requirement_coverage_incomplete")
+            if self._visual_evidence_satisfies(metadata):
+                warnings.append("requirement_coverage_advisory")
+            else:
+                status = "failed"
+                warnings.append("requirement_coverage_incomplete")
 
         event = {"passed": "auto_verification_passed"}.get(status, "auto_verification_failed")
         self._append_event(pool.pool_id, request.run_id, event, item.item_id, status=status, warnings=warnings)
@@ -294,6 +300,15 @@ class AtlasAutoVerificationService:
         if path.is_absolute() or ".." in path.parts:
             return False
         return True
+
+    @staticmethod
+    def _visual_evidence_satisfies(metadata: dict) -> bool:
+        """A visual task that passed its visual contract / runtime smoke has substantive
+        evidence the requirement is met. Literal keyword matching of a *visual* requirement
+        ("animate a color wave") against HTML/CSS is a false-negative generator, so for these
+        passes requirement coverage is advisory, not a hard gate. (Non-visual code tasks have no
+        verify_level here and keep the hard requirement-coverage gate.)"""
+        return str((metadata or {}).get("verify_level") or "") in {"static_checked", "runtime_smoke_checked"}
 
     def _requirement_coverage(self, pool, item, workspace_root: str, *, status: str) -> dict:
         changed_files = self._changed_files_for_requirement_check(item)
