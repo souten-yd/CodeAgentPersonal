@@ -421,7 +421,7 @@ def _ensure_local_bootstrap_venv(base_dir: Path, env: dict[str, str]) -> tuple[s
     )
     _write_text_if_missing(base_dir / "requirements.txt", default_requirements)
 
-    # 初回のみ依存導入（2回目以降は既存環境を読み込む）
+    # 初回のみコア依存導入（2回目以降は既存環境を読み込む）
     if created and venv_pip.exists():
         req_txt = base_dir / "requirements.txt"
         if req_txt.exists():
@@ -429,36 +429,67 @@ def _ensure_local_bootstrap_venv(base_dir: Path, env: dict[str, str]) -> tuple[s
             install = subprocess.run([str(venv_pip), "install", "-r", str(req_txt)], cwd=base_dir, env=env, check=False)
             if install.returncode != 0:
                 print("[Bootstrap][WARN] pip install failed. Continue with existing environment.")
-        # Test harness (pytest + playwright + chromium) so Atlas can run its verification loop and the
-        # UI smoke tests on Windows out of the box. Best-effort: failures are non-fatal.
-        _install_test_harness(base_dir, venv_python, venv_pip, env)
+    # Test harness (pytest + playwright + chromium) so Atlas can run its verification loop and the
+    # UI smoke tests on Windows out of the box. Runs on every startup (NOT just first creation) and
+    # installs only what is missing, so a venv created before the harness existed — or a first-run
+    # chromium download that failed — self-heals on the next launch instead of staying broken (the
+    # cause of "browser_smoke skipped: playwright_browser_not_installed" on an existing venv).
+    if venv_python.exists() and venv_pip.exists():
+        _ensure_test_harness(base_dir, venv_python, venv_pip, env)
     env["CODEAGENT_SYS_VENV_DIR"] = str(venv_root)
     env["CODEAGENT_SYS_VENV_PYTHON"] = str(venv_python)
     return str(venv_python), created
 
 
-def _install_test_harness(base_dir: Path, venv_python: Path, venv_pip: Path, env: dict[str, str]) -> None:
-    """Install pytest + playwright (+ chromium) into the freshly created venv. Best-effort and
-    non-fatal: a failed install (e.g. offline) only logs a warning and startup continues. Skipped
-    when KASANE_SKIP_TEST_HARNESS=1 (avoids the heavy chromium download for users who don't want it).
+def _venv_has_modules(venv_python: Path, modules: tuple[str, ...]) -> bool:
+    """Return True when every module in ``modules`` is importable in the venv. A cheap probe used to
+    avoid re-running pip on every startup once the harness is already present."""
+    names = ",".join(repr(m) for m in modules)
+    code = (
+        "import importlib.util,sys;"
+        f"sys.exit(0 if all(importlib.util.find_spec(m) is not None for m in [{names}]) else 1)"
+    )
+    try:
+        return subprocess.run([str(venv_python), "-c", code], check=False).returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _ensure_test_harness(base_dir: Path, venv_python: Path, venv_pip: Path, env: dict[str, str]) -> None:
+    """Ensure pytest + playwright (+ the chromium browser) are present in venv_sys so Atlas can run
+    its verification loop and UI smoke tests on Windows out of the box.
+
+    Idempotent and self-healing: probes what is already installed and only fetches the missing
+    pieces, so it is cheap to call on every startup. ``playwright install chromium`` is itself
+    idempotent (it verifies the browser and exits quickly, downloading only when actually missing),
+    which repairs a venv whose browser was never installed or was removed. Best-effort and
+    non-fatal; skipped when KASANE_SKIP_TEST_HARNESS=1 (avoids the heavy chromium download for users
+    who don't want it).
     """
     if str(env.get("KASANE_SKIP_TEST_HARNESS", "")).strip() in {"1", "true", "True"}:
         print("[Bootstrap] KASANE_SKIP_TEST_HARNESS set; skipping pytest/playwright install.")
         return
     dev_req = base_dir / "requirements-dev.txt"
     try:
-        if dev_req.exists():
-            print("[Bootstrap] Installing test harness (pytest + playwright) into venv_sys...")
-            dev = subprocess.run([str(venv_pip), "install", "-r", str(dev_req)], cwd=base_dir, env=env, check=False)
+        # 1. Python packages: install only when missing (the import probe is far cheaper than pip).
+        if _venv_has_modules(venv_python, ("pytest", "playwright")):
+            print("[Bootstrap] Test harness packages already present (pytest + playwright).")
         else:
-            dev = subprocess.run([str(venv_pip), "install", "pytest", "playwright"], cwd=base_dir, env=env, check=False)
-        if dev.returncode != 0:
-            print("[Bootstrap][WARN] Test harness install failed. Continue without it.")
+            if dev_req.exists():
+                print("[Bootstrap] Installing test harness (pytest + playwright) into venv_sys...")
+                dev = subprocess.run([str(venv_pip), "install", "-r", str(dev_req)], cwd=base_dir, env=env, check=False)
+            else:
+                dev = subprocess.run([str(venv_pip), "install", "pytest", "playwright"], cwd=base_dir, env=env, check=False)
+            if dev.returncode != 0:
+                print("[Bootstrap][WARN] Test harness install failed. Continue without it.")
+                return
+        # 2. Chromium browser: idempotent + self-healing. Skipped only if playwright itself is absent.
+        if not _venv_has_modules(venv_python, ("playwright",)):
             return
-        print("[Bootstrap] Installing Playwright Chromium browser (first run only)...")
+        print("[Bootstrap] Ensuring Playwright Chromium browser is installed...")
         browser = subprocess.run([str(venv_python), "-m", "playwright", "install", "chromium"], cwd=base_dir, env=env, check=False)
         if browser.returncode != 0:
-            print("[Bootstrap][WARN] Playwright chromium download failed. UI tests may need 'playwright install chromium'.")
+            print("[Bootstrap][WARN] Playwright chromium install failed. UI tests may need 'playwright install chromium'.")
     except Exception as exc:  # noqa: BLE001 — bootstrap must never crash startup
         print(f"[Bootstrap][WARN] Test harness setup error ({exc.__class__.__name__}). Continue without it.")
 
