@@ -227,3 +227,28 @@ def test_auto_verification_fails_but_does_not_restore_debug_or_patch(tmp_path):
     assert "\"event_type\": \"debug_review_auto_started\"" not in events_text
     assert "\"event_type\": \"patch_proposal_manual_started\"" not in events_text
     assert "\"event_type\": \"patch_proposal_auto_started\"" not in events_text
+
+
+def test_visual_html_resolution_prefers_index_html(tmp_path):
+    storage, journal, pool, item = _setup(tmp_path)
+    item.goal = 'animate color page'
+    item.target_files = ['landing.html', 'index.html']
+    item.metadata['safe_apply']['changed_files'] = ['landing.html', 'index.html']
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=_runner())
+
+    assert svc._resolve_visual_html(item, pool) == 'index.html'
+
+
+def test_css_only_visual_task_blocks_without_entry_html(tmp_path):
+    (tmp_path / 'styles.css').write_text('.hello { transition: color 1s; color: red; }\n', encoding='utf-8')
+    storage, journal, pool, item = _setup(tmp_path)
+    item.goal = 'animate text color with CSS'
+    item.target_files = ['styles.css']
+    item.metadata['safe_apply']['changed_files'] = ['styles.css']
+    storage.save_pool(pool)
+
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=_runner())
+    r = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id='r1'))
+
+    assert r.status == 'blocked'
+    assert 'verification_command_missing' in r.warnings

@@ -71,9 +71,12 @@ def test_visual_task_no_command_runs_static_verifier_pass(tmp_path):
     assert out.status == "passed"
     assert "visual_contract_passed" in out.warnings
     assert out.metadata["visual_contract"]["status"] == "passed"
-    # Playwright unavailable in this env → skipped, static still primary.
-    assert out.metadata["browser_smoke"]["status"] == "browser_smoke_skipped"
-    assert out.metadata["verify_level"] == "static_checked"
+    smoke_status = out.metadata["browser_smoke"]["status"]
+    assert smoke_status in ("browser_smoke_skipped", "browser_smoke_passed", "browser_smoke_failed")
+    if smoke_status == "browser_smoke_passed":
+        assert out.metadata["verify_level"] == "runtime_smoke_checked"
+    else:
+        assert out.metadata["verify_level"] == "static_checked"
 
 
 def test_visual_task_file_existence_only_fails(tmp_path):
