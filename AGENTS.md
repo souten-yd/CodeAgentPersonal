@@ -9,6 +9,7 @@
 | ゴール | 統括ランブック（起点） | 状態 |
 |---|---|---|
 | 視覚コントラクト修正 ＋ プラン生成ウォッチドッグ を連続実装 | [`docs/atlas_codex_goal_visual_and_watchdog.md`](docs/atlas_codex_goal_visual_and_watchdog.md) | 未着手 |
+| ブラウザ/視覚検証（Playwright）の網羅テスト整備 + 既存実装改良（指示書＋ゴール一体） | [`docs/atlas_codex_visual_test_coverage_instruction.md`](docs/atlas_codex_visual_test_coverage_instruction.md) | 未着手 |
 
 ## 進行中の実装タスク（Active・上記ゴールの構成要素）
 
