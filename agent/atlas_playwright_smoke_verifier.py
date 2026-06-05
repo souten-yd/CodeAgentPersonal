@@ -36,9 +36,12 @@ def _is_animation_task(task_description: str) -> bool:
 # browser binary was never downloaded (``playwright install``). The message is stable
 # across platforms ("Executable doesn't exist at ... playwright install").
 def _is_browser_not_installed_error(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    return "executable doesn't exist" in msg or (
-        "playwright install" in msg and "browsertype.launch" in msg
+    msg = f"{type(exc).__name__}: {exc}".lower()
+    return (
+        "executable doesn't exist" in msg
+        or "browser executable" in msg and "not found" in msg
+        or "executable was not found" in msg
+        or ("playwright install" in msg and ("browsertype.launch" in msg or "browser" in msg or "executable" in msg))
     )
 
 

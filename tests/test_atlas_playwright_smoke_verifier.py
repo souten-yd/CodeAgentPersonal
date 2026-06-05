@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import sys
+import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from agent.atlas_playwright_smoke_verifier import (
     AtlasPlaywrightSmokeVerifier,
@@ -65,6 +68,7 @@ def test_browser_not_installed_error_is_detected():
         "    playwright install"
     )
     assert _is_browser_not_installed_error(Exception(msg)) is True
+    assert _is_browser_not_installed_error(Exception("Browser executable was not found. Run playwright install")) is True
 
 
 def test_genuine_runtime_error_is_not_browser_not_installed():
@@ -97,14 +101,71 @@ def test_playwright_runtime_error_reason_includes_exception_type(tmp_path):
     assert result['reason'] == 'playwright_error: RuntimeError'
 
 
+def test_sync_playwright_empty_launch_exception_has_nonempty_reason(tmp_path):
+    f = tmp_path / 'index.html'
+    f.write_text(_STATIC_HTML, encoding='utf-8')
+    vfy = AtlasPlaywrightSmokeVerifier()
+    with patch('agent.atlas_playwright_smoke_verifier._PLAYWRIGHT_AVAILABLE', True), \
+            patch('agent.atlas_playwright_smoke_verifier.sync_playwright', side_effect=Exception(), create=True):
+        result = vfy.verify(f, task_description='animate color')
+    assert result['status'] == 'browser_smoke_failed'
+    assert result['reason'] == 'playwright_error: Exception'
+
+
+def test_smoke_ui_launch_browser_reports_missing_browser_and_typed_errors():
+    smoke = _load_smoke_ui_module()
+
+    async def run_missing():
+        return await smoke.launch_browser_with_retry(
+            _FakePlaywright(Exception("BrowserType.launch: executable was not found; run playwright install")),
+            attempts=1,
+        )
+
+    async def run_empty():
+        return await smoke.launch_browser_with_retry(_FakePlaywright(RuntimeError()), attempts=1)
+
+    import asyncio
+    with pytest.raises(AssertionError, match="playwright_browser_not_installed"):
+        asyncio.run(run_missing())
+    with pytest.raises(AssertionError, match="playwright_error: RuntimeError"):
+        asyncio.run(run_empty())
+
+
+def _load_smoke_ui_module():
+    scripts_dir = Path(__file__).resolve().parents[1] / "scripts"
+    sys.path.insert(0, str(scripts_dir))
+    try:
+        spec = importlib.util.spec_from_file_location("smoke_ui_modes_playwright_for_tests", scripts_dir / "smoke_ui_modes_playwright.py")
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        try:
+            sys.path.remove(str(scripts_dir))
+        except ValueError:
+            pass
+
+
+class _FakeChromium:
+    def __init__(self, exc):
+        self.exc = exc
+
+    async def launch(self):
+        raise self.exc
+
+
+class _FakePlaywright:
+    def __init__(self, exc):
+        self.chromium = _FakeChromium(exc)
+
+
 def test_missing_html_file_returns_failed(tmp_path):
     result = _VFY.verify(tmp_path / 'nonexistent.html', task_description='animate')
     assert result['status'] == 'browser_smoke_failed'
     assert result['reason'] == 'html_file_missing'
 
-
-# The following tests only run if Playwright is actually available in the environment.
-import pytest
 
 _pw_mark = pytest.mark.skipif(not _PLAYWRIGHT_AVAILABLE, reason='playwright not installed')
 

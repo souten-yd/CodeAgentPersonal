@@ -163,7 +163,7 @@ python -m pytest \
 - [x] WP-1 静的色検出拡張（実装+テスト）
 - [x] WP-2 motion タスク連動（実装+テスト）
 - [x] WP-3 SVG/SMIL & transition signal（実装+テスト）
-- [ ] WP-4 smoke 診断堅牢化（実装+テスト）
+- [x] WP-4 smoke 診断堅牢化（実装+テスト）
 - [ ] WP-5 サンプリング堅牢化 & 明示診断（実装+テスト）
 - [ ] WP-6 エントリHTML解決 & CSS-only（実装+テスト）
 - [ ] WP-7 キーワード単語境界整合（実装+テスト）
