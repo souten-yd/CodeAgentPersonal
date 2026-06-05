@@ -236,14 +236,31 @@ def test_claude_panel_visual_contract_failure_is_actionable() -> None:
         "visual_contract.status=",
         "visual_missing:",
         "browser_smoke=",
+        # Game repair guidance still present — routed to canvas_game_repair branch
         "requestAnimationFrame loop",
         "input handling",
         "update/render separation",
         "collision handling",
         "HUD state",
         "visible motion/color/canvas signals",
+        # Contract-aware routing function
+        "_visualRepairGuidanceForProfile",
+        # Non-game profiles have appropriate guidance (no game concepts)
+        "animated_dom_repair",
+        "canvas_animation_repair",
+        "static_html_repair",
     ):
         assert token in ATLAS_CLAUDE_PANEL_JS
+
+
+def test_claude_panel_animated_dom_repair_guidance_does_not_mention_game_concepts() -> None:
+    # Extract the animated_dom_repair branch from the routing function
+    start = ATLAS_CLAUDE_PANEL_JS.index("if (repairProfile === 'animated_dom_repair')")
+    end = ATLAS_CLAUDE_PANEL_JS.index("if (repairProfile === 'canvas_animation_repair')")
+    animated_dom_block = ATLAS_CLAUDE_PANEL_JS[start:end]
+    for forbidden in ("collision", "HUD", "game loop", "input handling"):
+        assert forbidden not in animated_dom_block, f"animated_dom_repair must not mention '{forbidden}'"
+    assert "transform" in animated_dom_block or "keyframes" in animated_dom_block
 
 
 def test_continuation_panel_contract() -> None:

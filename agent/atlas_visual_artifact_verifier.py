@@ -56,6 +56,10 @@ _WAVE_PHASE_SIGNALS = [
     (re.compile(r'\bphase\b', re.IGNORECASE), 'phase'),
     (re.compile(r'\bamplitude\b', re.IGNORECASE), 'amplitude'),
     (re.compile(r'\bfrequency\b', re.IGNORECASE), 'frequency'),
+    # CSS-based wave: translateY with a numeric offset (pre-calculated sine values in @keyframes)
+    (re.compile(r'\btranslateY\s*\(\s*-?\d+(?:\.\d+)?(?:px|em|rem|%|vh)?\s*\)', re.IGNORECASE), 'css_translateY_offset'),
+    # Any direct sin() call (e.g. in CSS calc() or GLSL)
+    (re.compile(r'\bsin\s*\(', re.IGNORECASE), 'sin_call'),
 ]
 
 # Keywords that suggest an animation task in task_description / goal

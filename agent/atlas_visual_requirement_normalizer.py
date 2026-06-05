@@ -80,7 +80,9 @@ _ARTIFACT_HINTS: list[tuple[re.Pattern, str, list[str]]] = [
 ]
 
 _MOTION_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"\bwave[s\b]?",         re.I), "wave"),
+    (re.compile(r"\bwave[s\b]?",                re.I), "wave"),
+    (re.compile(r"\bsinusoidal?\b",             re.I), "wave"),   # "sinusoidal" / "sinusoid"
+    (re.compile(r"\bsine\s+wave\b",             re.I), "wave"),   # "sine wave"
     (re.compile(r"\bbounc(e|ing)\b",     re.I), "bounce"),
     (re.compile(r"\brot(ate|ating|ation)\b", re.I), "rotate"),
     (re.compile(r"\bfade?s?\b",          re.I), "fade"),
