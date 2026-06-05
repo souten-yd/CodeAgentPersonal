@@ -122,3 +122,31 @@ def test_browser_smoke_passed_lifts_verify_level(tmp_path):
     out = _svc(pool, smoke=smoke).run_after_auto_safe_apply(_req())
     assert out.status == "passed"
     assert out.metadata.get("verify_level") == "runtime_smoke_checked"
+
+
+# ── runtime smoke pass overrides a static-contract false-negative ──────────────
+
+def test_runtime_smoke_pass_overrides_static_false_negative(tmp_path):
+    # A legitimately motionless, color-cycling page fails the static heuristic (no motion_signal),
+    # but the browser actually observed the animation. Runtime evidence wins: the item is not
+    # hard-failed, the static misses are downgraded to advisories, and the failure is NOT
+    # attributed to a static "visual_missing" reason.
+    pool, item = _pool_item(tmp_path, html=_STATIC_HTML, goal="animate text color through rainbow")
+    smoke = _FakeSmoke({"status": "browser_smoke_passed"})
+    out = _svc(pool, smoke=smoke).run_after_auto_safe_apply(_req())
+    assert "visual_contract_overridden_by_runtime_smoke" in out.warnings
+    assert not any(w.startswith("visual_missing:") for w in out.warnings)
+    assert any(w.startswith("visual_advisory:") for w in out.warnings)
+    assert out.metadata.get("verify_level") == "runtime_smoke_checked"
+    assert not str(out.metadata.get("primary_verification_reason", "")).startswith("visual_missing")
+
+
+def test_static_failure_still_hard_fails_when_smoke_cannot_confirm(tmp_path):
+    # Without a runtime smoke pass (e.g. browser not installed → skipped), a static-contract
+    # failure remains a genuine hard failure — the override only applies to real runtime evidence.
+    pool, item = _pool_item(tmp_path, html=_STATIC_HTML, goal="animate text color through rainbow")
+    smoke = _FakeSmoke({"status": "browser_smoke_skipped", "reason": "playwright_browser_not_installed"})
+    out = _svc(pool, smoke=smoke).run_after_auto_safe_apply(_req())
+    assert out.status == "failed"
+    assert "visual_contract_failed" in out.warnings
+    assert any(w.startswith("visual_missing:") for w in out.warnings)

@@ -75,8 +75,17 @@ def _verification_subphase_detail(payload: dict) -> dict:
 
 
 def _repair_subphase_detail(payload: dict) -> dict:
-    attempts = list((payload or {}).get("attempts") or [])
-    attempt_count = int((payload or {}).get("attempt_count") or len(attempts) or 0)
+    payload = payload or {}
+    # ``attempts`` is shaped differently across repair services: bounded_retry
+    # reports a list of attempt records, while self_correction reports an int
+    # attempt count. Tolerate both so this helper never raises (an int here used
+    # to surface as an opaque "'int' object is not iterable" -> safe_apply_exception).
+    raw_attempts = payload.get("attempts")
+    attempts = raw_attempts if isinstance(raw_attempts, list) else []
+    attempt_count_raw = payload.get("attempt_count")
+    if attempt_count_raw is None and isinstance(raw_attempts, int):
+        attempt_count_raw = raw_attempts
+    attempt_count = int(attempt_count_raw or len(attempts) or 0)
     return {
         "attempt_count": attempt_count,
         "attempts": [{"status": str((item or {}).get("status") or "")} for item in attempts if isinstance(item, dict)],
