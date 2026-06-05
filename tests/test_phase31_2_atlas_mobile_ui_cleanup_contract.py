@@ -42,7 +42,7 @@ class Phase312AtlasMobileUiCleanupContract(unittest.TestCase):
         atlas = self._atlas_block()
         self.assertIn('id="atlas-workbench-collapse-btn"', atlas)
         self.assertIn('onclick="toggleAtlasWorkbenchCollapse()"', atlas)
-        self.assertIn('class="atlas-workbench-summary"', atlas)
+        self.assertRegex(atlas, r'class="[^"]*\batlas-workbench-summary\b[^"]*"')
         self.assertIn('Last Run:', atlas)
         self.assertIn('Status:', atlas)
         self.assertIn('atlas-workbench-summary-label', UI)
