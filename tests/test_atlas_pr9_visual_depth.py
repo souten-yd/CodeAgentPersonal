@@ -150,3 +150,33 @@ def test_static_failure_still_hard_fails_when_smoke_cannot_confirm(tmp_path):
     assert out.status == "failed"
     assert "visual_contract_failed" in out.warnings
     assert any(w.startswith("visual_missing:") for w in out.warnings)
+
+
+# ── requirement coverage must be advisory (not a hard gate) for a passing visual task ──────────
+# Literal keyword matching of a visual requirement ("animate a color wave") against HTML/CSS is a
+# false-negative generator: a correct rainbow page won't contain the word "animate"/"wave". When the
+# visual contract has already passed, requirement coverage must not flip the result to failed.
+
+_RAINBOW_NAMED_COLORS_HTML = """\
+<!doctype html><html><head><title>Hello World</title><style>
+.hello-world { font-size: 3rem; animation: rainbow 3s infinite; }
+@keyframes rainbow { 0%{color:red} 20%{color:orange} 40%{color:yellow}
+ 60%{color:green} 80%{color:blue} 100%{color:purple} }
+</style></head><body><div class="hello-world">Hello World</div></body></html>
+"""
+
+
+def test_passing_visual_task_not_failed_by_requirement_keyword_absence(tmp_path):
+    # Goal words ("cycle", "rainbow") need not literally appear in the artifact; the passing
+    # visual contract is the substantive evidence. Smoke is broken (soft playwright_error), as on
+    # the real Windows box — the item must still pass.
+    pool, item = _pool_item(
+        tmp_path, html=_RAINBOW_NAMED_COLORS_HTML,
+        goal="display Hello World whose colors automatically cycle through rainbow colors",
+    )
+    smoke = _FakeSmoke({"status": "browser_smoke_failed", "reason": "playwright_error: "})
+    out = _svc(pool, smoke=smoke).run_after_auto_safe_apply(_req())
+    assert out.status == "passed"
+    assert (out.metadata.get("visual_contract") or {}).get("status") == "passed"
+    assert "requirement_coverage_advisory" in out.warnings
+    assert "requirement_coverage_incomplete" not in out.warnings
