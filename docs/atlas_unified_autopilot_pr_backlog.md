@@ -19,6 +19,7 @@
 - PR-ATLAS-PIPE-36D: current
 - PR-ATLAS-PIPE-37: next
 - PR-ATLAS-PLAN-WATCHDOG: planned（詳細指示は `docs/atlas_codex_plan_watchdog_instruction.md`／入口は `AGENTS.md`）
+- PR-ATLAS-VISUAL-FALSENEG: planned（詳細指示は `docs/atlas_codex_visual_contract_falsenegative_instruction.md`／入口は `AGENTS.md`）
 
 ## PR-ATLAS-PIPE-0: 計画書とチャット継続用docs追加
 
@@ -769,3 +770,25 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - 詳細指示書の「受け入れ基準」をすべて満たす。
 - 既存テスト緑・追加テスト緑。
 - 非プラン経路の LLM 既定挙動（120s）は不変。
+
+## PR-ATLAS-VISUAL-FALSENEG: 視覚コントラクト false-negative 修正
+
+### 目的
+
+「色だけ変化するテキスト（レインボー）」のような正しい成果物が `verification_failed:visual_contract_failed` で誤って落ちる問題を解消する。原因は static 視覚コントラクトの 2 つの false-negative（CSS 色名 keyframes を色変化と認識しない／色課題にも motion を必須化）。ブラウザ非依存で根本対処する。
+
+### 正典（必読）
+
+- 詳細設計・実装手順・テスト互換性・受け入れ基準: `docs/atlas_codex_visual_contract_falsenegative_instruction.md`
+- 実装エージェントの入口: ルートの `AGENTS.md`
+
+### 主な変更（概要）
+
+- `agent/atlas_visual_artifact_verifier.py`: `@keyframes` 内の複数 color 宣言（色名含む）を色変化として認識。color/motion の必須判定をタスク内容連動（color 課題は色必須・motion 課題は動き必須）に。
+- `agent/atlas_playwright_smoke_verifier.py`: 空 `playwright_error:` に例外型名を付与して診断可能化。
+
+### 完了条件
+
+- 実測 `index.html`（色名 keyframes・動き無し）が static contract を pass。
+- 既存 `tests/test_atlas_visual_artifact_verifier.py` 全緑＋追加テスト緑。
+- PR #1565 の runtime-override ロジックは不変。

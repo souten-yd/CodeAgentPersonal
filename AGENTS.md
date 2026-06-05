@@ -6,6 +6,7 @@
 
 | タスク | 正典の指示書（これに従う） | 状態 |
 |---|---|---|
+| 視覚コントラクト false-negative 修正（色名 keyframes / motion 過剰必須） | [`docs/atlas_codex_visual_contract_falsenegative_instruction.md`](docs/atlas_codex_visual_contract_falsenegative_instruction.md) | 未着手 |
 | プラン生成のウォッチドッグ / stall 検知（固定タイムアウト撤廃） | [`docs/atlas_codex_plan_watchdog_instruction.md`](docs/atlas_codex_plan_watchdog_instruction.md) | 未着手 |
 
 > **実装ルール**: 上記タスクに着手するときは、まず該当の指示書を全文読み、冒頭の「実装計画（タスク・チェックリスト）」を作業の単一の source of truth とする。各タスク完了ごとにチェックボックスを更新してコミットすること。Phase / コミットは指示書の「実装順序」に従って分割する。**PR 作成・マージはユーザーの明示指示があるまで行わない。**
