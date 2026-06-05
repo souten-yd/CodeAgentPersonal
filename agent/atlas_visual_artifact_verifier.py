@@ -20,6 +20,7 @@ _COLOR_SIGNALS = [
     (re.compile(r'\bhue-rotate\b'), 'hue_rotate'),
 ]
 _MOTION_SIGNALS = [
+    (re.compile(r'\bstyle\.transform\s*=', re.IGNORECASE), 'style_transform_assignment'),
     (re.compile(r'\btransform\s*[:(]', re.IGNORECASE), 'transform'),
     (re.compile(r'\btranslate[XYZ]?\s*\(', re.IGNORECASE), 'translate'),
     (re.compile(r'\bcanvas\b.*\bcontext\b|\bgetContext\s*\(', re.IGNORECASE), 'canvas_context'),
