@@ -820,6 +820,117 @@
     ]);
   }
 
+  const RUNTIME_ACTION_BUTTONS = [
+    { key: 'can_repair', action: 'repair_continue', label: '修復して続行' },
+    { key: 'can_retry', action: 'retry', label: '再試行' },
+    { key: 'can_revise_plan', action: 'revise_plan', label: 'Planを修正' },
+    { key: 'can_cancel', action: 'cancel', label: 'キャンセル' },
+    { key: 'can_details', action: 'details', label: '詳細を見る' },
+  ];
+
+  function runtimeActionControls(view) {
+    const raw = (view && view.controls) || {};
+    const disabled = (raw && raw.disabled_reasons) || {};
+    const defaults = {
+      can_repair: 'Backend did not authorize repair for this status.',
+      can_retry: 'Backend did not authorize retry for this status.',
+      can_revise_plan: 'Backend did not authorize plan revision for this status.',
+      can_cancel: 'Backend did not authorize cancellation for this status.',
+      can_details: 'No runtime details are available.',
+    };
+    const out = {};
+    RUNTIME_ACTION_BUTTONS.forEach((spec) => {
+      const value = Object.prototype.hasOwnProperty.call(raw, spec.key) ? raw[spec.key] : (view && view[spec.key]);
+      out[spec.key] = {
+        allowed: value === true,
+        reason: String(disabled[spec.key] || defaults[spec.key] || 'Backend did not authorize this action.'),
+      };
+    });
+    return out;
+  }
+
+  function shouldRenderRuntimeActions(view) {
+    const actions = (view && Array.isArray(view.next_actions)) ? view.next_actions : [];
+    if ((view && view.requires_user_action) || actions.some((a) => String(a || '').toLowerCase() !== 'wait')) return true;
+    const controls = runtimeActionControls(view || {});
+    return RUNTIME_ACTION_BUTTONS.some((spec) => controls[spec.key] && controls[spec.key].allowed);
+  }
+
+  function renderRuntimeActionButtons(parent, view, poolId) {
+    if (!parent || !shouldRenderRuntimeActions(view || {})) return;
+    const controls = runtimeActionControls(view || {});
+    const row = document.createElement('div');
+    row.className = 'atlas-runtime-action-row';
+    row.dataset.atlasRuntimeActions = 'true';
+    row.dataset.poolId = String(poolId || '');
+    row.style.display = 'flex';
+    row.style.flexWrap = 'wrap';
+    row.style.gap = '6px';
+    row.style.marginTop = '8px';
+
+    const disabledLines = [];
+    RUNTIME_ACTION_BUTTONS.forEach((spec) => {
+      const control = controls[spec.key] || { allowed: false, reason: 'Backend did not authorize this action.' };
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = control.allowed ? 'atlas-claude-primary-btn' : 'atlas-claude-secondary-btn';
+      btn.dataset.atlasRuntimeAction = spec.action;
+      btn.setAttribute('data-atlas-runtime-action', spec.action);
+      btn.dataset.backendControl = spec.key;
+      btn.textContent = spec.label;
+      btn.disabled = !control.allowed;
+      if (!control.allowed) {
+        btn.title = control.reason;
+        btn.setAttribute('aria-disabled', 'true');
+        disabledLines.push(`${spec.label}: ${control.reason}`);
+      }
+      btn.addEventListener('click', () => handleRuntimeActionButton(poolId, spec.action, view, parent, control));
+      row.appendChild(btn);
+    });
+    parent.appendChild(row);
+    if (disabledLines.length) {
+      const why = document.createElement('div');
+      why.className = 'atlas-claude-stage-detail';
+      why.dataset.atlasRuntimeDisabledReasons = 'true';
+      why.setAttribute('data-atlas-runtime-disabled-reasons', 'true');
+      why.textContent = `disabled actions: ${disabledLines.join(' | ')}`;
+      parent.appendChild(why);
+    }
+  }
+
+  function handleRuntimeActionButton(poolId, action, view, parent, control) {
+    if (!control || !control.allowed) {
+      pushSystemMessage(control && control.reason ? control.reason : 'Backend did not authorize this action.');
+      return;
+    }
+    if (action === 'retry') {
+      approveAndRunPipeline(poolId);
+    } else if (action === 'revise_plan') {
+      const note = (root.prompt && root.prompt('改訂依頼の内容（任意）')) || '';
+      requestPlanRevision(poolId, note);
+    } else if (action === 'cancel') {
+      cancelPlan(poolId);
+    } else if (action === 'details') {
+      toggleRuntimeDetails(parent, view);
+    } else if (action === 'repair_continue') {
+      pushSystemMessage('修復して続行をリクエストしました。既存の backend next-action/repair endpoint が許可する場合のみ実行してください。');
+    }
+  }
+
+  function toggleRuntimeDetails(parent, view) {
+    if (!parent) return;
+    const existing = parent.querySelector('[data-atlas-runtime-details="true"]');
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    const pre = document.createElement('pre');
+    pre.dataset.atlasRuntimeDetails = 'true';
+    pre.className = 'atlas-claude-summary-block';
+    pre.textContent = JSON.stringify(view || {}, null, 2);
+    parent.appendChild(pre);
+  }
+
   // Claude-style clarification queue: render exactly one pending question, preserving the rest.
   function appendClarificationPrompt(poolId, poolMeta) {
     if (!dom.transcript) return;
@@ -1446,6 +1557,7 @@
         div.textContent = text;
         summary.appendChild(div);
       });
+      renderRuntimeActionButtons(summary, view, poolId);
     }
     if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;
     return panel;

@@ -70,6 +70,46 @@ def test_runtime_panel_renders_required_patch_zero_states():
         assert token in body
 
 
+def test_runtime_panel_renders_backend_authorized_next_action_buttons():
+    render_body = _function_body("renderRuntimeStatusPanel")
+    actions_body = _function_body("renderRuntimeActionButtons")
+    controls_body = _function_body("runtimeActionControls")
+
+    assert "renderRuntimeActionButtons(summary, view, poolId)" in render_body
+    assert render_body.index("next action:") < render_body.index("renderRuntimeActionButtons(summary, view, poolId)")
+    for token in [
+        "修復して続行",
+        "再試行",
+        "Planを修正",
+        "キャンセル",
+        "詳細を見る",
+        "data-atlas-runtime-action",
+        "data-atlas-runtime-disabled-reasons",
+        "disabled actions:",
+    ]:
+        assert token in actions_body or token in JS
+    for token in [
+        "can_repair",
+        "can_retry",
+        "can_revise_plan",
+        "can_cancel",
+        "can_details",
+        "disabled_reasons",
+    ]:
+        assert token in controls_body
+
+
+def test_runtime_action_buttons_remain_backend_authorized_request_only():
+    actions_body = _function_body("handleRuntimeActionButton")
+    assert "approveAndRunPipeline(poolId)" in actions_body
+    assert "requestPlanRevision(poolId, note)" in actions_body
+    assert "cancelPlan(poolId)" in actions_body
+    assert "toggleRuntimeDetails(parent, view)" in actions_body
+    assert "runBoundedRetry(" not in actions_body
+    assert "runPatchRegen(" not in actions_body
+    assert "修復して続行をリクエストしました" in actions_body
+
+
 def test_runtime_panel_reuses_one_stage_block_for_polling():
     append_body = _function_body("appendStageBlock")
     render_body = _function_body("renderRuntimeStatusPanel")
