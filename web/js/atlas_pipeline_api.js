@@ -54,6 +54,7 @@
   // Default per-request timeout. Long-running operations (plan creation, autopilot) pass a larger
   // timeoutMs. On abort we synthesize a gateway-style timeout result instead of throwing raw.
   const DEFAULT_TIMEOUT_MS = 120000;
+  const PLAN_POOL_ABSOLUTE_MAX_MS = 2700000;
 
   async function atlasFetch(path, options) {
     const opts = options || {};
@@ -111,11 +112,13 @@
     getPlanPoolStatus(poolId) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/status`, { timeoutMs: 15000 });
     },
-    // Local models (e.g. Gemma-4B on RunPod) can take several minutes to plan + research + critique.
-    // Keep polling well past the old 240s so slow-but-successful runs aren't reported as timeouts.
-    async pollPlanPoolUntilReady(poolId, workspaceId, maxWaitMs = 480000, intervalMs = 1500) {
+    // Local models can take a long time while still making progress. Poll until terminal state,
+    // server-confirmed stall, or the generous absolute backstop.
+    async pollPlanPoolUntilReady(poolId, workspaceId, maxWaitMs, intervalMs = 1500) {
       const startTime = Date.now();
-      while (Date.now() - startTime < maxWaitMs) {
+      const configuredMax = Number(maxWaitMs || root.ATLAS_PLAN_ABSOLUTE_MAX_MS || PLAN_POOL_ABSOLUTE_MAX_MS);
+      const absoluteMaxMs = Number.isFinite(configuredMax) && configuredMax > 0 ? configuredMax : PLAN_POOL_ABSOLUTE_MAX_MS;
+      while (Date.now() - startTime < absoluteMaxMs) {
         await new Promise((r) => setTimeout(r, intervalMs));
         const st = await this.getPlanPoolStatus(poolId);
         if (!st.ok) {
@@ -124,6 +127,23 @@
           return st;
         }
         const status = (st.data && st.data.status) || '';
+        const currentPhase = (st.data && (st.data.current_phase || st.data.phase)) || '';
+        const secondsSinceProgress = Number(st.data && st.data.seconds_since_progress);
+        const tokensGenerated = Number(st.data && st.data.tokens_generated);
+        const progressDetail = [
+          currentPhase ? `フェーズ: ${currentPhase}` : '',
+          Number.isFinite(secondsSinceProgress) ? `最終進捗から ${Math.round(secondsSinceProgress)} 秒` : '',
+          Number.isFinite(tokensGenerated) && tokensGenerated > 0 ? `tokens: ${tokensGenerated}` : '',
+        ].filter(Boolean).join(' / ');
+        if (st.data && st.data.is_stalled === true) {
+          const reason = st.data.stalled_reason || 'LLM生成の進捗が停止している可能性があります。';
+          const action = st.data.suggested_action || '少し待つか、再実行してください。';
+          return {
+            ok: false, status: 200, error: true, code: 'plan_pool_stalled',
+            message: `${reason}${progressDetail ? ` (${progressDetail})` : ''} ${action}`,
+            detail: { error: 'plan_pool_stalled', status, current_phase: currentPhase, seconds_since_progress: secondsSinceProgress },
+          };
+        }
         if (status === 'ready') {
           return await atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId })}`, { timeoutMs: 30000 });
         }
@@ -136,9 +156,9 @@
         }
       }
       return {
-        ok: false, status: 0, error: true, code: 'plan_pool_timeout',
-        message: 'プラン作成がタイムアウトしました。モデルが混雑しています。少し待って再実行してください。',
-        detail: { error: 'plan_pool_timeout' },
+        ok: false, status: 0, error: true, code: 'plan_pool_absolute_timeout',
+        message: 'プラン作成が絶対上限に達しました。状態を確認して再実行してください。',
+        detail: { error: 'plan_pool_absolute_timeout' },
       };
     },
     getPlanPool(poolId) {

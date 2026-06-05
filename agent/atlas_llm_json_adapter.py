@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import re
+import socket
+from datetime import datetime, timezone
 from typing import Callable
 from urllib import error as urllib_error
 from urllib import request as urllib_request
@@ -59,11 +61,22 @@ class AtlasLLMJsonAdapter:
         base_url: str = "",
         model: str = "",
         timeout_seconds: int = 120,
+        on_progress: Callable[[dict], None] | None = None,
     ) -> None:
         self.backend_fn = backend_fn
         self.base_url = str(base_url or "").strip().rstrip("/")
         self.model = str(model or "").strip()
         self.timeout_seconds = int(timeout_seconds or 120)
+        self.on_progress = on_progress
+
+    def with_progress(self, on_progress: Callable[[dict], None] | None) -> "AtlasLLMJsonAdapter":
+        return AtlasLLMJsonAdapter(
+            backend_fn=self.backend_fn,
+            base_url=self.base_url,
+            model=self.model,
+            timeout_seconds=self.timeout_seconds,
+            on_progress=on_progress,
+        )
 
     def __call__(self, system_prompt: str, user_prompt: str) -> dict | None:
         result = self.generate_json(AtlasLLMJsonRequest(system_prompt=system_prompt, user_prompt=user_prompt))
@@ -103,6 +116,8 @@ class AtlasLLMJsonAdapter:
                 logger.warning("llm_json_parse_failed backend=openai_compatible model=%s raw=%r", model_name, raw_text[:500])
                 return AtlasLLMJsonResult(ok=False, raw_text=raw_text, model=model_name, backend="openai_compatible", structured=structured, error="llm_json_parse_failed")
             return AtlasLLMJsonResult(ok=True, data=parsed, raw_text=raw_text, model=model_name, backend="openai_compatible", structured=structured)
+        except socket.timeout:
+            return AtlasLLMJsonResult(ok=False, model=model_name, backend="openai_compatible", error="llm_stalled", used_fallback=True)
         except Exception as exc:  # noqa: BLE001
             return AtlasLLMJsonResult(ok=False, model=model_name, error=f"llm_backend_error:{exc}", used_fallback=True)
 
@@ -274,18 +289,23 @@ class AtlasLLMJsonAdapter:
         # Prefer a structured-output constraint (json_schema / GBNF grammar) so a weak local model
         # cannot emit broken JSON. If the server rejects the param (older llama-server, or a model
         # that does not support it), fall back to plain json_object so we never hard-fail on it.
+        use_stream = self._streaming_enabled(request)
         try:
-            return self._post_chat(request, structured=True)
+            return self._post_chat_stream(request, structured=True) if use_stream else self._post_chat(request, structured=True)
         except urllib_error.HTTPError as exc:
             if (request.json_schema or request.grammar) and exc.code in (400, 404, 422, 501):
                 logger.warning(
                     "structured_output_rejected code=%s; retrying with response_format=json_object", exc.code
                 )
-                return self._post_chat(request, structured=False)
+                return self._post_chat_stream(request, structured=False) if use_stream else self._post_chat(request, structured=False)
             raise
 
-    def _post_chat(self, request: AtlasLLMJsonRequest, *, structured: bool) -> str:
-        endpoint = f"{self.base_url.rstrip('/')}/v1/chat/completions"
+    def _streaming_enabled(self, request: AtlasLLMJsonRequest) -> bool:
+        if str(os.environ.get("ATLAS_LLM_STREAMING", "1")).strip() == "0":
+            return False
+        return bool(request.stream or self.on_progress is not None)
+
+    def _build_payload(self, request: AtlasLLMJsonRequest, *, structured: bool) -> dict:
         payload: dict = {
             "model": request.model or self.model or "local-llm",
             "messages": self.build_messages(request),
@@ -310,15 +330,97 @@ class AtlasLLMJsonAdapter:
             # "json_object" (incl. Gemma default) and any mode whose required input is absent: ask for
             # syntactically valid JSON and rely on the in-prompt schema hint + parser backstop.
             payload["response_format"] = {"type": "json_object"}
+        return payload
+
+    def _build_request(self, payload: dict):
+        endpoint = f"{self.base_url.rstrip('/')}/v1/chat/completions"
         data = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         api_key = str(os.environ.get("OPENAI_API_KEY", "")).strip()
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        req = urllib_request.Request(endpoint, data=data, headers=headers, method="POST")
+        return urllib_request.Request(endpoint, data=data, headers=headers, method="POST")
+
+    def _post_chat(self, request: AtlasLLMJsonRequest, *, structured: bool) -> str:
+        payload = self._build_payload(request, structured=structured)
+        req = self._build_request(payload)
         timeout_sec = int(request.timeout_seconds or self.timeout_seconds)
         with urllib_request.urlopen(req, timeout=timeout_sec) as resp:  # noqa: S310
             body = json.loads(resp.read().decode("utf-8"))
         choices = body.get("choices") if isinstance(body, dict) else None
         message = choices[0].get("message") if isinstance(choices, list) and choices else {}
         return str(message.get("content") or "")
+
+    def _post_chat_stream(self, request: AtlasLLMJsonRequest, *, structured: bool) -> str:
+        payload = self._build_payload(request, structured=structured)
+        payload["stream"] = True
+        req = self._build_request(payload)
+        first_token_sec = _env_float("ATLAS_PLAN_FIRST_TOKEN_SEC", 300.0)
+        stall_after_sec = _env_float("ATLAS_PLAN_STALL_AFTER_SEC", 120.0)
+        chunks: list[str] = []
+        tokens_generated = 0
+        saw_token = False
+        with urllib_request.urlopen(req, timeout=first_token_sec) as resp:  # noqa: S310
+            self._set_response_timeout(resp, first_token_sec)
+            for raw_line in resp:
+                line = raw_line.decode("utf-8", errors="replace").strip() if isinstance(raw_line, bytes) else str(raw_line).strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[len("data:"):].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    event = json.loads(data)
+                except Exception:
+                    continue
+                choices = event.get("choices") if isinstance(event, dict) else None
+                choice = choices[0] if isinstance(choices, list) and choices else {}
+                delta = choice.get("delta") if isinstance(choice, dict) else {}
+                content = ""
+                if isinstance(delta, dict):
+                    content = str(delta.get("content") or "")
+                if not content and isinstance(choice.get("message"), dict):
+                    content = str(choice["message"].get("content") or "")
+                if not content:
+                    continue
+                chunks.append(content)
+                tokens_generated += max(1, len(content.split()))
+                if not saw_token:
+                    saw_token = True
+                    self._set_response_timeout(resp, stall_after_sec)
+                self._emit_progress(tokens_generated)
+        return "".join(chunks)
+
+    def _emit_progress(self, tokens_generated: int) -> None:
+        if self.on_progress is None:
+            return
+        try:
+            self.on_progress({
+                "tokens_generated": int(tokens_generated),
+                "last_token_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            return
+
+    def _set_response_timeout(self, resp, timeout_sec: float) -> None:
+        for attr_path in (
+            ("fp", "raw", "_sock"),
+            ("fp", "raw", "_fp", "fp", "raw", "_sock"),
+            ("_fp", "fp", "raw", "_sock"),
+        ):
+            target = resp
+            try:
+                for attr in attr_path:
+                    target = getattr(target, attr)
+                if hasattr(target, "settimeout"):
+                    target.settimeout(timeout_sec)
+                    return
+            except Exception:
+                continue
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return max(1.0, float(os.environ.get(name, str(default)) or default))
+    except Exception:
+        return default

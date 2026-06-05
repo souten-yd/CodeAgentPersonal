@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import contextlib
+import asyncio
 import re
+import sys
 import threading
 import time
 from functools import partial
@@ -38,6 +40,23 @@ def _is_browser_not_installed_error(exc: Exception) -> bool:
     return "executable doesn't exist" in msg or (
         "playwright install" in msg and "browsertype.launch" in msg
     )
+
+
+@contextlib.contextmanager
+def _playwright_event_loop_policy():
+    if sys.platform != "win32" or not hasattr(asyncio, "WindowsProactorEventLoopPolicy"):
+        yield
+        return
+    previous = asyncio.get_event_loop_policy()
+    try:
+        if hasattr(asyncio, "WindowsSelectorEventLoopPolicy") and isinstance(previous, asyncio.WindowsSelectorEventLoopPolicy):
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        yield
+    finally:
+        try:
+            asyncio.set_event_loop_policy(previous)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class _QuietHTTPRequestHandler(SimpleHTTPRequestHandler):
@@ -96,7 +115,7 @@ class AtlasPlaywrightSmokeVerifier:
         console_errors: list[str] = []
 
         try:
-            with sync_playwright() as pw, _serve_artifact_dir(html_path.parent) as base_url:
+            with _playwright_event_loop_policy(), sync_playwright() as pw, _serve_artifact_dir(html_path.parent) as base_url:
                 target = f"{base_url}/{quote(html_path.name)}" if base_url else html_path.as_uri()
                 browser = pw.chromium.launch(headless=True)
                 page = browser.new_page()
@@ -105,6 +124,7 @@ class AtlasPlaywrightSmokeVerifier:
                 page.on("pageerror", lambda err: console_errors.append(str(err)))
 
                 page.goto(target, wait_until="domcontentloaded", timeout=10000)
+                page.wait_for_timeout(100)
 
                 # Check for JS errors (ReferenceError / SyntaxError are hard failures).
                 # Add local static diagnostics so repair planning can target common
@@ -173,7 +193,8 @@ class AtlasPlaywrightSmokeVerifier:
                     reason="playwright_browser_not_installed: run `playwright install chromium`",
                     console_errors=console_errors,
                 )
-            return self._result("browser_smoke_failed", reason=f"playwright_error: {exc}",
+            detail = f"{type(exc).__name__}: {exc}".strip().rstrip(":").strip()
+            return self._result("browser_smoke_failed", reason=f"playwright_error: {detail}",
                                 console_errors=console_errors)
 
     def _nudge_interaction(self, page) -> None:
@@ -278,6 +299,7 @@ class AtlasPlaywrightSmokeVerifier:
         hard_markers = (
             "ReferenceError",
             "SyntaxError",
+            " is not defined",
             "Cannot use import statement",
             "Unexpected token 'export'",
             "Failed to resolve module specifier",
@@ -385,6 +407,8 @@ class AtlasPlaywrightSmokeVerifier:
                 if not spec.startswith(('.', '/')):
                     continue
                 target = self._safe_child_path(js.parent, spec)
+                if target and target.exists() and target.name != Path(spec).name:
+                    return "import_path_case_mismatch"
                 candidates = [target] if target else []
                 if target and target.suffix == "":
                     candidates.extend([target.with_suffix(".js"), target / "index.js"])

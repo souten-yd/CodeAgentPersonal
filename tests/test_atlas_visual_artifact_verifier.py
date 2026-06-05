@@ -55,6 +55,14 @@ _HTML_WITH_COLOR_NO_MOTION = """\
 </body></html>
 """
 
+_RAINBOW_NAMED_COLORS_HTML = """\
+<!doctype html><html><head><style>
+.hello-world { animation: rainbow 3s infinite; }
+@keyframes rainbow { 0%{color:red} 20%{color:orange} 40%{color:yellow}
+ 60%{color:green} 80%{color:blue} 100%{color:purple} }
+</style></head><body><div class="hello-world">Hello World</div></body></html>
+"""
+
 
 def test_missing_html_file_fails(tmp_path):
     result = _VFY.verify_static(tmp_path / 'nonexistent.html', task_description='animation')
@@ -82,6 +90,30 @@ def test_html_with_color_but_no_motion_fails_animation_task(tmp_path):
     f = tmp_path / 'index.html'
     f.write_text(_HTML_WITH_COLOR_NO_MOTION, encoding='utf-8')
     result = _VFY.verify_static(f, task_description='animate movement')
+    assert result['status'] == 'failed'
+    assert 'motion_signal' in result['missing']
+
+
+def test_named_color_keyframes_satisfy_color_mutation(tmp_path):
+    f = tmp_path / 'index.html'
+    f.write_text(_RAINBOW_NAMED_COLORS_HTML, encoding='utf-8')
+    result = _VFY.verify_static(f, task_description='display text that cycles through rainbow colors')
+    assert result['status'] == 'passed', result
+    assert 'color_mutation_signal' not in result['missing']
+    assert 'motion_signal' not in result['missing']
+
+
+def test_color_task_does_not_require_motion(tmp_path):
+    f = tmp_path / 'index.html'
+    f.write_text(_RAINBOW_NAMED_COLORS_HTML, encoding='utf-8')
+    result = _VFY.verify_static(f, task_description='rainbow color animation')
+    assert result['status'] == 'passed'
+
+
+def test_movement_task_still_requires_motion(tmp_path):
+    f = tmp_path / 'index.html'
+    f.write_text(_RAINBOW_NAMED_COLORS_HTML, encoding='utf-8')
+    result = _VFY.verify_static(f, task_description='make the text bounce and move around')
     assert result['status'] == 'failed'
     assert 'motion_signal' in result['missing']
 

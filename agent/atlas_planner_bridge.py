@@ -22,6 +22,7 @@ class AtlasPlannerBridge:
         warning_logger: Callable[[str], None] | None = None,
         builder: AtlasPlanPoolBuilder | None = None,
         planning_runner_factory: RunnerFactory | None = None,
+        progress_cb: Callable[..., None] | None = None,
     ) -> None:
         self.ca_data_dir = ca_data_dir
         self.llm_json_fn = llm_json_fn
@@ -30,6 +31,7 @@ class AtlasPlannerBridge:
         self.warning_logger = warning_logger
         self.builder = builder or AtlasPlanPoolBuilder()
         self.planning_runner_factory = planning_runner_factory or TaskPlanningRunner
+        self.progress_cb = progress_cb
 
     def create_plan_pool(self, request: AtlasPlannerBridgeRequest) -> AtlasPlannerBridgeResult:
         if not self.should_use_real_planner(request):
@@ -103,6 +105,7 @@ class AtlasPlannerBridge:
             memory_search_fn=self.memory_search_fn,
             active_skills_fn=self.active_skills_fn,
             warning_logger=self.warning_logger,
+            progress_cb=self.progress_cb,
         )
         advisory = request.planner_context_text_v2 or request.advisory_context_text or request.planner_context_text
         result = runner.run(
@@ -114,6 +117,7 @@ class AtlasPlannerBridge:
             execution_mode="plan_only",
             use_nexus=request.use_nexus,
             advisory_context=advisory,
+            progress_cb=self.progress_cb,
         )
         return _as_dict(result)
 

@@ -8223,7 +8223,7 @@ function formatNexusDeepProgressStatus() {
   const secSinceEvent = Number(h.seconds_since_last_event);
   const eventText = Number.isFinite(secSinceEvent) ? `${secSinceEvent.toFixed(1)}秒前` : '-';
   const downloadSummary = total > 0
-    ? ` / ダウンロード中 ${completed}/${total} 件完了、${active}件処理中、${degraded}件degraded、${failed}件failed、${skipped}件skipped、${totalMb.toFixed(1)}MB`
+    ? ` / ソース収集中 ${completed}/${total} 件完了、${active}件処理中、${degraded}件degraded、${failed}件failed、${skipped}件skipped、${totalMb.toFixed(1)}MB`
     : '';
   const activeSummary = srcTitle ? ` / 処理中:${srcTitle}` : '';
   const finishReason = String(generation?.final_finish_reason || generation?.finish_reason || nexusDeepResearchAnswer?.finish_reason || '').trim();

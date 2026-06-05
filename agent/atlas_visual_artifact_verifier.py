@@ -39,6 +39,14 @@ _WAVE_TASK_KEYWORDS = re.compile(
     r'\b(wave|sine|sinusoid|oscillat|linear.?phase|phase.?shift)',
     re.IGNORECASE,
 )
+_COLOR_TASK_KEYWORDS = re.compile(
+    r'\b(colou?r|hue|rainbow|gradient|chromat|tint|palette|spectrum)',
+    re.IGNORECASE,
+)
+_MOTION_TASK_KEYWORDS = re.compile(
+    r'\b(mov\w*|motion|wave|oscillat|bounce|spin\w*|rotat\w*|slide|drift|orbit|translat\w*|scroll|fall\w*|jump\w*|fly\w*|shake|swing)',
+    re.IGNORECASE,
+)
 
 
 class AtlasVisualArtifactVerifier:
@@ -67,9 +75,20 @@ class AtlasVisualArtifactVerifier:
         task_desc = task_description.lower()
         is_animation_task = bool(_ANIMATION_TASK_KEYWORDS.search(task_desc))
         is_wave_task = bool(_WAVE_TASK_KEYWORDS.search(task_desc))
+        wants_color = bool(_COLOR_TASK_KEYWORDS.search(task_desc))
+        wants_motion = bool(_MOTION_TASK_KEYWORDS.search(task_desc))
 
         checks: list[dict] = []
         missing: list[str] = []
+
+        def _record(name: str, found: str | None, *, required: bool) -> None:
+            if found:
+                checks.append({"check": name, "status": "passed", "detail": found})
+            elif required:
+                checks.append({"check": name, "status": "failed", "detail": None})
+                missing.append(name)
+            else:
+                checks.append({"check": name, "status": "advisory", "detail": None})
 
         # 1. Animation signal (required for animation tasks; advisory for all)
         anim_found = self._check_signals(content, _ANIMATION_SIGNALS)
@@ -83,29 +102,16 @@ class AtlasVisualArtifactVerifier:
             checks.append({"check": "animation_signal", "status": "passed" if anim_found else "advisory",
                            "detail": anim_found})
 
-        # 2. Color mutation signal (required for animation tasks)
-        color_found = self._check_signals(content, _COLOR_SIGNALS)
-        if is_animation_task:
-            if color_found:
-                checks.append({"check": "color_mutation_signal", "status": "passed", "detail": color_found})
-            else:
-                checks.append({"check": "color_mutation_signal", "status": "failed", "detail": None})
-                missing.append("color_mutation_signal")
-        else:
-            checks.append({"check": "color_mutation_signal", "status": "passed" if color_found else "advisory",
-                           "detail": color_found})
+        # 2. Color mutation signal (required only for animation tasks that ask for color)
+        color_found = self._check_signals(content, _COLOR_SIGNALS) or self._keyframe_color_mutation(content)
+        _record("color_mutation_signal", color_found, required=is_animation_task and wants_color)
 
-        # 3. Motion signal (required for animation tasks)
+        # 3. Motion signal (required only for animation tasks that ask for motion)
         motion_found = self._check_signals(content, _MOTION_SIGNALS)
-        if is_animation_task:
-            if motion_found:
-                checks.append({"check": "motion_signal", "status": "passed", "detail": motion_found})
-            else:
-                checks.append({"check": "motion_signal", "status": "failed", "detail": None})
-                missing.append("motion_signal")
-        else:
-            checks.append({"check": "motion_signal", "status": "passed" if motion_found else "advisory",
-                           "detail": motion_found})
+        _record("motion_signal", motion_found, required=is_animation_task and wants_motion)
+        if is_animation_task and not wants_color and not wants_motion and not (color_found or motion_found):
+            checks.append({"check": "visual_change_signal", "status": "failed", "detail": None})
+            missing.append("visual_change_signal")
 
         # 4. Wave/linear phase signal (required for wave tasks)
         if is_wave_task:
@@ -133,6 +139,25 @@ class AtlasVisualArtifactVerifier:
         for pattern, name in signals:
             if pattern.search(content):
                 return name
+        return None
+
+    def _keyframe_color_mutation(self, content: str) -> str | None:
+        """Detect named-color CSS mutations inside @keyframes blocks."""
+        for match in re.finditer(r'@keyframes\s+[\w-]+\s*\{', content, re.IGNORECASE):
+            start = match.end() - 1
+            depth = 0
+            block = content[start:]
+            for i in range(start, len(content)):
+                if content[i] == '{':
+                    depth += 1
+                elif content[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        block = content[start:i + 1]
+                        break
+            values = re.findall(r'(?:background-)?color\s*:\s*([^;}\n]+)', block, re.IGNORECASE)
+            if len({value.strip().lower() for value in values}) >= 2:
+                return 'keyframe_color_mutation'
         return None
 
     @staticmethod

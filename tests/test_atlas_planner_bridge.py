@@ -9,10 +9,11 @@ BRIDGE_FILE = Path("agent/atlas_planner_bridge.py")
 class FakeRunner:
     calls = 0
     result = {}
+    last_init_kwargs = {}
     last_kwargs = {}
 
-    def __init__(self, **_kwargs) -> None:
-        pass
+    def __init__(self, **kwargs) -> None:
+        type(self).last_init_kwargs = dict(kwargs)
 
     def run(self, **_kwargs) -> dict:
         type(self).calls += 1
@@ -120,6 +121,29 @@ def test_bridge_runs_real_planner_with_fake_llm(tmp_path) -> None:
     assert result.pool.items[1].item_type == "verification"
     assert result.pool.metadata["source"] == "real_planner"
     assert FakeRunner.calls == 1
+
+
+def test_bridge_passes_progress_callback_to_runner(tmp_path) -> None:
+    FakeRunner.calls = 0
+    FakeRunner.last_init_kwargs = {}
+    FakeRunner.last_kwargs = {}
+    FakeRunner.result = _planner_result()
+
+    def progress_cb(**payload):
+        return payload
+
+    bridge = AtlasPlannerBridge(
+        ca_data_dir=str(tmp_path),
+        llm_json_fn=_fake_llm,
+        planning_runner_factory=FakeRunner,
+        progress_cb=progress_cb,
+    )
+
+    result = bridge.create_plan_pool(_request(mode="auto"))
+
+    assert result.status == "planned"
+    assert FakeRunner.last_init_kwargs["progress_cb"] is progress_cb
+    assert FakeRunner.last_kwargs["progress_cb"] is progress_cb
 
 
 def test_bridge_keeps_advisory_out_of_user_input(tmp_path) -> None:

@@ -6,6 +6,7 @@ from pathlib import Path, PurePosixPath
 
 from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest, AtlasAutoVerificationResult
 from agent.atlas_playwright_smoke_verifier import AtlasPlaywrightSmokeVerifier
+from agent.atlas_requirement_tracer import AtlasRequirementTracer
 from agent.atlas_verification_allowlist import atlas_verification_allowlist
 from agent.atlas_visual_artifact_verifier import AtlasVisualArtifactVerifier
 from agent.test_command_runner_schema import AtlasTestCommandRequest
@@ -107,6 +108,9 @@ class AtlasAutoVerificationService:
 
         coverage = self._requirement_coverage(pool, item, workspace_root, status=status)
         metadata["requirement_coverage"] = coverage
+        pool_coverage = self._pool_requirement_coverage_progress(pool, item, workspace_root, status=status)
+        if pool_coverage:
+            metadata["pool_requirement_coverage"] = pool_coverage
         if status == "passed" and not coverage.get("success_eligible", True):
             status = "failed"
             warnings.append("requirement_coverage_incomplete")
@@ -174,11 +178,12 @@ class AtlasAutoVerificationService:
         return ""
 
     def _visual_task_description(self, item, pool) -> str:
-        return " ".join([
-            str(getattr(item, "goal", "") or ""),
-            " ".join(getattr(item, "done_definition", []) or []),
-            str(getattr(pool, "root_goal", "") or ""),
-        ]).strip()
+        requirements = self._item_requirement_texts(
+            pool,
+            item,
+            changed_files=self._changed_files_for_requirement_check(item),
+        )
+        return " ".join(requirements).strip()
 
     def _evaluate_visual(self, html_path: Path, task_desc: str) -> dict:
         """Run static visual contract + optional Playwright smoke; classify hard/soft outcomes.
@@ -256,6 +261,9 @@ class AtlasAutoVerificationService:
         status = "failed" if ev["hard_failed"] else "passed"
         coverage = self._requirement_coverage(pool, item, workspace_root, status=status)
         metadata["requirement_coverage"] = coverage
+        pool_coverage = self._pool_requirement_coverage_progress(pool, item, workspace_root, status=status)
+        if pool_coverage:
+            metadata["pool_requirement_coverage"] = pool_coverage
         if status == "passed" and not coverage.get("success_eligible", True):
             status = "failed"
             warnings.append("requirement_coverage_incomplete")
@@ -288,25 +296,19 @@ class AtlasAutoVerificationService:
         return True
 
     def _requirement_coverage(self, pool, item, workspace_root: str, *, status: str) -> dict:
-        metadata = item.metadata or {}
-        requirements = [
-            str(v).strip()
-            for v in [
-                *list(getattr(item, "done_definition", []) or []),
-                *list(metadata.get("acceptance_criteria") or []),
-            ]
-            if str(v).strip()
-        ]
+        changed_files = self._changed_files_for_requirement_check(item)
+        requirements = self._item_requirement_texts(pool, item, changed_files=changed_files)
         if not requirements:
             return {
+                "scope": "item",
                 "total": 0,
                 "by_status": {},
                 "mapped": [],
                 "all_verified": False,
                 "success_eligible": True,
             }
-        changed_files = self._changed_files_for_requirement_check(item)
         content = self._read_requirement_evidence(workspace_root, changed_files)
+        evidence_text = "\n".join([content, *changed_files]).lower()
         mapped: list[dict] = []
         by_status: dict[str, int] = {}
         for idx, requirement in enumerate(requirements, start=1):
@@ -315,7 +317,7 @@ class AtlasAutoVerificationService:
                 req_status = "partial"
                 missing = []
             else:
-                matched = [tok for tok in tokens if tok in content]
+                matched = [tok for tok in tokens if tok in evidence_text]
                 required_count = max(1, min(len(tokens), (len(tokens) + 1) // 2))
                 if len(matched) >= required_count:
                     req_status = "verified" if status == "passed" else "implemented"
@@ -332,11 +334,88 @@ class AtlasAutoVerificationService:
             })
         all_verified = by_status.get("verified", 0) == len(requirements)
         return {
+            "scope": "item",
             "total": len(requirements),
             "by_status": by_status,
             "mapped": mapped,
             "all_verified": all_verified,
             "success_eligible": by_status.get("missing", 0) == 0,
+        }
+
+    def _item_requirement_texts(self, pool, item, *, changed_files: list[str]) -> list[str]:
+        metadata = item.metadata or {}
+        original_step = metadata.get("original_step_payload") if isinstance(metadata.get("original_step_payload"), dict) else {}
+        step_requirements = [
+            *self._coerce_text_list(original_step.get("acceptance_criteria")),
+            *self._coerce_text_list(original_step.get("done_definition")),
+            *self._coerce_text_list(original_step.get("verification")),
+            *self._coerce_text_list(metadata.get("acceptance_criteria")),
+        ]
+        goal = str(getattr(item, "goal", "") or "").strip()
+        requirements = [*step_requirements]
+        if goal and (step_requirements or changed_files):
+            requirements.insert(0, goal)
+        if not step_requirements and not self._has_shared_pool_level_done_definition(pool, item):
+            requirements.extend(self._coerce_text_list(getattr(item, "done_definition", []) or []))
+        return list(dict.fromkeys(v for v in requirements if v))
+
+    def _has_shared_pool_level_done_definition(self, pool, item) -> bool:
+        done = self._coerce_text_list(getattr(item, "done_definition", []) or [])
+        if not done or len(getattr(pool, "items", []) or []) < 2:
+            return False
+        item_original = (getattr(item, "metadata", {}) or {}).get("original_step_payload")
+        if isinstance(item_original, dict) and any(
+            item_original.get(key) for key in ("acceptance_criteria", "done_definition", "verification")
+        ):
+            return False
+        normalized = tuple(done)
+        shared_count = 0
+        for candidate in getattr(pool, "items", []) or []:
+            if tuple(self._coerce_text_list(getattr(candidate, "done_definition", []) or [])) == normalized:
+                shared_count += 1
+        return shared_count > 1
+
+    def _pool_requirement_coverage_progress(self, pool, item, workspace_root: str, *, status: str) -> dict:
+        pool_meta = getattr(pool, "metadata", {}) or {}
+        requirements = list(pool_meta.get("requirement_trace") or [])
+        if not requirements:
+            return {}
+        changed_files: list[str] = []
+        verified_files: list[str] = []
+        for candidate in getattr(pool, "items", []) or []:
+            candidate_changed = self._changed_files_for_requirement_check(candidate)
+            if candidate is item:
+                candidate_verified = status == "passed"
+            else:
+                candidate_verified = str(((getattr(candidate, "metadata", {}) or {}).get("auto_verification") or {}).get("status") or "") == "passed"
+            changed_files.extend(candidate_changed)
+            if candidate_verified:
+                verified_files.extend(candidate_changed)
+        changed_files = list(dict.fromkeys(changed_files))
+        verified_files = list(dict.fromkeys(verified_files))
+        file_contents = {
+            rel: text
+            for rel in changed_files
+            if (text := self._read_single_requirement_evidence(workspace_root, rel)) is not None
+        }
+        mapped = AtlasRequirementTracer().map_requirements_to_evidence(
+            requirements,
+            changed_files=changed_files,
+            verified_files=verified_files,
+            done_definitions=[
+                text
+                for candidate in getattr(pool, "items", []) or []
+                for text in self._coerce_text_list(getattr(candidate, "done_definition", []) or [])
+            ],
+            file_contents=file_contents,
+        )
+        summary = AtlasRequirementTracer().coverage_summary(mapped)
+        return {
+            **summary,
+            "scope": "pool",
+            "progress_only": True,
+            "enforceable": False,
+            "mapped": mapped,
         }
 
     def _changed_files_for_requirement_check(self, item) -> list[str]:
@@ -357,18 +436,24 @@ class AtlasAutoVerificationService:
 
     def _read_requirement_evidence(self, workspace_root: str, rel_paths: list[str]) -> str:
         chunks: list[str] = []
-        root = Path(workspace_root)
         for rel in rel_paths:
-            if not self._safe_rel(rel):
-                continue
-            try:
-                target = (root / rel).resolve()
-                target.relative_to(root.resolve())
-                if target.is_file():
-                    chunks.append(target.read_text(encoding="utf-8", errors="replace")[:100000])
-            except Exception:
-                continue
+            text = self._read_single_requirement_evidence(workspace_root, rel)
+            if text is not None:
+                chunks.append(text)
         return "\n".join(chunks).lower()
+
+    def _read_single_requirement_evidence(self, workspace_root: str, rel: str) -> str | None:
+        if not self._safe_rel(rel):
+            return None
+        root = Path(workspace_root)
+        try:
+            target = (root / rel).resolve()
+            target.relative_to(root.resolve())
+            if target.is_file():
+                return target.read_text(encoding="utf-8", errors="replace")[:100000]
+        except Exception:
+            return None
+        return None
 
     @staticmethod
     def _requirement_tokens(text: str) -> list[str]:
@@ -385,6 +470,14 @@ class AtlasAutoVerificationService:
             if t.lower() not in stopwords
         ]
         return list(dict.fromkeys(tokens))[:8]
+
+    @staticmethod
+    def _coerce_text_list(value) -> list[str]:
+        if value is None or value == "":
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [str(v).strip() for v in value if str(v or "").strip()]
+        return [str(value).strip()]
 
     def _blocked(self, pool, item_id: str, request: AtlasAutoVerificationRequest, reason: str):
         self._append_event(pool.pool_id, request.run_id, "auto_verification_blocked", item_id, status="blocked", warnings=[reason])
