@@ -124,3 +124,39 @@ def test_japanese_rainbow_html_maps_to_implementation_signal(tmp_path):
     assert rollup["requirement_coverage"]["by_status"].get("verified", 0) == len(reqs)
     assert "requirement_coverage_incomplete" not in rollup["warnings"]
     assert "requirement_coverage_incomplete" not in rollup["degrade_reasons"]
+
+
+def test_hello_world_rainbow_pool_rollup_tracks_partial_then_complete(tmp_path):
+    reqs = _TRACER.extract_requirements("Create a Hello World page. Add rainbow CSS animation.")
+    pool = _pool(metadata={"requirement_trace": reqs}, project_path=str(tmp_path))
+    (tmp_path / "index.html").write_text("<!doctype html><h1>Hello World</h1>", encoding="utf-8")
+
+    partial = compute_run_quality_rollup(
+        pool,
+        [_result(changed_files=["index.html"], vr_status="passed")],
+        project_path=str(tmp_path),
+    )
+    assert partial["requirement_coverage"]["by_status"].get("verified", 0) >= 1
+    assert partial["requirement_coverage"]["by_status"].get("partial", 0) >= 1
+    assert partial["requirement_coverage"]["all_verified"] is False
+    assert "requirement_coverage_incomplete" not in partial["degrade_reasons"]
+
+    (tmp_path / "index.html").write_text(
+        "<!doctype html><h1>Hello World</h1>"
+        "<style>.rainbow{animation:shift 2s infinite;color:hsl(120 80% 50%)}"
+        "@keyframes shift{from{filter:hue-rotate(0deg)}to{filter:hue-rotate(360deg)}}"
+        "</style>",
+        encoding="utf-8",
+    )
+    complete = compute_run_quality_rollup(
+        pool,
+        [
+            _result(changed_files=["index.html"], vr_status="passed"),
+            _result(changed_files=["index.html"], vr_status="passed"),
+        ],
+        project_path=str(tmp_path),
+    )
+    assert complete["requirement_coverage"]["by_status"].get("verified", 0) == len(reqs)
+    assert complete["requirement_coverage"]["all_verified"] is True
+    assert "requirement_coverage_incomplete" not in complete["warnings"]
+    assert "requirement_coverage_incomplete" not in complete["degrade_reasons"]
