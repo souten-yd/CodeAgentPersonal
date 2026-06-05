@@ -13,6 +13,7 @@ class AtlasLLMJsonRequest(BaseModel):
     temperature: float = 0.1
     max_tokens: int = 4096
     timeout_seconds: int = 120
+    stream: bool = False
     metadata: dict = Field(default_factory=dict)
 
 

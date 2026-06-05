@@ -42,9 +42,9 @@ Codex は進捗に応じて本リストと各指示書内のチェックボッ�
 - [x] S1: 指示書「受け入れ基準」全チェック更新済み・コミット済み
 - [x] S2-P1: ウォッチドッグ Phase 1 実装完了
 - [x] S2-P1: Phase 1 テスト緑（status の is_stalled / poller 契約 / progress_cb 透過）
-- [ ] S2-P2: ウォッチドッグ Phase 2 実装完了
-- [ ] S2-P2: Phase 2 テスト緑（streaming / inactivity timeout / トークン heartbeat）
-- [ ] S2: 指示書「受け入れ基準」全チェック更新済み・コミット済み
+- [x] S2-P2: ウォッチドッグ Phase 2 実装完了
+- [x] S2-P2: Phase 2 テスト緑（streaming / inactivity timeout / トークン heartbeat）
+- [x] S2: 指示書「受け入れ基準」全チェック更新済み・コミット済み
 - [ ] FINAL: 全体検証ゲート（下記）通過、最終サマリを本書末尾に追記
 - [ ] FINAL: 作業ブランチへプッシュ済み（PR は未作成のまま、ユーザー指示待ち）
 

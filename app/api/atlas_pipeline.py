@@ -914,9 +914,12 @@ def _create_plan_pool_core(
         pool.metadata["source"] = "plan_payload"
         planner_status = "skipped"
     else:
+        llm_json_fn = _resolve_atlas_llm_json_fn(request)
+        if progress_cb is not None and isinstance(llm_json_fn, AtlasLLMJsonAdapter):
+            llm_json_fn = llm_json_fn.with_progress(lambda payload: progress_cb(**dict(payload or {})))
         bridge = AtlasPlannerBridge(
             ca_data_dir=str(ca_data_root),
-            llm_json_fn=_resolve_atlas_llm_json_fn(request),
+            llm_json_fn=llm_json_fn,
             memory_search_fn=_resolve_callable_state(request, "atlas_memory_search_fn"),
             active_skills_fn=_resolve_callable_state(request, "atlas_active_skills_fn"),
             builder=builder,

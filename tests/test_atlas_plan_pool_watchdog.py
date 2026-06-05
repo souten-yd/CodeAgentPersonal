@@ -67,3 +67,22 @@ def test_status_does_not_stall_fresh_terminal_or_queued_jobs(tmp_path, monkeypat
         assert response.status_code == 200
         assert response.json()["is_stalled"] is False
 
+
+def test_status_uses_recent_token_heartbeat_over_old_phase_progress(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ATLAS_PLAN_STALL_AFTER_SEC", "1")
+    _write_plan_pool_job(tmp_path, "pool_tokens", {
+        "pool_id": "pool_tokens",
+        "status": "running",
+        "created_at": _iso(10),
+        "last_progress_at": _iso(10),
+        "last_token_at": _iso(0),
+        "tokens_generated": 42,
+        "phase": "plan_generation",
+    })
+
+    response = _client(tmp_path).get("/api/atlas/plan-pools/pool_tokens/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_stalled"] is False
+    assert body["tokens_generated"] == 42

@@ -24,16 +24,16 @@
 - [x] T1-7: テスト T2・T3・T4（後述）を追加し緑化
 
 ### Phase 2 — トークン・ウォッチドッグ（streaming 化）
-- [ ] T2-1: `AtlasLLMJsonRequest.stream` と `AtlasLLMJsonAdapter.on_progress` を追加
-- [ ] T2-2: `_post_chat_stream()` を実装（SSE 行読み、delta 連結、チャンク毎に `on_progress`）
-- [ ] T2-3: 初トークン前は `ATLAS_PLAN_FIRST_TOKEN_SEC`、以降は `ATLAS_PLAN_STALL_AFTER_SEC` を read タイムアウトに適用。`socket.timeout` を `llm_stalled` として返す
-- [ ] T2-4: トークン heartbeat（`last_token_at` / `tokens_generated`）を Phase1 の sink に接続。stall 判定基準を `max(last_token_at, フェーズ進捗時刻)` に
-- [ ] T2-5: `ATLAS_LLM_STREAMING=0` で従来ブロッキングへフォールバック
-- [ ] T2-6: テスト T1・T5（後述）を追加し緑化
+- [x] T2-1: `AtlasLLMJsonRequest.stream` と `AtlasLLMJsonAdapter.on_progress` を追加
+- [x] T2-2: `_post_chat_stream()` を実装（SSE 行読み、delta 連結、チャンク毎に `on_progress`）
+- [x] T2-3: 初トークン前は `ATLAS_PLAN_FIRST_TOKEN_SEC`、以降は `ATLAS_PLAN_STALL_AFTER_SEC` を read タイムアウトに適用。`socket.timeout` を `llm_stalled` として返す
+- [x] T2-4: トークン heartbeat（`last_token_at` / `tokens_generated`）を Phase1 の sink に接続。stall 判定基準を `max(last_token_at, フェーズ進捗時刻)` に
+- [x] T2-5: `ATLAS_LLM_STREAMING=0` で従来ブロッキングへフォールバック
+- [x] T2-6: テスト T1・T5（後述）を追加し緑化
 
 ### 完了
-- [ ] 全受け入れ基準（末尾「受け入れ基準」）を満たす
-- [ ] 既存テスト緑・追加テスト緑
+- [x] 全受け入れ基準（末尾「受け入れ基準」）を満たす
+- [x] 既存テスト緑・追加テスト緑
 
 ---
 
@@ -205,12 +205,12 @@ return data
 
 ## 受け入れ基準（Acceptance）
 
-- [ ] トークンが流れ続ける大規模プラン（>8 分）が**誤タイムアウトせず完了**する。
-- [ ] 生成が `ATLAS_PLAN_STALL_AFTER_SEC` を超えて無進捗のとき、`/status` が `is_stalled=true` と現フェーズ・経過秒を返し、UI が「混雑/停止の可能性」を**stall 確定時のみ**表示する。
-- [ ] `ATLAS_PLAN_ABSOLUTE_MAX_SEC` 到達でバックストップ失敗する。
-- [ ] `ATLAS_LLM_STREAMING=0` で従来のブロッキング動作に戻る。
-- [ ] 既存テスト緑、追加テスト緑。`ruff`/型チェック（あれば）通過。
-- [ ] プラン生成以外の LLM 利用箇所の挙動・既定 120s が不変。
+- [x] トークンが流れ続ける大規模プラン（>8 分）が**誤タイムアウトせず完了**する。
+- [x] 生成が `ATLAS_PLAN_STALL_AFTER_SEC` を超えて無進捗のとき、`/status` が `is_stalled=true` と現フェーズ・経過秒を返し、UI が「混雑/停止の可能性」を**stall 確定時のみ**表示する。
+- [x] `ATLAS_PLAN_ABSOLUTE_MAX_SEC` 到達でバックストップ失敗する。
+- [x] `ATLAS_LLM_STREAMING=0` で従来のブロッキング動作に戻る。
+- [x] 既存テスト緑、追加テスト緑。`ruff`/型チェック（あれば）通過。
+- [x] プラン生成以外の LLM 利用箇所の挙動・既定 120s が不変。
 
 ---
 
