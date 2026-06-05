@@ -18,6 +18,7 @@
 - PR-ATLAS-PIPE-36C: completed
 - PR-ATLAS-PIPE-36D: current
 - PR-ATLAS-PIPE-37: next
+- PR-ATLAS-PLAN-WATCHDOG: planned（詳細指示は `docs/atlas_codex_plan_watchdog_instruction.md`／入口は `AGENTS.md`）
 
 ## PR-ATLAS-PIPE-0: 計画書とチャット継続用docs追加
 
@@ -746,3 +747,25 @@ Create Planがfallback PlanPoolだけでなく、既存Planner / DeepPlanner / R
 - Next PR: PR-ATLAS-PIPE-37
 
 - PR-36C unifies safe_apply executor, snapshot, and restore workspace root.
+
+## PR-ATLAS-PLAN-WATCHDOG: プラン生成のウォッチドッグ / stall 検知
+
+### 目的
+
+大規模プラン要求時の「モデルが混雑しています（タイムアウト）」を解消する。固定ウォールクロックのタイムアウトを撤廃し、サーバ側で LLM のトークン生成をリアルタイム監視して、**生成が実際に停止したときだけ** stall 判定する（主トリガ＝stall、バックストップ＝寛大な絶対上限）。
+
+### 正典（必読）
+
+- 詳細設計・実装手順・タスクチェックリスト・テスト・受け入れ基準: `docs/atlas_codex_plan_watchdog_instruction.md`
+- 実装エージェントの入口: ルートの `AGENTS.md`
+
+### 主な変更（概要）
+
+- Phase 1: フェーズ単位 heartbeat（`atlas_pipeline.py` のジョブ状態 + `/status` の `is_stalled`）＋クライアントポーラ改修。
+- Phase 2: `atlas_llm_json_adapter` の streaming 化によるトークン・ウォッチドッグ（無進捗タイムアウト）。
+
+### 完了条件
+
+- 詳細指示書の「受け入れ基準」をすべて満たす。
+- 既存テスト緑・追加テスト緑。
+- 非プラン経路の LLM 既定挙動（120s）は不変。
