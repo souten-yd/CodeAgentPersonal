@@ -743,6 +743,28 @@
     return el;
   }
 
+  function showDebugReviewIndicator() {
+    if (!dom.transcript) return null;
+    const el = document.createElement('div');
+    el.className = 'atlas-claude-msg';
+    el.dataset.role = 'system';
+    el.textContent = 'デバッグレビュー中...（分析しています）';
+    dom.transcript.appendChild(el);
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    return el;
+  }
+
+  function showVerificationIndicator() {
+    if (!dom.transcript) return null;
+    const el = document.createElement('div');
+    el.className = 'atlas-claude-msg';
+    el.dataset.role = 'system';
+    el.textContent = '検証コマンドを実行中...';
+    dom.transcript.appendChild(el);
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    return el;
+  }
+
   async function requestPlanRevision(poolId, note) {
     if (!root.AtlasPipelineAPI) return;
     const indicator = showRevisionIndicator(poolId);

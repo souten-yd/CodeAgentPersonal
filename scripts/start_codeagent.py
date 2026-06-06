@@ -58,6 +58,35 @@ def detect_lan_ip() -> str:
         return "127.0.0.1"
 
 
+def ensure_windows_firewall_rule(port: int) -> None:
+    """Add a Windows Firewall inbound rule for the given port if one doesn't already exist."""
+    rule_name = f"CodeAgent-API-{port}"
+    try:
+        check = subprocess.run(
+            ["netsh", "advfirewall", "firewall", "show", "rule", f"name={rule_name}", "dir=in"],
+            capture_output=True, text=True, check=False, timeout=5,
+        )
+        if "No rules match" not in (check.stdout or "") and check.returncode == 0:
+            print(f"[Firewall] Rule '{rule_name}' already exists for port {port}.")
+            return
+        result = subprocess.run(
+            [
+                "netsh", "advfirewall", "firewall", "add", "rule",
+                f"name={rule_name}", "dir=in", "action=allow",
+                "protocol=TCP", f"localport={port}",
+                "profile=any", "enable=yes",
+            ],
+            capture_output=True, text=True, check=False, timeout=5,
+        )
+        if result.returncode == 0:
+            print(f"[Firewall] Added inbound rule '{rule_name}' for TCP port {port} (LAN access enabled).")
+        else:
+            print(f"[Firewall][WARN] Could not add firewall rule (admin required). To allow LAN access, run as Administrator or manually run:")
+            print(f"[Firewall][WARN]   netsh advfirewall firewall add rule name=\"{rule_name}\" dir=in action=allow protocol=TCP localport={port} profile=any enable=yes")
+    except Exception as exc:
+        print(f"[Firewall][WARN] Firewall rule check failed ({exc}). If LAN access is blocked, run the above netsh command as Administrator.")
+
+
 def copy_ui(base_dir: Path) -> None:
     src = base_dir / "ui.html"
     dst = base_dir / "ui" / "index.html"
@@ -664,6 +693,9 @@ def main() -> int:
     else:
         env.pop("LLAMA_SERVER_PATH", None)
         print("[LLM][WARN] LLAMA_SERVER_PATH is unset because llama-server was not found.")
+
+    if _is_windows() and not runpod:
+        ensure_windows_firewall_rule(args.port)
 
     uvicorn_cmd = [
         python_exec,
