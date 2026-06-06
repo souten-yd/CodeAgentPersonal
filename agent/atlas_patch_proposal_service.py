@@ -135,11 +135,13 @@ class AtlasPatchProposalService:
             if any(Path(str(p)).is_absolute() or ".." in Path(str(p)).parts for p in list(item.target_files or [])):
                 warnings.append("unsafe_target_files")
         patch_status = str(((item.metadata or {}).get("patch_proposal") or {}).get("status") or "").lower()
-        if patch_status == "approved":
-            warnings.append("patch_proposal_already_approved")
-        elif patch_status == "rejected":
-            warnings.append("patch_proposal_already_rejected")
-        elif patch_status in {"accepted", "applied"}:
+        force = bool(getattr(request, "force_regenerate", False))
+        if not force:
+            if patch_status == "approved":
+                warnings.append("patch_proposal_already_approved")
+            elif patch_status == "rejected":
+                warnings.append("patch_proposal_already_rejected")
+        if patch_status in {"accepted", "applied"}:
             warnings.append("patch_proposal_blocked")
         return len(warnings) == 0, warnings
 
