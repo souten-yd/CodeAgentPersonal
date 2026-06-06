@@ -844,7 +844,6 @@
   async function restorePlanPool(poolId, rootGoal) {
     if (!poolId) return;
     pushUserMessage(`プール復元: ${rootGoal || poolId}`);
-    renderWorkbenchFlow(poolId, rootGoal || '', { status: 'plan_review', controls: {} });
     setBusy(true);
     await renderPlanPoolMarkdown(poolId);
     setBusy(false);
