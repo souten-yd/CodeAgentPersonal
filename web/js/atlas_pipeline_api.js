@@ -207,8 +207,16 @@
     resetPoolExecution(poolId, payload) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/reset-execution`, { method: 'POST', body: JSON.stringify(payload || {}) });
     },
-    requestRevision(poolId, payload) {
-      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/request-revision`, { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 300000 });
+    async requestRevision(poolId, payload) {
+      const resp = await atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/request-revision`, {
+        method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 30000,
+      });
+      if (!resp.ok) return resp;
+      // Async path: server returned immediately with status "revising" — poll until ready.
+      if (resp.data && resp.data.status === 'revising') {
+        return await this.pollPlanPoolUntilReady(poolId, payload && payload.workspace_id);
+      }
+      return resp;
     },
     cancelPlanPool(poolId, payload) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/cancel`, { method: 'POST', body: JSON.stringify(payload || {}) });

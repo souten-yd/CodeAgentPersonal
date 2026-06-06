@@ -162,6 +162,7 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
         gap: 6px;
         flex-wrap: nowrap;
         min-width: 0;
+        flex-grow: 1;
       }
       .atlas-claude-proj-wrap {
         position: relative;

@@ -12,6 +12,7 @@ class AtlasPatchProposalRequest(BaseModel):
     source_type: str = "debug_review"
     proposal_mode: str = "standard"
     metadata: dict = Field(default_factory=dict)
+    force_regenerate: bool = False
 
 
 class AtlasPatchProposal(BaseModel):

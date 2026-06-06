@@ -856,7 +856,7 @@ def get_plan_pool_status(pool_id: str, request: Request, workspace_id: str = Que
     seconds_since = _seconds_since_iso(progress_at)
     current_phase = str(data.get("phase") or ("running" if status == "running" else status))
     is_stalled = bool(
-        status == "running"
+        status in {"running", "revising"}
         and seconds_since is not None
         and seconds_since > _plan_stall_after_sec()
     )
@@ -2450,12 +2450,16 @@ class AtlasRevisionRequest(BaseModel):
     preset_id: str = "guarded_low_risk"
 
 
-@router.post("/plan-pools/{pool_id}/request-revision")
-def request_pool_revision(pool_id: str, req: AtlasRevisionRequest, request: Request) -> dict:
-    """Revise plan items using LLM (with rule-based fallback), then reset execution state."""
-    if ".." in pool_id:
-        raise HTTPException(status_code=400, detail="invalid identifier")
-    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+def _do_pool_revision(
+    pool_id: str,
+    req: "AtlasRevisionRequest",
+    app: Any,
+    *,
+    progress_cb: Callable[..., None] | None = None,
+) -> dict:
+    """Core revision logic: LLM-based replan (with rule-based fallback) + execution state reset."""
+    fake_request = _AppOnlyRequest(app)
+    ca_data_root, storage, journal = _atlas_components(fake_request, workspace_id=req.workspace_id)
     try:
         pool = storage.load_pool(pool_id)
     except FileNotFoundError as exc:
@@ -2469,8 +2473,8 @@ def request_pool_revision(pool_id: str, req: AtlasRevisionRequest, request: Requ
     llm_revision_applied = False
     if note:
         try:
-            register_atlas_llm_json_adapter(request.app)
-            llm_json_fn = _resolve_atlas_llm_json_fn(request)
+            register_atlas_llm_json_adapter(app)
+            llm_json_fn = _resolve_atlas_llm_json_fn(fake_request)
             if llm_json_fn is not None:
                 original_goal = str(pool.root_goal or "").strip()
                 items_summary = "\n".join(
@@ -2486,6 +2490,7 @@ def request_pool_revision(pool_id: str, req: AtlasRevisionRequest, request: Requ
                 bridge = AtlasPlannerBridge(
                     ca_data_dir=str(ca_data_root),
                     llm_json_fn=llm_json_fn,
+                    progress_cb=progress_cb,
                 )
                 bridge_result = bridge.create_plan_pool(
                     AtlasPlannerBridgeRequest(
@@ -2553,6 +2558,74 @@ def request_pool_revision(pool_id: str, req: AtlasRevisionRequest, request: Requ
         "replan_result": replan_result,
         "plan_pool": _model_dump(pool),
     }
+
+
+@router.post("/plan-pools/{pool_id}/request-revision")
+def request_pool_revision(
+    pool_id: str, req: AtlasRevisionRequest, request: Request, sync: int = Query(0)
+) -> dict:
+    """Revise plan items using LLM (with rule-based fallback), then reset execution state.
+
+    Default (async) path: revision runs in a background thread and the endpoint returns
+    immediately with {"pool_id": ..., "status": "revising"}.  The client polls
+    GET /plan-pools/{pool_id}/status (heartbeat-aware) until status == "ready".
+    Use ?sync=1 for the legacy blocking behaviour (tests / direct callers).
+    """
+    if ".." in pool_id:
+        raise HTTPException(status_code=400, detail="invalid identifier")
+
+    if not sync:
+        import threading
+
+        register_atlas_llm_json_adapter(request.app)
+        ca_data_root, _storage, _journal = _atlas_components(request, workspace_id=req.workspace_id)
+        if not _storage.exists(pool_id):
+            raise HTTPException(status_code=404, detail="plan pool not found")
+        now = datetime.now(timezone.utc).isoformat()
+        _write_plan_pool_job(ca_data_root, pool_id, {
+            "pool_id": pool_id, "status": "revising",
+            "created_at": now, "last_progress_at": now, "phase": "revising",
+        })
+        app_ref = request.app
+
+        def _runner() -> None:
+            import time as _time
+
+            last_write_monotonic: float = 0.0
+
+            def heartbeat(**details: Any) -> None:
+                nonlocal last_write_monotonic
+                now_iso = datetime.now(timezone.utc).isoformat()
+                current_monotonic = _time.monotonic()
+                if current_monotonic - last_write_monotonic < 1.0:
+                    return
+                last_write_monotonic = current_monotonic
+                _merge_plan_pool_job(ca_data_root, pool_id, {
+                    "last_token_at": details.get("last_token_at") or now_iso,
+                    "tokens_generated": int(details.get("tokens_generated") or 0),
+                    "phase": str(details.get("phase") or "revising"),
+                    "last_progress_at": now_iso,
+                })
+
+            try:
+                _do_pool_revision(pool_id, req, app_ref, progress_cb=heartbeat)
+                _write_plan_pool_job(ca_data_root, pool_id, {
+                    "pool_id": pool_id, "status": "ready",
+                    "finished_at": datetime.now(timezone.utc).isoformat(), "phase": "ready",
+                })
+            except Exception as exc:  # noqa: BLE001
+                _write_plan_pool_job(ca_data_root, pool_id, {
+                    "pool_id": pool_id, "status": "failed",
+                    "error": "プラン改訂に失敗しました。再実行してください。",
+                    "error_kind": exc.__class__.__name__,
+                    "finished_at": datetime.now(timezone.utc).isoformat(), "phase": "failed",
+                })
+
+        threading.Thread(target=_runner, daemon=True).start()
+        return {"pool_id": pool_id, "status": "revising"}
+
+    # Sync path (legacy / tests)
+    return _do_pool_revision(pool_id, req, request.app)
 
 
 class AtlasSafetyOverrideRequest(BaseModel):

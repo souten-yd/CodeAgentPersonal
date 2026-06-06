@@ -16,6 +16,7 @@
   'use strict';
   const root = (typeof window !== 'undefined' ? window : globalThis);
   const STORAGE_LAST_GOAL_KEY = 'atlas_claude_last_goal';
+  const STORAGE_LAST_POOL_ID_KEY = 'atlas_claude_last_pool_id';
   const TRANSCRIPT_MAX_MESSAGES = 200;
   const POLL_INTERVAL_MS = 8000;
   const CONFIRM_TEXT = 'SELECT AUTOMATION PROFILE';
@@ -306,7 +307,18 @@
     }
     // Thin client: re-fetch the active project's persisted transcript + state so
     // entering Atlas (or reloading the page) restores everything.
-    if (projectName()) loadProject(projectName());
+    if (projectName()) {
+      loadProject(projectName());
+    } else {
+      // No project selected: fall back to the last pool ID stored in localStorage.
+      try {
+        const lastPoolId = localStorage.getItem(STORAGE_LAST_POOL_ID_KEY);
+        if (lastPoolId) {
+          state.dismissedApprovalPlanKeys.delete(lastPoolId);
+          renderPlanPoolMarkdown(lastPoolId).catch((_) => {});
+        }
+      } catch (_) {}
+    }
   }
 
   function deactivate() {
@@ -584,6 +596,7 @@
     // Persist the active pool pointer (rides along with this message's meta) so
     // a reload can re-render the plan, then auto-name the provisional project
     // from this first instruction before any further workspace-scoped calls.
+    try { localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, poolId); } catch (_) {}
     appendMessage('atlas', `PlanPool 作成: \`${poolId}\``, true, { active_pool_id: poolId });
     renderWorkbenchFlow(poolId, text, { status: 'plan_review', controls: {} });
     if (state.provisional) await maybeAutoRename(text);
@@ -718,8 +731,21 @@
     appendPlanActionPrompt(poolId, context);
   }
 
+  function showRevisionIndicator(poolId) {
+    if (!dom.transcript) return null;
+    const el = document.createElement('div');
+    el.className = 'atlas-claude-msg';
+    el.dataset.role = 'system';
+    el.dataset.atlasRevisionIndicator = String(poolId || '');
+    el.textContent = 'プランを改訂中...（LLMが処理しています）';
+    dom.transcript.appendChild(el);
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    return el;
+  }
+
   async function requestPlanRevision(poolId, note) {
     if (!root.AtlasPipelineAPI) return;
+    const indicator = showRevisionIndicator(poolId);
     setBusy(true);
     try {
       const resp = await root.AtlasPipelineAPI.requestRevision(poolId, {
@@ -733,10 +759,10 @@
       pushSystemMessage('プランを改訂しました。内容を確認して承認してください。');
       state.dismissedApprovalPlanKeys.delete(poolId);
       await renderPlanPoolMarkdown(poolId);
-      appendApprovalPrompt(poolId);
     } catch (e) {
       pushSystemMessage('改訂依頼に失敗しました: ' + (e && e.message ? e.message : e));
     } finally {
+      if (indicator) indicator.remove();
       setBusy(false);
     }
   }
@@ -838,16 +864,11 @@
   async function restorePlanPool(poolId, rootGoal) {
     if (!poolId) return;
     pushUserMessage(`プール復元: ${rootGoal || poolId}`);
+    try { localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, poolId); } catch (_) {}
     setBusy(true);
-    // 実行済みアイテム（patch_proposal.status='approved' 等）がある場合に
-    // generatePatchProposal がブロックされるため、実行ステートを事前にリセットする。
-    if (root.AtlasPipelineAPI && root.AtlasPipelineAPI.resetPoolExecution) {
-      await root.AtlasPipelineAPI.resetPoolExecution(poolId, { workspace_id: workspaceId() });
-    }
+    state.dismissedApprovalPlanKeys.delete(poolId);
     await renderPlanPoolMarkdown(poolId);
     setBusy(false);
-    state.dismissedApprovalPlanKeys.delete(poolId);
-    appendApprovalPrompt(poolId);
   }
 
   function renderWorkbenchFlow(poolId, requirement, view) {
@@ -1170,6 +1191,7 @@
           pool_id: poolId,
           item_id: itemId,
           workspace_id: workspaceId(),
+          force_regenerate: true,
         });
         const prop = r && r.ok && r.data ? r.data.proposal : null;
         const propMeta = (prop && prop.metadata) || {};
