@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 
 class _AppOnlyRequest:
@@ -2402,6 +2403,99 @@ def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Reque
         "changed_scope_summary": pool.metadata.get("changed_scope_summary"),
         "next_required_user_action": pool.metadata.get("next_required_user_action"),
         "blocked_reasons": blocked_reasons,
+        "plan_pool": _model_dump(pool),
+    }
+
+
+class AtlasResetExecutionRequest(BaseModel):
+    workspace_id: str = "default"
+
+
+@router.post("/plan-pools/{pool_id}/reset-execution")
+def reset_pool_execution(pool_id: str, req: AtlasResetExecutionRequest, request: Request) -> dict:
+    """Clear execution state (patch proposals, approvals, completed flags) so the pool can be re-run."""
+    if ".." in pool_id:
+        raise HTTPException(status_code=400, detail="invalid identifier")
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    try:
+        pool = storage.load_pool(pool_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="plan pool not found") from exc
+    pool.status = "approval_required"
+    pool.completed_item_ids = []
+    pool.failed_item_ids = []
+    pool.blocked_item_ids = []
+    pool.skipped_item_ids = []
+    pool.current_item_id = ""
+    metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
+    for key in ("plan_revision_required", "plan_revision_required_after_clarification", "gate_rerun_required_after_clarification"):
+        metadata.pop(key, None)
+    pool.metadata = metadata
+    for item in pool.items:
+        item.status = "queued"
+        item.retry_count = 0
+        item_meta = item.metadata if isinstance(item.metadata, dict) else {}
+        item_meta.pop("patch_proposal", None)
+        item_meta.pop("approval", None)
+        item.metadata = item_meta
+    pool.updated_at = datetime.now(timezone.utc).isoformat()
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    return {"pool_id": pool_id, "status": pool.status, "item_count": len(pool.items)}
+
+
+class AtlasRevisionRequest(BaseModel):
+    workspace_id: str = "default"
+    note: str = ""
+    preset_id: str = "guarded_low_risk"
+
+
+@router.post("/plan-pools/{pool_id}/request-revision")
+def request_pool_revision(pool_id: str, req: AtlasRevisionRequest, request: Request) -> dict:
+    """Revise plan items in-place using the user's note, then reset execution state."""
+    if ".." in pool_id:
+        raise HTTPException(status_code=400, detail="invalid identifier")
+    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    try:
+        pool = storage.load_pool(pool_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="plan pool not found") from exc
+    metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
+    answers = list(metadata.get("clarification_answers") or [])
+    answers.append({
+        "question_id": f"user_revision_{uuid4().hex[:8]}",
+        "option_id": "user_note",
+        "answer_text": req.note or "revise plan",
+        "note": req.note,
+        "answered_at": datetime.now(timezone.utc).isoformat(),
+    })
+    metadata["clarification_answers"] = answers
+    metadata.pop("clarification_required", None)
+    pool.metadata = metadata
+    replan_result = AtlasClarificationReplanningService().revise_after_answers(
+        pool,
+        preset_id=req.preset_id,
+        automation_level=str(getattr(pool, "automation_level", "") or ""),
+        critical_handling=str((metadata.get("automation_features") or {}).get("critical_handling") or "ask"),
+    )
+    pool.completed_item_ids = []
+    pool.failed_item_ids = []
+    pool.blocked_item_ids = []
+    pool.skipped_item_ids = []
+    pool.current_item_id = ""
+    for item in pool.items:
+        item_meta = item.metadata if isinstance(item.metadata, dict) else {}
+        item_meta.pop("patch_proposal", None)
+        item_meta.pop("approval", None)
+        item.metadata = item_meta
+        if str(item.status) not in {"queued", "ready", "approval_required"}:
+            item.status = "queued"
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    return {
+        "pool_id": pool_id,
+        "status": pool.status,
+        "replan_result": replan_result,
         "plan_pool": _model_dump(pool),
     }
 
