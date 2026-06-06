@@ -1894,7 +1894,10 @@
     if (repairProfile === 'ui_component_repair') {
       return 'add missing controls (buttons, inputs, selects); ensure event bindings trigger state updates; add labels and ARIA attributes for interactive elements.';
     }
-    // Generic fallback — no game-specific concepts for unknown profiles
+    if (repairProfile === 'universal_visual_repair' || repairProfile === '') {
+      return 'run Debug Review and inspect index.html; ensure the page loads without JS errors, HTML content is present, and any requested animation (CSS @keyframes / requestAnimationFrame) or interactive controls are implemented.';
+    }
+    // Generic fallback for any unrecognised profile
     return 'run Debug Review and inspect index.html; ensure the required visual signals (animation, interaction state, or content structure) are present and detectable.';
   }
 

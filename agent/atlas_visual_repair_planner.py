@@ -309,6 +309,51 @@ _rp(RepairProfile(
     max_retries=2,
 ))
 
+_rp(RepairProfile(
+    profile_id="universal_visual_repair",
+    display_name="Universal visual repair (MVP)",
+    do_instructions=[
+        RepairInstruction(
+            action="Ensure the HTML file exists, is valid, and the page loads without critical errors",
+            rationale="page_loads is the only hard requirement for all artifact types",
+            signals=["page_loads", "expected_structure"],
+        ),
+        RepairInstruction(
+            action=(
+                "If the task requested animation: add CSS @keyframes, Web Animations API, "
+                "or requestAnimationFrame updating style/transform/opacity over time"
+            ),
+            rationale="Task-specific: animation signals are advisory but expected when requested",
+            signals=["animation_signal", "style_change_over_time", "motion_detectable",
+                     "color_change_detectable"],
+        ),
+        RepairInstruction(
+            action=(
+                "If the task requested a canvas animation: ensure <canvas> is present and "
+                "requestAnimationFrame draws each frame"
+            ),
+            rationale="Task-specific: canvas frame changes are advisory but expected when canvas was requested",
+            signals=["canvas_exists", "frame_changes_over_time"],
+        ),
+        RepairInstruction(
+            action=(
+                "If the task requested interactive controls: add the required buttons, inputs, "
+                "or selects and wire event handlers so state updates are visible"
+            ),
+            rationale="Task-specific: interaction signals are advisory but expected when requested",
+            signals=["required_controls_exist", "state_changes_on_interaction"],
+        ),
+        RepairInstruction(
+            action="Fix any JavaScript errors shown in the browser console",
+            rationale="Critical JS errors prevent the page from functioning at all",
+            signals=["page_loads"],
+        ),
+    ],
+    do_not=[],   # Universal profile has no restrictions — any artifact type is valid
+    auto_repair_default=True,
+    max_retries=3,
+))
+
 
 # ---------------------------------------------------------------------------
 # Repair plan output

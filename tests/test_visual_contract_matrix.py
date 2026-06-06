@@ -139,38 +139,38 @@ def test_contract_does_not_require_unrelated_signals(task_description, contract_
         )
 
 
-@pytest.mark.parametrize(
-    ("task_description", "forbidden_should_exist"),
-    [
-        # Non-game contracts must forbid game_loop_runs
-        ("display a static page", ["game_loop_runs"]),
-        ("animate text colors", ["game_loop_runs", "canvas_exists"]),
-        ("canvas particle animation no game", ["game_loop_runs", "hud_exists"]),
-        ("bar chart visualization", ["game_loop_runs"]),
-    ],
-)
-def test_contract_forbids_unrelated_game_signals(task_description, forbidden_should_exist):
-    n = _norm.normalize(task_description)
-    cls = _clf.classify(n, task_description)
-    c = _reg.select(cls)
-    for signal in forbidden_should_exist:
-        assert signal in c.forbidden_signals, (
-            f"Contract {c.contract_id} should forbid {signal} for '{task_description}'"
+def test_universal_contract_has_no_forbidden_signals_for_any_task():
+    """MVP universal contract: forbidden_signals is always empty — any artifact type is valid."""
+    tasks = [
+        "display a static page",
+        "animate text colors",
+        "canvas particle animation no game",
+        "bar chart visualization",
+        "canvas browser game with score and collision",
+    ]
+    for task in tasks:
+        n = _norm.normalize(task)
+        cls = _clf.classify(n, task)
+        c = _reg.select(cls)
+        assert c.contract_id == "universal_visual_v1", f"Expected universal_visual_v1 for '{task}'"
+        assert c.forbidden_signals == [], (
+            f"universal_visual_v1 must have no forbidden signals for '{task}'"
         )
 
 
 def test_static_html_contract_used_for_static_page(tmp_path):
-    """Static page fixture gets the static contract and passes without animation signals."""
+    """Static page fixture gets universal contract and passes — animation_signal is not required."""
     html_path = tmp_path / "index.html"
     html_path.write_text(FIXTURES["static_page_no_animation"], encoding="utf-8")
     n = _norm.normalize("display a simple static page")
     cls = _clf.classify(n, "display a simple static page")
     contract = _reg.select(cls)
+    assert contract.contract_id == "universal_visual_v1"
     result = AtlasVisualArtifactVerifier().verify_static(
         html_path, task_description="display a simple static page", contract=contract
     )
     assert result["status"] == "passed", result
-    assert result.get("contract_id") == "static_html_visual_v1"
+    assert result.get("contract_id") == "universal_visual_v1"
     # No animation signal required — should not appear in missing
     assert "animation_signal" not in result.get("missing", [])
 
@@ -189,30 +189,30 @@ def test_animated_dom_contract_does_not_require_canvas(tmp_path):
 
 
 def test_chart_contract_used_for_chart_fixture(tmp_path):
-    """Chart fixture gets chart contract — animation signals are not required."""
+    """Chart fixture gets universal contract — animation signals are not required."""
     html_path = tmp_path / "index.html"
     html_path.write_text(FIXTURES["chart_bar"], encoding="utf-8")
     n = _norm.normalize("bar chart showing sales data")
     cls = _clf.classify(n, "bar chart showing sales data")
     contract = _reg.select(cls)
-    assert contract.contract_id == "chart_visualization_v1"
+    assert contract.contract_id == "universal_visual_v1"
     result = AtlasVisualArtifactVerifier().verify_static(
         html_path, task_description="bar chart", contract=contract
     )
-    assert result.get("contract_id") == "chart_visualization_v1"
-    # animation_signal is forbidden by chart contract — should NOT be checked
+    assert result.get("contract_id") == "universal_visual_v1"
+    # animation_signal is optional in universal contract — should NOT be required
     missing = result.get("missing", [])
     assert "animation_signal" not in missing
 
 
 def test_ui_form_contract_used_for_form_fixture(tmp_path):
-    """Form fixture gets ui_component contract — no game/canvas signals required."""
+    """Form fixture gets universal contract — no game/canvas signals required."""
     html_path = tmp_path / "index.html"
     html_path.write_text(FIXTURES["ui_form"], encoding="utf-8")
     n = _norm.normalize("form with inputs and submit button")
     cls = _clf.classify(n, "form with inputs and submit button")
     contract = _reg.select(cls)
-    assert contract.contract_id == "ui_component_visual_v1"
+    assert contract.contract_id == "universal_visual_v1"
     result = AtlasVisualArtifactVerifier().verify_static(
         html_path, task_description="form", contract=contract
     )
@@ -223,14 +223,14 @@ def test_ui_form_contract_used_for_form_fixture(tmp_path):
 
 
 def test_canvas_animation_contract_used_for_canvas_fixture(tmp_path):
-    """Canvas balls fixture gets canvas_animation contract — game signals not required."""
+    """Canvas balls fixture gets universal contract — game signals not required."""
     html_path = tmp_path / "index.html"
     html_path.write_text(FIXTURES["canvas_balls"], encoding="utf-8")
     n = _norm.normalize("canvas animation of bouncing balls")
     cls = _clf.classify(n, "canvas animation of bouncing balls")
     contract = _reg.select(cls)
-    assert contract.contract_id == "canvas_animation_visual_v1"
-    # game_loop_runs must NOT be in required_signals
+    assert contract.contract_id == "universal_visual_v1"
+    # game_loop_runs must NOT be in required_signals (universal: only page_loads required)
     assert "game_loop_runs" not in contract.required_signals
 
 
