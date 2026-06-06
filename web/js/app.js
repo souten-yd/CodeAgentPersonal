@@ -267,6 +267,7 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
         flex: 0 0 auto; border: 1px solid var(--border); border-radius: 8px;
         background: var(--bg2); color: var(--text); font-family: var(--font-mono);
         font-size: 12px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+        margin-left: auto;
       }
       .atlas-claude-plan-history-btn:hover { background: var(--bg3, rgba(255,255,255,0.08)); }
     `;

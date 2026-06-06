@@ -208,7 +208,7 @@
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/reset-execution`, { method: 'POST', body: JSON.stringify(payload || {}) });
     },
     requestRevision(poolId, payload) {
-      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/request-revision`, { method: 'POST', body: JSON.stringify(payload || {}) });
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/request-revision`, { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 300000 });
     },
     cancelPlanPool(poolId, payload) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/cancel`, { method: 'POST', body: JSON.stringify(payload || {}) });

@@ -647,16 +647,7 @@
 
   function insertApprovalActionsNode(node, poolId, revisionId) {
     if (!dom.transcript || !node) return;
-    const cards = Array.from(dom.transcript.querySelectorAll('[data-atlas-plan-card="true"]'));
-    const activeCard = cards.reverse().find((el) => {
-      if (String(el.dataset.poolId || '') !== String(poolId || '')) return false;
-      return !revisionId || String(el.dataset.planRevisionId || '') === String(revisionId || '');
-    });
-    if (activeCard && activeCard.parentNode === dom.transcript) {
-      dom.transcript.insertBefore(node, activeCard.nextSibling);
-    } else {
-      dom.transcript.appendChild(node);
-    }
+    dom.transcript.appendChild(node);
     dom.transcript.scrollTop = dom.transcript.scrollHeight;
   }
 
