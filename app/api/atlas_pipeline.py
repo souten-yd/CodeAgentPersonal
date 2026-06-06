@@ -1524,6 +1524,28 @@ def submit_clarification_answers(req: AtlasClarificationSubmitRequest, request: 
         service.save_session(session)
         return AtlasClarificationSubmitResult(status="fallback_used", session=session, pool=_model_dump(fallback), warnings=["clarification_replan_failed", str(exc)], metadata={"pool_id": fallback.pool_id, "item_count": len(fallback.items), "orchestration_summary": _model_dump(summary)}).model_dump()
 
+@router.get("/plan-pools")
+def list_plan_pools(request: Request) -> dict[str, Any]:
+    _, storage, _ = _atlas_components(request)
+    pool_ids = storage.list_pool_ids()
+    summaries = []
+    for pid in pool_ids:
+        try:
+            pool = storage.load_pool(pid)
+            summaries.append({
+                "pool_id": pool.pool_id,
+                "root_goal": pool.root_goal,
+                "status": str(pool.status),
+                "item_count": len(pool.items or []),
+                "created_at": pool.created_at,
+                "updated_at": pool.updated_at,
+            })
+        except Exception:
+            continue
+    summaries.sort(key=lambda x: x.get("updated_at") or x.get("created_at") or "", reverse=True)
+    return {"pools": summaries}
+
+
 @router.get("/plan-pools/{pool_id}")
 def get_plan_pool(pool_id: str, request: Request) -> dict[str, Any]:
     _, storage, journal = _atlas_components(request)
