@@ -204,6 +204,12 @@
     decideCriticalEvent(payload) {
       return atlasFetch('/api/atlas/critical-decisions/decide', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    resetPoolExecution(poolId, payload) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/reset-execution`, { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    requestRevision(poolId, payload) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/request-revision`, { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     cancelPlanPool(poolId, payload) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/cancel`, { method: 'POST', body: JSON.stringify(payload || {}) });
     },

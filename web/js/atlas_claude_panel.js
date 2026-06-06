@@ -729,20 +729,24 @@
 
   async function requestPlanRevision(poolId, note) {
     if (!root.AtlasPipelineAPI) return;
+    setBusy(true);
     try {
-      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
-      const items = (pool && pool.data && (pool.data.items || pool.data.plan_items)) || [];
-      const targets = items.filter((it) => String(it.status || '') === 'approval_required');
-      const list = targets.length ? targets : items;
-      for (const it of list) {
-        await root.AtlasPipelineAPI.decideApproval({
-          pool_id: poolId, item_id: it.item_id, decision: 'needs_revision',
-          reason: note || 'revision requested', workspace_id: workspaceId(),
-        });
+      const resp = await root.AtlasPipelineAPI.requestRevision(poolId, {
+        note: note || '',
+        workspace_id: workspaceId(),
+      });
+      if (!resp || resp.ok === false) {
+        pushSystemMessage(`改訂依頼に失敗しました: ${formatError(resp)}`);
+        return;
       }
-      pushSystemMessage('改訂を依頼しました（needs_revision）。');
+      pushSystemMessage('プランを改訂しました。内容を確認して承認してください。');
+      state.dismissedApprovalPlanKeys.delete(poolId);
+      await renderPlanPoolMarkdown(poolId);
+      appendApprovalPrompt(poolId);
     } catch (e) {
       pushSystemMessage('改訂依頼に失敗しました: ' + (e && e.message ? e.message : e));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -844,11 +848,13 @@
     if (!poolId) return;
     pushUserMessage(`プール復元: ${rootGoal || poolId}`);
     setBusy(true);
+    // 実行済みアイテム（patch_proposal.status='approved' 等）がある場合に
+    // generatePatchProposal がブロックされるため、実行ステートを事前にリセットする。
+    if (root.AtlasPipelineAPI && root.AtlasPipelineAPI.resetPoolExecution) {
+      await root.AtlasPipelineAPI.resetPoolExecution(poolId, { workspace_id: workspaceId() });
+    }
     await renderPlanPoolMarkdown(poolId);
     setBusy(false);
-    // renderPlanPoolMarkdown は poolStatus === 'approval_required' のときのみボタンを出す。
-    // 復元時はステータスに関わらず常に承認/改訂/キャンセルを表示する。
-    // 過去に dismiss 済みの場合もリセットして強制表示。
     state.dismissedApprovalPlanKeys.delete(poolId);
     appendApprovalPrompt(poolId);
   }
