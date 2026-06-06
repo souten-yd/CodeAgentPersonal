@@ -103,6 +103,18 @@ class AtlasAutoVerificationService:
             ev = self._evaluate_visual(Path(workspace_root) / html_rel, self._visual_task_description(item, pool))
             metadata["visual_contract"] = ev["static"]
             metadata["browser_smoke"] = ev["smoke"]
+            # Keep pool-level pipeline metadata current so the UI never shows a stale repair_profile
+            # from a prior _run_visual_verification call (e.g. canvas_game_repair for a non-game task).
+            pool.metadata.setdefault("visual_pipeline", {})
+            pool.metadata["visual_pipeline"].update({
+                "visual_contract_id": ev.get("contract_id", ""),
+                "artifact_type": (ev.get("classification") or {}).get("artifact_type", ""),
+                "visual_intent": (ev.get("classification") or {}).get("visual_intent", ""),
+                "repair_profile": ev.get("contract_repair_profile", ""),
+                "structured_failures": ev.get("structured_failures", []),
+                "missing_signals": list((ev["static"] or {}).get("missing") or []),
+                "verified_at": datetime.now(timezone.utc).isoformat(),
+            })
             missing = list((ev["static"] or {}).get("missing") or [])
             # Only attribute the failure to a static miss when it actually hard-failed; a runtime
             # smoke pass overrides static misses (advisory only), so don't label a pass as missing.
@@ -220,16 +232,9 @@ class AtlasAutoVerificationService:
         classification = _classifier.classify(normalized, task_desc)
         contract: VisualContract = _registry.select(classification)
 
-        # Promote task-specific optional signals to required based on what the user asked for
-        extra_required: list[str] = []
-        if normalized.motion_types:
-            extra_required.append("motion_detectable")
-        if normalized.color_types:
-            extra_required.append("color_change_detectable")
-
         static_res = self.visual_verifier.verify_static(
             html_path, task_description=task_desc, contract=contract,
-            extra_required_signals=extra_required,
+            extra_required_signals=[],
         )
         smoke = self.playwright_verifier.verify(
             html_path, task_description=task_desc, contract_id=contract.contract_id

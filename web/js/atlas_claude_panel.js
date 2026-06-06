@@ -156,6 +156,9 @@
         if (poolId) {
           await renderPlanPoolMarkdown(poolId);
           await restoreLatestRun(poolId);
+          // appendStageBlock auto-scrolled to the stage block; scroll back so the plan card
+          // is visible — user can scroll down to reach failure recovery and execution details.
+          if (dom.transcript) dom.transcript.scrollTop = 0;
           restored = true;
         }
       }
