@@ -2194,14 +2194,14 @@
     node.style.gap = '6px';
 
     const text = document.createElement('div');
-    text.textContent = `Safety gate blocked — reason: ${reason}`;
+    text.textContent = `安全ゲートがブロックされました — 理由: ${reason}`;
     node.appendChild(text);
 
     const hint = document.createElement('div');
     hint.className = 'atlas-claude-stage-detail';
     hint.style.whiteSpace = 'normal';
     hint.textContent = String(meta.next_required_user_action
-      || 'Grant a safety override to continue, revise the plan/scope, or cancel.');
+      || '安全オーバーライドを許可して続行するか、計画/スコープを修正するか、キャンセルしてください。');
     node.appendChild(hint);
 
     const actions = document.createElement('div');
@@ -2211,20 +2211,20 @@
     const approve = document.createElement('button');
     approve.type = 'button';
     approve.className = 'atlas-claude-primary-btn';
-    approve.textContent = 'Approve & continue';
+    approve.textContent = '承認して続行';
 
     const revise = document.createElement('button');
     revise.type = 'button';
     revise.className = 'atlas-claude-secondary-btn';
-    revise.textContent = 'Revise';
+    revise.textContent = '改訂を依頼';
 
     const cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.className = 'atlas-claude-secondary-btn';
-    cancel.textContent = 'Cancel';
+    cancel.textContent = 'キャンセル';
 
     approve.addEventListener('click', () => {
-      const note = (root.prompt && root.prompt('Reason for the safety override (optional)')) || '';
+      const note = (root.prompt && root.prompt('安全オーバーライドの理由（任意）')) || '';
       Array.from(actions.querySelectorAll('button')).forEach((b) => { b.disabled = true; });
       grantSafetyOverrideAndContinue(poolId, note);
     });
