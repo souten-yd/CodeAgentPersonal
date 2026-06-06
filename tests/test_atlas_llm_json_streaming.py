@@ -96,7 +96,7 @@ def test_streaming_uses_first_token_then_stall_timeouts(monkeypatch) -> None:
         return _StreamResp([_sse('{"a":1}'), b"data: [DONE]\n\n"], sock=sock)
 
     monkeypatch.setenv("ATLAS_PLAN_FIRST_TOKEN_SEC", "7")
-    monkeypatch.setenv("ATLAS_PLAN_STALL_AFTER_SEC", "2")
+    monkeypatch.setenv("ATLAS_LLM_INTER_TOKEN_SEC", "5")
     monkeypatch.setattr("agent.atlas_llm_json_adapter.urllib_request.urlopen", fake_urlopen)
     adapter = AtlasLLMJsonAdapter(base_url="http://127.0.0.1:8080", model="m", on_progress=lambda _p: None)
 
@@ -104,7 +104,8 @@ def test_streaming_uses_first_token_then_stall_timeouts(monkeypatch) -> None:
 
     assert result.ok is True
     assert captured["timeout"] == 7.0
-    assert sock.timeouts == [7.0, 2.0]
+    # after first token, socket timeout switches to ATLAS_LLM_INTER_TOKEN_SEC (not stall_after_sec)
+    assert sock.timeouts == [7.0, 5.0]
 
 
 def test_streaming_env_zero_uses_blocking_path(monkeypatch) -> None:

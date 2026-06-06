@@ -812,9 +812,9 @@ def _latest_iso(*values: Any) -> str:
 
 def _plan_stall_after_sec() -> float:
     try:
-        return max(1.0, float(os.environ.get("ATLAS_PLAN_STALL_AFTER_SEC", "120") or "120"))
+        return max(1.0, float(os.environ.get("ATLAS_PLAN_STALL_AFTER_SEC", "300") or "300"))
     except Exception:
-        return 120.0
+        return 300.0
 
 
 def _plan_absolute_max_sec() -> float:
