@@ -834,9 +834,8 @@
     });
 
     if (dom.transcript) {
-      const existing = dom.transcript.querySelector('[data-atlas-plan-pool-list="true"]');
-      if (existing) existing.replaceWith(card);
-      else dom.transcript.appendChild(card);
+      dom.transcript.querySelector('[data-atlas-plan-pool-list="true"]')?.remove();
+      dom.transcript.appendChild(card);
       dom.transcript.scrollTop = dom.transcript.scrollHeight;
     }
   }
