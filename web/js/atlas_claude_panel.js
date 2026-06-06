@@ -1279,6 +1279,7 @@
         requires_user_action: (d.failed_count || 0) > 0,
         next_actions: (d.failed_count || 0) > 0 ? ['retry', 'revise plan', 'cancel'] : [],
         authoritative_source: 'multi_item_autopilot_result',
+        failed_phase: (d.failed_count || 0) > 0 ? 'verify' : undefined,
       }), stages);
       // Persist run pointer so the result block re-renders after a reload.
       persistMeta({ active_pool_id: poolId, latest_autopilot_run_id: d.autopilot_run_id || '' });
@@ -1402,7 +1403,15 @@
     if (phase === 'blocked_safety_review') {
       updateStage(panel, 'patch', 'failed', `Blocked by safety gate: ${view.block_reason || 'safety_gate_blocked'}`);
     } else if (phase === 'failed' || status === 'failed') {
-      updateStage(panel, 'patch', 'failed', view.error || view.message || 'failed before first patch');
+      if (view.failed_phase === 'verify') {
+        updateStage(panel, 'patch', 'done', `${completed || started}/${total || '-'}`);
+        updateStage(panel, 'approve', 'done', '');
+        updateStage(panel, 'apply', 'done', `${started || completed}/${total || '-'}`);
+        updateStage(panel, 'verify', 'failed', view.error || '');
+        updateStage(panel, 'summary', 'failed', view.error || '');
+      } else {
+        updateStage(panel, 'patch', 'failed', view.error || view.message || 'failed before first patch');
+      }
     } else if (phase === 'patch_generation') {
       const detail = total ? `${started}/${total}` : (view.message || 'Patch generation has not started');
       updateStage(panel, 'patch', status === 'running' ? 'running' : 'pending', detail);
