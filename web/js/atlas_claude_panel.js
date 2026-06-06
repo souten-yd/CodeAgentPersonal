@@ -2255,8 +2255,8 @@
         reason: reason || '', workspace_id: workspaceId(),
       });
       if (resp && resp.ok) {
-        pushSystemMessage('Safety override を記録しました（blocked_safety_review → ready）。実行を続行できます。');
-        await renderPlanPoolMarkdown(poolId);
+        pushSystemMessage('Safety override を記録しました。パイプラインを再開します...');
+        await approveAndRunPipeline(poolId);
       } else {
         pushSystemMessage(`Safety override に失敗しました: ${formatError(resp)}`);
       }
