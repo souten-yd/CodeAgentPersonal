@@ -165,7 +165,7 @@ def test_css_contract_contains_visual_rescue_selectors() -> None:
 def test_ui_loads_cache_busted_static_assets() -> None:
     # atlas_pipeline_api.js advanced onto the atlas-ui-fix line when async plan-pool creation landed.
     assert f'<link rel="stylesheet" href="/static/css/app.css?v={APP_CSS_VERSION}">' in HTML
-    assert '<script src="/static/js/atlas_pipeline_api.js?v=atlas-ui-fix-6"></script>' in HTML
+    assert '<script src="/static/js/atlas_pipeline_api.js?v=atlas-ui-fix-7"></script>' in HTML
     assert f'<script src="/static/js/atlas_dashboard.js?v={DASHBOARD_ASSET_VERSION}"></script>' in HTML
     assert "AtlasPipelineAPI" in ATLAS_API_JS
     assert "AtlasDashboard" in ATLAS_DASHBOARD_JS
