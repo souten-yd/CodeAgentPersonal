@@ -162,6 +162,9 @@
         detail: { error: 'plan_pool_absolute_timeout' },
       };
     },
+    listPlanPools() {
+      return atlasFetch('/api/atlas/plan-pools');
+    },
     getPlanPool(poolId) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}`);
     },

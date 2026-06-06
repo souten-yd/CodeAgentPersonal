@@ -511,9 +511,10 @@
   }
 
   function classifyIntent(text) {
-    const lower = text.toLowerCase();
+    const lower = text.toLowerCase().trim();
     if (lower === 'stop' || lower === 'cancel') return 'stop';
     if (lower === 'recover' || lower.startsWith('recover ')) return 'recover';
+    if (lower === '/plan' || lower.startsWith('/plan ')) return 'show_plan_list';
     if (lower.startsWith('dry-run') || lower.startsWith('dry run')) return 'run_dry_run';
     if (lower.startsWith('show changed files') || lower.startsWith('files')) return 'show_changed_files';
     if (lower.startsWith('explain risk') || lower.startsWith('risk')) return 'explain_risk';
@@ -533,6 +534,10 @@
     }
     if (intent === 'recover') {
       delegateRecover();
+      return;
+    }
+    if (intent === 'show_plan_list') {
+      await showPlanPoolList();
       return;
     }
     if (intent === 'switch_profile') {
@@ -766,6 +771,83 @@
     if (existing) existing.replaceWith(node);
     else dom.transcript.appendChild(node);
     dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  async function showPlanPoolList() {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.listPlanPools) {
+      pushAtlasMessage('プールリストAPIが利用できません。');
+      return;
+    }
+    setBusy(true);
+    let pools = [];
+    try {
+      const resp = await root.AtlasPipelineAPI.listPlanPools();
+      if (resp && resp.ok && resp.data) {
+        pools = resp.data.pools || [];
+      }
+    } catch (_e) {
+      pools = [];
+    }
+    setBusy(false);
+
+    if (!pools.length) {
+      pushAtlasMessage('保存されているプールはありません。');
+      return;
+    }
+
+    const card = document.createElement('div');
+    card.className = 'atlas-claude-msg atlas-claude-stage-block';
+    card.dataset.role = 'atlas';
+    card.dataset.atlasPlanPoolList = 'true';
+
+    const head = document.createElement('div');
+    head.className = 'atlas-claude-summary-head';
+    head.textContent = `保存済みプール — ${pools.length} 件`;
+    card.appendChild(head);
+
+    pools.forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'atlas-claude-stage-detail';
+      row.style.cssText = 'cursor:pointer; padding:6px 4px; border-radius:4px; margin:3px 0;';
+
+      const goal = String(p.root_goal || '').slice(0, 80) || p.pool_id;
+      const status = String(p.status || '');
+      const itemCount = Number(p.item_count || 0);
+      const updatedAt = String(p.updated_at || p.created_at || '').replace('T', ' ').slice(0, 16);
+
+      const nameSpan = document.createElement('span');
+      nameSpan.style.cssText = 'font-weight:600; color:var(--atlas-accent, #7ecfff);';
+      nameSpan.textContent = goal;
+
+      const meta = document.createElement('span');
+      meta.style.cssText = 'font-size:11px; color:var(--atlas-fg-muted, #888); margin-left:8px;';
+      meta.textContent = `[${status}] ${itemCount}タスク  ${updatedAt}`;
+
+      row.appendChild(nameSpan);
+      row.appendChild(meta);
+
+      row.addEventListener('mouseenter', () => { row.style.background = 'var(--atlas-hover-bg, rgba(255,255,255,0.06))'; });
+      row.addEventListener('mouseleave', () => { row.style.background = ''; });
+      row.addEventListener('click', () => restorePlanPool(p.pool_id, p.root_goal));
+
+      card.appendChild(row);
+    });
+
+    if (dom.transcript) {
+      const existing = dom.transcript.querySelector('[data-atlas-plan-pool-list="true"]');
+      if (existing) existing.replaceWith(card);
+      else dom.transcript.appendChild(card);
+      dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    }
+  }
+
+  async function restorePlanPool(poolId, rootGoal) {
+    if (!poolId) return;
+    pushUserMessage(`プール復元: ${rootGoal || poolId}`);
+    renderWorkbenchFlow(poolId, rootGoal || '', { status: 'plan_review', controls: {} });
+    setBusy(true);
+    await renderPlanPoolMarkdown(poolId);
+    setBusy(false);
   }
 
   function renderWorkbenchFlow(poolId, requirement, view) {
