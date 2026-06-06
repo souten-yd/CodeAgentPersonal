@@ -848,6 +848,11 @@
     setBusy(true);
     await renderPlanPoolMarkdown(poolId);
     setBusy(false);
+    // renderPlanPoolMarkdown は poolStatus === 'approval_required' のときのみボタンを出す。
+    // 復元時はステータスに関わらず常に承認/改訂/キャンセルを表示する。
+    // 過去に dismiss 済みの場合もリセットして強制表示。
+    state.dismissedApprovalPlanKeys.delete(poolId);
+    appendApprovalPrompt(poolId);
   }
 
   function renderWorkbenchFlow(poolId, requirement, view) {
