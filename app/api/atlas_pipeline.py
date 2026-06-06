@@ -2452,32 +2452,87 @@ class AtlasRevisionRequest(BaseModel):
 
 @router.post("/plan-pools/{pool_id}/request-revision")
 def request_pool_revision(pool_id: str, req: AtlasRevisionRequest, request: Request) -> dict:
-    """Revise plan items in-place using the user's note, then reset execution state."""
+    """Revise plan items using LLM (with rule-based fallback), then reset execution state."""
     if ".." in pool_id:
         raise HTTPException(status_code=400, detail="invalid identifier")
-    _, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     try:
         pool = storage.load_pool(pool_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="plan pool not found") from exc
     metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
-    answers = list(metadata.get("clarification_answers") or [])
-    answers.append({
-        "question_id": f"user_revision_{uuid4().hex[:8]}",
-        "option_id": "user_note",
-        "answer_text": req.note or "revise plan",
-        "note": req.note,
-        "answered_at": datetime.now(timezone.utc).isoformat(),
-    })
-    metadata["clarification_answers"] = answers
-    metadata.pop("clarification_required", None)
-    pool.metadata = metadata
-    replan_result = AtlasClarificationReplanningService().revise_after_answers(
-        pool,
-        preset_id=req.preset_id,
-        automation_level=str(getattr(pool, "automation_level", "") or ""),
-        critical_handling=str((metadata.get("automation_features") or {}).get("critical_handling") or "ask"),
-    )
+
+    note = str(req.note or "").strip()
+    replan_result: dict = {}
+
+    # ── LLM-based revision (primary path) ─────────────────────────────────────
+    llm_revision_applied = False
+    if note:
+        try:
+            register_atlas_llm_json_adapter(request.app)
+            llm_json_fn = _resolve_atlas_llm_json_fn(request)
+            if llm_json_fn is not None:
+                original_goal = str(pool.root_goal or "").strip()
+                items_summary = "\n".join(
+                    f"- [{i + 1}] {item.title or item.goal or item.item_id}: {(item.description or '')[:120]}"
+                    for i, item in enumerate((pool.items or [])[:15])
+                )
+                revised_input = (
+                    f"{original_goal}\n\n"
+                    f"[改訂要求]: {note}\n\n"
+                    f"現在のプランアイテム:\n{items_summary}"
+                )
+                temp_pool_id = f"{pool_id}_rev_{uuid4().hex[:8]}"
+                bridge = AtlasPlannerBridge(
+                    ca_data_dir=str(ca_data_root),
+                    llm_json_fn=llm_json_fn,
+                )
+                bridge_result = bridge.create_plan_pool(
+                    AtlasPlannerBridgeRequest(
+                        input=revised_input,
+                        project_path=str(getattr(pool, "project_path", "") or ""),
+                        workspace_id=req.workspace_id,
+                        pool_id=temp_pool_id,
+                    )
+                )
+                if not bridge_result.used_fallback and bridge_result.pool is not None and bridge_result.pool.items:
+                    pool.items = bridge_result.pool.items
+                    pool.root_goal = str(bridge_result.pool.root_goal or revised_input)
+                    llm_revision_applied = True
+                    replan_result = {
+                        "revision_source": "llm_planner",
+                        "status": bridge_result.status,
+                        "item_count": len(pool.items),
+                    }
+        except Exception:
+            pass
+
+    # ── Rule-based fallback ────────────────────────────────────────────────────
+    if not llm_revision_applied:
+        answers = list(metadata.get("clarification_answers") or [])
+        answers.append({
+            "question_id": f"user_revision_{uuid4().hex[:8]}",
+            "option_id": "user_note",
+            "answer_text": req.note or "revise plan",
+            "note": req.note,
+            "answered_at": datetime.now(timezone.utc).isoformat(),
+        })
+        metadata["clarification_answers"] = answers
+        metadata.pop("clarification_required", None)
+        pool.metadata = metadata
+        replan_result = AtlasClarificationReplanningService().revise_after_answers(
+            pool,
+            preset_id=req.preset_id,
+            automation_level=str(getattr(pool, "automation_level", "") or ""),
+            critical_handling=str((metadata.get("automation_features") or {}).get("critical_handling") or "ask"),
+        )
+
+    # ── Common: reset execution state ──────────────────────────────────────────
+    if llm_revision_applied:
+        metadata["llm_revision_applied"] = True
+        metadata["revision_note"] = note
+        pool.metadata = metadata
+        pool.status = "approval_required"
     pool.completed_item_ids = []
     pool.failed_item_ids = []
     pool.blocked_item_ids = []
