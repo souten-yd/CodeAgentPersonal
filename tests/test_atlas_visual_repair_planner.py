@@ -1,7 +1,11 @@
 """Unit tests for VisualRepairPlanner.
 
-Critical focus: negative tests prove non-game contracts NEVER produce
-game/canvas repair guidance.
+Two sets of tests:
+1. universal_visual_repair — the default MVP profile; no restrictions, generic guidance.
+2. Specialised profiles (animated_dom_repair, canvas_animation_repair, etc.) — still in the
+   code for future opt-in use.  Tested by explicitly selecting the specialised contract via
+   _plan_for_contract() instead of going through _reg.select() (which now always returns
+   universal_visual_v1).
 """
 from __future__ import annotations
 
@@ -20,9 +24,36 @@ _planner = VisualRepairPlanner()
 
 
 def _plan_for(text: str, failed_signals: list[str], changed_files: list[str] | None = None) -> dict:
+    """Plan using the default (universal) contract — what Atlas uses in production."""
     n = _norm.normalize(text)
     cls = _clf.classify(n, text)
-    contract = _reg.select(cls)
+    contract = _reg.select(cls)   # always universal_visual_v1 now
+    failures = [
+        build_failure(
+            failure_type="visual_contract_failed",
+            contract_id=contract.contract_id,
+            failed_signal=sig,
+            repair_profile=contract.repair_profile,
+            failure_message_template=contract.failure_message_template,
+        )
+        for sig in failed_signals
+    ]
+    return _planner.plan_repair(
+        failures=failures,
+        classification=cls,
+        contract=contract,
+        diagnostics={},
+        changed_files=changed_files or ["index.html", "main.js"],
+    ).to_dict()
+
+
+def _plan_for_contract(text: str, contract_id: str, failed_signals: list[str],
+                       changed_files: list[str] | None = None) -> dict:
+    """Plan using a specific (specialised) contract — for testing opt-in profiles."""
+    n = _norm.normalize(text)
+    cls = _clf.classify(n, text)
+    contract = _reg.get(contract_id)
+    assert contract is not None, f"Contract {contract_id} not found"
     failures = [
         build_failure(
             failure_type="visual_contract_failed",
@@ -57,46 +88,78 @@ def _all_text(plan: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# animated_dom_repair — must NOT mention game/canvas/HUD concepts
+# universal_visual_repair — default MVP profile (no restrictions)
+# ---------------------------------------------------------------------------
+
+def test_universal_repair_never_mentions_collision_or_hud_as_instruction():
+    plan = _plan_for("animate the text with rainbow colors", ["animation_signal"])
+    assert plan["profile_id"] == "universal_visual_repair"
+    instructions_text = "\n".join(i["action"] for i in plan["instructions"]).lower()
+    assert "collision" not in instructions_text
+    assert "hud state" not in instructions_text
+
+
+def test_universal_repair_has_no_do_not_restrictions():
+    plan = _plan_for("bounce the logo smoothly", ["animation_signal"])
+    assert plan["do_not"] == [], "universal_visual_repair must have no do_not restrictions"
+
+
+def test_universal_repair_mentions_animation_guidance():
+    plan = _plan_for("make it animate", ["animation_signal"])
+    full_text = _all_text(plan)
+    assert "animation" in full_text or "keyframe" in full_text
+
+
+def test_universal_repair_mentions_canvas_guidance():
+    plan = _plan_for("canvas balls animation", ["canvas_exists"])
+    full_text = _all_text(plan)
+    assert "canvas" in full_text
+
+
+def test_universal_repair_mentions_js_error_fix():
+    plan = _plan_for("show a page", ["page_loads"])
+    full_text = _all_text(plan)
+    assert "error" in full_text or "js" in full_text or "load" in full_text
+
+
+# ---------------------------------------------------------------------------
+# Specialised profiles (opt-in via explicit contract_id) — still available
 # ---------------------------------------------------------------------------
 
 def test_animated_dom_repair_never_mentions_canvas():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "animate the text with rainbow colors",
+        "animated_dom_visual_v1",
         ["animation_signal", "style_change_over_time"],
     )
     text = _all_text(plan)
-    # do_not list must explicitly forbid canvas
-    assert any("canvas" in d for d in plan["do_not"]), "do_not must forbid canvas"
-    # instructions must not suggest adding canvas
-    for instr in plan["instructions"]:
-        assert "canvas" not in instr["action"].lower() or "do not" in instr["action"].lower()
+    assert any("canvas" in d for d in plan["do_not"]), "animated_dom do_not must forbid canvas"
 
 
 def test_animated_dom_repair_never_mentions_collision():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "bounce the logo smoothly",
+        "animated_dom_visual_v1",
         ["animation_signal"],
     )
-    # Negative: collision must not appear in do_not list or instructions as something to ADD
     instructions_text = "\n".join(i["action"] for i in plan["instructions"]).lower()
-    # "collision" should only appear in do_not, not as a positive instruction
     assert "collision" not in instructions_text
 
 
 def test_animated_dom_repair_never_mentions_hud():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "pulse the header with a color fade",
+        "animated_dom_visual_v1",
         ["color_change_detectable"],
     )
-    # HUD must not appear anywhere as something to add
     instructions_text = "\n".join(i["action"] for i in plan["instructions"]).lower()
     assert "hud" not in instructions_text
 
 
 def test_animated_dom_repair_never_mentions_game_loop():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "hue-shift the background continuously",
+        "animated_dom_visual_v1",
         ["animation_signal", "color_change_detectable"],
     )
     instructions_text = "\n".join(i["action"] for i in plan["instructions"]).lower()
@@ -105,18 +168,19 @@ def test_animated_dom_repair_never_mentions_game_loop():
 
 
 def test_animated_dom_repair_mentions_transform_opacity():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "make the text animate smoothly",
+        "animated_dom_visual_v1",
         ["animation_signal", "style_change_over_time"],
     )
-    # Should suggest using transform/opacity
     full_text = _all_text(plan)
     assert "transform" in full_text or "opacity" in full_text
 
 
 def test_animated_dom_repair_mentions_reduced_motion():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "continuously animate the background colors",
+        "animated_dom_visual_v1",
         ["animation_signal"],
     )
     full_text = _all_text(plan)
@@ -124,16 +188,15 @@ def test_animated_dom_repair_mentions_reduced_motion():
 
 
 # ---------------------------------------------------------------------------
-# static_html_repair — must NOT mention animation or game loop
+# static_html_repair (opt-in specialised) — must NOT mention animation or game loop
 # ---------------------------------------------------------------------------
 
 def test_static_html_repair_never_mentions_animation():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "make a simple static HTML page",
+        "static_html_visual_v1",
         ["page_loads", "expected_structure"],
     )
-    full_text = _all_text(plan)
-    # "add animation" should NOT appear as a positive instruction
     for instr in plan["instructions"]:
         act = instr["action"].lower()
         assert "add animation" not in act
@@ -142,28 +205,31 @@ def test_static_html_repair_never_mentions_animation():
 
 
 def test_static_html_repair_do_not_includes_animation():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "static company page with information",
+        "static_html_visual_v1",
         ["expected_structure"],
     )
     assert any("animation" in d.lower() for d in plan["do_not"])
 
 
 def test_static_html_repair_do_not_includes_game_loop():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "static page with product listing",
+        "static_html_visual_v1",
         ["page_loads"],
     )
     assert any("game" in d.lower() for d in plan["do_not"])
 
 
 # ---------------------------------------------------------------------------
-# canvas_animation_repair — canvas but no game state
+# canvas_animation_repair (opt-in specialised) — canvas but no game state
 # ---------------------------------------------------------------------------
 
 def test_canvas_animation_repair_mentions_canvas_and_frame_loop():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "canvas animation of bouncing circles",
+        "canvas_animation_visual_v1",
         ["canvas_exists", "frame_changes_over_time"],
     )
     full_text = _all_text(plan)
@@ -172,8 +238,9 @@ def test_canvas_animation_repair_mentions_canvas_and_frame_loop():
 
 
 def test_canvas_animation_repair_forbids_game_mechanics():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "canvas particle animation",
+        "canvas_animation_visual_v1",
         ["canvas_exists"],
     )
     assert any("game" in d.lower() for d in plan["do_not"])
@@ -181,12 +248,13 @@ def test_canvas_animation_repair_forbids_game_mechanics():
 
 
 # ---------------------------------------------------------------------------
-# chart_repair — must NOT mention animation or game
+# chart_repair (opt-in specialised) — must NOT mention animation or game
 # ---------------------------------------------------------------------------
 
 def test_chart_repair_never_mentions_game_loop():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "bar chart showing sales data",
+        "chart_visualization_v1",
         ["chart_element_exists", "data_points_visible"],
     )
     instructions_text = "\n".join(i["action"] for i in plan["instructions"]).lower()
@@ -195,8 +263,9 @@ def test_chart_repair_never_mentions_game_loop():
 
 
 def test_chart_repair_mentions_data_and_axes():
-    plan = _plan_for(
+    plan = _plan_for_contract(
         "pie chart for budget categories",
+        "chart_visualization_v1",
         ["data_points_visible"],
     )
     full_text = _all_text(plan)

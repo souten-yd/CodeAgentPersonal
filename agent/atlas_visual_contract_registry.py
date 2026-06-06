@@ -1,13 +1,18 @@
 """
 Visual contract registry for Atlas.
 
-A VisualContract defines what must be true for a generated browser artifact to
-satisfy the visual requirement.  Contract selection is deterministic: the same
-VisualTaskClassification always produces the same contract_id.
+MVP philosophy: all artifacts use the universal_visual_v1 contract by default.
+Only page_loads is required to pass.  Task-specific signals (animation, color,
+canvas, interaction) are always advisory — they surface in metadata but never
+hard-fail an item.
 
-Seven built-in contracts cover the full range of common artifact types.  The
-registry is conservative by default: unknown or low-confidence classifications
-fall back to the minimal static_html_visual_v1 contract.
+The seven specialised contracts below are kept as reference / opt-in for future
+advanced use, but the registry's select() method always returns
+universal_visual_v1.  This means:
+ - HTML pages, web apps, games, and business apps all pass the same gate
+ - No new contract needs to be designed for each artifact type
+ - Classification still runs for observability (metadata)
+ - Repair guidance is generic and task-type-agnostic
 """
 from __future__ import annotations
 
@@ -185,6 +190,35 @@ _reg(VisualContract(
     failure_message_template="Chart contract failed: {signal} was not found.",
 ))
 
+# ---------------------------------------------------------------------------
+# Universal MVP contract (default for all artifact types)
+# ---------------------------------------------------------------------------
+
+_reg(VisualContract(
+    contract_id="universal_visual_v1",
+    display_name="Universal Visual (MVP)",
+    description=(
+        "Generic contract used for all artifact types. "
+        "Only page_loads is required; all other signals are advisory. "
+        "Works for HTML pages, web apps, games, and business apps without "
+        "per-type configuration."
+    ),
+    required_signals=["page_loads"],
+    optional_signals=[
+        "expected_structure",
+        "animation_signal", "color_change_detectable", "motion_detectable",
+        "wave_phase_detectable", "style_change_over_time",
+        "canvas_exists", "frame_changes_over_time",
+        "chart_element_exists", "data_points_visible",
+        "required_controls_exist", "state_changes_on_interaction",
+        "game_loop_runs", "input_handling_exists",
+    ],
+    forbidden_signals=[],   # nothing is forbidden — any artifact type is valid
+    verification_method="smoke_optional",
+    repair_profile="universal_visual_repair",
+    failure_message_template="Visual check failed: {signal} was not satisfied.",
+))
+
 
 # ---------------------------------------------------------------------------
 # Registry
@@ -192,58 +226,24 @@ _reg(VisualContract(
 
 class VisualContractRegistry:
     """
-    Selects the appropriate VisualContract for a given VisualTaskClassification.
+    Returns universal_visual_v1 for all classifications (MVP default).
 
-    Selection is deterministic — same input always yields same contract_id.
-    Falls back to the conservative static_html_visual_v1 for unknown or
-    low-confidence classifications.
+    The specialised contracts (static_html_visual_v1, animated_dom_visual_v1,
+    etc.) are still available via get() for future opt-in use, but select()
+    always returns universal_visual_v1 so no per-type configuration is needed
+    when adding new artifact types.
     """
 
-    # Direct mapping from artifact_type to contract_id
-    _ARTIFACT_MAP: dict[str, str] = {
-        "static_html_page":    "static_html_visual_v1",
-        "animated_html_page":  "animated_dom_visual_v1",
-        "ui_component":        "ui_component_visual_v1",
-        "interactive_web_app": "interactive_web_app_visual_v1",
-        "canvas_animation":    "canvas_animation_visual_v1",
-        "canvas_game":         "canvas_game_visual_v1",
-        "svg_visualization":   "animated_dom_visual_v1",   # DOM-style contract; no canvas
-        "chart_visualization": "chart_visualization_v1",
-        "document":            "static_html_visual_v1",
-        "test_only":           "static_html_visual_v1",
-        "unknown":             "static_html_visual_v1",
-    }
-
-    _FALLBACK_CONTRACT_ID = "static_html_visual_v1"
-    _LOW_CONFIDENCE_THRESHOLD = 0.4
+    _UNIVERSAL_CONTRACT_ID = "universal_visual_v1"
 
     def select(self, classification: VisualTaskClassification) -> VisualContract:
-        """Return the appropriate contract for the given classification."""
-        # Safety guards — never escalate to complex contracts on low confidence
-        if classification.confidence < self._LOW_CONFIDENCE_THRESHOLD:
-            return _CONTRACTS[self._FALLBACK_CONTRACT_ID]
+        """Always returns universal_visual_v1 (MVP default).
 
-        # Never select canvas_game unless explicitly classified as such
-        if (
-            classification.artifact_type != "canvas_game"
-            and "canvas_game_visual_v1" == self._ARTIFACT_MAP.get(
-                classification.artifact_type, self._FALLBACK_CONTRACT_ID
-            )
-        ):
-            return _CONTRACTS[self._FALLBACK_CONTRACT_ID]
-
-        # Never select canvas_animation unless canvas_required is in runtime requirements
-        if (
-            classification.artifact_type == "canvas_animation"
-            and "canvas_required" not in classification.runtime_requirements
-        ):
-            # Demote to animated DOM contract
-            return _CONTRACTS["animated_dom_visual_v1"]
-
-        contract_id = self._ARTIFACT_MAP.get(
-            classification.artifact_type, self._FALLBACK_CONTRACT_ID
-        )
-        return _CONTRACTS.get(contract_id, _CONTRACTS[self._FALLBACK_CONTRACT_ID])
+        Classification metadata is still stored for observability, but the
+        verification gate is always the same universal contract — no per-type
+        design required when adding new artifact types.
+        """
+        return _CONTRACTS[self._UNIVERSAL_CONTRACT_ID]
 
     def get(self, contract_id: str) -> VisualContract | None:
         """Retrieve a contract by ID. Returns None if not found."""

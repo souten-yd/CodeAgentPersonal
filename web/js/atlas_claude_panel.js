@@ -1875,6 +1875,32 @@
     parent.appendChild(row);
   }
 
+  function _visualRepairGuidanceForProfile(repairProfile) {
+    if (repairProfile === 'canvas_game_repair') {
+      return 'run Debug Review and inspect index.html; add requestAnimationFrame loop, input handling, update/render separation, collision handling, HUD state, and visible motion/color/canvas signals.';
+    }
+    if (repairProfile === 'animated_dom_repair') {
+      return 'ensure the animated element exists in the DOM; add CSS @keyframes, Web Animations API, or requestAnimationFrame updating style properties (transform, opacity, color) over time; verify style changes are detectable across frames.';
+    }
+    if (repairProfile === 'canvas_animation_repair') {
+      return 'ensure a <canvas> element is present; initialise the rendering context (getContext); ensure requestAnimationFrame draws each frame so frame_changes_over_time is detectable.';
+    }
+    if (repairProfile === 'static_html_repair') {
+      return 'add or restore expected HTML content; fix invalid HTML syntax; resolve load errors (missing linked CSS/JS files).';
+    }
+    if (repairProfile === 'chart_repair') {
+      return 'ensure the chart element (SVG, canvas, or library root) is present; ensure data points, bars, lines, or slices are rendered with correct data bindings.';
+    }
+    if (repairProfile === 'ui_component_repair') {
+      return 'add missing controls (buttons, inputs, selects); ensure event bindings trigger state updates; add labels and ARIA attributes for interactive elements.';
+    }
+    if (repairProfile === 'universal_visual_repair' || repairProfile === '') {
+      return 'run Debug Review and inspect index.html; ensure the page loads without JS errors, HTML content is present, and any requested animation (CSS @keyframes / requestAnimationFrame) or interactive controls are implemented.';
+    }
+    // Generic fallback for any unrecognised profile
+    return 'run Debug Review and inspect index.html; ensure the required visual signals (animation, interaction state, or content structure) are present and detectable.';
+  }
+
   function visualFailureDetails(item) {
     const warnings = [];
     if (item && Array.isArray(item.warnings)) warnings.push(...item.warnings);
@@ -1883,6 +1909,7 @@
     const metadata = verification.metadata || (item && item.metadata) || {};
     const visual = metadata.visual_contract || {};
     const smoke = metadata.browser_smoke || {};
+    const pipelineMeta = metadata.visual_pipeline || {};
     const missing = Array.isArray(visual.missing) ? visual.missing.map((x) => String(x)).filter(Boolean) : [];
     const visualWarnings = warnings.map((w) => String(w)).filter((w) => w.startsWith('visual_missing:'));
     const smokeStatus = String(smoke.status || '');
@@ -1893,7 +1920,8 @@
     if (missing.length) parts.push(`missing=${missing.join(', ')}`);
     if (visualWarnings.length) parts.push(`warnings=${visualWarnings.join(', ')}`);
     if (smokeStatus || smokeReason) parts.push(`browser_smoke=${smokeStatus || '-'}${smokeReason ? ':' + smokeReason : ''}`);
-    parts.push('Repair guidance: run Debug Review and inspect index.html; add requestAnimationFrame loop, input handling, update/render separation, collision handling, HUD state, and visible motion/color/canvas signals.');
+    const repairProfile = String(pipelineMeta.repair_profile || '');
+    parts.push('Repair guidance: ' + _visualRepairGuidanceForProfile(repairProfile));
     return `Visual contract failed: ${parts.join(' | ')}`;
   }
 
