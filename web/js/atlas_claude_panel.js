@@ -244,6 +244,34 @@
     refreshPolicies();
     loadAtlasCapabilityPreferences();
     loadAtlasAutomationFeatures();
+    window.addEventListener('atlas:llm-progress', (ev) => updateLlmProgressLine(ev.detail));
+  }
+
+  function updateLlmProgressLine(detail) {
+    if (!dom.transcript) return;
+    let line = dom.transcript.querySelector('#atlas-llm-progress-line');
+    if (!line) {
+      line = document.createElement('div');
+      line.id = 'atlas-llm-progress-line';
+      line.className = 'atlas-claude-msg atlas-claude-llm-progress';
+      line.dataset.role = 'system';
+      dom.transcript.appendChild(line);
+    }
+    const phase = detail.phase || '';
+    const tokens = Number(detail.tokens) || 0;
+    const sec = Number(detail.secondsSince);
+    const parts = ['[LLM生成中]'];
+    if (phase) parts.push(`フェーズ: ${phase}`);
+    if (tokens > 0) parts.push(`tokens: ${tokens}`);
+    if (Number.isFinite(sec)) parts.push(`最終: ${Math.round(sec)}秒前`);
+    line.textContent = parts.join(' / ');
+    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  function clearLlmProgressLine() {
+    if (!dom.transcript) return;
+    const line = dom.transcript.querySelector('#atlas-llm-progress-line');
+    if (line) line.remove();
   }
 
   function bindInputs() {
@@ -900,11 +928,6 @@
     block.dataset.role = 'atlas';
     block.dataset.atlasWorkbenchBlock = 'true';
     block.dataset.poolId = String(poolId || '');
-
-    const head = document.createElement('div');
-    head.className = 'atlas-claude-summary-head';
-    head.textContent = 'Atlas Workbench';
-    block.appendChild(head);
 
     const details = document.createElement('div');
     details.className = 'atlas-claude-summary-block';
@@ -2516,6 +2539,7 @@
     if (dom.stopBtn) dom.stopBtn.style.display = busy ? '' : 'none';
     if (dom.sendBtn) dom.sendBtn.disabled = !!busy;
     if (dom.input) dom.input.disabled = !!busy;
+    if (!busy) clearLlmProgressLine();
   }
 
   // E: surface ASR transcription progress on the Atlas input placeholder (the

@@ -131,6 +131,11 @@
         const currentPhase = (st.data && (st.data.current_phase || st.data.phase)) || '';
         const secondsSinceProgress = Number(st.data && st.data.seconds_since_progress);
         const tokensGenerated = Number(st.data && st.data.tokens_generated);
+        if (typeof window !== 'undefined' && (status === 'running' || status === 'revising')) {
+          window.dispatchEvent(new CustomEvent('atlas:llm-progress', {
+            detail: { phase: currentPhase, tokens: tokensGenerated, secondsSince: secondsSinceProgress, poolId },
+          }));
+        }
         const progressDetail = [
           currentPhase ? `フェーズ: ${currentPhase}` : '',
           Number.isFinite(secondsSinceProgress) ? `最終進捗から ${Math.round(secondsSinceProgress)} 秒` : '',

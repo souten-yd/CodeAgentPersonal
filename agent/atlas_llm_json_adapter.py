@@ -387,7 +387,7 @@ class AtlasLLMJsonAdapter:
                 tokens_generated += max(1, len(content.split()))
                 if not saw_token:
                     saw_token = True
-                    self._set_response_timeout(resp, stall_after_sec)
+                    self._set_response_timeout(resp, _env_float("ATLAS_LLM_INTER_TOKEN_SEC", 300.0))
                 self._emit_progress(tokens_generated)
         return "".join(chunks)
 
