@@ -153,7 +153,7 @@ AUTOVERIFY_EXPECTATIONS: list[AutoVerifyCase] = [
     AutoVerifyCase("multifile_empty", "animate", {"status": "browser_smoke_failed", "reason": "animation_not_detected"}, "passed", "static_checked", ("browser_smoke_warning:animation_not_detected",)),
     AutoVerifyCase("expected_text_missing", "show page", {"status": "browser_smoke_failed", "reason": "expected_text_missing"}, "failed", None, ("browser_smoke_failed:expected_text_missing",)),
     AutoVerifyCase("color_named_keyframes", "rainbow text", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
-    AutoVerifyCase("color_named_keyframes", "make it move around", {"status": "browser_smoke_failed", "reason": "animation_not_detected"}, "failed", None, ("visual_contract_failed", "visual_missing:motion_detectable")),
+    AutoVerifyCase("color_named_keyframes", "make it move around", {"status": "browser_smoke_failed", "reason": "animation_not_detected"}, "passed", "static_checked", ("browser_smoke_warning:animation_not_detected",)),
     AutoVerifyCase("transition_color", "color change on load", {"status": "browser_smoke_passed"}, "passed", "runtime_smoke_checked", ("visual_contract_passed",)),
 ]
 

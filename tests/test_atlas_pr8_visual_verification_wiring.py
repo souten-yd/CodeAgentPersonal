@@ -79,22 +79,31 @@ def test_visual_task_no_command_runs_static_verifier_pass(tmp_path):
         assert out.metadata["verify_level"] == "static_checked"
 
 
-def test_visual_task_file_existence_only_fails(tmp_path):
+def test_visual_task_static_page_passes_with_advisory_warnings(tmp_path):
+    # MVP universal contract: only page_loads is required.  A static page satisfies that even when
+    # the task description requests animation — the advisory warnings surface the gap without failing.
     pool, _ = _pool_item(tmp_path, html=_STATIC_HTML)
     svc = _service(pool)
     out = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id="p1", item_id="i1", run_id="r1"))
-    assert out.status == "failed"
-    assert "visual_contract_failed" in out.warnings
+    assert out.status == "passed"
+    # animation_signal advisory (not hard failure) — visible to the user but does not block the item
+    assert "visual_contract_passed" in out.warnings or any(w.startswith("visual_advisory:") or w.startswith("browser_smoke_warning:") for w in out.warnings)
 
 
-def test_visual_task_missing_color_motion_fails(tmp_path):
+def test_visual_task_missing_motion_signals_passes_with_advisory_warnings(tmp_path):
+    # MVP universal contract: only page_loads is required.  A page with a bare rAF loop but no
+    # detectable CSS color/motion signals still passes — advisory warnings surface the gap.
     html = "<!doctype html><html><body><h1>Demo</h1>" \
            "<script>requestAnimationFrame(function f(){requestAnimationFrame(f);});</script></body></html>"
     pool, _ = _pool_item(tmp_path, html=html)
     svc = _service(pool)
     out = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id="p1", item_id="i1", run_id="r1"))
-    assert out.status == "failed"
-    assert any(w.startswith("visual_missing:") for w in out.warnings)
+    assert out.status == "passed"
+    # At least one advisory or smoke warning should be present
+    assert any(
+        w.startswith("visual_advisory:") or w.startswith("browser_smoke_warning:") or w == "visual_contract_passed"
+        for w in out.warnings
+    )
 
 
 def test_playwright_unavailable_records_browser_smoke_skipped(tmp_path):
