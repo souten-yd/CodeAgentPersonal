@@ -48,7 +48,7 @@ class AtlasPatchProposalService:
             "動きの信号が検出できなかった。canvas の getContext 描画更新、CSS transform/translate を"
             "実装すること。"
         ),
-        "wave_signal": (
+        "wave_phase_signal": (
             "波形/位相信号が検出できなかった。Math.sin/Math.cos と phase/amplitude/frequency を用いること。"
         ),
     }
@@ -301,6 +301,28 @@ class AtlasPatchProposalService:
         if repair_targets:
             feedback["repair_target_files"] = repair_targets
             feedback["do_not_repair_by_tests_only"] = True
+        if (
+            primary_reason.startswith("visual_missing:")
+            or primary_reason == "visual_contract_failed"
+            or "animation_not_detected" in primary_reason
+        ):
+            vr_meta = verification.get("metadata") or {}
+            smoke_meta = vr_meta.get("browser_smoke") or {}
+            if smoke_meta:
+                diag = smoke_meta.get("diagnostics") or {}
+                canvas_diag = diag.get("canvas") or {}
+                feedback["browser_smoke_result"] = {
+                    "status": smoke_meta.get("status", ""),
+                    "reason": smoke_meta.get("reason", ""),
+                    "style_changed": bool(diag.get("style_changed")),
+                    "canvas_changed": bool(canvas_diag.get("changed")),
+                    "canvas_present": bool(canvas_diag.get("present")),
+                    "console_errors": list((smoke_meta.get("console_errors") or [])[:3]),
+                }
+            vc_meta = vr_meta.get("visual_contract") or {}
+            missing = list(vc_meta.get("missing") or [])
+            if missing:
+                feedback["visual_contract_missing"] = missing
         if prior:
             feedback["previous_content"] = prior[: self.MAX_PROPOSED_CONTENT_CHARS]
         # Routed from the correction router: a test that exercises THIS implementation failed. Tell the
