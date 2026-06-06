@@ -714,6 +714,66 @@ def _merge_patchgen_job(ca_data_root: Path, pool_id: str, item_id: str, patch: d
     _write_patchgen_job(ca_data_root, pool_id, item_id, current)
 
 
+def _debug_review_jobs_dir(ca_data_root: Path) -> Path:
+    d = Path(ca_data_root) / "atlas" / "debug_review_jobs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _debug_review_job_key(pool_id: str, item_id: str) -> str:
+    return f"{pool_id}__{item_id}"
+
+
+def _write_debug_review_job(ca_data_root: Path, pool_id: str, item_id: str, payload: dict) -> None:
+    try:
+        path = _debug_review_jobs_dir(ca_data_root) / f"{_debug_review_job_key(pool_id, item_id)}.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _merge_debug_review_job(ca_data_root: Path, pool_id: str, item_id: str, patch: dict) -> None:
+    path = _debug_review_jobs_dir(ca_data_root) / f"{_debug_review_job_key(pool_id, item_id)}.json"
+    try:
+        current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except Exception:
+        current = {}
+    if str(current.get("status") or "") in {"done", "failed"} and "status" not in patch:
+        return
+    current.update(dict(patch or {}))
+    _write_debug_review_job(ca_data_root, pool_id, item_id, current)
+
+
+def _verification_jobs_dir(ca_data_root: Path) -> Path:
+    d = Path(ca_data_root) / "atlas" / "verification_jobs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _verification_job_key(pool_id: str, item_id: str) -> str:
+    return f"{pool_id}__{item_id}"
+
+
+def _write_verification_job(ca_data_root: Path, pool_id: str, item_id: str, payload: dict) -> None:
+    try:
+        path = _verification_jobs_dir(ca_data_root) / f"{_verification_job_key(pool_id, item_id)}.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _merge_verification_job(ca_data_root: Path, pool_id: str, item_id: str, patch: dict) -> None:
+    path = _verification_jobs_dir(ca_data_root) / f"{_verification_job_key(pool_id, item_id)}.json"
+    try:
+        current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except Exception:
+        current = {}
+    if str(current.get("status") or "") in {"done", "failed"} and "status" not in patch:
+        return
+    current.update(dict(patch or {}))
+    _write_verification_job(ca_data_root, pool_id, item_id, current)
+
+
 def _seconds_since_iso(value: Any) -> float | None:
     text = str(value or "").strip()
     if not text:
@@ -1920,23 +1980,48 @@ def _resolve_atlas_debug_loop_runner(request: Request, journal: AtlasJournal):
         return runner
     runner_cls = getattr(atlas_debug_loop_runner_module, "DebugLoopRunner")
     return runner_cls(journal=journal)
-@router.post("/verification/run", response_model=AtlasVerificationResult)
-def run_verification(req: AtlasVerificationRequest, request: Request) -> AtlasVerificationResult:
-    if ".." in req.pool_id or ".." in req.item_id:
+
+
+@router.get("/verification/status")
+def get_verification_status(pool_id: str, item_id: str, request: Request) -> dict:
+    if ".." in pool_id or ".." in item_id:
         raise HTTPException(status_code=400, detail="invalid id")
-    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
-    _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
-    runner = _resolve_atlas_test_command_runner(request)
+    ca_data_root, _, _ = _atlas_components(request)
+    path = _verification_jobs_dir(ca_data_root) / f"{_verification_job_key(pool_id, item_id)}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="verification job not found")
+    try:
+        job = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        raise HTTPException(status_code=500, detail="failed to read job file")
+    seconds_since = _seconds_since_iso(job.get("last_progress_at"))
+    is_stalled = bool(
+        job.get("status") == "running"
+        and seconds_since is not None
+        and seconds_since > _plan_stall_after_sec()
+    )
+    return {**job, "is_stalled": is_stalled, "seconds_since_progress": seconds_since}
+
+
+def _do_verification(pool_id: str, req: "AtlasVerificationRequest", app: Any, *, progress_cb=None) -> "AtlasVerificationResult":
+    ca_data_root, storage, journal = _atlas_components(_AppOnlyRequest(app), workspace_id=req.workspace_id)
+    _sync_pool_from_workspace_snapshot(storage, journal, pool_id)
+    runner = _resolve_atlas_test_command_runner(_AppOnlyRequest(app))
     service = AtlasVerificationGateService(journal=journal, storage=storage, test_runner=runner)
+    if progress_cb is not None:
+        try:
+            progress_cb(phase="running", last_progress_at=datetime.now(timezone.utc).isoformat())
+        except Exception:
+            pass
     try:
         result = service.verify_item(req)
     except FileNotFoundError:
-        result = AtlasVerificationResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, status="blocked", warnings=["pool_not_found"])
+        result = AtlasVerificationResult(pool_id=pool_id, item_id=req.item_id, run_id=req.run_id, status="blocked", warnings=["pool_not_found"])
     try:
-        pool = storage.load_pool(req.pool_id)
+        pool = storage.load_pool(pool_id)
         recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
         orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None, recovery=recovery).model_dump()
-        continuation = AtlasContinuationService(journal).build_pool_summary(req.pool_id, req.run_id)
+        continuation = AtlasContinuationService(journal).build_pool_summary(pool_id, req.run_id)
         result.recovery_summary = recovery
         result.orchestration_summary = orchestration
         result.continuation_prompt = continuation.continuation_prompt
@@ -1944,6 +2029,44 @@ def run_verification(req: AtlasVerificationRequest, request: Request) -> AtlasVe
         result.warnings.append("verification_enrichment_failed")
         result.warnings.append(str(exc) or exc.__class__.__name__)
     return result
+
+
+@router.post("/verification/run")
+def run_verification(req: AtlasVerificationRequest, request: Request, sync: int = Query(0)):
+    if ".." in req.pool_id or ".." in req.item_id:
+        raise HTTPException(status_code=400, detail="invalid id")
+    if sync:
+        return _do_verification(req.pool_id, req, request.app)
+    ca_data_root, _, _ = _atlas_components(request, workspace_id=req.workspace_id)
+    now = datetime.now(timezone.utc).isoformat()
+    _write_verification_job(ca_data_root, req.pool_id, req.item_id, {
+        "pool_id": req.pool_id, "item_id": req.item_id,
+        "status": "running", "created_at": now, "last_progress_at": now,
+    })
+    app_ref = request.app
+    req_snapshot = req
+
+    def _runner():
+        def heartbeat(**details):
+            _merge_verification_job(ca_data_root, req_snapshot.pool_id, req_snapshot.item_id, {
+                "last_progress_at": datetime.now(timezone.utc).isoformat(),
+                "phase": str(details.get("phase") or "running"),
+            })
+        try:
+            result = _do_verification(req_snapshot.pool_id, req_snapshot, app_ref, progress_cb=heartbeat)
+            _merge_verification_job(ca_data_root, req_snapshot.pool_id, req_snapshot.item_id, {
+                "status": "done",
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "result": result.model_dump() if hasattr(result, "model_dump") else dict(result),
+            })
+        except Exception as exc:
+            _merge_verification_job(ca_data_root, req_snapshot.pool_id, req_snapshot.item_id, {
+                "status": "failed",
+                "error": str(exc),
+            })
+
+    threading.Thread(target=_runner, daemon=True).start()
+    return {"pool_id": req.pool_id, "item_id": req.item_id, "status": "running"}
 
 @router.get("/continuation/latest", response_model=ContinuationResponse)
 def get_continuation_latest(request: Request, workspace_id: str = "default") -> ContinuationResponse:
@@ -1971,28 +2094,46 @@ def get_continuation_pool(
 
 
 
+@router.get("/debug-review/status")
+def get_debug_review_status(pool_id: str, item_id: str, request: Request) -> dict:
+    if ".." in pool_id or ".." in item_id:
+        raise HTTPException(status_code=400, detail="invalid id")
+    ca_data_root, _, _ = _atlas_components(request)
+    path = _debug_review_jobs_dir(ca_data_root) / f"{_debug_review_job_key(pool_id, item_id)}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="debug review job not found")
+    try:
+        job = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        raise HTTPException(status_code=500, detail="failed to read job file")
+    seconds_since = _seconds_since_iso(job.get("last_progress_at"))
+    is_stalled = bool(
+        job.get("status") == "running"
+        and seconds_since is not None
+        and seconds_since > _plan_stall_after_sec()
+    )
+    return {**job, "is_stalled": is_stalled, "seconds_since_progress": seconds_since}
 
-@router.post("/debug-review/run", response_model=AtlasDebugReviewResult)
-def run_debug_review(req: AtlasDebugReviewRequest, request: Request) -> AtlasDebugReviewResult:
-    if ".." in req.pool_id or ".." in req.item_id:
-        raise HTTPException(status_code=400, detail="invalid identifier")
-    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
-    _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
-    runner = _resolve_atlas_debug_loop_runner(request, journal)
+
+def _do_debug_review(pool_id: str, req: "AtlasDebugReviewRequest", app: Any, *, progress_cb=None) -> "AtlasDebugReviewResult":
+    ca_data_root, storage, journal = _atlas_components(_AppOnlyRequest(app), workspace_id=req.workspace_id)
+    _sync_pool_from_workspace_snapshot(storage, journal, pool_id)
+    runner = _resolve_atlas_debug_loop_runner(_AppOnlyRequest(app), journal)
     service = AtlasDebugReviewService(journal=journal, storage=storage, debug_runner=runner)
+    if progress_cb is not None:
+        try:
+            progress_cb(phase="analyzing", last_progress_at=datetime.now(timezone.utc).isoformat())
+        except Exception:
+            pass
     try:
         result = service.review_item(req)
     except FileNotFoundError:
-        result = AtlasDebugReviewResult(pool_id=req.pool_id, item_id=req.item_id, run_id=req.run_id, status="blocked", warnings=["pool_not_found"])
+        result = AtlasDebugReviewResult(pool_id=pool_id, item_id=req.item_id, run_id=req.run_id, status="blocked", warnings=["pool_not_found"])
     try:
-        pool = storage.load_pool(req.pool_id)
+        pool = storage.load_pool(pool_id)
         recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
-        orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(
-            pool,
-            None,
-            recovery=recovery,
-        ).model_dump()
-        continuation = AtlasContinuationService(journal).build_pool_summary(req.pool_id, req.run_id)
+        orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None, recovery=recovery).model_dump()
+        continuation = AtlasContinuationService(journal).build_pool_summary(pool_id, req.run_id)
         result.plan_pool = pool.model_dump()
         result.recovery_summary = recovery
         result.orchestration_summary = orchestration
@@ -2001,6 +2142,44 @@ def run_debug_review(req: AtlasDebugReviewRequest, request: Request) -> AtlasDeb
         result.warnings.append("debug_review_enrichment_failed")
         result.warnings.append(str(exc) or exc.__class__.__name__)
     return result
+
+
+@router.post("/debug-review/run")
+def run_debug_review(req: AtlasDebugReviewRequest, request: Request, sync: int = Query(0)):
+    if ".." in req.pool_id or ".." in req.item_id:
+        raise HTTPException(status_code=400, detail="invalid identifier")
+    if sync:
+        return _do_debug_review(req.pool_id, req, request.app)
+    ca_data_root, _, _ = _atlas_components(request, workspace_id=req.workspace_id)
+    now = datetime.now(timezone.utc).isoformat()
+    _write_debug_review_job(ca_data_root, req.pool_id, req.item_id, {
+        "pool_id": req.pool_id, "item_id": req.item_id,
+        "status": "running", "created_at": now, "last_progress_at": now,
+    })
+    app_ref = request.app
+    req_snapshot = req
+
+    def _runner():
+        def heartbeat(**details):
+            _merge_debug_review_job(ca_data_root, req_snapshot.pool_id, req_snapshot.item_id, {
+                "last_progress_at": datetime.now(timezone.utc).isoformat(),
+                "phase": str(details.get("phase") or "running"),
+            })
+        try:
+            result = _do_debug_review(req_snapshot.pool_id, req_snapshot, app_ref, progress_cb=heartbeat)
+            _merge_debug_review_job(ca_data_root, req_snapshot.pool_id, req_snapshot.item_id, {
+                "status": "done",
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "result": result.model_dump() if hasattr(result, "model_dump") else dict(result),
+            })
+        except Exception as exc:
+            _merge_debug_review_job(ca_data_root, req_snapshot.pool_id, req_snapshot.item_id, {
+                "status": "failed",
+                "error": str(exc),
+            })
+
+    threading.Thread(target=_runner, daemon=True).start()
+    return {"pool_id": req.pool_id, "item_id": req.item_id, "status": "running"}
 
 
 @router.post("/patch-proposals/generate", response_model=AtlasPatchProposalResult)

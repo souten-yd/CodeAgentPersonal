@@ -237,16 +237,66 @@
       return atlasFetch('/api/atlas/automation-features', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
     executeSafeApply(payload) {
-      return atlasFetch('/api/atlas/safe-apply/execute', { method: 'POST', body: JSON.stringify(payload || {}) });
+      return atlasFetch('/api/atlas/safe-apply/execute', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 300000 });
     },
     restoreChangeSnapshot(payload) {
       return atlasFetch('/api/atlas/change-snapshots/restore', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
-    runVerification(payload) {
-      return atlasFetch('/api/atlas/verification/run', { method: 'POST', body: JSON.stringify(payload || {}) });
+    async pollVerificationUntilDone(poolId, itemId) {
+      const absMax = root.ATLAS_PLAN_ABSOLUTE_MAX_MS || PLAN_POOL_ABSOLUTE_MAX_MS;
+      const start = Date.now();
+      while (Date.now() - start < absMax) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const st = await atlasFetch(`/api/atlas/verification/status${query({ pool_id: poolId, item_id: itemId })}`, { timeoutMs: 15000 });
+        if (!st.ok) {
+          if (st.status === 404) continue;
+          return st;
+        }
+        const d = st.data || {};
+        if (d.is_stalled) {
+          const sec = Math.round(d.seconds_since_progress || 0);
+          return { ok: false, status: 200, error: true, code: 'verification_stalled', message: `検証コマンドが${sec}秒無進捗です。コマンドがハングしている可能性があります。`, detail: { error: 'verification_stalled' } };
+        }
+        if (d.status === 'done') return { ok: true, status: 200, data: d.result || d };
+        if (d.status === 'failed') return { ok: false, status: 200, error: true, code: 'verification_failed', message: d.error || '検証に失敗しました。', detail: { error: 'verification_failed' } };
+      }
+      return { ok: false, status: 0, error: true, code: 'verification_absolute_timeout', message: '検証が絶対上限に達しました。', detail: { error: 'verification_absolute_timeout' } };
     },
-    runDebugReview(payload) {
-      return atlasFetch('/api/atlas/debug-review/run', { method: 'POST', body: JSON.stringify(payload || {}) });
+    async runVerification(payload) {
+      const resp = await atlasFetch('/api/atlas/verification/run', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 30000 });
+      if (!resp.ok) return resp;
+      if (resp.data && resp.data.status === 'running') {
+        return await this.pollVerificationUntilDone(payload.pool_id, payload.item_id);
+      }
+      return resp;
+    },
+    async pollDebugReviewUntilDone(poolId, itemId) {
+      const absMax = root.ATLAS_PLAN_ABSOLUTE_MAX_MS || PLAN_POOL_ABSOLUTE_MAX_MS;
+      const start = Date.now();
+      while (Date.now() - start < absMax) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const st = await atlasFetch(`/api/atlas/debug-review/status${query({ pool_id: poolId, item_id: itemId })}`, { timeoutMs: 15000 });
+        if (!st.ok) {
+          if (st.status === 404) continue;
+          return st;
+        }
+        const d = st.data || {};
+        if (d.is_stalled) {
+          const sec = Math.round(d.seconds_since_progress || 0);
+          return { ok: false, status: 200, error: true, code: 'debug_review_stalled', message: `デバッグレビューが${sec}秒無進捗です。モデルが停止している可能性があります。`, detail: { error: 'debug_review_stalled' } };
+        }
+        if (d.status === 'done') return { ok: true, status: 200, data: d.result || d };
+        if (d.status === 'failed') return { ok: false, status: 200, error: true, code: 'debug_review_failed', message: d.error || 'デバッグレビューに失敗しました。', detail: { error: 'debug_review_failed' } };
+      }
+      return { ok: false, status: 0, error: true, code: 'debug_review_absolute_timeout', message: 'デバッグレビューが絶対上限に達しました。', detail: { error: 'debug_review_absolute_timeout' } };
+    },
+    async runDebugReview(payload) {
+      const resp = await atlasFetch('/api/atlas/debug-review/run', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 30000 });
+      if (!resp.ok) return resp;
+      if (resp.data && resp.data.status === 'running') {
+        return await this.pollDebugReviewUntilDone(payload.pool_id, payload.item_id);
+      }
+      return resp;
     },
     getPatchGenStatus(poolId, itemId) {
       return atlasFetch(`/api/atlas/patch-proposals/status${query({ pool_id: poolId, item_id: itemId })}`, { timeoutMs: 10000 });
@@ -301,17 +351,17 @@
       return atlasFetch('/api/atlas/automation/decide', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
     autoSafeApplyOne(payload) {
-      return atlasFetch('/api/atlas/automation/safe-apply-one', { method: 'POST', body: JSON.stringify(payload || {}) });
+      return atlasFetch('/api/atlas/automation/safe-apply-one', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 300000 });
     },
 
     getVerificationAllowlist() {
       return atlasFetch('/api/atlas/verification/allowlist');
     },
     autoVerifyOne(payload) {
-      return atlasFetch('/api/atlas/automation/verify-one', { method: 'POST', body: JSON.stringify(payload || {}) });
+      return atlasFetch('/api/atlas/automation/verify-one', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 300000 });
     },
     autoSafeApplyOneAndVerify(payload) {
-      return atlasFetch('/api/atlas/automation/safe-apply-one-and-verify', { method: 'POST', body: JSON.stringify(payload || {}) });
+      return atlasFetch('/api/atlas/automation/safe-apply-one-and-verify', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 600000 });
     },
     getFailureSuggestion(payload) {
       return atlasFetch('/api/atlas/automation/failure-suggestion', { method: 'POST', body: JSON.stringify(payload || {}) });
