@@ -263,6 +263,12 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
         flex: 0 0 auto; border: 1px solid var(--border); border-radius: 6px;
         background: var(--accent); color: var(--bg, #000); font-size: 11px; padding: 5px 10px; cursor: pointer;
       }
+      .atlas-claude-plan-history-btn {
+        flex: 0 0 auto; border: 1px solid var(--border); border-radius: 8px;
+        background: var(--bg2); color: var(--text); font-family: var(--font-mono);
+        font-size: 12px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+      }
+      .atlas-claude-plan-history-btn:hover { background: var(--bg3, rgba(255,255,255,0.08)); }
     `;
     document.head.appendChild(style);
   }
@@ -289,6 +295,16 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
     wrap.append(btn);
     if (recover && recover.parentElement === actions) actions.insertBefore(wrap, recover);
     else actions.insertBefore(wrap, actions.firstChild);
+
+    const historyBtn = document.createElement('button');
+    historyBtn.type = 'button';
+    historyBtn.className = 'atlas-claude-plan-history-btn';
+    historyBtn.id = 'atlas-claude-plan-history-btn';
+    historyBtn.textContent = 'Plan History';
+    historyBtn.addEventListener('click', () => {
+      try { root.AtlasClaudePanel?.showPlanList?.(); } catch (_err) {}
+    });
+    actions.appendChild(historyBtn);
 
     ensureProjectDrawer();
     return true;

@@ -2633,6 +2633,7 @@
     setActiveProject,
     loadProject,
     setTranscribingStatus,
+    showPlanList: showPlanPoolList,
     state,
   };
 
