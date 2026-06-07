@@ -18,6 +18,7 @@ from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProp
 from agent.atlas_placeholder_detector import detect_placeholders
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_plan_target_contract import materialize_structural_targets, validate_plan_target_contract
 from agent.atlas_plan_trace import PlanTrace
 from agent.atlas_workspace_root import resolve_atlas_workspace_root
 
@@ -142,6 +143,12 @@ class AtlasPatchProposalService:
                 warnings.append("forbidden_action_type")
             if any(Path(str(p)).is_absolute() or ".." in Path(str(p)).parts for p in list(item.target_files or [])):
                 warnings.append("unsafe_target_files")
+            contract = validate_plan_target_contract(item)
+            if not contract.ok:
+                warnings.extend(contract.reasons)
+            materialized = materialize_structural_targets(item)
+            if materialized.status in {"blocked", "unsupported"}:
+                warnings.extend(str(d.get("reason") or d) for d in materialized.diagnostics)
         patch_status = str(((item.metadata or {}).get("patch_proposal") or {}).get("status") or "").lower()
         force = bool(getattr(request, "force_regenerate", False))
         if not force:
@@ -203,10 +210,10 @@ class AtlasPatchProposalService:
             return {"exists": False, "content": "", "truncated": False, "rel_path": out.get("rel_path", "")}
         return out
 
-    def _read_current_target_contents(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict[str, dict]:
+    def _read_current_target_contents(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest, target_files_override: list[str] | None = None) -> dict[str, dict]:
         out: dict[str, dict] = {}
         try:
-            target_files = [str(p).strip() for p in (item.target_files or []) if str(p).strip()]
+            target_files = [str(p).strip() for p in (target_files_override if target_files_override is not None else (item.target_files or [])) if str(p).strip()]
             workspace_root = resolve_atlas_workspace_root(
                 ca_data_root=self.storage.root_dir,
                 workspace_id=request.workspace_id or "default",
@@ -251,7 +258,8 @@ class AtlasPatchProposalService:
             project_path = str(getattr(pool, "project_path", "") or "")
             if not project_path:
                 return out
-            target_files = [str(p).strip() for p in (item.target_files or []) if str(p).strip()]
+            materialized = materialize_structural_targets(item)
+            target_files = [str(p).strip() for p in ((materialized.patch_target_files or item.target_files) or []) if str(p).strip()]
             # Symbols across the project so the model knows what already exists to reuse (cap small for
             # weak models); related tests for the file under change.
             syms = extract_symbols(project_path, max_symbols=40)
@@ -265,9 +273,12 @@ class AtlasPatchProposalService:
         source_type = self._effective_source_type(item, request)
         debug_review = (item.metadata or {}).get("debug_review") or {}
         item_metadata = item.metadata or {}
+        materialized = materialize_structural_targets(item)
+        patch_target_files = list(materialized.patch_target_files or item.target_files or [])
+        materialized_file_changes = list(materialized.file_changes or [])
         # Ground the model in the target files' CURRENT content (read-before-edit). Prefer real disk
         # bytes; fall back to any content captured in metadata for legacy single-target consumers.
-        current_targets = self._read_current_target_contents(pool, item, request)
+        current_targets = self._read_current_target_contents(pool, item, request, target_files_override=patch_target_files)
         existing_target = self._read_existing_target_content(pool, item, request)
         existing_content = existing_target["content"] or str(item_metadata.get("content") or item_metadata.get("proposed_content") or "")
         # Pillar C: surrounding-code awareness — symbols the patch can call/extend, and related tests.
@@ -311,8 +322,13 @@ class AtlasPatchProposalService:
                 "verification_contract": dict(getattr(item, "verification_contract", {}) or item_metadata.get("verification_contract") or {}),
                 "preserve_behaviors": list(getattr(item, "preserve_behaviors", []) or item_metadata.get("preserve_behaviors") or []),
                 "done_definition": list(item.done_definition or []),
-                "target_files": list(item.target_files or []),
-                "file_changes": list(item_metadata.get("file_changes") or []),
+                "target_files": patch_target_files,
+                "original_target_files": list(item.target_files or []),
+                "target_directories": list(getattr(item, "target_directories", []) or []),
+                "patch_task_kind": str(getattr(item, "patch_task_kind", "") or ""),
+                "operations": [op.model_dump() if hasattr(op, "model_dump") else dict(op) for op in (getattr(item, "operations", []) or [])],
+                "file_changes": [*materialized_file_changes, *list(item_metadata.get("file_changes") or [])],
+                "materialization": materialized.model_dump(),
                 "risk_level": item.risk_level,
                 "item_type": item.item_type,
                 "action_type": str(item_metadata.get("action_type") or ""),
@@ -509,7 +525,16 @@ class AtlasPatchProposalService:
         )
         item_for_task = input_payload.get("item") or {}
         target_exists = bool(item_for_task.get("target_file_exists"))
-        if target_exists:
+        if str(item_for_task.get("patch_task_kind") or "") == "structural_change":
+            base_task = (
+                "Generate a safe structural patch proposal as JSON. The plan requires repository "
+                "structure, and input.item.materialization contains the Git-representable file_changes "
+                "that materialize those directories. Return target_files and file_changes for those "
+                "repository-relative files only. Do not return standalone directory names as file targets. "
+                "Do not invent frameworks, entry points, tests, or unrelated files. Every requested "
+                "directory must be materialized by a tracked file."
+            )
+        elif target_exists:
             base_task = (
                 "Generate a safe patch proposal as JSON. The target file ALREADY EXISTS; its current "
                 "content is provided in input.item.current_file_content. Apply ONLY the change required by "
@@ -568,11 +593,24 @@ class AtlasPatchProposalService:
                 }
             if attempt > 1:
                 # Escalate: tell the model exactly why the previous attempt was unusable.
-                user_obj["retry_note"] = (
-                    f"Attempt {attempt} of {self.MAX_LLM_GENERATION_ATTEMPTS}. The previous response could not be "
-                    "used (it was not valid JSON, or its \"proposed_content\" was empty). Return JSON only with a "
-                    "non-empty \"proposed_content\" containing the COMPLETE file text."
-                )
+                if str(item_for_task.get("patch_task_kind") or "") == "structural_change":
+                    user_obj["retry_note"] = {
+                        "attempt": attempt,
+                        "max_attempts": self.MAX_LLM_GENERATION_ATTEMPTS,
+                        "instruction": (
+                            "The previous candidate did not contain Git-representable structural evidence. "
+                            "Generate concrete repository-relative file operations. Do not return standalone "
+                            "directory names as file targets. Materialize every required directory using a tracked file. "
+                            "Do not modify unrelated files."
+                        ),
+                        "semantic_validation": self_review_feedback,
+                    }
+                else:
+                    user_obj["retry_note"] = (
+                        f"Attempt {attempt} of {self.MAX_LLM_GENERATION_ATTEMPTS}. The previous response could not be "
+                        "used (it was not valid JSON, or its \"proposed_content\" was empty). Return JSON only with a "
+                        "non-empty \"proposed_content\" containing the COMPLETE file text."
+                    )
             try:
                 output = call_llm_json(self.llm_json_fn, system_prompt, json.dumps(user_obj, ensure_ascii=False), json_schema=output_schema) or {}
                 if not isinstance(output, dict):
@@ -696,7 +734,12 @@ class AtlasPatchProposalService:
         if raw_risk != risk_level:
             warnings.append("llm_risk_level_normalized")
 
-        file_changes = self._normalize_file_changes(llm_allowed.get("file_changes"), warnings)
+        raw_file_changes = llm_allowed.get("file_changes")
+        if not raw_file_changes and str(item.get("patch_task_kind") or "") == "structural_change":
+            raw_file_changes = item.get("file_changes")
+            if raw_file_changes:
+                warnings.append("structural_materialized_file_changes_used")
+        file_changes = self._normalize_file_changes(raw_file_changes, warnings)
         file_change_paths = [str(fc.get("path") or "") for fc in file_changes if str(fc.get("path") or "")]
         target_files = self._normalize_target_files(llm_allowed.get("target_files"), [*list(item.get("target_files") or []), *file_change_paths], warnings)
         target_files = list(dict.fromkeys([*target_files, *file_change_paths]))
@@ -721,6 +764,12 @@ class AtlasPatchProposalService:
             "requested_source_type": str(input_payload.get("requested_source_type") or ""),
             "patch_content_available": has_content,
             "base_file_revisions": dict(input_payload.get("base_file_revisions") or {}),
+            "task_kind": str(item.get("patch_task_kind") or ""),
+            "normalized_target_files": list(item.get("original_target_files") or []),
+            "normalized_patch_target_files": list(target_files or []),
+            "normalized_target_directories": list(item.get("target_directories") or []),
+            "normalized_operations": list(item.get("operations") or []),
+            "materialization": dict(item.get("materialization") or {}),
         }
         if proposed_content_too_large:
             metadata["oversized_content"] = {
@@ -759,9 +808,9 @@ class AtlasPatchProposalService:
             "suggested_changes": list(llm_allowed.get("suggested_changes") or []),
             "unified_diff_preview": diff_preview,
             "risk_level": risk_level,
-            "verification_plan": list(llm_allowed.get("verification_plan") or []),
-            "rollback_plan": list(llm_allowed.get("rollback_plan") or []),
-            "assumptions": list(llm_allowed.get("assumptions") or []),
+            "verification_plan": list(llm_allowed.get("verification_plan") or _default_structural_verification(item)),
+            "rollback_plan": list(llm_allowed.get("rollback_plan") or _default_structural_rollback(item)),
+            "assumptions": list(llm_allowed.get("assumptions") or item.get("assumptions") or []),
             "warnings": warnings,
             "metadata": metadata,
         })
@@ -782,13 +831,17 @@ class AtlasPatchProposalService:
     def _validate_task_complete_proposal(self, proposal: AtlasPatchProposal, input_payload: dict, *, has_content: bool) -> dict:
         item = input_payload.get("item") or {}
         target_files = [str(p) for p in (item.get("target_files") or []) if str(p)]
+        target_directories = [str(p) for p in (item.get("target_directories") or []) if str(p)]
+        patch_task_kind = str(item.get("patch_task_kind") or "")
         allowed_targets = set(target_files)
         metadata = proposal.metadata or {}
         reasons: list[str] = []
+        missing_evidence: list[str] = []
         content_by_path = self._proposal_content_by_path(proposal)
         proposed_targets = set(str(p) for p in (proposal.target_files or []) if str(p))
         proposed_targets.update(content_by_path.keys())
-        unauthorized_targets = sorted(p for p in proposed_targets if allowed_targets and p not in allowed_targets)
+        enforce_target_authorization = str(input_payload.get("source_type") or "") == "plan_item"
+        unauthorized_targets = sorted(p for p in proposed_targets if enforce_target_authorization and allowed_targets and p not in allowed_targets)
         if unauthorized_targets:
             reasons.append("unauthorized_target_files:" + ",".join(unauthorized_targets))
         if len(target_files) > 1:
@@ -803,20 +856,28 @@ class AtlasPatchProposalService:
         satisfied_ids = set(str(v) for v in (metadata.get("satisfied_requirement_ids") or []) if str(v))
         preserved_ids = set(str(v) for v in (metadata.get("preserved_requirement_ids") or []) if str(v))
         reported_ids = satisfied_ids | preserved_ids
-        if authorized_req_ids:
+        if authorized_req_ids and patch_task_kind != "structural_change":
             unknown = sorted(req_id for req_id in reported_ids if req_id not in authorized_req_ids)
             if unknown:
                 reasons.append("unauthorized_requirement_ids:" + ",".join(unknown))
             if not satisfied_ids:
                 reasons.append("satisfied_requirement_ids_missing")
-        elif all_req_ids and reported_ids:
+        elif patch_task_kind != "structural_change" and all_req_ids and reported_ids:
             reasons.append("requirement_ids_not_authorized_by_item")
 
         evidence_present = any(
             metadata.get(key)
             for key in ("satisfied_requirement_ids", "implemented_symbols", "behavioral_cases", "verification_cases")
         )
-        if self._plan_item_requires_content(input_payload) and not evidence_present:
+        if patch_task_kind == "structural_change":
+            for directory in target_directories:
+                if not any(path == directory or path.startswith(f"{directory.rstrip('/')}/") for path in content_by_path):
+                    missing_evidence.append(f"Tracked file materializing {directory}")
+            if missing_evidence:
+                reasons.append("structural_targets_not_materialized")
+            if any(path in target_directories for path in proposed_targets):
+                reasons.append("directory_target_in_target_files")
+        elif self._plan_item_requires_content(input_payload) and not evidence_present:
             reasons.append("semantic_evidence_missing")
         if metadata.get("remaining_todos"):
             reasons.append("remaining_todos_present")
@@ -827,7 +888,16 @@ class AtlasPatchProposalService:
             reason = str(finding.get("reason") or finding.get("type") or "generation_quality_failed")
             path = str(finding.get("path") or "")
             reasons.append(f"{reason}:{path}" if path else reason)
-        return {"status": "failed" if reasons else "passed", "reasons": reasons, "quality_findings": quality_findings}
+        return {
+            "status": "failed" if reasons else "passed",
+            "task_kind": patch_task_kind,
+            "normalized_target_files": target_files,
+            "normalized_target_directories": target_directories,
+            "normalized_operations": list(item.get("operations") or []),
+            "reasons": reasons,
+            "missing_evidence": missing_evidence,
+            "quality_findings": quality_findings,
+        }
 
     _STUB_PATTERNS: list[re.Pattern] = [
         re.compile(r"//\s*(TODO|Implement|FIXME|Placeholder|implement logic)", re.IGNORECASE),
@@ -875,12 +945,13 @@ class AtlasPatchProposalService:
                     "snippet": placeholder.get("snippet", ""),
                 })
         combined_content = "\n".join(content_by_path.values())
-        for missing in self._missing_requirement_keywords(input_payload, combined_content):
-            findings.append({
-                "type": "requirement_keyword_missing",
-                "severity": "blocking",
-                **missing,
-            })
+        if self._plan_item_requires_content(input_payload) and str((input_payload.get("item") or {}).get("patch_task_kind") or "") != "structural_change":
+            for missing in self._missing_requirement_keywords(input_payload, combined_content):
+                findings.append({
+                    "type": "requirement_keyword_missing",
+                    "severity": "blocking",
+                    **missing,
+                })
         return {
             "status": "failed" if findings else "passed",
               "checks": ["python_ast_parse", "stub_code_detected", "placeholder_detected", "requirement_keyword_match"],
@@ -1073,6 +1144,8 @@ class AtlasPatchProposalService:
         # False so the autopilot skips it (no fake success, no garbage file) and the UI can show why.
         item = input_payload.get("item") or {}
         target_files = list(item.get("target_files") or [])
+        target_directories = list(item.get("target_directories") or [])
+        patch_task_kind = str(item.get("patch_task_kind") or "")
         human_reason = (
             "empty proposed_content returned" if reason == "llm_returned_empty_patch_content"
             else "LLM output was not valid JSON" if str(reason).startswith("llm_output_unparseable")
@@ -1095,8 +1168,8 @@ class AtlasPatchProposalService:
             suggested_changes=[],
             unified_diff_preview="",
             risk_level=str(item.get("risk_level") or "medium"),
-            verification_plan=[],
-            rollback_plan=[],
+            verification_plan=_default_structural_verification(item),
+            rollback_plan=_default_structural_rollback(item),
             assumptions=["No patch content was generated; nothing was applied."],
             warnings=["llm_no_patch_content_generated", "plan_item_patch_content_missing"],
             metadata={
@@ -1104,6 +1177,12 @@ class AtlasPatchProposalService:
                 "patch_content_available": False,
                 "generation_failed": True,
                 "generation_failure_reason": reason,
+                "detailed_failure_reasons": [reason],
+                "task_kind": patch_task_kind,
+                "normalized_target_files": target_files,
+                "normalized_target_directories": target_directories,
+                "normalized_operations": list(item.get("operations") or []),
+                "materialization": dict(item.get("materialization") or {}),
                 "generation_attempts": self.MAX_LLM_GENERATION_ATTEMPTS,
                 "generation_parse_failures": parse_failures,
                 "generation_empty_content_attempts": empty_content_attempts,
@@ -1280,7 +1359,8 @@ class AtlasPatchProposalService:
             item.metadata["patch_proposal"]["file_changes"] = proposal_file_changes
             item.metadata["file_changes"] = proposal_file_changes
             item.metadata["change_set"] = {**DEFAULT_CHANGE_SET, **(proposal_metadata.get("change_set") if isinstance(proposal_metadata.get("change_set"), dict) else {}), "change_set_id": f"cs_{item.item_id}"}
-            normalize_plan_item_file_changes(item)
+            if str(getattr(item, "patch_task_kind", "") or "") != "structural_change":
+                normalize_plan_item_file_changes(item)
         if proposal.unified_diff_preview:
             item.metadata["patch_proposal"]["patch"] = proposal.unified_diff_preview
             item.metadata["unified_diff_preview"] = proposal.unified_diff_preview
@@ -1332,3 +1412,24 @@ class AtlasPatchProposalService:
             trace.to_journal(self.journal)
         except Exception:
             return
+
+
+def _default_structural_verification(item: dict) -> list[str]:
+    if str(item.get("patch_task_kind") or "") != "structural_change":
+        return []
+    return [
+        "Parse the unified diff or file_changes successfully.",
+        "Confirm every generated path is repository-relative.",
+        "Confirm each requested directory is materialized by a tracked file.",
+        "Confirm no unrelated files were changed.",
+    ]
+
+
+def _default_structural_rollback(item: dict) -> list[str]:
+    if str(item.get("patch_task_kind") or "") != "structural_change":
+        return []
+    return [
+        "Remove only the newly created materialization files.",
+        "Remove resulting empty directories where applicable.",
+        "Do not restore or modify unrelated paths.",
+    ]

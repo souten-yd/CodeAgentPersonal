@@ -9,6 +9,7 @@ from __future__ import annotations
 
 RISK_LEVELS = ["low", "medium", "high", "critical"]
 PLAN_ACTION_TYPES = ["create", "update", "delete", "inspect", "run_command", "test"]
+PATCH_TASK_KINDS = ["code_change", "configuration_change", "documentation_change", "test_change", "structural_change", "mixed_change"]
 
 
 FILE_CHANGE_SCHEMA = {
@@ -162,9 +163,12 @@ def plan_generation_json_schema() -> dict:
             "title": {"type": "string"},
             "description": {"type": "string"},
             "goal": {"type": "string"},
+            "patch_task_kind": {"type": "string", "enum": PATCH_TASK_KINDS},
             "requirement_ids": {"type": "array", "items": {"type": "string"}},
             "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
             "target_files": {"type": "array", "items": {"type": "string"}},
+            "target_directories": {"type": "array", "items": {"type": "string"}},
+            "assumptions": {"type": "array", "items": {"type": "string"}},
             "file_changes": {"type": "array", "items": FILE_CHANGE_SCHEMA},
             "expected_changes": {"type": "array", "items": {"type": "string"}},
             "action_type": {"type": "string", "enum": PLAN_ACTION_TYPES},
@@ -185,7 +189,9 @@ def plan_generation_json_schema() -> dict:
         "selected_architecture": {"type": "string"},
         "preserve_behaviors": {"type": "array", "items": {"type": "string"}},
         "implementation_steps": {"type": "array", "items": step},
+        "patch_task_kind": {"type": "string", "enum": PATCH_TASK_KINDS},
         "target_files": {"type": "array", "items": {"type": "string"}},
+        "target_directories": {"type": "array", "items": {"type": "string"}},
         "test_plan": {"type": "array", "items": {"type": "string"}},
         "verification_plan": {"type": "array", "items": {"type": "string"}},
         "rollback_plan": {"type": "array", "items": {"type": "string"}},

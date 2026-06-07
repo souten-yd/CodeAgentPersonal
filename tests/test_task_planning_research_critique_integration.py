@@ -118,3 +118,74 @@ def test_revision_without_steps_keeps_original_and_warns(tmp_path: Path):
     assert result["plan"]["implementation_steps"][0]["description"] == "Create HTML that shows Hello World in rainbow."
     assert "plan_revision_failed_kept_original" in result["warnings"]
     assert result["status"] == "needs_confirmation"
+
+
+def test_adversarial_revision_plan_is_normalized_before_review(tmp_path: Path):
+    state = {"plan_calls": 0, "revised": False}
+
+    def llm(prompt: str, user_input: str):
+        p = prompt.lower()
+        if "requirement analyst" in p:
+            return {
+                "interpreted_goal": "create project structure",
+                "task_type": "feature",
+                "functional_requirements": ["create src directory"],
+                "done_definition": ["src is represented in git"],
+            }
+        if "codebase research assistant" in p:
+            return {"relevant_files": [], "existing_patterns": [], "key_findings": [], "risks": [], "recommended_approach": ""}
+        if "adversarial plan reviewer" in p:
+            if not state["revised"]:
+                return {
+                    "findings": [{"angle": "maintainability", "severity": "high", "title": "revise", "detail": "x", "recommendation": "revise"}],
+                    "angle_risk": "high",
+                    "requires_revision": True,
+                }
+            return {"findings": [], "angle_risk": "low", "requires_revision": False}
+        if "planning specialist" in p:
+            state["plan_calls"] += 1
+            if "Adversarial Critique" in user_input:
+                state["revised"] = True
+                return {
+                    "selected_architecture": "Incremental",
+                    "implementation_steps": [
+                        {
+                            "title": "Create src",
+                            "description": "Create src directory.",
+                            "goal": "Create src directory.",
+                            "acceptance_criteria": ["src is represented in Git."],
+                            "action_type": "create",
+                            "target_files": ["src"],
+                            "risk_level": "low",
+                        }
+                    ],
+                    "test_plan": ["inspect"],
+                    "rollback_plan": ["remove created files"],
+                }
+            return {
+                "selected_architecture": "Initial",
+                "implementation_steps": [
+                    {
+                        "title": "Initial",
+                        "description": "Initial plan.",
+                        "goal": "Initial plan.",
+                        "acceptance_criteria": ["initial"],
+                        "action_type": "create",
+                        "target_files": ["README.md"],
+                        "risk_level": "low",
+                    }
+                ],
+                "test_plan": ["inspect"],
+                "rollback_plan": ["revert"],
+            }
+        return {}
+
+    runner = TaskPlanningRunner(ca_data_dir=str(tmp_path), llm_json_fn=llm)
+    result = runner.run(user_input="create src directory", project_path=str(tmp_path), planning_mode="standard", requirement_mode="auto")
+
+    step = result["plan"]["implementation_steps"][0]
+    assert state["revised"] is True
+    assert step["target_files"] == []
+    assert step["target_directories"] == ["src"]
+    assert step["patch_task_kind"] == "structural_change"
+    assert "plan_revised_after_adversarial_critique" in result["warnings"]

@@ -353,6 +353,7 @@ class AtlasPlanPoolBuilder:
             step_preserve_behaviors = coerce_list(step.get("preserve_behaviors")) or preserve_behaviors
 
             step_target_files = coerce_list(step.get("target_files"))
+            step_target_directories = coerce_list(step.get("target_directories"))
             item_type = infer_item_type(action_type, title, description, target_files=step_target_files)
             # For applicable code work, normalize action_type to the canonical {create, update}
             # vocabulary the safe-apply executor uses; leave non-implementation items untouched.
@@ -377,7 +378,12 @@ class AtlasPlanPoolBuilder:
                 priority=normalize_priority(step.get("priority")),
                 risk_level=risk_level,
                 depends_on=depends_on,
+                patch_task_kind=str(step.get("patch_task_kind") or payload.get("patch_task_kind") or ""),
                 target_files=step_target_files,
+                target_directories=step_target_directories,
+                operations=list(step.get("operations") or []),
+                assumptions=coerce_list(step.get("assumptions") or payload.get("assumptions")),
+                normalization_diagnostics=list(step.get("normalization_diagnostics") or []),
                 expected_changes=coerce_list(step.get("expected_changes") or step.get("changes")),
                 acceptance_criteria=acceptance_criteria,
                 requirement_ids=requirement_ids,

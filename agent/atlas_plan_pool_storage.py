@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
+from agent.atlas_plan_target_contract import compatibility_fill_plan_pool_payload
 
 
 def _utc_now_iso() -> str:
@@ -45,6 +46,7 @@ class AtlasPlanPoolStorage:
     def load_pool(self, pool_id: str) -> AtlasPlanPool:
         path = self.pool_path(pool_id)
         payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = compatibility_fill_plan_pool_payload(payload)
         return _model_validate(AtlasPlanPool, payload)
 
     def exists(self, pool_id: str) -> bool:
