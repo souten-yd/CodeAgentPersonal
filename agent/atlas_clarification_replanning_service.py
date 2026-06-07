@@ -602,7 +602,10 @@ class AtlasClarificationReplanningService:
                 "revised plan has no gateable items after clarification (empty plan); re-plan required"
             )
         presets = atlas_auto_policy_presets()
-        preset = presets.get(preset_id) or presets["guarded_low_risk"]
+        base_preset = presets.get(preset_id) or presets["guarded_low_risk"]
+        # At planning/clarification time, patch content has not been generated yet.
+        # Skip the executor-readable-patch requirement; it only applies at apply time.
+        preset = base_preset.model_copy(update={"require_executor_readable_patch": False})
         return AtlasAutomationGateService().decide_pre_safe_apply(pool, item, preset).model_dump()
 
     @staticmethod

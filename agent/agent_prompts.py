@@ -53,6 +53,11 @@ Required keys:
 - requires_user_confirmation: boolean
 
 Testing:
+- test_plan and rollback_plan MUST always be present in the top-level output, even for
+  static deliverables. They are string arrays describing HOW to verify and HOW to undo,
+  not implementation steps. Example for a static HTML file:
+    test_plan: ["Open index.html in a browser and verify the expected text/behavior", "Check the file exists"]
+    rollback_plan: ["Delete index.html"]
 - Every implementation step must include a non-empty description, a one-sentence goal explaining
   which part of the requirement it satisfies, at least one observable acceptance_criteria entry, and
   concrete verification.

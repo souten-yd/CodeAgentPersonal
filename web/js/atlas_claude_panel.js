@@ -626,7 +626,6 @@
     // from this first instruction before any further workspace-scoped calls.
     try { localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, poolId); } catch (_) {}
     appendMessage('atlas', `PlanPool 作成: \`${poolId}\``, true, { active_pool_id: poolId });
-    renderWorkbenchFlow(poolId, text, { status: 'plan_review', controls: {} });
     if (state.provisional) await maybeAutoRename(text);
     if (resp.data && resp.data.planner_status === 'fallback_used') {
       pushSystemMessage('注意: LLM 未接続のため fallback プランです。実際のコード生成は LLM 起動が必要です。');
@@ -1839,7 +1838,6 @@
   function renderAutonomousWorkflowState(view) {
     if (!dom.transcript || !view) return;
     const poolId = view.pool_id || '';
-    renderWorkbenchFlow(poolId || 'autonomous', view.requirement_summary || view.user_requirement || '', view);
     const block = appendStageBlock(poolId || 'autonomous');
     if (!block) return;
     const phase = String(view.current_phase || 'idle');
