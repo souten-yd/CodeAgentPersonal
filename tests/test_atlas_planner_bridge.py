@@ -204,6 +204,41 @@ def test_planner_result_to_plan_payload_maps_steps_to_items(tmp_path) -> None:
     assert "review_warning" in payload["warnings"]
 
 
+def test_planner_result_to_plan_payload_preserves_codegen_contract(tmp_path) -> None:
+    bridge = AtlasPlannerBridge(ca_data_dir=str(tmp_path), llm_json_fn=_fake_llm)
+    planner_result = _planner_result()
+    planner_result["requirement"]["user_input"] = "Original request text"
+    planner_result["requirement"]["preserve_behaviors"] = ["Keep existing auth flow"]
+    planner_result["requirements"] = [
+        {"requirement_id": "req_render", "description": "Render score", "required": True},
+        {"requirement_id": "req_persist", "description": "Persist score", "required": True},
+    ]
+    planner_result["plan"]["selected_architecture"] = "Use existing score service"
+    planner_result["plan"]["preserve_behaviors"] = ["Keep existing reset control"]
+    planner_result["plan"]["implementation_steps"][0].update(
+        {
+            "requirement_ids": ["req_render"],
+            "acceptance_criteria": ["Score is visible"],
+            "expected_changes": ["Update score renderer"],
+            "verification_contract": {"contract_id": "browser_dom", "signals": ["score"]},
+            "preserve_behaviors": ["Keep reset control"],
+        }
+    )
+
+    payload = bridge.planner_result_to_plan_payload(planner_result, _request(input="Original request text"))
+    step = payload["implementation_steps"][0]
+
+    assert payload["original_user_request"] == "Original request text"
+    assert payload["selected_architecture"] == "Use existing score service"
+    assert payload["requirements"][1]["requirement_id"] == "req_persist"
+    assert payload["preserve_behaviors"] == ["Keep existing reset control"]
+    assert step["requirement_ids"] == ["req_render"]
+    assert step["acceptance_criteria"] == ["Score is visible"]
+    assert step["expected_changes"] == ["Update score renderer"]
+    assert step["verification_contract"]["contract_id"] == "browser_dom"
+    assert step["preserve_behaviors"] == ["Keep reset control"]
+
+
 def test_waiting_for_clarification_result_is_preserved(tmp_path) -> None:
     FakeRunner.calls = 0
     FakeRunner.result = {

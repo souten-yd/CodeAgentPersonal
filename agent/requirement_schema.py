@@ -71,9 +71,17 @@ class RequirementDefinition(BaseModel):
     category_scores: RequirementCategoryScores = Field(default_factory=RequirementCategoryScores)
     priority: str = "medium"
     done_definition: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    verification_contract: dict[str, Any] = Field(default_factory=dict)
+    expected_changes: list[str] = Field(default_factory=list)
+    preserve_behaviors: list[str] = Field(default_factory=list)
+    selected_architecture: str = ""
+    requirement_items: list[dict[str, Any]] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     user_confirmed: bool = False
     ready_for_planning: bool = True
+    analysis_status: str = "ok"
+    analysis_warnings: list[str] = Field(default_factory=list)
 
     @field_validator("open_questions", mode="before")
     @classmethod

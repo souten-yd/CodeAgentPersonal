@@ -235,3 +235,78 @@ def test_builder_carries_file_changes_and_normalizes_target_files():
     assert item.metadata["file_changes"][1]["path"] == "style.css"
     assert item.target_files == ["index.html", "style.css"]
     assert item.metadata["change_set"]["apply_strategy"] == "preflight_all_then_apply_all"
+
+
+def test_builder_preserves_codegen_contract_and_maps_requirements():
+    pool = AtlasPlanPoolBuilder().build_from_plan_payload(
+        {
+            "root_goal": "Build score widget",
+            "original_user_request": "Create a score widget and preserve reset.",
+            "selected_architecture": "Use existing UI module",
+            "constraints": ["No direct merge"],
+            "preserve_behaviors": ["Reset button remains wired"],
+            "requirements": [
+                {"requirement_id": "req_score", "description": "Score increments"},
+                {"requirement_id": "req_reset", "description": "Reset remains available"},
+            ],
+            "implementation_steps": [
+                {
+                    "step_id": "step_score",
+                    "title": "Update score UI",
+                    "description": "Implement score increment rendering with the existing UI module.",
+                    "goal": "Score increments on click",
+                    "action_type": "update",
+                    "risk_level": "low",
+                    "target_files": ["web/score.js"],
+                    "requirement_ids": ["req_score", "req_reset"],
+                    "acceptance_criteria": ["Score increments", "Reset still works"],
+                    "expected_changes": ["Wire increment handler"],
+                    "verification_contract": {"contract_id": "browser_dom", "signals": ["score", "reset"]},
+                    "preserve_behaviors": ["Reset button remains wired"],
+                }
+            ],
+        },
+        pool_id="pool_test",
+        automation_level="full_autopilot",
+    )
+
+    item = pool.items[0]
+    assert pool.original_user_request == "Create a score widget and preserve reset."
+    assert pool.selected_architecture == "Use existing UI module"
+    assert pool.global_constraints == ["No direct merge"]
+    assert pool.preserve_behaviors == ["Reset button remains wired"]
+    assert pool.requirement_item_map == {"req_score": ["step_score"], "req_reset": ["step_score"]}
+    assert pool.plan_quality["ok"] is True
+    assert item.requirement_ids == ["req_score", "req_reset"]
+    assert item.acceptance_criteria == ["Score increments", "Reset still works"]
+    assert item.verification_contract["contract_id"] == "browser_dom"
+    assert item.preserve_behaviors == ["Reset button remains wired"]
+
+
+def test_builder_records_unmapped_requirement_as_plan_quality_failure():
+    pool = AtlasPlanPoolBuilder().build_from_plan_payload(
+        {
+            "requirements": [
+                {"requirement_id": "req_mapped", "description": "Mapped requirement"},
+                {"requirement_id": "req_missing", "description": "Missing requirement"},
+            ],
+            "implementation_steps": [
+                {
+                    "step_id": "step_1",
+                    "title": "Mapped step",
+                    "description": "Implement the mapped requirement completely.",
+                    "action_type": "update",
+                    "target_files": ["src/app.py"],
+                    "requirement_ids": ["req_mapped"],
+                    "acceptance_criteria": ["Mapped requirement works"],
+                    "verification_contract": {"contract_id": "pytest"},
+                }
+            ],
+        },
+        root_goal="Goal",
+        pool_id="pool_test",
+        automation_level="full_autopilot",
+    )
+
+    assert pool.plan_quality["ok"] is False
+    assert "requirement_unmapped:req_missing" in pool.plan_quality["reasons"]

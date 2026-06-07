@@ -10,8 +10,8 @@
 - Canonical goal: `docs/atlas_codegen_completeness_goal.md`
 - Canonical plan: `docs/atlas_codegen_completeness_implementation_plan.md`
 - Baseline commit: `3ac07375610d6de826199be07366f451adfbec63` (PR #1599)
-- Current work package: WP-1
-- Next action: Preserve the complete planning contract from requirement analysis through PlanPool/PlanItem.
+- Current work package: WP-2
+- Next action: Build task-complete generation contracts for AtlasPatchProposalService.
 
 ## Observed current-main capabilities
 
@@ -56,8 +56,8 @@ WP-0 must convert these observations into current-code tests before broad produc
 | WP | Title | Status | PR/Commit | Test evidence |
 |---|---|---|---|---|
 | WP-0 | Baseline and regression fixtures | Completed | local WP-0 commit | `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py`; affected slice 88 passed |
-| WP-1 | Preserve complete planning contract | In progress | - | - |
-| WP-2 | Task-complete generation contracts | Not started | - | - |
+| WP-1 | Preserve complete planning contract | Completed | local WP-1 commit | focused slice 45 passed; affected slice 54 passed |
+| WP-2 | Task-complete generation contracts | In progress | - | - |
 | WP-3 | Interleaved orchestration | Not started | - | - |
 | WP-4 | Fail-closed generation quality | Not started | - | - |
 | WP-5 | Remove skeleton/fail-open fallbacks | Not started | - | - |
@@ -67,7 +67,7 @@ WP-0 must convert these observations into current-code tests before broad produc
 
 ## Last completed work package
 
-WP-0 - Baseline and regression fixtures.
+WP-1 - Preserve complete planning contract.
 
 ## Current blockers
 
@@ -76,43 +76,54 @@ None recorded.
 ## Latest completed work package evidence
 
 Completed work package:
-WP-0 - Baseline and regression fixtures.
+WP-1 - Preserve complete planning contract.
 
 PR/commit:
-Local WP-0 commit created after this status update. No PR, merge, or remote push.
+Local WP-1 commit created after this status update. No PR, merge, or remote push.
 
 Changed files:
-- `tests/test_atlas_codegen_completeness_baseline.py`
+- `agent/requirement_schema.py`
+- `agent/requirement_analyzer.py`
+- `agent/plan_schema.py`
+- `agent/planner_phase1.py`
+- `agent/atlas_planner_bridge.py`
+- `agent/atlas_plan_pool_schema.py`
+- `agent/atlas_plan_pool_builder.py`
+- `agent/atlas_llm_schemas.py`
+- `agent/atlas_llm_output_models.py`
+- `agent/atlas_plan_depth_gate.py`
+- `tests/test_atlas_planner_bridge.py`
+- `tests/test_atlas_plan_pool_builder.py`
+- `tests/test_atlas_plan_pool_schema.py`
+- `tests/test_atlas_plan_depth_gate.py`
+- `tests/test_requirement_analyzer_score_normalization.py`
 - `docs/atlas_codegen_completeness_current_status.md`
 
 Behavior implemented:
-- Added WP-0 fixture helpers for same-file multi-item updates, complete requirement contracts, partial/stub content, and verification-unavailable items.
-- Added characterization coverage confirming current autonomous orchestration generates missing proposals before apply, so same-file later proposals can observe stale pre-apply content.
-- Added characterization coverage confirming proposal input is still item-local and does not carry root goal, original request, all requirements, or completed item summaries.
-- Added characterization coverage confirming multi-file proposal input does not ground all target file contents.
-- Added characterization coverage confirming final self-review failure can still return applicable content with unresolved findings.
-- Added characterization coverage confirming partial requirement coverage remains success-compatible in final rollup.
-- Added characterization coverage confirming generic verification skipped can still complete a multi-item result.
-- Recorded already-fixed behavior: `AtlasRequirementTracer.coverage_summary()` already rejects partial requirements as not success-eligible.
+- Added backward-compatible stable contract fields for original request, selected architecture, requirements, acceptance criteria, verification contract, expected changes, preserve behaviors, and requirement IDs.
+- Preserved those fields through requirement analysis, phase-1 planning, structured-output models, planner bridge conversion, PlanPool/PlanItem schema, and PlanPool builder.
+- Added requirement-to-item mapping and plan quality metadata for unmapped mandatory requirements.
+- Added full-autopilot plan-depth checks for missing acceptance criteria, verification contract, and requirement mapping.
+- Changed failed requirement analysis to remain non-ready and not fabricate generic implementation-ready functional requirements or done definitions.
 
 Tests passed:
-- `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py` -> 7 passed.
-- `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_plan_pool_builder.py tests/test_atlas_planner_bridge.py tests/test_atlas_auto_verification_service.py tests/test_atlas_planner_fallback_skeleton.py tests/test_atlas_placeholder_preapply.py` -> 88 passed.
+- `python -m pytest -q tests/test_atlas_planner_bridge.py tests/test_atlas_plan_pool_builder.py tests/test_atlas_plan_pool_schema.py tests/test_atlas_plan_depth_gate.py tests/test_requirement_analyzer_score_normalization.py` -> 45 passed.
+- `python -m pytest -q tests/test_atlas_planner_bridge.py tests/test_atlas_plan_pool_builder.py tests/test_atlas_plan_pool_schema.py tests/test_atlas_plan_depth_gate.py tests/test_requirement_analyzer_score_normalization.py tests/test_atlas_planner_fallback_skeleton.py tests/test_atlas_codegen_completeness_baseline.py` -> 54 passed.
 
 Syntax checks:
-- `python -m py_compile tests/test_atlas_codegen_completeness_baseline.py` -> passed.
+- `python -m py_compile agent/requirement_schema.py agent/requirement_analyzer.py agent/plan_schema.py agent/planner_phase1.py agent/atlas_planner_bridge.py agent/atlas_plan_pool_schema.py agent/atlas_plan_pool_builder.py agent/atlas_llm_schemas.py agent/atlas_llm_output_models.py agent/atlas_plan_depth_gate.py tests/test_atlas_planner_bridge.py tests/test_atlas_plan_pool_builder.py tests/test_atlas_plan_pool_schema.py tests/test_atlas_plan_depth_gate.py tests/test_requirement_analyzer_score_normalization.py` -> passed.
 
 Safety invariants:
-- No production behavior changed in WP-0.
+- Production changes are limited to planning/contract preservation and pre-apply plan quality checks.
 - No direct merge, remote push, self-apply, stable runtime mutation, Vue authority, arbitrary unbounded command execution, or fabricated verification results introduced.
 - Existing backend workflow_state and PlanPool authority boundaries unchanged.
 
 Remaining gaps:
-- WP-1 must preserve complete planning contract fields through planner bridge and PlanPool/PlanItem.
+- WP-2 must feed the preserved planning contract plus current target contents and base revisions into patch proposal generation and validate task-complete proposal evidence.
 - Later WPs must replace batch autonomous generation, add revision preconditions, fail-close unresolved self-review, remove fallback skeleton/fail-open paths, enforce requirement-complete final status, and add task-aware verification/E2E acceptance.
 
 Next work package:
-WP-1 - Preserve the complete planning contract.
+WP-2 - Task-complete generation contracts.
 
 ## Token-saving resume note
 
@@ -121,8 +132,8 @@ On resume:
 1. Read `AGENTS.md`.
 2. Read the canonical goal.
 3. Read this status.
-4. Read only WP-1 in the canonical plan.
-5. Inspect only files listed by WP-1 and related tests.
+4. Read only WP-2 in the canonical plan.
+5. Inspect only files listed by WP-2 and related tests.
 6. Do not rescan old plans or roadmaps.
 
 ## Update template

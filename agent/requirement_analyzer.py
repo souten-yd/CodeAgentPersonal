@@ -51,15 +51,19 @@ class RequirementAnalyzer:
         )
         warnings.extend(structured.warnings)
         raw_payload = structured.data
+        analysis_failed = False
         if raw_payload is None:
+            analysis_failed = True
             warnings.append("Requirement analysis LLM output could not be parsed. Fallback requirement was generated.")
             payload: dict = {}
         elif not isinstance(raw_payload, dict):
+            analysis_failed = True
             warnings.append("Requirement analysis LLM output was not a JSON object. Fallback requirement was generated.")
             payload = {}
         else:
             payload = raw_payload
             if not payload:
+                analysis_failed = True
                 warnings.append("Requirement analysis LLM output was empty. Fallback requirement was generated.")
 
         requirement_id = existing_requirement.requirement_id if existing_requirement else f"req_{uuid.uuid4().hex[:12]}"
@@ -93,19 +97,35 @@ class RequirementAnalyzer:
             ),
             priority=str(payload.get("priority", "medium")),
             done_definition=_as_str_list(payload.get("done_definition")),
+            acceptance_criteria=_as_str_list(payload.get("acceptance_criteria")),
+            verification_contract=payload.get("verification_contract") if isinstance(payload.get("verification_contract"), dict) else {},
+            expected_changes=_as_str_list(payload.get("expected_changes")),
+            preserve_behaviors=_as_str_list(payload.get("preserve_behaviors")),
+            selected_architecture=str(payload.get("selected_architecture") or ""),
+            requirement_items=_as_requirement_items(payload.get("requirements") or payload.get("requirement_items")),
             risks=_as_str_list(payload.get("risks")),
             clarification_status=existing_requirement.clarification_status if existing_requirement else "not_needed",
-            ready_for_planning=existing_requirement.ready_for_planning if existing_requirement else True,
+            ready_for_planning=False if analysis_failed else (existing_requirement.ready_for_planning if existing_requirement else True),
             user_confirmed=False,
+            analysis_status="failed" if analysis_failed else "ok",
         )
         if not req.functional_requirements:
-            req.functional_requirements = ["ユーザー入力に沿った実装計画を作成する"]
-            warnings.append("Requirement payload did not include functional_requirements. Fallback requirement item was generated.")
+            if not analysis_failed:
+                req.functional_requirements = ["ユーザー入力に沿った実装計画を作成する"]
+                warnings.append("Requirement payload did not include functional_requirements. Fallback requirement item was generated.")
+            else:
+                warnings.append("Requirement analysis failed; functional_requirements were left empty.")
         if not req.done_definition:
-            req.done_definition = ["実装前の計画が合意可能な品質で提示されること"]
-            warnings.append("Requirement payload did not include done_definition. Fallback done_definition was generated.")
+            if not analysis_failed:
+                req.done_definition = ["実装前の計画が合意可能な品質で提示されること"]
+                warnings.append("Requirement payload did not include done_definition. Fallback done_definition was generated.")
+            else:
+                warnings.append("Requirement analysis failed; done_definition was left empty.")
+        if analysis_failed:
+            req.ready_for_planning = False
 
         self._last_warnings = warnings
+        req.analysis_warnings = list(warnings)
         return req
 
 
@@ -189,6 +209,25 @@ def _as_str_list(value) -> list[str]:
     if isinstance(value, str) and value.strip():
         return [value.strip()]
     return []
+
+
+def _as_requirement_items(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    out: list[dict] = []
+    for index, item in enumerate(value, start=1):
+        if isinstance(item, dict):
+            req = dict(item)
+            description = str(req.get("description") or req.get("title") or req.get("goal") or "").strip()
+            if not description:
+                continue
+            req.setdefault("requirement_id", str(req.get("id") or f"req_{index:03d}"))
+            req["description"] = description
+            req.setdefault("required", True)
+            out.append(req)
+        elif str(item).strip():
+            out.append({"requirement_id": f"req_{index:03d}", "description": str(item).strip(), "required": True})
+    return out
 
 
 def _guess_task_type(user_input: str) -> str:

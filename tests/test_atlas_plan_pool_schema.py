@@ -105,6 +105,43 @@ def test_schema_roundtrip_model_dump() -> None:
     assert len(restored.items) == 1
 
 
+def test_schema_roundtrip_preserves_codegen_contract_fields() -> None:
+    item = AtlasPlanItem(
+        item_id="item_1",
+        pool_id="pool_1",
+        title="T",
+        goal="G",
+        requirement_ids=["req_1"],
+        acceptance_criteria=["Acceptance"],
+        verification_contract={"contract_id": "pytest"},
+        preserve_behaviors=["Keep behavior"],
+        original_user_request="Original request",
+        selected_architecture="Architecture",
+    )
+    pool = AtlasPlanPool(
+        pool_id="pool_1",
+        root_goal="Goal",
+        original_user_request="Original request",
+        selected_architecture="Architecture",
+        global_constraints=["No push"],
+        requirements=[{"requirement_id": "req_1", "description": "Requirement"}],
+        preserve_behaviors=["Keep behavior"],
+        requirement_item_map={"req_1": ["item_1"]},
+        plan_quality={"ok": True, "reasons": []},
+        items=[item],
+    )
+
+    restored = AtlasPlanPool(**pool.model_dump())
+
+    assert restored.original_user_request == "Original request"
+    assert restored.selected_architecture == "Architecture"
+    assert restored.global_constraints == ["No push"]
+    assert restored.requirements[0]["requirement_id"] == "req_1"
+    assert restored.requirement_item_map == {"req_1": ["item_1"]}
+    assert restored.items[0].requirement_ids == ["req_1"]
+    assert restored.items[0].verification_contract["contract_id"] == "pytest"
+
+
 def test_no_runtime_or_api_side_effect_tokens_in_schema() -> None:
     text = SCHEMA_PATH.read_text(encoding="utf-8")
 

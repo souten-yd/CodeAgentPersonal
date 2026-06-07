@@ -54,15 +54,19 @@ class PlannerPhase1:
     ) -> RequirementDefinition:
         warnings: list[str] = []
         raw_payload = self.llm_json_fn(prompt, user_input)
+        analysis_failed = False
         if raw_payload is None:
+            analysis_failed = True
             warnings.append("Requirement analysis LLM output could not be parsed. Fallback requirement was generated.")
             payload: dict = {}
         elif not isinstance(raw_payload, dict):
+            analysis_failed = True
             warnings.append("Requirement analysis LLM output was not a JSON object. Fallback requirement was generated.")
             payload = {}
         else:
             payload = raw_payload
             if not payload:
+                analysis_failed = True
                 warnings.append("Requirement analysis LLM output was empty. Fallback requirement was generated.")
         requirement_id = f"req_{uuid.uuid4().hex[:12]}"
         category_scores = payload.get("category_scores") or {}
@@ -92,17 +96,33 @@ class PlannerPhase1:
             ),
             priority=str(payload.get("priority", "medium")),
             done_definition=_as_str_list(payload.get("done_definition")),
+            acceptance_criteria=_as_str_list(payload.get("acceptance_criteria")),
+            verification_contract=payload.get("verification_contract") if isinstance(payload.get("verification_contract"), dict) else {},
+            expected_changes=_as_str_list(payload.get("expected_changes")),
+            preserve_behaviors=_as_str_list(payload.get("preserve_behaviors")),
+            selected_architecture=str(payload.get("selected_architecture") or ""),
+            requirement_items=_as_requirement_items(payload.get("requirements") or payload.get("requirement_items")),
             risks=_as_str_list(payload.get("risks")),
             user_confirmed=False,
-            ready_for_planning=True,
+            ready_for_planning=not analysis_failed,
+            analysis_status="failed" if analysis_failed else "ok",
         )
         if not req.functional_requirements:
-            req.functional_requirements = ["ユーザー入力に沿った実装計画を作成する"]
-            warnings.append("Requirement payload did not include functional_requirements. Fallback requirement item was generated.")
+            if not analysis_failed:
+                req.functional_requirements = ["ユーザー入力に沿った実装計画を作成する"]
+                warnings.append("Requirement payload did not include functional_requirements. Fallback requirement item was generated.")
+            else:
+                warnings.append("Requirement analysis failed; functional_requirements were left empty.")
         if not req.done_definition:
-            req.done_definition = ["実装前の計画が合意可能な品質で提示されること"]
-            warnings.append("Requirement payload did not include done_definition. Fallback done_definition was generated.")
+            if not analysis_failed:
+                req.done_definition = ["実装前の計画が合意可能な品質で提示されること"]
+                warnings.append("Requirement payload did not include done_definition. Fallback done_definition was generated.")
+            else:
+                warnings.append("Requirement analysis failed; done_definition was left empty.")
+        if analysis_failed:
+            req.ready_for_planning = False
         self._last_warnings = warnings
+        req.analysis_warnings = list(warnings)
         return req
 
     def build_plan(
@@ -160,12 +180,16 @@ class PlannerPhase1:
                     title=str(item.get("title", f"Step {i}")),
                     description=str(item.get("description", "")),
                     goal=str(item.get("goal") or item.get("description", "")),
+                    requirement_ids=_as_str_list(item.get("requirement_ids") or item.get("linked_requirement_ids")),
                     acceptance_criteria=_as_str_list(item.get("acceptance_criteria")),
                     target_files=_as_str_list(item.get("target_files")),
+                    expected_changes=_as_str_list(item.get("expected_changes") or item.get("changes")),
                     action_type=_safe_action_type(str(item.get("action_type", "inspect"))),
                     risk_level=_safe_risk_level(str(item.get("risk_level", "low"))),
                     verification=str(item.get("verification", "")),
+                    verification_contract=item.get("verification_contract") if isinstance(item.get("verification_contract"), dict) else {},
                     rollback=str(item.get("rollback", "")),
+                    preserve_behaviors=_as_str_list(item.get("preserve_behaviors")),
                 )
             )
         if not steps:
@@ -217,14 +241,17 @@ class PlannerPhase1:
             requirement_id=requirement.requirement_id,
             mode=mode,
             task_type=requirement.task_type if requirement.task_type in {"bugfix", "feature", "refactor", "ui", "project_generation", "investigation", "other"} else "other",
+            original_user_request=requirement.user_input,
             user_goal=str(payload.get("user_goal", requirement.interpreted_goal)),
             requirement_summary=str(payload.get("requirement_summary", requirement.interpreted_goal)),
+            requirements=_as_requirement_items(payload.get("requirements") or requirement.requirement_items),
             nexus_context_summary=str(payload.get("nexus_context_summary", nexus_context.get("summary", ""))),
             repository_context=repository_context,
             assumptions=_as_str_list(payload.get("assumptions")) or requirement.assumptions,
             constraints=_as_str_list(payload.get("constraints")) or requirement.constraints,
             architecture_options=_as_str_list(payload.get("architecture_options")) or [selected_arch],
             selected_architecture=selected_arch,
+            preserve_behaviors=_as_str_list(payload.get("preserve_behaviors")) or requirement.preserve_behaviors,
             rejected_architectures=_as_str_list(payload.get("rejected_architectures")),
             implementation_steps=steps,
             target_files=_as_str_list(payload.get("target_files")),
@@ -255,6 +282,25 @@ def _as_str_list(value) -> list[str]:
     if isinstance(value, str) and value.strip():
         return [value.strip()]
     return []
+
+
+def _as_requirement_items(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    out: list[dict] = []
+    for index, item in enumerate(value, start=1):
+        if isinstance(item, dict):
+            req = dict(item)
+            description = str(req.get("description") or req.get("title") or req.get("goal") or "").strip()
+            if not description:
+                continue
+            req.setdefault("requirement_id", str(req.get("id") or f"req_{index:03d}"))
+            req["description"] = description
+            req.setdefault("required", True)
+            out.append(req)
+        elif str(item).strip():
+            out.append({"requirement_id": f"req_{index:03d}", "description": str(item).strip(), "required": True})
+    return out
 
 
 def _safe_action_type(value: str) -> str:

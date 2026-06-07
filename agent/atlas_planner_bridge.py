@@ -166,6 +166,7 @@ class AtlasPlannerBridge:
         plan = _as_dict(planner_result.get("plan"))
         review_result = _as_dict(planner_result.get("review_result"))
         requirement = _as_dict(planner_result.get("requirement"))
+        requirement_trace = _requirements_from_planner_result(planner_result, requirement)
         steps = plan.get("implementation_steps")
         if not isinstance(steps, list) or not steps:
             steps = _verification_steps(plan)
@@ -177,6 +178,7 @@ class AtlasPlannerBridge:
             item_id = str(step.get("step_id") or step.get("item_id") or f"item_{index:03d}")
             action_type = str(step.get("action_type") or step.get("type") or "implementation")
             target_files = coerce_list(step.get("target_files") or plan.get("target_files"))
+            acceptance_criteria = coerce_list(step.get("acceptance_criteria") or step.get("done_definition"))
             converted = {
                 "step_id": item_id,
                 "title": str(step.get("title") or step.get("name") or f"Planner step {index}"),
@@ -186,10 +188,15 @@ class AtlasPlannerBridge:
                 "risk_level": str(step.get("risk_level") or _infer_plan_risk(plan, review_result)),
                 "priority": str(step.get("priority") or "medium"),
                 "target_files": target_files,
+                "requirement_ids": coerce_list(step.get("requirement_ids") or step.get("linked_requirement_ids") or step.get("requirement_id") or step.get("linked_requirement_id")),
+                "acceptance_criteria": acceptance_criteria,
                 "expected_changes": coerce_list(step.get("expected_changes") or step.get("changes")),
                 "test_commands": coerce_list(step.get("test_commands")),
-                "done_definition": coerce_list(step.get("done_definition") or plan.get("done_definition")),
+                "done_definition": coerce_list(step.get("done_definition") or acceptance_criteria or plan.get("done_definition")),
+                "verification": step.get("verification") or "",
+                "verification_contract": _verification_contract(step),
                 "rollback": coerce_list(step.get("rollback") or plan.get("rollback_plan")),
+                "preserve_behaviors": coerce_list(step.get("preserve_behaviors") or plan.get("preserve_behaviors") or requirement.get("preserve_behaviors")),
                 "depends_on": coerce_list(step.get("depends_on")) if "depends_on" in step else ([previous_item_id] if previous_item_id else []),
             }
             if isinstance(step.get("file_changes"), list):
@@ -209,7 +216,11 @@ class AtlasPlannerBridge:
             "requirement_markdown_path": planner_result.get("requirement_markdown_path") or "",
             "nexus_context_summary": _nexus_summary(planner_result.get("nexus_context")),
             "architecture_options": plan.get("architecture_options") or [],
+            "selected_architecture": plan.get("selected_architecture") or requirement.get("selected_architecture") or "",
             "deep_planning": plan.get("deep_planning") or {},
+            "global_constraints": coerce_list(plan.get("constraints") or requirement.get("constraints")),
+            "preserve_behaviors": coerce_list(plan.get("preserve_behaviors") or requirement.get("preserve_behaviors")),
+            "requirement_trace": requirement_trace,
         }
         if request.repo_context_package:
             metadata["repo_context_package"] = {
@@ -223,10 +234,14 @@ class AtlasPlannerBridge:
             metadata["planner_context_text"] = mtxt[:6000]
             metadata["planner_repo_context_caveat"] = "Repo Context is advisory and read-only. Do not execute tests or apply patches."
         return {
+            "original_user_request": requirement.get("user_input") or request.input,
             "root_goal": plan.get("user_goal")
             or plan.get("requirement_summary")
             or requirement.get("interpreted_goal")
             or request.input,
+            "selected_architecture": metadata["selected_architecture"],
+            "requirements": requirement_trace,
+            "preserve_behaviors": metadata["preserve_behaviors"],
             "requirement_id": planner_result.get("requirement_id") or requirement.get("requirement_id") or "",
             "plan_id": planner_result.get("plan_id") or plan.get("plan_id") or "",
             "status": planner_result.get("status") or plan.get("status") or "planned",
@@ -250,6 +265,47 @@ class AtlasPlannerBridge:
         if request.mode == "fallback_only":
             return False
         return self.llm_json_fn is not None
+
+
+def _verification_contract(step: dict[str, Any]) -> dict[str, Any]:
+    raw = step.get("verification_contract")
+    if isinstance(raw, dict):
+        return dict(raw)
+    verification = step.get("verification")
+    if isinstance(verification, dict):
+        return dict(verification)
+    if str(verification or "").strip():
+        return {"description": str(verification).strip()}
+    return {}
+
+
+def _requirements_from_planner_result(planner_result: dict, requirement: dict) -> list[dict[str, Any]]:
+    candidates = (
+        planner_result.get("requirements")
+        or planner_result.get("requirement_trace")
+        or requirement.get("requirements")
+        or requirement.get("requirement_items")
+    )
+    if isinstance(candidates, list) and candidates:
+        out: list[dict[str, Any]] = []
+        for index, raw in enumerate(candidates, start=1):
+            if isinstance(raw, dict):
+                req = dict(raw)
+                description = str(req.get("description") or req.get("title") or req.get("goal") or "").strip()
+                if not description:
+                    continue
+                req.setdefault("requirement_id", str(req.get("id") or f"req_{index:03d}"))
+                req["description"] = description
+                req.setdefault("required", True)
+                out.append(req)
+            elif str(raw).strip():
+                out.append({"requirement_id": f"req_{index:03d}", "description": str(raw).strip(), "required": True})
+        if out:
+            return out
+    out = []
+    for index, text in enumerate(coerce_list(requirement.get("functional_requirements")), start=1):
+        out.append({"requirement_id": f"req_{index:03d}", "description": text, "required": True, "source": "functional_requirements"})
+    return out
 
 
 def _planning_mode(planning_depth: str) -> str:

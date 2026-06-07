@@ -55,6 +55,29 @@ def coerce_list(value: Any) -> list[str]:
     return [str(value)]
 
 
+def coerce_dict(value: Any) -> dict[str, Any]:
+    return object_to_dict(value)
+
+
+def coerce_requirements(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for index, raw in enumerate(value, start=1):
+        if isinstance(raw, dict):
+            item = dict(raw)
+            description = str(item.get("description") or item.get("title") or item.get("goal") or "").strip()
+            if not description:
+                continue
+            item.setdefault("requirement_id", str(item.get("id") or f"req_{index:03d}"))
+            item["description"] = description
+            item.setdefault("required", True)
+            out.append(item)
+        elif str(raw).strip():
+            out.append({"requirement_id": f"req_{index:03d}", "description": str(raw).strip(), "required": True})
+    return out
+
+
 def normalize_risk_level(value: Any) -> str:
     candidate = str(value or "").strip().lower()
     return candidate if candidate in VALID_RISK_LEVELS else "medium"
@@ -193,6 +216,56 @@ def _fix_dangling_depends_on(items: list, warnings: list[str]) -> None:
                 item.status = "ready"
 
 
+def _build_requirement_item_map(items: list[AtlasPlanItem]) -> dict[str, list[str]]:
+    mapping: dict[str, list[str]] = {}
+    for item in items:
+        for req_id in list(getattr(item, "requirement_ids", []) or []):
+            key = str(req_id or "").strip()
+            if not key:
+                continue
+            mapping.setdefault(key, [])
+            if item.item_id not in mapping[key]:
+                mapping[key].append(item.item_id)
+    return mapping
+
+
+def _evaluate_plan_contract_quality(
+    *,
+    requirements: list[dict[str, Any]],
+    items: list[AtlasPlanItem],
+    requirement_item_map: dict[str, list[str]],
+    automation_level: str,
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    full_auto = str(automation_level or "").lower() == "full_autopilot"
+    required_ids = [
+        str(req.get("requirement_id") or "").strip()
+        for req in requirements
+        if str(req.get("requirement_id") or "").strip() and req.get("required", True) is not False
+    ]
+    for req_id in required_ids:
+        if not requirement_item_map.get(req_id):
+            reasons.append(f"requirement_unmapped:{req_id}")
+    if full_auto:
+        for item in items:
+            if str(getattr(item, "item_type", "")).lower() not in {"implementation", "documentation", "verification"}:
+                continue
+            item_id = str(getattr(item, "item_id", "") or "")
+            if not list(getattr(item, "acceptance_criteria", []) or getattr(item, "done_definition", []) or []):
+                reasons.append(f"item_missing_acceptance_criteria:{item_id}")
+            verification_contract = getattr(item, "verification_contract", {}) or {}
+            has_verification = bool(
+                verification_contract
+                or list(getattr(item, "test_commands", []) or [])
+                or ((getattr(item, "metadata", {}) or {}).get("verification"))
+            )
+            if not has_verification:
+                reasons.append(f"item_missing_verification_contract:{item_id}")
+            if requirements and not list(getattr(item, "requirement_ids", []) or []):
+                reasons.append(f"item_missing_requirement_mapping:{item_id}")
+    return {"ok": not reasons, "reasons": reasons}
+
+
 class AtlasPlanPoolBuilder:
     def build_from_plan_payload(
         self,
@@ -207,6 +280,11 @@ class AtlasPlanPoolBuilder:
     ) -> AtlasPlanPool:
         payload = object_to_dict(plan_payload)
         effective_root_goal = root_goal or str(payload.get("root_goal") or payload.get("goal") or payload.get("title") or "")
+        original_user_request = str(payload.get("original_user_request") or payload.get("user_input") or effective_root_goal)
+        selected_architecture = str(payload.get("selected_architecture") or "")
+        global_constraints = coerce_list(payload.get("constraints") or payload.get("global_constraints"))
+        requirements = coerce_requirements(payload.get("requirements") or payload.get("requirement_trace"))
+        preserve_behaviors = coerce_list(payload.get("preserve_behaviors"))
         pool_warnings = coerce_list(payload.get("warnings"))
         pool_errors = coerce_list(payload.get("errors"))
         steps = payload.get("implementation_steps")
@@ -226,7 +304,13 @@ class AtlasPlanPoolBuilder:
             pool.linked_requirement_id = str(payload.get("requirement_id") or "")
             pool.linked_plan_id = str(payload.get("plan_id") or "")
             pool.errors = pool_errors
+            pool.original_user_request = original_user_request
+            pool.selected_architecture = selected_architecture
+            pool.global_constraints = global_constraints
+            pool.requirements = requirements
+            pool.preserve_behaviors = preserve_behaviors
             pool.metadata.update(_pool_metadata_from_plan_payload(payload))
+            pool.metadata.setdefault("requirement_trace", requirements)
             return pool
 
         effective_pool_id = pool_id or str(payload.get("pool_id") or "") or _new_pool_id()
@@ -255,6 +339,18 @@ class AtlasPlanPoolBuilder:
             test_commands = coerce_list(step.get("test_commands"))
             if is_test_command_action(action_type, title, description) and step.get("command"):
                 test_commands.append(str(step["command"]))
+            acceptance_criteria = coerce_list(step.get("acceptance_criteria") or step.get("done_definition"))
+            verification_contract = coerce_dict(step.get("verification_contract"))
+            raw_verification = step.get("verification")
+            if not verification_contract and isinstance(raw_verification, dict):
+                verification_contract = dict(raw_verification)
+            requirement_ids = coerce_list(
+                step.get("requirement_ids")
+                or step.get("linked_requirement_ids")
+                or step.get("requirement_id")
+                or step.get("linked_requirement_id")
+            )
+            step_preserve_behaviors = coerce_list(step.get("preserve_behaviors")) or preserve_behaviors
 
             step_target_files = coerce_list(step.get("target_files"))
             item_type = infer_item_type(action_type, title, description, target_files=step_target_files)
@@ -279,6 +375,12 @@ class AtlasPlanPoolBuilder:
                 depends_on=depends_on,
                 target_files=step_target_files,
                 expected_changes=coerce_list(step.get("expected_changes") or step.get("changes")),
+                acceptance_criteria=acceptance_criteria,
+                requirement_ids=requirement_ids,
+                verification_contract=verification_contract,
+                preserve_behaviors=step_preserve_behaviors,
+                original_user_request=original_user_request,
+                selected_architecture=selected_architecture,
                 test_commands=test_commands,
                 done_definition=coerce_list(
                     step.get("acceptance_criteria")
@@ -295,6 +397,10 @@ class AtlasPlanPoolBuilder:
                     "action_type": stored_action_type,
                     "original_step_index": index - 1,
                     "original_step_payload": _compact_payload_summary(step),
+                    "acceptance_criteria": acceptance_criteria,
+                    "requirement_ids": requirement_ids,
+                    "verification_contract": verification_contract,
+                    "preserve_behaviors": step_preserve_behaviors,
                 },
             )
             file_changes = step.get("file_changes")
@@ -306,9 +412,35 @@ class AtlasPlanPoolBuilder:
             previous_item_id = item_id
 
         _fix_dangling_depends_on(items, pool_warnings)
+        requirement_item_map = _build_requirement_item_map(items)
+        plan_quality = _evaluate_plan_contract_quality(
+            requirements=requirements,
+            items=items,
+            requirement_item_map=requirement_item_map,
+            automation_level=automation_level,
+        )
+        metadata = _pool_metadata_from_plan_payload(payload)
+        metadata.update(
+            {
+                "original_user_request": original_user_request,
+                "selected_architecture": selected_architecture,
+                "global_constraints": global_constraints,
+                "requirement_trace": requirements,
+                "requirement_item_map": requirement_item_map,
+                "plan_quality": plan_quality,
+                "preserve_behaviors": preserve_behaviors,
+            }
+        )
         return AtlasPlanPool(
             pool_id=effective_pool_id,
             root_goal=effective_root_goal,
+            original_user_request=original_user_request,
+            selected_architecture=selected_architecture,
+            global_constraints=global_constraints,
+            requirements=requirements,
+            preserve_behaviors=preserve_behaviors,
+            requirement_item_map=requirement_item_map,
+            plan_quality=plan_quality,
             project_path=project_path,
             project_name=project_name,
             planning_depth=_normalize_choice(planning_depth, VALID_PLANNING_DEPTHS, "standard"),
@@ -319,7 +451,7 @@ class AtlasPlanPoolBuilder:
             linked_plan_id=linked_plan_id,
             warnings=pool_warnings,
             errors=pool_errors,
-            metadata=_pool_metadata_from_plan_payload(payload),
+            metadata=metadata,
         )
 
     def build_from_autopilot_plan(
@@ -476,6 +608,7 @@ class AtlasPlanPoolBuilder:
         return AtlasPlanPool(
             pool_id=effective_pool_id,
             root_goal=root_goal,
+            original_user_request=root_goal,
             project_path=project_path,
             project_name=project_name,
             planning_depth=_normalize_choice(planning_depth, VALID_PLANNING_DEPTHS, "standard"),
@@ -483,7 +616,8 @@ class AtlasPlanPoolBuilder:
             execution_strategy=_normalize_choice(execution_strategy, VALID_EXECUTION_STRATEGIES, "sequential"),
             items=items,
             warnings=pool_warnings,
-            metadata={"fallback_plan_items_generated": True},
+            plan_quality={"ok": False, "reasons": ["fallback_plan_items_generated"]},
+            metadata={"fallback_plan_items_generated": True, "plan_quality": {"ok": False, "reasons": ["fallback_plan_items_generated"]}},
         )
 
     @staticmethod

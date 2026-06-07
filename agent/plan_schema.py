@@ -20,12 +20,16 @@ class ImplementationStep(BaseModel):
     title: str
     description: str = ""
     goal: str = ""
+    requirement_ids: list[str] = Field(default_factory=list)
     acceptance_criteria: list[str] = Field(default_factory=list)
     target_files: list[str] = Field(default_factory=list)
+    expected_changes: list[str] = Field(default_factory=list)
     action_type: ActionType = "inspect"
     risk_level: RiskLevel = "low"
     verification: str = ""
+    verification_contract: dict[str, Any] = Field(default_factory=dict)
     rollback: str = ""
+    preserve_behaviors: list[str] = Field(default_factory=list)
 
 
 class Plan(BaseModel):
@@ -35,14 +39,17 @@ class Plan(BaseModel):
     updated_at: str = Field(default_factory=_utc_now_iso)
     mode: PlanningMode = "standard"
     task_type: TaskType = "other"
+    original_user_request: str = ""
     user_goal: str = ""
     requirement_summary: str = ""
+    requirements: list[dict[str, Any]] = Field(default_factory=list)
     nexus_context_summary: str = ""
     repository_context: str = ""
     assumptions: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     architecture_options: list[str] = Field(default_factory=list)
     selected_architecture: str = ""
+    preserve_behaviors: list[str] = Field(default_factory=list)
     rejected_architectures: list[str] = Field(default_factory=list)
     implementation_steps: list[ImplementationStep] = Field(default_factory=list)
     target_files: list[str] = Field(default_factory=list)
