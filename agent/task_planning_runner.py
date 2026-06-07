@@ -11,6 +11,7 @@ from agent.deep_planner import DeepPlanner
 from agent.clarification_policy import ClarificationPolicy
 from agent.nexus_context_builder import NexusContextBuilder
 from agent.plan_reviewer import PlanReviewer
+from agent.atlas_plan_target_contract import normalize_plan_for_review
 from agent.research_conductor import ResearchConductor
 from agent.plan_storage import PlanStorage
 from agent.planner_phase1 import PlannerPhase1
@@ -395,6 +396,12 @@ class TaskPlanningRunner:
                 warnings.append("plan_revision_failed_kept_original")
 
         _emit_progress(callback, phase="plan_review", phase_index=6, phase_total=7)
+        plan = normalize_plan_for_review(plan, repository_context=repository_context)
+        warnings.extend(
+            str(d.get("reason") or d) if isinstance(d, dict) else str(d)
+            for d in (getattr(plan, "normalization_diagnostics", []) or [])
+            if str(d.get("reason") if isinstance(d, dict) else d).strip()
+        )
         review_result = self.plan_reviewer.review(
             requirement=requirement,
             plan=plan,

@@ -6,6 +6,7 @@ from collections import Counter
 
 from agent.plan_review_schema import PlanReviewFinding, PlanReviewResult
 from agent.plan_schema import Plan
+from agent.atlas_plan_target_contract import validate_plan_target_contract
 from agent.requirement_schema import RequirementDefinition
 
 
@@ -52,11 +53,24 @@ class PlanReviewer:
     def _collect_findings(self, *, requirement: RequirementDefinition, plan: Plan, nexus_context: dict, repository_context: str) -> list[PlanReviewFinding]:
         findings: list[PlanReviewFinding] = []
         steps = plan.implementation_steps or []
-        all_step_text = "\n".join([f"{s.title}\n{s.description}\n{' '.join(s.target_files)}" for s in steps])
+        contract = validate_plan_target_contract(plan)
+        if not contract.ok:
+            findings.append(self._mk_finding(
+                severity="high",
+                category="plan_patch_contract",
+                title="Planner/Patch contract violation",
+                detail="; ".join(contract.reasons),
+                related_steps=[s.step_id for s in steps],
+                related_files=sorted(set(plan.target_files or [])),
+                recommendation="Revise the plan so files, directories, and operations use the public Plan/Patch contract.",
+                requires_user_confirmation=True,
+            ))
+        all_step_text = "\n".join([f"{s.title}\n{s.description}\n{' '.join(s.target_files)}\n{' '.join(getattr(s, 'target_directories', []) or [])}" for s in steps])
         all_plan_text = "\n".join([
             plan.user_goal,
             plan.requirement_summary,
             "\n".join(plan.target_files or []),
+            "\n".join(getattr(plan, "target_directories", []) or []),
             "\n".join(plan.expected_file_changes or []),
             "\n".join(plan.risks or []),
             "\n".join(plan.done_definition or []),

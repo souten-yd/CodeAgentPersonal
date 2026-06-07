@@ -58,10 +58,12 @@ class PlanStepOutput(_PermissiveModel):
     title: Any = None
     description: Any = None
     goal: Any = None
+    patch_task_kind: Any = None
     requirement_ids: Any = None
     linked_requirement_ids: Any = None
     acceptance_criteria: Any = None
     target_files: Any = None
+    target_directories: Any = None
     file_changes: Any = None
     expected_changes: Any = None
     action_type: Any = None
@@ -87,7 +89,9 @@ class PlanGenerationOutput(_PermissiveModel):
     rejected_architectures: Any = None
     assumptions: Any = None
     constraints: Any = None
+    patch_task_kind: Any = None
     target_files: Any = None
+    target_directories: Any = None
     expected_file_changes: Any = None
     test_plan: Any = None
     verification_plan: Any = None

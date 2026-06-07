@@ -177,17 +177,27 @@ class AtlasPlannerBridge:
             step = _as_dict(raw_step)
             item_id = str(step.get("step_id") or step.get("item_id") or f"item_{index:03d}")
             action_type = str(step.get("action_type") or step.get("type") or "implementation")
-            target_files = coerce_list(step.get("target_files") or plan.get("target_files"))
+            target_files = coerce_list(step.get("target_files"))
+            target_directories = coerce_list(step.get("target_directories"))
+            if not target_files and not target_directories:
+                target_files = coerce_list(plan.get("target_files"))
+                target_directories = coerce_list(plan.get("target_directories"))
             acceptance_criteria = coerce_list(step.get("acceptance_criteria") or step.get("done_definition"))
             converted = {
+                "schema_version": str(step.get("schema_version") or plan.get("schema_version") or ""),
                 "step_id": item_id,
                 "title": str(step.get("title") or step.get("name") or f"Planner step {index}"),
                 "description": str(step.get("description") or step.get("goal") or ""),
                 "goal": str(step.get("goal") or step.get("description") or step.get("title") or request.input),
+                "patch_task_kind": str(step.get("patch_task_kind") or plan.get("patch_task_kind") or ""),
                 "action_type": action_type,
                 "risk_level": str(step.get("risk_level") or _infer_plan_risk(plan, review_result)),
                 "priority": str(step.get("priority") or "medium"),
                 "target_files": target_files,
+                "target_directories": target_directories,
+                "operations": list(step.get("operations") or []),
+                "assumptions": coerce_list(step.get("assumptions") or plan.get("assumptions")),
+                "normalization_diagnostics": list(step.get("normalization_diagnostics") or []),
                 "requirement_ids": coerce_list(step.get("requirement_ids") or step.get("linked_requirement_ids") or step.get("requirement_id") or step.get("linked_requirement_id")),
                 "acceptance_criteria": acceptance_criteria,
                 "expected_changes": coerce_list(step.get("expected_changes") or step.get("changes")),
@@ -246,6 +256,12 @@ class AtlasPlannerBridge:
             "plan_id": planner_result.get("plan_id") or plan.get("plan_id") or "",
             "status": planner_result.get("status") or plan.get("status") or "planned",
             "implementation_steps": converted_steps,
+            "schema_version": str(plan.get("schema_version") or ""),
+            "patch_task_kind": str(plan.get("patch_task_kind") or ""),
+            "target_files": coerce_list(plan.get("target_files")),
+            "target_directories": coerce_list(plan.get("target_directories")),
+            "operations": list(plan.get("operations") or []),
+            "normalization_diagnostics": list(plan.get("normalization_diagnostics") or []),
             "done_definition": coerce_list(plan.get("done_definition")),
             "rollback_plan": coerce_list(plan.get("rollback_plan")),
             "constraints": coerce_list(plan.get("constraints") or requirement.get("constraints")),

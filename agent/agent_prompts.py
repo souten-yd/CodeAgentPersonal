@@ -41,8 +41,9 @@ Required keys:
 - architecture_options: string[]
 - selected_architecture: string
 - rejected_architectures: string[]
-- implementation_steps: [{title,description,goal,acceptance_criteria,target_files,action_type,risk_level,verification,rollback}]
+- implementation_steps: [{title,description,goal,acceptance_criteria,patch_task_kind,target_files,target_directories,assumptions,action_type,risk_level,verification,rollback}]
 - target_files: string[]
+- target_directories: string[]
 - expected_file_changes: string[]
 - risks: string[]
 - test_plan: string[]
@@ -60,8 +61,13 @@ Testing:
     rollback_plan: ["Delete index.html"]
 - Every implementation step must include a non-empty description, a one-sentence goal explaining
   which part of the requirement it satisfies, at least one observable acceptance_criteria entry, and
-  concrete verification, and a non-empty target_files list naming every file that will be
-  created or modified. Every create/update step MUST have at least one entry in target_files.
+  concrete verification. Put files that will be created or modified in target_files. Put directories
+  or project structure targets in target_directories, not target_files. Use patch_task_kind to classify
+  the patch surface, separate from task_type: code_change, configuration_change, documentation_change,
+  test_change, structural_change, or mixed_change.
+- Directory-only structural steps may have target_files=[] when target_directories is non-empty.
+  Do not invent starter files or .gitkeep entries in the plan; deterministic normalization/materialization
+  happens later.
 - Include the user's key phrases (visible text, colors, behavior, file names, or other explicit
   requirements) in the relevant step description. Do not output empty description or empty
   acceptance_criteria.
