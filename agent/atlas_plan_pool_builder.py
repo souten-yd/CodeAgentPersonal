@@ -165,6 +165,34 @@ def _compact_review_summary(review: Any) -> Any:
     }
 
 
+def _fix_dangling_depends_on(items: list, warnings: list[str]) -> None:
+    """Remove depends_on refs that point to non-existent items to prevent eternal queuing.
+
+    Builds the full alias set (item_id, step_N, item_N) for each item then strips any ref
+    in another item's depends_on that cannot be resolved.  Items left with an empty depends_on
+    after the strip are promoted from "queued" → "ready" so they can execute.
+    """
+    known: set[str] = set()
+    for idx, item in enumerate(items, start=1):
+        known.add(item.item_id)
+        known.add(f"step_{idx}")
+        known.add(f"item_{idx}")
+        step_id = str((getattr(item, "metadata", None) or {}).get("step_id") or "").strip()
+        if step_id:
+            known.add(step_id)
+
+    for item in items:
+        if not item.depends_on:
+            continue
+        valid = [ref for ref in item.depends_on if ref in known]
+        removed = [ref for ref in item.depends_on if ref not in known]
+        if removed:
+            warnings.append(f"depends_on_invalid_ref:{item.item_id}:{','.join(removed)}")
+            item.depends_on = valid
+            if not valid and item.status == "queued":
+                item.status = "ready"
+
+
 class AtlasPlanPoolBuilder:
     def build_from_plan_payload(
         self,
@@ -277,6 +305,7 @@ class AtlasPlanPoolBuilder:
             items.append(item)
             previous_item_id = item_id
 
+        _fix_dangling_depends_on(items, pool_warnings)
         return AtlasPlanPool(
             pool_id=effective_pool_id,
             root_goal=effective_root_goal,
@@ -361,6 +390,8 @@ class AtlasPlanPoolBuilder:
                 normalize_plan_item_file_changes(item)
             items.append(item)
 
+        autopilot_warnings = coerce_list(payload.get("warnings"))
+        _fix_dangling_depends_on(items, autopilot_warnings)
         return AtlasPlanPool(
             pool_id=effective_pool_id,
             root_goal=effective_root_goal,
@@ -372,7 +403,7 @@ class AtlasPlanPoolBuilder:
             automation_level=_normalize_choice(payload.get("automation_level"), VALID_AUTOMATION_LEVELS, "plan_then_ask"),
             items=items,
             linked_autopilot_id=linked_autopilot_id,
-            warnings=coerce_list(payload.get("warnings")),
+            warnings=autopilot_warnings,
             errors=coerce_list(payload.get("errors")),
             metadata={
                 "autopilot_id": linked_autopilot_id,

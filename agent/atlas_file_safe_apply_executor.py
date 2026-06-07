@@ -179,6 +179,8 @@ class AtlasFileSafeApplyExecutor:
             existed = bool(ready.get("_existed"))
             original_text = str(ready.get("_original_text") or "")
             result = self._public_file_result(ready)
+            # Register before the write so any partial write is included in rollback tracking.
+            written_entries.append({"path": path, "target": target, "existed": existed, "original_text": original_text})
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content, encoding="utf-8")
@@ -203,7 +205,6 @@ class AtlasFileSafeApplyExecutor:
                     ],
                     "summary": "multi-file apply failed during write",
                 }
-            written_entries.append({"path": path, "target": target, "existed": existed, "original_text": original_text})
             result["status"] = "applied"
             applied_results.append(result)
             changed_files.append(path)
