@@ -66,6 +66,13 @@ def patch_proposal_json_schema(*, require_content: bool = False) -> dict:
         },
         "unified_diff_preview": {"type": "string"},
         "risk_level": {"type": "string", "enum": RISK_LEVELS},
+        "satisfied_requirement_ids": {"type": "array", "items": {"type": "string"}},
+        "preserved_requirement_ids": {"type": "array", "items": {"type": "string"}},
+        "implemented_symbols": {"type": "array", "items": {"type": "string"}},
+        "behavioral_cases": {"type": "array", "items": {"type": "string"}},
+        "verification_cases": {"type": "array", "items": {"type": "string"}},
+        "known_limitations": {"type": "array", "items": {"type": "string"}},
+        "remaining_todos": {"type": "array", "items": {"type": "string"}},
     }
     # Do not hard-require proposed_content even when content is required: a surgical "edits" response is
     # equally valid. The service enforces "some applicable content" downstream (and reports honestly when

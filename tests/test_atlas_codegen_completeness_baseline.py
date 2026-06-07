@@ -188,7 +188,7 @@ def test_wp0_autonomous_generation_is_batch_before_apply_and_can_see_stale_same_
     assert autopilot.last_request.item_ids == []  # current contract: empty means apply all requested items
 
 
-def test_wp0_proposal_input_is_item_local_and_multifile_content_is_not_grounded(tmp_path: Path) -> None:
+def test_wp0_proposal_input_now_carries_full_context_and_multifile_content(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text("def existing():\n    return 'app'\n", encoding="utf-8")
     (tmp_path / "style.css").write_text(".existing { color: blue; }\n", encoding="utf-8")
     contract = _complete_requirement_contract()
@@ -201,6 +201,9 @@ def test_wp0_proposal_input_is_item_local_and_multifile_content_is_not_grounded(
         status="ready",
         risk_level="low",
         target_files=["app.py", "style.css"],
+        requirement_ids=["req_score", "req_persist"],
+        acceptance_criteria=contract["acceptance_criteria"],
+        verification_contract=contract["verification_contract"],
         done_definition=contract["acceptance_criteria"],
         metadata={
             "action_type": "update",
@@ -224,9 +227,13 @@ def test_wp0_proposal_input_is_item_local_and_multifile_content_is_not_grounded(
 
     payload = service.build_proposal_input(pool, item, AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_001"))
 
-    assert {"root_goal", "original_user_request", "all_requirements", "completed_item_summaries"}.isdisjoint(payload)
+    assert payload["root_goal"] == "Build complete code"
+    assert payload["original_user_request"] == contract["original_user_request"]
+    assert [r["requirement_id"] for r in payload["all_requirements"]] == ["req_score", "req_persist"]
+    assert [r["requirement_id"] for r in payload["requirements_for_this_item"]] == ["req_score", "req_persist"]
     assert payload["item"]["target_files"] == ["app.py", "style.css"]
-    assert payload["item"]["current_file_content"] == ""
+    assert payload["current_target_contents"]["app.py"]["content"].startswith("def existing")
+    assert payload["current_target_contents"]["style.css"]["content"].startswith(".existing")
     assert payload["item"]["current_file_truncated"] is False
 
 
@@ -240,6 +247,9 @@ def test_wp0_final_self_review_failure_still_returns_applicable_content(tmp_path
             "target_files": ["index.html"],
             "proposed_content": "<!doctype html>\n<script>\n// TODO implement score behavior\n</script>\n",
             "risk_level": "low",
+            "implemented_symbols": ["score"],
+            "behavioral_cases": ["Render real score behavior"],
+            "verification_cases": ["browser smoke"],
         }
 
     service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_stub)
