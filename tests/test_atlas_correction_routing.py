@@ -102,7 +102,15 @@ class _StubProposal:
 
     def propose_for_item(self, request):
         self.seen.append(request.item_id)
-        meta = {"patch_content_available": self.ok}
+        meta = {
+            "patch_content_available": self.ok,
+            "patch_generation": {
+                "run_id": getattr(request, "run_id", ""),
+                "state": "succeeded" if self.ok else "failed",
+                "outcome": "success" if self.ok else "failure",
+                "patch_content_available": self.ok,
+            },
+        }
         return SimpleNamespace(status="proposed" if self.ok else "failed", metadata=meta)
 
 

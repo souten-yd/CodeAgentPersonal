@@ -7,13 +7,19 @@ import re
 from datetime import datetime, timezone
 from uuid import uuid4
 from pathlib import Path, PurePosixPath
-from typing import Callable
+from typing import Any, Callable
 
 from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_llm_json_adapter import call_llm_json
 from agent.atlas_llm_schemas import patch_proposal_json_schema
 from agent.atlas_plan_item_file_changes import DEFAULT_CHANGE_SET, has_file_change_content, normalize_plan_item_file_changes
+from agent.atlas_patch_generation_state import (
+    ACTIVE_PATCH_GENERATION_STATES,
+    default_patch_generation_state,
+    is_patch_generation_success,
+    reduce_patch_generation_state,
+)
 from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProposalRequest, AtlasPatchProposalResult
 from agent.atlas_placeholder_detector import detect_placeholders
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
@@ -68,14 +74,16 @@ class AtlasPatchProposalService:
         self.llm_json_fn = llm_json_fn
 
     def propose_for_item(self, request: AtlasPatchProposalRequest) -> AtlasPatchProposalResult:
+        run_id = request.run_id or f"patchgen_{uuid4().hex[:10]}"
+        if run_id != request.run_id:
+            request = request.model_copy(update={"run_id": run_id})
         pool = self.storage.load_pool(request.pool_id)
         item = pool.get_item(request.item_id)
-        self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_started", item, "started")
         if item is None:
             warnings = ["item_not_found"]
-            self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_blocked", None, "blocked", warnings=warnings)
+            self._append_event(pool.pool_id, run_id, "patch_generation_blocked", None, "blocked", warnings=warnings, reason_code="item_not_found")
             self._record_trace(pool.pool_id, request.run_id, "blocked", "item_not_found", {"llm_called": False})
-            return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=request.item_id, run_id=request.run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump())
+            return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=request.item_id, run_id=run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump(), metadata={"patch_generation": default_patch_generation_state(run_id=run_id)})
         # Critique gate (PR-8b): a plan flagged plan_revision_required must not generate patches
         # until the plan is revised / approved. full_auto-continuation pools never set this flag.
         if bool((pool.metadata or {}).get("plan_revision_required")):
@@ -83,21 +91,35 @@ class AtlasPatchProposalService:
             planner_fallback = (pool.metadata or {}).get("planner_fallback")
             if isinstance(planner_fallback, dict) and planner_fallback.get("reason"):
                 warnings.append(f"planner_fallback:{planner_fallback.get('reason')}")
-            self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_blocked", item, "blocked", warnings=warnings)
             self._record_trace(pool.pool_id, request.run_id, "blocked", "plan_revision_required_blocks_patch", {"llm_called": False})
-            return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump())
+            recovery_decision = (pool.metadata or {}).get("patch_generation_recovery_decision") or {
+                "type": "request_plan_revision",
+                "reason": "plan_revision_required",
+            }
+            return AtlasPatchProposalResult(
+                pool_id=pool.pool_id,
+                item_id=item.item_id,
+                run_id=run_id,
+                status="blocked",
+                warnings=warnings,
+                plan_pool=pool.model_dump(),
+                metadata={"recovery_decision": recovery_decision, "patch_generation_started": False},
+            )
         ok, warnings = self.validate_item_for_patch_proposal(pool, item, request)
         if not ok:
-            self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_blocked", item, "blocked", warnings=warnings)
+            self.persist_patch_generation_transition(pool, item, run_id=run_id, event_type="patch_generation_blocked", state="blocked", outcome="blocked", reason_code=warnings[0] if warnings else "patch_generation_blocked", warnings=warnings, retryable=False)
             self._record_trace(pool.pool_id, request.run_id, "blocked", ";".join(warnings), {"llm_called": False})
-            return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump())
+            return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump(), metadata={"patch_generation": (item.metadata or {}).get("patch_generation") or {}})
+        concurrency = self._patch_generation_concurrency_result(pool, item, run_id=run_id)
+        if concurrency is not None:
+            return concurrency
         try:
+            self.persist_patch_generation_transition(pool, item, run_id=run_id, event_type="patch_generation_started", state="running", outcome="active", reason_code="patch_generation_started", retryable=True)
             payload = self.build_proposal_input(pool, item, request)
             proposal = self.generate_proposal_with_llm(payload) if self.llm_json_fn else self.generate_fallback_proposal(payload)
             proposal.pool_id = pool.pool_id
             proposal.item_id = item.item_id
-            proposal.run_id = request.run_id
-            json_path, md_path = self.save_patch_proposal_record(pool.pool_id, item.item_id, proposal)
+            proposal.run_id = run_id
             # Honest signal: a proposal can be "proposed" yet carry NO applicable content (weak/absent
             # LLM, or fallback). Surface that explicitly so the UI does not report fake success and the
             # autopilot does not silently skip with "missing_patch_or_content".
@@ -105,25 +127,57 @@ class AtlasPatchProposalService:
             _file_changes = _pmeta.get("file_changes") if isinstance(_pmeta.get("file_changes"), list) else []
             has_file_changes_content = bool(_file_changes) and all(has_file_change_content(fc) for fc in _file_changes)
             has_content = bool(proposal.unified_diff_preview or _pmeta.get("proposed_content") or _pmeta.get("edits") or has_file_changes_content)
+            if not isinstance(proposal.metadata.get("patch_generation"), dict):
+                proposal.metadata["patch_generation"] = self._proposal_patch_generation_metadata(item, proposal)
+            if not has_content or proposal.metadata.get("generation_failed"):
+                proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                    proposal.metadata.get("patch_generation"),
+                    {
+                        "event_type": "patch_generation_failed",
+                        "run_id": run_id,
+                        "state": "failed",
+                        "outcome": "failure",
+                        "reason_code": str(proposal.metadata.get("generation_failure_reason") or "patch_content_unavailable"),
+                        "patch_content_available": False,
+                        "retryable": True,
+                    },
+                )
+            patch_generation = proposal.metadata.get("patch_generation") if isinstance(proposal.metadata.get("patch_generation"), dict) else {}
+            generation_success = is_patch_generation_success(patch_generation)
+            json_path, md_path = self.save_patch_proposal_record(pool.pool_id, item.item_id, proposal)
             self._record_trace(
                 pool.pool_id,
-                request.run_id,
+                run_id,
                 "generated",
                 "patch_proposal_generated",
-                {"llm_called": bool(self.llm_json_fn), "has_content": has_content},
+                {"llm_called": bool(self.llm_json_fn), "has_content": has_content, "patch_generation": patch_generation},
             )
-            result = AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="proposed", proposal=proposal, proposal_json_path=json_path, proposal_md_path=md_path, metadata={"patch_content_available": has_content})
+            source_type = str((proposal.metadata or {}).get("source_type") or request.source_type or "")
+            result_status = "proposed" if generation_success or source_type == "debug_review" else str(patch_generation.get("state") or "failed")
+            result = AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=run_id, status=result_status, proposal=proposal, proposal_json_path=json_path, proposal_md_path=md_path, metadata={"patch_content_available": has_content, "patch_generation": patch_generation})
             self.mark_item_from_patch_proposal(pool, item, result)
-            self.storage.save_pool(pool)
-            self.journal.save_plan_pool(pool)
-            self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_proposed", item, "proposed")
+            self.persist_patch_generation_transition(
+                pool,
+                item,
+                run_id=run_id,
+                event_type="patch_generation_succeeded" if generation_success else "patch_generation_failed",
+                state="succeeded" if generation_success else "failed",
+                outcome="success" if generation_success else "failure",
+                proposal=proposal,
+                reason_code="patch_generation_succeeded" if generation_success else str(proposal.metadata.get("generation_failure_reason") or "patch_generation_failed"),
+                patch_content_available=has_content,
+                passed_checks=["semantic_validation", "self_review"] if generation_success else [],
+                failed_checks=[] if generation_success else list(((proposal.metadata or {}).get("semantic_validation") or {}).get("reasons") or proposal.warnings or []),
+                retryable=not generation_success,
+                candidate_fingerprint=self._candidate_fingerprint(proposal),
+            )
             result.plan_pool = pool.model_dump()
             return result
         except Exception as exc:
             errors = [str(exc) or exc.__class__.__name__]
-            self._append_event(pool.pool_id, request.run_id, "patch_proposal_manual_failed", item, "failed", errors=errors)
-            self._record_trace(pool.pool_id, request.run_id, "failed", "patch_proposal_exception", {"llm_called": bool(self.llm_json_fn), "errors": errors})
-            return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status="failed", errors=errors, plan_pool=pool.model_dump())
+            self.persist_patch_generation_transition(pool, item, run_id=run_id, event_type="patch_generation_failed", state="failed", outcome="failure", reason_code="patch_proposal_exception", errors=errors, retryable=True)
+            self._record_trace(pool.pool_id, run_id, "failed", "patch_proposal_exception", {"llm_called": bool(self.llm_json_fn), "errors": errors})
+            return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=run_id, status="failed", errors=errors, plan_pool=pool.model_dump(), metadata={"patch_generation": (item.metadata or {}).get("patch_generation") or {}})
 
     def validate_item_for_patch_proposal(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> tuple[bool, list[str]]:
         warnings = []
@@ -616,16 +670,48 @@ class AtlasPatchProposalService:
                 if not isinstance(output, dict):
                     raise ValueError("llm_output_not_dict")
                 proposal, has_content = self._build_proposal_from_output(output, input_payload)
+                claim_repair = self._sanitize_requirement_claims_and_infer_coverage(proposal, input_payload)
+                if claim_repair.get("diagnostics"):
+                    proposal.metadata.setdefault("requirement_claim_diagnostics", []).extend(claim_repair["diagnostics"])
             except Exception as exc:
                 parse_failures += 1
                 last_failure = f"llm_output_unparseable:{str(exc) or exc.__class__.__name__}"
                 continue
+            proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                proposal.metadata.get("patch_generation") if isinstance(proposal.metadata.get("patch_generation"), dict) else default_patch_generation_state(run_id=str(input_payload.get("run_id") or "")),
+                {
+                    "event_type": "patch_candidate_generated",
+                    "run_id": str(input_payload.get("run_id") or ""),
+                    "state": "validating",
+                    "outcome": "active",
+                    "attempt": attempt,
+                    "strategy": "initial_generation" if attempt == 1 else "targeted_regeneration",
+                    "candidate_fingerprint": self._candidate_fingerprint(proposal),
+                    "patch_content_available": has_content,
+                },
+            )
             semantic = self._validate_task_complete_proposal(proposal, input_payload, has_content=has_content)
             proposal.metadata["semantic_validation"] = semantic
             if semantic.get("status") == "failed":
                 proposal.warnings.append("semantic_validation_failed")
                 last_failure = "semantic_validation_failed:" + ",".join(semantic.get("reasons") or [])
                 if attempt < self.MAX_LLM_GENERATION_ATTEMPTS:
+                    proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                        proposal.metadata.get("patch_generation"),
+                        {
+                            "event_type": "patch_validation_failed",
+                            "run_id": str(input_payload.get("run_id") or ""),
+                            "state": "repairing",
+                            "outcome": "active",
+                            "attempt": attempt,
+                            "strategy": "deterministic_contract_or_metadata_repair",
+                            "reason_code": "semantic_validation_failed",
+                            "failed_checks": list(semantic.get("reasons") or []),
+                            "retryable": True,
+                            "candidate_fingerprint": self._candidate_fingerprint(proposal),
+                            "failure_signature": self._failure_signature(proposal, semantic.get("reasons") or []),
+                        },
+                    )
                     self_review_feedback = {
                         "status": "failed",
                         "findings": [{"type": "semantic_validation", "severity": "blocking", "message": r} for r in semantic.get("reasons") or []],
@@ -638,13 +724,66 @@ class AtlasPatchProposalService:
                     empty_content_attempts=empty_content_attempts,
                 )
                 failure.metadata["semantic_validation"] = semantic
+                failure.metadata["patch_generation"] = reduce_patch_generation_state(
+                    proposal.metadata.get("patch_generation"),
+                    {
+                        "event_type": "patch_generation_failed",
+                        "run_id": str(input_payload.get("run_id") or ""),
+                        "state": "failed",
+                        "outcome": "failure",
+                        "attempt": attempt,
+                        "strategy": "terminal_failure",
+                        "reason_code": last_failure,
+                        "failed_checks": list(semantic.get("reasons") or []),
+                        "retryable": False,
+                        "patch_content_available": False,
+                        "candidate_fingerprint": self._candidate_fingerprint(proposal),
+                        "failure_signature": self._failure_signature(proposal, semantic.get("reasons") or []),
+                    },
+                )
                 failure.warnings.append("semantic_validation_failed")
                 return failure
+            if not content_required and not has_content:
+                proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                    proposal.metadata.get("patch_generation"),
+                    {
+                        "event_type": "patch_generation_failed",
+                        "run_id": str(input_payload.get("run_id") or ""),
+                        "state": "failed",
+                        "outcome": "failure",
+                        "attempt": attempt,
+                        "strategy": "advisory_no_content",
+                        "reason_code": "patch_content_unavailable",
+                        "patch_content_available": False,
+                        "retryable": True,
+                        "candidate_fingerprint": self._candidate_fingerprint(proposal),
+                    },
+                )
+                return proposal
             if has_content or not content_required:
                 review = self._self_review_proposal(proposal, input_payload, has_content=has_content)
                 review["attempt_count"] = attempt
                 review["regenerated"] = attempt > 1
                 proposal.metadata["self_review"] = review
+                if review.get("status") == "failed" and not content_required:
+                    proposal.warnings.append("self_review_findings_unresolved")
+                    proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                        proposal.metadata.get("patch_generation"),
+                        {
+                            "event_type": "patch_generation_failed",
+                            "run_id": str(input_payload.get("run_id") or ""),
+                            "state": "failed",
+                            "outcome": "failure",
+                            "attempt": attempt,
+                            "strategy": "advisory_self_review_failed",
+                            "reason_code": "self_review_failed",
+                            "failed_checks": ["self_review"],
+                            "retryable": True,
+                            "patch_content_available": has_content,
+                            "candidate_fingerprint": self._candidate_fingerprint(proposal),
+                        },
+                    )
+                    return proposal
                 if review.get("status") == "failed" and attempt < self.MAX_LLM_GENERATION_ATTEMPTS:
                     proposal.warnings.append(f"self_review_failed_attempt_{attempt}")
                     self_review_feedback = {
@@ -661,10 +800,41 @@ class AtlasPatchProposalService:
                         empty_content_attempts=empty_content_attempts,
                     )
                     failure.metadata["self_review"] = review
+                    failure.metadata["patch_generation"] = reduce_patch_generation_state(
+                        proposal.metadata.get("patch_generation"),
+                        {
+                            "event_type": "patch_generation_failed",
+                            "run_id": str(input_payload.get("run_id") or ""),
+                            "state": "failed",
+                            "outcome": "failure",
+                            "attempt": attempt,
+                            "strategy": "terminal_failure",
+                            "reason_code": "self_review_failed",
+                            "failed_checks": ["self_review"],
+                            "retryable": False,
+                            "patch_content_available": False,
+                            "candidate_fingerprint": self._candidate_fingerprint(proposal),
+                        },
+                    )
                     failure.warnings.append("self_review_findings_unresolved")
                     return failure
                 if attempt > 1:
                     proposal.warnings.append(f"llm_generation_succeeded_on_attempt_{attempt}")
+                proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                    proposal.metadata.get("patch_generation"),
+                    {
+                        "event_type": "patch_generation_succeeded",
+                        "run_id": str(input_payload.get("run_id") or ""),
+                        "state": "succeeded",
+                        "outcome": "success",
+                        "attempt": attempt,
+                        "strategy": "deterministic_repair_then_validation" if attempt == 1 and proposal.metadata.get("requirement_claim_diagnostics") else ("targeted_regeneration" if attempt > 1 else "initial_generation"),
+                        "reason_code": "patch_generation_succeeded",
+                        "passed_checks": ["semantic_validation", "self_review"],
+                        "patch_content_available": has_content,
+                        "candidate_fingerprint": self._candidate_fingerprint(proposal),
+                    },
+                )
                 return proposal
             empty_content_attempts += 1
             last_failure = "llm_returned_empty_patch_content"
@@ -840,9 +1010,9 @@ class AtlasPatchProposalService:
         content_by_path = self._proposal_content_by_path(proposal)
         proposed_targets = set(str(p) for p in (proposal.target_files or []) if str(p))
         proposed_targets.update(content_by_path.keys())
-        enforce_target_authorization = str(input_payload.get("source_type") or "") == "plan_item"
-        unauthorized_targets = sorted(p for p in proposed_targets if enforce_target_authorization and allowed_targets and p not in allowed_targets)
-        if unauthorized_targets:
+        enforce_target_scope = str(input_payload.get("source_type") or "").strip() == "plan_item" or self._plan_item_requires_content(input_payload)
+        unauthorized_targets = sorted(p for p in proposed_targets if allowed_targets and p not in allowed_targets)
+        if enforce_target_scope and unauthorized_targets:
             reasons.append("unauthorized_target_files:" + ",".join(unauthorized_targets))
         if len(target_files) > 1:
             missing_content = sorted(p for p in target_files if not str(content_by_path.get(p) or "").strip())
@@ -855,19 +1025,21 @@ class AtlasPatchProposalService:
         all_req_ids = {str(r.get("requirement_id") or "") for r in (input_payload.get("all_requirements") or []) if isinstance(r, dict)}
         satisfied_ids = set(str(v) for v in (metadata.get("satisfied_requirement_ids") or []) if str(v))
         preserved_ids = set(str(v) for v in (metadata.get("preserved_requirement_ids") or []) if str(v))
-        reported_ids = satisfied_ids | preserved_ids
         if authorized_req_ids and patch_task_kind != "structural_change":
-            unknown = sorted(req_id for req_id in reported_ids if req_id not in authorized_req_ids)
+            unknown = sorted(req_id for req_id in satisfied_ids if req_id not in authorized_req_ids)
             if unknown:
                 reasons.append("unauthorized_requirement_ids:" + ",".join(unknown))
+            unknown_preserved = sorted(req_id for req_id in preserved_ids if all_req_ids and req_id not in all_req_ids)
+            if unknown_preserved:
+                reasons.append("unauthorized_preserved_requirement_ids:" + ",".join(unknown_preserved))
             if not satisfied_ids:
                 reasons.append("satisfied_requirement_ids_missing")
-        elif patch_task_kind != "structural_change" and all_req_ids and reported_ids:
+        elif patch_task_kind != "structural_change" and all_req_ids and (satisfied_ids or preserved_ids):
             reasons.append("requirement_ids_not_authorized_by_item")
 
         evidence_present = any(
             metadata.get(key)
-            for key in ("satisfied_requirement_ids", "implemented_symbols", "behavioral_cases", "verification_cases")
+            for key in ("implemented_symbols", "behavioral_cases", "verification_cases")
         )
         if patch_task_kind == "structural_change":
             for directory in target_directories:
@@ -898,6 +1070,80 @@ class AtlasPatchProposalService:
             "missing_evidence": missing_evidence,
             "quality_findings": quality_findings,
         }
+
+    def _sanitize_requirement_claims_and_infer_coverage(self, proposal: AtlasPatchProposal, input_payload: dict) -> dict[str, Any]:
+        metadata = proposal.metadata or {}
+        item = input_payload.get("item") or {}
+        all_requirements = [r for r in (input_payload.get("all_requirements") or []) if isinstance(r, dict)]
+        item_requirement_ids = {str(v) for v in (item.get("requirement_ids") or []) if str(v)}
+        all_requirement_ids = {str(r.get("requirement_id") or "") for r in all_requirements if str(r.get("requirement_id") or "")}
+        already_satisfied = {
+            str(r.get("requirement_id") or "")
+            for r in (input_payload.get("already_satisfied_requirements") or [])
+            if isinstance(r, dict) and str(r.get("requirement_id") or "")
+        }
+        satisfied_scope = item_requirement_ids
+        preserved_scope = all_requirement_ids | item_requirement_ids | already_satisfied
+
+        raw_satisfied = [str(v) for v in (metadata.get("satisfied_requirement_ids") or []) if str(v)]
+        raw_preserved = [str(v) for v in (metadata.get("preserved_requirement_ids") or []) if str(v)]
+        valid_satisfied_claims = [req_id for req_id in raw_satisfied if req_id in satisfied_scope]
+        valid_preserved_claims = [req_id for req_id in raw_preserved if req_id in preserved_scope]
+        unauthorized_satisfied = sorted(set(raw_satisfied) - satisfied_scope)
+        unauthorized_preserved = sorted(set(raw_preserved) - preserved_scope)
+
+        content = "\n".join(self._proposal_content_by_path(proposal).values())
+        inferred_satisfied = self._infer_requirement_coverage_from_content(input_payload, content)
+        metadata["llm_claimed_satisfied_requirement_ids"] = valid_satisfied_claims
+        metadata["llm_claimed_preserved_requirement_ids"] = valid_preserved_claims
+        metadata["satisfied_requirement_ids"] = sorted(req_id for req_id in inferred_satisfied if req_id in satisfied_scope)
+        metadata["preserved_requirement_ids"] = sorted(set(valid_preserved_claims))
+
+        diagnostics: list[dict[str, Any]] = []
+        if unauthorized_satisfied:
+            diagnostics.append({"type": "unauthorized_satisfied_requirement_claims_removed", "requirement_ids": unauthorized_satisfied})
+        if unauthorized_preserved:
+            diagnostics.append({"type": "unauthorized_preserved_requirement_claims_removed", "requirement_ids": unauthorized_preserved})
+        if valid_satisfied_claims:
+            diagnostics.append({"type": "llm_satisfied_claims_not_used_as_proof", "requirement_ids": valid_satisfied_claims})
+        if metadata["satisfied_requirement_ids"]:
+            diagnostics.append({"type": "content_based_requirement_coverage", "requirement_ids": list(metadata["satisfied_requirement_ids"])})
+        metadata["requirement_claim_authorization"] = {
+            "satisfied_scope": sorted(satisfied_scope),
+            "preserved_scope": sorted(preserved_scope),
+            "unauthorized_satisfied_requirement_ids": unauthorized_satisfied,
+            "unauthorized_preserved_requirement_ids": unauthorized_preserved,
+        }
+        proposal.metadata = metadata
+        return {"diagnostics": diagnostics}
+
+    def _infer_requirement_coverage_from_content(self, input_payload: dict, content: str) -> set[str]:
+        item = input_payload.get("item") or {}
+        item_requirement_ids = {str(v) for v in (item.get("requirement_ids") or []) if str(v)}
+        content_l = (content or "").lower()
+        covered: set[str] = set()
+        requirements = [
+            r
+            for r in (input_payload.get("requirements_for_this_item") or input_payload.get("all_requirements") or [])
+            if isinstance(r, dict) and str(r.get("requirement_id") or "") in item_requirement_ids
+        ]
+        for req in requirements:
+            req_id = str(req.get("requirement_id") or "")
+            descriptions = [
+                str(req.get("description") or ""),
+                str(req.get("title") or ""),
+                str(req.get("acceptance_criteria") or ""),
+            ]
+            tokens = self._requirement_tokens(" ".join(descriptions))
+            if not tokens:
+                continue
+            matched = [tok for tok in tokens if tok in content_l]
+            required_count = max(1, min(len(tokens), (len(tokens) + 1) // 2))
+            if len(matched) >= required_count:
+                covered.add(req_id)
+        if not covered and len(item_requirement_ids) == 1 and content_l.strip():
+            covered.update(item_requirement_ids)
+        return covered
 
     _STUB_PATTERNS: list[re.Pattern] = [
         re.compile(r"//\s*(TODO|Implement|FIXME|Placeholder|implement logic)", re.IGNORECASE),
@@ -1160,6 +1406,7 @@ class AtlasPatchProposalService:
             pool_id=str(input_payload.get("pool_id") or ""),
             item_id=str(input_payload.get("item_id") or ""),
             run_id=str(input_payload.get("run_id") or ""),
+            status="failed",
             title=f"Patch proposal failed for {item.get('title') or input_payload.get('item_id')}",
             summary=summary,
             root_cause="llm_patch_generation_failed",
@@ -1272,6 +1519,7 @@ class AtlasPatchProposalService:
             pool_id=str(input_payload.get("pool_id") or ""),
             item_id=str(input_payload.get("item_id") or ""),
             run_id=str(input_payload.get("run_id") or ""),
+            status="failed" if source_type == "plan_item" else "proposed",
             title=f"Patch proposal for {item.get('title') or input_payload.get('item_id')}",
             summary=str(debug.get("proposed_fix") or item.get("description") or item.get("goal") or "Use available guidance to update target files."),
             root_cause=str(debug.get("root_cause_category") or ("plan_item" if source_type == "plan_item" else "unknown")),
@@ -1398,10 +1646,183 @@ class AtlasPatchProposalService:
                 except Exception:  # noqa: BLE001
                     pass
 
-    def _append_event(self, pool_id: str, run_id: str, event_type: str, item: AtlasPlanItem | None, status: str, warnings: list[str] | None = None, errors: list[str] | None = None) -> None:
+    def persist_patch_generation_transition(
+        self,
+        pool: AtlasPlanPool,
+        item: AtlasPlanItem,
+        *,
+        run_id: str,
+        event_type: str,
+        state: str,
+        outcome: str,
+        reason_code: str,
+        proposal: AtlasPatchProposal | None = None,
+        patch_content_available: bool = False,
+        passed_checks: list[str] | None = None,
+        failed_checks: list[str] | None = None,
+        diagnostics: list[dict[str, Any]] | None = None,
+        warnings: list[str] | None = None,
+        errors: list[str] | None = None,
+        retryable: bool = False,
+        attempt: int | None = None,
+        strategy: str = "",
+        candidate_fingerprint: str = "",
+        failure_signature: str = "",
+    ) -> dict[str, Any]:
+        now = datetime.now(timezone.utc).isoformat()
+        current = (item.metadata or {}).get("patch_generation") if isinstance((item.metadata or {}).get("patch_generation"), dict) else default_patch_generation_state(run_id=run_id)
+        event = {
+            "event_type": event_type,
+            "pool_id": pool.pool_id,
+            "item_id": item.item_id,
+            "run_id": run_id,
+            "state": state,
+            "outcome": outcome,
+            "reason_code": reason_code,
+            "retryable": retryable,
+            "attempt": int(attempt if attempt is not None else ((proposal.metadata or {}).get("patch_generation") or {}).get("attempt") if proposal else current.get("attempt") or 0),
+            "strategy": strategy or str(((proposal.metadata or {}).get("patch_generation") or {}).get("strategy") if proposal else current.get("strategy") or ""),
+            "candidate_fingerprint": candidate_fingerprint or str(((proposal.metadata or {}).get("patch_generation") or {}).get("candidate_fingerprint") if proposal else current.get("candidate_fingerprint") or ""),
+            "failure_signature": failure_signature or str(current.get("failure_signature") or ""),
+            "patch_content_available": bool(patch_content_available),
+            "passed_checks": list(passed_checks or []),
+            "failed_checks": list(failed_checks or []),
+            "diagnostics": list(diagnostics or []),
+            "warnings": list(warnings or []),
+            "errors": list(errors or []),
+            "created_at": now,
+        }
+        next_state = reduce_patch_generation_state(current, event)
+        if proposal is not None:
+            proposal.metadata["patch_generation"] = next_state
+            proposal.metadata["patch_generation_state"] = next_state.get("state")
+            proposal.metadata["patch_generation_outcome"] = next_state.get("outcome")
+        item.metadata = dict(item.metadata or {})
+        item.metadata["patch_generation"] = next_state
+        item.metadata["patch_generation_state"] = next_state.get("state")
+        item.metadata["patch_generation_outcome"] = next_state.get("outcome")
+        item.metadata["latest_patch_generation_run_id"] = run_id
+        if state == "failed":
+            item.status = "failed"
+            if item.item_id not in pool.failed_item_ids:
+                pool.failed_item_ids.append(item.item_id)
+        elif state == "blocked":
+            item.status = "blocked"
+            if item.item_id not in pool.blocked_item_ids:
+                pool.blocked_item_ids.append(item.item_id)
+        elif state == "cancelled":
+            item.status = "cancelled"
+        elif state in {"queued", "running", "validating", "repairing", "retrying"}:
+            item.status = "executing"
+            pool.current_item_id = item.item_id
+            if str(pool.status or "") in {"ready", "approved", "waiting"}:
+                pool.status = "running"
+        elif state == "succeeded":
+            if item.status == "executing":
+                item.status = "ready"
+            pool.current_item_id = item.item_id
+        pool.metadata = dict(pool.metadata or {})
+        pool.metadata["latest_patch_generation"] = next_state
+        pool.metadata.setdefault("patch_generation_reconciliation_inputs", {})[item.item_id] = {
+            "run_id": run_id,
+            "state": next_state.get("state"),
+            "outcome": next_state.get("outcome"),
+            "updated_at": next_state.get("updated_at"),
+        }
+        self.storage.save_pool(pool)
+        self.journal.save_plan_pool(pool)
+        self.journal.write_checkpoint(pool=pool, next_action=self._checkpoint_next_action(next_state))
+        self._append_event(pool.pool_id, run_id, event_type, item, state, warnings=warnings, errors=errors, reason_code=reason_code, patch_generation=next_state)
+        return next_state
+
+    def _patch_generation_concurrency_result(self, pool: AtlasPlanPool, item: AtlasPlanItem, *, run_id: str) -> AtlasPatchProposalResult | None:
+        current = (item.metadata or {}).get("patch_generation") if isinstance((item.metadata or {}).get("patch_generation"), dict) else {}
+        current_run_id = str(current.get("run_id") or "")
+        current_state = str(current.get("state") or "").lower()
+        if current_state in ACTIVE_PATCH_GENERATION_STATES and current_run_id:
+            if current_run_id == run_id:
+                return AtlasPatchProposalResult(
+                    pool_id=pool.pool_id,
+                    item_id=item.item_id,
+                    run_id=run_id,
+                    status=current_state,
+                    plan_pool=pool.model_dump(),
+                    metadata={"patch_generation": current, "idempotent": True},
+                    warnings=["patch_generation_run_already_active"],
+                )
+            if self._active_run_is_stale(current):
+                self.persist_patch_generation_transition(
+                    pool,
+                    item,
+                    run_id=current_run_id,
+                    event_type="patch_generation_failed",
+                    state="failed",
+                    outcome="failure",
+                    reason_code="stale_active_patch_generation_run",
+                    retryable=True,
+                    diagnostics=[{"type": "stale_active_run_recovered", "stale_run_id": current_run_id, "new_run_id": run_id}],
+                )
+                return None
+            return AtlasPatchProposalResult(
+                pool_id=pool.pool_id,
+                item_id=item.item_id,
+                run_id=run_id,
+                status="blocked",
+                plan_pool=pool.model_dump(),
+                warnings=["patch_generation_active_run_exists"],
+                metadata={"active_run_id": current_run_id, "patch_generation": current},
+            )
+        return None
+
+    @staticmethod
+    def _active_run_is_stale(current: dict[str, Any]) -> bool:
+        updated_at = str(current.get("updated_at") or "")
+        if not updated_at:
+            return False
+        try:
+            dt = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return (datetime.now(timezone.utc) - dt).total_seconds() > 3600
+        except Exception:
+            return False
+
+    @staticmethod
+    def _checkpoint_next_action(patch_generation: dict[str, Any]) -> str:
+        state = str((patch_generation or {}).get("state") or "")
+        if state == "succeeded":
+            return "Review and approve the Patch Proposal before Safe Apply."
+        if state == "failed":
+            return "Retry Patch generation or revise the Plan."
+        if state == "blocked":
+            return "Resolve the Patch generation block before continuing."
+        return "Patch generation is active; wait for the current run or cancel it."
+
+    def _proposal_patch_generation_metadata(self, item: AtlasPlanItem, proposal: AtlasPatchProposal) -> dict[str, Any]:
+        proposal_state = proposal.metadata.get("patch_generation") if isinstance(proposal.metadata.get("patch_generation"), dict) else {}
+        item_state = (item.metadata or {}).get("patch_generation") if isinstance((item.metadata or {}).get("patch_generation"), dict) else {}
+        return proposal_state or item_state or default_patch_generation_state(run_id=proposal.run_id)
+
+    def _candidate_fingerprint(self, proposal: AtlasPatchProposal) -> str:
+        payload = {
+            "target_files": list(proposal.target_files or []),
+            "unified_diff_preview": proposal.unified_diff_preview,
+            "metadata_content": {
+                "proposed_content": (proposal.metadata or {}).get("proposed_content"),
+                "edits": (proposal.metadata or {}).get("edits"),
+                "file_changes": (proposal.metadata or {}).get("file_changes"),
+            },
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    def _failure_signature(self, proposal: AtlasPatchProposal, reasons: list[str]) -> str:
+        payload = {"fingerprint": self._candidate_fingerprint(proposal), "reasons": sorted(str(r) for r in reasons)}
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    def _append_event(self, pool_id: str, run_id: str, event_type: str, item: AtlasPlanItem | None, status: str, warnings: list[str] | None = None, errors: list[str] | None = None, reason_code: str = "", patch_generation: dict[str, Any] | None = None) -> None:
         if not run_id:
             return
-        self.journal.append_event(pool_id, run_id, {"event_type": event_type, "pool_id": pool_id, "run_id": run_id, "item_id": item.item_id if item else "", "status": status, "warnings": list(warnings or []), "errors": list(errors or []), "created_at": datetime.now(timezone.utc).isoformat()})
+        self.journal.append_event(pool_id, run_id, {"event_type": event_type, "pool_id": pool_id, "run_id": run_id, "item_id": item.item_id if item else "", "status": status, "state": status, "outcome": (patch_generation or {}).get("outcome", ""), "reason_code": reason_code, "warnings": list(warnings or []), "errors": list(errors or []), "patch_generation": patch_generation or {}, "created_at": datetime.now(timezone.utc).isoformat()})
 
     def _record_trace(self, pool_id: str, run_id: str, decision: str, reason: str, detail: dict) -> None:
         if not run_id:

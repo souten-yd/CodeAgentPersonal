@@ -35,7 +35,14 @@ class _FakePatchService:
         has = self.has_content
         class _R:
             status = "proposed"
-            metadata = {"patch_content_available": has}
+            metadata = {
+                "patch_content_available": has,
+                "patch_generation": {
+                    "state": "succeeded" if has else "failed",
+                    "outcome": "success" if has else "failure",
+                    "patch_content_available": has,
+                },
+            }
         return _R()
 
 

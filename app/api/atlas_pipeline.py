@@ -70,6 +70,7 @@ from agent.atlas_verification_gate_schema import AtlasVerificationRequest, Atlas
 from agent.atlas_verification_gate_service import AtlasVerificationGateService
 from agent.atlas_debug_review_schema import AtlasDebugReviewRequest, AtlasDebugReviewResult
 from agent.atlas_debug_review_service import AtlasDebugReviewService
+from agent.atlas_patch_generation_state import is_patch_generation_success, is_patch_generation_terminal
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest, AtlasPatchProposalResult
 from agent.atlas_patch_proposal_service import AtlasPatchProposalService
 from agent.atlas_patch_proposal_approval_schema import AtlasPatchProposalApprovalRequest, AtlasPatchProposalApprovalResult
@@ -1649,6 +1650,9 @@ def _latest_autopilot_result_payload(ca_data_root: Path, pool_id: str) -> dict[s
 
 
 def _patch_content_available(item: AtlasPlanItem) -> bool:
+    patch_generation = (item.metadata or {}).get("patch_generation") if isinstance((item.metadata or {}).get("patch_generation"), dict) else {}
+    if patch_generation:
+        return is_patch_generation_success(patch_generation)
     metadata = item.metadata or {}
     proposal = metadata.get("patch_proposal") if isinstance(metadata.get("patch_proposal"), dict) else {}
     proposal_meta = proposal.get("metadata") if isinstance(proposal.get("metadata"), dict) else {}
@@ -1670,18 +1674,130 @@ def _patch_content_available(item: AtlasPlanItem) -> bool:
     )
 
 
-def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, Any] | None = None) -> dict[str, Any]:
+def _patch_generation_state_time(state: dict[str, Any]) -> str:
+    return str(state.get("updated_at") or state.get("created_at") or "")
+
+
+def _reconciled_patch_generation_from_item(item: AtlasPlanItem, lifecycle_state: dict[str, Any] | None = None) -> dict[str, Any]:
+    metadata = item.metadata or {}
+    patch_generation = metadata.get("patch_generation") if isinstance(metadata.get("patch_generation"), dict) else {}
+    proposal = metadata.get("patch_proposal") if isinstance(metadata.get("patch_proposal"), dict) else {}
+    proposal_meta = proposal.get("metadata") if isinstance(proposal.get("metadata"), dict) else {}
+    proposal_pg = proposal_meta.get("patch_generation") if isinstance(proposal_meta.get("patch_generation"), dict) else {}
+    diagnostics: list[dict[str, Any]] = []
+    chosen = dict(patch_generation or proposal_pg or {})
+    lifecycle = dict(lifecycle_state or {})
+    lifecycle_authoritative = False
+    if lifecycle and is_patch_generation_terminal(lifecycle):
+        chosen_run_id = str(chosen.get("run_id") or "")
+        lifecycle_run_id = str(lifecycle.get("run_id") or "")
+        if not chosen or chosen_run_id == lifecycle_run_id or _patch_generation_state_time(lifecycle) >= _patch_generation_state_time(chosen):
+            chosen = dict(lifecycle)
+            lifecycle_authoritative = True
+            diagnostics.append({"type": "terminal_lifecycle_event_authoritative", "item_id": item.item_id, "run_id": lifecycle_run_id})
+        else:
+            diagnostics.append({"type": "older_terminal_lifecycle_event_ignored", "item_id": item.item_id, "run_id": lifecycle_run_id})
+    if proposal_pg and patch_generation:
+        pg_time = str(patch_generation.get("updated_at") or "")
+        prop_time = str(proposal_pg.get("updated_at") or "")
+        chosen_time = _patch_generation_state_time(chosen)
+        proposal_newer_run = str(proposal_pg.get("run_id") or "") != str(chosen.get("run_id") or "") and prop_time > chosen_time
+        if prop_time > pg_time and (not lifecycle_authoritative or proposal_newer_run):
+            chosen = dict(proposal_pg)
+            diagnostics.append({"type": "proposal_patch_generation_newer_than_item_metadata", "item_id": item.item_id})
+    if lifecycle and not chosen:
+        chosen = dict(lifecycle)
+        diagnostics.append({"type": "active_lifecycle_event_reconciled", "item_id": item.item_id, "run_id": str(lifecycle.get("run_id") or "")})
+    if proposal and not chosen:
+        status = str(proposal.get("status") or "").lower()
+        legacy_failure = (
+            status in {"failed", "blocked"}
+            or bool(proposal_meta.get("generation_failed"))
+            or (
+                proposal_meta.get("patch_content_available") is False
+                and (
+                    bool(proposal_meta.get("generation_failure_reason"))
+                    or bool(proposal_meta.get("warnings"))
+                    or status in {"proposed", "approved"}
+                )
+            )
+        )
+        proposal_state = "succeeded" if status in {"proposed", "approved"} and bool(proposal_meta.get("patch_content_available")) else ("failed" if legacy_failure else "running")
+        chosen = {
+            "run_id": str(proposal.get("run_id") or ""),
+            "state": proposal_state,
+            "outcome": "success" if proposal_state == "succeeded" else ("failure" if proposal_state == "failed" else "active"),
+            "reason_code": str(proposal_meta.get("generation_failure_reason") or ("patch_generation_failed" if proposal_state == "failed" else "")),
+            "patch_content_available": bool(proposal_meta.get("patch_content_available")),
+            "updated_at": str(proposal.get("proposed_at") or ""),
+        }
+        diagnostics.append({"type": "legacy_patch_proposal_reconciled", "item_id": item.item_id})
+    if chosen and not is_patch_generation_success(chosen) and str(proposal.get("status") or "").lower() in {"proposed", "approved"}:
+        diagnostics.append({"type": "legacy_status_ignored_without_patch_generation_success", "item_id": item.item_id})
+    if diagnostics:
+        chosen["reconciliation_diagnostics"] = [*list(chosen.get("reconciliation_diagnostics") or []), *diagnostics]
+    return chosen
+
+
+def _patch_generation_lifecycle_states(journal: AtlasJournal, pool_id: str) -> dict[str, dict[str, Any]]:
+    plan_pool_dir = Path(journal.paths(pool_id=pool_id).plan_pool_dir)
+    states: dict[str, dict[str, Any]] = {}
+    for path in sorted(plan_pool_dir.glob("pipeline_runs/*/events.ndjson")):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            event_type = str(event.get("event_type") or "")
+            if not event_type.startswith("patch_generation_"):
+                continue
+            item_id = str(event.get("item_id") or "")
+            if not item_id:
+                continue
+            state = event.get("patch_generation") if isinstance(event.get("patch_generation"), dict) else {}
+            if not state:
+                state = {
+                    "run_id": str(event.get("run_id") or path.parent.name),
+                    "state": str(event.get("state") or event.get("status") or ""),
+                    "outcome": str(event.get("outcome") or ""),
+                    "reason_code": str(event.get("reason_code") or ""),
+                    "updated_at": str(event.get("created_at") or ""),
+                }
+            previous = states.get(item_id) or {}
+            if not previous or _patch_generation_state_time(state) >= _patch_generation_state_time(previous):
+                states[item_id] = dict(state)
+    return states
+
+
+def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, Any] | None = None, patch_lifecycle_states: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     metadata = pool.metadata or {}
     items = list(pool.items or [])
     items_total = len(items)
     current_item = pool.get_item(pool.current_item_id) if pool.current_item_id else None
-    patch_attempted = [item for item in items if isinstance((item.metadata or {}).get("patch_proposal"), dict)]
-    patch_ready = [item for item in patch_attempted if _patch_content_available(item)]
+    lifecycle_states = patch_lifecycle_states or {}
+    patch_state_by_item = {item.item_id: _reconciled_patch_generation_from_item(item, lifecycle_states.get(item.item_id)) for item in items}
+    patch_attempted = [item for item in items if isinstance((item.metadata or {}).get("patch_proposal"), dict) or patch_state_by_item.get(item.item_id)]
+    patch_ready = [item for item in patch_attempted if is_patch_generation_success(patch_state_by_item.get(item.item_id))]
     patch_failed = [
         item
         for item in patch_attempted
-        if not _patch_content_available(item)
-        or str((((item.metadata or {}).get("patch_proposal") or {}).get("status") or "")).lower() in {"failed", "blocked"}
+        if str((patch_state_by_item.get(item.item_id) or {}).get("state") or "").lower() in {"failed", "blocked", "cancelled"}
+    ]
+    patch_active = [
+        item
+        for item in patch_attempted
+        if str((patch_state_by_item.get(item.item_id) or {}).get("state") or "").lower() in {"queued", "running", "validating", "repairing", "retrying"}
+    ]
+    patch_reconciliation_diagnostics = [
+        diag
+        for state in patch_state_by_item.values()
+        for diag in list((state or {}).get("reconciliation_diagnostics") or [])
     ]
     approved_items = [
         item
@@ -1718,6 +1834,9 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
         "authoritative_source": "PlanPool",
         "pool_status": pool_status,
         "autopilot_run_id": "",
+        "patch_generation": {},
+        "patch_generation_items": patch_state_by_item,
+        "reconciliation_diagnostics": patch_reconciliation_diagnostics,
     }
     if current_item:
         try:
@@ -1741,7 +1860,42 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
             "next_actions": ["override safety block", "revise plan", "cancel"],
         }
 
-    if latest_autopilot:
+    if patch_active:
+        active_item = patch_active[-1]
+        active_state = patch_state_by_item.get(active_item.item_id) or {}
+        return {
+            **base,
+            "run_id": str(active_state.get("run_id") or ""),
+            "phase": "patch_generation",
+            "status": str(active_state.get("state") or "running"),
+            "items_started": len(patch_attempted),
+            "items_completed": len(patch_ready),
+            "message": "Patchを生成・検証しています" if str(active_state.get("state") or "") != "repairing" else f"自動修正中: attempt {active_state.get('attempt') or 0}",
+            "requires_user_action": False,
+            "next_actions": ["wait", "cancel"],
+            "authoritative_source": "reconciled patch_generation state",
+            "patch_generation": active_state,
+            "current_item_title": active_item.title,
+        }
+
+    if patch_failed:
+        failed_item = patch_failed[-1]
+        failed_state = patch_state_by_item.get(failed_item.item_id) or {}
+        return {
+            **base,
+            "run_id": str(failed_state.get("run_id") or ""),
+            "phase": "failed" if str(failed_state.get("state") or "") == "failed" else "patch_generation",
+            "status": str(failed_state.get("state") or "failed"),
+            "message": "Patch generation failed before first patch" if str(failed_state.get("state") or "") == "failed" else "Patch generation blocked",
+            "error": str(failed_state.get("reason_code") or "patch_generation_failed"),
+            "block_reason": str(failed_state.get("reason_code") or "") if str(failed_state.get("state") or "") == "blocked" else None,
+            "requires_user_action": True,
+            "next_actions": ["retry", "revise plan", "cancel"],
+            "authoritative_source": "reconciled patch_generation state",
+            "patch_generation": failed_state,
+        }
+
+    if latest_autopilot and not patch_ready:
         run_id = str(latest_autopilot.get("run_id") or "")
         autopilot_run_id = str(latest_autopilot.get("autopilot_run_id") or "")
         status = str(latest_autopilot.get("status") or "running")
@@ -1828,13 +1982,17 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
         }
 
     if patch_ready:
+        ready_state = patch_state_by_item.get(patch_ready[-1].item_id) or {}
         status = "running" if len(patch_ready) < items_total else "completed"
         return {
             **base,
+            "run_id": str(ready_state.get("run_id") or ""),
             "phase": "patch_generation",
             "status": status,
             "message": f"Patch generation {len(patch_ready)}/{items_total}",
             "next_actions": ["wait"] if status == "running" else ["wait", "retry", "cancel"],
+            "authoritative_source": "reconciled patch_generation state",
+            "patch_generation": ready_state,
         }
 
     reason_parts: list[str] = []
@@ -1865,7 +2023,7 @@ def get_plan_pool_runtime_status(pool_id: str, request: Request, workspace_id: s
         raise HTTPException(status_code=404, detail={"error": "plan_pool_not_found", "pool_id": pool_id}) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _runtime_status_from_pool(pool, _latest_autopilot_result_payload(ca_data_root, pool.pool_id))
+    return _runtime_status_from_pool(pool, _latest_autopilot_result_payload(ca_data_root, pool.pool_id), _patch_generation_lifecycle_states(journal, pool.pool_id))
 
 
 @router.get("/plan-pools/{pool_id}/markdown")
@@ -2187,6 +2345,8 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
     if ".." in req.pool_id or ".." in req.item_id:
         raise HTTPException(status_code=400, detail="invalid identifier")
     ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    if not req.run_id:
+        req = req.model_copy(update={"run_id": f"patchgen_{uuid4().hex[:10]}"})
     _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
     try:
         pool = storage.load_pool(req.pool_id)
@@ -2205,7 +2365,7 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
         )
     now = datetime.now(timezone.utc).isoformat()
     _write_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
-        "pool_id": req.pool_id, "item_id": req.item_id, "status": "running",
+        "pool_id": req.pool_id, "item_id": req.item_id, "run_id": req.run_id, "status": "running",
         "started_at": now, "last_token_at": now, "tokens_generated": 0, "phase": "generating",
     })
     llm_json_fn = _resolve_atlas_llm_json_fn(request)
@@ -2218,14 +2378,19 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
         llm_json_fn = llm_json_fn.with_progress(_on_patchgen_progress)
     service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_json_fn)
     result = service.propose_for_item(req)
+    patch_generation = (result.metadata or {}).get("patch_generation") if isinstance((result.metadata or {}).get("patch_generation"), dict) else {}
     _write_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
-        "pool_id": req.pool_id, "item_id": req.item_id, "status": "done",
+        "pool_id": req.pool_id, "item_id": req.item_id, "run_id": result.run_id or req.run_id, "status": "done",
+        "patch_generation": patch_generation,
+        "patch_generation_state": patch_generation.get("state"),
+        "patch_generation_outcome": patch_generation.get("outcome"),
         "finished_at": datetime.now(timezone.utc).isoformat(),
     })
     try:
+        pool = storage.load_pool(req.pool_id)
         recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
         orchestration = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None, recovery=recovery).model_dump()
-        continuation = AtlasContinuationService(journal).build_pool_summary(req.pool_id, req.run_id)
+        continuation = AtlasContinuationService(journal).build_pool_summary(req.pool_id, result.run_id or req.run_id)
         result.plan_pool = pool.model_dump()
         result.recovery_summary = recovery
         result.orchestration_summary = orchestration
@@ -2234,6 +2399,51 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
         result.warnings.append("patch_proposal_enrichment_failed")
         result.warnings.append(str(exc) or exc.__class__.__name__)
     return result
+
+
+class CancelPatchGenerationRequest(BaseModel):
+    pool_id: str
+    item_id: str
+    run_id: str
+    workspace_id: str = "default"
+    reason: str = "user_cancelled"
+
+
+@router.post("/patch-proposals/cancel")
+def cancel_patch_generation(req: CancelPatchGenerationRequest, request: Request) -> dict[str, Any]:
+    if ".." in req.pool_id or ".." in req.item_id:
+        raise HTTPException(status_code=400, detail="invalid identifier")
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
+    _sync_pool_from_workspace_snapshot(storage, journal, req.pool_id)
+    try:
+        pool = storage.load_pool(req.pool_id)
+    except FileNotFoundError:
+        return {"pool_id": req.pool_id, "item_id": req.item_id, "run_id": req.run_id, "status": "blocked", "warnings": ["pool_not_found"]}
+    item = pool.get_item(req.item_id)
+    if item is None:
+        return {"pool_id": req.pool_id, "item_id": req.item_id, "run_id": req.run_id, "status": "blocked", "warnings": ["item_not_found"]}
+    current = (item.metadata or {}).get("patch_generation") if isinstance((item.metadata or {}).get("patch_generation"), dict) else {}
+    active_run_id = str(current.get("run_id") or "")
+    if active_run_id and active_run_id != req.run_id and str(current.get("state") or "") in {"queued", "running", "validating", "repairing", "retrying"}:
+        return {"pool_id": req.pool_id, "item_id": req.item_id, "run_id": req.run_id, "status": "blocked", "warnings": ["patch_generation_run_id_mismatch"], "active_run_id": active_run_id}
+    service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=None)
+    patch_generation = service.persist_patch_generation_transition(
+        pool,
+        item,
+        run_id=req.run_id,
+        event_type="patch_generation_cancelled",
+        state="cancelled",
+        outcome="cancelled",
+        reason_code=req.reason or "user_cancelled",
+        retryable=False,
+    )
+    _merge_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
+        "status": "cancelled",
+        "run_id": req.run_id,
+        "patch_generation": patch_generation,
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"pool_id": req.pool_id, "item_id": req.item_id, "run_id": req.run_id, "status": "cancelled", "patch_generation": patch_generation}
 
 
 @router.get("/patch-proposals/status")

@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_patch_generation_state import is_patch_generation_success
 from agent.atlas_patch_proposal_approval_schema import (
     AtlasPatchProposalApprovalRecord,
     AtlasPatchProposalApprovalRequest,
@@ -64,6 +65,8 @@ class AtlasPatchProposalApprovalService:
                 warnings.append("patch_proposal_approval_blocked")
             else:
                 warnings.append("patch_proposal_not_proposed")
+        if request.decision == "approved" and not is_patch_generation_success((item.metadata or {}).get("patch_generation")):
+            warnings.append("patch_generation_not_successful")
         req_pid = str(request.proposal_id or "").strip()
         item_pid = str(patch.get("proposal_id") or "").strip()
         if req_pid and req_pid != item_pid:

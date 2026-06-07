@@ -10,8 +10,8 @@
 - Canonical goal: `docs/atlas_codegen_completeness_goal.md`
 - Canonical plan: `docs/atlas_codegen_completeness_implementation_plan.md`
 - Baseline commit: `3ac07375610d6de826199be07366f451adfbec63` (PR #1599)
-- Current work package: Completed
-- Next action: Optional improvement only; no required WP remains.
+- Current work package: Incident Work Package Completed
+- Next action: Optional improvement only; no required incident slice remains.
 
 ## Observed current-main capabilities
 
@@ -64,10 +64,11 @@ WP-0 must convert these observations into current-code tests before broad produc
 | WP-6 | Requirement-complete final status | Completed | local WP-6 commit | focused 42 passed; affected 211 passed |
 | WP-7 | Task-aware verification contracts | Completed | local WP-7 commit | focused 6 passed; affected 217 passed |
 | WP-8 | E2E acceptance and final audit | Completed | local WP-8 commit | focused 3 passed; affected 220 passed |
+| Incident | Patch Generation Incident Work Package | Completed | local changes; no PR/merge/push | focused 32 passed; affected 181 passed |
 
 ## Last completed work package
 
-WP-8 - E2E acceptance and final audit.
+Patch Generation Incident Work Package.
 
 ## Current blockers
 
@@ -76,45 +77,54 @@ None recorded.
 ## Latest completed work package evidence
 
 Completed work package:
-WP-8 - E2E acceptance and final audit.
+Patch Generation Incident Work Package - Backend correctness and autonomous repair; State/event propagation and reconciliation; UI projection and refresh reconstruction.
 
 PR/commit:
-Local WP-8 commit created. No PR, merge, or remote push.
+Local changes only. No commit, PR, merge, remote push, self-apply, Safe Apply bypass, approval bypass, or stable workspace mutation.
 
 Changed files:
-- `agent/atlas_auto_verification_service.py`
+- `agent/atlas_autonomous_codegen_orchestrator_service.py`
+- `agent/atlas_correction_router_service.py`
+- `agent/atlas_file_safe_apply_executor.py`
+- `agent/atlas_patch_generation_state.py`
+- `agent/atlas_patch_proposal_approval_service.py`
+- `agent/atlas_patch_proposal_planitem_service.py`
 - `agent/atlas_patch_proposal_service.py`
-- `tests/test_atlas_codegen_completeness_wp8_e2e.py`
+- `agent/atlas_plan_pool_builder.py`
+- `agent/atlas_self_correction_service.py`
+- `app/api/atlas_pipeline.py`
+- `web/js/atlas_claude_panel.js`
+- `web/js/atlas_dashboard.js`
+- `tests/test_atlas_patch_generation_incident.py`
+- affected Atlas patch-generation, approval, runtime-status, orchestration, self-correction, Safe Apply, and PlanPool builder tests
 - `docs/atlas_codegen_completeness_current_status.md`
 
 Behavior implemented:
-- Visual-only verification now evaluates task-specific expected signals against changed-file contents, so browser/game artifacts must prove requested core behaviors rather than only file existence or generic canvas presence.
-- Added WP-8 E2E acceptance tests for browser-game core behavior signals, missing requirement non-completion, unavailable verification non-completion, unknown action fail-closed behavior, legacy skeleton blocking, and append fallback blocking.
-- Corrected a stale production comment so reachable code no longer describes unknown action types as create fallbacks.
-- Completed the required reachable-code audit: remaining skeleton/fallback/TODO/truncation/skipped/partial hits are blocking checks, observability traces, bounded prompt/context truncation, placeholder detectors, or covered by regression tests.
+- `AtlasPlanPoolBuilder` now persists deterministic Requirement mapping repair before patch generation, recomputes `requirement_item_map` and `plan_quality`, and records diagnostics. Ambiguous multi-item mapping persists `plan_revision_required` plus a typed `request_plan_revision` recovery decision without starting Patch generation or creating a failed Proposal artifact.
+- Added pure `reduce_patch_generation_state(current, event) -> next_state` reducer and a separate persistence boundary that updates item metadata/status, pool state/counters, Proposal metadata, lifecycle events, and checkpoint reconstruction inputs using one run ID.
+- Patch Proposal generation now enforces duplicate/idempotent/stale active run protection, cancellation run-ID matching, deterministic content-based Requirement coverage after LLM claim sanitization, and separate satisfied/preserved authorization scopes.
+- Runtime/UI reconciliation now treats `patch_generation.state` and `patch_generation.outcome` as authoritative, preserves current-run Patch state over older generic autopilot restore data, and prevents legacy `status="proposed"` / `patch_content_available` / `generation_failed` from enabling approval, Safe Apply, continuation, Verification, or completed Patch UI.
 
 Tests passed:
-- `python -m pytest -q tests/test_atlas_codegen_completeness_wp8_e2e.py` -> 3 passed.
-- `python -m pytest -q tests/test_atlas_codegen_completeness_wp8_e2e.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_autonomous_codegen_orchestrator_service.py` -> 51 passed.
-- `python -m pytest -q tests/test_atlas_task_verification_contracts.py tests/test_atlas_auto_verification_service.py tests/test_atlas_pr9_visual_depth.py tests/test_visual_contract_matrix.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_file_safe_apply_executor.py` -> 107 passed.
-- `python -m pytest -q tests/test_atlas_pr9_integration_graph.py tests/test_atlas_llm_evaluator_service.py tests/test_atlas_plan_pool_schema.py tests/test_atlas_plan_pool_builder.py` -> 40 passed.
-- `python -m pytest -q tests/test_atlas_codegen_completeness_wp8_e2e.py tests/test_atlas_task_verification_contracts.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_auto_verification_service.py tests/test_atlas_llm_evaluator_service.py tests/test_atlas_pr8_visual_verification_wiring.py tests/test_atlas_pr9_visual_depth.py tests/test_atlas_pr9_integration_graph.py tests/test_atlas_visual_artifact_verifier.py tests/test_visual_contract_matrix.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_plan_pool_schema.py tests/test_atlas_plan_pool_builder.py` -> 220 passed.
+- `python -m pytest -q tests/test_atlas_plan_pool_builder.py tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_patch_generation_incident.py` -> 32 passed.
+- `python -m pytest -q tests/test_atlas_patch_proposal_api.py tests/test_atlas_patch_proposal_manual_ux_flow.py tests/test_atlas_patch_proposal_approval_api.py tests/test_atlas_patch_proposal_planitem_draft_api.py tests/test_atlas_runtime_status_contract.py` -> 59 passed.
+- `python -m pytest -q tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_self_correction_service.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_codegen_completeness_wp8_e2e.py tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_autonomous_codegen_api.py tests/test_atlas_correction_routing.py` -> 90 passed.
+- `python -m pytest -q tests/test_atlas_plan_pool_builder.py tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_patch_generation_incident.py tests/test_atlas_patch_proposal_api.py tests/test_atlas_patch_proposal_manual_ux_flow.py tests/test_atlas_patch_proposal_approval_api.py tests/test_atlas_patch_proposal_planitem_draft_api.py tests/test_atlas_runtime_status_contract.py tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_self_correction_service.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_codegen_completeness_wp8_e2e.py tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_autonomous_codegen_api.py tests/test_atlas_correction_routing.py` -> 181 passed.
 
 Syntax checks:
-- `python -m py_compile agent/atlas_auto_verification_service.py agent/atlas_patch_proposal_service.py tests/test_atlas_codegen_completeness_wp8_e2e.py tests/test_atlas_task_verification_contracts.py` -> passed.
-- `git diff --check` -> passed.
+- `python -m py_compile` for all changed Python files -> passed.
 
 Safety invariants:
-- Production changes are limited to visual-only expected-signal evaluation and a non-functional comment correction.
-- Safe apply, approval, path, rollback, PlanPool authority, bounded allowlisted verification command surfaces, and context-refresh sequencing remain unchanged.
-- No direct merge, remote push, self-apply, stable runtime mutation, Vue authority, arbitrary unbounded command execution, or fabricated verification results introduced.
-- Backend PlanPool remains authoritative for item state and persisted verification evidence.
+- `patch_generation.state` and `patch_generation.outcome` are authoritative for new success/failure decisions.
+- Legacy Proposal fields remain for serialization/recovery only and cannot authorize approval, Safe Apply, automatic continuation to Apply, Verification, or completed Patch-stage UI when `patch_generation.outcome != success`.
+- UI remains display-only; Apply and Verification stay separate phases.
+- Safe Apply, approval, path, rollback, PlanPool authority, retry limit, critical-event handling, and backend workflow authority remain intact.
 
 Remaining gaps:
 - None required. Remaining work is optional improvement only.
 
 Next work package:
-None - all WP rows Completed.
+None - all WP rows and the Incident Work Package are Completed.
 
 ## Token-saving resume note
 

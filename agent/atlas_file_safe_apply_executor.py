@@ -13,6 +13,7 @@ from agent.atlas_plan_item_file_changes import (
     validate_protected_relative_path,
 )
 from agent.atlas_placeholder_detector import has_blocking_placeholder_content, is_placeholder_only_content
+from agent.atlas_patch_generation_state import is_patch_generation_success
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 
 _MAX_CONTENT_BYTES = 1024 * 1024
@@ -389,6 +390,8 @@ class AtlasFileSafeApplyExecutor:
             return "proposal_review_not_passed"
         if proposal_metadata.get("patch_content_available") is False and patch_proposal:
             return "proposal_content_unavailable"
+        if metadata.get("patch_proposal") and not is_patch_generation_success(metadata.get("patch_generation")):
+            return "patch_generation_not_successful"
         return ""
 
     @staticmethod

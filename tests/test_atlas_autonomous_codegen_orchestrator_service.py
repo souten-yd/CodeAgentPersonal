@@ -71,7 +71,15 @@ class FakeProposalService:
             item_id=request.item_id,
             run_id=request.run_id,
             status="proposed",
-            metadata={"patch_content_available": available},
+            metadata={
+                "patch_content_available": available,
+                "patch_generation": {
+                    "run_id": request.run_id,
+                    "state": "succeeded" if available else "failed",
+                    "outcome": "success" if available else "failure",
+                    "patch_content_available": available,
+                },
+            },
             warnings=[] if available else ["patch_content_unavailable"],
         )
 

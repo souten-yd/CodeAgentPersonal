@@ -125,7 +125,15 @@ class _CapturingProposalService:
             item_id=request.item_id,
             run_id=request.run_id,
             status="proposed",
-            metadata={"patch_content_available": True},
+            metadata={
+                "patch_content_available": True,
+                "patch_generation": {
+                    "run_id": request.run_id,
+                    "state": "succeeded",
+                    "outcome": "success",
+                    "patch_content_available": True,
+                },
+            },
         )
 
 

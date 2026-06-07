@@ -9,12 +9,18 @@ from tests.test_atlas_patch_proposal_api import _create_pool, _set_debug_review
 
 def _client(tmp_path):
     main.app.state.atlas_ca_data_dir = str(tmp_path)
-    main.app.state.atlas_llm_json_fn = None
+    main.app.state.atlas_llm_json_fn = lambda _s, _u: {
+        "target_files": ["a.py"],
+        "proposed_content": "print('patch proposal ok')\n",
+        "implemented_symbols": ["a.py"],
+        "behavioral_cases": ["patch proposal ok"],
+        "verification_cases": ["manual"],
+    }
     return TestClient(main.app)
 
 
 def _propose(c, pool_id, item_id, run_id='rpp'):
-    return c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool_id, 'item_id': item_id, 'run_id': run_id}).json()
+    return c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool_id, 'item_id': item_id, 'run_id': run_id, 'source_type': 'plan_item'}).json()
 
 
 def test_patch_proposal_approval_requires_existing_proposal(tmp_path):
