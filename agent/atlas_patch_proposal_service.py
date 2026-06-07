@@ -219,7 +219,10 @@ class AtlasPatchProposalService:
         if requested != "debug_review":
             return requested
         debug_review = (item.metadata or {}).get("debug_review") or {}
-        if not request.run_id and str(debug_review.get("status") or "").lower() != "analyzed":
+        # Auto-detect: if the item has no debug_review data, it's a plan item (not an incident repair).
+        # Only enforce the debug_review gate when the item actually carries debug_review metadata
+        # (e.g. it was created via incident repair flow) but that review isn't yet marked "analyzed".
+        if not debug_review:
             return "plan_item"
         return "debug_review"
 
