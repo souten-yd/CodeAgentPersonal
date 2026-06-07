@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest, AtlasAutoVerificationResult
 from agent.atlas_playwright_smoke_verifier import AtlasPlaywrightSmokeVerifier
 from agent.atlas_requirement_tracer import AtlasRequirementTracer
+from agent.atlas_task_verification_contracts import evaluate_expected_signals, select_task_verification_contract
 from agent.atlas_verification_allowlist import atlas_verification_allowlist
 from agent.atlas_visual_artifact_verifier import AtlasVisualArtifactVerifier
 from agent.atlas_visual_contract_registry import VisualContract, VisualContractRegistry
@@ -45,6 +46,10 @@ class AtlasAutoVerificationService:
         item = pool.get_item(request.item_id)
         if item is None:
             return AtlasAutoVerificationResult(pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, preset_id=request.preset_id, status="blocked", warnings=["item_not_found"], plan_pool=pool.model_dump())
+        task_contract = select_task_verification_contract(item, pool)
+        self._persist_task_contract(pool, item, task_contract, status="selected")
+        self.storage.save_pool(pool)
+        self.journal.save_plan_pool(pool)
         safe_apply_meta = ((item.metadata or {}).get("safe_apply") or {})
         safe = safe_apply_meta.get("status")
         auto_safe = ((item.metadata or {}).get("auto_safe_apply") or {}).get("status")
@@ -94,6 +99,7 @@ class AtlasAutoVerificationService:
         status, classify_warnings = self._classify(res, command_id)
         warnings = [*classify_warnings, *res.warnings]
         metadata: dict = {"workspace_root": workspace_root}
+        metadata["task_verification_contract"] = task_contract.model_dump()
 
         # Supplemental visual check (PR-9a): a passing unit test does not prove a visual artifact
         # works, so for visual HTML tasks also run the static contract (+ optional smoke) and let a
@@ -127,6 +133,14 @@ class AtlasAutoVerificationService:
                 elif ev["verify_level"]:
                     metadata["verify_level"] = ev["verify_level"]
 
+        signal_eval = self._evaluate_task_contract_signals(task_contract, res, item, workspace_root)
+        metadata["task_verification_contract"].update(signal_eval)
+        if status == "passed" and signal_eval.get("status") == "failed":
+            status = "failed"
+            for signal in signal_eval.get("missing_signals") or []:
+                warnings.append(f"task_signal_missing:{signal}")
+            warnings.extend([f"repair_instruction:{text}" for text in task_contract.repair_instructions])
+
         coverage = self._requirement_coverage(pool, item, workspace_root, status=status)
         metadata["requirement_coverage"] = coverage
         pool_coverage = self._pool_requirement_coverage_progress(pool, item, workspace_root, status=status)
@@ -144,6 +158,7 @@ class AtlasAutoVerificationService:
         out = AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status=status, verification_result=res.model_dump(), command_id=command_id, command=command, exit_code=res.returncode, stdout_tail=(res.stdout or "")[-4000:], stderr_tail=(res.stderr or "")[-4000:], warnings=warnings, errors=list(res.errors), metadata=metadata, plan_pool=pool.model_dump())
         item.metadata.setdefault("auto_verification", {})
         item.metadata["auto_verification"].update({"status": status, "command_id": command_id, "verified_at": datetime.now(timezone.utc).isoformat()})
+        self._persist_task_contract(pool, item, task_contract, status=status, evidence=metadata.get("task_verification_contract"))
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
         out.plan_pool = pool.model_dump()
@@ -306,11 +321,19 @@ class AtlasAutoVerificationService:
         that has no allowlisted test command."""
         html_path = Path(workspace_root) / html_rel
         ev = self._evaluate_visual(html_path, self._visual_task_description(item, pool))
+        task_contract = select_task_verification_contract(item, pool)
         warnings = list(ev["warnings"])
         metadata: dict = {
             "workspace_root": workspace_root,
             "visual_contract": ev["static"],
             "browser_smoke": ev["smoke"],
+            "task_verification_contract": {
+                **task_contract.model_dump(),
+                "status": "passed" if not ev["hard_failed"] else "failed",
+                "visual_contract_id": ev.get("contract_id", ""),
+                "missing_signals": list((ev["static"] or {}).get("missing") or []),
+                "repair_instructions": list(task_contract.repair_instructions),
+            },
         }
         missing = list((ev["static"] or {}).get("missing") or [])
         # A runtime smoke pass overrides static misses (advisory only); only attribute the failure
@@ -355,6 +378,7 @@ class AtlasAutoVerificationService:
             "browser_smoke_status": ev["smoke"].get("status"),
             "verified_at": datetime.now(timezone.utc).isoformat(),
         })
+        self._persist_task_contract(pool, item, task_contract, status=status, evidence=metadata.get("task_verification_contract"))
 
         # Persist classification + contract in pool metadata for UI observability
         pool.metadata.setdefault("visual_pipeline", {})
@@ -380,6 +404,36 @@ class AtlasAutoVerificationService:
         if path.is_absolute() or ".." in path.parts:
             return False
         return True
+
+    def _persist_task_contract(self, pool, item, contract, *, status: str, evidence: dict | None = None) -> None:
+        item.metadata.setdefault("task_verification_contract", {})
+        item.metadata["task_verification_contract"].update({
+            **contract.model_dump(),
+            "status": status,
+            **(evidence or {}),
+        })
+        pool.metadata.setdefault("task_verification_contracts", {})
+        pool.metadata["task_verification_contracts"][item.item_id] = dict(item.metadata["task_verification_contract"])
+
+    def _evaluate_task_contract_signals(self, contract, command_result, item, workspace_root: str) -> dict:
+        changed_files = self._changed_files_for_requirement_check(item)
+        file_contents = {
+            rel: text
+            for rel in changed_files
+            if (text := self._read_single_requirement_evidence(workspace_root, rel)) is not None
+        }
+        output_text = "\n".join([
+            str(getattr(command_result, "stdout", "") or ""),
+            str(getattr(command_result, "stderr", "") or ""),
+        ])
+        result = evaluate_expected_signals(contract, output_text=output_text, file_contents=file_contents)
+        result["repair_instructions"] = list(contract.repair_instructions)
+        result["evidence_sources"] = {
+            "stdout": bool(str(getattr(command_result, "stdout", "") or "")),
+            "stderr": bool(str(getattr(command_result, "stderr", "") or "")),
+            "changed_files": changed_files,
+        }
+        return result
 
     @staticmethod
     def _visual_evidence_satisfies(metadata: dict) -> bool:

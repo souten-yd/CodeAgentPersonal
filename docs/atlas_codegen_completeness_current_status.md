@@ -10,8 +10,8 @@
 - Canonical goal: `docs/atlas_codegen_completeness_goal.md`
 - Canonical plan: `docs/atlas_codegen_completeness_implementation_plan.md`
 - Baseline commit: `3ac07375610d6de826199be07366f451adfbec63` (PR #1599)
-- Current work package: WP-7
-- Next action: Add task-aware verification contracts and ensure verification unavailable results in applied_unverified or blocked, never completed.
+- Current work package: WP-8
+- Next action: Run E2E acceptance and final audit for the code generation completeness goal.
 
 ## Observed current-main capabilities
 
@@ -62,12 +62,12 @@ WP-0 must convert these observations into current-code tests before broad produc
 | WP-4 | Fail-closed generation quality | Completed | local WP-4 commit | focused 44 passed; affected 106 passed |
 | WP-5 | Remove skeleton/fail-open fallbacks | Completed | local WP-5 commit | focused 50 passed; affected 166 passed |
 | WP-6 | Requirement-complete final status | Completed | local WP-6 commit | focused 42 passed; affected 211 passed |
-| WP-7 | Task-aware verification contracts | Not started | - | - |
+| WP-7 | Task-aware verification contracts | Completed | local WP-7 commit | focused 6 passed; affected 217 passed |
 | WP-8 | E2E acceptance and final audit | Not started | - | - |
 
 ## Last completed work package
 
-WP-6 - Requirement-complete final status.
+WP-7 - Task-aware verification contracts.
 
 ## Current blockers
 
@@ -76,55 +76,46 @@ None recorded.
 ## Latest completed work package evidence
 
 Completed work package:
-WP-6 - Requirement-complete final status.
+WP-7 - Task-aware verification contracts.
 
 PR/commit:
-Local WP-6 commit to be created after this status update. No PR, merge, or remote push.
+Local WP-7 commit to be created after this status update. No PR, merge, or remote push.
 
 Changed files:
 - `agent/atlas_auto_verification_service.py`
-- `agent/atlas_llm_evaluator_service.py`
-- `agent/atlas_multi_item_autopilot_service.py`
-- `agent/atlas_requirement_tracer.py`
-- `agent/atlas_run_quality_rollup.py`
-- `agent/atlas_visual_contract_registry.py`
-- `tests/test_atlas_auto_verification_service.py`
-- `tests/test_atlas_codegen_completeness_baseline.py`
-- `tests/test_atlas_llm_evaluator_service.py`
-- `tests/test_atlas_pr8_visual_verification_wiring.py`
-- `tests/test_visual_contract_matrix.py`
-- `tests/visual_fixtures.py`
+- `agent/atlas_task_verification_contracts.py`
+- `tests/test_atlas_task_verification_contracts.py`
 - `docs/atlas_codegen_completeness_current_status.md`
 
 Behavior implemented:
-- Requirement tracing now supports `planned`, `implemented`, `verified`, `verified_static`, `partial`, `missing`, and `unverified`, with success limited to mandatory requirements that are verified or verified_static.
-- Run quality rollup now maps explicit `requirement_id` evidence before keyword fallback and persists planned items/files, changed files, implemented symbols/signals, verification method/status, and evidence path per requirement.
-- Partial, missing, planned, implemented, or unverified mandatory requirements now degrade final success; autonomous quality/coverage enforcement defaults to blocking for full-autopilot runs.
-- Verification skipped no longer completes implementation items; run status becomes `applied_unverified` when applied changes lack verification.
-- Evaluator policy overrides `continue` when verification is skipped/blocked or requirement coverage is incomplete.
-- Visual contract selection now uses the classifier-specific contract so passing generic tests cannot verify missing runtime visual behavior, while static visual evidence can satisfy explicitly static/visual requirements.
+- Added a task verification contract registry for Python module/service, API endpoint, browser/HTML/UI, canvas/game, persistence/state reload, multi-file integration, and unknown task fallback.
+- PlanItems now persist the selected task verification contract and expected signals on item metadata and pool rollup metadata during auto verification.
+- Command verification now evaluates expected response/runtime signals against command output and changed-file contents, failing with actionable repair instructions when signals are missing.
+- Visual-only verification now stores task contract evidence alongside the existing static visual contract and browser smoke evidence.
+- Contract inference is item-scoped so pool-level goals do not misclassify unrelated items, while multi-file integration tasks select the integration contract before API/Python fallbacks.
+- Selected contracts are durably stored before blocked or skipped verification returns, without converting unavailable verification into completion.
 
 Tests passed:
-- `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_auto_verification_service.py tests/test_atlas_llm_evaluator_service.py tests/test_atlas_pr8_visual_verification_wiring.py tests/test_atlas_multi_item_autopilot_service.py` -> 42 passed.
-- `python -m pytest -q tests/test_atlas_pr9_visual_depth.py tests/test_visual_contract_matrix.py tests/test_atlas_pr8_visual_verification_wiring.py` -> 65 passed.
-- `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_auto_verification_service.py tests/test_atlas_llm_evaluator_service.py tests/test_atlas_pr8_visual_verification_wiring.py tests/test_atlas_pr9_visual_depth.py tests/test_atlas_pr9_integration_graph.py tests/test_atlas_visual_artifact_verifier.py tests/test_visual_contract_matrix.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_plan_pool_schema.py tests/test_atlas_plan_pool_builder.py` -> 211 passed.
+- `python -m pytest -q tests/test_atlas_task_verification_contracts.py` -> 6 passed.
+- `python -m pytest -q tests/test_atlas_task_verification_contracts.py tests/test_atlas_auto_verification_service.py tests/test_atlas_pr9_visual_depth.py tests/test_visual_contract_matrix.py` -> 74 passed.
+- `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_pr9_integration_graph.py` -> 29 passed.
+- `python -m pytest -q tests/test_atlas_task_verification_contracts.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_auto_verification_service.py tests/test_atlas_llm_evaluator_service.py tests/test_atlas_pr8_visual_verification_wiring.py tests/test_atlas_pr9_visual_depth.py tests/test_atlas_pr9_integration_graph.py tests/test_atlas_visual_artifact_verifier.py tests/test_visual_contract_matrix.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_plan_pool_schema.py tests/test_atlas_plan_pool_builder.py` -> 217 passed.
 
 Syntax checks:
-- `python -m py_compile agent/atlas_requirement_tracer.py agent/atlas_run_quality_rollup.py agent/atlas_auto_verification_service.py agent/atlas_llm_evaluator_service.py agent/atlas_multi_item_autopilot_service.py agent/atlas_visual_contract_registry.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_auto_verification_service.py tests/test_atlas_llm_evaluator_service.py tests/test_atlas_pr8_visual_verification_wiring.py tests/test_atlas_multi_item_autopilot_service.py tests/test_visual_contract_matrix.py tests/visual_fixtures.py` -> passed.
+- `python -m py_compile agent/atlas_task_verification_contracts.py agent/atlas_auto_verification_service.py tests/test_atlas_task_verification_contracts.py` -> passed.
 - `git diff --check` -> passed.
 
 Safety invariants:
-- Production changes are limited to verification evidence classification, final rollup gating, evaluator overrides, and visual contract selection.
-- Safe apply, approval, path, rollback, PlanPool authority, and bounded verification/evaluator surfaces remain unchanged.
+- Production changes are limited to task verification contract selection, expected-signal evaluation, and evidence persistence in the existing auto verification surface.
+- Safe apply, approval, path, rollback, PlanPool authority, and bounded allowlisted verification command surfaces remain unchanged.
 - No direct merge, remote push, self-apply, stable runtime mutation, Vue authority, arbitrary unbounded command execution, or fabricated verification results introduced.
-- Backend PlanPool remains authoritative for item state and persisted proposal evidence.
+- Backend PlanPool remains authoritative for item state and persisted verification evidence.
 
 Remaining gaps:
-- WP-7 must add task-aware verification contracts.
 - WP-8 must complete E2E acceptance and final audit.
 
 Next work package:
-WP-7 - Task-aware verification contracts.
+WP-8 - E2E acceptance and final audit.
 
 ## Token-saving resume note
 
@@ -133,8 +124,8 @@ On resume:
 1. Read `AGENTS.md`.
 2. Read the canonical goal.
 3. Read this status.
-4. Read only WP-7 in the canonical plan.
-5. Inspect only files listed by WP-7 and related tests.
+4. Read only WP-8 in the canonical plan.
+5. Inspect only files listed by WP-8 and related tests.
 6. Do not rescan old plans or roadmaps.
 
 ## Update template
