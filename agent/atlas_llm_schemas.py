@@ -157,7 +157,7 @@ def plan_generation_json_schema() -> dict:
             "verification": {"type": "string"},
             "rollback": {"type": "string"},
         },
-        "required": ["title", "description", "goal", "acceptance_criteria", "action_type"],
+        "required": ["title", "description", "goal", "acceptance_criteria", "action_type", "target_files"],
         "additionalProperties": True,
     }
     properties = {
@@ -174,6 +174,6 @@ def plan_generation_json_schema() -> dict:
     return {
         "type": "object",
         "properties": properties,
-        "required": ["implementation_steps"],
+        "required": ["implementation_steps", "test_plan", "rollback_plan"],
         "additionalProperties": True,
     }

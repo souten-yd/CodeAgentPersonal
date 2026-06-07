@@ -381,7 +381,7 @@ class NexusContextBuilder:
         files = sorted(plans_dir.glob("*.plan.json"), key=_mtime_key, reverse=True)[:10]
         for p in files:
             try:
-                data = json.loads(_safe_read_text(p, max_chars=14000) or "{}")
+                data = json.loads(_safe_read_text(p, max_chars=200000) or "{}")
                 text = "\n".join(
                     [
                         str(data.get("user_goal") or ""),
