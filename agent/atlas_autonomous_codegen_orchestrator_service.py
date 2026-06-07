@@ -23,6 +23,7 @@ from agent.atlas_multi_item_autopilot_schema import (
     AtlasMultiItemAutopilotRequest,
     AtlasMultiItemAutopilotResult,
 )
+from agent.atlas_patch_generation_state import is_patch_generation_success
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
 from agent.atlas_plan_item_file_changes import has_file_change_content, normalize_plan_item_file_changes
 from agent.atlas_recovery_service import AtlasRecoveryService
@@ -346,7 +347,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                         source_type="plan_item",
                     )
                 )
-                available = bool((pres.metadata or {}).get("patch_content_available"))
+                available = is_patch_generation_success((pres.metadata or {}).get("patch_generation"))
                 reason = "" if available else (pres.warnings[0] if pres.warnings else "patch_content_unavailable")
                 out.proposal_results.append(
                     AtlasAutonomousCodegenProposalResult(

@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import main
+from tests.test_atlas_patch_proposal_api import _create_pool as _seed_patch_pool
 
 
 API = Path("app/api/atlas_pipeline.py")
@@ -17,18 +18,32 @@ def _client(tmp_path):
 
 
 def _seed_pool(client):
-    pool = client.post("/api/atlas/plan-pools", json={"input": "x"}).json()["plan_pool"]
+    pool = _seed_patch_pool(client)["plan_pool"]
     item = pool["items"][0]
     return pool["pool_id"], item["item_id"]
 
 
 def _set_patch(client, pool_id, item_id, status="approved", approval=True, target_files=None, risk="low"):
-    pool = client.get(f"/api/atlas/plan-pools/{pool_id}").json()
+    pool = client.get(f"/api/atlas/plan-pools/{pool_id}").json()["plan_pool"]
     item = next(i for i in pool["items"] if i["item_id"] == item_id)
     item.setdefault("metadata", {})["patch_proposal"] = {
         "status": status, "proposal_id": "p1", "summary": "s", "proposed_fix": "f", "risk_level": risk,
         "target_files": target_files if target_files is not None else ["agent/x.py"], "suggested_changes": [{"a": 1}],
         "verification_plan": ["v"], "rollback_plan": ["r"],
+        "metadata": {
+            "patch_generation": {
+                "run_id": "r1",
+                "state": "succeeded",
+                "outcome": "success",
+                "patch_content_available": True,
+            }
+        },
+    }
+    item["metadata"]["patch_generation"] = {
+        "run_id": "r1",
+        "state": "succeeded",
+        "outcome": "success",
+        "patch_content_available": True,
     }
     if approval:
         item["metadata"]["patch_proposal_approval"] = {"decision": "approved"}

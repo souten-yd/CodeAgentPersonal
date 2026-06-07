@@ -132,14 +132,15 @@ def test_codegen_semantic_validation_retries_until_evidence_is_complete(tmp_path
     assert reloaded.metadata["patch_proposal"]["metadata"]["semantic_validation"]["status"] == "passed"
 
 
-def test_codegen_rejects_requirement_ids_not_authorized_by_item(tmp_path: Path) -> None:
+def test_codegen_repairs_unauthorized_requirement_ids_and_retains_candidate(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text("def score():\n    return 1\n", encoding="utf-8")
 
     def llm(_system: str, _user: str) -> dict:
         return {
             "target_files": ["app.py"],
             "edits": [{"old_string": "return 1", "new_string": "return 2  # score increments"}],
-            "satisfied_requirement_ids": ["req_other"],
+            "satisfied_requirement_ids": ["req_score", "req_other"],
+            "preserved_requirement_ids": ["req_done", "req_999"],
             "implemented_symbols": ["score"],
             "behavioral_cases": ["Score increments"],
             "verification_cases": ["pytest score"],
@@ -153,11 +154,75 @@ def test_codegen_rejects_requirement_ids_not_authorized_by_item(tmp_path: Path) 
         AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_001", source_type="plan_item", run_id="run_1")
     )
 
-    assert result.metadata["patch_content_available"] is False
-    assert "semantic_validation_failed" in (result.proposal.warnings if result.proposal else result.warnings)
+    assert result.metadata["patch_generation"]["outcome"] == "success"
+    assert result.metadata["patch_content_available"] is True
     reloaded = storage.load_pool("pool_1").get_item("item_001")
     assert reloaded is not None
-    assert "edits" not in reloaded.metadata
+    assert reloaded.metadata["edits"][0]["new_string"].endswith("score increments")
+    proposal_meta = reloaded.metadata["patch_proposal"]["metadata"]
+    assert proposal_meta["satisfied_requirement_ids"] == ["req_score"]
+    assert proposal_meta["preserved_requirement_ids"] == ["req_done"]
+    auth = proposal_meta["requirement_claim_authorization"]
+    assert auth["unauthorized_satisfied_requirement_ids"] == ["req_other"]
+    assert auth["unauthorized_preserved_requirement_ids"] == ["req_999"]
+
+
+def test_incident_helloworld_requirement_mapping_and_claim_repair_end_to_end(tmp_path: Path) -> None:
+    def llm(_system: str, _user: str) -> dict:
+        return {
+            "target_files": ["hello_world.html"],
+            "proposed_content": "<!doctype html><html><body>HelloWorld</body></html>",
+            "satisfied_requirement_ids": ["req_001", "req_002", "req_003", "req_999"],
+            "implemented_symbols": ["hello_world.html"],
+            "behavioral_cases": ["Display HelloWorld"],
+            "verification_cases": ["static html"],
+        }
+
+    item = AtlasPlanItem(
+        item_id="item_hello",
+        pool_id="pool_hello",
+        title="Create HelloWorld HTML",
+        goal="Create a simple HTML file displaying HelloWorld.",
+        description="Create hello_world.html displaying HelloWorld.",
+        item_type="implementation",
+        status="ready",
+        risk_level="low",
+        target_files=["hello_world.html"],
+        requirement_ids=["req_001", "req_002", "req_003"],
+        acceptance_criteria=["HelloWorld appears"],
+        verification_contract={"contract_id": "static_html", "signals": ["HelloWorld"]},
+        metadata={"action_type": "create"},
+    )
+    pool = AtlasPlanPool(
+        pool_id="pool_hello",
+        root_goal="Create a simple HTML file displaying HelloWorld.",
+        original_user_request="Create a simple HTML file displaying HelloWorld.",
+        requirements=[
+            {"requirement_id": "req_001", "description": "Display HelloWorld", "required": True},
+            {"requirement_id": "req_002", "description": "Create HTML file", "required": True},
+            {"requirement_id": "req_003", "description": "Simple HelloWorld page", "required": True},
+        ],
+        requirement_item_map={"req_001": ["item_hello"], "req_002": ["item_hello"], "req_003": ["item_hello"]},
+        project_path=str(tmp_path),
+        status="ready",
+        items=[item],
+    )
+    service, storage = _service(tmp_path, pool, llm=llm)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_hello", item_id="item_hello", source_type="plan_item", run_id="run_hello")
+    )
+
+    assert result.metadata["patch_generation"]["state"] == "succeeded"
+    assert result.metadata["patch_generation"]["outcome"] == "success"
+    assert result.metadata["patch_content_available"] is True
+    reloaded = storage.load_pool("pool_hello").get_item("item_hello")
+    assert reloaded is not None
+    assert reloaded.metadata["patch_generation"]["state"] == "succeeded"
+    assert reloaded.metadata["patch_proposal"]["metadata"]["satisfied_requirement_ids"] == ["req_001", "req_002", "req_003"]
+    assert "req_999" in reloaded.metadata["patch_proposal"]["metadata"]["requirement_claim_authorization"]["unauthorized_satisfied_requirement_ids"]
+    assert "safe_apply" not in reloaded.metadata
+    assert "verification_result" not in reloaded.metadata
 
 
 def test_codegen_rejects_incomplete_multifile_response(tmp_path: Path) -> None:

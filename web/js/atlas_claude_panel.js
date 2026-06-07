@@ -1240,12 +1240,10 @@
         const prop = r && r.ok && r.data ? r.data.proposal : null;
         const propMeta = (prop && prop.metadata) || {};
         const resultMeta = (r && r.ok && r.data && r.data.metadata) || {};
-        const hasContent = !!(
-          (prop && prop.unified_diff_preview)
-          || propMeta.proposed_content
-          || propMeta.patch_content_available === true
-          || resultMeta.patch_content_available === true
-        );
+        const patchGeneration = resultMeta.patch_generation || propMeta.patch_generation || {};
+        const hasContent = patchGeneration.state === 'succeeded'
+          && patchGeneration.outcome === 'success'
+          && patchGeneration.patch_content_available === true;
         if (hasContent) {
           generated += 1;
           appliableIds.push(itemId);
@@ -1276,15 +1274,16 @@
         updateStage(stages, 'patch', 'running', `${i + 1}/${items.length}`);
         renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
           phase: 'patch_generation',
-          status: 'running',
+          status: patchGeneration.state || 'running',
           items_total: items.length,
           items_started: i + 1,
           items_completed: generated,
           current_item_index: i + 1,
           current_item_title: it.title || itemId,
-          message: `Patch generation ${i + 1}/${items.length}`,
+          message: patchGeneration.state === 'repairing' ? `自動修正中: attempt ${patchGeneration.attempt || 0}` : `Patch generation ${i + 1}/${items.length}`,
           next_actions: ['wait', 'cancel'],
           authoritative_source: '/api/atlas/patch-proposals/generate',
+          patch_generation: patchGeneration,
         }), stages);
       }
       if (generated === 0) {
@@ -1544,6 +1543,18 @@
     const poolId = view.pool_id || (block && block.dataset && block.dataset.poolId) || 'runtime';
     const panel = block || appendStageBlock(poolId);
     if (!panel) return null;
+    const incomingPatch = view.patch_generation || {};
+    const incomingRunId = incomingPatch.run_id || view.run_id || '';
+    const previousPatch = panel.__atlasPatchGenerationState || null;
+    const previousRunId = previousPatch?.run_id || '';
+    const incomingPatchSpecific = !!(incomingPatch.state || incomingPatch.outcome);
+    if (previousPatch && !incomingPatchSpecific && previousRunId && incomingRunId && previousRunId !== incomingRunId) {
+      return panel;
+    }
+    if (previousPatch && !incomingPatchSpecific && ['repairing', 'failed', 'blocked', 'succeeded'].includes(String(previousPatch.state || ''))) {
+      return panel;
+    }
+    if (incomingPatchSpecific) panel.__atlasPatchGenerationState = Object.assign({}, incomingPatch, { run_id: incomingRunId || incomingPatch.run_id || '' });
     const phase = String(view.phase || 'patch_generation');
     const status = String(view.status || 'waiting');
     const total = Number(view.items_total || 0);
@@ -1564,8 +1575,11 @@
         updateStage(panel, 'patch', 'failed', view.error || view.message || 'failed before first patch');
       }
     } else if (phase === 'patch_generation') {
-      const detail = total ? `${started}/${total}` : (view.message || 'Patch generation has not started');
-      updateStage(panel, 'patch', status === 'running' ? 'running' : 'pending', detail);
+      const patchState = String((incomingPatch.state || status || '')).toLowerCase();
+      const activeRepair = patchState === 'repairing';
+      const detail = activeRepair ? `自動修正中: attempt ${incomingPatch.attempt || 0}` : (total ? `${started}/${total}` : (view.message || 'Patchを生成・検証しています'));
+      const stageState = ['failed', 'blocked'].includes(patchState) ? 'failed' : (patchState === 'succeeded' ? 'done' : (status === 'running' || ['queued', 'validating', 'repairing', 'retrying'].includes(patchState) ? 'running' : 'pending'));
+      updateStage(panel, 'patch', stageState, detail);
     } else if (phase === 'applying') {
       updateStage(panel, 'patch', 'done', `${completed || started}/${total || '-'}`);
       updateStage(panel, 'approve', 'done', '');
@@ -1593,7 +1607,9 @@
         `run_id: ${view.autopilot_run_id || view.run_id || '-'}`,
         `items: ${started}/${total}, completed ${completed}`,
         view.current_item_title ? `current item: ${view.current_item_index || 0}. ${view.current_item_title}` : '',
-        `message: ${view.message || (phase === 'patch_generation' && started === 0 ? 'Patch generation has not started' : '-')}`,
+        `message: ${view.message || (phase === 'patch_generation' && started === 0 ? 'Patchを生成・検証しています' : '-')}`,
+        incomingPatch.strategy ? `repair strategy: ${incomingPatch.strategy}` : '',
+        incomingPatch.attempt ? `attempt: ${incomingPatch.attempt}` : '',
         view.block_reason ? `block reason: ${view.block_reason}` : '',
         view.error ? `error: ${view.error}` : '',
         `user action required: ${view.requires_user_action ? 'yes' : 'no'}`,
@@ -1613,6 +1629,20 @@
 
   function renderPipelineSummary(block, d) {
     if (!block) return;
+    const activePatch = block.__atlasPatchGenerationState || null;
+    if (activePatch && ['repairing', 'failed', 'blocked', 'succeeded'].includes(String(activePatch.state || ''))) {
+      renderRuntimeStatusPanel(runtimeStatusPayload(block.dataset?.poolId || '', {
+        phase: 'patch_generation',
+        status: activePatch.state,
+        run_id: activePatch.run_id || '',
+        message: activePatch.state === 'repairing' ? `自動修正中: attempt ${activePatch.attempt || 0}` : (activePatch.reason_code || 'Patch generation status restored'),
+        requires_user_action: ['failed', 'blocked'].includes(String(activePatch.state || '')),
+        next_actions: activePatch.state === 'repairing' ? ['wait', 'cancel'] : ['retry', 'revise plan', 'cancel'],
+        authoritative_source: 'reconciled patch_generation state',
+        patch_generation: activePatch,
+      }), block);
+      if (activePatch.state === 'repairing') return;
+    }
     const summary = block.querySelector('.atlas-claude-summary-block');
     if (!summary) return;
     summary.innerHTML = '';

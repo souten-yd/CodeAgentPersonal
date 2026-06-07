@@ -229,6 +229,75 @@ def _build_requirement_item_map(items: list[AtlasPlanItem]) -> dict[str, list[st
     return mapping
 
 
+def _required_requirement_ids(requirements: list[dict[str, Any]]) -> list[str]:
+    return [
+        str(req.get("requirement_id") or "").strip()
+        for req in requirements
+        if str(req.get("requirement_id") or "").strip() and req.get("required", True) is not False
+    ]
+
+
+def _normalize_requirement_item_mapping(
+    *,
+    requirements: list[dict[str, Any]],
+    items: list[AtlasPlanItem],
+) -> dict[str, Any]:
+    diagnostics: list[dict[str, Any]] = []
+    mapping = _build_requirement_item_map(items)
+    required_ids = _required_requirement_ids(requirements)
+    unmapped = [req_id for req_id in required_ids if not mapping.get(req_id)]
+    if not unmapped:
+        return {"status": "unchanged", "diagnostics": diagnostics, "request_plan_revision": False}
+
+    applicable_items = [
+        item
+        for item in items
+        if str(getattr(item, "item_type", "") or "").lower() in {"implementation", "documentation", "verification"}
+        and str(getattr(item, "status", "") or "").lower() not in {"blocked", "failed", "cancelled", "skipped"}
+    ]
+    if len(applicable_items) == 1:
+        item = applicable_items[0]
+        existing = [str(v).strip() for v in list(getattr(item, "requirement_ids", []) or []) if str(v).strip()]
+        repaired = list(dict.fromkeys([*existing, *unmapped]))
+        item.requirement_ids = repaired
+        item.metadata = dict(item.metadata or {})
+        item.metadata["requirement_ids"] = repaired
+        item.metadata.setdefault("requirement_mapping_diagnostics", []).append(
+            {
+                "type": "deterministic_single_item_requirement_assignment",
+                "assigned_requirement_ids": list(unmapped),
+                "item_id": item.item_id,
+            }
+        )
+        diagnostics.append(
+            {
+                "type": "deterministic_single_item_requirement_assignment",
+                "assigned_requirement_ids": list(unmapped),
+                "item_id": item.item_id,
+            }
+        )
+        return {"status": "repaired", "diagnostics": diagnostics, "request_plan_revision": False}
+
+    diagnostics.append(
+        {
+            "type": "ambiguous_requirement_item_mapping",
+            "unmapped_requirement_ids": list(unmapped),
+            "applicable_item_ids": [item.item_id for item in applicable_items],
+        }
+    )
+    return {
+        "status": "ambiguous",
+        "diagnostics": diagnostics,
+        "request_plan_revision": True,
+        "recovery_decision": {
+            "type": "request_plan_revision",
+            "reason": "ambiguous_requirement_item_mapping",
+            "unmapped_requirement_ids": list(unmapped),
+            "applicable_item_ids": [item.item_id for item in applicable_items],
+        },
+    }
+
+
 def _evaluate_plan_contract_quality(
     *,
     requirements: list[dict[str, Any]],
@@ -422,6 +491,10 @@ class AtlasPlanPoolBuilder:
             previous_item_id = item_id
 
         _fix_dangling_depends_on(items, pool_warnings)
+        requirement_mapping_normalization = _normalize_requirement_item_mapping(
+            requirements=requirements,
+            items=items,
+        )
         requirement_item_map = _build_requirement_item_map(items)
         plan_quality = _evaluate_plan_contract_quality(
             requirements=requirements,
@@ -430,6 +503,22 @@ class AtlasPlanPoolBuilder:
             automation_level=automation_level,
         )
         metadata = _pool_metadata_from_plan_payload(payload)
+        if requirement_mapping_normalization.get("diagnostics"):
+            metadata["requirement_mapping_diagnostics"] = list(requirement_mapping_normalization.get("diagnostics") or [])
+        if requirement_mapping_normalization.get("request_plan_revision"):
+            recovery_decision = dict(requirement_mapping_normalization.get("recovery_decision") or {})
+            metadata.update(
+                {
+                    "plan_revision_required": True,
+                    "plan_revision_reason": recovery_decision.get("reason", "ambiguous_requirement_item_mapping"),
+                    "patch_generation_recovery_decision": recovery_decision,
+                }
+            )
+            plan_quality = {
+                **plan_quality,
+                "ok": False,
+                "reasons": list(dict.fromkeys([*list(plan_quality.get("reasons") or []), "request_plan_revision:ambiguous_requirement_item_mapping"])),
+            }
         metadata.update(
             {
                 "original_user_request": original_user_request,

@@ -312,7 +312,7 @@ def test_builder_preserves_codegen_contract_and_maps_requirements():
     assert item.preserve_behaviors == ["Reset button remains wired"]
 
 
-def test_builder_records_unmapped_requirement_as_plan_quality_failure():
+def test_builder_repairs_unmapped_requirement_for_single_applicable_item():
     pool = AtlasPlanPoolBuilder().build_from_plan_payload(
         {
             "requirements": [
@@ -337,5 +337,50 @@ def test_builder_records_unmapped_requirement_as_plan_quality_failure():
         automation_level="full_autopilot",
     )
 
+    item = pool.items[0]
+    assert item.requirement_ids == ["req_mapped", "req_missing"]
+    assert item.metadata["requirement_ids"] == ["req_mapped", "req_missing"]
+    assert pool.requirement_item_map["req_missing"] == ["step_1"]
+    assert pool.plan_quality["ok"] is True
+    assert pool.metadata["requirement_mapping_diagnostics"][0]["type"] == "deterministic_single_item_requirement_assignment"
+
+
+def test_builder_ambiguous_unmapped_requirement_requests_plan_revision():
+    pool = AtlasPlanPoolBuilder().build_from_plan_payload(
+        {
+            "requirements": [
+                {"requirement_id": "req_mapped", "description": "Mapped requirement"},
+                {"requirement_id": "req_missing", "description": "Missing requirement"},
+            ],
+            "implementation_steps": [
+                {
+                    "step_id": "step_1",
+                    "title": "Mapped step",
+                    "description": "Implement the mapped requirement completely.",
+                    "action_type": "update",
+                    "target_files": ["src/app.py"],
+                    "requirement_ids": ["req_mapped"],
+                    "acceptance_criteria": ["Mapped requirement works"],
+                    "verification_contract": {"contract_id": "pytest"},
+                },
+                {
+                    "step_id": "step_2",
+                    "title": "Other step",
+                    "description": "Implement another part.",
+                    "action_type": "update",
+                    "target_files": ["src/other.py"],
+                    "requirement_ids": [],
+                    "acceptance_criteria": ["Other part works"],
+                    "verification_contract": {"contract_id": "pytest"},
+                },
+            ],
+        },
+        root_goal="Goal",
+        pool_id="pool_test",
+        automation_level="full_autopilot",
+    )
+
+    assert pool.metadata["plan_revision_required"] is True
+    assert pool.metadata["patch_generation_recovery_decision"]["type"] == "request_plan_revision"
     assert pool.plan_quality["ok"] is False
-    assert "requirement_unmapped:req_missing" in pool.plan_quality["reasons"]
+    assert "request_plan_revision:ambiguous_requirement_item_mapping" in pool.plan_quality["reasons"]

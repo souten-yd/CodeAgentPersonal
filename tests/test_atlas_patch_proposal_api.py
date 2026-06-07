@@ -85,7 +85,7 @@ def test_patch_proposal_record_saved_and_event(tmp_path):
     body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'r4'}).json()
     assert Path(body['proposal_json_path']).exists() and Path(body['proposal_md_path']).exists()
     events = '\n'.join(p.read_text(encoding='utf-8') for p in Path(tmp_path).rglob('events.ndjson'))
-    assert 'patch_proposal_manual_proposed' in events
+    assert 'patch_generation_failed' in events
     md = Path(body['proposal_md_path']).read_text(encoding='utf-8')
     assert 'No patch was applied.' in md and 'No safe_apply was run.' in md and 'No verification rerun was performed.' in md
 

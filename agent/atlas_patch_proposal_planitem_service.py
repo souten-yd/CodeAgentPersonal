@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_patch_generation_state import is_patch_generation_success
 from agent.atlas_patch_proposal_planitem_schema import (
     AtlasPatchProposalPlanItemDraft,
     AtlasPatchProposalPlanItemDraftRequest,
@@ -73,6 +74,7 @@ class AtlasPatchProposalPlanItemDraftService:
         approval = dict((item.metadata or {}).get("patch_proposal_approval") or {})
         if str(patch.get("status") or "").lower() != "approved": warnings.append("patch_proposal_not_approved")
         if str(approval.get("decision") or "").lower() != "approved": warnings.append("patch_proposal_approval_not_approved")
+        if not is_patch_generation_success((item.metadata or {}).get("patch_generation")): warnings.append("patch_generation_not_successful")
         req_pid = str(request.proposal_id or "").strip()
         if req_pid and req_pid != str(patch.get("proposal_id") or "").strip(): warnings.append("proposal_id_mismatch")
         target_files = list(patch.get("target_files") or [])

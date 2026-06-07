@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from agent.atlas_auto_safe_apply_schema import AtlasAutoSafeApplyRequest
 from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest
+from agent.atlas_patch_generation_state import is_patch_generation_success
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
 from agent.atlas_self_correction_schema import AtlasSelfCorrectionRequest, AtlasSelfCorrectionResult
 
@@ -82,7 +83,7 @@ class AtlasSelfCorrectionService:
                     source_type="plan_item",
                 )
             )
-            if str(proposal.status) != "proposed" or not bool((proposal.metadata or {}).get("patch_content_available")):
+            if not is_patch_generation_success((proposal.metadata or {}).get("patch_generation")):
                 out.status = "exhausted" if attempt >= max_attempts else "regen_failed"
                 out.reason = "patch_regeneration_no_content"
                 self._emit(request, "self_correction_regen_failed", attempt=attempt, status="failed")
