@@ -4,6 +4,7 @@ import re
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 
 from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest, AtlasAutoVerificationResult
 from agent.atlas_playwright_smoke_verifier import AtlasPlaywrightSmokeVerifier
@@ -335,6 +336,13 @@ class AtlasAutoVerificationService:
                 "repair_instructions": list(task_contract.repair_instructions),
             },
         }
+        signal_eval = self._evaluate_task_contract_signals(
+            task_contract,
+            SimpleNamespace(stdout="", stderr=""),
+            item,
+            workspace_root,
+        )
+        metadata["task_verification_contract"].update(signal_eval)
         missing = list((ev["static"] or {}).get("missing") or [])
         # A runtime smoke pass overrides static misses (advisory only); only attribute the failure
         # to a static miss when the item genuinely hard-failed.
@@ -351,6 +359,11 @@ class AtlasAutoVerificationService:
         metadata["normalized_requirement"] = ev.get("normalized_requirement", {})
 
         status = "failed" if ev["hard_failed"] else "passed"
+        if status == "passed" and signal_eval.get("status") == "failed":
+            status = "failed"
+            for signal in signal_eval.get("missing_signals") or []:
+                warnings.append(f"task_signal_missing:{signal}")
+            warnings.extend([f"repair_instruction:{text}" for text in task_contract.repair_instructions])
         coverage = self._requirement_coverage(pool, item, workspace_root, status=status)
         metadata["requirement_coverage"] = coverage
         pool_coverage = self._pool_requirement_coverage_progress(pool, item, workspace_root, status=status)

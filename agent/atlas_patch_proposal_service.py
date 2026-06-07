@@ -1292,9 +1292,9 @@ class AtlasPatchProposalService:
         # When real patch content was produced, wire the item into the canonical safe-apply
         # vocabulary so the autopilot can actually apply it: action_type must be {create, update}
         # and item_type must be implementation/documentation (the executor + adapter reject others).
-        # Empty/unknown action_type defaults to create (greenfield write); an existing action_type
-        # is preserved (e.g. an LLM-specified "update" for edits) via normalization. Surgical edits
-        # always target an existing file, so force update.
+        # Only explicit or compatible legacy action types are normalized. Empty/unknown values stay
+        # invalid so the safe-apply path can fail closed instead of silently creating files.
+        # Surgical edits always target an existing file, so force update.
         if proposed_content or proposal.unified_diff_preview or proposal_edits:
             if proposal_edits and not proposed_content:
                 item.metadata["action_type"] = "update"

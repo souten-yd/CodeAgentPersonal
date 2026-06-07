@@ -6,12 +6,12 @@
 
 ## Goal status
 
-- Overall: Active
+- Overall: Completed
 - Canonical goal: `docs/atlas_codegen_completeness_goal.md`
 - Canonical plan: `docs/atlas_codegen_completeness_implementation_plan.md`
 - Baseline commit: `3ac07375610d6de826199be07366f451adfbec63` (PR #1599)
-- Current work package: WP-8
-- Next action: Run E2E acceptance and final audit for the code generation completeness goal.
+- Current work package: Completed
+- Next action: Optional improvement only; no required WP remains.
 
 ## Observed current-main capabilities
 
@@ -63,11 +63,11 @@ WP-0 must convert these observations into current-code tests before broad produc
 | WP-5 | Remove skeleton/fail-open fallbacks | Completed | local WP-5 commit | focused 50 passed; affected 166 passed |
 | WP-6 | Requirement-complete final status | Completed | local WP-6 commit | focused 42 passed; affected 211 passed |
 | WP-7 | Task-aware verification contracts | Completed | local WP-7 commit | focused 6 passed; affected 217 passed |
-| WP-8 | E2E acceptance and final audit | Not started | - | - |
+| WP-8 | E2E acceptance and final audit | Completed | local WP-8 commit | focused 3 passed; affected 220 passed |
 
 ## Last completed work package
 
-WP-7 - Task-aware verification contracts.
+WP-8 - E2E acceptance and final audit.
 
 ## Current blockers
 
@@ -76,57 +76,51 @@ None recorded.
 ## Latest completed work package evidence
 
 Completed work package:
-WP-7 - Task-aware verification contracts.
+WP-8 - E2E acceptance and final audit.
 
 PR/commit:
-Local WP-7 commit to be created after this status update. No PR, merge, or remote push.
+Local WP-8 commit created. No PR, merge, or remote push.
 
 Changed files:
 - `agent/atlas_auto_verification_service.py`
-- `agent/atlas_task_verification_contracts.py`
-- `tests/test_atlas_task_verification_contracts.py`
+- `agent/atlas_patch_proposal_service.py`
+- `tests/test_atlas_codegen_completeness_wp8_e2e.py`
 - `docs/atlas_codegen_completeness_current_status.md`
 
 Behavior implemented:
-- Added a task verification contract registry for Python module/service, API endpoint, browser/HTML/UI, canvas/game, persistence/state reload, multi-file integration, and unknown task fallback.
-- PlanItems now persist the selected task verification contract and expected signals on item metadata and pool rollup metadata during auto verification.
-- Command verification now evaluates expected response/runtime signals against command output and changed-file contents, failing with actionable repair instructions when signals are missing.
-- Visual-only verification now stores task contract evidence alongside the existing static visual contract and browser smoke evidence.
-- Contract inference is item-scoped so pool-level goals do not misclassify unrelated items, while multi-file integration tasks select the integration contract before API/Python fallbacks.
-- Selected contracts are durably stored before blocked or skipped verification returns, without converting unavailable verification into completion.
+- Visual-only verification now evaluates task-specific expected signals against changed-file contents, so browser/game artifacts must prove requested core behaviors rather than only file existence or generic canvas presence.
+- Added WP-8 E2E acceptance tests for browser-game core behavior signals, missing requirement non-completion, unavailable verification non-completion, unknown action fail-closed behavior, legacy skeleton blocking, and append fallback blocking.
+- Corrected a stale production comment so reachable code no longer describes unknown action types as create fallbacks.
+- Completed the required reachable-code audit: remaining skeleton/fallback/TODO/truncation/skipped/partial hits are blocking checks, observability traces, bounded prompt/context truncation, placeholder detectors, or covered by regression tests.
 
 Tests passed:
-- `python -m pytest -q tests/test_atlas_task_verification_contracts.py` -> 6 passed.
-- `python -m pytest -q tests/test_atlas_task_verification_contracts.py tests/test_atlas_auto_verification_service.py tests/test_atlas_pr9_visual_depth.py tests/test_visual_contract_matrix.py` -> 74 passed.
-- `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_pr9_integration_graph.py` -> 29 passed.
-- `python -m pytest -q tests/test_atlas_task_verification_contracts.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_auto_verification_service.py tests/test_atlas_llm_evaluator_service.py tests/test_atlas_pr8_visual_verification_wiring.py tests/test_atlas_pr9_visual_depth.py tests/test_atlas_pr9_integration_graph.py tests/test_atlas_visual_artifact_verifier.py tests/test_visual_contract_matrix.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_plan_pool_schema.py tests/test_atlas_plan_pool_builder.py` -> 217 passed.
+- `python -m pytest -q tests/test_atlas_codegen_completeness_wp8_e2e.py` -> 3 passed.
+- `python -m pytest -q tests/test_atlas_codegen_completeness_wp8_e2e.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_autonomous_codegen_orchestrator_service.py` -> 51 passed.
+- `python -m pytest -q tests/test_atlas_task_verification_contracts.py tests/test_atlas_auto_verification_service.py tests/test_atlas_pr9_visual_depth.py tests/test_visual_contract_matrix.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_file_safe_apply_executor.py` -> 107 passed.
+- `python -m pytest -q tests/test_atlas_pr9_integration_graph.py tests/test_atlas_llm_evaluator_service.py tests/test_atlas_plan_pool_schema.py tests/test_atlas_plan_pool_builder.py` -> 40 passed.
+- `python -m pytest -q tests/test_atlas_codegen_completeness_wp8_e2e.py tests/test_atlas_task_verification_contracts.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_auto_verification_service.py tests/test_atlas_llm_evaluator_service.py tests/test_atlas_pr8_visual_verification_wiring.py tests/test_atlas_pr9_visual_depth.py tests/test_atlas_pr9_integration_graph.py tests/test_atlas_visual_artifact_verifier.py tests/test_visual_contract_matrix.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_plan_pool_schema.py tests/test_atlas_plan_pool_builder.py` -> 220 passed.
 
 Syntax checks:
-- `python -m py_compile agent/atlas_task_verification_contracts.py agent/atlas_auto_verification_service.py tests/test_atlas_task_verification_contracts.py` -> passed.
+- `python -m py_compile agent/atlas_auto_verification_service.py agent/atlas_patch_proposal_service.py tests/test_atlas_codegen_completeness_wp8_e2e.py tests/test_atlas_task_verification_contracts.py` -> passed.
 - `git diff --check` -> passed.
 
 Safety invariants:
-- Production changes are limited to task verification contract selection, expected-signal evaluation, and evidence persistence in the existing auto verification surface.
-- Safe apply, approval, path, rollback, PlanPool authority, and bounded allowlisted verification command surfaces remain unchanged.
+- Production changes are limited to visual-only expected-signal evaluation and a non-functional comment correction.
+- Safe apply, approval, path, rollback, PlanPool authority, bounded allowlisted verification command surfaces, and context-refresh sequencing remain unchanged.
 - No direct merge, remote push, self-apply, stable runtime mutation, Vue authority, arbitrary unbounded command execution, or fabricated verification results introduced.
 - Backend PlanPool remains authoritative for item state and persisted verification evidence.
 
 Remaining gaps:
-- WP-8 must complete E2E acceptance and final audit.
+- None required. Remaining work is optional improvement only.
 
 Next work package:
-WP-8 - E2E acceptance and final audit.
+None - all WP rows Completed.
 
 ## Token-saving resume note
 
 On resume:
 
-1. Read `AGENTS.md`.
-2. Read the canonical goal.
-3. Read this status.
-4. Read only WP-8 in the canonical plan.
-5. Inspect only files listed by WP-8 and related tests.
-6. Do not rescan old plans or roadmaps.
+Goal completed. Future work should start from a new user instruction and this completed status.
 
 ## Update template
 
