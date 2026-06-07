@@ -428,13 +428,16 @@ class AtlasAutoVerificationService:
                 "missing_keywords": missing,
             })
         all_verified = by_status.get("verified", 0) == len(requirements)
+        success_eligible = all_verified or (
+            by_status.get("verified_static", 0) + by_status.get("verified", 0) == len(requirements)
+        )
         return {
             "scope": "item",
             "total": len(requirements),
             "by_status": by_status,
             "mapped": mapped,
             "all_verified": all_verified,
-            "success_eligible": by_status.get("missing", 0) == 0,
+            "success_eligible": success_eligible,
         }
 
     def _item_requirement_texts(self, pool, item, *, changed_files: list[str]) -> list[str]:

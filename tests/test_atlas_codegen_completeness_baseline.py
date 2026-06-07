@@ -289,7 +289,7 @@ def test_wp4_generation_quality_failure_returns_no_applicable_content(tmp_path: 
     assert "proposed_content" not in proposal.metadata
 
 
-def test_wp0_partial_requirement_coverage_is_still_success_compatible(tmp_path: Path) -> None:
+def test_wp6_partial_requirement_coverage_blocks_success(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text("def alphaunique():\n    return 'alphaunique'\n", encoding="utf-8")
     pool = _pool(
         tmp_path,
@@ -309,8 +309,10 @@ def test_wp0_partial_requirement_coverage_is_still_success_compatible(tmp_path: 
     assert coverage["by_status"].get("verified", 0) == 1
     assert coverage["by_status"].get("partial", 0) == 1
     assert coverage["all_verified"] is False
-    assert coverage["success_eligible"] is True
-    assert rollup["degraded"] is False
+    assert coverage["success_eligible"] is False
+    assert "req_beta" in coverage["incomplete_requirement_ids"]
+    assert rollup["degraded"] is True
+    assert "requirement_coverage_incomplete" in rollup["degrade_reasons"]
 
 
 def test_wp0_verification_skipped_can_still_complete_item(tmp_path: Path) -> None:
@@ -367,8 +369,8 @@ def test_wp0_verification_skipped_can_still_complete_item(tmp_path: Path) -> Non
         )
     )
 
-    assert out.status == "completed"
-    assert out.item_results[0].status == "completed"
+    assert out.status == "applied_unverified"
+    assert out.item_results[0].status == "applied_no_verification"
     assert out.item_results[0].reason == "verification_skipped"
 
 
@@ -383,3 +385,87 @@ def test_wp0_existing_requirement_tracer_summary_already_rejects_partial_require
 
     assert summary["success_eligible"] is False
     assert summary["missing_or_partial_count"] == 1
+
+
+def test_wp6_explicit_requirement_mapping_records_verified_and_unverified(tmp_path: Path) -> None:
+    (tmp_path / "score.py").write_text("def increment_score():\n    return 'score persists'\n", encoding="utf-8")
+    item_score = AtlasPlanItem(
+        item_id="item_score",
+        pool_id="pool_1",
+        title="Implement score",
+        goal="Score increments",
+        item_type="implementation",
+        status="completed",
+        target_files=["score.py"],
+        requirement_ids=["req_score"],
+        metadata={"action_type": "update", "implemented_symbols": ["increment_score"]},
+    )
+    item_persist = AtlasPlanItem(
+        item_id="item_persist",
+        pool_id="pool_1",
+        title="Implement persistence",
+        goal="Score persists",
+        item_type="implementation",
+        status="completed",
+        target_files=["score.py"],
+        requirement_ids=["req_persist"],
+        metadata={"action_type": "update"},
+    )
+    pool = _pool(
+        tmp_path,
+        [item_score, item_persist],
+        metadata={
+            "requirement_trace": [
+                {"requirement_id": "req_score", "description": "Score increments", "required": True},
+                {"requirement_id": "req_persist", "description": "Score persists", "required": True},
+            ]
+        },
+    )
+    item_results = [
+        SimpleNamespace(item_id="item_score", status="completed", changed_files=["score.py"], verification_result={"status": "passed", "metadata": {"evidence_path": "reports/score.txt"}}),
+        SimpleNamespace(item_id="item_persist", status="applied_no_verification", changed_files=["score.py"], verification_result={"status": "skipped"}),
+    ]
+
+    rollup = compute_run_quality_rollup(pool, item_results, project_path=str(tmp_path))
+    mapped = {req["requirement_id"]: req for req in rollup["requirement_coverage"]["mapped"]}
+
+    assert mapped["req_score"]["status"] == "verified"
+    assert mapped["req_score"]["planned_items"] == ["item_score"]
+    assert mapped["req_score"]["changed_files"] == ["score.py"]
+    assert mapped["req_score"]["implemented_symbols"] == ["increment_score"]
+    assert mapped["req_score"]["evidence_path"] == "reports/score.txt"
+    assert mapped["req_persist"]["status"] == "unverified"
+    assert rollup["requirement_coverage"]["success_eligible"] is False
+
+
+def test_wp6_static_visual_evidence_can_verify_japanese_requirement_id(tmp_path: Path) -> None:
+    (tmp_path / "index.html").write_text("<!doctype html><h1>レインボー表示</h1>", encoding="utf-8")
+    item = AtlasPlanItem(
+        item_id="item_visual",
+        pool_id="pool_1",
+        title="Visual",
+        goal="レインボー表示",
+        item_type="implementation",
+        status="completed",
+        target_files=["index.html"],
+        requirement_ids=["要件_虹"],
+        metadata={"action_type": "create"},
+    )
+    pool = _pool(
+        tmp_path,
+        [item],
+        metadata={"requirement_trace": [{"requirement_id": "要件_虹", "description": "レインボー表示", "required": True}]},
+    )
+    item_result = SimpleNamespace(
+        item_id="item_visual",
+        status="completed",
+        changed_files=["index.html"],
+        verification_result={"status": "passed", "metadata": {"verify_level": "static_checked", "evidence_path": "visual/static.json"}},
+    )
+
+    rollup = compute_run_quality_rollup(pool, [item_result], project_path=str(tmp_path))
+    mapped = rollup["requirement_coverage"]["mapped"][0]
+
+    assert mapped["requirement_id"] == "要件_虹"
+    assert mapped["status"] == "verified_static"
+    assert rollup["requirement_coverage"]["success_eligible"] is True

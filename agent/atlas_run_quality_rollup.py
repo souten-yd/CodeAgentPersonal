@@ -35,8 +35,10 @@ def _requirement_coverage(
     any_completed: bool,
     *,
     verified_files: list[str] | None = None,
+    verified_static_files: list[str] | None = None,
     done_definitions: list[str] | None = None,
     file_contents: dict[str, str] | None = None,
+    requirement_evidence: dict[str, dict] | None = None,
 ) -> dict:
     """Map requirements to evidence (changed/verified files, done_definition) — conservative.
 
@@ -47,37 +49,41 @@ def _requirement_coverage(
     - requirement_checked is only achievable when ALL requirements are 'verified'.
     """
     total = len(requirements)
-    no_evidence = (not changed_files) or (not any_completed)
+    no_evidence = not changed_files
     if total == 0:
         return {"total": 0, "by_status": {}, "mapped": [], "no_implementation_evidence": False,
                 "all_verified": False, "success_eligible": True}
     if no_evidence:
+        mapped = [{**r, "status": "missing"} for r in requirements]
+        summary = AtlasRequirementTracer().coverage_summary(mapped)
         return {
             "total": total,
-            "by_status": {"missing": total},
-            "mapped": [{**r, "status": "missing"} for r in requirements],
+            "by_status": summary["by_status"],
+            "mandatory_by_status": summary["mandatory_by_status"],
+            "mapped": mapped,
             "no_implementation_evidence": True,
-            "all_verified": False,
-            "success_eligible": False,
+            "all_verified": summary["all_verified"],
+            "success_eligible": summary["success_eligible"],
+            "missing_or_partial_count": summary["missing_or_partial_count"],
+            "incomplete_requirement_ids": summary["incomplete_requirement_ids"],
         }
     mapped = AtlasRequirementTracer().map_requirements_to_evidence(
         requirements, changed_files=changed_files, verified_files=verified_files,
+        verified_static_files=verified_static_files,
         done_definitions=done_definitions, file_contents=file_contents,
+        requirement_evidence=requirement_evidence,
     )
-    by_status: dict[str, int] = {}
-    for r in mapped:
-        s = str(r.get("status") or "partial")
-        by_status[s] = by_status.get(s, 0) + 1
-    all_verified = by_status.get("verified", 0) == total and total > 0
+    summary = AtlasRequirementTracer().coverage_summary(mapped)
     return {
         "total": total,
-        "by_status": by_status,
+        "by_status": summary["by_status"],
+        "mandatory_by_status": summary["mandatory_by_status"],
         "mapped": mapped,
         "no_implementation_evidence": False,
-        "all_verified": all_verified,
-        # partial/implemented do not hard-fail a completed run (see PR-8d notes); only the
-        # no-implementation-evidence case degrades.
-        "success_eligible": True,
+        "all_verified": summary["all_verified"],
+        "success_eligible": summary["success_eligible"],
+        "missing_or_partial_count": summary["missing_or_partial_count"],
+        "incomplete_requirement_ids": summary["incomplete_requirement_ids"],
     }
 
 
@@ -150,15 +156,23 @@ def compute_run_quality_rollup(pool, item_results, *, project_path: str = "") ->
     """
     changed: list[str] = []
     verified_files: list[str] = []
+    verified_static_files: list[str] = []
+    result_by_item_id: dict[str, object] = {}
     for r in item_results:
+        result_by_item_id[str(getattr(r, "item_id", "") or "")] = r
         files = list(getattr(r, "changed_files", []) or [])
         changed += files
         # Files are "verified" only when the item completed with a passing verification.
         vr = getattr(r, "verification_result", {}) or {}
         if str(getattr(r, "status", "")) == "completed" and str(vr.get("status") or "") == "passed":
-            verified_files += files
+            verify_level = str(((vr.get("metadata") or {}).get("verify_level") or "")).strip()
+            if verify_level == "static_checked":
+                verified_static_files += files
+            else:
+                verified_files += files
     changed = list(dict.fromkeys(changed))
     verified_files = list(dict.fromkeys(verified_files))
+    verified_static_files = list(dict.fromkeys(verified_static_files))
     any_completed = any(str(getattr(r, "status", "")) == "completed" for r in item_results)
 
     pool_meta = getattr(pool, "metadata", {}) or {}
@@ -170,14 +184,20 @@ def compute_run_quality_rollup(pool, item_results, *, project_path: str = "") ->
         rel: text for rel in changed
         if str(rel).lower().endswith(_IMPL_EXT) and (text := _read(project_path, rel)) is not None
     }
+    requirement_evidence = _explicit_requirement_evidence(pool, result_by_item_id)
     coverage = _requirement_coverage(
         requirements, changed, any_completed,
-        verified_files=verified_files, done_definitions=done_definitions, file_contents=file_contents,
+        verified_files=verified_files,
+        verified_static_files=verified_static_files,
+        done_definitions=done_definitions,
+        file_contents=file_contents,
+        requirement_evidence=requirement_evidence,
     )
     features = (pool_meta.get("automation_features") or {}) if isinstance(pool_meta.get("automation_features"), dict) else {}
-    coverage_enforcement = str(features.get(KEY_REQUIREMENT_COVERAGE_ENFORCEMENT) or "warn").strip().lower()
+    default_enforcement = "enforce"
+    coverage_enforcement = str(features.get(KEY_REQUIREMENT_COVERAGE_ENFORCEMENT) or default_enforcement).strip().lower()
     if coverage_enforcement not in {"warn", "enforce"}:
-        coverage_enforcement = "warn"
+        coverage_enforcement = default_enforcement
     coverage["enforcement"] = coverage_enforcement
 
     integration_warnings, integration_failed = _integration_scan(project_path, changed)
@@ -200,9 +220,9 @@ def compute_run_quality_rollup(pool, item_results, *, project_path: str = "") ->
 
     degrade_reasons: list[str] = []
     warnings: list[str] = []
-    if coverage.get("no_implementation_evidence"):
+    if not coverage.get("success_eligible", True):
         warnings.append("requirement_coverage_incomplete")
-    if coverage.get("no_implementation_evidence") and coverage_enforcement == "enforce":
+    if not coverage.get("success_eligible", True) and coverage_enforcement == "enforce":
         degrade_reasons.append("requirement_coverage_incomplete")
     if integration_failed:
         degrade_reasons.append("integration_failed")
@@ -221,3 +241,47 @@ def compute_run_quality_rollup(pool, item_results, *, project_path: str = "") ->
         "degrade_reasons": degrade_reasons,
         "changed_files": changed,
     }
+
+
+def _explicit_requirement_evidence(pool, result_by_item_id: dict[str, object]) -> dict[str, dict]:
+    evidence: dict[str, dict] = {}
+    for item in getattr(pool, "items", []) or []:
+        md = getattr(item, "metadata", {}) or {}
+        req_ids = list(getattr(item, "requirement_ids", []) or md.get("requirement_ids") or [])
+        req_ids = [str(rid).strip() for rid in req_ids if str(rid).strip()]
+        if not req_ids:
+            continue
+        item_id = str(getattr(item, "item_id", "") or "")
+        result = result_by_item_id.get(item_id)
+        changed_files = list(getattr(result, "changed_files", []) or []) if result is not None else []
+        vr = getattr(result, "verification_result", {}) or {} if result is not None else {}
+        vr_meta = (vr.get("metadata") or {}) if isinstance(vr, dict) else {}
+        verification_status = str(vr.get("status") or "") if isinstance(vr, dict) else ""
+        verification_method = str(vr_meta.get("verify_level") or vr_meta.get("verification_method") or "")
+        evidence_path = str(vr_meta.get("evidence_path") or vr_meta.get("artifact_path") or "")
+        implemented_symbols = list(md.get("implemented_symbols") or [])
+        implemented_signals = list(md.get("behavioral_cases") or md.get("implemented_signals") or [])
+        planned_files = list(getattr(item, "target_files", []) or [])
+        for req_id in req_ids:
+            slot = evidence.setdefault(req_id, {
+                "planned_files": [],
+                "planned_items": [],
+                "changed_files": [],
+                "implemented_symbols": [],
+                "implemented_signals": [],
+                "verification_status": "",
+                "verification_method": "",
+                "evidence_path": "",
+            })
+            slot["planned_files"] = list(dict.fromkeys([*slot["planned_files"], *planned_files]))
+            slot["planned_items"] = list(dict.fromkeys([*slot["planned_items"], item_id]))
+            slot["changed_files"] = list(dict.fromkeys([*slot["changed_files"], *changed_files]))
+            slot["implemented_symbols"] = list(dict.fromkeys([*slot["implemented_symbols"], *implemented_symbols]))
+            slot["implemented_signals"] = list(dict.fromkeys([*slot["implemented_signals"], *implemented_signals]))
+            if verification_status:
+                slot["verification_status"] = verification_status
+            if verification_method:
+                slot["verification_method"] = verification_method
+            if evidence_path:
+                slot["evidence_path"] = evidence_path
+    return evidence

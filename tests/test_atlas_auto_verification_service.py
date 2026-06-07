@@ -5,7 +5,6 @@ from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
-from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
 from agent.atlas_requirement_tracer import AtlasRequirementTracer
 from agent.test_command_runner import TestCommandRunner
 
@@ -24,8 +23,17 @@ def _runner():
 def _setup(tmp_path):
     storage = AtlasPlanPoolStorage(tmp_path)
     journal = AtlasJournal(tmp_path)
-    pool = AtlasPlanPoolBuilder().build_fallback_pool(root_goal='x', project_path=str(tmp_path), project_name='p')
-    item = pool.items[0]
+    item = AtlasPlanItem(
+        item_id='item_001',
+        pool_id='pool_1',
+        title='Verify explicit item',
+        goal='',
+        item_type='implementation',
+        status='ready',
+        target_files=[],
+        metadata={'action_type': 'update'},
+    )
+    pool = AtlasPlanPool(pool_id='pool_1', root_goal='x', project_path=str(tmp_path), project_name='p', items=[item])
     item.metadata.setdefault('safe_apply', {})['status'] = 'applied'
     storage.save_pool(pool)
     journal.save_plan_pool(pool)

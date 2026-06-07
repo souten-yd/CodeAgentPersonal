@@ -1,19 +1,4 @@
-"""
-Visual contract registry for Atlas.
-
-MVP philosophy: all artifacts use the universal_visual_v1 contract by default.
-Only page_loads is required to pass.  Task-specific signals (animation, color,
-canvas, interaction) are always advisory — they surface in metadata but never
-hard-fail an item.
-
-The seven specialised contracts below are kept as reference / opt-in for future
-advanced use, but the registry's select() method always returns
-universal_visual_v1.  This means:
- - HTML pages, web apps, games, and business apps all pass the same gate
- - No new contract needs to be designed for each artifact type
- - Classification still runs for observability (metadata)
- - Repair guidance is generic and task-type-agnostic
-"""
+"""Visual contract registry for Atlas."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -225,25 +210,23 @@ _reg(VisualContract(
 # ---------------------------------------------------------------------------
 
 class VisualContractRegistry:
-    """
-    Returns universal_visual_v1 for all classifications (MVP default).
-
-    The specialised contracts (static_html_visual_v1, animated_dom_visual_v1,
-    etc.) are still available via get() for future opt-in use, but select()
-    always returns universal_visual_v1 so no per-type configuration is needed
-    when adding new artifact types.
-    """
+    """Select the narrowest verification contract for the classified artifact."""
 
     _UNIVERSAL_CONTRACT_ID = "universal_visual_v1"
 
     def select(self, classification: VisualTaskClassification) -> VisualContract:
-        """Always returns universal_visual_v1 (MVP default).
-
-        Classification metadata is still stored for observability, but the
-        verification gate is always the same universal contract — no per-type
-        design required when adding new artifact types.
-        """
-        return _CONTRACTS[self._UNIVERSAL_CONTRACT_ID]
+        mapping = {
+            "static_html_page": "static_html_visual_v1",
+            "animated_html_page": "animated_dom_visual_v1",
+            "ui_component": "ui_component_visual_v1",
+            "interactive_web_app": "interactive_web_app_visual_v1",
+            "canvas_animation": "canvas_animation_visual_v1",
+            "canvas_game": "canvas_game_visual_v1",
+            "chart_visualization": "chart_visualization_v1",
+            "svg_visualization": "static_html_visual_v1",
+        }
+        contract_id = mapping.get(str(classification.artifact_type or ""), self._UNIVERSAL_CONTRACT_ID)
+        return _CONTRACTS.get(contract_id) or _CONTRACTS[self._UNIVERSAL_CONTRACT_ID]
 
     def get(self, contract_id: str) -> VisualContract | None:
         """Retrieve a contract by ID. Returns None if not found."""
