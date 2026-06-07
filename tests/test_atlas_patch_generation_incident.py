@@ -6,12 +6,17 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import main
+from agent.atlas_autonomous_codegen_orchestrator_schema import AtlasAutonomousCodegenRequest
+from agent.atlas_autonomous_codegen_orchestrator_service import AtlasAutonomousCodegenOrchestratorService
 from agent.atlas_journal import AtlasJournal
-from agent.atlas_patch_generation_state import reduce_patch_generation_state
+from agent.atlas_multi_item_autopilot_schema import AtlasAutopilotItemResult, AtlasMultiItemAutopilotResult
+from agent.atlas_patch_generation_state import is_patch_generation_success, reduce_patch_generation_state
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
 from agent.atlas_patch_proposal_service import AtlasPatchProposalService
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_self_correction_schema import AtlasSelfCorrectionRequest
+from agent.atlas_self_correction_service import AtlasSelfCorrectionService
 
 
 def _client(tmp_path: Path, llm=None) -> TestClient:
@@ -203,3 +208,210 @@ def test_reducer_is_pure_and_records_repair_attempt_strategy() -> None:
     assert next_state["state"] == "repairing"
     assert next_state["attempt"] == 2
     assert next_state["strategy"] == "deterministic_contract_or_metadata_repair"
+
+
+# ── semantic_evidence_missing incident: deterministic evidence backfill ──────────────────────
+
+
+def _llm_content_only(_system: str, _user: str) -> dict:
+    """Mirrors the real weak local model: valid file content but NO advisory evidence fields
+    (implemented_symbols / behavioral_cases / verification_cases). This is exactly the payload that
+    previously failed with semantic_validation_failed:semantic_evidence_missing."""
+    return {
+        "target_files": ["hello_world.html"],
+        "proposed_content": "<!doctype html><html><body>HelloWorld</body></html>",
+        "satisfied_requirement_ids": ["req_001"],
+        "risk_level": "low",
+    }
+
+
+def _llm_empty_content(_system: str, _user: str) -> dict:
+    return {"target_files": ["hello_world.html"], "proposed_content": ""}
+
+
+class _FakeAutopilot:
+    """Stands in for apply+verify so the orchestrator E2E exercises generation -> apply -> summary."""
+
+    def __init__(self, status: str = "completed") -> None:
+        self.status = status
+        self.requests: list = []
+
+    def run(self, request):
+        self.requests.append(request)
+        item_id = request.item_ids[0] if request.item_ids else "item_1"
+        completed = self.status in {"completed", "partial"}
+        return AtlasMultiItemAutopilotResult(
+            pool_id=request.pool_id,
+            run_id=request.run_id,
+            autopilot_run_id="auto_test",
+            policy_id=request.policy_id,
+            status=self.status,
+            processed_count=1,
+            completed_count=1 if completed else 0,
+            item_results=[
+                AtlasAutopilotItemResult(
+                    item_id=item_id,
+                    status=self.status,
+                    changed_files=["hello_world.html"] if completed else [],
+                    verification_result={"status": "passed"} if completed else {"status": "failed"},
+                )
+            ],
+            created_at="2026-06-01T00:00:00+00:00",
+        )
+
+
+def test_evidence_omitted_content_still_succeeds_via_inference(tmp_path: Path) -> None:
+    """A weak model that returns content but omits evidence fields must NOT fail with
+    semantic_evidence_missing — the service infers evidence deterministically from content + plan."""
+    pool = _pool(tmp_path)
+    storage, journal = _store(tmp_path, pool)
+    service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=_llm_content_only)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_1", run_id="run_1", source_type="plan_item")
+    )
+
+    assert result.status == "proposed"
+    assert is_patch_generation_success((result.metadata or {}).get("patch_generation")) is True
+    proposal_md = result.proposal.metadata
+    assert proposal_md.get("semantic_evidence_inferred")  # records which evidence keys were backfilled
+    assert proposal_md.get("implemented_symbols")
+    semantic = proposal_md.get("semantic_validation") or {}
+    assert "semantic_evidence_missing" not in (semantic.get("reasons") or [])
+    assert semantic.get("status") == "passed"
+
+
+def test_empty_generated_content_still_fails_honestly(tmp_path: Path) -> None:
+    """Evidence backfill only runs when real content exists; an empty generation must still fail
+    (no fabricated success)."""
+    pool = _pool(tmp_path)
+    storage, journal = _store(tmp_path, pool)
+    service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=_llm_empty_content)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_1", run_id="run_1", source_type="plan_item")
+    )
+
+    assert result.status != "proposed"
+    assert is_patch_generation_success((result.metadata or {}).get("patch_generation")) is False
+    assert (result.proposal.metadata or {}).get("patch_content_available") is False
+
+
+def test_route1_plan_approve_patch_verify_summary_completes(tmp_path: Path) -> None:
+    """Route ①: plan -> approve -> patch -> approve -> verify -> summary completes end to end even
+    when the model omits evidence fields (the incident scenario)."""
+    pool = _pool(tmp_path)
+    storage, journal = _store(tmp_path, pool)
+    proposal_service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=_llm_content_only)
+    autopilot = _FakeAutopilot("completed")
+    orchestrator = AtlasAutonomousCodegenOrchestratorService(
+        storage=storage,
+        journal=journal,
+        patch_proposal_service=proposal_service,
+        multi_item_autopilot_service=autopilot,
+    )
+
+    out = orchestrator.run(AtlasAutonomousCodegenRequest(pool_id="pool_1"))
+
+    assert out.status == "completed"
+    assert out.phase == "final_summary"
+    assert out.generated_count == 1
+    assert autopilot.requests  # apply/verify phase ran
+
+
+def test_route2_revision_required_blocks_then_completes_after_revision(tmp_path: Path) -> None:
+    """Route ②: plan -> revise -> approve -> patch -> approve -> verify -> summary. The
+    plan_revision_required flag blocks patch generation; clearing it (revise+approve) lets the same
+    path complete."""
+    pool = _pool(tmp_path)
+    pool.metadata = {**(pool.metadata or {}), "plan_revision_required": True}
+    storage, journal = _store(tmp_path, pool)
+    proposal_service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=_llm_content_only)
+    autopilot = _FakeAutopilot("completed")
+    orchestrator = AtlasAutonomousCodegenOrchestratorService(
+        storage=storage,
+        journal=journal,
+        patch_proposal_service=proposal_service,
+        multi_item_autopilot_service=autopilot,
+    )
+
+    blocked = orchestrator.run(AtlasAutonomousCodegenRequest(pool_id="pool_1"))
+    assert blocked.status == "blocked_safety_review"
+    assert blocked.stop_reason == "plan_revision_required"
+    assert autopilot.requests == []  # never reached patch generation / apply
+
+    # Revise + approve: clear the gate flag.
+    revised = storage.load_pool("pool_1")
+    revised.metadata = {k: v for k, v in (revised.metadata or {}).items() if k != "plan_revision_required"}
+    storage.save_pool(revised)
+
+    out = orchestrator.run(AtlasAutonomousCodegenRequest(pool_id="pool_1"))
+    assert out.status == "completed"
+    assert out.generated_count == 1
+    assert autopilot.requests  # apply/verify ran after revision
+
+
+class _FakeApply:
+    def __init__(self, status: str = "applied") -> None:
+        self.status = status
+        self.changed_files = ["hello_world.html"]
+
+    def execute_one(self, request):
+        outer = self
+
+        class _R:
+            status = outer.status
+            changed_files = outer.changed_files
+
+        return _R()
+
+
+class _FakeVerify:
+    """Fails the first N re-verifications, then passes (drives the self-correction loop)."""
+
+    def __init__(self, fail_times: int = 1) -> None:
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def run_after_auto_safe_apply(self, request):
+        self.calls += 1
+        status = "failed" if self.calls <= self.fail_times else "passed"
+
+        class _R:
+            def __init__(self, status: str) -> None:
+                self.status = status
+                self.warnings: list = []
+
+            def model_dump(self):
+                return {"status": self.status, "stdout_tail": "", "stderr_tail": "boom", "exit_code": 1}
+
+        return _R(status)
+
+
+def test_route3_ng_self_correction_loop_recovers(tmp_path: Path) -> None:
+    """Route ③: plan -> approve -> patch -> NG -> self-correction loop -> verify -> summary. The
+    regeneration uses the same propose_for_item, so the evidence fix is what unblocks the repair
+    loop too — proven here with the evidence-omitting model."""
+    pool = _pool(tmp_path)
+    storage, journal = _store(tmp_path, pool)
+    proposal_service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=_llm_content_only)
+    service = AtlasSelfCorrectionService(
+        storage=storage,
+        journal=journal,
+        patch_proposal_service=proposal_service,
+        auto_safe_apply_service=_FakeApply("applied"),
+        auto_verification_service=_FakeVerify(fail_times=1),
+    )
+
+    out = service.run(
+        AtlasSelfCorrectionRequest(
+            pool_id="pool_1",
+            item_id="item_1",
+            run_id="run_1",
+            verification_result={"status": "failed", "stderr_tail": "boom", "exit_code": 1},
+            max_attempts=2,
+        )
+    )
+
+    assert out.status == "recovered"
+    assert out.final_verification_status == "passed"
