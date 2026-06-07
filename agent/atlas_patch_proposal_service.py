@@ -958,6 +958,11 @@ class AtlasPatchProposalService:
             "auto_safe_apply": False,
             "auto_verification": False,
         })
+        # Clear stale content from previous proposals before writing new values so that a
+        # revised-but-empty proposal never silently inherits the prior implementation.
+        for _stale_key in ("proposed_content", "content", "patch", "unified_diff_preview", "edits", "file_changes"):
+            item.metadata.pop(_stale_key, None)
+            item.metadata["patch_proposal"].pop(_stale_key, None)
         if proposed_content:
             item.metadata["patch_proposal"]["proposed_content"] = proposed_content
             item.metadata["proposed_content"] = proposed_content

@@ -2610,12 +2610,17 @@ def reset_pool_execution(pool_id: str, req: AtlasResetExecutionRequest, request:
     for key in ("plan_revision_required", "plan_revision_required_after_clarification", "gate_rerun_required_after_clarification"):
         metadata.pop(key, None)
     pool.metadata = metadata
+    _ITEM_EXECUTION_KEYS = (
+        "patch_proposal", "approval",
+        "latest_verification", "verification",
+        "debug_review", "auto_safe_apply", "auto_verification",
+    )
     for item in pool.items:
         item.status = "queued"
         item.retry_count = 0
         item_meta = item.metadata if isinstance(item.metadata, dict) else {}
-        item_meta.pop("patch_proposal", None)
-        item_meta.pop("approval", None)
+        for key in _ITEM_EXECUTION_KEYS:
+            item_meta.pop(key, None)
         item.metadata = item_meta
     pool.updated_at = datetime.now(timezone.utc).isoformat()
     storage.save_pool(pool)
@@ -2712,9 +2717,21 @@ def _do_pool_revision(
         )
 
     # ── Common: reset execution state ──────────────────────────────────────────
+    _REVISION_BLOCK_FLAGS = (
+        "plan_revision_required",
+        "plan_revision_required_after_clarification",
+        "gate_rerun_required_after_clarification",
+    )
+    _ITEM_EXECUTION_KEYS = (
+        "patch_proposal", "approval",
+        "latest_verification", "verification",
+        "debug_review", "auto_safe_apply", "auto_verification",
+    )
     if llm_revision_applied:
         metadata["llm_revision_applied"] = True
         metadata["revision_note"] = note
+        for key in _REVISION_BLOCK_FLAGS:
+            metadata.pop(key, None)
         pool.metadata = metadata
         pool.status = "approval_required"
     pool.completed_item_ids = []
@@ -2724,8 +2741,8 @@ def _do_pool_revision(
     pool.current_item_id = ""
     for item in pool.items:
         item_meta = item.metadata if isinstance(item.metadata, dict) else {}
-        item_meta.pop("patch_proposal", None)
-        item_meta.pop("approval", None)
+        for key in _ITEM_EXECUTION_KEYS:
+            item_meta.pop(key, None)
         item.metadata = item_meta
         if str(item.status) not in {"queued", "ready", "approval_required"}:
             item.status = "queued"
