@@ -39,6 +39,28 @@ def test_create_makes_new_file(tmp_path):
     assert (Path(tmp_path) / 'new.txt').read_text(encoding='utf-8') == 'abc\n'
 
 
+def test_review_precondition_blocks_failed_proposal_before_write(tmp_path):
+    pool, item = _pool_and_item(
+        tmp_path,
+        action_type='create',
+        target='new.txt',
+        metadata={
+            'proposed_content': 'abc\n',
+            'patch_proposal': {
+                'metadata': {
+                    'patch_content_available': True,
+                    'self_review': {'status': 'failed', 'findings': [{'type': 'python_syntax_error'}]},
+                    'semantic_validation': {'status': 'passed'},
+                }
+            },
+        },
+    )
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'blocked'
+    assert 'proposal_review_not_passed' in out['reasons']
+    assert not (Path(tmp_path) / 'new.txt').exists()
+
+
 def test_multi_file_apply_success(tmp_path):
     pool = AtlasPlanPool(pool_id='p1', root_goal='g')
     item = AtlasPlanItem(

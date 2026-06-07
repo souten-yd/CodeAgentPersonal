@@ -188,3 +188,96 @@ def test_codegen_rejects_incomplete_multifile_response(tmp_path: Path) -> None:
     reloaded = storage.load_pool("pool_1").get_item("item_001")
     assert reloaded is not None
     assert "file_changes" not in reloaded.metadata
+
+
+def test_codegen_final_self_review_failure_returns_no_content(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("def score():\n    return 1\n", encoding="utf-8")
+
+    def llm(_system: str, _user: str) -> dict:
+        return {
+            "target_files": ["app.py"],
+            "proposed_content": "def score(:\n    return 'score increments'\n",
+            "satisfied_requirement_ids": ["req_score"],
+            "implemented_symbols": ["score"],
+            "behavioral_cases": ["Score increments"],
+            "verification_cases": ["pytest score"],
+        }
+
+    item = _item()
+    pool = _pool(tmp_path, item)
+    service, storage = _service(tmp_path, pool, llm=llm)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_001", source_type="plan_item", run_id="run_1")
+    )
+
+    assert result.metadata["patch_content_available"] is False
+    assert result.proposal is not None
+    assert "self_review_findings_unresolved" in result.proposal.warnings
+    assert result.proposal.metadata["self_review"]["status"] == "failed"
+    reloaded = storage.load_pool("pool_1").get_item("item_001")
+    assert reloaded is not None
+    assert "proposed_content" not in reloaded.metadata
+
+
+def test_codegen_rejects_oversized_content_without_truncating(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("def score():\n    return 1\n", encoding="utf-8")
+    oversized = "x" * (AtlasPatchProposalService.MAX_PROPOSED_CONTENT_CHARS + 1)
+
+    def llm(_system: str, _user: str) -> dict:
+        return {
+            "target_files": ["app.py"],
+            "proposed_content": oversized,
+            "satisfied_requirement_ids": ["req_score"],
+            "implemented_symbols": ["score"],
+            "behavioral_cases": ["Score increments"],
+            "verification_cases": ["pytest score"],
+        }
+
+    item = _item()
+    pool = _pool(tmp_path, item)
+    service, storage = _service(tmp_path, pool, llm=llm)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_001", source_type="plan_item", run_id="run_1")
+    )
+
+    assert result.metadata["patch_content_available"] is False
+    assert result.proposal is not None
+    assert "content_too_large" in result.proposal.metadata["semantic_validation"]["reasons"]
+    reloaded = storage.load_pool("pool_1").get_item("item_001")
+    assert reloaded is not None
+    assert "proposed_content" not in reloaded.metadata
+
+
+def test_codegen_rejects_disconnected_multifile_artifact(tmp_path: Path) -> None:
+    (tmp_path / "index.html").write_text("<!doctype html><main id='app'></main>\n", encoding="utf-8")
+    (tmp_path / "game.js").write_text("export function score(){ return 1 }\n", encoding="utf-8")
+
+    def llm(_system: str, _user: str) -> dict:
+        return {
+            "target_files": ["index.html", "game.js"],
+            "file_changes": [
+                {"path": "index.html", "action_type": "update", "proposed_content": "<!doctype html><main id='app'>Score increments</main>\n"},
+                {"path": "game.js", "action_type": "update", "proposed_content": "export function score(){ return 2 }\n"},
+            ],
+            "satisfied_requirement_ids": ["req_score"],
+            "implemented_symbols": ["score"],
+            "behavioral_cases": ["Score increments"],
+            "verification_cases": ["browser score"],
+        }
+
+    item = _item(target_files=["index.html", "game.js"])
+    pool = _pool(tmp_path, item)
+    service, storage = _service(tmp_path, pool, llm=llm)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_001", source_type="plan_item", run_id="run_1")
+    )
+
+    assert result.metadata["patch_content_available"] is False
+    assert result.proposal is not None
+    assert "disconnected_artifact:game.js" in result.proposal.metadata["semantic_validation"]["reasons"]
+    reloaded = storage.load_pool("pool_1").get_item("item_001")
+    assert reloaded is not None
+    assert "file_changes" not in reloaded.metadata

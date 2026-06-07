@@ -12,17 +12,23 @@ from agent.atlas_plan_item_file_changes import (
     normalize_plan_item_file_changes,
     validate_protected_relative_path,
 )
-from agent.atlas_placeholder_detector import is_placeholder_only_content
+from agent.atlas_placeholder_detector import has_blocking_placeholder_content, is_placeholder_only_content
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 
 _MAX_CONTENT_BYTES = 1024 * 1024
 
 
 def _quality_block_enforced(pool: AtlasPlanPool) -> bool:
-    """True when the pool's Features set quality_gate_enforcement="block" (pre-apply gate).
-    Absent/legacy pools default to non-enforcing so existing flows are unaffected."""
+    """True when generation quality is enforced before disk writes.
+
+    Full-autopilot pools always enforce; legacy non-autonomous pools keep their
+    prior warn/default behavior unless the Features switch explicitly requests block.
+    """
     features = (getattr(pool, "metadata", {}) or {}).get("automation_features") or {}
-    return str(features.get("quality_gate_enforcement") or "warn").lower() == "block"
+    return (
+        str(features.get("quality_gate_enforcement") or "warn").lower() == "block"
+        or str(getattr(pool, "automation_level", "") or "").lower() == "full_autopilot"
+    )
 
 # Back-compat alias retained for callers that import the original name.
 normalize_safe_apply_action_type = normalize_action_type
@@ -36,6 +42,9 @@ class AtlasFileSafeApplyExecutor:
         normalize_plan_item_file_changes(item)
         if str(item.risk_level or "").strip().lower() == "critical":
             return self._blocked("critical_risk_not_allowed")
+        review_block = self._review_precondition_block_reason(item)
+        if review_block:
+            return self._blocked(review_block)
         file_changes = (item.metadata or {}).get("file_changes")
         if isinstance(file_changes, list) and file_changes:
             return self._apply_file_changes_safe(item=item, pool=pool, file_changes=file_changes)
@@ -71,8 +80,8 @@ class AtlasFileSafeApplyExecutor:
             return self._blocked("content_too_large")
         # Pre-apply quality gate: refuse to write placeholder-only "implementations" when the
         # Features set quality_gate_enforcement="block" (stops empty deliverables before disk I/O).
-        if _quality_block_enforced(pool) and is_placeholder_only_content(content, file_path=rel_target):
-            return self._blocked("placeholder_only_content")
+        if _quality_block_enforced(pool) and self._quality_block_reason(content, file_path=rel_target):
+            return self._blocked(self._quality_block_reason(content, file_path=rel_target))
 
         effective_action = action_type
         if action_type == "update":
@@ -150,21 +159,23 @@ class AtlasFileSafeApplyExecutor:
                 "summary": "multi-file preflight failed",
             }
 
-        # Pre-apply quality gate (block mode): reject the whole batch if any file is placeholder-only.
+        # Pre-apply quality gate (block/autonomous mode): reject the whole batch if any file is incomplete.
         if _quality_block_enforced(pool):
-            placeholder_paths = [
-                str(r.get("path") or "")
+            quality_blocks = [
+                (str(r.get("path") or ""), self._quality_block_reason(str(r.get("_content") or ""), file_path=str(r.get("path") or "")))
                 for r in ready_results
-                if is_placeholder_only_content(str(r.get("_content") or ""), file_path=str(r.get("path") or ""))
             ]
-            if placeholder_paths:
+            quality_blocks = [(path, reason) for path, reason in quality_blocks if reason]
+            if quality_blocks:
+                paths = [path for path, _reason in quality_blocks]
+                reasons = list(dict.fromkeys(reason for _path, reason in quality_blocks))
                 return {
                     "status": "blocked",
                     "actual_file_changed": False,
                     "changed_files": [],
-                    "reasons": ["placeholder_only_content"],
+                    "reasons": reasons,
                     "file_results": [self._public_file_result(result) for result in ready_results],
-                    "summary": "blocked: placeholder-only content (" + ", ".join(placeholder_paths) + ")",
+                    "summary": "blocked: incomplete generated content (" + ", ".join(paths) + ")",
                 }
 
         changed_files: list[str] = []
@@ -363,6 +374,30 @@ class AtlasFileSafeApplyExecutor:
                 return {"status": "ok", "content": parsed, "mode": "diff_extract"}
 
         return {"status": "blocked", "reason": "content_missing"}
+
+    @staticmethod
+    def _review_precondition_block_reason(item: AtlasPlanItem) -> str:
+        metadata = item.metadata if isinstance(item.metadata, dict) else {}
+        patch_proposal = metadata.get("patch_proposal") if isinstance(metadata.get("patch_proposal"), dict) else {}
+        proposal_metadata = patch_proposal.get("metadata") if isinstance(patch_proposal.get("metadata"), dict) else {}
+        for key in ("self_review", "semantic_validation"):
+            value = proposal_metadata.get(key)
+            if isinstance(value, dict) and value and str(value.get("status") or "").lower() != "passed":
+                return "proposal_review_not_passed"
+        warnings = list(proposal_metadata.get("warnings") or patch_proposal.get("warnings") or [])
+        if any(str(w) == "self_review_findings_unresolved" for w in warnings):
+            return "proposal_review_not_passed"
+        if proposal_metadata.get("patch_content_available") is False and patch_proposal:
+            return "proposal_content_unavailable"
+        return ""
+
+    @staticmethod
+    def _quality_block_reason(content: str, *, file_path: str = "") -> str:
+        if is_placeholder_only_content(content, file_path=file_path):
+            return "placeholder_only_content"
+        if has_blocking_placeholder_content(content, file_path=file_path):
+            return "placeholder_content_detected"
+        return ""
 
     def _apply_string_edits(self, text: str, edits: list) -> str | None:
         """Apply a list of {old_string, new_string} replacements. Each old_string must match exactly

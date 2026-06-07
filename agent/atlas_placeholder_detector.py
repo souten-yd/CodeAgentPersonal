@@ -7,22 +7,28 @@ from pathlib import Path
 _PLACEHOLDER_PATTERNS = [
     (re.compile(r'#\s*placeholder', re.IGNORECASE), 'placeholder_comment'),
     (re.compile(r'#\s*TODO\b', re.IGNORECASE), 'todo_comment'),
+    (re.compile(r'#\s*(?:not\s+implemented|implement\s+(?:me|this|later)|stub)\b', re.IGNORECASE), 'python_placeholder_comment'),
     (re.compile(r'#\s*in\s+a\s+real\s+implementation', re.IGNORECASE), 'in_real_impl_comment'),
     (re.compile(r'#\s*FIXME\b', re.IGNORECASE), 'fixme_comment'),
     (re.compile(r'//\s*placeholder', re.IGNORECASE), 'js_placeholder_comment'),
     (re.compile(r'//\s*TODO\b', re.IGNORECASE), 'js_todo_comment'),
+    (re.compile(r'//\s*(?:not\s+implemented|implement\s+(?:me|this|later)|stub)\b', re.IGNORECASE), 'js_placeholder_comment'),
     (re.compile(r'//\s*in\s+a\s+real\s+implementation', re.IGNORECASE), 'js_in_real_impl_comment'),
+    (re.compile(r'/\*\s*(?:TODO|FIXME|placeholder|not\s+implemented|stub)', re.IGNORECASE), 'block_placeholder_comment'),
+    (re.compile(r'<!--\s*(?:TODO|FIXME|placeholder|content\s+goes\s+here|not\s+implemented)', re.IGNORECASE), 'html_placeholder_comment'),
     (re.compile(r'\bpass\s*$', re.MULTILINE), 'empty_pass_body'),
+    (re.compile(r'\.\.\.\s*$', re.MULTILINE), 'ellipsis_body'),
     (re.compile(r'\breturn\s+None\s*#.*stub', re.IGNORECASE), 'stub_return_none'),
+    (re.compile(r'\b(?:throw\s+new\s+Error|raise\s+NotImplementedError)\s*\([^)]*(?:TODO|not\s+implemented|stub)', re.IGNORECASE), 'not_implemented_throw'),
     (re.compile(r'console\.log\s*\(["\'].*(?:placeholder|todo|stub|not\s+impl)', re.IGNORECASE),
      'console_log_placeholder'),
 ]
 
 # Patterns for empty function/method bodies (draw/update/check with only pass or comment)
 _EMPTY_BODY_PATTERNS = [
-    re.compile(r'\bdef\s+(?:draw|update|check|render|tick|step)\s*\([^)]*\)\s*:\s*\n\s+pass\b',
+    re.compile(r'\bdef\s+(?:draw|update|check|render|tick|step|handle|process|execute)\s*\([^)]*\)\s*:\s*\n\s+(?:pass|\.\.\.|return\s+(?:None|False|True|0|1|""|\'\'))\b',
                re.MULTILINE),
-    re.compile(r'\bfunction\s+(?:draw|update|check|render|tick|step)\s*\([^)]*\)\s*\{[^}]*\}',
+    re.compile(r'\bfunction\s+(?:draw|update|check|render|tick|step|handle|process|execute)\s*\([^)]*\)\s*\{\s*(?://[^\n]*\n\s*)?(?:return\s+(?:false|true|null|undefined|0|1|["\'][^"\']*["\'])\s*;?)?\s*\}',
                re.MULTILINE),
 ]
 
@@ -89,6 +95,16 @@ def is_placeholder_only_content(content: str, *, file_path: str = "") -> bool:
             continue
         substantive += 1
     return substantive <= 2
+
+
+def has_blocking_placeholder_content(content: str, *, file_path: str = "") -> bool:
+    """True when any concrete implementation placeholder is present.
+
+    Unlike ``is_placeholder_only_content``, this is intentionally not ratio-based:
+    one empty critical method or TODO stub in production code is enough to block
+    autonomous generation/apply.
+    """
+    return bool(detect_placeholders(content, file_path=file_path))
 
 
 def scan_file_for_placeholders(path: str | Path) -> list[dict]:

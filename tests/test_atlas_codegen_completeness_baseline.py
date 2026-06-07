@@ -263,7 +263,7 @@ def test_wp0_proposal_input_now_carries_full_context_and_multifile_content(tmp_p
     assert payload["item"]["current_file_truncated"] is False
 
 
-def test_wp0_final_self_review_failure_still_returns_applicable_content(tmp_path: Path) -> None:
+def test_wp4_generation_quality_failure_returns_no_applicable_content(tmp_path: Path) -> None:
     item = _partial_stub_item()
     pool = _pool(tmp_path, [item])
     storage, journal = _storage_and_journal(tmp_path, pool)
@@ -283,10 +283,10 @@ def test_wp0_final_self_review_failure_still_returns_applicable_content(tmp_path
 
     proposal = service.generate_proposal_with_llm(payload)
 
-    assert "self_review_findings_unresolved" in proposal.warnings
-    assert proposal.metadata["patch_content_available"] is True
-    assert proposal.metadata["self_review"]["status"] == "failed"
-    assert proposal.metadata["proposed_content"]
+    assert "semantic_validation_failed" in proposal.warnings or "self_review_findings_unresolved" in proposal.warnings
+    assert proposal.metadata["patch_content_available"] is False
+    assert proposal.metadata["generation_failed"] is True
+    assert "proposed_content" not in proposal.metadata
 
 
 def test_wp0_partial_requirement_coverage_is_still_success_compatible(tmp_path: Path) -> None:

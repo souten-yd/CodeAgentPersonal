@@ -15,6 +15,7 @@ from agent.atlas_llm_json_adapter import call_llm_json
 from agent.atlas_llm_schemas import patch_proposal_json_schema
 from agent.atlas_plan_item_file_changes import DEFAULT_CHANGE_SET, has_file_change_content, normalize_plan_item_file_changes
 from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProposalRequest, AtlasPatchProposalResult
+from agent.atlas_placeholder_detector import detect_placeholders
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_plan_trace import PlanTrace
@@ -615,7 +616,15 @@ class AtlasPatchProposalService:
                     last_failure = "self_review_failed"
                     continue
                 if review.get("status") == "failed":
-                    proposal.warnings.append("self_review_findings_unresolved")
+                    failure = self._no_content_failure_proposal(
+                        input_payload,
+                        reason="self_review_failed",
+                        parse_failures=parse_failures,
+                        empty_content_attempts=empty_content_attempts,
+                    )
+                    failure.metadata["self_review"] = review
+                    failure.warnings.append("self_review_findings_unresolved")
+                    return failure
                 if attempt > 1:
                     proposal.warnings.append(f"llm_generation_succeeded_on_attempt_{attempt}")
                 return proposal
@@ -698,9 +707,10 @@ class AtlasPatchProposalService:
             warnings.append("diff_preview_truncated")
 
         proposed_content = str(llm_allowed.get("proposed_content") or "")
-        if len(proposed_content) > self.MAX_PROPOSED_CONTENT_CHARS:
-            proposed_content = proposed_content[: self.MAX_PROPOSED_CONTENT_CHARS]
-            warnings.append("proposed_content_truncated")
+        proposed_content_too_large = len(proposed_content.encode("utf-8")) > self.MAX_PROPOSED_CONTENT_CHARS
+        if proposed_content_too_large:
+            proposed_content = ""
+            warnings.append("proposed_content_too_large")
 
         # Pillar B: surgical string-replacement edits the executor can apply against the current file.
         edits = self._normalize_edits(llm_allowed.get("edits"), warnings)
@@ -712,6 +722,11 @@ class AtlasPatchProposalService:
             "patch_content_available": has_content,
             "base_file_revisions": dict(input_payload.get("base_file_revisions") or {}),
         }
+        if proposed_content_too_large:
+            metadata["oversized_content"] = {
+                "field": "proposed_content",
+                "max_bytes": self.MAX_PROPOSED_CONTENT_CHARS,
+            }
         if file_changes:
             metadata["file_changes"] = file_changes
             metadata["change_set"] = {**DEFAULT_CHANGE_SET, **(llm_allowed.get("change_set") if isinstance(llm_allowed.get("change_set"), dict) else {})}
@@ -807,7 +822,12 @@ class AtlasPatchProposalService:
             reasons.append("remaining_todos_present")
         if metadata.get("known_limitations"):
             reasons.append("known_limitations_present")
-        return {"status": "failed" if reasons else "passed", "reasons": reasons}
+        quality_findings = self._generation_quality_findings(input_payload, content_by_path, metadata)
+        for finding in quality_findings:
+            reason = str(finding.get("reason") or finding.get("type") or "generation_quality_failed")
+            path = str(finding.get("path") or "")
+            reasons.append(f"{reason}:{path}" if path else reason)
+        return {"status": "failed" if reasons else "passed", "reasons": reasons, "quality_findings": quality_findings}
 
     _STUB_PATTERNS: list[re.Pattern] = [
         re.compile(r"//\s*(TODO|Implement|FIXME|Placeholder|implement logic)", re.IGNORECASE),
@@ -845,6 +865,15 @@ class AtlasPatchProposalService:
                 stub_finding = self._detect_stub_content(path, content or "")
                 if stub_finding:
                     findings.append(stub_finding)
+            for placeholder in detect_placeholders(content or "", file_path=path):
+                findings.append({
+                    "type": "placeholder_content_detected",
+                    "severity": "blocking",
+                    "path": path,
+                    "message": str(placeholder.get("type") or "placeholder"),
+                    "line": placeholder.get("line"),
+                    "snippet": placeholder.get("snippet", ""),
+                })
         combined_content = "\n".join(content_by_path.values())
         for missing in self._missing_requirement_keywords(input_payload, combined_content):
             findings.append({
@@ -854,9 +883,98 @@ class AtlasPatchProposalService:
             })
         return {
             "status": "failed" if findings else "passed",
-            "checks": ["python_ast_parse", "stub_code_detected", "requirement_keyword_match"],
-            "findings": findings,
-        }
+              "checks": ["python_ast_parse", "stub_code_detected", "placeholder_detected", "requirement_keyword_match"],
+              "findings": findings,
+          }
+
+    def _generation_quality_findings(self, input_payload: dict, content_by_path: dict[str, str], metadata: dict) -> list[dict]:
+        findings: list[dict] = []
+        oversized = metadata.get("oversized_content") if isinstance(metadata.get("oversized_content"), dict) else {}
+        if oversized:
+            findings.append({"type": "oversized_content", "reason": "content_too_large", **oversized})
+        for path, content in content_by_path.items():
+            for placeholder in detect_placeholders(content or "", file_path=path):
+                findings.append({
+                    "type": "placeholder_content_detected",
+                    "reason": "placeholder_content_detected",
+                    "path": path,
+                    "line": placeholder.get("line"),
+                    "snippet": placeholder.get("snippet", ""),
+                })
+            findings.extend(self._trivial_function_findings(path, content or ""))
+        findings.extend(self._disconnected_artifact_findings(content_by_path))
+        findings.extend(self._requirement_evidence_mismatch_findings(input_payload, content_by_path, metadata))
+        return findings
+
+    def _trivial_function_findings(self, path: str, content: str) -> list[dict]:
+        ext = Path(str(path)).suffix.lower()
+        findings: list[dict] = []
+        if ext == ".py":
+            try:
+                tree = ast.parse(content or "")
+            except SyntaxError:
+                return findings
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                body = [stmt for stmt in node.body if not (isinstance(stmt, ast.Expr) and isinstance(getattr(stmt, "value", None), ast.Constant) and isinstance(stmt.value.value, str))]
+                if len(body) != 1:
+                    continue
+                stmt = body[0]
+                trivial = isinstance(stmt, (ast.Pass, ast.Raise)) or (
+                    isinstance(stmt, ast.Return)
+                    and isinstance(stmt.value, ast.Constant)
+                    and stmt.value.value in (None, False, True, 0, 1, "", "TODO", "todo")
+                )
+                if trivial:
+                    findings.append({"type": "trivial_function_body", "reason": "trivial_function_body", "path": path, "function": node.name})
+            return findings
+        if ext in {".js", ".ts", ".jsx", ".tsx", ".html"}:
+            pattern = re.compile(
+                r"(?:function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)|([A-Za-z_$][\w$]*)\s*=\s*\([^)]*\)\s*=>)\s*\{\s*(?://[^\n]*\n\s*)?(?:return\s+(?:false|true|null|undefined|0|1|['\"][^'\"]*['\"])\s*;?)?\s*\}",
+                re.IGNORECASE | re.MULTILINE,
+            )
+            for match in pattern.finditer(content or ""):
+                findings.append({
+                    "type": "trivial_function_body",
+                    "reason": "trivial_function_body",
+                    "path": path,
+                    "function": match.group(1) or match.group(2) or "",
+                })
+        return findings
+
+    @staticmethod
+    def _disconnected_artifact_findings(content_by_path: dict[str, str]) -> list[dict]:
+        html_paths = [path for path in content_by_path if Path(str(path)).suffix.lower() == ".html"]
+        if not html_paths:
+            return []
+        html = "\n".join(content_by_path[path] for path in html_paths).lower()
+        findings: list[dict] = []
+        for path in content_by_path:
+            suffix = Path(str(path)).suffix.lower()
+            if suffix not in {".js", ".css"}:
+                continue
+            name = Path(str(path)).name.lower()
+            if name and name not in html:
+                findings.append({"type": "disconnected_artifact", "reason": "disconnected_artifact", "path": path})
+        return findings
+
+    def _requirement_evidence_mismatch_findings(self, input_payload: dict, content_by_path: dict[str, str], metadata: dict) -> list[dict]:
+        satisfied = {str(v) for v in (metadata.get("satisfied_requirement_ids") or []) if str(v)}
+        if not satisfied:
+            return []
+        combined = "\n".join(content_by_path.values()).lower()
+        findings: list[dict] = []
+        for req in input_payload.get("requirements_for_this_item") or []:
+            if not isinstance(req, dict):
+                continue
+            req_id = str(req.get("requirement_id") or "")
+            if req_id not in satisfied:
+                continue
+            tokens = self._requirement_tokens(str(req.get("description") or ""))
+            if tokens and not any(token in combined for token in tokens):
+                findings.append({"type": "requirement_evidence_mismatch", "reason": "requirement_evidence_mismatch", "requirement_id": req_id})
+        return findings
 
     def _detect_stub_content(self, path: str, content: str) -> dict | None:
         lines = content.splitlines()
