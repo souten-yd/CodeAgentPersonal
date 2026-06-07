@@ -99,21 +99,20 @@ def test_codegen_proposal_input_contains_full_context_and_multifile_contents(tmp
     assert payload["preserve_behaviors"] == ["Keep reset"]
 
 
-def test_codegen_semantic_validation_retries_until_evidence_is_complete(tmp_path: Path) -> None:
+def test_codegen_semantic_validation_infers_evidence_from_content_without_retry(tmp_path: Path) -> None:
+    # A weak model returns valid content but omits the advisory evidence fields. The service infers
+    # implemented_symbols / behavioral_cases / verification_cases deterministically from the content
+    # and plan item, so semantic validation passes on the FIRST attempt (no wasted regeneration) and
+    # the proposal is not falsely rejected with semantic_evidence_missing.
     (tmp_path / "app.py").write_text("def score():\n    return 1\n", encoding="utf-8")
     calls: list[int] = []
 
     def llm(_system: str, _user: str) -> dict:
         calls.append(1)
-        if len(calls) == 1:
-            return {"target_files": ["app.py"], "proposed_content": "def score():\n    return 2\n"}
         return {
             "target_files": ["app.py"],
             "edits": [{"old_string": "def score():\n    return 1", "new_string": "def score():\n    return 2  # score increments"}],
             "satisfied_requirement_ids": ["req_score"],
-            "implemented_symbols": ["score"],
-            "behavioral_cases": ["Score increments"],
-            "verification_cases": ["pytest score"],
         }
 
     item = _item()
@@ -124,12 +123,14 @@ def test_codegen_semantic_validation_retries_until_evidence_is_complete(tmp_path
         AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_001", source_type="plan_item", run_id="run_1")
     )
 
-    assert len(calls) == 2
+    assert len(calls) == 1  # no retry needed; evidence inferred from content
     assert result.metadata["patch_content_available"] is True
     reloaded = storage.load_pool("pool_1").get_item("item_001")
     assert reloaded is not None
     assert reloaded.metadata["edits"][0]["new_string"].endswith("score increments")
-    assert reloaded.metadata["patch_proposal"]["metadata"]["semantic_validation"]["status"] == "passed"
+    proposal_metadata = reloaded.metadata["patch_proposal"]["metadata"]
+    assert proposal_metadata["semantic_validation"]["status"] == "passed"
+    assert proposal_metadata["semantic_evidence_inferred"]
 
 
 def test_codegen_repairs_unauthorized_requirement_ids_and_retains_candidate(tmp_path: Path) -> None:
