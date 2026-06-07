@@ -35,8 +35,15 @@ class RequirementAnalysisOutput(_PermissiveModel):
     scope: Any = None
     out_of_scope: Any = None
     functional_requirements: Any = None
+    requirements: Any = None
+    requirement_items: Any = None
     non_functional_requirements: Any = None
     constraints: Any = None
+    acceptance_criteria: Any = None
+    verification_contract: Any = None
+    expected_changes: Any = None
+    preserve_behaviors: Any = None
+    selected_architecture: Any = None
     assumptions: Any = None
     open_questions: Any = None
     requirement_completeness_score: Any = None
@@ -51,13 +58,18 @@ class PlanStepOutput(_PermissiveModel):
     title: Any = None
     description: Any = None
     goal: Any = None
+    requirement_ids: Any = None
+    linked_requirement_ids: Any = None
     acceptance_criteria: Any = None
     target_files: Any = None
     file_changes: Any = None
+    expected_changes: Any = None
     action_type: Any = None
     risk_level: Any = None
     verification: Any = None
+    verification_contract: Any = None
     rollback: Any = None
+    preserve_behaviors: Any = None
 
 
 class PlanGenerationOutput(_PermissiveModel):
@@ -66,8 +78,11 @@ class PlanGenerationOutput(_PermissiveModel):
     # before the planner falls back, giving a weak model a second chance to emit real steps.
     implementation_steps: list[PlanStepOutput] = Field(min_length=1)
     user_goal: Any = None
+    original_user_request: Any = None
     requirement_summary: Any = None
+    requirements: Any = None
     selected_architecture: Any = None
+    preserve_behaviors: Any = None
     architecture_options: Any = None
     rejected_architectures: Any = None
     assumptions: Any = None

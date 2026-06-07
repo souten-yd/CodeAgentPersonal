@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -89,6 +89,12 @@ class AtlasPlanItem(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     target_files: list[str] = Field(default_factory=list)
     expected_changes: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    requirement_ids: list[str] = Field(default_factory=list)
+    verification_contract: dict[str, Any] = Field(default_factory=dict)
+    preserve_behaviors: list[str] = Field(default_factory=list)
+    original_user_request: str = ""
+    selected_architecture: str = ""
     test_commands: list[str] = Field(default_factory=list)
     done_definition: list[str] = Field(default_factory=list)
     rollback_plan: list[str] = Field(default_factory=list)
@@ -112,6 +118,13 @@ class AtlasPlanItem(BaseModel):
 class AtlasPlanPool(BaseModel):
     pool_id: str
     root_goal: str
+    original_user_request: str = ""
+    selected_architecture: str = ""
+    global_constraints: list[str] = Field(default_factory=list)
+    requirements: list[dict[str, Any]] = Field(default_factory=list)
+    preserve_behaviors: list[str] = Field(default_factory=list)
+    requirement_item_map: dict[str, list[str]] = Field(default_factory=dict)
+    plan_quality: dict[str, Any] = Field(default_factory=dict)
     project_path: str = ""
     project_name: str = ""
     planning_depth: AtlasPlanningDepth = "standard"

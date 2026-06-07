@@ -168,6 +168,17 @@ class Phase4PlanReviewerTests(unittest.TestCase):
         categories = {f.category for f in result.findings}
         self.assertTrue({"destructive_change", "security"} & categories)
 
+    def test_review_exception_fails_closed(self):
+        reviewer = PlanReviewer()
+        reviewer._collect_findings = lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("review exploded"))  # type: ignore[method-assign]
+
+        result = reviewer.review(requirement=self._requirement(), plan=self._plan(), nexus_context={}, repository_context="")
+
+        self.assertFalse(result.approved_for_execution)
+        self.assertTrue(result.requires_user_confirmation)
+        self.assertEqual(result.recommended_next_action, "revise_plan")
+        self.assertIn("Plan review failed closed", {f.title for f in result.findings})
+
 
 
 def _fake_llm_json_phase4(prompt: str, user_content: str) -> dict | None:

@@ -282,7 +282,7 @@ class AtlasMultiItemAutopilotService:
                         elif vr.status == "blocked":
                             result.status, result.reason = "blocked", "verification_blocked"
                         elif vr.status == "skipped":
-                            result.status, result.reason = "completed", "verification_skipped"
+                            result.status, result.reason = "applied_no_verification", "verification_skipped"
                         elif vr.status == "failed":
                             # Surface the precise reason (e.g. browser_smoke_failed:js_error,
                             # visual_missing:*) alongside the generic marker. The
@@ -336,6 +336,9 @@ class AtlasMultiItemAutopilotService:
             out.warnings.append(f"supervised_status_integration_failed:{ex}")
         if out.status == "completed" and out.completed_count == 0 and out.blocked_count > 0:
             out.status = "blocked"
+        if out.status == "completed" and out.applied_no_verification_count > 0:
+            out.status = "applied_unverified"
+            out.stop_reason = out.stop_reason or "verification_unavailable"
         if out.status == "stopped" and out.completed_count > 0:
             out.status = "partial"
         # ── Final-status quality rollup (PR-8d): requirement coverage, integration,
@@ -357,7 +360,8 @@ class AtlasMultiItemAutopilotService:
                 # module / placeholder-only / no implementation evidence) to needs_revision so it
                 # is NOT reported as success; "warn" keeps the legacy partial degrade.
                 _features = (getattr(final_pool, "metadata", {}) or {}).get("automation_features") or {}
-                _enforce = str(_features.get("quality_gate_enforcement") or "warn").lower() == "block"
+                _default_quality = "block" if str(getattr(final_pool, "automation_level", "") or "") == "full_autopilot" or request.policy_id == "full_auto_multi_item_v1" else "warn"
+                _enforce = str(_features.get("quality_gate_enforcement") or _default_quality).lower() == "block"
                 out.status = "needs_revision" if _enforce else "partial"
                 out.stop_reason = (rollup.get("degrade_reasons") or ["quality_rollup_degraded"])[0]
         except Exception as ex:  # noqa: BLE001

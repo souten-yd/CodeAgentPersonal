@@ -33,19 +33,32 @@ def _build_plan(raw_payload, user_input: str = "Atlas の計画を作る"):
 def test_planner_fallback_records_no_implementation_steps_reason() -> None:
     plan = _build_plan({"selected_architecture": "small", "implementation_steps": []})
 
+    assert plan.status == "needs_replan"
+    assert plan.implementation_steps == []
     assert plan.metadata["planner_fallback"]["reason"] == "no_implementation_steps"
     assert "implementation_steps" in plan.metadata["planner_fallback"]["raw_output_tail"]
+    assert plan.metadata["planner_fallback"]["patch_generation_allowed"] is False
 
 
 def test_planner_fallback_records_parse_error_reason() -> None:
     plan = _build_plan(None)
 
+    assert plan.status == "needs_replan"
     assert plan.metadata["planner_fallback"]["reason"] == "parse_error"
-    assert plan.implementation_steps[0].action_type == "inspect"
+    assert plan.implementation_steps == []
 
 
 def test_planner_fallback_records_empty_reason() -> None:
     plan = _build_plan({})
 
+    assert plan.status == "needs_replan"
     assert plan.metadata["planner_fallback"]["reason"] == "empty"
-    assert plan.implementation_steps[0].action_type == "inspect"
+    assert plan.implementation_steps == []
+
+
+def test_planner_invalid_action_type_requires_replan() -> None:
+    plan = _build_plan({"implementation_steps": [{"title": "bad", "action_type": "mystery", "target_files": ["x.py"]}]})
+
+    assert plan.status == "needs_replan"
+    assert plan.metadata["planner_fallback"]["reason"] == "invalid_action_type"
+    assert plan.implementation_steps == []

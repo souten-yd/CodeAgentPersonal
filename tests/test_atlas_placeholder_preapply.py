@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent.atlas_file_safe_apply_executor import AtlasFileSafeApplyExecutor
-from agent.atlas_placeholder_detector import is_placeholder_only_content
+from agent.atlas_placeholder_detector import has_blocking_placeholder_content, is_placeholder_only_content
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 
 _PLACEHOLDER = "def draw():\n    pass  # TODO: placeholder\n"
@@ -41,6 +41,33 @@ def test_block_mode_allows_real_content(tmp_path: Path):
     out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=_pool(item, "block"))
     assert out["status"] == "applied"
     assert (tmp_path / "src" / "x.py").read_text(encoding="utf-8") == _REAL
+
+
+def test_single_empty_critical_method_is_blocking_even_with_real_lines(tmp_path: Path):
+    content = (
+        "def add(a, b):\n"
+        "    return a + b\n\n"
+        "def render(state):\n"
+        "    pass\n\n"
+        "def mul(a, b):\n"
+        "    return a * b\n"
+    )
+    assert is_placeholder_only_content(content, file_path="src/x.py") is False
+    assert has_blocking_placeholder_content(content, file_path="src/x.py") is True
+    item = _item(content)
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=_pool(item, "block"))
+    assert out["status"] == "blocked"
+    assert "placeholder_content_detected" in out["reasons"]
+    assert not (tmp_path / "src" / "x.py").exists()
+
+
+def test_full_autopilot_enforces_quality_without_feature_flag(tmp_path: Path):
+    item = _item(_PLACEHOLDER)
+    pool = _pool(item, None)
+    pool.automation_level = "full_autopilot"
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out["status"] == "blocked"
+    assert "placeholder_only_content" in out["reasons"]
 
 
 def test_warn_mode_does_not_block_placeholder(tmp_path: Path):

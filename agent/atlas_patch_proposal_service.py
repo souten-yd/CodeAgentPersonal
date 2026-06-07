@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import re
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from agent.atlas_llm_json_adapter import call_llm_json
 from agent.atlas_llm_schemas import patch_proposal_json_schema
 from agent.atlas_plan_item_file_changes import DEFAULT_CHANGE_SET, has_file_change_content, normalize_plan_item_file_changes
 from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProposalRequest, AtlasPatchProposalResult
+from agent.atlas_placeholder_detector import detect_placeholders
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_plan_trace import PlanTrace
@@ -22,7 +24,13 @@ from agent.atlas_workspace_root import resolve_atlas_workspace_root
 
 class AtlasPatchProposalService:
     ALLOWED_SOURCE_TYPES = {"debug_review", "plan_item"}
-    LLM_ALLOWED_FIELDS = {"title", "summary", "root_cause", "proposed_fix", "target_files", "file_changes", "change_set", "suggested_changes", "unified_diff_preview", "proposed_content", "edits", "risk_level", "verification_plan", "rollback_plan", "assumptions"}
+    LLM_ALLOWED_FIELDS = {
+        "title", "summary", "root_cause", "proposed_fix", "target_files", "file_changes", "change_set",
+        "suggested_changes", "unified_diff_preview", "proposed_content", "edits", "risk_level",
+        "verification_plan", "rollback_plan", "assumptions", "satisfied_requirement_ids",
+        "preserved_requirement_ids", "implemented_symbols", "behavioral_cases", "verification_cases",
+        "known_limitations", "remaining_todos",
+    }
     MAX_EDITS = 20
     LLM_UNTRUSTED_FIELDS = {"status", "pool_id", "item_id", "run_id", "proposal_id", "metadata", "warnings", "errors", "proposal_json_path", "proposal_md_path", "created_at"}
     ALLOWED_RISK_LEVELS = {"low", "medium", "high", "critical"}
@@ -195,6 +203,44 @@ class AtlasPatchProposalService:
             return {"exists": False, "content": "", "truncated": False, "rel_path": out.get("rel_path", "")}
         return out
 
+    def _read_current_target_contents(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        try:
+            target_files = [str(p).strip() for p in (item.target_files or []) if str(p).strip()]
+            workspace_root = resolve_atlas_workspace_root(
+                ca_data_root=self.storage.root_dir,
+                workspace_id=request.workspace_id or "default",
+                project_path=str(getattr(pool, "project_path", "") or ""),
+            )
+            for rel in target_files:
+                entry = {"exists": False, "content": "", "truncated": False, "revision": "absent"}
+                path_obj = Path(rel)
+                posix_path = PurePosixPath(rel.replace("\\", "/"))
+                if path_obj.is_absolute() or posix_path.is_absolute() or ".." in path_obj.parts or ".." in posix_path.parts:
+                    entry["unsafe"] = True
+                    out[rel] = entry
+                    continue
+                target = (workspace_root / path_obj).resolve()
+                try:
+                    target.relative_to(workspace_root)
+                except ValueError:
+                    entry["unsafe"] = True
+                    out[rel] = entry
+                    continue
+                if target.is_file():
+                    text = target.read_text(encoding="utf-8", errors="replace")
+                    entry["exists"] = True
+                    entry["revision"] = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+                    if len(text) > self.MAX_EXISTING_FILE_CHARS:
+                        entry["content"] = text[: self.MAX_EXISTING_FILE_CHARS]
+                        entry["truncated"] = True
+                    else:
+                        entry["content"] = text
+                out[rel] = entry
+        except Exception:
+            return out
+        return out
+
     def _build_code_context(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
         """Pillar C: surrounding-code awareness for the patch — project symbols the change can call or
         extend, plus tests related to the target file. Best-effort; empty when no project dir."""
@@ -219,17 +265,39 @@ class AtlasPatchProposalService:
         source_type = self._effective_source_type(item, request)
         debug_review = (item.metadata or {}).get("debug_review") or {}
         item_metadata = item.metadata or {}
-        # Ground the model in the target file's CURRENT content (read-before-edit). Prefer real disk
-        # bytes; fall back to any content captured in metadata.
+        # Ground the model in the target files' CURRENT content (read-before-edit). Prefer real disk
+        # bytes; fall back to any content captured in metadata for legacy single-target consumers.
+        current_targets = self._read_current_target_contents(pool, item, request)
         existing_target = self._read_existing_target_content(pool, item, request)
         existing_content = existing_target["content"] or str(item_metadata.get("content") or item_metadata.get("proposed_content") or "")
         # Pillar C: surrounding-code awareness — symbols the patch can call/extend, and related tests.
         code_context = self._build_code_context(pool, item, request)
+        requirements = self._all_requirements(pool)
+        requirement_ids = [str(v) for v in (getattr(item, "requirement_ids", []) or item_metadata.get("requirement_ids") or []) if str(v).strip()]
+        requirements_for_item = [r for r in requirements if str(r.get("requirement_id") or "") in set(requirement_ids)]
+        satisfied_requirement_ids = self._satisfied_requirement_ids(pool)
+        remaining_requirements = [
+            r for r in requirements
+            if str(r.get("requirement_id") or "") not in satisfied_requirement_ids
+        ]
+        completed_summaries = self._completed_item_summaries(pool)
         return {
             "pool_id": pool.pool_id,
             "item_id": item.item_id,
             "run_id": request.run_id,
             "workspace_id": request.workspace_id,
+            "root_goal": pool.root_goal,
+            "original_user_request": getattr(pool, "original_user_request", "") or (pool.metadata or {}).get("original_user_request", "") or pool.root_goal,
+            "selected_architecture": getattr(pool, "selected_architecture", "") or (pool.metadata or {}).get("selected_architecture", ""),
+            "global_constraints": list(getattr(pool, "global_constraints", []) or (pool.metadata or {}).get("global_constraints") or (pool.metadata or {}).get("constraints") or []),
+            "all_requirements": requirements,
+            "requirements_for_this_item": requirements_for_item,
+            "already_satisfied_requirements": [r for r in requirements if str(r.get("requirement_id") or "") in satisfied_requirement_ids],
+            "remaining_requirements": remaining_requirements,
+            "completed_item_summaries": completed_summaries,
+            "current_target_contents": current_targets,
+            "base_file_revisions": {path: str(entry.get("revision") or "absent") for path, entry in current_targets.items()},
+            "preserve_behaviors": list(getattr(item, "preserve_behaviors", []) or getattr(pool, "preserve_behaviors", []) or (pool.metadata or {}).get("preserve_behaviors") or []),
             "source_type": source_type,
             "requested_source_type": request.source_type,
             "proposal_mode": request.proposal_mode,
@@ -237,6 +305,11 @@ class AtlasPatchProposalService:
                 "title": item.title,
                 "description": item.description,
                 "goal": item.goal,
+                "requirement_ids": requirement_ids,
+                "acceptance_criteria": list(getattr(item, "acceptance_criteria", []) or item_metadata.get("acceptance_criteria") or []),
+                "expected_changes": list(getattr(item, "expected_changes", []) or []),
+                "verification_contract": dict(getattr(item, "verification_contract", {}) or item_metadata.get("verification_contract") or {}),
+                "preserve_behaviors": list(getattr(item, "preserve_behaviors", []) or item_metadata.get("preserve_behaviors") or []),
                 "done_definition": list(item.done_definition or []),
                 "target_files": list(item.target_files or []),
                 "file_changes": list(item_metadata.get("file_changes") or []),
@@ -248,6 +321,8 @@ class AtlasPatchProposalService:
                 "target_file_exists": bool(existing_target["exists"]),
                 "current_file_content": existing_target["content"],
                 "current_file_truncated": bool(existing_target["truncated"]),
+                "current_target_contents": current_targets,
+                "base_file_revisions": {path: str(entry.get("revision") or "absent") for path, entry in current_targets.items()},
                 "project_symbols": code_context["symbols"],
                 "related_tests": code_context["related_tests"],
                 "clarification_implementation_directives": list(item_metadata.get("clarification_implementation_directives") or []),
@@ -267,6 +342,34 @@ class AtlasPatchProposalService:
                 "no_command_execution",
             ],
         }
+
+    @staticmethod
+    def _all_requirements(pool: AtlasPlanPool) -> list[dict]:
+        values = list(getattr(pool, "requirements", []) or (getattr(pool, "metadata", {}) or {}).get("requirement_trace") or [])
+        return [dict(v) for v in values if isinstance(v, dict)]
+
+    @staticmethod
+    def _completed_item_summaries(pool: AtlasPlanPool) -> list[dict]:
+        completed_ids = set(getattr(pool, "completed_item_ids", []) or [])
+        summaries: list[dict] = []
+        for candidate in getattr(pool, "items", []) or []:
+            if str(getattr(candidate, "status", "")).lower() != "completed" and candidate.item_id not in completed_ids:
+                continue
+            summaries.append({
+                "item_id": candidate.item_id,
+                "title": candidate.title,
+                "goal": candidate.goal,
+                "target_files": list(candidate.target_files or []),
+                "requirement_ids": list(getattr(candidate, "requirement_ids", []) or []),
+                "changed_files": list(((candidate.metadata or {}).get("safe_apply") or {}).get("changed_files") or []),
+            })
+        return summaries
+
+    def _satisfied_requirement_ids(self, pool: AtlasPlanPool) -> set[str]:
+        out: set[str] = set()
+        for summary in self._completed_item_summaries(pool):
+            out.update(str(v) for v in (summary.get("requirement_ids") or []) if str(v).strip())
+        return out
 
     def _plan_item_requires_content(self, input_payload: dict) -> bool:
         # A plan_item that names target files and is not a delete/run_command MUST yield real patch
@@ -479,6 +582,26 @@ class AtlasPatchProposalService:
                 parse_failures += 1
                 last_failure = f"llm_output_unparseable:{str(exc) or exc.__class__.__name__}"
                 continue
+            semantic = self._validate_task_complete_proposal(proposal, input_payload, has_content=has_content)
+            proposal.metadata["semantic_validation"] = semantic
+            if semantic.get("status") == "failed":
+                proposal.warnings.append("semantic_validation_failed")
+                last_failure = "semantic_validation_failed:" + ",".join(semantic.get("reasons") or [])
+                if attempt < self.MAX_LLM_GENERATION_ATTEMPTS:
+                    self_review_feedback = {
+                        "status": "failed",
+                        "findings": [{"type": "semantic_validation", "severity": "blocking", "message": r} for r in semantic.get("reasons") or []],
+                    }
+                    continue
+                failure = self._no_content_failure_proposal(
+                    input_payload,
+                    reason=last_failure,
+                    parse_failures=parse_failures,
+                    empty_content_attempts=empty_content_attempts,
+                )
+                failure.metadata["semantic_validation"] = semantic
+                failure.warnings.append("semantic_validation_failed")
+                return failure
             if has_content or not content_required:
                 review = self._self_review_proposal(proposal, input_payload, has_content=has_content)
                 review["attempt_count"] = attempt
@@ -493,7 +616,15 @@ class AtlasPatchProposalService:
                     last_failure = "self_review_failed"
                     continue
                 if review.get("status") == "failed":
-                    proposal.warnings.append("self_review_findings_unresolved")
+                    failure = self._no_content_failure_proposal(
+                        input_payload,
+                        reason="self_review_failed",
+                        parse_failures=parse_failures,
+                        empty_content_attempts=empty_content_attempts,
+                    )
+                    failure.metadata["self_review"] = review
+                    failure.warnings.append("self_review_findings_unresolved")
+                    return failure
                 if attempt > 1:
                     proposal.warnings.append(f"llm_generation_succeeded_on_attempt_{attempt}")
                 return proposal
@@ -576,9 +707,10 @@ class AtlasPatchProposalService:
             warnings.append("diff_preview_truncated")
 
         proposed_content = str(llm_allowed.get("proposed_content") or "")
-        if len(proposed_content) > self.MAX_PROPOSED_CONTENT_CHARS:
-            proposed_content = proposed_content[: self.MAX_PROPOSED_CONTENT_CHARS]
-            warnings.append("proposed_content_truncated")
+        proposed_content_too_large = len(proposed_content.encode("utf-8")) > self.MAX_PROPOSED_CONTENT_CHARS
+        if proposed_content_too_large:
+            proposed_content = ""
+            warnings.append("proposed_content_too_large")
 
         # Pillar B: surgical string-replacement edits the executor can apply against the current file.
         edits = self._normalize_edits(llm_allowed.get("edits"), warnings)
@@ -588,7 +720,13 @@ class AtlasPatchProposalService:
             "source_type": str(input_payload.get("source_type") or "debug_review"),
             "requested_source_type": str(input_payload.get("requested_source_type") or ""),
             "patch_content_available": has_content,
+            "base_file_revisions": dict(input_payload.get("base_file_revisions") or {}),
         }
+        if proposed_content_too_large:
+            metadata["oversized_content"] = {
+                "field": "proposed_content",
+                "max_bytes": self.MAX_PROPOSED_CONTENT_CHARS,
+            }
         if file_changes:
             metadata["file_changes"] = file_changes
             metadata["change_set"] = {**DEFAULT_CHANGE_SET, **(llm_allowed.get("change_set") if isinstance(llm_allowed.get("change_set"), dict) else {})}
@@ -596,6 +734,16 @@ class AtlasPatchProposalService:
             metadata["proposed_content"] = proposed_content
         if edits:
             metadata["edits"] = edits
+        for key in (
+            "satisfied_requirement_ids",
+            "preserved_requirement_ids",
+            "implemented_symbols",
+            "behavioral_cases",
+            "verification_cases",
+            "known_limitations",
+            "remaining_todos",
+        ):
+            metadata[key] = self._normalize_string_list(llm_allowed.get(key), warnings, key)
 
         normalized = AtlasPatchProposal.model_validate({
             "proposal_id": f"proposal_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid4().hex[:8]}",
@@ -618,6 +766,68 @@ class AtlasPatchProposalService:
             "metadata": metadata,
         })
         return normalized, has_content
+
+    @staticmethod
+    def _normalize_string_list(value: object, warnings: list[str], key: str) -> list[str]:
+        if value in (None, ""):
+            return []
+        if isinstance(value, list):
+            out = [str(v).strip() for v in value if str(v).strip()]
+            if len(out) != len(value):
+                warnings.append(f"{key}_entries_dropped")
+            return out
+        text = str(value).strip()
+        return [text] if text else []
+
+    def _validate_task_complete_proposal(self, proposal: AtlasPatchProposal, input_payload: dict, *, has_content: bool) -> dict:
+        item = input_payload.get("item") or {}
+        target_files = [str(p) for p in (item.get("target_files") or []) if str(p)]
+        allowed_targets = set(target_files)
+        metadata = proposal.metadata or {}
+        reasons: list[str] = []
+        content_by_path = self._proposal_content_by_path(proposal)
+        proposed_targets = set(str(p) for p in (proposal.target_files or []) if str(p))
+        proposed_targets.update(content_by_path.keys())
+        unauthorized_targets = sorted(p for p in proposed_targets if allowed_targets and p not in allowed_targets)
+        if unauthorized_targets:
+            reasons.append("unauthorized_target_files:" + ",".join(unauthorized_targets))
+        if len(target_files) > 1:
+            missing_content = sorted(p for p in target_files if not str(content_by_path.get(p) or "").strip())
+            if missing_content:
+                reasons.append("multi_file_content_missing:" + ",".join(missing_content))
+        if self._plan_item_requires_content(input_payload) and not has_content:
+            reasons.append("content_missing")
+
+        authorized_req_ids = {str(v) for v in (item.get("requirement_ids") or []) if str(v)}
+        all_req_ids = {str(r.get("requirement_id") or "") for r in (input_payload.get("all_requirements") or []) if isinstance(r, dict)}
+        satisfied_ids = set(str(v) for v in (metadata.get("satisfied_requirement_ids") or []) if str(v))
+        preserved_ids = set(str(v) for v in (metadata.get("preserved_requirement_ids") or []) if str(v))
+        reported_ids = satisfied_ids | preserved_ids
+        if authorized_req_ids:
+            unknown = sorted(req_id for req_id in reported_ids if req_id not in authorized_req_ids)
+            if unknown:
+                reasons.append("unauthorized_requirement_ids:" + ",".join(unknown))
+            if not satisfied_ids:
+                reasons.append("satisfied_requirement_ids_missing")
+        elif all_req_ids and reported_ids:
+            reasons.append("requirement_ids_not_authorized_by_item")
+
+        evidence_present = any(
+            metadata.get(key)
+            for key in ("satisfied_requirement_ids", "implemented_symbols", "behavioral_cases", "verification_cases")
+        )
+        if self._plan_item_requires_content(input_payload) and not evidence_present:
+            reasons.append("semantic_evidence_missing")
+        if metadata.get("remaining_todos"):
+            reasons.append("remaining_todos_present")
+        if metadata.get("known_limitations"):
+            reasons.append("known_limitations_present")
+        quality_findings = self._generation_quality_findings(input_payload, content_by_path, metadata)
+        for finding in quality_findings:
+            reason = str(finding.get("reason") or finding.get("type") or "generation_quality_failed")
+            path = str(finding.get("path") or "")
+            reasons.append(f"{reason}:{path}" if path else reason)
+        return {"status": "failed" if reasons else "passed", "reasons": reasons, "quality_findings": quality_findings}
 
     _STUB_PATTERNS: list[re.Pattern] = [
         re.compile(r"//\s*(TODO|Implement|FIXME|Placeholder|implement logic)", re.IGNORECASE),
@@ -655,6 +865,15 @@ class AtlasPatchProposalService:
                 stub_finding = self._detect_stub_content(path, content or "")
                 if stub_finding:
                     findings.append(stub_finding)
+            for placeholder in detect_placeholders(content or "", file_path=path):
+                findings.append({
+                    "type": "placeholder_content_detected",
+                    "severity": "blocking",
+                    "path": path,
+                    "message": str(placeholder.get("type") or "placeholder"),
+                    "line": placeholder.get("line"),
+                    "snippet": placeholder.get("snippet", ""),
+                })
         combined_content = "\n".join(content_by_path.values())
         for missing in self._missing_requirement_keywords(input_payload, combined_content):
             findings.append({
@@ -664,9 +883,98 @@ class AtlasPatchProposalService:
             })
         return {
             "status": "failed" if findings else "passed",
-            "checks": ["python_ast_parse", "stub_code_detected", "requirement_keyword_match"],
-            "findings": findings,
-        }
+              "checks": ["python_ast_parse", "stub_code_detected", "placeholder_detected", "requirement_keyword_match"],
+              "findings": findings,
+          }
+
+    def _generation_quality_findings(self, input_payload: dict, content_by_path: dict[str, str], metadata: dict) -> list[dict]:
+        findings: list[dict] = []
+        oversized = metadata.get("oversized_content") if isinstance(metadata.get("oversized_content"), dict) else {}
+        if oversized:
+            findings.append({"type": "oversized_content", "reason": "content_too_large", **oversized})
+        for path, content in content_by_path.items():
+            for placeholder in detect_placeholders(content or "", file_path=path):
+                findings.append({
+                    "type": "placeholder_content_detected",
+                    "reason": "placeholder_content_detected",
+                    "path": path,
+                    "line": placeholder.get("line"),
+                    "snippet": placeholder.get("snippet", ""),
+                })
+            findings.extend(self._trivial_function_findings(path, content or ""))
+        findings.extend(self._disconnected_artifact_findings(content_by_path))
+        findings.extend(self._requirement_evidence_mismatch_findings(input_payload, content_by_path, metadata))
+        return findings
+
+    def _trivial_function_findings(self, path: str, content: str) -> list[dict]:
+        ext = Path(str(path)).suffix.lower()
+        findings: list[dict] = []
+        if ext == ".py":
+            try:
+                tree = ast.parse(content or "")
+            except SyntaxError:
+                return findings
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                body = [stmt for stmt in node.body if not (isinstance(stmt, ast.Expr) and isinstance(getattr(stmt, "value", None), ast.Constant) and isinstance(stmt.value.value, str))]
+                if len(body) != 1:
+                    continue
+                stmt = body[0]
+                trivial = isinstance(stmt, (ast.Pass, ast.Raise)) or (
+                    isinstance(stmt, ast.Return)
+                    and isinstance(stmt.value, ast.Constant)
+                    and stmt.value.value in (None, False, True, 0, 1, "", "TODO", "todo")
+                )
+                if trivial:
+                    findings.append({"type": "trivial_function_body", "reason": "trivial_function_body", "path": path, "function": node.name})
+            return findings
+        if ext in {".js", ".ts", ".jsx", ".tsx", ".html"}:
+            pattern = re.compile(
+                r"(?:function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)|([A-Za-z_$][\w$]*)\s*=\s*\([^)]*\)\s*=>)\s*\{\s*(?://[^\n]*\n\s*)?(?:return\s+(?:false|true|null|undefined|0|1|['\"][^'\"]*['\"])\s*;?)?\s*\}",
+                re.IGNORECASE | re.MULTILINE,
+            )
+            for match in pattern.finditer(content or ""):
+                findings.append({
+                    "type": "trivial_function_body",
+                    "reason": "trivial_function_body",
+                    "path": path,
+                    "function": match.group(1) or match.group(2) or "",
+                })
+        return findings
+
+    @staticmethod
+    def _disconnected_artifact_findings(content_by_path: dict[str, str]) -> list[dict]:
+        html_paths = [path for path in content_by_path if Path(str(path)).suffix.lower() == ".html"]
+        if not html_paths:
+            return []
+        html = "\n".join(content_by_path[path] for path in html_paths).lower()
+        findings: list[dict] = []
+        for path in content_by_path:
+            suffix = Path(str(path)).suffix.lower()
+            if suffix not in {".js", ".css"}:
+                continue
+            name = Path(str(path)).name.lower()
+            if name and name not in html:
+                findings.append({"type": "disconnected_artifact", "reason": "disconnected_artifact", "path": path})
+        return findings
+
+    def _requirement_evidence_mismatch_findings(self, input_payload: dict, content_by_path: dict[str, str], metadata: dict) -> list[dict]:
+        satisfied = {str(v) for v in (metadata.get("satisfied_requirement_ids") or []) if str(v)}
+        if not satisfied:
+            return []
+        combined = "\n".join(content_by_path.values()).lower()
+        findings: list[dict] = []
+        for req in input_payload.get("requirements_for_this_item") or []:
+            if not isinstance(req, dict):
+                continue
+            req_id = str(req.get("requirement_id") or "")
+            if req_id not in satisfied:
+                continue
+            tokens = self._requirement_tokens(str(req.get("description") or ""))
+            if tokens and not any(token in combined for token in tokens):
+                findings.append({"type": "requirement_evidence_mismatch", "reason": "requirement_evidence_mismatch", "requirement_id": req_id})
+        return findings
 
     def _detect_stub_content(self, path: str, content: str) -> dict | None:
         lines = content.splitlines()
@@ -984,9 +1292,9 @@ class AtlasPatchProposalService:
         # When real patch content was produced, wire the item into the canonical safe-apply
         # vocabulary so the autopilot can actually apply it: action_type must be {create, update}
         # and item_type must be implementation/documentation (the executor + adapter reject others).
-        # Empty/unknown action_type defaults to create (greenfield write); an existing action_type
-        # is preserved (e.g. an LLM-specified "update" for edits) via normalization. Surgical edits
-        # always target an existing file, so force update.
+        # Only explicit or compatible legacy action types are normalized. Empty/unknown values stay
+        # invalid so the safe-apply path can fail closed instead of silently creating files.
+        # Surgical edits always target an existing file, so force update.
         if proposed_content or proposal.unified_diff_preview or proposal_edits:
             if proposal_edits and not proposed_content:
                 item.metadata["action_type"] = "update"

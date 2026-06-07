@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -17,7 +18,11 @@ from agent.atlas_codegen_progress import is_stop_requested, write_progress
 from agent.atlas_ci_failure_repair_schema import AtlasCIFailureRepairRequest
 from agent.atlas_ci_failure_repair_service import AtlasCIFailureRepairService
 from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
-from agent.atlas_multi_item_autopilot_schema import AtlasMultiItemAutopilotRequest
+from agent.atlas_multi_item_autopilot_schema import (
+    AtlasAutopilotItemResult,
+    AtlasMultiItemAutopilotRequest,
+    AtlasMultiItemAutopilotResult,
+)
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
 from agent.atlas_plan_item_file_changes import has_file_change_content, normalize_plan_item_file_changes
 from agent.atlas_recovery_service import AtlasRecoveryService
@@ -36,9 +41,9 @@ _AUTONOMOUS_PHASES = [
 
 
 class AtlasAutonomousCodegenOrchestratorService:
-    """Compose plan -> batch patch generation -> multi-item apply into one autonomous call.
+    """Compose plan -> per-item generate/review/apply/verify into one autonomous call.
 
-    This adds NO new gate logic: Phase 3 delegates to AtlasMultiItemAutopilotService, which already
+    This adds NO new gate logic: item apply delegates to AtlasMultiItemAutopilotService, which already
     inherits the workstream-1 full_auto relaxation. The safety boundary is the plan-time critique
     gate (Phase 1 stop) plus the pre-apply snapshot/rollback inside the multi-item engine.
     """
@@ -129,120 +134,26 @@ class AtlasAutonomousCodegenOrchestratorService:
             self.save_result(out)
             return out
 
-        # ── Phase 2: batch first-patch generation for items lacking content ───────────────────
-        out.phase = "candidate_generation"
-        self._progress(request.pool_id, run_id, orchestrator_run_id, phase=out.phase, sub_phase="patch_generation", last_event="candidate_generation_started")
-        if self._stop_requested(request.pool_id, orchestrator_run_id):
-            return self._stopped_result(out, request.pool_id, run_id, orchestrator_run_id)
+        # ── Phase 2/3: interleaved item loop ──────────────────────────────────────────────────
         effective_limits = preflight.get("effective_limits") if isinstance(preflight.get("effective_limits"), dict) else {}
         effective_max_actions = int(effective_limits.get("max_actions") or request.max_actions)
         effective_max_items = int(effective_limits.get("max_items") or request.max_items)
         effective_max_runtime_seconds = int(effective_limits.get("max_runtime_seconds") or request.max_runtime_seconds)
         effective_max_changed_files_total = int(effective_limits.get("max_changed_files_total") or request.max_changed_files_total)
-        requested_item_ids = request.item_ids or [i.item_id for i in pool.items]
-        excluded_apply_item_ids: set[str] = set()
-        if request.generate_missing_patches:
-            for item_id in requested_item_ids[: max(0, min(effective_max_items, effective_max_actions))]:
-                self._progress(request.pool_id, run_id, orchestrator_run_id, phase=out.phase, current_item_index=out.generated_count + out.skipped_generation_count, total_items=len(requested_item_ids), sub_phase="patch_generation", last_event="patch_generation_item_started")
-                if self._stop_requested(request.pool_id, orchestrator_run_id):
-                    return self._stopped_result(out, request.pool_id, run_id, orchestrator_run_id)
-                pool = self.storage.load_pool(request.pool_id)  # pick up content persisted so far
-                item = pool.get_item(item_id)
-                if item is None:
-                    excluded_apply_item_ids.add(item_id)
-                    continue
-                normalize_plan_item_file_changes(item)
-                if self._item_has_patch_content(item):
-                    out.skipped_generation_count += 1
-                    continue
-                if self._is_hard_blocked_item(item):
-                    out.skipped_generation_count += 1
-                    excluded_apply_item_ids.add(item_id)
-                    out.proposal_results.append(AtlasAutonomousCodegenProposalResult(item_id=item_id, status="skipped", reason="hard_blocked_item"))
-                    continue
-                pres = self.patch_proposal_service.propose_for_item(
-                    AtlasPatchProposalRequest(
-                        pool_id=request.pool_id,
-                        item_id=item_id,
-                        run_id=run_id,
-                        workspace_id=request.workspace_id,
-                        source_type="plan_item",
-                    )
-                )
-                available = bool((pres.metadata or {}).get("patch_content_available"))
-                out.proposal_results.append(
-                    AtlasAutonomousCodegenProposalResult(
-                        item_id=item_id,
-                        status=pres.status if available else "no_content",
-                        patch_content_available=available,
-                        reason="" if available else (pres.warnings[0] if pres.warnings else "patch_content_unavailable"),
-                    )
-                )
-                if available:
-                    out.generated_count += 1
-                else:
-                    out.skipped_generation_count += 1
-                    excluded_apply_item_ids.add(item_id)
-            self._emit("autonomous_codegen_patch_generation_completed", request.pool_id, run_id, orchestrator_run_id, status="completed", generated_count=out.generated_count, skipped_count=out.skipped_generation_count)
-
-        apply_item_ids = [item_id for item_id in requested_item_ids if item_id not in excluded_apply_item_ids]
-        if requested_item_ids and not apply_item_ids:
-            out.phase = "final_summary"
-            out.status = "no_content"
-            out.stop_reason = "no_patch_content"
-            out.metadata.update(
-                {
-                    "preflight": preflight,
-                    "processed_count": 0,
-                    "completed_count": 0,
-                    "failed_count": 0,
-                    "blocked_count": len(excluded_apply_item_ids),
-                    "changed_files": [],
-                    "no_content_item_ids": sorted(excluded_apply_item_ids),
-                    "draft_pr_readiness": {
-                        "ready": False,
-                        "reason": "no_verified_patch_content",
-                        "direct_merge_enabled": False,
-                        "remote_git_push_enabled": False,
-                        "self_apply_enabled": False,
-                        "stable_runtime_mutation_enabled": False,
-                    },
-                    "draft_pr_artifact": {"ready": False, "reason": "no_verified_patch_content"},
-                }
-            )
-            self._emit("autonomous_codegen_completed", request.pool_id, run_id, orchestrator_run_id, status=out.status)
-            self.save_result(out)
-            return out
-
-        # ── Phase 3: multi-item apply (inherits full_auto relaxation + verify/self-correct) ───
-        out.phase = "candidate_apply"
-        self._progress(request.pool_id, run_id, orchestrator_run_id, phase=out.phase, current_item_index=0, total_items=len(apply_item_ids), sub_phase="candidate_apply", last_event="candidate_apply_started")
         if self._stop_requested(request.pool_id, orchestrator_run_id):
             return self._stopped_result(out, request.pool_id, run_id, orchestrator_run_id)
-        autopilot = self.multi_item_autopilot_service.run(
-            AtlasMultiItemAutopilotRequest(
-                pool_id=request.pool_id,
-                run_id=run_id,
-                workspace_id=request.workspace_id,
-                project_path=str(preflight.get("effective_project_path") or request.project_path),
-                item_ids=apply_item_ids if excluded_apply_item_ids else request.item_ids,
-                policy_id=request.policy_id,
-                require_approval=False,
-                max_items=min(effective_max_items, effective_max_actions),
-                max_runtime_seconds=effective_max_runtime_seconds,
-                max_changed_files_total=effective_max_changed_files_total,
-                include_context_refresh=True,
-                include_evaluator=True,
-                include_bounded_retry=True,
-                include_self_correction=True,
-                include_correction_routing=True,
-                include_harness_provisioning=True,
-                metadata={
-                    **(request.metadata or {}),
-                    "data_root": str(self.data_root),
-                    "orchestrator_run_id": orchestrator_run_id,
-                },
-            )
+        requested_item_ids = self._dependency_ready_item_ids(request, pool)
+        autopilot = self._run_interleaved_items(
+            request=request,
+            out=out,
+            run_id=run_id,
+            orchestrator_run_id=orchestrator_run_id,
+            requested_item_ids=requested_item_ids,
+            project_path=str(preflight.get("effective_project_path") or request.project_path),
+            effective_max_actions=effective_max_actions,
+            effective_max_items=effective_max_items,
+            effective_max_runtime_seconds=effective_max_runtime_seconds,
+            effective_max_changed_files_total=effective_max_changed_files_total,
         )
         out.autopilot_result = autopilot.model_dump()
         out.stop_reason = autopilot.stop_reason
@@ -337,6 +248,319 @@ class AtlasAutonomousCodegenOrchestratorService:
         self._progress(pool_id, run_id, orchestrator_run_id, phase=out.phase, status=out.status, last_event="autonomous_codegen_stopped", stop_requested=True, stop_reason=out.stop_reason)
         self.save_result(out)
         return out
+
+    def _dependency_ready_item_ids(self, request: AtlasAutonomousCodegenRequest, pool) -> list[str]:
+        if request.item_ids:
+            return list(request.item_ids)
+        try:
+            ready = pool.get_ready_items()
+        except Exception:
+            ready = []
+        if ready:
+            return [item.item_id for item in ready]
+        return [item.item_id for item in getattr(pool, "items", []) or []]
+
+    def _run_interleaved_items(
+        self,
+        *,
+        request: AtlasAutonomousCodegenRequest,
+        out: AtlasAutonomousCodegenResult,
+        run_id: str,
+        orchestrator_run_id: str,
+        requested_item_ids: list[str],
+        project_path: str,
+        effective_max_actions: int,
+        effective_max_items: int,
+        effective_max_runtime_seconds: int,
+        effective_max_changed_files_total: int,
+    ) -> AtlasMultiItemAutopilotResult:
+        selected_ids = list(requested_item_ids)[: max(0, min(effective_max_items, effective_max_actions))]
+        aggregate = AtlasMultiItemAutopilotResult(
+            pool_id=request.pool_id,
+            run_id=run_id,
+            autopilot_run_id=f"auto_interleaved_{uuid4().hex[:10]}",
+            policy_id=request.policy_id,
+            status="completed",
+            created_at=datetime.now(timezone.utc).isoformat(),
+            metadata={"mode": "interleaved_generate_apply_verify", "sub_runs": [], "revision_regenerations": []},
+        )
+        changed_total = 0
+        no_content_item_ids: list[str] = []
+
+        for index, item_id in enumerate(selected_ids):
+            if self._stop_requested(request.pool_id, orchestrator_run_id):
+                aggregate.status = "stopped"
+                aggregate.stop_reason = "user_stop_requested"
+                break
+            pool = self.storage.load_pool(request.pool_id)
+            item = pool.get_item(item_id)
+            if item is None:
+                aggregate.item_results.append(AtlasAutopilotItemResult(item_id=item_id, status="skipped", reason="item_not_found"))
+                aggregate.skipped_count += 1
+                continue
+            normalize_plan_item_file_changes(item)
+            if self._is_hard_blocked_item(item):
+                out.skipped_generation_count += 1
+                no_content_item_ids.append(item_id)
+                out.proposal_results.append(AtlasAutonomousCodegenProposalResult(item_id=item_id, status="skipped", reason="hard_blocked_item"))
+                aggregate.item_results.append(AtlasAutopilotItemResult(item_id=item_id, status="blocked", reason="hard_blocked_item"))
+                aggregate.blocked_count += 1
+                continue
+
+            out.phase = "candidate_generation"
+            self._progress(
+                request.pool_id,
+                run_id,
+                orchestrator_run_id,
+                phase=out.phase,
+                current_item_index=index,
+                total_items=len(selected_ids),
+                sub_phase="patch_generation",
+                last_event="patch_generation_item_started",
+            )
+            stale = self._proposal_revision_mismatch(item, project_path=project_path)
+            if stale:
+                self._clear_patch_content(item)
+                item.metadata.setdefault("patch_proposal_revision_mismatches", []).append(stale)
+                self.storage.save_pool(pool)
+                aggregate.metadata["revision_regenerations"].append({"item_id": item_id, **stale})
+                self._progress(
+                    request.pool_id,
+                    run_id,
+                    orchestrator_run_id,
+                    phase=out.phase,
+                    current_item_index=index,
+                    total_items=len(selected_ids),
+                    sub_phase="revision_precondition_mismatch",
+                    last_event="patch_generation_regenerating_stale_proposal",
+                    item_id=item_id,
+                )
+
+            if request.generate_missing_patches and (stale or not self._item_has_patch_content(item)):
+                pres = self.patch_proposal_service.propose_for_item(
+                    AtlasPatchProposalRequest(
+                        pool_id=request.pool_id,
+                        item_id=item_id,
+                        run_id=run_id,
+                        workspace_id=request.workspace_id,
+                        source_type="plan_item",
+                    )
+                )
+                available = bool((pres.metadata or {}).get("patch_content_available"))
+                reason = "" if available else (pres.warnings[0] if pres.warnings else "patch_content_unavailable")
+                out.proposal_results.append(
+                    AtlasAutonomousCodegenProposalResult(
+                        item_id=item_id,
+                        status=pres.status if available else "no_content",
+                        patch_content_available=available,
+                        reason=reason,
+                    )
+                )
+                if available:
+                    out.generated_count += 1
+                else:
+                    out.skipped_generation_count += 1
+                    no_content_item_ids.append(item_id)
+                    aggregate.item_results.append(AtlasAutopilotItemResult(item_id=item_id, status="blocked", reason="patch_content_unavailable"))
+                    aggregate.blocked_count += 1
+                    continue
+            elif self._item_has_patch_content(item):
+                out.skipped_generation_count += 1
+
+            pool = self.storage.load_pool(request.pool_id)
+            item = pool.get_item(item_id)
+            if item is None or not self._item_has_patch_content(item):
+                no_content_item_ids.append(item_id)
+                aggregate.item_results.append(AtlasAutopilotItemResult(item_id=item_id, status="blocked", reason="patch_content_unavailable"))
+                aggregate.blocked_count += 1
+                continue
+
+            out.phase = "candidate_apply"
+            self._progress(
+                request.pool_id,
+                run_id,
+                orchestrator_run_id,
+                phase=out.phase,
+                current_item_index=index,
+                total_items=len(selected_ids),
+                sub_phase="candidate_apply",
+                last_event="candidate_apply_started",
+            )
+            sub_run = self.multi_item_autopilot_service.run(
+                AtlasMultiItemAutopilotRequest(
+                    pool_id=request.pool_id,
+                    run_id=run_id,
+                    workspace_id=request.workspace_id,
+                    project_path=project_path,
+                    item_ids=[item_id],
+                    policy_id=request.policy_id,
+                    require_approval=False,
+                    max_items=1,
+                    max_runtime_seconds=effective_max_runtime_seconds,
+                    max_changed_files_total=max(0, effective_max_changed_files_total - changed_total),
+                    include_context_refresh=True,
+                    include_evaluator=True,
+                    include_bounded_retry=True,
+                    include_self_correction=True,
+                    include_correction_routing=True,
+                    include_harness_provisioning=True,
+                    metadata={
+                        **(request.metadata or {}),
+                        "data_root": str(self.data_root),
+                        "orchestrator_run_id": orchestrator_run_id,
+                        "interleaved_parent_autopilot_run_id": aggregate.autopilot_run_id,
+                    },
+                )
+            )
+            aggregate.metadata["sub_runs"].append(
+                {
+                    "item_id": item_id,
+                    "autopilot_run_id": sub_run.autopilot_run_id,
+                    "status": sub_run.status,
+                    "stop_reason": sub_run.stop_reason,
+                }
+            )
+            self._merge_item_autopilot_result(aggregate, sub_run)
+            self._persist_completed_item_evidence(request.pool_id, sub_run)
+            changed_total = len(self._changed_files_from_autopilot(aggregate))
+            if sub_run.status in {"stopped", "failed", "blocked", "needs_revision"}:
+                aggregate.status = sub_run.status
+                aggregate.stop_reason = sub_run.stop_reason
+                break
+            if sub_run.status == "partial" and aggregate.status == "completed":
+                aggregate.status = "partial"
+
+        if aggregate.processed_count == 0 and no_content_item_ids:
+            aggregate.status = "no_content"
+            aggregate.stop_reason = "no_patch_content"
+            aggregate.metadata["no_content_item_ids"] = sorted(set(no_content_item_ids))
+        if aggregate.status == "completed" and aggregate.completed_count == 0 and aggregate.blocked_count > 0:
+            aggregate.status = "blocked"
+        if aggregate.status in {"stopped", "failed", "blocked", "needs_revision"} and aggregate.completed_count > 0:
+            aggregate.status = "partial"
+        self._emit(
+            "autonomous_codegen_interleaved_completed",
+            request.pool_id,
+            run_id,
+            orchestrator_run_id,
+            status=aggregate.status,
+            generated_count=out.generated_count,
+            skipped_count=out.skipped_generation_count,
+        )
+        return aggregate
+
+    def _merge_item_autopilot_result(self, aggregate: AtlasMultiItemAutopilotResult, sub_run: AtlasMultiItemAutopilotResult) -> None:
+        aggregate.processed_count += int(getattr(sub_run, "processed_count", 0) or 0)
+        aggregate.completed_count += int(getattr(sub_run, "completed_count", 0) or 0)
+        aggregate.applied_no_verification_count += int(getattr(sub_run, "applied_no_verification_count", 0) or 0)
+        aggregate.skipped_count += int(getattr(sub_run, "skipped_count", 0) or 0)
+        aggregate.blocked_count += int(getattr(sub_run, "blocked_count", 0) or 0)
+        aggregate.failed_count += int(getattr(sub_run, "failed_count", 0) or 0)
+        aggregate.item_results.extend(list(getattr(sub_run, "item_results", []) or []))
+        for warning in getattr(sub_run, "warnings", []) or []:
+            if warning not in aggregate.warnings:
+                aggregate.warnings.append(warning)
+        for error in getattr(sub_run, "errors", []) or []:
+            if error not in aggregate.errors:
+                aggregate.errors.append(error)
+
+    def _persist_completed_item_evidence(self, pool_id: str, sub_run: AtlasMultiItemAutopilotResult) -> None:
+        if not sub_run.item_results:
+            return
+        pool = self.storage.load_pool(pool_id)
+        changed = False
+        for result in sub_run.item_results:
+            item = pool.get_item(result.item_id)
+            if item is None:
+                continue
+            item.metadata.setdefault("last_autopilot_result", result.model_dump())
+            if result.verification_result:
+                item.metadata["last_verification_result"] = dict(result.verification_result)
+            if result.status == "completed":
+                item.status = "completed"
+                if item.item_id not in pool.completed_item_ids:
+                    pool.completed_item_ids.append(item.item_id)
+                item.metadata.setdefault("safe_apply", {})
+                if result.changed_files:
+                    item.metadata["safe_apply"]["changed_files"] = list(result.changed_files)
+            changed = True
+        if changed:
+            self.storage.save_pool(pool)
+            try:
+                self.journal.save_plan_pool(pool)
+            except Exception:
+                pass
+
+    def _proposal_revision_mismatch(self, item, *, project_path: str) -> dict[str, Any]:
+        expected = self._proposal_base_file_revisions(item)
+        if not expected:
+            return {}
+        current = self._current_file_revisions(project_path=project_path, item=item)
+        mismatches = {
+            path: {"expected": expected_rev, "actual": current.get(path, "absent")}
+            for path, expected_rev in expected.items()
+            if current.get(path, "absent") != expected_rev
+        }
+        return {"reason": "base_file_revision_mismatch", "mismatches": mismatches} if mismatches else {}
+
+    @staticmethod
+    def _proposal_base_file_revisions(item) -> dict[str, str]:
+        md = item.metadata or {}
+        patch_proposal = md.get("patch_proposal") if isinstance(md.get("patch_proposal"), dict) else {}
+        proposal_md = patch_proposal.get("metadata") if isinstance(patch_proposal.get("metadata"), dict) else {}
+        raw = proposal_md.get("base_file_revisions") or patch_proposal.get("base_file_revisions") or md.get("base_file_revisions") or {}
+        if not isinstance(raw, dict):
+            return {}
+        return {str(path): str(rev or "absent") for path, rev in raw.items() if str(path).strip()}
+
+    def _current_file_revisions(self, *, project_path: str, item) -> dict[str, str]:
+        root = Path(project_path or "").resolve()
+        revisions: dict[str, str] = {}
+        for rel in self._item_revision_paths(item):
+            try:
+                path = PurePosixPath(rel)
+                if path.is_absolute() or ".." in path.parts:
+                    revisions[rel] = "unsafe"
+                    continue
+                target = (root / Path(*path.parts)).resolve()
+                target.relative_to(root)
+                if not target.is_file():
+                    revisions[rel] = "absent"
+                    continue
+                text = target.read_text(encoding="utf-8", errors="replace")
+                revisions[rel] = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+            except Exception:
+                revisions[rel] = "unreadable"
+        return revisions
+
+    @staticmethod
+    def _item_revision_paths(item) -> list[str]:
+        paths: list[str] = []
+        for path in getattr(item, "target_files", []) or []:
+            text = str(path).replace("\\", "/").strip()
+            if text and text not in paths:
+                paths.append(text)
+        md = item.metadata or {}
+        file_changes = md.get("file_changes") if isinstance(md.get("file_changes"), list) else []
+        for change in file_changes:
+            if not isinstance(change, dict):
+                continue
+            text = str(change.get("path") or "").replace("\\", "/").strip()
+            if text and text not in paths:
+                paths.append(text)
+        return paths
+
+    @staticmethod
+    def _clear_patch_content(item) -> None:
+        md = item.metadata or {}
+        for key in ("proposed_content", "content", "patch", "unified_diff_preview", "edits", "file_changes"):
+            md.pop(key, None)
+        patch_proposal = md.get("patch_proposal") if isinstance(md.get("patch_proposal"), dict) else {}
+        for key in ("proposed_content", "content", "patch", "unified_diff_preview", "edits", "file_changes"):
+            patch_proposal.pop(key, None)
+        if patch_proposal:
+            patch_proposal["status"] = "stale_base_revision"
+            md["patch_proposal"] = patch_proposal
 
     def _ci_failure_metadata(self, request: AtlasAutonomousCodegenRequest, pool: AtlasPlanPool) -> dict[str, Any]:
         metadata = request.metadata or {}

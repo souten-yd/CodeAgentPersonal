@@ -6,8 +6,11 @@ import re
 REQ_STATUS_PLANNED = "planned"
 REQ_STATUS_IMPLEMENTED = "implemented"
 REQ_STATUS_VERIFIED = "verified"
+REQ_STATUS_VERIFIED_STATIC = "verified_static"
 REQ_STATUS_MISSING = "missing"
 REQ_STATUS_PARTIAL = "partial"
+REQ_STATUS_UNVERIFIED = "unverified"
+SUCCESS_STATUSES = {REQ_STATUS_VERIFIED, REQ_STATUS_VERIFIED_STATIC}
 
 _SENTENCE_SPLIT = re.compile(r'[。.!?！？\n]+')
 _TOKEN_RE = re.compile(r'[a-zA-Z][a-zA-Z0-9]+')
@@ -134,24 +137,47 @@ class AtlasRequirementTracer:
         *,
         changed_files: list[str],
         verified_files: list[str] | None = None,
+        verified_static_files: list[str] | None = None,
         done_definitions: list[str] | None = None,
         file_contents: dict[str, str] | None = None,
+        requirement_evidence: dict[str, dict] | None = None,
     ) -> list[dict]:
-        """Map each requirement to changed/verified files via keyword overlap (heuristic).
+        """Map each requirement to evidence.
 
-        Status rules (conservative — never overclaim verification):
-        - matched changed file AND that file is covered by a passing verification → verified
-        - matched changed file (no passing verification) → implemented
-        - no per-requirement match but the run produced changes → partial
-        - no implementation evidence at all → missing
-        Unmapped requirements stay 'partial', never silently 'verified'.
+        Explicit requirement IDs are authoritative. Keyword matching is fallback
+        advisory evidence only and never verifies an unrelated requirement.
         """
         changed = list(changed_files or [])
         verified = set(verified_files or [])
+        verified_static = set(verified_static_files or [])
         done_text = " ".join(done_definitions or []).lower()
         contents = dict(file_contents or {})
+        explicit = dict(requirement_evidence or {})
         out: list[dict] = []
         for req in requirements:
+            req_id = str(req.get("requirement_id") or "")
+            evidence = dict(explicit.get(req_id) or {}) if req_id else {}
+            if evidence:
+                changed_for_req = list(dict.fromkeys(evidence.get("changed_files") or []))
+                planned_files = list(dict.fromkeys(evidence.get("planned_files") or req.get("planned_files") or []))
+                planned_items = list(dict.fromkeys(evidence.get("planned_items") or []))
+                status = _status_from_explicit_evidence(evidence, changed_for_req, planned_files, planned_items)
+                out.append({
+                    **req,
+                    "planned_files": planned_files,
+                    "planned_items": planned_items,
+                    "changed_files": changed_for_req,
+                    "implementation_evidence": changed_for_req,
+                    "implemented_symbols": list(dict.fromkeys(evidence.get("implemented_symbols") or [])),
+                    "implemented_signals": list(dict.fromkeys(evidence.get("implemented_signals") or [])),
+                    "verification_method": str(evidence.get("verification_method") or ""),
+                    "verification_status": str(evidence.get("verification_status") or ""),
+                    "evidence_path": str(evidence.get("evidence_path") or ""),
+                    "status": status,
+                    "evidence_source": "explicit_requirement_id",
+                })
+                continue
+
             kw = _keywords(str(req.get("description") or ""))
             # done_definition keywords reinforce the requirement's vocabulary
             kw |= (_keywords(done_text) & kw) if done_text else set()
@@ -160,7 +186,12 @@ class AtlasRequirementTracer:
                 if _file_matches(f, kw) or _content_matches(str(contents.get(f) or ""), kw)
             ]
             if matched:
-                status = REQ_STATUS_VERIFIED if any(f in verified for f in matched) else REQ_STATUS_IMPLEMENTED
+                if any(f in verified for f in matched):
+                    status = REQ_STATUS_VERIFIED
+                elif any(f in verified_static for f in matched):
+                    status = REQ_STATUS_VERIFIED_STATIC
+                else:
+                    status = REQ_STATUS_IMPLEMENTED
                 evidence = list(matched)
             elif changed:
                 status = REQ_STATUS_PARTIAL
@@ -168,36 +199,68 @@ class AtlasRequirementTracer:
             else:
                 status = REQ_STATUS_MISSING
                 evidence = []
-            verification_method = "verification_passed" if status == REQ_STATUS_VERIFIED else ""
+            verification_method = "verification_passed" if status in SUCCESS_STATUSES else ""
             out.append({
                 **req,
                 "planned_files": list(req.get("planned_files") or []),
+                "planned_items": list(req.get("planned_items") or []),
+                "changed_files": evidence,
                 "implementation_evidence": evidence,
                 "verification_method": verification_method,
+                "verification_status": "passed" if status in SUCCESS_STATUSES else "",
+                "evidence_path": "",
                 "status": status,
+                "evidence_source": "keyword_fallback",
             })
         return out
 
     def coverage_summary(self, requirements: list[dict]) -> dict:
         """Return a summary of requirement coverage."""
+        mandatory = [r for r in requirements if bool(r.get("required", True))]
         total = len(requirements)
+        mandatory_total = len(mandatory)
         by_status: dict[str, int] = {}
         for req in requirements:
             s = str(req.get("status") or REQ_STATUS_PLANNED)
             by_status[s] = by_status.get(s, 0) + 1
 
-        missing_or_partial = (
-            by_status.get(REQ_STATUS_MISSING, 0)
-            + by_status.get(REQ_STATUS_PARTIAL, 0)
-            + by_status.get(REQ_STATUS_PLANNED, 0)  # unprocessed = not success eligible
-        )
-        all_verified = by_status.get(REQ_STATUS_VERIFIED, 0) == total and total > 0
-        success_eligible = missing_or_partial == 0 and total > 0
+        mandatory_by_status: dict[str, int] = {}
+        for req in mandatory:
+            s = str(req.get("status") or REQ_STATUS_PLANNED)
+            mandatory_by_status[s] = mandatory_by_status.get(s, 0) + 1
+
+        incomplete = [
+            req for req in mandatory
+            if str(req.get("status") or REQ_STATUS_PLANNED) not in SUCCESS_STATUSES
+        ]
+        all_verified = mandatory_total > 0 and not incomplete
+        success_eligible = all_verified
 
         return {
             "total": total,
+            "mandatory_total": mandatory_total,
             "by_status": by_status,
-            "missing_or_partial_count": missing_or_partial,
+            "mandatory_by_status": mandatory_by_status,
+            "missing_or_partial_count": len(incomplete),
+            "incomplete_requirement_ids": [str(req.get("requirement_id") or "") for req in incomplete],
             "all_verified": all_verified,
             "success_eligible": success_eligible,
         }
+
+
+def _status_from_explicit_evidence(evidence: dict, changed_files: list[str], planned_files: list[str], planned_items: list[str]) -> str:
+    verification_status = str(evidence.get("verification_status") or "").strip().lower()
+    verification_method = str(evidence.get("verification_method") or "").strip().lower()
+    if changed_files and verification_status == "passed":
+        if verification_method in {"static_checked", "verified_static", "static"}:
+            return REQ_STATUS_VERIFIED_STATIC
+        return REQ_STATUS_VERIFIED
+    if changed_files and verification_status in {"blocked", "skipped", "unavailable"}:
+        return REQ_STATUS_UNVERIFIED
+    if changed_files and verification_status == "failed":
+        return REQ_STATUS_PARTIAL
+    if changed_files:
+        return REQ_STATUS_IMPLEMENTED
+    if planned_files or planned_items:
+        return REQ_STATUS_PLANNED
+    return REQ_STATUS_MISSING

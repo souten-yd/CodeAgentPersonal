@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from app.atlas.candidate_workspace_manager import create_candidate_workspace_plan, write_candidate_workspace_plan
@@ -79,9 +80,12 @@ class FakeAutopilotService:
     def __init__(self, status: str = "completed"):
         self.status = status
         self.last_request: AtlasMultiItemAutopilotRequest | None = None
+        self.requests: list[AtlasMultiItemAutopilotRequest] = []
 
     def run(self, request: AtlasMultiItemAutopilotRequest) -> AtlasMultiItemAutopilotResult:
         self.last_request = request
+        self.requests.append(request)
+        item_id = request.item_ids[0] if request.item_ids else "i1"
         return AtlasMultiItemAutopilotResult(
             pool_id=request.pool_id,
             run_id=request.run_id,
@@ -93,9 +97,9 @@ class FakeAutopilotService:
             failed_count=1 if self.status in {"failed", "needs_revision"} else 0,
             item_results=[
                 AtlasAutopilotItemResult(
-                    item_id=(request.item_ids[0] if request.item_ids else "i1"),
+                    item_id=item_id,
                     status=self.status,
-                    changed_files=["src/i1.py"] if self.status in {"completed", "partial"} else [],
+                    changed_files=[f"src/{item_id}.py"] if self.status in {"completed", "partial"} else [],
                     verification_result={"status": "passed"} if self.status in {"completed", "partial"} else {"status": "failed"},
                     metadata={"bounded_retry_result": {"status": "not_needed"}},
                 )
@@ -328,9 +332,10 @@ def test_envelope_bounds_clamp_autonomous_request_limits(tmp_path: Path) -> None
     assert effective["max_changed_files_per_item"] == 5
     assert "request_limits_clamped_to_envelope" in out.warnings
     assert autopilot.last_request is not None
-    assert autopilot.last_request.max_items == 5
+    assert len(autopilot.requests) == 5
+    assert autopilot.last_request.max_items == 1
     assert autopilot.last_request.max_runtime_seconds == 60
-    assert autopilot.last_request.max_changed_files_total == 5
+    assert autopilot.requests[0].max_changed_files_total == 5
 
 
 def test_allowed_verification_commands_are_blocked_until_supported(tmp_path: Path) -> None:
@@ -674,6 +679,38 @@ def test_does_not_regenerate_when_content_present(tmp_path: Path) -> None:
     assert proposal.calls == []  # content already present -> skipped
     assert out.skipped_generation_count == 1
     assert autopilot.last_request is not None
+
+
+def test_stale_existing_proposal_is_regenerated_before_apply(tmp_path: Path) -> None:
+    old_revision = hashlib.sha256("old\n".encode("utf-8")).hexdigest()
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "i1.py").write_text("new\n", encoding="utf-8")
+    item = _item(
+        "i1",
+        action_type="update",
+        metadata={
+            "proposed_content": "stale\n",
+            "patch_proposal": {
+                "metadata": {
+                    "patch_content_available": True,
+                    "base_file_revisions": {"src/i1.py": old_revision},
+                },
+                "proposed_content": "stale\n",
+            },
+        },
+    )
+    svc, storage, proposal, autopilot = _orchestrator(tmp_path, _pool([item]))
+
+    out = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_1"))
+
+    assert proposal.calls == ["i1"]
+    assert out.generated_count == 1
+    assert autopilot.last_request is not None
+    reloaded = storage.load_pool("pool_1").get_item("i1")
+    assert reloaded is not None
+    assert reloaded.metadata["proposed_content"] == "# generated i1\n"
+    assert reloaded.metadata["patch_proposal_revision_mismatches"][0]["reason"] == "base_file_revision_mismatch"
+    assert out.autopilot_result["metadata"]["revision_regenerations"][0]["item_id"] == "i1"
 
 
 def test_blocks_on_plan_revision_required(tmp_path: Path) -> None:

@@ -180,7 +180,11 @@ class AtlasLLMEvaluatorService:
         sr = str((packet.safe_apply_result or {}).get("status") or "").lower()
         decision.confidence = max(0.0, min(1.0, float(decision.confidence)))
         if vr == "failed" and decision.decision == "continue": decision.decision = "stop"; overridden = True; override_reasons.append("verification_failed")
+        if vr in {"blocked", "skipped"} and decision.decision == "continue": decision.decision = "manual_required"; overridden = True; override_reasons.append("verification_unavailable")
         if not vr and policy.require_verification_result_for_continue and decision.decision == "continue": decision.decision = "manual_required"; overridden = True; override_reasons.append("verification_missing")
+        coverage = (packet.verification_result or {}).get("requirement_coverage") or (packet.verification_result or {}).get("metadata", {}).get("requirement_coverage") or {}
+        if isinstance(coverage, dict) and coverage and not coverage.get("success_eligible", True) and decision.decision == "continue":
+            decision.decision = "manual_required"; overridden = True; override_reasons.append("requirement_coverage_incomplete")
         if sr != "applied" and decision.decision == "continue": decision.decision = "revise"; overridden = True; override_reasons.append("safe_apply_not_applied")
         if decision.decision == "continue" and decision.confidence < policy.confidence_threshold_continue: decision.decision = "manual_required"; overridden = True; override_reasons.append("confidence_below_threshold")
         if decision.should_restore:

@@ -79,3 +79,30 @@ def test_evaluator_policy_override_blocked_and_failed_events(tmp_path, monkeypat
         svc2.evaluate(AtlasEvaluatorRequest(pool_id="p9", run_id="r9", trigger="manual"))
     raw9 = "\n".join(_events(j, "p9", "r9"))
     assert "evaluator_failed" in raw9
+
+
+def test_evaluator_continue_overridden_for_unverified_or_incomplete_coverage(tmp_path, monkeypatch):
+    class ForceContinue:
+        def evaluate(self, *_):
+            return '{"decision":"continue","confidence":0.9,"reasons":[],"risks":[],"recommended_next_actions":[],"requires_manual_review":false,"should_run_debug_review":false,"should_generate_patch_proposal":false,"should_restore":false,"should_continue_autopilot":true,"summary":"x"}'
+
+    monkeypatch.chdir(tmp_path)
+    svc = AtlasLLMEvaluatorService(llm_client=ForceContinue())
+
+    skipped = svc.evaluate(AtlasEvaluatorRequest(
+        pool_id="p1",
+        trigger="manual",
+        verification_result={"status": "skipped"},
+        safe_apply_result={"status": "applied", "actual_file_changed": True},
+    ))
+    assert skipped.decision.decision == "manual_required"
+    assert skipped.metadata["decision_overridden_by_policy"] is True
+
+    incomplete = svc.evaluate(AtlasEvaluatorRequest(
+        pool_id="p2",
+        trigger="manual",
+        verification_result={"status": "passed", "metadata": {"requirement_coverage": {"success_eligible": False}}},
+        safe_apply_result={"status": "applied", "actual_file_changed": True},
+    ))
+    assert incomplete.decision.decision == "manual_required"
+    assert incomplete.metadata["decision_overridden_by_policy"] is True
