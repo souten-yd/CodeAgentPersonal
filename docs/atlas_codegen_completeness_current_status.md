@@ -10,8 +10,8 @@
 - Canonical goal: `docs/atlas_codegen_completeness_goal.md`
 - Canonical plan: `docs/atlas_codegen_completeness_implementation_plan.md`
 - Baseline commit: `3ac07375610d6de826199be07366f451adfbec63` (PR #1599)
-- Current work package: WP-3
-- Next action: Interleave generation, apply, verification, and refresh with revision preconditions.
+- Current work package: WP-4
+- Next action: Fail-close unresolved self-review findings, TODOs, placeholders, empty critical functions, incomplete multi-file output, and disconnected artifacts.
 
 ## Observed current-main capabilities
 
@@ -58,7 +58,7 @@ WP-0 must convert these observations into current-code tests before broad produc
 | WP-0 | Baseline and regression fixtures | Completed | local WP-0 commit | `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py`; affected slice 88 passed |
 | WP-1 | Preserve complete planning contract | Completed | local WP-1 commit | focused slice 45 passed; affected slice 54 passed |
 | WP-2 | Task-complete generation contracts | Completed | local WP-2 commit | focused 11 passed; service affected 56 passed |
-| WP-3 | Interleaved orchestration | In progress | - | - |
+| WP-3 | Interleaved orchestration | Completed | local WP-3 commit | focused 43 passed; service affected 75 passed; path resolution 2 passed |
 | WP-4 | Fail-closed generation quality | Not started | - | - |
 | WP-5 | Remove skeleton/fail-open fallbacks | Not started | - | - |
 | WP-6 | Requirement-complete final status | Not started | - | - |
@@ -67,7 +67,7 @@ WP-0 must convert these observations into current-code tests before broad produc
 
 ## Last completed work package
 
-WP-2 - Task-complete generation contracts.
+WP-3 - Interleaved orchestration.
 
 ## Current blockers
 
@@ -76,45 +76,49 @@ None recorded.
 ## Latest completed work package evidence
 
 Completed work package:
-WP-2 - Task-complete generation contracts.
+WP-3 - Interleaved orchestration.
 
 PR/commit:
-Local WP-2 commit created after this status update. No PR, merge, or remote push.
+Local WP-3 commit to be created after this status update. No PR, merge, or remote push.
 
 Changed files:
+- `agent/atlas_autonomous_codegen_orchestrator_service.py`
 - `agent/atlas_patch_proposal_service.py`
-- `agent/atlas_llm_schemas.py`
-- `tests/test_atlas_patch_proposal_codegen_contract.py`
+- `tests/test_atlas_autonomous_codegen_orchestrator_service.py`
 - `tests/test_atlas_codegen_completeness_baseline.py`
 - `docs/atlas_codegen_completeness_current_status.md`
 
 Behavior implemented:
-- Extended patch proposal input with root goal, original request, selected architecture, constraints, all/current/satisfied/remaining requirements, completed item summaries, preserve behaviors, current contents for every target file, and base file revisions.
-- Multi-file PlanItems now ground every target file instead of only a single target.
-- Added semantic proposal evidence fields to the shallow LLM schema.
-- Added post-parse semantic validation for authorized target files, authorized requirement IDs, content-bearing multi-file output, required evidence, remaining TODOs, and known limitations.
-- Added retry feedback for semantic validation failures and returns non-applicable/no-content proposals when validation remains failed.
-- Updated WP-0 characterization for the proposal-input gap now fixed by WP-2.
+- Replaced autonomous batch proposal generation plus batch apply with a per-item interleaved loop: dependency-ready item selection, latest pool reload, context/proposal generation as needed, safe apply/verification through the existing multi-item engine, evidence persistence, then next item.
+- Same-file item N+1 now generates against file contents changed by item N because generation and apply/verify are interleaved.
+- Existing proposal content with recorded `base_file_revisions` is checked against current file SHA/absent state; mismatch clears stale content and regenerates instead of applying stale output.
+- Patch proposal metadata now persists `base_file_revisions` so autonomous apply has concrete preconditions.
+- Completed item evidence is persisted back to PlanPool metadata/completed IDs after each sub-run so later proposal input can include completed item summaries.
+- Progress metadata now records interleaved sub-runs and revision-triggered regenerations.
 
 Tests passed:
-- `python -m pytest -q tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_codegen_completeness_baseline.py` -> 11 passed.
-- `python -m pytest -q tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_patch_proposal_feedback.py tests/test_atlas_plan_pool_schema.py tests/test_atlas_plan_pool_builder.py tests/test_atlas_planner_bridge.py` -> 56 passed.
+- `python -m pytest -q tests/test_atlas_autonomous_codegen_orchestrator_service.py` -> 32 passed.
+- `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_patch_proposal_codegen_contract.py` -> 11 passed.
+- `python -m pytest -q tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_patch_proposal_codegen_contract.py` -> 43 passed.
+- `python -m pytest -q tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_patch_proposal_codegen_contract.py` -> 75 passed.
+- `python -m pytest -q tests/test_atlas_multi_item_autopilot_path_resolution.py` -> 2 passed.
 
 Syntax checks:
-- `python -m py_compile agent/atlas_patch_proposal_service.py agent/atlas_patch_proposal_schema.py agent/atlas_llm_schemas.py agent/atlas_code_explorer.py agent/atlas_plan_pool_schema.py tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_codegen_completeness_baseline.py` -> passed.
+- `python -m py_compile agent/atlas_autonomous_codegen_orchestrator_service.py agent/atlas_multi_item_autopilot_service.py agent/atlas_context_refresh_service.py agent/atlas_auto_safe_apply_service.py agent/atlas_file_safe_apply_executor.py agent/atlas_autonomous_codegen_orchestrator_schema.py agent/atlas_multi_item_autopilot_schema.py agent/atlas_auto_safe_apply_schema.py agent/atlas_patch_proposal_service.py tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_auto_safe_apply_service.py tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_patch_proposal_codegen_contract.py` -> passed.
 
 Safety invariants:
-- Production changes are limited to proposal-generation context and pre-apply semantic applicability checks.
+- Production changes preserve existing preflight safety gates and continue delegating apply/verification to existing multi-item, safe-apply, rollback, and verification services.
+- Clarification and critical-event gates, allowed/blocked paths, active envelope limits, profile bounds, retry bounds, and hard-blocked critical/delete/run_command items remain enforced.
 - No direct merge, remote push, self-apply, stable runtime mutation, Vue authority, arbitrary unbounded command execution, or fabricated verification results introduced.
-- Existing backend workflow_state and PlanPool authority boundaries unchanged.
+- Backend PlanPool remains authoritative for item state and persisted evidence.
 
 Remaining gaps:
-- WP-3 must replace autonomous batch generation with per-item generate/review/apply/verify/refresh and enforce base revision preconditions at apply time.
-- Later WPs must fail-close unresolved self-review, remove fallback skeleton/fail-open paths, enforce requirement-complete final status, and add task-aware verification/E2E acceptance.
-- Wider API patch-proposal tests `tests/test_atlas_patch_proposal_planitem_verification_flow.py tests/test_atlas_patch_proposal_to_safe_apply_e2e.py` were not used as WP-2 evidence because their seed helper currently expects `/api/atlas/plan-pools` to return `plan_pool`, while current main returns `{"status":"queued"}` before proposal code runs.
+- WP-4 must make unresolved self-review findings and generation-quality defects non-applicable/fail-closed.
+- Later WPs must remove fallback skeleton/fail-open paths, enforce requirement-complete final status, and add task-aware verification/E2E acceptance.
+- The broader command `python -m pytest -q tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_auto_safe_apply_service.py tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_patch_proposal_codegen_contract.py` reported 75 passed and 2 failed. Both failures were in `tests/test_atlas_auto_safe_apply_service.py` because its API seed helper expects `/api/atlas/plan-pools` to return `plan_pool`, while current main returns the queued response shape before WP-3 code runs; this is the same pre-existing API test limitation noted in WP-2 evidence.
 
 Next work package:
-WP-3 - Interleaved orchestration.
+WP-4 - Fail-closed generation quality.
 
 ## Token-saving resume note
 
@@ -123,8 +127,8 @@ On resume:
 1. Read `AGENTS.md`.
 2. Read the canonical goal.
 3. Read this status.
-4. Read only WP-3 in the canonical plan.
-5. Inspect only files listed by WP-3 and related tests.
+4. Read only WP-4 in the canonical plan.
+5. Inspect only files listed by WP-4 and related tests.
 6. Do not rescan old plans or roadmaps.
 
 ## Update template

@@ -130,25 +130,48 @@ class _CapturingProposalService:
 
 
 class _RecordingAutopilotService:
-    def __init__(self):
+    def __init__(self, storage: AtlasPlanPoolStorage, project_path: Path):
+        self.storage = storage
+        self.project_path = project_path
         self.last_request: AtlasMultiItemAutopilotRequest | None = None
+        self.requests: list[AtlasMultiItemAutopilotRequest] = []
 
     def run(self, request: AtlasMultiItemAutopilotRequest):
         self.last_request = request
+        self.requests.append(request)
+        item_id = request.item_ids[0]
+        pool = self.storage.load_pool(request.pool_id)
+        item = pool.get_item(item_id)
+        assert item is not None
+        content = str((item.metadata or {}).get("proposed_content") or "")
+        (self.project_path / item.target_files[0]).write_text(content, encoding="utf-8")
+        item.status = "completed"
+        item.metadata.setdefault("safe_apply", {})["changed_files"] = list(item.target_files)
+        if item.item_id not in pool.completed_item_ids:
+            pool.completed_item_ids.append(item.item_id)
+        self.storage.save_pool(pool)
         return SimpleNamespace(
             status="completed",
             stop_reason="",
             warnings=[],
             autopilot_run_id="auto_wp0",
-            processed_count=len(request.item_ids or []),
-            completed_count=len(request.item_ids or []),
+            processed_count=1,
+            completed_count=1,
             failed_count=0,
             blocked_count=0,
-            item_results=[],
+            item_results=[
+                SimpleNamespace(
+                    item_id=item_id,
+                    status="completed",
+                    changed_files=list(item.target_files),
+                    verification_result={"status": "passed"},
+                    model_dump=lambda: {"item_id": item_id, "status": "completed"},
+                )
+            ],
             model_dump=lambda: {
                 "status": "completed",
-                "item_results": [],
-                "processed_count": len(request.item_ids or []),
+                "item_results": [{"item_id": item_id, "status": "completed"}],
+                "processed_count": 1,
             },
         )
 
@@ -165,12 +188,12 @@ def test_wp0_fixture_helpers_cover_required_baseline_shapes() -> None:
     assert unavailable.metadata["proposed_content"]
 
 
-def test_wp0_autonomous_generation_is_batch_before_apply_and_can_see_stale_same_file_content(tmp_path: Path) -> None:
+def test_wp3_autonomous_generation_is_interleaved_and_reads_latest_same_file_content(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text("BASE = 1\n", encoding="utf-8")
     pool = _pool(tmp_path, _same_file_items())
     storage, journal = _storage_and_journal(tmp_path, pool)
     proposals = _CapturingProposalService(storage)
-    autopilot = _RecordingAutopilotService()
+    autopilot = _RecordingAutopilotService(storage, tmp_path)
     service = AtlasAutonomousCodegenOrchestratorService(
         storage=storage,
         journal=journal,
@@ -183,9 +206,12 @@ def test_wp0_autonomous_generation_is_batch_before_apply_and_can_see_stale_same_
 
     assert out.status == "completed"
     assert out.generated_count == 2
-    assert proposals.seen_current_content == [("item_001", "BASE = 1\n"), ("item_002", "BASE = 1\n")]
+    assert proposals.seen_current_content == [
+        ("item_001", "BASE = 1\n"),
+        ("item_002", "BASE = 1\n# proposal:item_001\n"),
+    ]
     assert autopilot.last_request is not None
-    assert autopilot.last_request.item_ids == []  # current contract: empty means apply all requested items
+    assert [request.item_ids for request in autopilot.requests] == [["item_001"], ["item_002"]]
 
 
 def test_wp0_proposal_input_now_carries_full_context_and_multifile_content(tmp_path: Path) -> None:

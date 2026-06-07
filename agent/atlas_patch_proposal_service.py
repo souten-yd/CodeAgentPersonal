@@ -710,6 +710,7 @@ class AtlasPatchProposalService:
             "source_type": str(input_payload.get("source_type") or "debug_review"),
             "requested_source_type": str(input_payload.get("requested_source_type") or ""),
             "patch_content_available": has_content,
+            "base_file_revisions": dict(input_payload.get("base_file_revisions") or {}),
         }
         if file_changes:
             metadata["file_changes"] = file_changes
