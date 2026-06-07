@@ -10,8 +10,8 @@
 - Canonical goal: `docs/atlas_codegen_completeness_goal.md`
 - Canonical plan: `docs/atlas_codegen_completeness_implementation_plan.md`
 - Baseline commit: `3ac07375610d6de826199be07366f451adfbec63` (PR #1599)
-- Current work package: WP-0
-- Next action: Build baseline regression fixtures and verify which root causes remain on current main.
+- Current work package: WP-1
+- Next action: Preserve the complete planning contract from requirement analysis through PlanPool/PlanItem.
 
 ## Observed current-main capabilities
 
@@ -55,8 +55,8 @@ WP-0 must convert these observations into current-code tests before broad produc
 
 | WP | Title | Status | PR/Commit | Test evidence |
 |---|---|---|---|---|
-| WP-0 | Baseline and regression fixtures | In progress | - | - |
-| WP-1 | Preserve complete planning contract | Not started | - | - |
+| WP-0 | Baseline and regression fixtures | Completed | local WP-0 commit | `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py`; affected slice 88 passed |
+| WP-1 | Preserve complete planning contract | In progress | - | - |
 | WP-2 | Task-complete generation contracts | Not started | - | - |
 | WP-3 | Interleaved orchestration | Not started | - | - |
 | WP-4 | Fail-closed generation quality | Not started | - | - |
@@ -67,11 +67,52 @@ WP-0 must convert these observations into current-code tests before broad produc
 
 ## Last completed work package
 
-None.
+WP-0 - Baseline and regression fixtures.
 
 ## Current blockers
 
-None recorded. WP-0 must determine concrete current-main failures.
+None recorded.
+
+## Latest completed work package evidence
+
+Completed work package:
+WP-0 - Baseline and regression fixtures.
+
+PR/commit:
+Local WP-0 commit created after this status update. No PR, merge, or remote push.
+
+Changed files:
+- `tests/test_atlas_codegen_completeness_baseline.py`
+- `docs/atlas_codegen_completeness_current_status.md`
+
+Behavior implemented:
+- Added WP-0 fixture helpers for same-file multi-item updates, complete requirement contracts, partial/stub content, and verification-unavailable items.
+- Added characterization coverage confirming current autonomous orchestration generates missing proposals before apply, so same-file later proposals can observe stale pre-apply content.
+- Added characterization coverage confirming proposal input is still item-local and does not carry root goal, original request, all requirements, or completed item summaries.
+- Added characterization coverage confirming multi-file proposal input does not ground all target file contents.
+- Added characterization coverage confirming final self-review failure can still return applicable content with unresolved findings.
+- Added characterization coverage confirming partial requirement coverage remains success-compatible in final rollup.
+- Added characterization coverage confirming generic verification skipped can still complete a multi-item result.
+- Recorded already-fixed behavior: `AtlasRequirementTracer.coverage_summary()` already rejects partial requirements as not success-eligible.
+
+Tests passed:
+- `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py` -> 7 passed.
+- `python -m pytest -q tests/test_atlas_codegen_completeness_baseline.py tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_multi_item_autopilot_service.py tests/test_atlas_plan_pool_builder.py tests/test_atlas_planner_bridge.py tests/test_atlas_auto_verification_service.py tests/test_atlas_planner_fallback_skeleton.py tests/test_atlas_placeholder_preapply.py` -> 88 passed.
+
+Syntax checks:
+- `python -m py_compile tests/test_atlas_codegen_completeness_baseline.py` -> passed.
+
+Safety invariants:
+- No production behavior changed in WP-0.
+- No direct merge, remote push, self-apply, stable runtime mutation, Vue authority, arbitrary unbounded command execution, or fabricated verification results introduced.
+- Existing backend workflow_state and PlanPool authority boundaries unchanged.
+
+Remaining gaps:
+- WP-1 must preserve complete planning contract fields through planner bridge and PlanPool/PlanItem.
+- Later WPs must replace batch autonomous generation, add revision preconditions, fail-close unresolved self-review, remove fallback skeleton/fail-open paths, enforce requirement-complete final status, and add task-aware verification/E2E acceptance.
+
+Next work package:
+WP-1 - Preserve the complete planning contract.
 
 ## Token-saving resume note
 
@@ -80,8 +121,8 @@ On resume:
 1. Read `AGENTS.md`.
 2. Read the canonical goal.
 3. Read this status.
-4. Read only WP-0 in the canonical plan.
-5. Inspect only files listed by WP-0 and related tests.
+4. Read only WP-1 in the canonical plan.
+5. Inspect only files listed by WP-1 and related tests.
 6. Do not rescan old plans or roadmaps.
 
 ## Update template
