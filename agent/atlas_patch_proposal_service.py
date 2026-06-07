@@ -416,16 +416,28 @@ class AtlasPatchProposalService:
                 "surrounding context to be unique). This is safest for existing files. "
                 "Example: {\"target_files\":[\"app.py\"],\"edits\":[{\"old_string\":\"def foo():\\n    return 1\",\"new_string\":\"def foo():\\n    return 2\"}],\"risk_level\":\"low\"} "
                 "ALTERNATIVELY, if a localized edit is impractical, return \"proposed_content\" with the "
-                "COMPLETE updated file text. Use input.item.project_symbols to reuse existing functions."
+                "COMPLETE updated file text. Use input.item.project_symbols to reuse existing functions. "
+                "CRITICAL: All new_string values in edits (and proposed_content if used) must contain "
+                "COMPLETE, WORKING code — do NOT use placeholder comments (e.g. '// TODO', '// Implement...', "
+                "'<!-- content goes here -->'), stub return values (e.g. bare 'return false;' or 'return null;' "
+                "with no real logic), or '...' abbreviations. Every new function body must have real, working "
+                "logic that fulfills the step goal."
             )
         else:
             base_task = (
                 "Generate a safe patch proposal as JSON. For source_type=plan_item that lists target_files, "
-                "you MUST return a non-empty \"proposed_content\" string containing the COMPLETE file text for the "
+                "you MUST return a non-empty \"proposed_content\" string containing the COMPLETE, WORKING file text for the "
                 "first target file (this is a new file write, not a diff). "
+                "CRITICAL: The proposed_content must be a FULLY IMPLEMENTED file — do NOT use placeholder comments "
+                "(e.g. '// TODO', '// Implement...', '<!-- content goes here -->'), stub return values "
+                "(e.g. bare 'return false;' or 'return null;' without real logic), or '...' abbreviations. "
+                "Every function must contain real, working code that fulfills the step goal. "
                 "For a multi-file PlanItem, keep the PlanItem as one work unit and return \"file_changes\" with "
                 "one entry per path; do not put one top-level proposed_content across multiple target_files. "
-                "Example: {\"target_files\":[\"index.html\"],\"proposed_content\":\"<!doctype html>\\n<html>...\",\"risk_level\":\"low\"}"
+                "Example: {\"target_files\":[\"index.html\"],\"proposed_content\":"
+                "\"<!doctype html>\\n<html lang=\\\"en\\\"><head><title>App</title></head>"
+                "<body><canvas id=\\\"gameCanvas\\\"></canvas><script>/* complete working implementation */</script></body></html>\","
+                "\"risk_level\":\"low\"}"
             )
         content_required = self._plan_item_requires_content(input_payload)
         output_schema = patch_proposal_json_schema(require_content=content_required)
@@ -607,19 +619,29 @@ class AtlasPatchProposalService:
         })
         return normalized, has_content
 
+    _STUB_PATTERNS: list[re.Pattern] = [
+        re.compile(r"//\s*(TODO|Implement|FIXME|Placeholder|implement logic)", re.IGNORECASE),
+        re.compile(r"<!--\s*(content|game|todo|placeholder|\.\.\.)\s*(goes here|here|\.\.\.)?", re.IGNORECASE),
+        re.compile(r"#\s*(TODO|Implement|FIXME|Placeholder)", re.IGNORECASE),
+        re.compile(r"pass\s*#\s*(todo|implement|placeholder)", re.IGNORECASE),
+        re.compile(r"^\s*return\s+(false|null|undefined|None)\s*;?\s*$"),
+    ]
+    _STUB_EXTENSIONS = {".html", ".js", ".ts", ".jsx", ".tsx"}
+
     def _self_review_proposal(self, proposal: AtlasPatchProposal, input_payload: dict, *, has_content: bool) -> dict:
         """Lightweight pre-apply review for generated content.
 
         This is intentionally static and bounded: no shell, no imports, no project mutation.
-        It catches obvious Python syntax errors and missing literal requirement keywords before
-        safe-apply sees the proposal.
+        It catches obvious Python syntax errors, missing literal requirement keywords, and
+        stub/placeholder implementations before safe-apply sees the proposal.
         """
         findings: list[dict] = []
         if self._plan_item_requires_content(input_payload) and not has_content:
             findings.append({"type": "content_missing", "severity": "blocking", "message": "patch content is required"})
         content_by_path = self._proposal_content_by_path(proposal)
         for path, content in content_by_path.items():
-            if str(path).lower().endswith(".py"):
+            ext = Path(str(path)).suffix.lower()
+            if ext == ".py":
                 try:
                     ast.parse(content or "")
                 except SyntaxError as exc:
@@ -629,6 +651,10 @@ class AtlasPatchProposalService:
                         "path": path,
                         "message": str(exc),
                     })
+            if ext in self._STUB_EXTENSIONS:
+                stub_finding = self._detect_stub_content(path, content or "")
+                if stub_finding:
+                    findings.append(stub_finding)
         combined_content = "\n".join(content_by_path.values())
         for missing in self._missing_requirement_keywords(input_payload, combined_content):
             findings.append({
@@ -638,9 +664,29 @@ class AtlasPatchProposalService:
             })
         return {
             "status": "failed" if findings else "passed",
-            "checks": ["python_ast_parse", "requirement_keyword_match"],
+            "checks": ["python_ast_parse", "stub_code_detected", "requirement_keyword_match"],
             "findings": findings,
         }
+
+    def _detect_stub_content(self, path: str, content: str) -> dict | None:
+        lines = content.splitlines()
+        if not lines:
+            return None
+        stub_lines = [ln for ln in lines if any(p.search(ln) for p in self._STUB_PATTERNS)]
+        ratio = len(stub_lines) / max(len(lines), 1)
+        if ratio > 0.08 or (len(stub_lines) >= 3 and ratio > 0.05):
+            return {
+                "type": "stub_code_detected",
+                "severity": "blocking",
+                "path": path,
+                "message": (
+                    f"{len(stub_lines)} of {len(lines)} lines ({ratio:.0%}) contain stub/placeholder patterns. "
+                    "Rewrite with complete, working implementations. "
+                    "Do not use '// TODO', '// Implement...', '<!-- content goes here -->', or bare stubs."
+                ),
+                "stub_line_examples": stub_lines[:3],
+            }
+        return None
 
     def _proposal_content_by_path(self, proposal: AtlasPatchProposal) -> dict[str, str]:
         metadata = proposal.metadata or {}
