@@ -144,7 +144,7 @@ class AtlasMultiItemAutopilotService:
                 if reason == "automation_gate_blocked" and precheck.get("gate_reason"):
                     reason = f"{reason}:{precheck.get('gate_reason')}"
                 result = AtlasAutopilotItemResult(item_id=item_id, status=status, reason=reason, metadata={"planned_steps": planned_steps})
-                out.item_results.append(result); out.processed_count += 1
+                out.item_results.append(result)
                 out.blocked_count += 1 if status == "blocked" else 0
                 out.skipped_count += 1 if status == "skipped" else 0
                 self.emit("item_blocked" if status == "blocked" else "item_skipped", request, autopilot_run_id, item_id=item_id, item_index=idx, status=status, reason=result.reason)
