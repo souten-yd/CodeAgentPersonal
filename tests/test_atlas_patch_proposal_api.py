@@ -58,7 +58,10 @@ def _set_debug_review(c, pool_id, item_id, analyzed=True):
 
 
 def test_patch_proposal_requires_debug_review_analyzed(tmp_path):
+    # When the item has debug_review metadata but it is not yet analyzed, patch generation must be
+    # blocked.  Items with NO debug_review data are treated as plain plan items and are not blocked.
     c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
+    _set_debug_review(c, pool['pool_id'], item['item_id'], analyzed=False)
     body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'r1'}).json()
     assert body['status'] == 'blocked' and 'debug_review_not_analyzed' in body['warnings']
 
