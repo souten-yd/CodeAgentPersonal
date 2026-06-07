@@ -54,17 +54,17 @@ class RequirementAnalyzer:
         analysis_failed = False
         if raw_payload is None:
             analysis_failed = True
-            warnings.append("Requirement analysis LLM output could not be parsed. Fallback requirement was generated.")
+            warnings.append("Requirement analysis LLM output could not be parsed. Planning is blocked until requirement analysis is retried.")
             payload: dict = {}
         elif not isinstance(raw_payload, dict):
             analysis_failed = True
-            warnings.append("Requirement analysis LLM output was not a JSON object. Fallback requirement was generated.")
+            warnings.append("Requirement analysis LLM output was not a JSON object. Planning is blocked until requirement analysis is retried.")
             payload = {}
         else:
             payload = raw_payload
             if not payload:
                 analysis_failed = True
-                warnings.append("Requirement analysis LLM output was empty. Fallback requirement was generated.")
+                warnings.append("Requirement analysis LLM output was empty. Planning is blocked until requirement analysis is retried.")
 
         requirement_id = existing_requirement.requirement_id if existing_requirement else f"req_{uuid.uuid4().hex[:12]}"
         category_scores = payload.get("category_scores") or {}

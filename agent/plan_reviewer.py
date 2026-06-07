@@ -22,19 +22,30 @@ class PlanReviewer:
             findings = self._collect_findings(requirement=requirement, plan=plan, nexus_context=nexus_context, repository_context=repository_context)
             return self._build_result(requirement=requirement, plan=plan, findings=findings)
         except Exception as exc:  # noqa: BLE001
-            warning = f"Plan review failed safely with fallback: {exc}"
+            warning = f"Plan review failed closed and requires retry: {exc}"
+            finding = PlanReviewFinding(
+                finding_id=f"finding_{uuid.uuid4().hex[:10]}",
+                severity="high",
+                category="other",
+                title="Plan review failed closed",
+                detail=str(exc),
+                related_steps=[],
+                related_files=[],
+                recommendation="Retry plan review or revise the plan before any execution.",
+                requires_user_confirmation=True,
+            )
             return PlanReviewResult(
                 review_id=f"review_{uuid.uuid4().hex[:12]}",
                 plan_id=plan.plan_id,
                 requirement_id=requirement.requirement_id,
-                overall_risk="medium",
-                approved_for_execution=True,
-                requires_user_confirmation=False,
+                overall_risk="high",
+                approved_for_execution=False,
+                requires_user_confirmation=True,
                 destructive_change_detected=False,
-                findings=[],
-                blocking_findings=[],
-                summary="Plan review encountered an internal warning. Proceed with manual review.",
-                recommended_next_action="proceed",
+                findings=[finding],
+                blocking_findings=[finding.finding_id],
+                summary="Plan review encountered an internal error and failed closed.",
+                recommended_next_action="revise_plan",
                 warnings=[warning],
             )
 

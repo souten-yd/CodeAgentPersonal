@@ -13,8 +13,8 @@ def test_build_from_plan_payload_creates_pool_and_items() -> None:
         "plan_id": "plan_1",
         "requirement_id": "req_1",
         "implementation_steps": [
-            {"step_id": "step_a", "title": "Edit A", "description": "Update A"},
-            {"step_id": "step_b", "title": "Edit B", "description": "Update B"},
+            {"step_id": "step_a", "title": "Edit A", "description": "Update A", "action_type": "update"},
+            {"step_id": "step_b", "title": "Edit B", "description": "Update B", "action_type": "update"},
         ],
     }
 
@@ -87,7 +87,7 @@ def test_inspect_action_becomes_research_item() -> None:
     assert item.item_type == "research"
 
 
-def test_inspect_action_with_target_files_is_reclassified_as_implementation() -> None:
+def test_inspect_action_with_target_files_is_blocked_for_patch_generation() -> None:
     payload = {
         "implementation_steps": [
             {
@@ -102,7 +102,8 @@ def test_inspect_action_with_target_files_is_reclassified_as_implementation() ->
     item = AtlasPlanPoolBuilder().build_from_plan_payload(payload, root_goal="HTML を作って", pool_id="pool_test").items[0]
 
     assert item.item_type == "implementation"
-    assert item.metadata["action_type"] == "create"
+    assert item.status == "blocked"
+    assert item.metadata["action_type"] == ""
 
 
 def test_high_risk_requires_confirmation_and_disables_auto_execution() -> None:
@@ -117,7 +118,7 @@ def test_high_risk_requires_confirmation_and_disables_auto_execution() -> None:
 def test_low_risk_can_be_auto_execution_allowed_but_not_executed() -> None:
     payload = {
         "destructive_change_detected": False,
-        "implementation_steps": [{"title": "Safe", "risk_level": "low"}],
+        "implementation_steps": [{"title": "Safe", "risk_level": "low", "action_type": "update"}],
     }
 
     item = AtlasPlanPoolBuilder().build_from_plan_payload(payload, root_goal="Goal", pool_id="pool_test").items[0]
@@ -126,15 +127,43 @@ def test_low_risk_can_be_auto_execution_allowed_but_not_executed() -> None:
     assert item.auto_execution_allowed is True
 
 
-def test_fallback_pool_generates_research_planning_verification_items() -> None:
+def test_fallback_pool_blocks_without_executable_items() -> None:
     pool = AtlasPlanPoolBuilder().build_from_plan_payload({}, root_goal="Goal", pool_id="pool_test")
 
-    assert len(pool.items) == 3
-    assert [item.item_type for item in pool.items] == ["research", "planning", "verification"]
-    assert [item.status for item in pool.items] == ["ready", "queued", "queued"]
-    assert pool.items[1].depends_on == ["item_001"]
-    assert pool.items[2].depends_on == ["item_002"]
-    assert "fallback_plan_items_generated" in pool.warnings
+    assert pool.status == "needs_revision"
+    assert pool.items == []
+    assert "planner_failure_requires_replan" in pool.warnings
+    assert pool.metadata["patch_generation_allowed"] is False
+
+
+def test_unknown_action_type_blocks_instead_of_normalizing_to_create() -> None:
+    pool = AtlasPlanPoolBuilder().build_from_plan_payload(
+        {"implementation_steps": [{"title": "Mystery", "action_type": "surprise", "target_files": ["new.py"]}]},
+        root_goal="Goal",
+        pool_id="pool_test",
+    )
+
+    item = pool.items[0]
+    assert item.status == "blocked"
+    assert item.metadata["action_type"] == ""
+    assert "invalid_action_type:item_001" in pool.warnings
+
+
+def test_explicit_and_compatible_legacy_actions_still_normalize() -> None:
+    pool = AtlasPlanPoolBuilder().build_from_plan_payload(
+        {
+            "implementation_steps": [
+                {"step_id": "create_step", "title": "Create", "action_type": "create", "target_files": ["new.py"]},
+                {"step_id": "update_step", "title": "Update", "action_type": "update", "target_files": ["old.py"]},
+                {"step_id": "patch_step", "title": "Patch", "action_type": "patch", "target_files": ["old.py"]},
+                {"step_id": "write_step", "title": "Write", "action_type": "write", "target_files": ["newer.py"]},
+            ]
+        },
+        root_goal="Goal",
+        pool_id="pool_test",
+    )
+
+    assert [item.metadata["action_type"] for item in pool.items] == ["create", "update", "update", "create"]
 
 
 def test_build_from_autopilot_plan_dict_uses_tasks() -> None:

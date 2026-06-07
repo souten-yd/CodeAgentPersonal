@@ -86,12 +86,13 @@ class Phase6ImplementationExecutorTests(unittest.TestCase):
         out = self.executor.execute("plan6", execution_mode="safe_apply", project_path=str(self.project))
         self.assertEqual(out["run"]["step_results"][0]["status"], "blocked")
 
-    def test_safe_apply_create(self):
+    def test_safe_apply_create_requires_full_content_generation(self):
         self._save_plan(steps=[ImplementationStep(step_id="s1", title="作成", action_type="create", target_files=["new.txt"])])
         self._approve()
         out = self.executor.execute("plan6", execution_mode="safe_apply", project_path=str(self.project), allow_create=True)
-        self.assertTrue((self.project / "new.txt").exists())
-        self.assertTrue(out["run"]["step_results"][0]["changed_files"])
+        self.assertFalse((self.project / "new.txt").exists())
+        self.assertEqual(out["run"]["step_results"][0]["status"], "blocked")
+        self.assertIn("skeleton creation is disabled", out["run"]["step_results"][0]["message"])
 
     def test_safe_apply_create_existing_blocked(self):
         (self.project / "new.txt").write_text("x", encoding="utf-8")
@@ -106,6 +107,20 @@ class Phase6ImplementationExecutorTests(unittest.TestCase):
         self._approve()
         out = self.executor.execute("plan6", execution_mode="safe_apply", project_path=str(self.project))
         self.assertEqual(out["run"]["step_results"][0]["status"], "blocked")
+
+    def test_append_patch_generation_mode_is_blocked(self):
+        (self.project / "a.txt").write_text("abc", encoding="utf-8")
+        self._save_plan(steps=[ImplementationStep(step_id="s1", title="upd", action_type="update", target_files=["a.txt"])])
+        self._approve()
+        out = self.executor.execute(
+            "plan6",
+            execution_mode="safe_apply",
+            project_path=str(self.project),
+            allow_update=True,
+            patch_generation_mode="append",
+        )
+        self.assertEqual(out["run"]["step_results"][0]["status"], "blocked")
+        self.assertIn("append fallback is not allowed", out["run"]["step_results"][0]["message"])
 
     def test_project_path_outside_blocked(self):
         self._save_plan(steps=[ImplementationStep(step_id="s1", title="create", action_type="create", target_files=["../outside.txt"])])

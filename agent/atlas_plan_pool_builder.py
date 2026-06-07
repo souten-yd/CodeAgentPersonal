@@ -360,6 +360,10 @@ class AtlasPlanPoolBuilder:
                 stored_action_type = normalize_action_type(action_type)
             else:
                 stored_action_type = action_type or ""
+            if item_type in {"implementation", "documentation"} and not stored_action_type:
+                status = "blocked"
+                requires_confirmation = True
+                pool_warnings.append(f"invalid_action_type:{item_id}")
 
             item = AtlasPlanItem(
                 item_id=item_id,
@@ -562,49 +566,8 @@ class AtlasPlanPoolBuilder:
     ) -> AtlasPlanPool:
         effective_pool_id = pool_id or _new_pool_id()
         pool_warnings = list(warnings or [])
-        if "fallback_plan_items_generated" not in pool_warnings:
-            pool_warnings.append("fallback_plan_items_generated")
-        fallback_specs = [
-            (
-                "item_001",
-                "research",
-                "Review current project context",
-                "Collect repository and Nexus context before implementation",
-                [],
-                "ready",
-            ),
-            (
-                "item_002",
-                "planning",
-                "Prepare implementation plan",
-                "Convert the goal into concrete implementation steps",
-                ["item_001"],
-                "queued",
-            ),
-            (
-                "item_003",
-                "verification",
-                "Verify completion criteria",
-                "Check whether the final result satisfies the done definition",
-                ["item_002"],
-                "queued",
-            ),
-        ]
-        items = [
-            AtlasPlanItem(
-                item_id=item_id,
-                pool_id=effective_pool_id,
-                title=title,
-                goal=goal,
-                description=goal,
-                item_type=item_type,
-                status=status,
-                depends_on=depends_on,
-                auto_execution_allowed=False,
-                metadata={"fallback": True},
-            )
-            for item_id, item_type, title, goal, depends_on, status in fallback_specs
-        ]
+        if "planner_failure_requires_replan" not in pool_warnings:
+            pool_warnings.append("planner_failure_requires_replan")
         return AtlasPlanPool(
             pool_id=effective_pool_id,
             root_goal=root_goal,
@@ -614,10 +577,17 @@ class AtlasPlanPoolBuilder:
             planning_depth=_normalize_choice(planning_depth, VALID_PLANNING_DEPTHS, "standard"),
             automation_level=_normalize_choice(automation_level, VALID_AUTOMATION_LEVELS, "plan_then_ask"),
             execution_strategy=_normalize_choice(execution_strategy, VALID_EXECUTION_STRATEGIES, "sequential"),
-            items=items,
+            status="needs_revision",
+            items=[],
             warnings=pool_warnings,
-            plan_quality={"ok": False, "reasons": ["fallback_plan_items_generated"]},
-            metadata={"fallback_plan_items_generated": True, "plan_quality": {"ok": False, "reasons": ["fallback_plan_items_generated"]}},
+            errors=list(dict.fromkeys([*pool_warnings])),
+            plan_quality={"ok": False, "reasons": ["planner_failure_requires_replan"]},
+            metadata={
+                "fallback_plan_items_generated": False,
+                "planner_failure_requires_replan": True,
+                "patch_generation_allowed": False,
+                "plan_quality": {"ok": False, "reasons": ["planner_failure_requires_replan"]},
+            },
         )
 
     @staticmethod

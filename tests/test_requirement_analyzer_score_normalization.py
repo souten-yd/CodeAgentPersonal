@@ -139,3 +139,4 @@ def test_requirement_analysis_failure_does_not_fabricate_ready_contract() -> Non
     assert req.ready_for_planning is False
     assert req.functional_requirements == []
     assert req.done_definition == []
+    assert any("Planning is blocked" in warning for warning in req.analysis_warnings)
