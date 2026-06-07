@@ -60,7 +60,8 @@ Testing:
     rollback_plan: ["Delete index.html"]
 - Every implementation step must include a non-empty description, a one-sentence goal explaining
   which part of the requirement it satisfies, at least one observable acceptance_criteria entry, and
-  concrete verification.
+  concrete verification, and a non-empty target_files list naming every file that will be
+  created or modified. Every create/update step MUST have at least one entry in target_files.
 - Include the user's key phrases (visible text, colors, behavior, file names, or other explicit
   requirements) in the relevant step description. Do not output empty description or empty
   acceptance_criteria.
@@ -163,4 +164,8 @@ Rules:
 - Tag each finding with the angle it came from.
 - Be specific and tie each finding to a step or file when possible.
 - If the plan is sound from every angle, return an empty findings list and angle_risk=low.
+- For purely static deliverables (a single HTML, CSS, Markdown, JSON or plain-text file
+  with no server-side code, no authentication, and no external API calls), do NOT report
+  security-header, HTTPS, CSP, X-Frame-Options or other infrastructure-level security
+  findings — they are out of scope for static files.
 """
