@@ -4,6 +4,7 @@ import ast
 import hashlib
 import json
 import re
+from html.parser import HTMLParser
 from datetime import datetime, timezone
 from uuid import uuid4
 from pathlib import Path, PurePosixPath
@@ -47,8 +48,10 @@ class AtlasPatchProposalService:
     # produces a patch that CONNECTS to the current code instead of overwriting it blindly.
     MAX_EXISTING_FILE_CHARS = 60000
     # A plan_item that must write a file gets more than one shot at the LLM: weak models often emit
-    # an empty/invalid first response but succeed when told the prior attempt was unusable.
-    MAX_LLM_GENERATION_ATTEMPTS = 2
+    # an empty/invalid first response but succeed when told the prior attempt was unusable. Attempts
+    # are spent only on OBJECTIVE failure signals (parse error, stub/placeholder, broken HTML,
+    # real verification failure) — weak keyword heuristics are advisory and never burn a retry.
+    MAX_LLM_GENERATION_ATTEMPTS = 3
     _SIGNAL_REPAIR_HINTS = {
         "color_mutation_signal": (
             "色の変化が静的解析で検出できなかった。描画コードで色を動的に変える表現を使うこと"
@@ -804,6 +807,7 @@ class AtlasPatchProposalService:
                     self_review_feedback = {
                         "status": "failed",
                         "findings": list(review.get("findings") or []),
+                        "advisories": list(review.get("advisories") or []),
                     }
                     last_failure = "self_review_failed"
                     continue
@@ -1231,10 +1235,18 @@ class AtlasPatchProposalService:
         """Lightweight pre-apply review for generated content.
 
         This is intentionally static and bounded: no shell, no imports, no project mutation.
-        It catches obvious Python syntax errors, missing literal requirement keywords, and
-        stub/placeholder implementations before safe-apply sees the proposal.
+        Only OBJECTIVE, language-correct defects are blocking: missing-when-required content,
+        Python syntax errors, stub/placeholder content, and gross HTML structural breakage.
+
+        High-signal requirement coverage (quoted literals / identifiers from the requirement that
+        never appear in the produced artifact) is recorded as a non-blocking ``advisory`` that
+        feeds the next regeneration attempt. It never terminally fails an otherwise valid patch:
+        meta-predicate words like "exists", "valid", or "prominently" describe the artifact, they
+        are not strings that must literally appear inside it. Real correctness is proven later by
+        apply -> verification, not by static keyword overlap.
         """
         findings: list[dict] = []
+        advisories: list[dict] = []
         if self._plan_item_requires_content(input_payload) and not has_content:
             findings.append({"type": "content_missing", "severity": "blocking", "message": "patch content is required"})
         content_by_path = self._proposal_content_by_path(proposal)
@@ -1250,6 +1262,10 @@ class AtlasPatchProposalService:
                         "path": path,
                         "message": str(exc),
                     })
+            if ext in {".html", ".htm"}:
+                html_blocking, html_advisory = self._html_wellformedness_findings(path, content or "")
+                findings.extend(html_blocking)
+                advisories.extend(html_advisory)
             if ext in self._STUB_EXTENSIONS:
                 stub_finding = self._detect_stub_content(path, content or "")
                 if stub_finding:
@@ -1266,16 +1282,17 @@ class AtlasPatchProposalService:
         combined_content = "\n".join(content_by_path.values())
         if self._plan_item_requires_content(input_payload) and str((input_payload.get("item") or {}).get("patch_task_kind") or "") != "structural_change":
             for missing in self._missing_requirement_keywords(input_payload, combined_content):
-                findings.append({
+                advisories.append({
                     "type": "requirement_keyword_missing",
-                    "severity": "blocking",
+                    "severity": "advisory",
                     **missing,
                 })
         return {
             "status": "failed" if findings else "passed",
-              "checks": ["python_ast_parse", "stub_code_detected", "placeholder_detected", "requirement_keyword_match"],
-              "findings": findings,
-          }
+            "checks": ["python_ast_parse", "stub_code_detected", "placeholder_detected", "html_wellformedness", "requirement_keyword_advisory"],
+            "findings": findings,
+            "advisories": advisories,
+        }
 
     def _generation_quality_findings(self, input_payload: dict, content_by_path: dict[str, str], metadata: dict) -> list[dict]:
         findings: list[dict] = []
@@ -1386,6 +1403,115 @@ class AtlasPatchProposalService:
             }
         return None
 
+    # Void (self-closing) HTML elements that legitimately have no closing tag.
+    _HTML_VOID_ELEMENTS = frozenset({
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    })
+    # Elements whose absence/breakage signals a genuinely malformed document.
+    _HTML_STRUCTURAL_ELEMENTS = ("html", "head", "body")
+
+    def _html_wellformedness_findings(self, path: str, content: str) -> tuple[list[dict], list[dict]]:
+        """Objective, bounded HTML structural check using only the standard library.
+
+        Returns ``(blocking, advisory)``. Blocking covers gross breakage that makes the document
+        invalid (mismatched/unclosed structural tags). Cosmetic issues (e.g. a missing <!doctype>)
+        are advisory. No external parser (lxml etc.) is introduced.
+        """
+        text = content or ""
+        if not text.strip():
+            return ([{
+                "type": "html_empty_content",
+                "severity": "blocking",
+                "path": path,
+                "message": "HTML file content is empty.",
+            }], [])
+
+        void_elements = self._HTML_VOID_ELEMENTS
+
+        class _TagBalanceParser(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__(convert_charrefs=True)
+                self.stack: list[str] = []
+                self.mismatches: list[str] = []
+                self.parse_error = ""
+
+            def handle_starttag(self, tag: str, attrs: Any) -> None:
+                if tag.lower() not in void_elements:
+                    self.stack.append(tag.lower())
+
+            def handle_startendtag(self, tag: str, attrs: Any) -> None:
+                # Explicit self-close (<br/>) — never pushed onto the stack.
+                return
+
+            def handle_endtag(self, tag: str) -> None:
+                tag = tag.lower()
+                if tag in void_elements:
+                    return
+                if tag in self.stack:
+                    # Pop until we reach the matching open tag (tolerate optional-close inline tags).
+                    while self.stack and self.stack[-1] != tag:
+                        self.stack.pop()
+                    if self.stack:
+                        self.stack.pop()
+                else:
+                    self.mismatches.append(tag)
+
+        parser = _TagBalanceParser()
+        try:
+            parser.feed(text)
+            parser.close()
+        except Exception as exc:  # pragma: no cover - HTMLParser is lenient; defensive only
+            return ([{
+                "type": "html_parse_error",
+                "severity": "blocking",
+                "path": path,
+                "message": str(exc),
+            }], [])
+
+        blocking: list[dict] = []
+        advisory: list[dict] = []
+
+        text_l = text.lower()
+        for element in self._HTML_STRUCTURAL_ELEMENTS:
+            has_open = f"<{element}" in text_l
+            has_close = f"</{element}>" in text_l
+            if has_open and not has_close:
+                blocking.append({
+                    "type": "html_unclosed_structural_tag",
+                    "severity": "blocking",
+                    "path": path,
+                    "message": f"<{element}> is opened but never closed.",
+                })
+
+        unclosed = [tag for tag in parser.stack if tag in self._HTML_STRUCTURAL_ELEMENTS]
+        if unclosed:
+            blocking.append({
+                "type": "html_unbalanced_tags",
+                "severity": "blocking",
+                "path": path,
+                "message": f"Unbalanced structural tags left open: {', '.join(dict.fromkeys(unclosed))}.",
+            })
+        if parser.mismatches:
+            structural_mismatch = [t for t in parser.mismatches if t in self._HTML_STRUCTURAL_ELEMENTS]
+            if structural_mismatch:
+                blocking.append({
+                    "type": "html_unbalanced_tags",
+                    "severity": "blocking",
+                    "path": path,
+                    "message": f"Closing tags without a matching open tag: {', '.join(dict.fromkeys(structural_mismatch))}.",
+                })
+
+        if "<!doctype" not in text_l:
+            advisory.append({
+                "type": "html_missing_doctype",
+                "severity": "advisory",
+                "path": path,
+                "message": "Document is missing a <!doctype html> declaration.",
+            })
+
+        return (blocking, advisory)
+
     def _proposal_content_by_path(self, proposal: AtlasPatchProposal) -> dict[str, str]:
         metadata = proposal.metadata or {}
         out: dict[str, str] = {}
@@ -1420,27 +1546,70 @@ class AtlasPatchProposalService:
         return out
 
     def _missing_requirement_keywords(self, input_payload: dict, content: str) -> list[dict]:
+        """Advisory-only high-signal coverage check.
+
+        Only emits when a requirement carries *high-signal* tokens — quoted literals (e.g.
+        'HelloWorld') or code identifiers — and NONE of them appear in the produced content.
+        Meta-predicate words (exists / valid / prominently / well-formed ...) and the target
+        filename are deliberately excluded: they describe the artifact, they are not strings that
+        must literally appear inside it. This is never blocking; it only hints the next attempt.
+        """
         item = input_payload.get("item") or {}
         requirements = [
             str(v).strip()
             for v in [item.get("goal"), *list(item.get("done_definition") or [])]
             if str(v).strip()
         ]
+        # Target filenames are satisfied by file existence, not by appearing in file content.
+        target_basenames = {
+            Path(str(p)).name.lower()
+            for p in (item.get("target_files") or [])
+            if str(p).strip()
+        }
+        target_stems = {Path(name).stem for name in target_basenames}
+        excluded = target_basenames | target_stems
         content_l = (content or "").lower()
         missing: list[dict] = []
         for idx, req in enumerate(requirements, start=1):
-            tokens = self._requirement_tokens(req)
+            tokens = [
+                tok for tok in self._high_signal_requirement_tokens(req)
+                if tok not in excluded
+            ]
             if not tokens:
                 continue
             matched = [tok for tok in tokens if tok in content_l]
-            required_count = max(1, min(len(tokens), (len(tokens) + 1) // 2))
-            if len(matched) < required_count:
+            if not matched:
                 missing.append({
                     "requirement_id": f"req_{idx:03d}",
                     "description": req,
-                    "missing_keywords": [tok for tok in tokens if tok not in matched],
+                    "missing_keywords": tokens,
                 })
         return missing
+
+    @staticmethod
+    def _high_signal_requirement_tokens(text: str) -> list[str]:
+        """Extract only tokens that genuinely should appear in the produced artifact.
+
+        High-signal = quoted literals ('...', "...", `...`) and code identifiers
+        (snake_case, camelCase, PascalCase, foo()). Plain descriptive prose is ignored.
+        """
+        raw = text or ""
+        signals: list[str] = []
+        # Quoted literals carry the strongest intent (the exact text the user asked to appear).
+        for match in re.findall(r"'([^']+)'|\"([^\"]+)\"|`([^`]+)`", raw):
+            literal = next((g for g in match if g), "").strip()
+            if literal:
+                signals.append(literal.lower())
+        # Code identifiers: multi-word case styles or call syntax.
+        for match in re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(\)", raw):
+            signals.append(match.lower())
+        for token in re.findall(r"\b[A-Za-z][A-Za-z0-9_]*\b", raw):
+            is_snake = "_" in token
+            is_camel_or_pascal = bool(re.search(r"[a-z][A-Z]", token)) or bool(re.match(r"[A-Z][a-z]+[A-Z]", token))
+            if is_snake or is_camel_or_pascal:
+                signals.append(token.lower())
+        # De-duplicate while preserving order; cap to keep the advisory compact.
+        return list(dict.fromkeys(signals))[:8]
 
     @staticmethod
     def _requirement_tokens(text: str) -> list[str]:
