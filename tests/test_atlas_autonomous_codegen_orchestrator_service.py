@@ -780,3 +780,31 @@ def test_weak_model_empty_proposal_is_not_counted(tmp_path: Path) -> None:
     assert out.status == "no_content"
     assert out.stop_reason == "no_patch_content"
     assert autopilot.last_request is None
+
+
+def test_matches_prefix_root_sentinel_allows_any_relative_path() -> None:
+    m = AtlasAutonomousCodegenOrchestratorService._matches_prefix
+    # The "." sentinel allows the entire selected-project work root: a root-level file
+    # (index.html) and nested files alike are permitted.
+    assert m("index.html", ["."]) is True
+    assert m("nested/dir/app.py", ["."]) is True
+    assert m("index.html", ["./"]) is True
+    # Without the sentinel, KasaneCore-shaped prefixes do NOT match a root-level file.
+    assert m("index.html", ["app/", "web/"]) is False
+    # Normal prefix matching is unaffected.
+    assert m("app/server.py", ["app/"]) is True
+    assert m("docs/readme.md", ["app/"]) is False
+
+
+def test_bounded_dev_envelope_allows_root_level_file_in_preflight() -> None:
+    from agent.atlas_automation_profile_resolver import _BOUNDED_DEV_BOUNDS
+
+    # The dev envelope's "." allowed_paths must let a root-level target (e.g. index.html)
+    # pass the prefix gate while blocked_paths still reject protected locations.
+    allowed = list(_BOUNDED_DEV_BOUNDS["allowed_paths"])
+    blocked = list(_BOUNDED_DEV_BOUNDS["blocked_paths"])
+    m = AtlasAutonomousCodegenOrchestratorService._matches_prefix
+    assert allowed == ["."]
+    assert m("index.html", allowed) is True
+    assert m(".git/config", blocked) is True
+    assert m("secrets/key.pem", blocked) is True

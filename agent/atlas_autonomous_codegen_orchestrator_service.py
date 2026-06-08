@@ -1634,6 +1634,11 @@ class AtlasAutonomousCodegenOrchestratorService:
             pfx = str(prefix or "").replace("\\", "/").strip("/")
             if not pfx:
                 continue
+            # "." is the project-root sentinel: it matches every repo-relative path under the
+            # selected project's work root (used by the bounded-dev envelope to allow the whole
+            # selected project while blocked_paths still guard dangerous locations).
+            if pfx == ".":
+                return True
             if normalized == pfx or normalized.startswith(pfx + "/"):
                 return True
         return False
