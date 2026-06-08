@@ -132,6 +132,45 @@ def test_codegen_prompt_includes_cross_file_reference_guidance(tmp_path: Path) -
     assert "script.js" in captured["task"]
 
 
+def test_codegen_test_step_is_grounded_in_sibling_implementation(tmp_path: Path) -> None:
+    # A test-writing step must see the REAL implementation it covers, so it does not assert an API the
+    # implementation never defines (the disconnected-test problem).
+    (tmp_path / "script.js").write_text(
+        "function movePlayer(dir){ player.x += dir; }\nconst keys = {};\n", encoding="utf-8"
+    )
+    captured: dict = {}
+
+    def llm(_system: str, user: str) -> dict:
+        import json as _json
+        payload = _json.loads(user)
+        captured["task"] = payload.get("task", "")
+        captured["sibling_files"] = (payload.get("input") or {}).get("plan_sibling_files", {})
+        return {
+            "target_files": ["tests/test_game.js"],
+            "proposed_content": "const { movePlayer } = require('../script.js');\n// tests\n",
+            "implemented_symbols": ["tests/test_game.js"],
+            "behavioral_cases": ["covers movePlayer"],
+            "verification_cases": ["run tests"],
+        }
+
+    item = _item(target_files=["tests/test_game.js"])
+    pool = _pool(tmp_path, item)
+    pool.items[0].target_files = ["script.js"]  # a prior step produced the implementation
+    service, _storage = _service(tmp_path, pool, llm=llm)
+
+    payload = service.build_proposal_input(
+        pool, item, AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_001", source_type="plan_item")
+    )
+    assert "script.js" in payload["plan_sibling_files"]
+    assert "movePlayer" in payload["plan_sibling_files"]["script.js"]["content"]
+
+    service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_001", source_type="plan_item", run_id="run_1")
+    )
+    assert "SIBLING FILE CONTENTS" in captured["task"]
+    assert "script.js" in captured["sibling_files"]
+
+
 def test_codegen_semantic_validation_infers_evidence_from_content_without_retry(tmp_path: Path) -> None:
     # A weak model returns valid content but omits the advisory evidence fields. The service infers
     # implemented_symbols / behavioral_cases / verification_cases deterministically from the content
