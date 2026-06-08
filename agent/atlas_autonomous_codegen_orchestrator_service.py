@@ -27,6 +27,7 @@ from agent.atlas_patch_generation_state import is_patch_generation_success
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
 from agent.atlas_plan_item_file_changes import has_file_change_content, normalize_plan_item_file_changes
 from agent.atlas_recovery_service import AtlasRecoveryService
+from agent.atlas_automation_profile_resolver import is_full_auto_context
 
 # Items the full-auto profile never applies; generating a patch for them is wasted work because
 # the safe-apply gate (and atlas_full_auto_gate) hard-block them downstream anyway.
@@ -288,6 +289,18 @@ class AtlasAutonomousCodegenOrchestratorService:
         changed_total = 0
         no_content_item_ids: list[str] = []
 
+        # Under full-auto (autonomous bounded-dev envelope) a successfully-applied change must not be
+        # paused by the evaluator's conservative `manual_required` (e.g. a static file whose only
+        # verification is "open in a browser" and therefore cannot auto-pass). Autonomy means such
+        # non-critical decisions auto-continue; critical/protected/destructive events still pause via
+        # the separate critical-event path. Supervised modes keep the manual-review stop.
+        base_pool = self.storage.load_pool(request.pool_id)
+        is_full_auto = is_full_auto_context(
+            preset_id=str((request.metadata or {}).get("preset_id") or ""),
+            automation_level=str(getattr(base_pool, "automation_level", "") or ""),
+        )
+        stop_on_manual_required = not is_full_auto
+
         for index, item_id in enumerate(selected_ids):
             if self._stop_requested(request.pool_id, orchestrator_run_id):
                 aggregate.status = "stopped"
@@ -396,6 +409,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                     item_ids=[item_id],
                     policy_id=request.policy_id,
                     require_approval=False,
+                    stop_on_manual_required=stop_on_manual_required,
                     max_items=1,
                     max_runtime_seconds=effective_max_runtime_seconds,
                     max_changed_files_total=max(0, effective_max_changed_files_total - changed_total),
