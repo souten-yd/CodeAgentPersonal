@@ -353,6 +353,7 @@ class AtlasPatchProposalService:
         ]
         completed_summaries = self._completed_item_summaries(pool)
         plan_file_manifest = self._plan_file_manifest(pool)
+        plan_sibling_files = self._plan_sibling_file_contents(pool, item, request, plan_file_manifest)
         return {
             "pool_id": pool.pool_id,
             "item_id": item.item_id,
@@ -368,6 +369,7 @@ class AtlasPatchProposalService:
             "remaining_requirements": remaining_requirements,
             "completed_item_summaries": completed_summaries,
             "plan_file_manifest": plan_file_manifest,
+            "plan_sibling_files": plan_sibling_files,
             "current_target_contents": current_targets,
             "base_file_revisions": {path: str(entry.get("revision") or "absent") for path, entry in current_targets.items()},
             "preserve_behaviors": list(getattr(item, "preserve_behaviors", []) or getattr(pool, "preserve_behaviors", []) or (pool.metadata or {}).get("preserve_behaviors") or []),
@@ -476,6 +478,39 @@ class AtlasPatchProposalService:
                     if produced:
                         entry["status"] = "created"
         return list(manifest.values())
+
+    # Total chars of sibling-file content surfaced to the model (bounded to keep the prompt small).
+    MAX_SIBLING_FILE_CHARS = 12000
+    MAX_SIBLING_FILES_TOTAL_CHARS = 28000
+
+    def _plan_sibling_file_contents(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest, manifest: list[dict]) -> dict[str, dict]:
+        """Current on-disk content of OTHER files this plan already produced, so a step that writes
+        tests for (or calls) them uses their REAL API instead of inventing one — the root cause of a
+        test file that asserts a 'game.movePlayerLeft()' the implementation never defines. Bounded in
+        size; only includes sibling files that already exist on disk.
+        """
+        own = {str(p).strip() for p in (item.target_files or []) if str(p).strip()}
+        sibling_paths = [
+            str(entry.get("path"))
+            for entry in (manifest or [])
+            if isinstance(entry, dict) and str(entry.get("path") or "").strip() and str(entry.get("path")) not in own
+        ]
+        if not sibling_paths:
+            return {}
+        raw = self._read_current_target_contents(pool, item, request, target_files_override=sibling_paths)
+        out: dict[str, dict] = {}
+        budget = self.MAX_SIBLING_FILES_TOTAL_CHARS
+        for path in sibling_paths:
+            entry = raw.get(path) or {}
+            content = str(entry.get("content") or "")
+            if not entry.get("exists") or not content:
+                continue
+            clipped = content[: self.MAX_SIBLING_FILE_CHARS]
+            if budget - len(clipped) < 0:
+                break
+            budget -= len(clipped)
+            out[path] = {"content": clipped, "truncated": bool(entry.get("truncated") or len(content) > len(clipped))}
+        return out
 
     def _plan_item_requires_content(self, input_payload: dict) -> bool:
         # A plan_item that names target files and is not a delete/run_command MUST yield real patch
@@ -679,6 +714,18 @@ class AtlasPatchProposalService:
                 "import, or fetch path), you MUST use the EXACT filenames from that list — do not invent "
                 "or rename files. Keep references consistent so every file wires together once all steps "
                 "are applied."
+            )
+        # Ground tests/callers in the REAL API of sibling files so a test step does not assert methods
+        # the implementation never defines (e.g. game.movePlayerLeft()).
+        sibling_files = input_payload.get("plan_sibling_files") or {}
+        if sibling_files:
+            base_task += (
+                " SIBLING FILE CONTENTS: input.plan_sibling_files holds the CURRENT content of other files "
+                "this plan already produced (" + ", ".join(str(p) for p in sibling_files) + "). When you "
+                "write tests for, import, or call any of them, use their ACTUAL defined/exported API "
+                "(functions, classes, globals) EXACTLY as written there — do NOT invent functions, methods, "
+                "or an object shape that does not exist in that content. If the implementation uses module-level "
+                "functions and globals rather than a class, test it the same way."
             )
         content_required = self._plan_item_requires_content(input_payload)
         output_schema = patch_proposal_json_schema(require_content=content_required)
