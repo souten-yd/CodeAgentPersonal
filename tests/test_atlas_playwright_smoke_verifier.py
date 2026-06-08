@@ -302,6 +302,21 @@ def test_import_path_case_mismatch_diagnosed(tmp_path):
     assert diagnostic == 'import_path_case_mismatch'
 
 
+def test_planned_but_not_yet_created_script_is_tolerated(tmp_path):
+    # Incremental build: step_1 writes index.html referencing script.js, which a LATER step creates.
+    (tmp_path / 'index.html').write_text('<!doctype html><script src="script.js"></script>', encoding='utf-8')
+    # script.js does not exist yet, but it is in the plan -> not a missing_script_src failure.
+    assert _VFY._missing_script_src(tmp_path / 'index.html', ['script.js'], {'script.js'}) is False
+    assert _VFY._diagnose_js_wiring(tmp_path / 'index.html', [], {'script.js', 'styles.css'}) == ''
+
+
+def test_unplanned_missing_script_still_fails(tmp_path):
+    # A reference no plan step produces (typo: game.js when the plan creates script.js) still fails.
+    (tmp_path / 'index.html').write_text('<!doctype html><script src="game.js"></script>', encoding='utf-8')
+    assert _VFY._missing_script_src(tmp_path / 'index.html', ['game.js'], {'script.js'}) is True
+    assert _VFY._diagnose_js_wiring(tmp_path / 'index.html', [], {'script.js'}) == 'missing_script_src'
+
+
 def test_canvas_grid_hash_detects_motion_that_fixed_points_miss():
     page = _FakeCanvasPage([
         {"present": True, "samples": [{"pixels": "same-five-fixed-points", "dataHash": "same", "gridHash": "123"}]},

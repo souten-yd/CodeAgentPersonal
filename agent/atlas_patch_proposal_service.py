@@ -352,6 +352,7 @@ class AtlasPatchProposalService:
             if str(r.get("requirement_id") or "") not in satisfied_requirement_ids
         ]
         completed_summaries = self._completed_item_summaries(pool)
+        plan_file_manifest = self._plan_file_manifest(pool)
         return {
             "pool_id": pool.pool_id,
             "item_id": item.item_id,
@@ -366,6 +367,7 @@ class AtlasPatchProposalService:
             "already_satisfied_requirements": [r for r in requirements if str(r.get("requirement_id") or "") in satisfied_requirement_ids],
             "remaining_requirements": remaining_requirements,
             "completed_item_summaries": completed_summaries,
+            "plan_file_manifest": plan_file_manifest,
             "current_target_contents": current_targets,
             "base_file_revisions": {path: str(entry.get("revision") or "absent") for path, entry in current_targets.items()},
             "preserve_behaviors": list(getattr(item, "preserve_behaviors", []) or getattr(pool, "preserve_behaviors", []) or (pool.metadata or {}).get("preserve_behaviors") or []),
@@ -446,6 +448,34 @@ class AtlasPatchProposalService:
         for summary in self._completed_item_summaries(pool):
             out.update(str(v) for v in (summary.get("requirement_ids") or []) if str(v).strip())
         return out
+
+    def _plan_file_manifest(self, pool: AtlasPlanPool) -> list[dict]:
+        """Every file this plan creates/updates, so a step that references sibling files (a
+        ``<script src>``, ``<link href>``, an import, a fetch path) uses the plan's REAL filenames
+        instead of inventing one (e.g. referencing 'game.js' when the plan creates 'script.js').
+        Marks each path created (a prior step already produced it) vs planned (a later step will).
+        """
+        completed_ids = set(getattr(pool, "completed_item_ids", []) or [])
+        manifest: dict[str, dict] = {}
+        for plan_item in (pool.items or []):
+            produced = plan_item.item_id in completed_ids or str(getattr(plan_item, "status", "")).lower() == "completed"
+            for path in (getattr(plan_item, "target_files", []) or []):
+                rel = str(path).strip()
+                if not rel:
+                    continue
+                entry = manifest.get(rel)
+                if entry is None:
+                    manifest[rel] = {
+                        "path": rel,
+                        "produced_by_items": [plan_item.item_id],
+                        "title": str(getattr(plan_item, "title", "") or ""),
+                        "status": "created" if produced else "planned",
+                    }
+                else:
+                    entry["produced_by_items"].append(plan_item.item_id)
+                    if produced:
+                        entry["status"] = "created"
+        return list(manifest.values())
 
     def _plan_item_requires_content(self, input_payload: dict) -> bool:
         # A plan_item that names target files and is not a delete/run_command MUST yield real patch
@@ -633,6 +663,22 @@ class AtlasPatchProposalService:
                 "<body><canvas id=\\\"gameCanvas\\\"></canvas><script>/* complete working implementation */</script></body></html>\","
                 "\"implemented_symbols\":[\"index.html\"],\"behavioral_cases\":[\"renders the page\"],"
                 "\"verification_cases\":[\"open index.html in a browser\"],\"risk_level\":\"low\"}"
+            )
+        # Cross-file consistency: when the plan produces several files, references between them must
+        # use the plan's REAL filenames. Without this the model invents names (e.g. an index.html that
+        # loads 'game.js' while the plan creates 'script.js'), which 404s and fails browser smoke.
+        plan_files = [
+            str(entry.get("path"))
+            for entry in (input_payload.get("plan_file_manifest") or [])
+            if isinstance(entry, dict) and str(entry.get("path") or "").strip()
+        ]
+        if len(plan_files) > 1:
+            base_task += (
+                " CROSS-FILE REFERENCES: this plan produces these files: " + ", ".join(plan_files) + ". "
+                "When the file you write references another project file (a <script src>, <link href>, "
+                "import, or fetch path), you MUST use the EXACT filenames from that list — do not invent "
+                "or rename files. Keep references consistent so every file wires together once all steps "
+                "are applied."
             )
         content_required = self._plan_item_requires_content(input_payload)
         output_schema = patch_proposal_json_schema(require_content=content_required)

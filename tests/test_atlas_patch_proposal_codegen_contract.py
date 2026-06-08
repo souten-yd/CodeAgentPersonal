@@ -97,6 +97,39 @@ def test_codegen_proposal_input_contains_full_context_and_multifile_contents(tmp
     assert payload["current_target_contents"]["style.css"]["content"].startswith(".score")
     assert payload["base_file_revisions"]["app.py"] != "absent"
     assert payload["preserve_behaviors"] == ["Keep reset"]
+    # The plan file manifest lists every file the plan produces so cross-file references use real names.
+    manifest_paths = {entry["path"] for entry in payload["plan_file_manifest"]}
+    assert {"app.py", "style.css", "done.py"} <= manifest_paths
+
+
+def test_codegen_prompt_includes_cross_file_reference_guidance(tmp_path: Path) -> None:
+    # When a plan produces multiple files, the generation prompt must instruct the model to reference
+    # the plan's REAL filenames (so an index.html does not load an invented 'game.js').
+    captured: dict = {}
+
+    def llm(_system: str, user: str) -> dict:
+        import json as _json
+        captured["task"] = _json.loads(user).get("task", "")
+        return {
+            "target_files": ["index.html"],
+            "proposed_content": "<!doctype html><html><body><script src=\"script.js\"></script></body></html>",
+            "implemented_symbols": ["index.html"],
+            "behavioral_cases": ["loads"],
+            "verification_cases": ["open in browser"],
+        }
+
+    item = _item(target_files=["index.html"])
+    pool = _pool(tmp_path, item)
+    # Give a sibling item a different planned file so the manifest has >1 entry.
+    pool.items[0].target_files = ["script.js"]
+    service, _storage = _service(tmp_path, pool, llm=llm)
+
+    service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_001", source_type="plan_item", run_id="run_1")
+    )
+
+    assert "CROSS-FILE REFERENCES" in captured["task"]
+    assert "script.js" in captured["task"]
 
 
 def test_codegen_semantic_validation_infers_evidence_from_content_without_retry(tmp_path: Path) -> None:

@@ -136,6 +136,7 @@ class AtlasPlaywrightSmokeVerifier:
         task_description: str = "",
         expected_text: str | None = None,
         contract_id: str | None = None,
+        planned_paths: set[str] | None = None,
     ) -> dict:
         """Run browser smoke verification.
 
@@ -200,8 +201,8 @@ class AtlasPlaywrightSmokeVerifier:
                 # Check for JS errors (ReferenceError / SyntaxError are hard failures).
                 # Add local static diagnostics so repair planning can target common
                 # generated-game wiring mistakes instead of producing generic tests.
-                diagnostic = self._diagnose_js_wiring(html_path, console_errors)
-                js_errors = self._hard_js_errors(console_errors, html_path)
+                diagnostic = self._diagnose_js_wiring(html_path, console_errors, planned_paths)
+                js_errors = self._hard_js_errors(console_errors, html_path, planned_paths)
                 if js_errors or diagnostic in {
                     "module_script_mismatch",
                     "missing_script_src",
@@ -422,7 +423,7 @@ class AtlasPlaywrightSmokeVerifier:
         except Exception as exc:  # noqa: BLE001
             return {"present": False, "changed": False, "warning": "canvas_inaccessible", "errors": [str(exc)]}
 
-    def _hard_js_errors(self, console_errors: list[str], html_path: Path | None = None) -> list[str]:
+    def _hard_js_errors(self, console_errors: list[str], html_path: Path | None = None, planned_paths: set[str] | None = None) -> list[str]:
         hard_markers = (
             "ReferenceError",
             "SyntaxError",
@@ -432,7 +433,13 @@ class AtlasPlaywrightSmokeVerifier:
             "Failed to resolve module specifier",
             "Failed to fetch dynamically imported module",
         )
-        entry_refs = self._entry_script_refs(html_path) if html_path else []
+        planned = planned_paths or set()
+        # A resource-load failure for a file this plan creates in a later step is deferred, not a
+        # defect: drop those entry-script refs so an incremental-build 404 does not hard-fail.
+        entry_refs = [
+            ref for ref in (self._entry_script_refs(html_path) if html_path else [])
+            if ref.replace("\\", "/").lstrip("./") not in planned and ref.replace("\\", "/").rsplit("/", 1)[-1] not in planned
+        ]
         hard: list[str] = []
         for error in console_errors:
             if any(marker in error for marker in hard_markers):
@@ -469,7 +476,7 @@ class AtlasPlaywrightSmokeVerifier:
     def _js_error_reason(self, diagnostic: str) -> str:
         return f"js_error:{diagnostic}" if diagnostic else "js_error"
 
-    def _diagnose_js_wiring(self, html_path: Path, console_errors: list[str]) -> str:
+    def _diagnose_js_wiring(self, html_path: Path, console_errors: list[str], planned_paths: set[str] | None = None) -> str:
         try:
             html = html_path.read_text(encoding="utf-8", errors="replace")
         except Exception:  # noqa: BLE001
@@ -484,7 +491,7 @@ class AtlasPlaywrightSmokeVerifier:
                 srcs.append((src_m.group(2), is_module))
             elif not is_module and re.search(r"\b(import|export)\b", body):
                 inline_non_module_uses_modules = True
-        missing_script = self._missing_script_src(html_path, [s for s, _ in srcs])
+        missing_script = self._missing_script_src(html_path, [s for s, _ in srcs], planned_paths)
         missing_import = self._missing_import_target(html_path, [s for s, _ in srcs])
         if missing_script:
             return "missing_script_src"
@@ -507,8 +514,15 @@ class AtlasPlaywrightSmokeVerifier:
             return "missing_import_target"
         return ""
 
-    def _missing_script_src(self, html_path: Path, srcs: list[str]) -> bool:
+    def _missing_script_src(self, html_path: Path, srcs: list[str], planned_paths: set[str] | None = None) -> bool:
+        planned = planned_paths or set()
         for src in srcs:
+            # A reference to a file this plan will create in a later step is deferred, not missing —
+            # tolerate it so an incremental multi-step build does not fail mid-way. A reference no
+            # plan step produces (e.g. a typo'd 'game.js') is still reported as missing.
+            norm = str(src).replace("\\", "/").lstrip("./")
+            if norm in planned or norm.rsplit("/", 1)[-1] in planned:
+                continue
             target = self._safe_child_path(html_path.parent, src)
             if target is not None and not target.exists():
                 return True
