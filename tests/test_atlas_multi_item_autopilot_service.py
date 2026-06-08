@@ -412,23 +412,28 @@ def _manual_required_autopilot(tmp_path):
     )
 
 
-def test_full_auto_does_not_stop_on_non_critical_manual_required(tmp_path):
+def test_full_auto_does_not_stop_on_manual_required_with_default_flag(tmp_path):
+    # Mirrors the live chat-panel path: it calls /run with policy full_auto_multi_item_v1 and does
+    # NOT pass stop_on_manual_required (so it defaults to True). The policy itself drops
+    # manual_required from stop_decisions, so an applied change is not paused regardless.
     svc = _manual_required_autopilot(tmp_path)
     out = svc.run(AtlasMultiItemAutopilotRequest(
         pool_id='p1', project_path=str(tmp_path), policy_id='full_auto_multi_item_v1',
         require_approval=False, include_context_refresh=False, include_evaluator=True,
-        include_harness_provisioning=False, stop_on_manual_required=False,
+        include_harness_provisioning=False,  # stop_on_manual_required defaults to True
     ))
-    # The applied change is not paused: the run is not "stopped" on the evaluator's manual_required.
     assert out.status != 'stopped'
     assert out.item_results[0].status != 'stopped'
+    assert out.item_results[0].reason != 'evaluator_manual_required'
     assert out.item_results[0].changed_files == ['index.html']
 
 
-def test_manual_required_still_stops_when_flag_enabled(tmp_path):
+def test_guarded_policy_still_stops_on_manual_required(tmp_path):
+    # Non-full-auto (supervised/guarded) policies keep manual_required in stop_decisions, so the
+    # manual-review pause is preserved where it is intended.
     svc = _manual_required_autopilot(tmp_path)
     out = svc.run(AtlasMultiItemAutopilotRequest(
-        pool_id='p1', project_path=str(tmp_path), policy_id='full_auto_multi_item_v1',
+        pool_id='p1', project_path=str(tmp_path), policy_id='guarded_multi_item_v1',
         require_approval=False, include_context_refresh=False, include_evaluator=True,
         include_harness_provisioning=False, stop_on_manual_required=True,
     ))
