@@ -107,7 +107,7 @@ class AtlasAutoVerificationService:
         # hard visual failure degrade an otherwise-passing command result.
         html_rel = self._resolve_visual_html(item, pool)
         if html_rel and self._safe_rel(html_rel):
-            ev = self._evaluate_visual(Path(workspace_root) / html_rel, self._visual_task_description(item, pool))
+            ev = self._evaluate_visual(Path(workspace_root) / html_rel, self._visual_task_description(item, pool), planned_paths=self._pool_planned_paths(pool))
             metadata["visual_contract"] = ev["static"]
             metadata["browser_smoke"] = ev["smoke"]
             # Keep pool-level pipeline metadata current so the UI never shows a stale repair_profile
@@ -228,7 +228,21 @@ class AtlasAutoVerificationService:
         )
         return " ".join(requirements).strip()
 
-    def _evaluate_visual(self, html_path: Path, task_desc: str) -> dict:
+    @staticmethod
+    def _pool_planned_paths(pool) -> set[str]:
+        """Relative paths (and basenames) every plan item will create/update. The browser smoke
+        verifier uses this to tolerate a reference to a file that this plan WILL create in a later
+        step (incremental build) while still failing on a reference to a file no step produces."""
+        planned: set[str] = set()
+        for plan_item in (getattr(pool, "items", []) or []):
+            for path in (getattr(plan_item, "target_files", []) or []):
+                rel = str(path or "").strip().replace("\\", "/").lstrip("./")
+                if rel:
+                    planned.add(rel)
+                    planned.add(rel.rsplit("/", 1)[-1])  # basename
+        return planned
+
+    def _evaluate_visual(self, html_path: Path, task_desc: str, planned_paths: set[str] | None = None) -> dict:
         """Run static visual contract + optional Playwright smoke; classify hard/soft outcomes.
 
         Now contract-aware: normaliser → classifier → contract registry determines which
@@ -253,7 +267,8 @@ class AtlasAutoVerificationService:
             extra_required_signals=[],
         )
         smoke = self.playwright_verifier.verify(
-            html_path, task_description=task_desc, contract_id=contract.contract_id
+            html_path, task_description=task_desc, contract_id=contract.contract_id,
+            planned_paths=planned_paths,
         )
         warnings: list[str] = []
         static_failed = str(static_res.get("status")) == "failed"
@@ -321,7 +336,7 @@ class AtlasAutoVerificationService:
         """Run the static visual contract (+ optional Playwright smoke) for a visual HTML task
         that has no allowlisted test command."""
         html_path = Path(workspace_root) / html_rel
-        ev = self._evaluate_visual(html_path, self._visual_task_description(item, pool))
+        ev = self._evaluate_visual(html_path, self._visual_task_description(item, pool), planned_paths=self._pool_planned_paths(pool))
         task_contract = select_task_verification_contract(item, pool)
         warnings = list(ev["warnings"])
         metadata: dict = {
