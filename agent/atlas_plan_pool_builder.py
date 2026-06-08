@@ -507,18 +507,30 @@ class AtlasPlanPoolBuilder:
             metadata["requirement_mapping_diagnostics"] = list(requirement_mapping_normalization.get("diagnostics") or [])
         if requirement_mapping_normalization.get("request_plan_revision"):
             recovery_decision = dict(requirement_mapping_normalization.get("recovery_decision") or {})
-            metadata.update(
-                {
-                    "plan_revision_required": True,
-                    "plan_revision_reason": recovery_decision.get("reason", "ambiguous_requirement_item_mapping"),
-                    "patch_generation_recovery_decision": recovery_decision,
+            # An ambiguous requirement->item mapping (the planner left some requirements unlinked
+            # across a multi-step plan; the deterministic repair only covers single-item plans) is a
+            # non-safety plan-quality gap, not an execution defect. Under full-auto this must NOT
+            # hard-block patch generation — record it for audit and continue, mirroring the full_auto
+            # critique-gate continuation (and the propose_for_item contract that full_auto pools never
+            # set plan_revision_required). Supervised modes still ask for plan revision.
+            full_auto = str(automation_level or "").lower() == "full_autopilot"
+            if full_auto:
+                metadata["requirement_mapping_ambiguous_full_auto_continued"] = recovery_decision
+                if "full_auto_continued_with_ambiguous_requirement_mapping" not in pool_warnings:
+                    pool_warnings.append("full_auto_continued_with_ambiguous_requirement_mapping")
+            else:
+                metadata.update(
+                    {
+                        "plan_revision_required": True,
+                        "plan_revision_reason": recovery_decision.get("reason", "ambiguous_requirement_item_mapping"),
+                        "patch_generation_recovery_decision": recovery_decision,
+                    }
+                )
+                plan_quality = {
+                    **plan_quality,
+                    "ok": False,
+                    "reasons": list(dict.fromkeys([*list(plan_quality.get("reasons") or []), "request_plan_revision:ambiguous_requirement_item_mapping"])),
                 }
-            )
-            plan_quality = {
-                **plan_quality,
-                "ok": False,
-                "reasons": list(dict.fromkeys([*list(plan_quality.get("reasons") or []), "request_plan_revision:ambiguous_requirement_item_mapping"])),
-            }
         metadata.update(
             {
                 "original_user_request": original_user_request,
