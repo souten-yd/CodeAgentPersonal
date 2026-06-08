@@ -45,6 +45,41 @@ def test_unknown_and_invalid_paths_not_low(tmp_path: Path) -> None:
     assert create_risk_classification_record(project_path=p, data_root=d, proposed_files=[{"relative_path": "../escape.txt", "change_type": "modify"}])["manifest"]["risk_level"] == "unknown"
 
 
+def test_ordinary_source_files_classified_by_change_type(tmp_path: Path) -> None:
+    # External-project work (root-level source/asset files) must not fall into "unknown".
+    p = tmp_path / "p"
+    d = tmp_path / "d"
+    p.mkdir()
+
+    def level(rel: str, change_type: str) -> str:
+        return create_risk_classification_record(
+            project_path=p, data_root=d,
+            proposed_files=[{"relative_path": rel, "change_type": change_type}],
+        )["manifest"]["risk_level"]
+
+    # Creating a new source/asset file is additive -> low.
+    assert level("index.html", "create") == "low"
+    assert level("script.js", "create") == "low"
+    assert level("styles.css", "create") == "low"
+    # Modifying an existing source file can break behaviour -> medium.
+    assert level("script.js", "modify") == "medium"
+    # An unrecognised file type is still treated conservatively as unknown.
+    assert level("data.bin", "create") == "unknown"
+
+
+def test_strict_gate_paths_still_protected_after_source_fallback(tmp_path: Path) -> None:
+    # The new source-file fallback must not weaken strict-gate protection.
+    p = tmp_path / "p"
+    d = tmp_path / "d"
+    p.mkdir()
+    for rel in ["package.json", "main.py", "app/api/atlas_pipeline.py", ".github/workflows/ci.yml"]:
+        m = create_risk_classification_record(
+            project_path=p, data_root=d,
+            proposed_files=[{"relative_path": rel, "change_type": "modify"}],
+        )["manifest"]
+        assert m["risk_level"] == "strict_gate"
+
+
 def test_policy_flags_and_no_direct_ca_data_string() -> None:
     text = Path("app/atlas/risk_classification.py").read_text(encoding="utf-8")
     assert 'Path("ca_data")' not in text

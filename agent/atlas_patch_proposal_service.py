@@ -1070,10 +1070,16 @@ class AtlasPatchProposalService:
                 reasons.append("directory_target_in_target_files")
         elif self._plan_item_requires_content(input_payload) and not evidence_present:
             reasons.append("semantic_evidence_missing")
+        advisories: list[str] = []
         if metadata.get("remaining_todos"):
             reasons.append("remaining_todos_present")
+        # ``known_limitations`` describe a complete-but-bounded implementation (honest notes like
+        # "enemies use linear movement; no wave patterns"), NOT incompleteness. Hard-failing on them
+        # punishes honesty and blocked real, working code (e.g. the enemy-spawning game step). Record
+        # them as advisory instead. Genuine non-implementation is still caught by the stub/placeholder
+        # /AST checks and by ``remaining_todos``.
         if metadata.get("known_limitations"):
-            reasons.append("known_limitations_present")
+            advisories.append("known_limitations_present")
         quality_findings = self._generation_quality_findings(input_payload, content_by_path, metadata)
         for finding in quality_findings:
             reason = str(finding.get("reason") or finding.get("type") or "generation_quality_failed")
@@ -1086,6 +1092,7 @@ class AtlasPatchProposalService:
             "normalized_target_directories": target_directories,
             "normalized_operations": list(item.get("operations") or []),
             "reasons": reasons,
+            "advisories": advisories,
             "missing_evidence": missing_evidence,
             "quality_findings": quality_findings,
         }

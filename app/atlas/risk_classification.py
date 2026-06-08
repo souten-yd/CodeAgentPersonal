@@ -26,6 +26,19 @@ STRICT_GATE_PREFIX = (
     "web/js/atlas_pipeline_api.js", "scripts/", "launcher/",
 )
 
+# Recognised project source / web / asset / config file types. A change to one of these is an
+# ordinary development change whose risk follows the *change type* (create = additive = low,
+# modify = could break behaviour = medium) rather than being dumped into "unknown". This keeps the
+# classifier from over-escalating ordinary external-project work (e.g. a root-level script.js /
+# index.html game) while the strict-gate exact/prefix rules above still protect sensitive paths.
+ORDINARY_SOURCE_SUFFIXES = frozenset({
+    ".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".vue", ".svelte",
+    ".html", ".htm", ".css", ".scss", ".sass", ".less",
+    ".py", ".rb", ".php", ".go", ".rs", ".java", ".kt", ".swift",
+    ".c", ".cc", ".cpp", ".h", ".hpp", ".cs", ".lua", ".sh",
+    ".json", ".md", ".txt", ".csv", ".xml", ".svg", ".yml", ".yaml", ".toml",
+})
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -131,6 +144,19 @@ def classify_change_risk(*, project_path: str | Path, proposed_files: list[dict[
                 matched_rules.append({"rule_id": "medium.impl", "level": "medium", "reason": "Implementation change", "paths": [rec["relative_path"]]})
                 if level in {"low", "unknown"}:
                     level = "medium"
+                continue
+            if Path(rp).suffix in ORDINARY_SOURCE_SUFFIXES:
+                # Ordinary project source/asset file outside the strict-gate set: classify by change
+                # type instead of "unknown". Creating a new file is additive (low); modifying an
+                # existing one can break behaviour (medium); delete/rename was already handled above.
+                if ct == "create":
+                    categories.add("additive_source")
+                    matched_rules.append({"rule_id": "low.new_source_file", "level": "low", "reason": "New project source/asset file", "paths": [rec["relative_path"]]})
+                else:
+                    categories.add("execution_semantics")
+                    matched_rules.append({"rule_id": "medium.modify_source_file", "level": "medium", "reason": "Modify existing project source/asset file", "paths": [rec["relative_path"]]})
+                    if level in {"low", "unknown"}:
+                        level = "medium"
                 continue
             categories.add("unknown")
             matched_rules.append({"rule_id": "unknown.unclassified", "level": "unknown", "reason": "Unclassified path", "paths": [rec["relative_path"]]})
