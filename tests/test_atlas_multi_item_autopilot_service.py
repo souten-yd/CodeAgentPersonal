@@ -361,3 +361,76 @@ def test_skipped_self_correction_risk_reason_surfaced_as_warning(tmp_path):
 
     assert captured['risk_levels'] == ['low', 'medium', 'high']
     assert 'risk_level_not_auto_reapplyable:high' in out.item_results[0].warnings
+
+
+def _manual_required_autopilot(tmp_path):
+    """Build an autopilot whose evaluator returns ``manual_required`` after an applied,
+    unverifiable change (mirrors a static file whose verification cannot auto-run)."""
+    pool = AtlasPlanPool(
+        pool_id='p1',
+        root_goal='g',
+        project_path=str(tmp_path),
+        items=[
+            AtlasPlanItem(
+                item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation',
+                risk_level='low', status='ready', target_files=['index.html'],
+                metadata={'action_type': 'create', 'approval': {'decision': 'approved'}, 'proposed_content': '<!doctype html><h1>Hi</h1>'},
+            )
+        ],
+    )
+
+    class Storage:
+        def load_pool(self, pool_id):
+            return pool
+        def save_pool(self, p):
+            pass
+
+    class Journal:
+        def append_event(self, *args, **kwargs):
+            pass
+
+    class AutoSafe:
+        def execute_one(self, request):
+            return SimpleNamespace(status='applied', changed_files=['index.html'],
+                                   model_dump=lambda: {'status': 'applied', 'changed_files': ['index.html'], 'actual_file_changed': True, 'file_results': [{'path': 'index.html', 'status': 'applied'}]})
+
+    class Verification:
+        # Verification runs and passes; the evaluator (below) is what conservatively returns
+        # manual_required (the post-verification gate runs only when vr is passed/failed).
+        def run_after_auto_safe_apply(self, request):
+            return SimpleNamespace(status='passed', warnings=[], model_dump=lambda: {'status': 'passed', 'warnings': []})
+
+    evaluator = SimpleNamespace(evaluate=lambda request: SimpleNamespace(
+        metadata={'eval_id': 'ev1'},
+        decision=SimpleNamespace(model_dump=lambda: {'decision': 'manual_required'}),
+    ))
+    return AtlasMultiItemAutopilotService(
+        storage=Storage(), journal=Journal(), automation_gate=AtlasAutomationGateService(),
+        auto_safe_apply_service=AutoSafe(), auto_verification_service=Verification(),
+        context_refresh_service=SimpleNamespace(refresh=lambda request: SimpleNamespace(status='available', bundle_id='ctx1')),
+        evaluator_service=evaluator,
+    )
+
+
+def test_full_auto_does_not_stop_on_non_critical_manual_required(tmp_path):
+    svc = _manual_required_autopilot(tmp_path)
+    out = svc.run(AtlasMultiItemAutopilotRequest(
+        pool_id='p1', project_path=str(tmp_path), policy_id='full_auto_multi_item_v1',
+        require_approval=False, include_context_refresh=False, include_evaluator=True,
+        include_harness_provisioning=False, stop_on_manual_required=False,
+    ))
+    # The applied change is not paused: the run is not "stopped" on the evaluator's manual_required.
+    assert out.status != 'stopped'
+    assert out.item_results[0].status != 'stopped'
+    assert out.item_results[0].changed_files == ['index.html']
+
+
+def test_manual_required_still_stops_when_flag_enabled(tmp_path):
+    svc = _manual_required_autopilot(tmp_path)
+    out = svc.run(AtlasMultiItemAutopilotRequest(
+        pool_id='p1', project_path=str(tmp_path), policy_id='full_auto_multi_item_v1',
+        require_approval=False, include_context_refresh=False, include_evaluator=True,
+        include_harness_provisioning=False, stop_on_manual_required=True,
+    ))
+    assert out.status == 'stopped'
+    assert out.item_results[0].reason == 'evaluator_manual_required'

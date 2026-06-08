@@ -151,6 +151,8 @@ def test_generates_missing_patch_then_applies(tmp_path: Path) -> None:
     assert autopilot.last_request is not None  # apply phase ran
     assert autopilot.last_request.policy_id == "full_auto_multi_item_v1"
     assert autopilot.last_request.require_approval is False
+    # Full-auto must not pause an applied change on the evaluator's non-critical manual_required.
+    assert autopilot.last_request.stop_on_manual_required is False
     assert out.phase == "final_summary"
     assert out.status == "completed"
     assert out.metadata["draft_pr_artifact"]["ready"] is True
