@@ -345,33 +345,27 @@ def test_builder_repairs_unmapped_requirement_for_single_applicable_item():
     assert pool.metadata["requirement_mapping_diagnostics"][0]["type"] == "deterministic_single_item_requirement_assignment"
 
 
-def test_builder_ambiguous_unmapped_requirement_requests_plan_revision():
+def test_builder_content_based_mapping_links_requirements_across_multi_step_plan():
+    # The planner left requirements unlinked across a multi-step plan. The builder now links each one
+    # to the step that most plausibly implements it (token overlap), so the plan is NOT blocked.
     pool = AtlasPlanPoolBuilder().build_from_plan_payload(
         {
             "requirements": [
-                {"requirement_id": "req_mapped", "description": "Mapped requirement"},
-                {"requirement_id": "req_missing", "description": "Missing requirement"},
+                {"requirement_id": "req_move", "description": "Player ship moves left and right with arrow keys"},
+                {"requirement_id": "req_enemy", "description": "Enemies spawn from the top and descend"},
             ],
             "implementation_steps": [
                 {
-                    "step_id": "step_1",
-                    "title": "Mapped step",
-                    "description": "Implement the mapped requirement completely.",
-                    "action_type": "update",
-                    "target_files": ["src/app.py"],
-                    "requirement_ids": ["req_mapped"],
-                    "acceptance_criteria": ["Mapped requirement works"],
-                    "verification_contract": {"contract_id": "pytest"},
+                    "step_id": "step_move", "title": "Implement player movement",
+                    "description": "Handle the player ship moving left and right via arrow keys.",
+                    "action_type": "create", "target_files": ["script.js"], "requirement_ids": [],
+                    "acceptance_criteria": ["Player ship moves left and right"], "verification_contract": {"contract_id": "pytest"},
                 },
                 {
-                    "step_id": "step_2",
-                    "title": "Other step",
-                    "description": "Implement another part.",
-                    "action_type": "update",
-                    "target_files": ["src/other.py"],
-                    "requirement_ids": [],
-                    "acceptance_criteria": ["Other part works"],
-                    "verification_contract": {"contract_id": "pytest"},
+                    "step_id": "step_enemy", "title": "Implement enemy spawning",
+                    "description": "Spawn enemies from the top of the screen and make them descend.",
+                    "action_type": "update", "target_files": ["script.js"], "requirement_ids": [],
+                    "acceptance_criteria": ["Enemies spawn from the top"], "verification_contract": {"contract_id": "pytest"},
                 },
             ],
         },
@@ -380,38 +374,53 @@ def test_builder_ambiguous_unmapped_requirement_requests_plan_revision():
         automation_level="plan_then_ask",
     )
 
+    # Both requirements were linked to the right step, so nothing is blocked — even in supervised mode.
+    assert "plan_revision_required" not in pool.metadata
+    assert pool.requirement_item_map["req_move"] == ["step_move"]
+    assert pool.requirement_item_map["req_enemy"] == ["step_enemy"]
+    assert pool.plan_quality["ok"] is True
+    diag_types = {d["type"] for d in pool.metadata.get("requirement_mapping_diagnostics", [])}
+    assert "content_based_requirement_assignment" in diag_types
+
+
+def _orphan_requirement_payload():
+    # Second requirement shares no meaningful token with any step -> genuinely unmappable.
+    return {
+        "requirements": [
+            {"requirement_id": "req_mapped", "description": "Mapped requirement"},
+            {"requirement_id": "req_orphan", "description": "Telemetry beacon calibration"},
+        ],
+        "implementation_steps": [
+            {
+                "step_id": "step_1", "title": "Mapped step", "description": "Implement the mapped requirement completely.",
+                "action_type": "update", "target_files": ["src/app.py"], "requirement_ids": ["req_mapped"],
+                "acceptance_criteria": ["Mapped requirement works"], "verification_contract": {"contract_id": "pytest"},
+            },
+            {
+                "step_id": "step_2", "title": "Other step", "description": "Render another part of the screen.",
+                "action_type": "update", "target_files": ["src/other.py"], "requirement_ids": [],
+                "acceptance_criteria": ["Other part works"], "verification_contract": {"contract_id": "pytest"},
+            },
+        ],
+    }
+
+
+def test_builder_truly_unmappable_requirement_requests_plan_revision_supervised():
+    pool = AtlasPlanPoolBuilder().build_from_plan_payload(
+        _orphan_requirement_payload(), root_goal="Goal", pool_id="pool_test", automation_level="plan_then_ask",
+    )
+
     assert pool.metadata["plan_revision_required"] is True
     assert pool.metadata["patch_generation_recovery_decision"]["type"] == "request_plan_revision"
+    assert pool.metadata["patch_generation_recovery_decision"]["unmapped_requirement_ids"] == ["req_orphan"]
     assert pool.plan_quality["ok"] is False
     assert "request_plan_revision:ambiguous_requirement_item_mapping" in pool.plan_quality["reasons"]
 
 
-def test_builder_full_auto_does_not_block_on_ambiguous_unmapped_requirement():
-    # Full-auto is autonomous: an ambiguous requirement->item mapping across a multi-step plan is a
-    # non-safety plan-quality gap and must NOT hard-block patch generation. It is recorded for audit
-    # and the run proceeds (mirrors the full_auto critique-gate continuation).
+def test_builder_full_auto_does_not_block_on_truly_unmappable_requirement():
+    # Even a genuinely unmappable requirement must not hard-block patch generation under full-auto.
     pool = AtlasPlanPoolBuilder().build_from_plan_payload(
-        {
-            "requirements": [
-                {"requirement_id": "req_mapped", "description": "Mapped requirement"},
-                {"requirement_id": "req_missing", "description": "Missing requirement"},
-            ],
-            "implementation_steps": [
-                {
-                    "step_id": "step_1", "title": "Mapped step", "description": "Implement the mapped requirement completely.",
-                    "action_type": "update", "target_files": ["src/app.py"], "requirement_ids": ["req_mapped"],
-                    "acceptance_criteria": ["Mapped requirement works"], "verification_contract": {"contract_id": "pytest"},
-                },
-                {
-                    "step_id": "step_2", "title": "Other step", "description": "Implement another part.",
-                    "action_type": "update", "target_files": ["src/other.py"], "requirement_ids": [],
-                    "acceptance_criteria": ["Other part works"], "verification_contract": {"contract_id": "pytest"},
-                },
-            ],
-        },
-        root_goal="Goal",
-        pool_id="pool_test",
-        automation_level="full_autopilot",
+        _orphan_requirement_payload(), root_goal="Goal", pool_id="pool_test", automation_level="full_autopilot",
     )
 
     assert "plan_revision_required" not in pool.metadata

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -237,6 +238,64 @@ def _required_requirement_ids(requirements: list[dict[str, Any]]) -> list[str]:
     ]
 
 
+# Common words that carry no signal when matching a requirement to the plan step that implements it.
+_REQ_MATCH_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "that", "this", "are", "can", "will", "should", "must", "when",
+    "from", "into", "each", "all", "its", "their", "game", "file", "files", "code", "add", "create",
+    "implement", "implementation", "ensure", "using", "use", "new", "basic", "feature", "support",
+    "user", "users", "system", "page", "app", "application", "verify", "test", "tests", "step",
+})
+
+
+def _match_tokens(text: str) -> set[str]:
+    return {
+        tok
+        for tok in re.findall(r"[a-zA-Z][a-zA-Z0-9_]{2,}", str(text or "").lower())
+        if tok not in _REQ_MATCH_STOPWORDS
+    }
+
+
+def _item_search_text(item: AtlasPlanItem) -> str:
+    metadata = getattr(item, "metadata", {}) or {}
+    parts = [
+        str(getattr(item, "title", "") or ""),
+        str(getattr(item, "goal", "") or ""),
+        str(getattr(item, "description", "") or ""),
+        " ".join(str(v) for v in (getattr(item, "done_definition", []) or [])),
+        " ".join(str(v) for v in (metadata.get("acceptance_criteria") or [])),
+        " ".join(str(v) for v in (getattr(item, "target_files", []) or [])),
+    ]
+    return " ".join(parts)
+
+
+def _best_matching_item(requirement_text: str, items: list[AtlasPlanItem]) -> AtlasPlanItem | None:
+    """Pick the plan item whose searchable text best overlaps the requirement description.
+
+    Deterministic token-overlap scoring (no LLM). Returns ``None`` when the requirement shares no
+    meaningful token with any item, so the caller can fall back to ambiguity handling rather than
+    forcing an arbitrary assignment.
+    """
+    requirement_tokens = _match_tokens(requirement_text)
+    if not requirement_tokens:
+        return None
+    best_item: AtlasPlanItem | None = None
+    best_score = 0
+    for item in items:
+        score = len(requirement_tokens & _match_tokens(_item_search_text(item)))
+        if score > best_score:
+            best_score = score
+            best_item = item
+    return best_item if best_score > 0 else None
+
+
+def _assign_requirement_to_item(item: AtlasPlanItem, req_id: str) -> None:
+    existing = [str(v).strip() for v in list(getattr(item, "requirement_ids", []) or []) if str(v).strip()]
+    repaired = list(dict.fromkeys([*existing, req_id]))
+    item.requirement_ids = repaired
+    item.metadata = dict(item.metadata or {})
+    item.metadata["requirement_ids"] = repaired
+
+
 def _normalize_requirement_item_mapping(
     *,
     requirements: list[dict[str, Any]],
@@ -278,10 +337,40 @@ def _normalize_requirement_item_mapping(
         )
         return {"status": "repaired", "diagnostics": diagnostics, "request_plan_revision": False}
 
+    # Multi-item plan: make a real effort to link each unmapped requirement to the step that most
+    # plausibly implements it, by deterministic token overlap between the requirement description and
+    # the item's title/goal/description/acceptance-criteria/target-files. This is the planner's
+    # missing requirement->step linkage; doing it here keeps multi-step plans (a 7/8-step game) from
+    # being blocked just because the LLM omitted the linkage. Only requirements with no overlap at
+    # all remain genuinely ambiguous.
+    requirement_text_by_id = {
+        str(req.get("requirement_id") or "").strip(): str(req.get("description") or req.get("title") or "")
+        for req in requirements
+        if isinstance(req, dict) and str(req.get("requirement_id") or "").strip()
+    }
+    content_assignments: list[dict[str, str]] = []
+    still_unmapped: list[str] = []
+    for req_id in unmapped:
+        match = _best_matching_item(requirement_text_by_id.get(req_id, ""), applicable_items)
+        if match is not None:
+            _assign_requirement_to_item(match, req_id)
+            content_assignments.append({"requirement_id": req_id, "item_id": match.item_id})
+        else:
+            still_unmapped.append(req_id)
+    if content_assignments:
+        diagnostics.append(
+            {
+                "type": "content_based_requirement_assignment",
+                "assignments": content_assignments,
+            }
+        )
+    if not still_unmapped:
+        return {"status": "repaired", "diagnostics": diagnostics, "request_plan_revision": False}
+
     diagnostics.append(
         {
             "type": "ambiguous_requirement_item_mapping",
-            "unmapped_requirement_ids": list(unmapped),
+            "unmapped_requirement_ids": list(still_unmapped),
             "applicable_item_ids": [item.item_id for item in applicable_items],
         }
     )
@@ -292,7 +381,7 @@ def _normalize_requirement_item_mapping(
         "recovery_decision": {
             "type": "request_plan_revision",
             "reason": "ambiguous_requirement_item_mapping",
-            "unmapped_requirement_ids": list(unmapped),
+            "unmapped_requirement_ids": list(still_unmapped),
             "applicable_item_ids": [item.item_id for item in applicable_items],
         },
     }
