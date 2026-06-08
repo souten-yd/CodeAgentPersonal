@@ -82,7 +82,9 @@ _ENVELOPE_RECIPES: dict[str, dict[str, Any]] = {
             "max_runtime_seconds": 1800,
             "max_files_changed": 25,
             "max_risk_level": "medium",
-            "allowed_paths": ["app/", "web/", "tests/", "docs/"],
+            # "." = the entire selected-project work root (path matching is relative to the
+            # per-project work dir). blocked_paths below still guard dangerous locations.
+            "allowed_paths": ["."],
             "blocked_paths": [
                 ".git/",
                 ".github/workflows/",

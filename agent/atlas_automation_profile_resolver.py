@@ -69,12 +69,18 @@ _DEFAULT_BOUNDS = {
     "blocked_paths": [],
 }
 
+# Dev/repair work operates on the user's SELECTED project, whose working tree is an isolated
+# per-project sandbox (`<ca_data>/atlas/projects/<name>/work`) sent as project_path. Path matching
+# is relative to that work root, so the previous KasaneCore-shaped list (app/web/tests/docs) was
+# both wrong for arbitrary projects and unable to author root-level files (e.g. index.html). The
+# "." sentinel means "the whole selected-project work root"; blocked_paths still guard dangerous
+# locations. Self-improvement keeps its tight KasaneCore-scoped bounds below.
 _BOUNDED_DEV_BOUNDS = {
     "max_actions": 12,
     "max_retries": 2,
     "max_changed_files": 25,
     "max_runtime_seconds": 1800,
-    "allowed_paths": ["app/", "web/", "tests/", "docs/"],
+    "allowed_paths": ["."],
     "blocked_paths": [".git/", ".github/workflows/", "scripts/release/", "secrets/", "infra/"],
 }
 

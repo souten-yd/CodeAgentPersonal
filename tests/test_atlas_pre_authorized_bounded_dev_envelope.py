@@ -53,7 +53,9 @@ def test_get_envelope_bounded_dev_has_bounds() -> None:
     assert bounds["max_actions_per_loop"] > 0
     assert bounds["max_files_changed"] > 0
     assert bounds["max_runtime_seconds"] > 0
-    assert "app/" in bounds["allowed_paths"]
+    # Dev work allows the whole selected-project work root via the "." sentinel; blocked_paths
+    # still guard dangerous locations.
+    assert bounds["allowed_paths"] == ["."]
     assert ".git/" in bounds["blocked_paths"]
     assert any("pytest" in cmd for cmd in bounds["command_allowlist"])
 

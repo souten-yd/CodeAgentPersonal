@@ -66,7 +66,8 @@ def test_bounded_dev_envelope_activates_bounded_loop() -> None:
     assert resolved["automation_level"] == "full_autopilot"
     assert resolved["autonomous_loop_active"] is True
     assert resolved["max_actions"] == 12
-    assert "app/" in resolved["allowed_paths"]
+    # Dev/repair allows the whole selected-project work root via the "." sentinel.
+    assert resolved["allowed_paths"] == ["."]
 
 
 def test_self_improvement_envelope_requires_strict_gate() -> None:
