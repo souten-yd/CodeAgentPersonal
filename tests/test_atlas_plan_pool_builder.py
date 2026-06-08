@@ -377,10 +377,44 @@ def test_builder_ambiguous_unmapped_requirement_requests_plan_revision():
         },
         root_goal="Goal",
         pool_id="pool_test",
-        automation_level="full_autopilot",
+        automation_level="plan_then_ask",
     )
 
     assert pool.metadata["plan_revision_required"] is True
     assert pool.metadata["patch_generation_recovery_decision"]["type"] == "request_plan_revision"
     assert pool.plan_quality["ok"] is False
     assert "request_plan_revision:ambiguous_requirement_item_mapping" in pool.plan_quality["reasons"]
+
+
+def test_builder_full_auto_does_not_block_on_ambiguous_unmapped_requirement():
+    # Full-auto is autonomous: an ambiguous requirement->item mapping across a multi-step plan is a
+    # non-safety plan-quality gap and must NOT hard-block patch generation. It is recorded for audit
+    # and the run proceeds (mirrors the full_auto critique-gate continuation).
+    pool = AtlasPlanPoolBuilder().build_from_plan_payload(
+        {
+            "requirements": [
+                {"requirement_id": "req_mapped", "description": "Mapped requirement"},
+                {"requirement_id": "req_missing", "description": "Missing requirement"},
+            ],
+            "implementation_steps": [
+                {
+                    "step_id": "step_1", "title": "Mapped step", "description": "Implement the mapped requirement completely.",
+                    "action_type": "update", "target_files": ["src/app.py"], "requirement_ids": ["req_mapped"],
+                    "acceptance_criteria": ["Mapped requirement works"], "verification_contract": {"contract_id": "pytest"},
+                },
+                {
+                    "step_id": "step_2", "title": "Other step", "description": "Implement another part.",
+                    "action_type": "update", "target_files": ["src/other.py"], "requirement_ids": [],
+                    "acceptance_criteria": ["Other part works"], "verification_contract": {"contract_id": "pytest"},
+                },
+            ],
+        },
+        root_goal="Goal",
+        pool_id="pool_test",
+        automation_level="full_autopilot",
+    )
+
+    assert "plan_revision_required" not in pool.metadata
+    assert "patch_generation_recovery_decision" not in pool.metadata
+    assert pool.metadata["requirement_mapping_ambiguous_full_auto_continued"]["type"] == "request_plan_revision"
+    assert "full_auto_continued_with_ambiguous_requirement_mapping" in pool.warnings
