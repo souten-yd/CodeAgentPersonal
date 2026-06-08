@@ -347,3 +347,168 @@ def test_codegen_rejects_disconnected_multifile_artifact(tmp_path: Path) -> None
     reloaded = storage.load_pool("pool_1").get_item("item_001")
     assert reloaded is not None
     assert "file_changes" not in reloaded.metadata
+
+
+def _hello_item(*, done_definition=None) -> AtlasPlanItem:
+    return AtlasPlanItem(
+        item_id="item_hello",
+        pool_id="pool_hello",
+        title="Create HelloWorld HTML file",
+        goal="Create a simple HTML file that displays 'HelloWorld' prominently.",
+        description="Create index.html that prominently displays HelloWorld.",
+        item_type="implementation",
+        status="ready",
+        risk_level="low",
+        target_files=["index.html"],
+        requirement_ids=["req_001"],
+        acceptance_criteria=["HelloWorld appears"],
+        done_definition=done_definition
+        or [
+            "The file 'index.html' exists.",
+            "The file contains the text 'HelloWorld' prominently in the body.",
+            "The HTML is well-formed and valid.",
+        ],
+        verification_contract={"contract_id": "static_html", "signals": ["HelloWorld"]},
+        metadata={"action_type": "create"},
+    )
+
+
+def _hello_pool(tmp_path: Path, item: AtlasPlanItem) -> AtlasPlanPool:
+    return AtlasPlanPool(
+        pool_id="pool_hello",
+        root_goal="Create a simple HTML file that displays 'HelloWorld' prominently.",
+        original_user_request="HelloWorld を出力する HTML を作って",
+        requirements=[{"requirement_id": "req_001", "description": "Display HelloWorld", "required": True}],
+        requirement_item_map={"req_001": ["item_hello"]},
+        project_path=str(tmp_path),
+        status="ready",
+        items=[item],
+    )
+
+
+def test_self_review_does_not_block_on_meta_predicate_keywords(tmp_path: Path) -> None:
+    """Regression: acceptance-criteria meta words (simple/prominently/exists/valid) must not
+    block a valid HTML patch just because they are absent from the file content."""
+
+    def llm(_system: str, _user: str) -> dict:
+        return {
+            "target_files": ["index.html"],
+            "proposed_content": "<!doctype html>\n<html lang=\"en\">\n<head><title>HelloWorld</title></head>\n<body><h1>HelloWorld</h1></body>\n</html>\n",
+            "implemented_symbols": ["index.html"],
+            "behavioral_cases": ["Renders HelloWorld"],
+            "verification_cases": ["open index.html in a browser"],
+        }
+
+    item = _hello_item()
+    pool = _hello_pool(tmp_path, item)
+    service, storage = _service(tmp_path, pool, llm=llm)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_hello", item_id="item_hello", source_type="plan_item", run_id="run_hello")
+    )
+
+    assert result.metadata["patch_content_available"] is True
+    assert result.proposal is not None
+    review = result.proposal.metadata["self_review"]
+    assert review["status"] == "passed"
+    # No blocking findings; meta keywords never appear as blocking.
+    assert review["findings"] == []
+    # The quoted literal 'HelloWorld' is present in content, so no advisory either.
+    assert not [a for a in review.get("advisories", []) if a.get("type") == "requirement_keyword_missing"]
+    assert result.metadata["patch_generation"]["state"] == "succeeded"
+
+
+def test_self_review_high_signal_literal_missing_is_advisory_only(tmp_path: Path) -> None:
+    """A required quoted literal ('HelloWorld') absent from valid HTML is advisory at the
+    self-review layer, not a blocking self-review finding."""
+
+    def llm(_system: str, _user: str) -> dict:
+        return {
+            "target_files": ["index.html"],
+            "proposed_content": "<!doctype html>\n<html lang=\"en\">\n<head><title>Page</title></head>\n<body><h1>Greetings</h1></body>\n</html>\n",
+            "implemented_symbols": ["index.html"],
+            "behavioral_cases": ["Renders a page"],
+            "verification_cases": ["open index.html in a browser"],
+        }
+
+    # Two requirements keep the single-requirement auto-coverage (and the separate
+    # requirement_evidence_mismatch gate) from firing, so self-review actually runs and we can
+    # observe that the missing literal is advisory rather than a blocking finding.
+    item = _hello_item()
+    item.requirement_ids = ["req_001", "req_002"]
+    pool = _hello_pool(tmp_path, item)
+    pool.requirements = [
+        {"requirement_id": "req_001", "description": "Display HelloWorld", "required": True},
+        {"requirement_id": "req_002", "description": "Provide a page title", "required": True},
+    ]
+    pool.requirement_item_map = {"req_001": ["item_hello"], "req_002": ["item_hello"]}
+    service, storage = _service(tmp_path, pool, llm=llm)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_hello", item_id="item_hello", source_type="plan_item", run_id="run_hello")
+    )
+
+    review = result.proposal.metadata["self_review"]
+    # The missing 'HelloWorld' literal never becomes a blocking self-review finding ...
+    assert not [f for f in review.get("findings", []) if f.get("type") == "requirement_keyword_missing"]
+    # ... it is recorded only as an advisory.
+    advisories = [a for a in review.get("advisories", []) if a.get("type") == "requirement_keyword_missing"]
+    assert advisories
+    assert any("helloworld" in a.get("missing_keywords", []) for a in advisories)
+
+
+def test_self_review_still_blocks_true_html_stub(tmp_path: Path) -> None:
+    """The advisory change must not let placeholder/stub HTML slip through."""
+
+    def llm(_system: str, _user: str) -> dict:
+        return {
+            "target_files": ["index.html"],
+            "proposed_content": "<!doctype html><html><body><!-- content goes here --></body></html>",
+            "implemented_symbols": ["index.html"],
+            "behavioral_cases": ["Renders a page"],
+            "verification_cases": ["open index.html"],
+        }
+
+    item = _hello_item()
+    pool = _hello_pool(tmp_path, item)
+    service, storage = _service(tmp_path, pool, llm=llm)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_hello", item_id="item_hello", source_type="plan_item", run_id="run_hello")
+    )
+
+    assert result.metadata["patch_content_available"] is False
+
+
+def test_self_review_blocks_unbalanced_html_then_succeeds_within_three_attempts(tmp_path: Path) -> None:
+    """Broken HTML is regenerated; success on the 3rd attempt (MAX_LLM_GENERATION_ATTEMPTS=3)."""
+
+    calls = {"n": 0}
+
+    def llm(_system: str, _user: str) -> dict:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            # Unclosed <html>/<body>: objectively broken, blocks self-review.
+            content = "<!doctype html>\n<html>\n<body><h1>HelloWorld</h1>\n"
+        else:
+            content = "<!doctype html>\n<html>\n<body><h1>HelloWorld</h1></body>\n</html>\n"
+        return {
+            "target_files": ["index.html"],
+            "proposed_content": content,
+            "implemented_symbols": ["index.html"],
+            "behavioral_cases": ["Renders HelloWorld"],
+            "verification_cases": ["open index.html"],
+        }
+
+    item = _hello_item()
+    pool = _hello_pool(tmp_path, item)
+    service, storage = _service(tmp_path, pool, llm=llm)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_hello", item_id="item_hello", source_type="plan_item", run_id="run_hello")
+    )
+
+    assert calls["n"] == 3
+    assert result.metadata["patch_content_available"] is True
+    assert result.metadata["patch_generation"]["state"] == "succeeded"
+    assert result.metadata["patch_generation"]["attempt"] == 3
