@@ -10,6 +10,7 @@
 - Completed foundation: Project Digital Twin Core v1, PDT-0 through PDT-14
 - Active canonical goal: `docs/atlas_project_intelligence_master_goal.md`
 - Architecture: `docs/atlas_project_intelligence_architecture.md`
+- Detailed design: `docs/atlas_project_intelligence_detailed_design.md`
 - Public contracts: `docs/atlas_project_intelligence_contracts.md`
 - Detailed implementation plan: `docs/atlas_project_intelligence_implementation_plan.md`
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
