@@ -80,7 +80,11 @@ class CapsuleBuilder:
         session = self.sessions.load(request.play_session_id)
         if session.project_id != request.project_id:
             raise CapsuleBuildError("session_project_mismatch")
-        if session.state != "stopped" or session.exit_code not in {0, None}:
+        # A Play session is "successful" when it reached the terminal "stopped" state with
+        # an exit code of 0 (clean self-exit) or None (a long-lived server/static preview
+        # the user explicitly stopped). A crashed session is "failed" and is rejected.
+        # Force build skips this gate but keeps every path-safety and exclusion guard.
+        if not request.force and (session.state != "stopped" or session.exit_code not in {0, None}):
             raise CapsuleBuildError("play_session_not_successful")
         project_root = Path(session.project_root).resolve()
         profiles = self._selected_profiles(request, session)
@@ -88,7 +92,8 @@ class CapsuleBuilder:
         if default_profile_id not in {profile.profile_id for profile in profiles}:
             raise CapsuleBuildError("default_profile_not_selected")
         files = self._collect_files(project_root, request)
-        self._check_expected_hashes(files, request)
+        if not request.force:
+            self._check_expected_hashes(files, request)
         package_id = _safe_package_id(request.package_id or request.project_id)
         manifest = CapsuleManifest(
             package_id=package_id,
@@ -124,6 +129,7 @@ class CapsuleBuilder:
         return {
             "schema_version": CAPSULE_BUILDER_SCHEMA_VERSION,
             "status": "built",
+            "forced": bool(request.force),
             "record": record.model_dump(mode="json"),
             "manifest": manifest.model_dump(mode="json"),
             "checksums": checksums,

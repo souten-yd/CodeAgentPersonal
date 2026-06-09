@@ -252,6 +252,7 @@
         </div>
         <div class="atlas-capsule-actions">
           <button type="button" class="atlas-capsule-btn primary" data-capsule-action="build">Build Capsule</button>
+          <button type="button" class="atlas-capsule-btn warn" data-capsule-action="force-build" title="成功セッション判定を無視してビルドします">強制Build</button>
           <button type="button" class="atlas-capsule-btn" data-capsule-action="close">Cancel</button>
         </div>
       </div>`;
@@ -259,7 +260,12 @@
     el.addEventListener('click', (ev) => {
       const action = ev.target.closest('[data-capsule-action]')?.dataset.capsuleAction;
       if (action === 'close') closeCapsuleDialog();
-      if (action === 'build') buildCapsule();
+      if (action === 'build') buildCapsule(false);
+      if (action === 'force-build') {
+        if (root.confirm('強制Build: Play の成功判定とファイルハッシュ検証を無視してビルドします。\n動作未確認の成果物が Portal に登録される可能性があります。続行しますか?')) {
+          buildCapsule(true);
+        }
+      }
     });
     if (!document.getElementById('atlas-capsule-style')) {
       const style = document.createElement('style');
@@ -284,6 +290,7 @@
         .atlas-capsule-actions{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border,#333)}
         .atlas-capsule-btn{flex:1;background:var(--bg2,#1a1a1a);border:1px solid var(--border,#333);border-radius:8px;color:var(--text,#eee);padding:8px;cursor:pointer;font-size:13px}
         .atlas-capsule-btn.primary{background:var(--accent,#5af);border-color:var(--accent,#5af);color:#0a0a0a;font-weight:600}
+        .atlas-capsule-btn.warn{color:var(--amber,#d90);border-color:var(--amber,#d90)}
         .atlas-capsule-btn:disabled{opacity:.45;cursor:not-allowed}`;
       document.head.appendChild(style);
     }
@@ -315,9 +322,11 @@
     const eligible = session.session_id && (session.state === 'stopped') && (session.exit_code === 0 || session.exit_code == null);
     const elig = $('atlas-capsule-eligibility');
     if (elig) {
+      // 「成功」= Play セッションが state="stopped" かつ exit_code が 0 (正常終了) または
+      // null (サーバ/静的プレビューを明示停止) であること。crash (exit_code≠0) は state="failed" で不成功。
       elig.textContent = eligible
-        ? '対象: 直近の成功した Play セッション。ビルドした Capsule は Portal カタログへ自動登録されます。'
-        : 'Capsule には成功した Play セッションが必要です。先に Play を実行し、正常終了させてください。';
+        ? '対象: 成功した Play セッション (stopped / 終了コード 0 または明示停止)。ビルドした Capsule は Portal カタログへ自動登録されます。'
+        : 'Capsule には成功した Play セッションが必要です (state=stopped かつ 終了コード 0 / 明示停止)。未終了なら Stop、異常終了 (failed) なら修正後に再 Play してください。検証を省いてビルドする場合は「強制Build」を使用します。';
     }
     const nameInput = $('atlas-capsule-name');
     if (nameInput && !nameInput.value) nameInput.value = String(state.projectId || projectId() || '').replace(/[^A-Za-z0-9_.-]/g, '-') || 'app';
@@ -328,13 +337,17 @@
         ? profiles.map((p, i) => `<label><input type="checkbox" data-capsule-profile="${escapeHtml(p.profile_id)}"${i === 0 ? ' checked' : ''}> ${escapeHtml(p.name || p.profile_id)} · ${escapeHtml(p.kind)}</label>`).join('')
         : '<span class="atlas-capsule-note">起動プロファイルがありません。Play で対象を選択してください。</span>';
     }
+    const hasSession = !!session.session_id;
     const buildBtn = dialog.querySelector('[data-capsule-action="build"]');
+    const forceBtn = dialog.querySelector('[data-capsule-action="force-build"]');
     if (buildBtn) buildBtn.disabled = !(eligible && profiles.length);
-    setCapsuleStatus(eligible ? '' : 'Play 成功セッションが必要です', eligible ? '' : 'error');
+    // Force build only needs an existing session + a selected profile; it ignores the success gate.
+    if (forceBtn) forceBtn.disabled = !(hasSession && profiles.length);
+    setCapsuleStatus(eligible ? '' : 'Play 成功セッションが必要です (強制Build で検証を省略可)', eligible ? '' : 'error');
     dialog.classList.add('open');
   }
 
-  async function buildCapsule() {
+  async function buildCapsule(force) {
     const session = state.session || {};
     if (!session.session_id) { setCapsuleStatus('Play セッションがありません', 'error'); return; }
     const selectedIds = Array.from(document.querySelectorAll('[data-capsule-profile]'))
@@ -344,7 +357,7 @@
     const name = ($('atlas-capsule-name')?.value || '').trim();
     const version = ($('atlas-capsule-version')?.value || '0.1.0').trim();
     const persistData = !!$('atlas-capsule-persist-data')?.checked;
-    setCapsuleStatus('Building…');
+    setCapsuleStatus(force ? 'Force building…' : 'Building…');
     const resp = await api()?.buildCapsule?.({
       project_id: state.projectId || projectId(),
       play_session_id: session.session_id,
@@ -354,6 +367,8 @@
       package_id: name || undefined,
       name: name || undefined,
       version: version || '0.1.0',
+      require_current_hashes: !force,
+      force: !!force,
       data_policy: { persistent_data_supported: persistData, export_includes_runtime_data: false },
     });
     if (!resp || !resp.ok) {
@@ -361,7 +376,8 @@
       return;
     }
     const record = resp.data?.record || {};
-    setCapsuleStatus(`Built ${record.package_id} v${record.version} → Portal カタログへ登録済み (${(record.content_hash || '').slice(0, 12)}…)`, 'ok');
+    const forced = resp.data?.forced ? ' [強制Build・未検証]' : '';
+    setCapsuleStatus(`Built ${record.package_id} v${record.version}${forced} → Portal カタログへ登録済み (${(record.content_hash || '').slice(0, 12)}…)`, 'ok');
     try { root.Portal?.refreshCatalog?.(); } catch (_e) {}
   }
 

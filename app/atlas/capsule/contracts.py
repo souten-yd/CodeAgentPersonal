@@ -46,6 +46,9 @@ class CapsuleBuildRequest(StrictContractModel):
     play_session_id: str = Field(min_length=1)
     selected_profile_ids: list[str] = Field(min_length=1)
     require_current_hashes: bool = True
+    # Force build bypasses the successful-Play-session gate and current-hash check.
+    # Path safety, exclusion policy and private-data findings still apply.
+    force: bool = False
     package_id: str | None = None
     name: str | None = None
     version: str = "0.1.0"

@@ -114,6 +114,23 @@ def test_capsule_build_rejects_unsuccessful_play_session(tmp_path: Path) -> None
         raise AssertionError("failed play session must fail")
 
 
+def test_capsule_force_build_bypasses_unsuccessful_session_and_stale_hashes(tmp_path: Path) -> None:
+    work = _project(tmp_path)
+    record = _save_success_session(tmp_path, work)
+    record.state = "failed"
+    record.exit_code = 1
+    PlaySessionRepository(tmp_path).save(record)
+    (work / "index.html").write_text("<h1>ok</h1>", encoding="utf-8")
+
+    built = CapsuleBuilder(tmp_path).build(
+        _request(force=True, expected_file_hashes={"index.html": "bad"})
+    )
+
+    assert built["status"] == "built"
+    assert built["forced"] is True
+    assert Path(built["record"]["storage_path"]).exists()
+
+
 def test_capsule_profile_selection_supports_multiple_and_validates_composite_deps(tmp_path: Path) -> None:
     work = _project(tmp_path)
     _save_success_session(tmp_path, work)
