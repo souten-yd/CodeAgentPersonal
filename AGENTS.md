@@ -16,6 +16,7 @@
 4. `docs/atlas_play_portal_capsule_current_status.md`
 5. `docs/atlas_play_portal_capsule_implementation_plan.md`
 6. `docs/atlas_play_portal_capsule_codex_entrypoint.md`
+7. `docs/atlas_play_portal_capsule_review_corrections.md`
 
 以前のAtlasコード生成完全性ゴールは完了済みです。この開発では上記文書と現在のコード・テストをsource of truthとします。
 
