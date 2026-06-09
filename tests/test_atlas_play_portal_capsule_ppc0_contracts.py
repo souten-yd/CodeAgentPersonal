@@ -200,7 +200,7 @@ def test_ppc0_path_layouts_are_contained_and_reject_escape_components(tmp_path: 
             portal.installation_root(bad)
 
 
-def test_ppc0_router_placeholders_import_and_expose_no_execution_methods() -> None:
+def test_router_capabilities_keep_no_arbitrary_command_surface() -> None:
     app = FastAPI()
     include_routers(app)
     client = TestClient(app)
@@ -208,8 +208,8 @@ def test_ppc0_router_placeholders_import_and_expose_no_execution_methods() -> No
     play = client.get("/api/atlas/play/capabilities").json()
     portal = client.get("/api/portal/capabilities").json()
 
-    assert play["execution_enabled"] is False
-    assert play["process_supervisor_enabled"] is False
+    assert play["execution_enabled"] is True
+    assert play["process_supervisor_enabled"] is True
     assert play["file_serving_enabled"] is False
     assert portal["run_enabled"] is False
     assert portal["import_enabled"] is False
@@ -221,6 +221,8 @@ def test_ppc0_router_placeholders_import_and_expose_no_execution_methods() -> No
         if route.path.startswith(("/api/atlas/play", "/api/portal"))
     }
     assert methods_by_path["/api/atlas/play/capabilities"] == {"GET"}
+    assert "/api/atlas/play/sessions/start" in methods_by_path
+    assert not any("command" in path or "shell" in path for path in methods_by_path)
     assert methods_by_path["/api/portal/capabilities"] == {"GET"}
 
 
