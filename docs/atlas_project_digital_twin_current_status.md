@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-9 completed
+- Overall: PDT-10 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-10`
-- Next action: Static/runtime reconciliation (contradiction detection, invalidation, confidence)
+- Current work package: `PDT-11`
+- Next action: Impact and path analysis (structural/transitive/requirement/side-effect impact)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -31,7 +31,7 @@
 | PDT-7 | Skill integration | Completed | pdt-7-skill-integration | `pytest -q tests/test_project_twin_skill_registry.py` -> 6 passed |
 | PDT-8 | Behavioral Graph | Completed | pdt-8-behavioral-graph | `pytest -q tests/test_project_twin_behavioral_graph.py` -> 4 passed |
 | PDT-9 | Runtime collectors | Completed | pdt-9-runtime-collectors | `pytest -q tests/test_project_twin_runtime_collectors.py` -> 7 passed |
-| PDT-10 | Static/runtime reconciliation | Not started | — | — |
+| PDT-10 | Static/runtime reconciliation | Completed | pdt-10-reconciliation | `pytest -q tests/test_project_twin_reconciliation.py` -> 5 passed |
 | PDT-11 | Impact and path analysis | Not started | — | — |
 | PDT-12 | Nexus integration | Not started | — | — |
 | PDT-13 | Project Twin API and UI | Not started | — | — |
@@ -90,6 +90,35 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-10 — Static/runtime reconciliation
+PR/commit: branch pdt-10-reconciliation
+Changed files:
+- agent/project_twin/reconciliation.py (new) — ReconciliationService
+- tests/test_project_twin_reconciliation.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- confirm: a confirming observation upgrades an inferred fact to verified (runtime_observation
+  derivation, higher confidence); the prior inferred record is superseded and kept as history.
+- contradict: a disagreeing observation invalidates the inferred fact (kept historically) and
+  records observed reality with a contradicts link + evidence; reconciliation diagnostics emitted.
+- Re-ingesting the same observation is idempotent (keyed by observation id); a new observation
+  creates a new verified version while keeping prior versions as audit history.
+Acceptance:
+- contradictory observations preserve history; the Context Broker surfaces the contradicted
+  fact as an uncertainty; verified observation outranks stale inference without deleting history.
+Focused tests:
+- python -m pytest -q tests/test_project_twin_reconciliation.py -> 5 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/reconciliation.py -> passed.
+Affected tests:
+- python -m pytest -q (11 project_twin test files) -> 104 passed.
+Remaining blockers: None.
+Next work package: PDT-11 — Impact and path analysis.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-9 — Runtime collectors
