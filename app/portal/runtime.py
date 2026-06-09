@@ -16,6 +16,7 @@ from app.portal.catalog import PortalCatalogError, PortalCatalogService
 from app.portal.contracts import PortalInstallation, PortalRunMode, PortalRunRequest, evaluate_portal_run_policy
 from app.portal.data_lifecycle import PortalDataError, PortalDataLifecycleService
 from app.portal.paths import PortalPathLayout
+from app.portal.recovery import PortalRecoveryError, PortalRecoveryService
 
 
 PORTAL_RUNTIME_SCHEMA_VERSION = "portal.runtime.v1"
@@ -33,6 +34,7 @@ class PortalRuntimeService:
         self.paths = PortalPathLayout(self.data_root)
         self.catalog = PortalCatalogService(self.data_root)
         self.data = PortalDataLifecycleService(self.data_root)
+        self.recovery = PortalRecoveryService(self.data_root)
         self.play = PlaySessionManager(self.data_root)
 
     def install_package(self, package_id: str, version: str, content_hash: str, installation_id: str | None = None) -> dict:
@@ -120,10 +122,14 @@ class PortalRuntimeService:
             "source_snapshot_id": request.snapshot_id,
             "data_decision": "pending" if request.run_mode != PortalRunMode.EPHEMERAL else "ephemeral_default_discard",
         }
-        recovery = self.paths.recovery_root(play_record.session_id)
-        recovery.mkdir(parents=True, exist_ok=True)
-        (recovery / "portal_run.json").write_text(json.dumps(runtime, ensure_ascii=False, indent=2), encoding="utf-8")
-        return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "running", "runtime": runtime, "play_session": play_record.model_dump(mode="json")}
+        runtime, reconnect_token = self.recovery.initialize_runtime(runtime)
+        return {
+            "schema_version": PORTAL_RUNTIME_SCHEMA_VERSION,
+            "status": "running",
+            "runtime": self.recovery.public_runtime(runtime),
+            "reconnect_token": reconnect_token,
+            "play_session": play_record.model_dump(mode="json"),
+        }
 
     def stop(self, play_session_id: str) -> dict:
         record = self.play.stop_session(play_session_id)
@@ -131,13 +137,18 @@ class PortalRuntimeService:
 
     def purge(self, play_session_id: str) -> dict:
         runtime = self._load_runtime(play_session_id)
+        if runtime.get("data_decision") in {"purged", "discarded", "saved", "snapshot_saved", "expired_discard"}:
+            return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": runtime["data_decision"], "portal_session_id": runtime["portal_session_id"]}
         self.play.stop_session(play_session_id)
         self._rmtree(runtime["application_root"])
         self.data.discard_session_data(runtime["portal_session_id"])
+        self._finish_runtime(runtime, play_session_id, "purged")
         return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "purged", "portal_session_id": runtime["portal_session_id"]}
 
     def save_and_exit(self, play_session_id: str) -> dict:
         runtime = self._load_runtime(play_session_id)
+        if runtime.get("data_decision") == "saved":
+            return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "saved", "runtime": self.recovery.public_runtime(runtime)}
         self.play.stop_session(play_session_id)
         try:
             data_result = self.data.commit_current_data(runtime["installation_id"], runtime["portal_session_id"])
@@ -146,26 +157,58 @@ class PortalRuntimeService:
         installation = self._load_installation(runtime["installation_id"])
         installation.current_data_bytes = int(data_result["current_data"]["bytes"])
         self._save_installation(installation)
+        self.data.discard_session_data(runtime["portal_session_id"])
+        self._rmtree(runtime["application_root"])
         self._finish_runtime(runtime, play_session_id, "saved")
-        return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "saved", "runtime": runtime, "data": data_result}
+        return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "saved", "runtime": self.recovery.public_runtime(runtime), "data": data_result}
 
     def save_snapshot_and_exit(self, play_session_id: str, snapshot_id: str | None = None) -> dict:
         runtime = self._load_runtime(play_session_id)
+        if runtime.get("data_decision") == "snapshot_saved":
+            return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "snapshot_saved", "runtime": self.recovery.public_runtime(runtime)}
         self.play.stop_session(play_session_id)
         try:
             snapshot = self.data.save_snapshot(runtime["installation_id"], runtime["portal_session_id"], snapshot_id)
         except PortalDataError as exc:
             raise PortalRuntimeError(exc.code) from exc
+        self.data.discard_session_data(runtime["portal_session_id"])
+        self._rmtree(runtime["application_root"])
         self._finish_runtime(runtime, play_session_id, "snapshot_saved")
-        return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "snapshot_saved", "runtime": runtime, "snapshot": snapshot["snapshot"]}
+        return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "snapshot_saved", "runtime": self.recovery.public_runtime(runtime), "snapshot": snapshot["snapshot"]}
 
     def discard_and_exit(self, play_session_id: str) -> dict:
         runtime = self._load_runtime(play_session_id)
+        if runtime.get("data_decision") in {"discarded", "expired_discard"}:
+            return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "discarded", "runtime": self.recovery.public_runtime(runtime)}
         self.play.stop_session(play_session_id)
         self.data.discard_session_data(runtime["portal_session_id"])
         self._rmtree(runtime["application_root"])
         self._finish_runtime(runtime, play_session_id, "discarded")
-        return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "discarded", "runtime": runtime}
+        return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "discarded", "runtime": self.recovery.public_runtime(runtime)}
+
+    def heartbeat(self, play_session_id: str, reconnect_token: str) -> dict:
+        try:
+            return self.recovery.heartbeat(play_session_id, reconnect_token)
+        except PortalRecoveryError as exc:
+            raise PortalRuntimeError(exc.code) from exc
+
+    def disconnect(self, play_session_id: str, reconnect_token: str) -> dict:
+        try:
+            return self.recovery.mark_disconnected(play_session_id, reconnect_token)
+        except PortalRecoveryError as exc:
+            raise PortalRuntimeError(exc.code) from exc
+
+    def resume(self, play_session_id: str, reconnect_token: str) -> dict:
+        try:
+            return self.recovery.resume(play_session_id, reconnect_token)
+        except PortalRecoveryError as exc:
+            raise PortalRuntimeError(exc.code) from exc
+
+    def expire_recoveries(self) -> list[dict]:
+        return self.recovery.expire_recoveries()
+
+    def reconcile_startup(self) -> list[dict]:
+        return self.recovery.reconcile_startup()
 
     def data_summary(self, installation_id: str) -> dict:
         return self.data.data_summary(installation_id)
@@ -202,10 +245,12 @@ class PortalRuntimeService:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def _finish_runtime(self, runtime: dict, play_session_id: str, decision: str) -> None:
+        before = runtime.get("data_decision", "")
         runtime["data_decision"] = decision
-        recovery = self.paths.recovery_root(play_session_id)
-        recovery.mkdir(parents=True, exist_ok=True)
-        (recovery / "portal_run.json").write_text(json.dumps(runtime, ensure_ascii=False, indent=2), encoding="utf-8")
+        runtime["status"] = "finished"
+        runtime["recovery_state"] = "closed"
+        self.recovery.append_event(runtime, f"data_{decision}", before, decision, f"portal data decision: {decision}")
+        self.recovery.save_runtime(play_session_id, runtime)
 
     def _extract_application(self, package_path: Path, app_root: Path) -> CapsuleManifest:
         try:

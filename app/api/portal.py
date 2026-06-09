@@ -39,6 +39,10 @@ class PortalDeleteDataRequest(BaseModel):
     confirm_delete_data: bool = False
 
 
+class PortalReconnectRequest(BaseModel):
+    reconnect_token: str = Field(min_length=1)
+
+
 def _catalog(request: Request) -> PortalCatalogService:
     return PortalCatalogService(resolve_atlas_ca_data_root(request))
 
@@ -199,3 +203,33 @@ def discard_portal_run_data(play_session_id: str, request: Request) -> dict:
         return _runtime(request).discard_and_exit(play_session_id)
     except PortalRuntimeError as exc:
         _raise_runtime_error(exc)
+
+
+@router.post("/runs/{play_session_id}/heartbeat")
+def heartbeat_portal_run(play_session_id: str, payload: PortalReconnectRequest, request: Request) -> dict:
+    try:
+        return _runtime(request).heartbeat(play_session_id, payload.reconnect_token)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+
+
+@router.post("/runs/{play_session_id}/disconnect")
+def disconnect_portal_run(play_session_id: str, payload: PortalReconnectRequest, request: Request) -> dict:
+    try:
+        return _runtime(request).disconnect(play_session_id, payload.reconnect_token)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+
+
+@router.post("/runs/{play_session_id}/resume")
+def resume_portal_run(play_session_id: str, payload: PortalReconnectRequest, request: Request) -> dict:
+    try:
+        return _runtime(request).resume(play_session_id, payload.reconnect_token)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+
+
+@router.post("/recoveries/expire")
+def expire_portal_recoveries(request: Request) -> dict:
+    expired = _runtime(request).expire_recoveries()
+    return {"schema_version": PORTAL_SCHEMA_VERSION, "status": "expired", "recoveries": expired}
