@@ -130,6 +130,7 @@ def include_routers(app: FastAPI) -> None:
     from app.api.atlas_post_manual_execution_refresh import router as atlas_post_manual_execution_refresh_router
     from app.api.atlas_guarded_operator_loop import router as atlas_guarded_operator_loop_router
     from app.api.atlas_projects import router as atlas_projects_router
+    from app.api.atlas_play import router as atlas_play_router
     from app.api.audio import router as audio_router
     from app.api.echo import router as echo_router
     from app.api.jobs import router as jobs_router
@@ -141,6 +142,7 @@ def include_routers(app: FastAPI) -> None:
     from app.api.settings import router as settings_router
     from app.api.system import router as system_router
     from app.api.system_status import router as system_status_router
+    from app.api.portal import router as portal_router
 
     app.include_router(atlas_workflow_state_router)
     app.include_router(atlas_automation_safety_profile_router)
@@ -169,6 +171,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(atlas_post_manual_execution_refresh_router)
     app.include_router(atlas_guarded_operator_loop_router)
     app.include_router(atlas_projects_router)
+    app.include_router(atlas_play_router)
     app.include_router(audio_router)
     app.include_router(echo_router)
     app.include_router(jobs_router)
@@ -181,6 +184,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(model_settings_router)
     app.include_router(runtime_controls_router)
     app.include_router(projects_router)
+    app.include_router(portal_router)
     app.include_router(nexus_router)
 
 

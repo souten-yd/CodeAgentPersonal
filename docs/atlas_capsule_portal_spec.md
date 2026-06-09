@@ -46,7 +46,7 @@ metadata/
 licenses/
 ```
 
-The manifest is versioned and stores package identity, version, launch profiles, runtime requirements, requested permissions and data policy. It must not contain a free-form shell command. Launch profiles refer to supported structured adapters.
+The manifest is versioned and stores package identity, version, launch profiles, runtime requirements, requested permissions and data policy. It must not contain a free-form shell command. Launch profiles refer to supported structured adapters. Makefile targets and custom bootstrap scripts are a known v1 limitation until a future structured adapter supports them; free-form shell command support must not be reintroduced.
 
 The package is immutable after registration. Capsule copies a validated snapshot; it does not move or delete the Atlas project.
 
@@ -85,7 +85,7 @@ Trust states:
 - verified publisher package
 - untrusted imported package
 
-Export Package downloads only the immutable package ZIP. Runtime data is never included. Data Backup is a separate operation and file type.
+Export Package downloads only the immutable package ZIP. Runtime data is never included. Data Backup is a separate versioned and signable operation and file type so a future `package + signed data snapshot` bundle can be composed without changing Package Export semantics.
 
 ## Runtime staging
 

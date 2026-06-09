@@ -36,6 +36,12 @@ Create versioned schemas, filesystem layout helpers, state machines and failing/
 - Central path layout for Atlas project work, Portal packages, quarantine, sessions, recovery and data.
 - Threat model and resource-limit defaults.
 - Router registration placeholders that expose no execution capability.
+- Review-correction decisions:
+  - production app is `main:app`; `app/server.py:include_routers()` is the new-router registration point, but PR-PPC-4 / PR-PPC-11 startup reconciliation hooks must be registered in `main.py` lifespan.
+  - Play / Portal runtime is user-selected artifact execution, not Atlas agent autonomous command execution.
+  - Launch Adapter policy is independent from verification allowlists and does not alter workflow_state, PlanPool approval or self-apply authority.
+  - untrusted imported packages are Run-blocked by default in v1; explicit override must warn that OS isolation is not provided.
+  - free-form manifest commands remain unsupported; future support must be structured adapters only.
 
 ### Contracts
 
@@ -150,6 +156,7 @@ Add the first real Play execution boundary.
 - port ownership and release
 - startup orphan reconciliation
 - static web and Python script execution first; enable server adapters after supervisor tests pass
+- no composite startup in this package; composite execution is PR-PPC-4b
 
 ### Safety
 
@@ -157,28 +164,61 @@ No arbitrary command endpoint. Only validated launch-adapter output reaches the 
 
 ### Tests
 
-Short-lived success/failure, long-lived stop, child cleanup, restart, timeout, output truncation, concurrent session limit, orphan reconciliation and port release.
+Short-lived success/failure, long-lived stop, child cleanup, restart, timeout, output truncation, concurrent session limit, orphan reconciliation and port release. Windows Job Object child-tree kill and port release are first-class tests and must not be hidden under generic platform behavior.
 
-## PR-PPC-5 — Preview gateway and browser/runtime evidence
+## PR-PPC-4b — Composite runtime startup and cleanup
 
 ### Purpose
 
-Expose static and server applications through KasaneCore without exposing temporary ports.
+Start composite launch profiles after the single-process supervisor is proven.
+
+### Implement
+
+- readiness and health gating
+- dependency startup order
+- port coordination across dependent services
+- partial-failure cleanup of all child processes
+- lifecycle events that identify each service
+
+### Tests
+
+Composite startup order, readiness timeout, partial service failure, all-child cleanup, port release and recovery metadata.
+
+## PR-PPC-5a — Session-bound static preview serving
+
+### Purpose
+
+Expose static applications through KasaneCore without `file://`, raw host filesystem serving or direct temporary port exposure.
 
 ### Implement
 
 - session-bound static serving
+- origin and host validation
+- browser console and failed-request ingestion
+- runtime-observed dependency evidence
+- no cross-session static access
+
+### Tests
+
+Static nested assets, SPA route fallback, invalid session, cross-session static access, traversal and origin/host validation.
+
+## PR-PPC-5b — Reverse proxy, WebSocket and SSE gateway
+
+### Purpose
+
+Proxy server applications only to loopback ports owned by the current Play session.
+
+### Implement
+
 - reverse proxy to loopback-owned session ports
 - WebSocket and SSE forwarding
 - path/base/location/cookie rewriting where required
 - origin and host validation
-- browser console and failed-request ingestion
-- runtime-observed dependency evidence
 - no open-proxy behavior
 
-### Tests
+### Blocking tests
 
-Static nested assets, SPA route fallback, ASGI HTTP, WebSocket, SSE, redirect rewriting, invalid session, cross-session port access, traversal and proxy-target injection.
+Cross-session port access rejection, proxy-target injection rejection, origin/host validation, redirect/cookie/location rewrite containment and no open-proxy behavior. These tests must be green before later Portal runtime work depends on the gateway.
 
 ## PR-PPC-6 — Atlas Play mobile workspace and header controls
 
@@ -191,11 +231,11 @@ Deliver the user-visible Atlas-only Play experience.
 - header order: Capsule, Play, Plan History on the right
 - responsive button labels and accessible names
 - Play target chooser
-- full-screen/sheet workspace with Preview, Files, Logs and Terminal tabs
+- full-screen/sheet workspace with Preview, Files, Logs and Console tabs
 - file view/edit/save through PR-PPC-1 service
 - run/restart/stop/reload/external/fullscreen/close actions
 - event-stream reconnect and session restoration
-- Terminal initially limited to the session PTY contract; no general host shell
+- Console initially limited to read-only session process output plus explicitly bounded session stdin if the later PTY contract allows it; no general host shell
 - Atlas repair-handoff button
 
 ### Existing integration points
@@ -271,7 +311,7 @@ Run Portal packages using the already-tested Play runtime boundary.
 
 ### Tests
 
-Portal never invokes process supervisor directly, tampered stored package fails, read-only package behavior, profile selection, composite service startup, stop/purge and concurrent isolation.
+Portal never invokes process supervisor directly, tampered stored package fails, read-only package behavior, profile selection, composite service startup through the PR-PPC-4b runtime contract, stop/purge and concurrent isolation.
 
 ## PR-PPC-10 — Portal persistent data, discard and snapshots
 
@@ -343,7 +383,7 @@ Prove the complete product rather than only unit components.
 - focused suites for every package
 - all affected Atlas project/UI/API tests
 - security archive/path suite
-- process cleanup integration suite on supported CI platforms
+- process cleanup integration suite on supported CI platforms, plus Windows Job Object child-tree cleanup contract evidence or an explicitly recorded platform limitation
 - iPhone-size Playwright flow
 - Python compile checks and JavaScript syntax checks
 - update current status with exact command evidence

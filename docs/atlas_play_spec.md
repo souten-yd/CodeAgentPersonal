@@ -38,9 +38,9 @@ Do not expose a general unbounded shell-command API. Convert each launch kind in
 
 ## Workspace
 
-The mobile Play workspace contains Preview, Files, Logs and Terminal tabs, plus Run, Restart, Stop, Reload, external-tab, fullscreen, send-to-Atlas and Close actions.
+The mobile Play workspace contains Preview, Files, Logs and Console tabs, plus Run, Restart, Stop, Reload, external-tab, fullscreen, send-to-Atlas and Close actions.
 
-Preview is served through a KasaneCore gateway, not `file://` and not a directly exposed temporary port. Files are editable only when the shared workspace access policy grants write permission. Logs combine process output, traceback, browser console, request failures and lifecycle events.
+Preview is served through a KasaneCore gateway, not `file://` and not a directly exposed temporary port. Files are editable only when the shared workspace access policy grants write permission. Logs combine process output, traceback, browser console, request failures and lifecycle events. Console is read-only session stdout/stderr plus narrowly bounded stdin when a later session-bound PTY contract explicitly allows it; it is never a general host shell.
 
 ## Session lifecycle
 
