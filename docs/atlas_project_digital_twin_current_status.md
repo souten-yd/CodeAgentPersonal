@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-4 completed
+- Overall: PDT-5 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-5`
-- Next action: Minimal Context Broker (phase-aware bounded slice; planner/patch pilot adapters)
+- Current work package: `PDT-6`
+- Next action: Memory integration (HybridMemoryStore adapter; verified-promotion policy)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -26,7 +26,7 @@
 | PDT-2 | Local transactional Twin Store | Completed | pdt-2-twin-store | `pytest -q tests/test_project_twin_store.py` -> 13 passed |
 | PDT-3 | Static Structural Graph | Completed | pdt-3-static-graph | `pytest -q tests/test_project_twin_static_graph.py` -> 8 passed |
 | PDT-4 | Intent and Delivery Trace | Completed | pdt-4-intent-delivery-trace | `pytest -q tests/test_project_twin_intent_trace.py` -> 5 passed |
-| PDT-5 | Minimal Context Broker | Not started | — | — |
+| PDT-5 | Minimal Context Broker | Completed | pdt-5-context-broker | `pytest -q tests/test_project_twin_context_broker.py` -> 7 passed |
 | PDT-6 | Memory integration | Not started | — | — |
 | PDT-7 | Skill integration | Not started | — | — |
 | PDT-8 | Behavioral Graph | Not started | — | — |
@@ -90,6 +90,42 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-5 — Minimal Context Broker
+PR/commit: branch pdt-5-context-broker
+Changed files:
+- agent/project_twin/context_broker.py (new) — TwinContextPort phase-aware broker
+- agent/project_twin/context_adapters.py (new) — Planner/Patch pilot adapters (port-only)
+- tests/test_project_twin_context_broker.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- Phase-aware bounded slice selection with per-item inclusion reasons and an exclusion
+  list; node_type -> slice category mapping; phase relevance + target-ref boosting.
+- Token budget enforcement for non-essential items; essential requirement/preserve items
+  are never dropped (included first; overflow reported via truncation).
+- Contradicted/invalidated facts surface as uncertainties when requested.
+- Disabled broker returns an empty slice so current Atlas behavior is preserved.
+- Planner/Patch pilot adapters consume only the TwinContextPort (never the store); when
+  the broker is disabled they return the caller's baseline context unchanged.
+Focused tests:
+- python -m pytest -q tests/test_project_twin_context_broker.py -> 7 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/context_broker.py agent/project_twin/context_adapters.py -> passed.
+Affected tests:
+- python -m pytest -q (6 project_twin test files) -> 77 passed.
+Safety invariants:
+- Consumers depend on the port, not the private store (adapter holds no _store).
+- No Atlas context path is replaced; the broker is additive and disable-safe.
+Known limitations:
+- Behavioral/runtime/memory/skill/nexus slice sections are populated by PDT-6..12.
+- Unrelated pre-existing tests (vue/scale contract suites) fail at collection due to
+  missing fixture files; this is independent of the twin work.
+Remaining blockers: None.
+Next work package: PDT-6 — Memory integration.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-4 — Intent and Delivery Trace
