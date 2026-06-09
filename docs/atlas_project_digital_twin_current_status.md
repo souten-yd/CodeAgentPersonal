@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: Not started
+- Overall: PDT-0 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-0`
-- Next action: Baseline and boundary inventory
+- Current work package: `PDT-1`
+- Next action: Versioned contracts (`agent/project_twin/{contracts,types,events,versioning}.py`)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -21,7 +21,7 @@
 
 | WP | Title | Status | PR/Commit | Executed evidence |
 |---|---|---|---|---|
-| PDT-0 | Baseline and boundary inventory | Not started | — | — |
+| PDT-0 | Baseline and boundary inventory | Completed | pdt-0-baseline-inventory | `pytest -q tests/test_project_twin_baseline.py` -> 21 passed |
 | PDT-1 | Versioned contracts | Not started | — | — |
 | PDT-2 | Local transactional Twin Store | Not started | — | — |
 | PDT-3 | Static Structural Graph | Not started | — | — |
@@ -88,6 +88,37 @@ The inventory must include:
 5. Implement and test one package.
 6. Update this file with executed evidence.
 7. Continue only after acceptance criteria pass.
+
+## Latest completed package
+
+```text
+Completed work package: PDT-0 — Baseline and boundary inventory
+PR/commit: branch pdt-0-baseline-inventory
+Changed files:
+- docs/atlas_project_digital_twin_baseline_inventory.md (new)
+- tests/test_project_twin_baseline.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- Read-only baseline inventory of all PDT-dependent capabilities with authoritative
+  owners, duplication, reusable contracts, migration risk and PDT destinations.
+- Regression fixtures pinning reused-owner importability, deterministic CodeIntel
+  symbol/dependency output, HybridMemoryStore short/long-term behavior, and absence
+  of any project_twin package at baseline.
+Focused tests:
+- python -m pytest -q tests/test_project_twin_baseline.py -> 21 passed.
+Syntax/type checks:
+- python -m pytest collected/imported all 16 reused owner modules successfully.
+Affected tests:
+- No production code changed; PDT-0 adds only a doc and a new test module.
+Safety invariants:
+- No workflow state, PlanPool authority, approval, allowed-path, Safe Apply, rollback,
+  retry, command allowlist, remote-push/merge or verification behavior touched.
+Known limitations:
+- Inventory is descriptive; no twin contracts/store exist yet (PDT-1/PDT-2).
+- Skill registry and graph visualization are confirmed gaps (PDT-7 / PDT-13).
+Remaining blockers: None.
+Next work package: PDT-1 — Versioned contracts.
+```
 
 ## Update template
 
