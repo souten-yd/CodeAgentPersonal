@@ -63,10 +63,11 @@ def estimate_tokens(text: str) -> int:
 
 
 class TwinContextBroker:
-    def __init__(self, store, *, enabled: bool = True, candidate_limit: int = 1000) -> None:
+    def __init__(self, store, *, enabled: bool = True, candidate_limit: int = 1000, skill_resolver=None) -> None:
         self._store = store
         self._enabled = enabled
         self._candidate_limit = candidate_limit
+        self._skill_resolver = skill_resolver
 
     @property
     def enabled(self) -> bool:
@@ -171,6 +172,24 @@ class TwinContextBroker:
                 continue
             getattr(slice_, category).append(item)
             used += item.estimated_tokens
+
+        # Optional skill items (advisory only; never authority). Fit into remaining budget.
+        if self._skill_resolver is not None:
+            from agent.project_twin.contracts import SkillResolutionRequest
+
+            resolved = self._skill_resolver.resolve(
+                SkillResolutionRequest(
+                    project_id=request.project_id, objective=request.objective,
+                    phase=request.phase, target_refs=request.target_refs, limit=5,
+                )
+            )
+            for item in resolved.skills:
+                if used + item.estimated_tokens > request.token_budget:
+                    truncated = True
+                    excluded.append({"reason": "token_budget", "canonical_ref": item.canonical_ref})
+                    continue
+                slice_.skills.append(item)
+                used += item.estimated_tokens
 
         slice_.used_tokens = used
         slice_.excluded = excluded

@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-6 completed
+- Overall: PDT-7 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-7`
-- Next action: Skill integration (Skill registry/resolver; safety precedence)
+- Current work package: `PDT-8`
+- Next action: Behavioral Graph (event/action/state/transition + side-effect inference)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -28,7 +28,7 @@
 | PDT-4 | Intent and Delivery Trace | Completed | pdt-4-intent-delivery-trace | `pytest -q tests/test_project_twin_intent_trace.py` -> 5 passed |
 | PDT-5 | Minimal Context Broker | Completed | pdt-5-context-broker | `pytest -q tests/test_project_twin_context_broker.py` -> 7 passed |
 | PDT-6 | Memory integration | Completed | pdt-6-memory-integration | `pytest -q tests/test_project_twin_memory_adapter.py` -> 6 passed |
-| PDT-7 | Skill integration | Not started | — | — |
+| PDT-7 | Skill integration | Completed | pdt-7-skill-integration | `pytest -q tests/test_project_twin_skill_registry.py` -> 6 passed |
 | PDT-8 | Behavioral Graph | Not started | — | — |
 | PDT-9 | Runtime collectors | Not started | — | — |
 | PDT-10 | Static/runtime reconciliation | Not started | — | — |
@@ -90,6 +90,39 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-7 — Skill integration
+PR/commit: branch pdt-7-skill-integration
+Changed files:
+- agent/project_twin/skill_registry.py (new) — SkillRegistry/SkillResolver (TwinSkillPort)
+- agent/project_twin/context_broker.py — optional skill_resolver populates slice.skills
+- tests/test_project_twin_skill_registry.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- Loads SKILL.md assets with a sha256 content hash and version; resolves task-relevant
+  skills with explicit keyword/phase reasons; records activations into the twin learning
+  domain with exact version + content hash + activation reason + outcome.
+- Context Broker can include advisory skill items within the token budget.
+Safety precedence:
+- Authority-shaped frontmatter keys (allowed_paths/commands/approval/...) are quarantined
+  as inert metadata and never surfaced as applicability or activation authority; the
+  resolver reports the quarantine and emits no authority fields. A skill cannot expand
+  allowed paths, commands or approval authority.
+Focused tests:
+- python -m pytest -q tests/test_project_twin_skill_registry.py -> 6 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/skill_registry.py agent/project_twin/context_broker.py -> passed.
+Affected tests:
+- python -m pytest -q (8 project_twin test files) -> 88 passed.
+Known limitations:
+- Skill outcome/effectiveness aggregation across activations is recorded but not yet
+  scored; that ranking refinement is future work.
+Remaining blockers: None.
+Next work package: PDT-8 — Behavioral Graph.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-6 — Memory integration
