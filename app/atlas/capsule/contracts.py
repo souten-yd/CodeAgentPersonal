@@ -46,6 +46,15 @@ class CapsuleBuildRequest(StrictContractModel):
     play_session_id: str = Field(min_length=1)
     selected_profile_ids: list[str] = Field(min_length=1)
     require_current_hashes: bool = True
+    package_id: str | None = None
+    name: str | None = None
+    version: str = "0.1.0"
+    default_profile_id: str | None = None
+    launch_profiles: list[LaunchProfile] = Field(default_factory=list)
+    include_globs: list[str] = Field(default_factory=lambda: ["*", "**/*"])
+    exclude_globs: list[str] = Field(default_factory=list)
+    expected_file_hashes: dict[str, str] = Field(default_factory=dict)
+    data_policy: CapsuleDataPolicy = Field(default_factory=CapsuleDataPolicy)
 
 
 class CapsulePackageRecord(StrictContractModel):
@@ -56,3 +65,5 @@ class CapsulePackageRecord(StrictContractModel):
     content_hash: str = Field(min_length=1)
     trust_state: TrustState = TrustState.TRUSTED_LOCAL_CAPSULE
     immutable: bool = True
+    manifest_path: str = ""
+    findings_path: str = ""

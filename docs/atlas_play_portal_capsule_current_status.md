@@ -11,8 +11,8 @@
 - Atlas Play specification: `docs/atlas_play_spec.md`
 - Capsule and Portal specification: `docs/atlas_capsule_portal_spec.md`
 - Canonical plan: `docs/atlas_play_portal_capsule_implementation_plan.md`
-- Current work package: PR-PPC-7
-- Next action: implement Capsule candidate analysis and deterministic builder
+- Current work package: PR-PPC-8
+- Next action: implement Portal package repository, catalog, import and export
 
 ## Baseline observations
 
@@ -40,7 +40,7 @@
 | PR-PPC-5a | Session-bound static preview serving | Completed | `python -m pytest -q tests/test_atlas_play_static_preview.py` -> 5 passed; affected Play runtime slice -> 52 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-5b | Reverse proxy, WebSocket and SSE gateway | Completed | `python -m pytest -q tests/test_atlas_play_proxy_gateway.py` -> 6 passed; affected Play runtime slice -> 58 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-6 | Atlas Play mobile workspace and controls | Completed | `python -m pytest -q tests/test_atlas_play_mobile_workspace_ui_contract.py` -> 5 passed; affected Play/UI slice -> 63 passed, 1 skipped; `node --check ...` -> passed |
-| PR-PPC-7 | Capsule analysis and builder | Not started | - |
+| PR-PPC-7 | Capsule analysis and builder | Completed | `python -m pytest -q tests/test_atlas_capsule_builder.py` -> 6 passed; affected Play/Capsule slice -> 69 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-8 | Portal catalog, import and export | Not started | - |
 | PR-PPC-9 | Portal staging and shared runtime launch | Not started | - |
 | PR-PPC-10 | Persistent data, discard and snapshots | Not started | - |
@@ -49,63 +49,61 @@
 
 ## Safety checkpoint
 
-PR-PPC-6 adds the Atlas-only Play workspace UI, header controls and mobile sheet projection. It does not add host shell input, dependency installation, package extraction, Portal data write or UI authority over workflow_state / PlanPool. Existing Atlas workflow state, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
+PR-PPC-7 adds deterministic Capsule package building from successful Play session state. It does not import or run Portal packages, include runtime data, install dependencies, expose host shell input or change workflow_state / PlanPool authority. Existing Atlas workflow state, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
 
 ## Latest completed package evidence
 
 Completed package:
-PR-PPC-6 - Atlas Play mobile workspace and header controls.
+PR-PPC-7 - Capsule candidate analysis and deterministic builder.
 
 PR/commit:
-PR-PPC-6 package branch.
+PR-PPC-7 package branch.
 
 Changed files:
-- `ui.html`
-- `web/js/app.js`
-- `web/js/atlas_pipeline_api.js`
-- `web/js/atlas_play_workspace.js`
-- `web/css/app.css`
-- `tests/test_atlas_play_mobile_workspace_ui_contract.py`
+- `app/api/atlas_capsule.py`
+- `app/atlas/capsule/builder.py`
+- `app/atlas/capsule/contracts.py`
+- `app/server.py`
+- `tests/test_atlas_capsule_builder.py`
 - `docs/atlas_play_portal_capsule_current_status.md`
 
 Public contracts added or changed:
-- Added `AtlasPlayWorkspace` browser surface.
-- Header controls now expose Capsule, Play and Plan History in that order.
-- Added AtlasPipelineAPI Play session and workspace file helpers.
+- Added Capsule builder API under `/api/atlas/capsule`.
+- Extended build request with package metadata, launch profiles, include/exclude globs, expected file hashes and data policy.
+- Capsule records now include manifest and findings paths.
 
 Behavior implemented:
-- Play button opens a full-screen/sheet workspace with Preview, Files, Logs and Console tabs.
-- Target chooser calls the backend Play target resolver.
-- Run, restart, stop, reload, external, fullscreen and close controls call the PR-PPC APIs.
-- Files tab lists, reads, edits and saves through the PR-PPC-1 file service.
-- Preview tab loads static preview or proxy gateway URLs from the active session id.
-- Console is read-only session output; no general host shell or stdin control is exposed.
-- Mobile CSS compacts header labels and turns the workspace into a full-screen sheet.
+- Builder requires a successful Play session and verifies selected current file hashes when provided.
+- Launch profile selection supports multiple profiles and composite dependency validation.
+- Deterministic ZIPs include normalized metadata, sorted application files and fixed timestamps.
+- Package checksums, content hash, manifest, findings and immutable record are written to the Portal package store.
+- Default exclusions omit Atlas/runtime/dependency artifacts and runtime data.
+- Private-data findings flag `.env`, API-key-like assignments and private keys for review.
 
 Focused tests:
-- `python -m pytest -q tests/test_atlas_play_mobile_workspace_ui_contract.py` -> 5 passed.
+- `python -m pytest -q tests/test_atlas_capsule_builder.py` -> 6 passed.
 
 Syntax checks:
-- `node --check web\js\atlas_play_workspace.js; node --check web\js\app.js; node --check web\js\atlas_pipeline_api.js` -> passed.
+- `python -m py_compile app\atlas\capsule\builder.py app\atlas\capsule\contracts.py app\api\atlas_capsule.py app\server.py tests\test_atlas_capsule_builder.py` -> passed.
 
 Affected tests:
-- `python -m pytest -q tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_play_proxy_gateway.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 63 passed, 1 skipped.
+- `python -m pytest -q tests/test_atlas_capsule_builder.py tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_play_proxy_gateway.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 69 passed, 1 skipped.
 
 Safety invariants verified:
-- Console remains read-only session process output.
-- UI controls call the existing Play contracts and do not add a host shell path.
-- Play UI does not alter workflow_state, PlanPool approval or self-apply authority.
+- Build rejects unsuccessful Play sessions and stale expected hashes.
+- Runtime data and Atlas workspace artifacts are excluded from archives.
+- Package output is immutable and does not enable Portal run/import behavior.
 - Launch adapter policy remains separate from verification allowlists and does not alter workflow_state, PlanPool approval or self-apply authority.
 
 Known limitations:
-- Event-stream reconnect is represented by session polling in this slice; richer SSE client recovery remains later hardening.
-- Capsule button is a handoff placeholder until PR-PPC-7.
+- Portal catalog/import/export registration remains PR-PPC-8.
+- Build eligibility currently relies on Play session success plus optional expected file hashes; richer Play verification evidence can be layered later.
 
 Remaining gaps:
-- PR-PPC-7 Capsule candidate analysis and deterministic builder.
+- PR-PPC-8 Portal package repository, catalog, import and export.
 
 Next package:
-PR-PPC-7 - Capsule candidate analysis and deterministic builder.
+PR-PPC-8 - Portal package repository, catalog, import and export.
 
 ## Update template
 

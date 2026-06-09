@@ -130,6 +130,7 @@ def include_routers(app: FastAPI) -> None:
     from app.api.atlas_post_manual_execution_refresh import router as atlas_post_manual_execution_refresh_router
     from app.api.atlas_guarded_operator_loop import router as atlas_guarded_operator_loop_router
     from app.api.atlas_projects import router as atlas_projects_router
+    from app.api.atlas_capsule import router as atlas_capsule_router
     from app.api.atlas_play import router as atlas_play_router
     from app.api.audio import router as audio_router
     from app.api.echo import router as echo_router
@@ -171,6 +172,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(atlas_post_manual_execution_refresh_router)
     app.include_router(atlas_guarded_operator_loop_router)
     app.include_router(atlas_projects_router)
+    app.include_router(atlas_capsule_router)
     app.include_router(atlas_play_router)
     app.include_router(audio_router)
     app.include_router(echo_router)
