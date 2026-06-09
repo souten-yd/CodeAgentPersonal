@@ -11,8 +11,8 @@
 - Atlas Play specification: `docs/atlas_play_spec.md`
 - Capsule and Portal specification: `docs/atlas_capsule_portal_spec.md`
 - Canonical plan: `docs/atlas_play_portal_capsule_implementation_plan.md`
-- Current work package: PR-PPC-6
-- Next action: implement Atlas Play mobile workspace and controls
+- Current work package: PR-PPC-7
+- Next action: implement Capsule candidate analysis and deterministic builder
 
 ## Baseline observations
 
@@ -39,7 +39,7 @@
 | PR-PPC-4b | Composite runtime startup and cleanup | Completed | `python -m pytest -q tests/test_atlas_play_composite_runtime.py` -> 5 passed; affected Play runtime slice -> 47 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-5a | Session-bound static preview serving | Completed | `python -m pytest -q tests/test_atlas_play_static_preview.py` -> 5 passed; affected Play runtime slice -> 52 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-5b | Reverse proxy, WebSocket and SSE gateway | Completed | `python -m pytest -q tests/test_atlas_play_proxy_gateway.py` -> 6 passed; affected Play runtime slice -> 58 passed, 1 skipped; `python -m py_compile ...` -> passed |
-| PR-PPC-6 | Atlas Play mobile workspace and controls | Not started | - |
+| PR-PPC-6 | Atlas Play mobile workspace and controls | Completed | `python -m pytest -q tests/test_atlas_play_mobile_workspace_ui_contract.py` -> 5 passed; affected Play/UI slice -> 63 passed, 1 skipped; `node --check ...` -> passed |
 | PR-PPC-7 | Capsule analysis and builder | Not started | - |
 | PR-PPC-8 | Portal catalog, import and export | Not started | - |
 | PR-PPC-9 | Portal staging and shared runtime launch | Not started | - |
@@ -49,62 +49,63 @@
 
 ## Safety checkpoint
 
-PR-PPC-5b adds a reverse proxy gateway for active Play sessions with owned loopback ports, including HTTP, SSE and WebSocket forwarding. It does not expose `file://`, direct temporary ports, open-proxy target selection, dependency installation, package extraction, Portal data write or UI authority. Existing Atlas workflow state, PlanPool, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
+PR-PPC-6 adds the Atlas-only Play workspace UI, header controls and mobile sheet projection. It does not add host shell input, dependency installation, package extraction, Portal data write or UI authority over workflow_state / PlanPool. Existing Atlas workflow state, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
 
 ## Latest completed package evidence
 
 Completed package:
-PR-PPC-5b - Reverse proxy, WebSocket and SSE gateway.
+PR-PPC-6 - Atlas Play mobile workspace and header controls.
 
 PR/commit:
-PR-PPC-5b package branch.
+PR-PPC-6 package branch.
 
 Changed files:
-- `app/api/atlas_play.py`
-- `app/atlas/play/proxy_gateway.py`
-- `tests/test_atlas_play_proxy_gateway.py`
-- `tests/test_atlas_play_portal_capsule_ppc0_contracts.py`
+- `ui.html`
+- `web/js/app.js`
+- `web/js/atlas_pipeline_api.js`
+- `web/js/atlas_play_workspace.js`
+- `web/css/app.css`
+- `tests/test_atlas_play_mobile_workspace_ui_contract.py`
 - `docs/atlas_play_portal_capsule_current_status.md`
 
 Public contracts added or changed:
-- Added `/api/atlas/play/proxy/{session_id}/...` HTTP/SSE reverse proxy endpoints.
-- Added `/api/atlas/play/proxy/{session_id}/ws/{path}` WebSocket forwarding.
-- Capabilities now report preview gateway enabled.
+- Added `AtlasPlayWorkspace` browser surface.
+- Header controls now expose Capsule, Play and Plan History in that order.
+- Added AtlasPipelineAPI Play session and workspace file helpers.
 
 Behavior implemented:
-- HTTP proxy targets are derived only from the active session record's loopback port.
-- Query-based proxy target injection keys fail closed.
-- Host and origin/referer validation reject non-local proxy requests.
-- Redirect `Location` headers are rewritten back through the session proxy path.
-- Cookie paths are contained to the session proxy path.
-- SSE streams are forwarded through bounded streaming responses.
-- WebSocket text and binary messages are forwarded to the owned loopback session port.
+- Play button opens a full-screen/sheet workspace with Preview, Files, Logs and Console tabs.
+- Target chooser calls the backend Play target resolver.
+- Run, restart, stop, reload, external, fullscreen and close controls call the PR-PPC APIs.
+- Files tab lists, reads, edits and saves through the PR-PPC-1 file service.
+- Preview tab loads static preview or proxy gateway URLs from the active session id.
+- Console is read-only session output; no general host shell or stdin control is exposed.
+- Mobile CSS compacts header labels and turns the workspace into a full-screen sheet.
 
 Focused tests:
-- `python -m pytest -q tests/test_atlas_play_proxy_gateway.py` -> 6 passed.
+- `python -m pytest -q tests/test_atlas_play_mobile_workspace_ui_contract.py` -> 5 passed.
 
 Syntax checks:
-- `python -m py_compile app\atlas\play\proxy_gateway.py app\api\atlas_play.py tests\test_atlas_play_proxy_gateway.py tests\test_atlas_play_portal_capsule_ppc0_contracts.py` -> passed.
+- `node --check web\js\atlas_play_workspace.js; node --check web\js\app.js; node --check web\js\atlas_pipeline_api.js` -> passed.
 
 Affected tests:
-- `python -m pytest -q tests/test_atlas_play_proxy_gateway.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 58 passed, 1 skipped.
+- `python -m pytest -q tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_play_proxy_gateway.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 63 passed, 1 skipped.
 
 Safety invariants verified:
-- Proxy targets are session-derived and cannot be supplied by request query or path.
-- Cross-session port access and non-local host/origin requests fail closed.
-- Redirect and cookie headers are rewritten or contained to the session proxy path.
-- No arbitrary command or shell API was added.
+- Console remains read-only session process output.
+- UI controls call the existing Play contracts and do not add a host shell path.
+- Play UI does not alter workflow_state, PlanPool approval or self-apply authority.
 - Launch adapter policy remains separate from verification allowlists and does not alter workflow_state, PlanPool approval or self-apply authority.
 
 Known limitations:
-- Gateway path/base rewriting is intentionally minimal and covered for redirects/cookies; richer app-specific base rewriting remains later hardening.
-- Browser UI wiring remains later work.
+- Event-stream reconnect is represented by session polling in this slice; richer SSE client recovery remains later hardening.
+- Capsule button is a handoff placeholder until PR-PPC-7.
 
 Remaining gaps:
-- PR-PPC-6 Atlas Play mobile workspace and controls.
+- PR-PPC-7 Capsule candidate analysis and deterministic builder.
 
 Next package:
-PR-PPC-6 - Atlas Play mobile workspace and controls.
+PR-PPC-7 - Capsule candidate analysis and deterministic builder.
 
 ## Update template
 

@@ -306,6 +306,29 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
     historyBtn.addEventListener('click', () => {
       try { root.AtlasClaudePanel?.showPlanList?.(); } catch (_err) {}
     });
+
+    const capsuleBtn = document.createElement('button');
+    capsuleBtn.type = 'button';
+    capsuleBtn.className = 'atlas-claude-capsule-btn atlas-claude-header-action-btn';
+    capsuleBtn.id = 'atlas-claude-capsule-btn';
+    capsuleBtn.setAttribute('aria-label', 'Capsule');
+    capsuleBtn.textContent = 'Capsule';
+    capsuleBtn.addEventListener('click', () => {
+      try { root.AtlasPlayWorkspace?.showCapsuleHandoff?.(); } catch (_err) {}
+    });
+
+    const playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = 'atlas-claude-play-btn atlas-claude-header-action-btn';
+    playBtn.id = 'atlas-claude-play-btn';
+    playBtn.setAttribute('aria-label', 'Play');
+    playBtn.textContent = 'Play';
+    playBtn.addEventListener('click', () => {
+      try { root.AtlasPlayWorkspace?.openTargetChooser?.(); } catch (_err) {}
+    });
+
+    actions.appendChild(capsuleBtn);
+    actions.appendChild(playBtn);
     actions.appendChild(historyBtn);
 
     ensureProjectDrawer();
