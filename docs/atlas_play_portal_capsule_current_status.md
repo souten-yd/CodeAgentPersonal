@@ -5,14 +5,14 @@
 
 ## Goal status
 
-- Overall: In progress
+- Overall: Completed through PR-PPC-12
 - Baseline: `8d6897fe366a3877808f040a8828729350b89b7e`
 - Canonical goal: `docs/atlas_play_portal_capsule_goal.md`
 - Atlas Play specification: `docs/atlas_play_spec.md`
 - Capsule and Portal specification: `docs/atlas_capsule_portal_spec.md`
 - Canonical plan: `docs/atlas_play_portal_capsule_implementation_plan.md`
-- Current work package: PR-PPC-12
-- Next action: implement final acceptance, security and mobile E2E reconciliation
+- Current work package: Complete
+- Next action: monitor CI and address review feedback if any
 
 ## Baseline observations
 
@@ -45,68 +45,72 @@
 | PR-PPC-9 | Portal staging and shared runtime launch | Completed | `python -m pytest -q tests/test_portal_runtime.py` -> 6 passed; affected Portal/Capsule/Play slice -> 81 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-10 | Persistent data, discard and snapshots | Completed | `python -m pytest -q tests/test_portal_data_lifecycle.py` -> 7 passed; affected Portal/Capsule/Play slice -> 88 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-11 | Disconnect recovery and lifecycle hardening | Completed | `python -m pytest -q tests/test_portal_recovery_lifecycle.py` -> 6 passed; affected Portal/Capsule/Play slice -> 94 passed, 1 skipped; `python -m py_compile ...` -> passed |
-| PR-PPC-12 | Acceptance, security and mobile E2E | Not started | - |
+| PR-PPC-12 | Acceptance, security and mobile E2E | Completed | `python -m pytest -q tests/test_atlas_play_portal_capsule_acceptance.py` -> 8 passed; affected Portal/Capsule/Play slice -> 102 passed, 1 skipped; `python -m py_compile ...`, `node --check ...` and Python Playwright iPhone viewport smoke -> passed |
 
 ## Safety checkpoint
 
-PR-PPC-11 adds Portal reconnect-token recovery, heartbeat, disconnect/resume actions, bounded expiry purge, startup reconciliation and idempotent terminal cleanup. It does not add a second process runner, include runtime data in Package Export, expose a host shell, mutate immutable package archives or change workflow_state / PlanPool authority. Existing Atlas workflow state, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
+PR-PPC-12 adds final acceptance/security coverage and enables structured ASGI, Node and Vite/NPM launch adapter kinds through the existing Play supervisor. It does not add a free-form command endpoint, include runtime data in Package Export, expose direct temporary ports, add a second Portal process runner, mutate immutable package archives or change workflow_state / PlanPool authority. Existing Atlas workflow state, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
 
 ## Latest completed package evidence
 
 Completed package:
-PR-PPC-11 - Disconnect recovery and lifecycle hardening.
+PR-PPC-12 - Acceptance, security and mobile E2E.
 
 PR/commit:
-PR-PPC-11 package branch.
+PR-PPC-12 package branch.
 
 Changed files:
-- `app/api/portal.py`
-- `app/portal/recovery.py`
-- `app/portal/runtime.py`
-- `main.py`
-- `tests/test_portal_recovery_lifecycle.py`
+- `app/atlas/play/sessions.py`
+- `tests/test_atlas_play_portal_capsule_acceptance.py`
+- `tests/test_atlas_play_process_sessions.py`
 - `docs/atlas_play_portal_capsule_current_status.md`
 
 Public contracts added or changed:
-- Portal run responses now include a reconnect token while persisted runtime records store only its hash.
-- Added heartbeat, disconnect, resume and recovery expiry endpoints.
-- Registered Portal startup recovery reconciliation in `main.py` lifespan after Play orphan reconciliation.
-- Portal runtime events now capture recovery and terminal data decision transitions.
+- Play supervisor now accepts structured ASGI, Node script and Vite/NPM/Next adapter kinds that already satisfy launch adapter readiness, loopback and workspace checks.
+- Added an end-to-end acceptance/security suite covering Play, Capsule, Portal, data lifecycle, recovery and quarantine matrix scenarios.
+- Existing deferred-kind API test now verifies a still-unsupported structured kind (`streamlit`) remains blocked.
+- Python Playwright iPhone-size viewport smoke is recorded for `ui.html` script loading and horizontal overflow.
 
 Behavior implemented:
-- Heartbeat validates reconnect-token ownership and updates recovery metadata.
-- Browser disconnect moves the Portal run to recoverable state without deleting session data.
-- Resume reuses the existing Play session record and clears the recovery expiry.
-- Recovery expiry stops the Play session, discards session data and purges staged application/cache/temp roots.
-- Startup reconciliation marks pending Portal runs recoverable after server restart or stale Play metadata.
-- Save, snapshot, discard and purge decisions are idempotent and close recovery state.
+- Static HTML with nested CSS/JS/assets serves through session preview.
+- Python script success output and failure handoff are captured.
+- ASGI app preview works through the reverse proxy including SSE and WebSocket.
+- Mobile file read/write/restart flow stays within the allowed project work root and rejects traversal.
+- Play success can produce a multi-profile Capsule, Portal catalog reads it and Package Export remains data-free.
+- Import quarantine rejects unsafe archive paths.
+- Portal run data save, next-run continuity, snapshot start/discard and ephemeral expiry are covered.
+- Fork to Atlas extracts immutable package content into a separate editable project work root.
+- Stop/restart/failure paths release ports and remove staged runtime roots in the covered scenarios.
 
 Focused tests:
-- `python -m pytest -q tests/test_portal_recovery_lifecycle.py` -> 6 passed.
+- `python -m pytest -q tests/test_atlas_play_portal_capsule_acceptance.py` -> 8 passed.
 
 Syntax checks:
-- `python -m py_compile app\portal\recovery.py app\portal\runtime.py app\api\portal.py main.py tests\test_portal_recovery_lifecycle.py` -> passed.
+- `python -m py_compile app\atlas\play\sessions.py tests\test_atlas_play_portal_capsule_acceptance.py` -> passed.
+- `node --check web\js\atlas_play_workspace.js; node --check web\js\app.js; node --check web\js\atlas_pipeline_api.js` -> passed.
+- Python Playwright iPhone viewport smoke (`390x844`, `ui.html`) -> `hasPlayScript=True`, `hasApiScript=True`, `bodyOverflowX=False`.
 
 Affected tests:
-- `python -m pytest -q tests/test_portal_recovery_lifecycle.py tests/test_portal_data_lifecycle.py tests/test_portal_runtime.py tests/test_portal_catalog.py tests/test_atlas_capsule_builder.py tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_play_proxy_gateway.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 94 passed, 1 skipped.
+- `python -m pytest -q tests/test_atlas_play_portal_capsule_acceptance.py tests/test_portal_recovery_lifecycle.py tests/test_portal_data_lifecycle.py tests/test_portal_runtime.py tests/test_portal_catalog.py tests/test_atlas_capsule_builder.py tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_play_proxy_gateway.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 102 passed, 1 skipped.
 
 Safety invariants verified:
-- Reconnect token hash is not returned in public runtime payloads.
-- Wrong reconnect token fails closed.
-- Disconnect, duplicate disconnect, resume and repeated discard are covered.
-- Expired recovery purges staged application and writable session data.
-- Startup reconciliation handles stale Play process metadata without enabling any Portal process runner.
+- ASGI/Node/Vite support uses structured adapter argv only; free-form shell commands remain unsupported.
+- Proxy scenario covers loopback session-owned ASGI HTTP/SSE/WebSocket rather than direct temporary port exposure.
+- Package Export excludes current, snapshot and session data.
+- Import quarantine unsafe path matrix fails closed.
+- Workspace traversal is rejected in mobile file edit flow.
+- Streamlit remains deferred as an unsupported v1 kind.
 - Launch adapter policy remains separate from verification allowlists and does not alter workflow_state, PlanPool approval or self-apply authority.
 
 Known limitations:
-- Final acceptance/security/mobile scenario reconciliation remains PR-PPC-12.
-- Portal Preview/Logs/Stop UI wiring is API-ready but still minimal.
+- Full live Vite dev-server execution was not run because the acceptance fixture does not install npm dependencies; structured Vite/NPM adapter generation and supervisor dispatch are covered.
+- Runpod self-hosted GPU smoke can be skipped by CI availability; do not treat skipped platform jobs as local execution evidence.
 
 Remaining gaps:
-- PR-PPC-12 Acceptance, security and mobile E2E.
+- None for the PR-PPC-0 through PR-PPC-12 work packages.
 
 Next package:
-PR-PPC-12 - Acceptance, security and mobile E2E.
+Complete. Monitor PR/CI and address review feedback if any.
 
 ## Update template
 

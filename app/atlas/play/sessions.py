@@ -25,6 +25,15 @@ from app.atlas.play.workspace_policy import WorkspacePermission, decide_workspac
 PLAY_SESSION_SCHEMA_VERSION = "atlas.play.session.v1"
 ACTIVE_SESSION_STATES = {"starting", "running"}
 TERMINAL_SESSION_STATES = {"stopped", "failed", "expired", "purged"}
+SUPPORTED_PROCESS_LAUNCH_KINDS = {
+    LaunchKind.STATIC_WEB,
+    LaunchKind.PYTHON_SCRIPT,
+    LaunchKind.PYTHON_ASGI,
+    LaunchKind.NODE_SCRIPT,
+    LaunchKind.NPM_SCRIPT,
+    LaunchKind.VITE,
+    LaunchKind.NEXT,
+}
 
 
 class PlaySessionError(RuntimeError):
@@ -599,7 +608,7 @@ class PlaySessionManager:
     def _assert_can_start(self, project_id: str, adapter: StructuredLaunchAdapter) -> None:
         if adapter.status != "ready":
             raise PlaySessionError("adapter_not_ready")
-        if adapter.kind not in {LaunchKind.STATIC_WEB, LaunchKind.PYTHON_SCRIPT}:
+        if adapter.kind not in SUPPORTED_PROCESS_LAUNCH_KINDS:
             raise PlaySessionError("launch_kind_deferred_to_later_package")
         if not adapter.port.loopback_only or adapter.port.expose_directly:
             raise PlaySessionError("port_contract_not_loopback_only")
@@ -708,6 +717,23 @@ class PlaySessionManager:
                 raise PlaySessionError("python_entrypoint_unsafe")
             argv = [str(value).replace("{PORT}", str(port)) for value in adapter.argv]
             if Path(argv[0]).name.lower() in {"python", "python.exe"}:
+                argv[0] = sys.executable
+            return argv, port
+        if adapter.kind == LaunchKind.NODE_SCRIPT:
+            if len(adapter.argv) < 2:
+                raise PlaySessionError("node_entrypoint_missing")
+            entrypoint = adapter.argv[1]
+            decision = decide_workspace_access(
+                project_root=project_root,
+                relative_path=entrypoint,
+                permission=WorkspacePermission.EXECUTE,
+            )
+            if not decision.allowed:
+                raise PlaySessionError("node_entrypoint_unsafe")
+            return [str(value).replace("{PORT}", str(port)) for value in adapter.argv], port
+        if adapter.kind in {LaunchKind.PYTHON_ASGI, LaunchKind.NPM_SCRIPT, LaunchKind.VITE, LaunchKind.NEXT}:
+            argv = [str(value).replace("{PORT}", str(port)) for value in adapter.argv]
+            if argv and Path(argv[0]).name.lower() in {"python", "python.exe"}:
                 argv[0] = sys.executable
             return argv, port
         raise PlaySessionError("launch_kind_deferred_to_later_package")

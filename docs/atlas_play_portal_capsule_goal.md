@@ -1,7 +1,7 @@
 # Atlas Play / Capsule / Portal Goal
 
-> Status: Active
-> Current package: PR-PPC-0
+> Status: Completed through PR-PPC-12
+> Current package: Complete
 
 ## Objective
 
