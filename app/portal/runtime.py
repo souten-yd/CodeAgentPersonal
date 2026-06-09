@@ -9,10 +9,12 @@ import zipfile
 from pathlib import Path
 
 from app.atlas.capsule.contracts import CapsuleManifest
+from app.atlas.play.contracts import LaunchKind
 from app.atlas.play.environment import build_structured_launch_adapter
 from app.atlas.play.sessions import PlaySessionManager
 from app.portal.catalog import PortalCatalogError, PortalCatalogService
-from app.portal.contracts import PortalInstallation, PortalRunRequest, evaluate_portal_run_policy
+from app.portal.contracts import PortalInstallation, PortalRunMode, PortalRunRequest, evaluate_portal_run_policy
+from app.portal.data_lifecycle import PortalDataError, PortalDataLifecycleService
 from app.portal.paths import PortalPathLayout
 
 
@@ -30,6 +32,7 @@ class PortalRuntimeService:
         self.data_root = Path(data_root).expanduser().resolve()
         self.paths = PortalPathLayout(self.data_root)
         self.catalog = PortalCatalogService(self.data_root)
+        self.data = PortalDataLifecycleService(self.data_root)
         self.play = PlaySessionManager(self.data_root)
 
     def install_package(self, package_id: str, version: str, content_hash: str, installation_id: str | None = None) -> dict:
@@ -66,19 +69,36 @@ class PortalRuntimeService:
         session_id = f"portal-{uuid.uuid4().hex}"
         app_root = self.paths.session_application_root(session_id)
         app_root.mkdir(parents=True, exist_ok=True)
+        try:
+            data_layers = self.data.prepare_session_data(
+                installation_id=installation.installation_id,
+                portal_session_id=session_id,
+                run_mode=request.run_mode,
+                snapshot_id=request.snapshot_id,
+            )
+        except PortalDataError as exc:
+            raise PortalRuntimeError(exc.code) from exc
         manifest = self._extract_application(package_path, app_root)
         profile = next((item for item in manifest.launch_profiles if item.profile_id == request.launch_profile_id), None)
         if profile is None:
             raise PortalRuntimeError("launch_profile_not_found")
-        if profile.kind == "composite":
+        portal_env = {
+            "PORTAL_DATA_DIR": data_layers["data_root"],
+            "PORTAL_CACHE_DIR": data_layers["cache_root"],
+            "PORTAL_TEMP_DIR": data_layers["temp_root"],
+            "PORTAL_SESSION_ID": session_id,
+        }
+        if profile.kind == LaunchKind.COMPOSITE:
             play_record = self.play.start_composite_session(
                 project_id=installation.installation_id,
                 project_root=app_root,
                 launch_profiles=manifest.launch_profiles,
                 composite_profile_id=profile.profile_id,
+                environment=portal_env,
             )
         else:
             adapter = build_structured_launch_adapter(app_root, profile)
+            adapter.environment.update(portal_env)
             play_record = self.play.start_session(
                 project_id=installation.installation_id,
                 project_root=app_root,
@@ -91,9 +111,14 @@ class PortalRuntimeService:
             "portal_session_id": session_id,
             "play_session_id": play_record.session_id,
             "application_root": str(app_root),
+            "data_root": data_layers["data_root"],
+            "cache_root": data_layers["cache_root"],
+            "temp_root": data_layers["temp_root"],
             "launch_profile_id": profile.profile_id,
             "trust_state": installation.trust_state,
             "run_mode": request.run_mode,
+            "source_snapshot_id": request.snapshot_id,
+            "data_decision": "pending" if request.run_mode != PortalRunMode.EPHEMERAL else "ephemeral_default_discard",
         }
         recovery = self.paths.recovery_root(play_record.session_id)
         recovery.mkdir(parents=True, exist_ok=True)
@@ -108,9 +133,56 @@ class PortalRuntimeService:
         runtime = self._load_runtime(play_session_id)
         self.play.stop_session(play_session_id)
         self._rmtree(runtime["application_root"])
-        self._rmtree(self.paths.session_cache_root(runtime["portal_session_id"]))
-        self._rmtree(self.paths.session_temp_root(runtime["portal_session_id"]))
+        self.data.discard_session_data(runtime["portal_session_id"])
         return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "purged", "portal_session_id": runtime["portal_session_id"]}
+
+    def save_and_exit(self, play_session_id: str) -> dict:
+        runtime = self._load_runtime(play_session_id)
+        self.play.stop_session(play_session_id)
+        try:
+            data_result = self.data.commit_current_data(runtime["installation_id"], runtime["portal_session_id"])
+        except PortalDataError as exc:
+            raise PortalRuntimeError(exc.code) from exc
+        installation = self._load_installation(runtime["installation_id"])
+        installation.current_data_bytes = int(data_result["current_data"]["bytes"])
+        self._save_installation(installation)
+        self._finish_runtime(runtime, play_session_id, "saved")
+        return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "saved", "runtime": runtime, "data": data_result}
+
+    def save_snapshot_and_exit(self, play_session_id: str, snapshot_id: str | None = None) -> dict:
+        runtime = self._load_runtime(play_session_id)
+        self.play.stop_session(play_session_id)
+        try:
+            snapshot = self.data.save_snapshot(runtime["installation_id"], runtime["portal_session_id"], snapshot_id)
+        except PortalDataError as exc:
+            raise PortalRuntimeError(exc.code) from exc
+        self._finish_runtime(runtime, play_session_id, "snapshot_saved")
+        return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "snapshot_saved", "runtime": runtime, "snapshot": snapshot["snapshot"]}
+
+    def discard_and_exit(self, play_session_id: str) -> dict:
+        runtime = self._load_runtime(play_session_id)
+        self.play.stop_session(play_session_id)
+        self.data.discard_session_data(runtime["portal_session_id"])
+        self._rmtree(runtime["application_root"])
+        self._finish_runtime(runtime, play_session_id, "discarded")
+        return {"schema_version": PORTAL_RUNTIME_SCHEMA_VERSION, "status": "discarded", "runtime": runtime}
+
+    def data_summary(self, installation_id: str) -> dict:
+        return self.data.data_summary(installation_id)
+
+    def delete_data(self, installation_id: str, *, confirm_delete_data: bool) -> dict:
+        try:
+            result = self.data.delete_installation_data(installation_id, confirm_delete_data=confirm_delete_data)
+        except PortalDataError as exc:
+            raise PortalRuntimeError(exc.code) from exc
+        installation = self._load_installation(installation_id)
+        installation.current_data_bytes = 0
+        self._save_installation(installation)
+        return result
+
+    def data_backup_path(self, installation_id: str) -> Path:
+        self._load_installation(installation_id)
+        return self.data.export_backup_path(installation_id)
 
     def _load_installation(self, installation_id: str) -> PortalInstallation:
         path = self.paths.installation_root(installation_id) / "installation.json"
@@ -118,11 +190,22 @@ class PortalRuntimeService:
             raise PortalRuntimeError("installation_not_found")
         return PortalInstallation.model_validate_json(path.read_text(encoding="utf-8"))
 
+    def _save_installation(self, installation: PortalInstallation) -> None:
+        root = self.paths.installation_root(installation.installation_id)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "installation.json").write_text(json.dumps(installation.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8")
+
     def _load_runtime(self, play_session_id: str) -> dict:
         path = self.paths.recovery_root(play_session_id) / "portal_run.json"
         if not path.exists():
             raise PortalRuntimeError("portal_runtime_not_found")
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def _finish_runtime(self, runtime: dict, play_session_id: str, decision: str) -> None:
+        runtime["data_decision"] = decision
+        recovery = self.paths.recovery_root(play_session_id)
+        recovery.mkdir(parents=True, exist_ok=True)
+        (recovery / "portal_run.json").write_text(json.dumps(runtime, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _extract_application(self, package_path: Path, app_root: Path) -> CapsuleManifest:
         try:
