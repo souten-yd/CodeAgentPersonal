@@ -37,6 +37,10 @@ KasaneCoreに、モバイルブラウザだけでAtlasプロジェクトの実�
 - Package、永続data、session data、cache/tempを分離する。
 - Portalで生成したdataはSave、Snapshot、Discardを選択できる。
 - Package ExportにPortalの保存dataを含めない。
+- Play / Portal の実行はユーザーが選択した成果物runtimeであり、Atlas agentの自律command実行ではない。
+- Launch Adapter の許可判定はverification allowlistと別境界とし、互いの権限を貸さない。
+- Untrusted imported packageはv1では既定でRun不可とする。明示override時のみ、OS隔離されていない警告を表示したうえでRunを許す。
+- v1 Capsule manifestはfree-form shell commandを持たない。Makefile targetや独自bootstrapは、将来の構造化adapter拡張まで既知の制限とする。
 
 ## Safety requirements
 
@@ -44,6 +48,7 @@ KasaneCoreに、モバイルブラウザだけでAtlasプロジェクトの実�
 - 任意の無制限command endpointを追加しない。
 - host filesystemやtemporary service portを直接公開しない。
 - import packageはquarantine検証前に登録・実行しない。
+- untrusted imported packageを「安全に実行できる」と誤読させるUI文言を使わない。
 - Portal package本体を書き換えない。
 - Play success、verification、test resultを未実行のまま成功扱いしない。
 - Stop、failure、expiry、server recovery後にprocess tree、port、runtime directoryを残さない。
