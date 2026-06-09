@@ -531,24 +531,11 @@ class SqliteProjectTwinStore:
         )
 
     def trace_path(self, request: PathTraceRequest) -> PathTraceResult:
-        # Full explainable path analysis is delivered in PDT-11. The store returns a
-        # truthful degraded result rather than fabricating paths.
-        head = self._project_head(request.project_id) if self._project_exists(request.project_id) else None
-        return PathTraceResult(
-            project_id=request.project_id,
-            twin_revision_id=head,
-            paths=[],
-            truncated=False,
-            diagnostics=[{"code": "analysis_deferred", "detail": "path analysis lands in PDT-11"}],
-            generated_at=self._now(),
-        )
+        from agent.project_twin.analysis import GraphAnalysisService
+
+        return GraphAnalysisService(self).trace_path(request)
 
     def assess_impact(self, request: ImpactRequest) -> ImpactResult:
-        # Full impact analysis is delivered in PDT-11. Truthful degraded result.
-        head = self._project_head(request.project_id) if self._project_exists(request.project_id) else None
-        return ImpactResult(
-            project_id=request.project_id,
-            twin_revision_id=head,
-            diagnostics=[{"code": "analysis_deferred", "detail": "impact analysis lands in PDT-11"}],
-            generated_at=self._now(),
-        )
+        from agent.project_twin.analysis import GraphAnalysisService
+
+        return GraphAnalysisService(self).assess_impact(request)

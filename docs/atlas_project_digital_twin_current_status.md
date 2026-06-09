@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-10 completed
+- Overall: PDT-11 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-11`
-- Next action: Impact and path analysis (structural/transitive/requirement/side-effect impact)
+- Current work package: `PDT-12`
+- Next action: Nexus integration (external evidence references; support/contradict edges)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -32,7 +32,7 @@
 | PDT-8 | Behavioral Graph | Completed | pdt-8-behavioral-graph | `pytest -q tests/test_project_twin_behavioral_graph.py` -> 4 passed |
 | PDT-9 | Runtime collectors | Completed | pdt-9-runtime-collectors | `pytest -q tests/test_project_twin_runtime_collectors.py` -> 7 passed |
 | PDT-10 | Static/runtime reconciliation | Completed | pdt-10-reconciliation | `pytest -q tests/test_project_twin_reconciliation.py` -> 5 passed |
-| PDT-11 | Impact and path analysis | Not started | — | — |
+| PDT-11 | Impact and path analysis | Completed | pdt-11-impact-analysis | `pytest -q tests/test_project_twin_analysis.py` -> 4 passed |
 | PDT-12 | Nexus integration | Not started | — | — |
 | PDT-13 | Project Twin API and UI | Not started | — | — |
 | PDT-14 | E2E benchmark and rollout | Not started | — | — |
@@ -90,6 +90,37 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-11 — Impact and path analysis
+PR/commit: branch pdt-11-impact-analysis
+Changed files:
+- agent/project_twin/analysis.py (new) — GraphAnalysisService (trace_path + assess_impact)
+- agent/project_twin/store.py — trace_path/assess_impact now delegate to the analyzer
+- tests/test_project_twin_analysis.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- trace_path: directed, filterable path search with explanation strings and inferred-flag.
+- assess_impact: reverse-dependency (direct/transitive) impact incl. name-based call
+  resolution, affected requirements, behavior paths, forward side effects, recommended
+  tests, historical risk, uncertainty, and explanation paths — each with source refs.
+- SqliteProjectTwinStore.trace_path/assess_impact replace the PDT-2 analysis_deferred
+  stubs with the real analyzer.
+Acceptance scenarios (automated):
+- function change impact (callers + recommended tests);
+- UI-to-persistence path (uievent -> action -> api_call -> route -> handler -> side_effect);
+- API side effects; no-path is reported truthfully.
+Focused tests:
+- python -m pytest -q tests/test_project_twin_analysis.py -> 4 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/analysis.py agent/project_twin/store.py -> passed.
+Affected tests:
+- python -m pytest -q (12 project_twin test files) -> 108 passed.
+Remaining blockers: None.
+Next work package: PDT-12 — Nexus integration.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-10 — Static/runtime reconciliation
