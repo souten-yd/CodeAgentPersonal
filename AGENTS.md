@@ -13,11 +13,12 @@ Read in this order:
 3. `docs/atlas_project_intelligence_current_status.md`
 4. the current work package in `docs/atlas_project_intelligence_implementation_plan.md`
 5. relevant sections of `docs/atlas_project_intelligence_architecture.md`
-6. relevant sections of `docs/atlas_project_intelligence_contracts.md`
-7. relevant sections of `docs/atlas_project_intelligence_test_plan.md`
-8. `docs/atlas_project_intelligence_migration_plan.md` when touching existing capabilities or consumers
-9. `docs/atlas_project_intelligence_agent_entrypoint.md`
-10. target code, direct dependencies, direct callers, and related tests
+6. relevant sections of `docs/atlas_project_intelligence_detailed_design.md`
+7. relevant sections of `docs/atlas_project_intelligence_contracts.md`
+8. relevant sections of `docs/atlas_project_intelligence_test_plan.md`
+9. `docs/atlas_project_intelligence_migration_plan.md` when touching existing capabilities or consumers
+10. `docs/atlas_project_intelligence_agent_entrypoint.md`
+11. target code, direct dependencies, direct callers, and related tests
 
 The old `docs/atlas_project_digital_twin_*` documents are historical/reference documents for Core v1. They are not the active overall goal.
 
