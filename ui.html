@@ -72,6 +72,7 @@
       <button class="mode-btn" id="btn-atlas" onclick="setMode('atlas')">Atlas</button>
             <button class="mode-btn" id="btn-echo" onclick="setMode('echo')">Echo</button>
       <button class="mode-btn" id="btn-nexus" onclick="setMode('nexus')">Nexus</button>
+      <button class="mode-btn" id="btn-portal" onclick="setMode('portal')">Portal</button>
     </div>
     <button class="hdr-icon-btn" id="settings-btn" onclick="openSettings()" title="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -121,6 +122,8 @@
   <button class="mob-tab" id="mob-asr" onclick="mobSwitch('asr')" style="display:none">ASR</button>
   <button class="mob-tab" id="mob-tts" onclick="mobSwitch('tts')" style="display:none">TTS</button>
   <button class="mob-tab wide" id="mob-nexus" onclick="mobSwitch('nexus')" style="display:none">Nexus</button>
+  <!-- Portal モード用タブ (デフォルト非表示) -->
+  <button class="mob-tab wide" id="mob-portal" onclick="mobSwitch('portal')" style="display:none">Portal</button>
 </div>
 
 <div class="app-body">
@@ -1195,6 +1198,44 @@
         <div class="nexus-card"><div class="nexus-card-title">Answer Generation</div><div id="nexus-settings-answer" class="nexus-empty">Loading...</div></div>
         <div class="nexus-card"><div class="nexus-card-title">Source Storage & Dedupe</div><div id="nexus-settings-storage" class="nexus-empty">Coming soon</div></div>
         <div class="nexus-card"><div class="nexus-card-title">Debug & Maintenance</div><div id="nexus-settings-debug" class="nexus-empty">Loading...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PORTAL MODE -->
+  <div class="portal-col mob-hidden" id="portal-col" style="display:none" data-mode-panel="portal" aria-label="Portal">
+    <div class="portal-shell">
+      <div class="portal-head">
+        <div class="portal-title">Portal</div>
+        <div class="portal-head-actions">
+          <button type="button" id="portal-import-btn" class="portal-action-btn">Import package</button>
+          <button type="button" id="portal-refresh-btn" class="portal-action-btn">Refresh</button>
+        </div>
+      </div>
+      <div class="portal-status" id="portal-status" role="status" aria-live="polite"></div>
+      <div class="portal-catalog" id="portal-catalog" aria-label="Portal package catalog"></div>
+    </div>
+    <!-- Run sheet (Preview / Logs / Stop) -->
+    <div class="portal-run-sheet" id="portal-run-sheet" aria-hidden="true">
+      <div class="portal-run-inner" role="dialog" aria-modal="true" aria-label="Portal run">
+        <div class="portal-run-head">
+          <span class="portal-run-title" id="portal-run-title">Run</span>
+          <span class="portal-run-state" id="portal-run-state"></span>
+          <div class="portal-run-actions">
+            <button type="button" data-portal-run="reload" aria-label="Reload">⟳</button>
+            <button type="button" data-portal-run="external" aria-label="Open preview">↗</button>
+            <button type="button" data-portal-run="stop" aria-label="Stop">■</button>
+            <button type="button" data-portal-run="close" aria-label="Close">×</button>
+          </div>
+        </div>
+        <div class="portal-run-tabs" role="tablist">
+          <button type="button" class="active" data-portal-tab="preview">Preview</button>
+          <button type="button" data-portal-tab="logs">Logs</button>
+        </div>
+        <div class="portal-run-body">
+          <section class="portal-run-pane active" data-portal-pane="preview"><iframe id="portal-run-frame" title="Portal run preview"></iframe></section>
+          <section class="portal-run-pane" data-portal-pane="logs"><pre id="portal-run-logs"></pre></section>
+        </div>
       </div>
     </div>
   </div>
@@ -2448,14 +2489,15 @@ function normalizeCtxSize(value, fallback = _settingsDefaultCtxSize) {
 let mode = 'chat';
 const UI_LAST_MODE_KEY = 'kasane:lastMode';
 const UI_LAST_SUBTABS_KEY = 'kasane:lastSubtabsByMode';
-const UI_VALID_MODES = ['chat','atlas','echo','nexus','agent'];
-const UI_PRIMARY_MODES = ['chat','atlas','echo','nexus'];
-const UI_MODE_DEFAULT_SUBTABS = {chat: 'chat', echo: 'echo', atlas: 'start', nexus: 'dashboard'};
+const UI_VALID_MODES = ['chat','atlas','echo','nexus','portal','agent'];
+const UI_PRIMARY_MODES = ['chat','atlas','echo','nexus','portal'];
+const UI_MODE_DEFAULT_SUBTABS = {chat: 'chat', echo: 'echo', atlas: 'start', nexus: 'dashboard', portal: 'catalog'};
 const UI_MODE_SUBTABS = {
   chat: ['chat','files','log','skills','memory','models'],
   echo: ['echo','vault','log','models','asr','tts'],
   atlas: ['start'],
   nexus: ['dashboard'],
+  portal: ['catalog'],
 };
 let asrRuntimeConfig = {is_windows:false,is_runpod:false,gpu_vendor:'unknown',asr_engine:'faster_whisper',whisper_cpp_ready:false};
 const CHAT_TASK_TOGGLE_KEY = 'chat_task_enabled';
@@ -5957,6 +5999,7 @@ const _ATLAS_MOB_TAB_IDS = ['mob-atlas'];
 const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-asr','mob-tts'];
 // Nexus モード用モバイルタブID（単一ビューのためタブ不要）
 const _NEXUS_MOB_TAB_IDS = ['mob-nexus'];
+const _PORTAL_MOB_TAB_IDS = ['mob-portal'];
 
 const MODE_SUBTAB_BUTTON_IDS = {
   chat: {
@@ -5977,6 +6020,7 @@ const MODE_SUBTAB_BUTTON_IDS = {
   },
   atlas: { atlas: 'mob-atlas' },
   nexus: { nexus: 'mob-nexus' },
+  portal: { catalog: 'mob-portal' },
   agent: { agent_chat: 'mob-agent-chat', agent_tasks: 'mob-agent-tasks' },
 };
 const MODE_PANEL_TAB_BUTTON_IDS = {
@@ -6130,18 +6174,20 @@ function _updateMobTabs(m) {
   const isAgent = (m === 'agent');
   const isNexus = (m === 'nexus');
   const isAtlas = (m === 'atlas');
-  const isChatTask = !isEcho && !isAgent && !isNexus && !isAtlas;
+  const isPortal = (m === 'portal');
+  const isChatTask = !isEcho && !isAgent && !isNexus && !isAtlas && !isPortal;
   mobTabs?.classList.toggle('echo-mode', isEcho);
   mobTabs?.classList.toggle('chat-task-mode', isChatTask);
-  // Atlas has no mobile sub-tabs, so the lone "Atlas" tab (rendered active = green
-  // text + full-width green underline) is redundant. Hide the whole row in Atlas mode.
-  mobTabs?.classList.toggle('atlas-mode', isAtlas);
+  // Atlas/Portal have no mobile sub-tabs, so the lone tab (rendered active = green
+  // text + full-width green underline) is redundant. Hide the whole row in those modes.
+  mobTabs?.classList.toggle('atlas-mode', isAtlas || isPortal);
 
   _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isChatTask ? '' : 'none'; });
   _AGENT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAgent ? '' : 'none'; });
   _ATLAS_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAtlas ? '' : 'none'; });
   _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
   _NEXUS_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isNexus ? '' : 'none'; });
+  _PORTAL_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isPortal ? '' : 'none'; });
 }
 
 function _setPanelTabActiveButton(name) {
@@ -6285,7 +6331,7 @@ function setMode(m, options = {}) {
   const prevMode = mode;
   mode = m;
   if (shouldPersistMode) saveLastMode(m);
-  ['chat','atlas','agent','echo','nexus'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
+  ['chat','atlas','agent','echo','nexus','portal'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
   syncChatTaskToggle();
   const chatCol  = document.getElementById('chat-col');
   const echoCol  = document.getElementById('echo-col');
@@ -6293,15 +6339,19 @@ function setMode(m, options = {}) {
   const agentCol = document.getElementById('agent-col');
   const agentPanelCol = document.getElementById('agent-panel-col');
   const nexusCol = document.getElementById('nexus-col');
+  const portalCol = document.getElementById('portal-col');
   const atlasPanelCol = document.getElementById('atlas-panel-col');
   const resizer = document.getElementById('panel-resizer');
   const appBody  = document.querySelector('.app-body');
   _updateMobTabs(m);
   const sharedModeTitleRow = document.getElementById('mode-title-row') || document.querySelector('.mode-title-row,.mobile-mode-title,.mobile-mode-title-row,.agent-head.mode-title-row');
   if (sharedModeTitleRow) sharedModeTitleRow.style.display = 'none';
+  // Portal column is hidden by default; only the Portal branch below re-shows it.
+  if (portalCol) portalCol.style.display = 'none';
 
   if (prevMode === 'agent' && m !== 'agent') stopAgentSession(false);
   if (prevMode === 'nexus' && m !== 'nexus') stopNexusPolling();
+  if (prevMode === 'portal' && m !== 'portal') { try { window.Portal?.onLeave?.(); } catch (_e) {} }
 
   if (m === 'echo') {
     appBody?.classList.add('echo-active');
@@ -6394,6 +6444,21 @@ function setMode(m, options = {}) {
     _setEchoTabVisibility(false);
     switchNexusTab(window._nexusTab || 'research');
     startNexusPolling();
+  } else if (m === 'portal') {
+    appBody?.classList.remove('echo-active');
+    panelCol?.classList.remove('echo-tabs-equal');
+    panelCol?.classList.remove('chat-task-tabs-equal');
+    chatCol.style.display  = 'none';
+    echoCol.style.display  = 'none';
+    panelCol.style.display = 'none';
+    if (agentCol) agentCol.style.display = 'none';
+    if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (nexusCol) nexusCol.style.display = 'none';
+    if (portalCol) portalCol.style.display = '';
+    if (resizer) resizer.style.display = 'none';
+    _setEchoTabVisibility(false);
+    try { window.Portal?.activate?.(); } catch (_e) {}
   } else {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -6417,13 +6482,27 @@ function setMode(m, options = {}) {
     agentPanelCol?.classList.remove('mob-hidden');
     atlasPanelCol?.classList.remove('mob-hidden');
     nexusCol?.classList.remove('mob-hidden');
+    portalCol?.classList.remove('mob-hidden');
   }
 
   syncAgentSessionUi();
 
   if (window.innerWidth <= 768) {
-    const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ATLAS_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
-    if (m === 'echo') {
+    const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ATLAS_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS, ..._PORTAL_MOB_TAB_IDS];
+    // Portal column is hidden on mobile by default; the Portal branch re-shows it.
+    if (m !== 'portal') portalCol?.classList.add('mob-hidden');
+    if (m === 'portal') {
+      chatCol?.classList.add('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.add('mob-hidden');
+      agentCol?.classList.add('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.add('mob-hidden');
+      nexusCol?.classList.add('mob-hidden');
+      portalCol?.classList.remove('mob-hidden');
+      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+      document.getElementById('mob-portal')?.classList.add('active');
+    } else if (m === 'echo') {
       chatCol?.classList.add('mob-hidden');
       panelCol?.classList.add('mob-hidden');
       echoCol?.classList.remove('mob-hidden');
@@ -9541,13 +9620,14 @@ function sendAgentInput() {
 
 // ── MOBILE ──
 function mobSwitch(name, options = {}) {
-  const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ATLAS_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS];
+  const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ATLAS_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS, ..._PORTAL_MOB_TAB_IDS];
   allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
 
   const activeMode = mode === 'echo' ? 'echo'
     : mode === 'agent' ? 'agent'
     : mode === 'atlas' ? 'atlas'
     : mode === 'nexus' ? 'nexus'
+    : mode === 'portal' ? 'portal'
     : 'chat';
   const activeId = MODE_SUBTAB_BUTTON_IDS[activeMode]?.[name] || MODE_SUBTAB_BUTTON_IDS.chat[name] || ('mob-' + name);
   document.getElementById(activeId)?.classList.add('active');
@@ -9559,6 +9639,7 @@ function mobSwitch(name, options = {}) {
   const ap = document.getElementById('agent-panel-col');
   const nc = document.getElementById('nexus-col');
   const atc = document.getElementById('atlas-panel-col');
+  const poc = document.getElementById('portal-col');
 
   const shouldPersistSubtab = options.persist !== false;
 
@@ -9625,6 +9706,17 @@ function mobSwitch(name, options = {}) {
     ac?.classList.add('mob-hidden');
     ap?.classList.add('mob-hidden');
     atc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    poc?.classList.add('mob-hidden');
+  } else if (name === 'portal') {
+    if (mode !== 'portal') { setMode('portal'); return; }
+    poc?.classList.remove('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
     pc?.classList.add('mob-hidden');
   } else if (name === 'vault') {
     if (mode !== 'echo') { setMode('echo', {restore: false, persist: shouldPersistSubtab}); }
@@ -16352,6 +16444,7 @@ function testSkill(skillName) {
 <script src="/static/js/nexus.js"></script>
 <script src="/static/js/atlas_pipeline_api.js?v=atlas-ui-fix-7"></script>
 <script src="/static/js/atlas_play_workspace.js?v=atlas-play-workspace-1"></script>
+<script src="/static/js/portal.js?v=portal-1"></script>
 <script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-40"></script>
 <script src="/static/js/atlas_claude_panel.js?v=atlas-ui-fix-9"></script>
 <script src="/static/js/echo.js"></script>

@@ -230,9 +230,139 @@
     if (action === 'repair-handoff') root.AtlasClaudePanel?.sendText?.('/plan repair current Play session');
   }
 
+  // ---- Capsule builder (PR-PPC-7) ----
+  function ensureCapsuleDialog() {
+    if ($('atlas-capsule-dialog')) return;
+    const el = document.createElement('div');
+    el.id = 'atlas-capsule-dialog';
+    el.className = 'atlas-capsule-dialog';
+    el.innerHTML = `
+      <div class="atlas-capsule-card" role="dialog" aria-modal="true" aria-label="Capsule builder">
+        <div class="atlas-capsule-head">
+          <span class="atlas-capsule-title">Capsule builder</span>
+          <button type="button" data-capsule-action="close" aria-label="Close">×</button>
+        </div>
+        <div class="atlas-capsule-body">
+          <p class="atlas-capsule-note" id="atlas-capsule-eligibility"></p>
+          <label class="atlas-capsule-field">Package name<input type="text" id="atlas-capsule-name" autocomplete="off" spellcheck="false"></label>
+          <label class="atlas-capsule-field">Version<input type="text" id="atlas-capsule-version" value="0.1.0" autocomplete="off" spellcheck="false"></label>
+          <div class="atlas-capsule-field">Launch profiles<div id="atlas-capsule-profiles" class="atlas-capsule-profiles"></div></div>
+          <label class="atlas-capsule-field atlas-capsule-checkbox"><input type="checkbox" id="atlas-capsule-persist-data"> 永続データをサポート (data policy)</label>
+          <div class="atlas-capsule-status" id="atlas-capsule-status" role="status" aria-live="polite"></div>
+        </div>
+        <div class="atlas-capsule-actions">
+          <button type="button" class="atlas-capsule-btn primary" data-capsule-action="build">Build Capsule</button>
+          <button type="button" class="atlas-capsule-btn" data-capsule-action="close">Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    el.addEventListener('click', (ev) => {
+      const action = ev.target.closest('[data-capsule-action]')?.dataset.capsuleAction;
+      if (action === 'close') closeCapsuleDialog();
+      if (action === 'build') buildCapsule();
+    });
+    if (!document.getElementById('atlas-capsule-style')) {
+      const style = document.createElement('style');
+      style.id = 'atlas-capsule-style';
+      style.textContent = `
+        .atlas-capsule-dialog{position:fixed;inset:0;z-index:6000;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center}
+        .atlas-capsule-dialog.open{display:flex}
+        .atlas-capsule-card{width:min(440px,92vw);max-height:90vh;overflow:auto;background:var(--bg1,#111);border:1px solid var(--border,#333);border-radius:14px;display:flex;flex-direction:column}
+        .atlas-capsule-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border,#333)}
+        .atlas-capsule-title{font-weight:700;color:var(--text,#eee)}
+        .atlas-capsule-head button{background:none;border:none;color:var(--text2,#aaa);font-size:20px;cursor:pointer}
+        .atlas-capsule-body{padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+        .atlas-capsule-note{font-size:12px;color:var(--text3,#888);margin:0}
+        .atlas-capsule-field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text2,#aaa)}
+        .atlas-capsule-field input[type=text]{background:var(--bg2,#1a1a1a);border:1px solid var(--border,#333);border-radius:8px;color:var(--text,#eee);padding:7px 10px;font-size:13px}
+        .atlas-capsule-checkbox{flex-direction:row;align-items:center;gap:8px}
+        .atlas-capsule-profiles{display:flex;flex-direction:column;gap:6px}
+        .atlas-capsule-profiles label{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text,#eee)}
+        .atlas-capsule-status{font-size:12px;color:var(--text3,#888);font-family:var(--font-mono,monospace);min-height:14px}
+        .atlas-capsule-status.is-error{color:var(--red,#e66)}
+        .atlas-capsule-status.is-ok{color:var(--green,#6c6)}
+        .atlas-capsule-actions{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border,#333)}
+        .atlas-capsule-btn{flex:1;background:var(--bg2,#1a1a1a);border:1px solid var(--border,#333);border-radius:8px;color:var(--text,#eee);padding:8px;cursor:pointer;font-size:13px}
+        .atlas-capsule-btn.primary{background:var(--accent,#5af);border-color:var(--accent,#5af);color:#0a0a0a;font-weight:600}
+        .atlas-capsule-btn:disabled{opacity:.45;cursor:not-allowed}`;
+      document.head.appendChild(style);
+    }
+  }
+
+  function setCapsuleStatus(text, kind) {
+    const el = $('atlas-capsule-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('is-error', kind === 'error');
+    el.classList.toggle('is-ok', kind === 'ok');
+  }
+
+  function closeCapsuleDialog() {
+    $('atlas-capsule-dialog')?.classList.remove('open');
+  }
+
+  function capsuleProfiles() {
+    // The profile the current/last Play session used is the build candidate.
+    const profile = state.launchProfile;
+    if (!profile) return [];
+    return [profile];
+  }
+
   function showCapsuleHandoff() {
-    openWorkspace();
-    setStatus('Capsule builder starts in PR-PPC-7');
+    ensureCapsuleDialog();
+    const dialog = $('atlas-capsule-dialog');
+    const session = state.session || {};
+    const eligible = session.session_id && (session.state === 'stopped') && (session.exit_code === 0 || session.exit_code == null);
+    const elig = $('atlas-capsule-eligibility');
+    if (elig) {
+      elig.textContent = eligible
+        ? '対象: 直近の成功した Play セッション。ビルドした Capsule は Portal カタログへ自動登録されます。'
+        : 'Capsule には成功した Play セッションが必要です。先に Play を実行し、正常終了させてください。';
+    }
+    const nameInput = $('atlas-capsule-name');
+    if (nameInput && !nameInput.value) nameInput.value = String(state.projectId || projectId() || '').replace(/[^A-Za-z0-9_.-]/g, '-') || 'app';
+    const profiles = capsuleProfiles();
+    const host = $('atlas-capsule-profiles');
+    if (host) {
+      host.innerHTML = profiles.length
+        ? profiles.map((p, i) => `<label><input type="checkbox" data-capsule-profile="${escapeHtml(p.profile_id)}"${i === 0 ? ' checked' : ''}> ${escapeHtml(p.name || p.profile_id)} · ${escapeHtml(p.kind)}</label>`).join('')
+        : '<span class="atlas-capsule-note">起動プロファイルがありません。Play で対象を選択してください。</span>';
+    }
+    const buildBtn = dialog.querySelector('[data-capsule-action="build"]');
+    if (buildBtn) buildBtn.disabled = !(eligible && profiles.length);
+    setCapsuleStatus(eligible ? '' : 'Play 成功セッションが必要です', eligible ? '' : 'error');
+    dialog.classList.add('open');
+  }
+
+  async function buildCapsule() {
+    const session = state.session || {};
+    if (!session.session_id) { setCapsuleStatus('Play セッションがありません', 'error'); return; }
+    const selectedIds = Array.from(document.querySelectorAll('[data-capsule-profile]'))
+      .filter((cb) => cb.checked).map((cb) => cb.getAttribute('data-capsule-profile'));
+    if (!selectedIds.length) { setCapsuleStatus('起動プロファイルを1つ以上選択してください', 'error'); return; }
+    const profiles = capsuleProfiles().filter((p) => selectedIds.includes(p.profile_id));
+    const name = ($('atlas-capsule-name')?.value || '').trim();
+    const version = ($('atlas-capsule-version')?.value || '0.1.0').trim();
+    const persistData = !!$('atlas-capsule-persist-data')?.checked;
+    setCapsuleStatus('Building…');
+    const resp = await api()?.buildCapsule?.({
+      project_id: state.projectId || projectId(),
+      play_session_id: session.session_id,
+      selected_profile_ids: selectedIds,
+      launch_profiles: profiles,
+      default_profile_id: selectedIds[0],
+      package_id: name || undefined,
+      name: name || undefined,
+      version: version || '0.1.0',
+      data_policy: { persistent_data_supported: persistData, export_includes_runtime_data: false },
+    });
+    if (!resp || !resp.ok) {
+      setCapsuleStatus(`Build failed: ${resp?.data?.error || resp?.code || 'error'}`, 'error');
+      return;
+    }
+    const record = resp.data?.record || {};
+    setCapsuleStatus(`Built ${record.package_id} v${record.version} → Portal カタログへ登録済み (${(record.content_hash || '').slice(0, 12)}…)`, 'ok');
+    try { root.Portal?.refreshCatalog?.(); } catch (_e) {}
   }
 
   root.AtlasPlayWorkspace = { openTargetChooser, closeWorkspace, showCapsuleHandoff };

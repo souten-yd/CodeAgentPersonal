@@ -654,6 +654,76 @@
       return atlasFetch('/api/atlas/play/workspace/files/write', { method: 'POST', body: JSON.stringify(payload || {}) });
     },
 
+    // --- Capsule (PR-PPC-7) ---
+    getCapsuleCapabilities() {
+      return atlasFetch('/api/atlas/capsule/capabilities', { timeoutMs: 15000 });
+    },
+    buildCapsule(payload) {
+      return atlasFetch('/api/atlas/capsule/build', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 60000 });
+    },
+
+    // --- Portal (PR-PPC-8..11) ---
+    getPortalCapabilities() {
+      return atlasFetch('/api/portal/capabilities', { timeoutMs: 15000 });
+    },
+    listPortalCatalog() {
+      return atlasFetch('/api/portal/catalog', { timeoutMs: 15000 });
+    },
+    preflightPortalImport(archivePath) {
+      return atlasFetch('/api/portal/import/preflight', { method: 'POST', body: JSON.stringify({ archive_path: archivePath }) });
+    },
+    importPortalPackage(archivePath) {
+      return atlasFetch('/api/portal/import', { method: 'POST', body: JSON.stringify({ archive_path: archivePath }), timeoutMs: 60000 });
+    },
+    exportPortalPackageUrl(packageId, version, contentHash) {
+      return API_BASE + `/api/portal/packages/${encodeURIComponent(packageId)}/${encodeURIComponent(version)}/${encodeURIComponent(contentHash)}/export`;
+    },
+    uninstallPortalPackage(packageId, version, contentHash) {
+      return atlasFetch(`/api/portal/packages/${encodeURIComponent(packageId)}/${encodeURIComponent(version)}/${encodeURIComponent(contentHash)}`, { method: 'DELETE' });
+    },
+    forkPortalToAtlas(payload) {
+      return atlasFetch('/api/portal/fork-to-atlas', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 60000 });
+    },
+    installPortalPackage(payload) {
+      return atlasFetch('/api/portal/install', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 30000 });
+    },
+    runPortalPackage(payload) {
+      return atlasFetch('/api/portal/run', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 60000 });
+    },
+    stopPortalRun(playSessionId) {
+      return atlasFetch(`/api/portal/runs/${encodeURIComponent(playSessionId)}/stop`, { method: 'POST', body: JSON.stringify({}) });
+    },
+    purgePortalRun(playSessionId) {
+      return atlasFetch(`/api/portal/runs/${encodeURIComponent(playSessionId)}/purge`, { method: 'POST', body: JSON.stringify({}) });
+    },
+    getPortalInstallationData(installationId) {
+      return atlasFetch(`/api/portal/installations/${encodeURIComponent(installationId)}/data`, { timeoutMs: 15000 });
+    },
+    portalInstallationDataBackupUrl(installationId) {
+      return API_BASE + `/api/portal/installations/${encodeURIComponent(installationId)}/data/backup`;
+    },
+    deletePortalInstallationData(installationId, confirmDeleteData) {
+      return atlasFetch(`/api/portal/installations/${encodeURIComponent(installationId)}/data`, { method: 'DELETE', body: JSON.stringify({ confirm_delete_data: !!confirmDeleteData }) });
+    },
+    savePortalRunData(playSessionId) {
+      return atlasFetch(`/api/portal/runs/${encodeURIComponent(playSessionId)}/data/save`, { method: 'POST', body: JSON.stringify({}) });
+    },
+    snapshotPortalRunData(playSessionId, snapshotId) {
+      return atlasFetch(`/api/portal/runs/${encodeURIComponent(playSessionId)}/data/snapshot`, { method: 'POST', body: JSON.stringify({ snapshot_id: snapshotId || null }) });
+    },
+    discardPortalRunData(playSessionId) {
+      return atlasFetch(`/api/portal/runs/${encodeURIComponent(playSessionId)}/data/discard`, { method: 'POST', body: JSON.stringify({}) });
+    },
+    portalRunHeartbeat(playSessionId, reconnectToken) {
+      return atlasFetch(`/api/portal/runs/${encodeURIComponent(playSessionId)}/heartbeat`, { method: 'POST', body: JSON.stringify({ reconnect_token: reconnectToken }) });
+    },
+    portalRunDisconnect(playSessionId, reconnectToken) {
+      return atlasFetch(`/api/portal/runs/${encodeURIComponent(playSessionId)}/disconnect`, { method: 'POST', body: JSON.stringify({ reconnect_token: reconnectToken }) });
+    },
+    portalRunResume(playSessionId, reconnectToken) {
+      return atlasFetch(`/api/portal/runs/${encodeURIComponent(playSessionId)}/resume`, { method: 'POST', body: JSON.stringify({ reconnect_token: reconnectToken }) });
+    },
+
   };
 
   root.AtlasPipelineAPI = AtlasPipelineAPI;

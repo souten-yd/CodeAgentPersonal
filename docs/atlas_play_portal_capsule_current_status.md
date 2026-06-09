@@ -112,6 +112,54 @@ Remaining gaps:
 Next package:
 Complete. Monitor PR/CI and address review feedback if any.
 
+## UI reconciliation (post-PR-PPC-12)
+
+Backend, API routers and startup reconciliation for PR-PPC-0..12 were complete, but
+the user-facing PR-PPC-7 (Capsule builder) and PR-PPC-8 (Portal navigation/catalog) UI
+were never wired into the production shell. The following closes that gap.
+
+Changed files:
+- `web/js/atlas_pipeline_api.js` — added `buildCapsule` and the full Portal client surface
+  (catalog, import/preflight, export URL, uninstall, fork, install, run, stop, purge,
+  data summary/backup/delete, save/snapshot/discard, heartbeat/disconnect/resume).
+- `ui.html` (copied to `ui/index.html` at startup) — added a top-level **Portal** nav
+  button between Nexus and the settings button, a mobile Portal tab, `setMode`/`mobSwitch`
+  branches, `UI_VALID_MODES`/subtab wiring and a `#portal-col` screen with a run sheet.
+- `web/js/portal.js` (new) — Portal catalog cards (name/version/trust/profiles/data size),
+  Import, Run (install → public Portal runtime → Play preview/logs/stop → Save/Snapshot/
+  Discard data decision + heartbeat), Export Package, Fork to Atlas, Uninstall, Delete Data.
+- `web/js/atlas_play_workspace.js` — `showCapsuleHandoff()` replaced the PR-PPC-7 placeholder
+  with a real Capsule builder dialog (eligibility check, name/version, profile selection,
+  data policy) that calls `buildCapsule` and refreshes the Portal catalog on success.
+- `web/css/app.css` — Portal screen, card and run-sheet styles; `.portal-col` layout rules.
+- `app/portal/catalog.py` — `list_packages` now attaches a read-only manifest summary
+  (launch profiles, default profile, persistent-data flag) so the catalog UI can offer
+  profile selection; `import_archive` persists the manifest projection and `manifest_path`.
+  No package archive is mutated; uninstall still removes the sidecar files.
+
+Safety invariants preserved:
+- Portal Run still goes only through the public Portal runtime API (no second process runner).
+- Untrusted imported packages remain Run-blocked unless the user ticks the explicit
+  "no OS isolation in v1" acknowledgement, which is sent as `untrusted_override_acknowledged`.
+- Package Export uses the server-side data-free ZIP endpoint; no runtime data is bundled.
+- No free-form command field was introduced anywhere in the UI or client.
+
+Validation:
+- `node --check` on `atlas_pipeline_api.js`, `portal.js`, `atlas_play_workspace.js`, `app.js` -> passed.
+- `python scripts/check_ui_inline_script_syntax.py` -> 1 inline + 14 external blocks passed.
+- `python -m py_compile app/portal/catalog.py` -> passed.
+- `python -m pytest -q tests/test_portal_catalog.py tests/test_portal_runtime.py tests/test_portal_data_lifecycle.py tests/test_atlas_capsule_builder.py tests/test_atlas_play_mobile_workspace_ui_contract.py` -> 30 passed.
+- `python -m pytest -q tests/test_atlas_play_portal_capsule_acceptance.py tests/test_portal_recovery_lifecycle.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 22 passed.
+- Pre-existing, unrelated chat/agent-copy and nav-polish UI-contract failures were confirmed
+  present on the unmodified HEAD `ui.html` as well; this change introduces no new failures.
+
+Known UI limitations:
+- Import takes a server-side archive path (no browser upload endpoint exists yet).
+- "Start from snapshot" run mode is omitted from the run-mode selector because there is no
+  snapshot-list endpoint; Save-as-snapshot during a run is supported.
+- A package can be Run/Data-managed only after build or import exposes a manifest summary;
+  legacy records built before this change have no sidecar manifest and show no profiles.
+
 ## Update template
 
 After each package record:

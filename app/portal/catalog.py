@@ -31,8 +31,34 @@ class PortalCatalogService:
         self.paths = PortalPathLayout(self.data_root)
 
     def list_packages(self) -> dict:
-        records = [record.model_dump(mode="json") for record in self._records()]
-        return {"schema_version": PORTAL_CATALOG_SCHEMA_VERSION, "packages": records}
+        packages: list[dict] = []
+        for record in self._records():
+            payload = record.model_dump(mode="json")
+            payload["manifest"] = self._manifest_summary(record)
+            packages.append(payload)
+        return {"schema_version": PORTAL_CATALOG_SCHEMA_VERSION, "packages": packages}
+
+    def _manifest_summary(self, record: CapsulePackageRecord) -> dict | None:
+        """Attach a read-only manifest projection so the catalog UI can offer launch
+        profile selection. Reads only the already-stored manifest; never mutates the package."""
+        manifest_path = Path(record.manifest_path) if record.manifest_path else None
+        if manifest_path is None or not manifest_path.exists():
+            return None
+        try:
+            manifest = CapsuleManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        return {
+            "name": manifest.name,
+            "version": manifest.version,
+            "default_profile_id": manifest.default_profile_id,
+            "persistent_data_supported": manifest.data_policy.persistent_data_supported,
+            "requested_permissions": list(manifest.requested_permissions),
+            "launch_profiles": [
+                {"profile_id": profile.profile_id, "name": profile.name, "kind": profile.kind.value}
+                for profile in manifest.launch_profiles
+            ],
+        }
 
     def preflight_archive(self, archive_path: str | Path) -> dict:
         path = Path(archive_path).expanduser().resolve()
@@ -92,12 +118,15 @@ class PortalCatalogService:
         storage_path = package_root / f"{content_hash}.zip"
         if not storage_path.exists():
             shutil.copyfile(archive_path, storage_path)
+        manifest_path = package_root / f"{content_hash}.manifest.json"
+        manifest_path.write_text(json.dumps(manifest.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8")
         record = CapsulePackageRecord(
             package_id=manifest.package_id,
             version=manifest.version,
             storage_path=str(storage_path),
             content_hash=content_hash,
             trust_state=TrustState.UNTRUSTED_IMPORTED_PACKAGE,
+            manifest_path=str(manifest_path),
         )
         self._record_path(record).write_text(json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8")
         return {"schema_version": PORTAL_CATALOG_SCHEMA_VERSION, "status": "imported", "record": record.model_dump(mode="json")}
