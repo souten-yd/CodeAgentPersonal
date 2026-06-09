@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-5 completed
+- Overall: PDT-6 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-6`
-- Next action: Memory integration (HybridMemoryStore adapter; verified-promotion policy)
+- Current work package: `PDT-7`
+- Next action: Skill integration (Skill registry/resolver; safety precedence)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -27,7 +27,7 @@
 | PDT-3 | Static Structural Graph | Completed | pdt-3-static-graph | `pytest -q tests/test_project_twin_static_graph.py` -> 8 passed |
 | PDT-4 | Intent and Delivery Trace | Completed | pdt-4-intent-delivery-trace | `pytest -q tests/test_project_twin_intent_trace.py` -> 5 passed |
 | PDT-5 | Minimal Context Broker | Completed | pdt-5-context-broker | `pytest -q tests/test_project_twin_context_broker.py` -> 7 passed |
-| PDT-6 | Memory integration | Not started | — | — |
+| PDT-6 | Memory integration | Completed | pdt-6-memory-integration | `pytest -q tests/test_project_twin_memory_adapter.py` -> 6 passed |
 | PDT-7 | Skill integration | Not started | — | — |
 | PDT-8 | Behavioral Graph | Not started | — | — |
 | PDT-9 | Runtime collectors | Not started | — | — |
@@ -90,6 +90,38 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-6 — Memory integration
+PR/commit: branch pdt-6-memory-integration
+Changed files:
+- agent/project_twin/memory_adapter.py (new) — TwinMemoryPort over HybridMemoryStore + twin
+- tests/test_project_twin_memory_adapter.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- recall returns durable learning-domain memory (architecture_decision/task_outcome/
+  module_map/risk/incident), project-scoped, excluding superseded/invalidated by default.
+- Verified-promotion policy: unverified inference (llm_inference/heuristic_static without
+  evidence) is never durable; verified/runtime/user_decision or evidence-backed facts are
+  promoted (verified or user_approved) with evidence links and mirrored to long-term
+  HybridMemoryStore when present.
+- supersede retires a memory from current recall while preserving audit history.
+Focused tests:
+- python -m pytest -q tests/test_project_twin_memory_adapter.py -> 6 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/memory_adapter.py -> passed.
+Affected tests:
+- python -m pytest -q (7 project_twin test files) -> 83 passed.
+Safety invariants:
+- Unverified model inference cannot become durable memory (tested).
+- Project isolation holds; canonical memory store remains authoritative.
+Known limitations:
+- supersede maps to invalidation-style retirement in v1 (historical, excluded from recall).
+Remaining blockers: None.
+Next work package: PDT-7 — Skill integration.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-5 — Minimal Context Broker
