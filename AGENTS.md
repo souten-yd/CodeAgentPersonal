@@ -1,43 +1,47 @@
-# AGENTS.md — KasaneCore 実装エージェント向け入口
+# Apply the Atlas Project Digital Twin design package
 
-このファイルは Codex / Claude などの実装エージェントが最初に読む入口です。
+This package contains:
 
-## Active P0 goal
+```text
+AGENTS.md
+docs/atlas_project_digital_twin_goal.md
+docs/atlas_project_digital_twin_architecture.md
+docs/atlas_project_digital_twin_contracts.md
+docs/atlas_project_digital_twin_implementation_plan.md
+docs/atlas_project_digital_twin_current_status.md
+docs/atlas_project_digital_twin_agent_entrypoint.md
+```
 
-| タスク | 正典入口 | 状態 |
-|---|---|---|
-| Atlas Play / Capsule / Portal | `docs/atlas_play_portal_capsule_goal.md` | Active / PR-PPC-0 |
+## PowerShell
 
-## Read order
+From the KasaneCore repository root:
 
-1. `docs/atlas_play_portal_capsule_goal.md`
-2. `docs/atlas_play_spec.md`
-3. `docs/atlas_capsule_portal_spec.md`
-4. `docs/atlas_play_portal_capsule_current_status.md`
-5. `docs/atlas_play_portal_capsule_implementation_plan.md`
-6. `docs/atlas_play_portal_capsule_codex_entrypoint.md`
-7. `docs/atlas_play_portal_capsule_review_corrections.md`
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install_project_digital_twin_docs.ps1
+```
 
-以前のAtlasコード生成完全性ゴールは完了済みです。この開発では上記文書と現在のコード・テストをsource of truthとします。
+Pass the extracted package directory when it is elsewhere:
 
-## Fixed decisions
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\path\to\package\install_project_digital_twin_docs.ps1 `
+  -RepoRoot C:\Users\kkens\code\KasaneCore
+```
 
-- `/play`はAtlas専用とし、Lumenへ追加しない。
-- Atlas headerはCapsule、Play、Plan Historyの順で右寄せする。
-- PortalはLumen、Atlas、Echo、Nexusと同列の画面とする。
-- Portal RunはAtlas Playの公開runtime contractを使う。
-- Package、永続data、session data、一時dataを分離する。
-- Portal dataは保存、snapshot、廃棄を選択可能にする。
-- Package ExportにPortal dataを含めない。
+The installer creates a timestamped backup of the existing `AGENTS.md`.
 
-## Implementation rules
+## Bash
 
-- PR-PPC-0からPR-PPC-12まで順番に、一度に一つだけ実装する。
-- 公開interfaceとversioned schemaを先に固定する。
-- 対象ファイル、直接依存、直接呼び出し元、関連testだけ読む。
-- 既存service、helper、schema、test fixtureを優先して再利用する。
-- focused tests、syntax checks、affected testsの順に検証する。
-- 計画だけで停止せず、実装、test、current status更新まで進める。
-- workflow state、PlanPool、approval、critical event、allowed path、rollback、retry limitを弱めない。
-- 実行していないtestを成功扱いしない。
-- 各PRは小さく独立してreview可能にする。
+```bash
+bash ./install_project_digital_twin_docs.sh /path/to/KasaneCore
+```
+
+## Start Codex or Claude
+
+After applying:
+
+```text
+Read AGENTS.md and implement the active Atlas Project Digital Twin goal.
+Start at PDT-0, follow current status, implement one work package at a time,
+run the required tests, update current status, and continue sequentially.
+Do not push, merge or weaken safety boundaries without explicit instruction.
+```
