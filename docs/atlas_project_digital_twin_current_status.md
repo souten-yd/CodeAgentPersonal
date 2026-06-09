@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-8 completed
+- Overall: PDT-9 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-9`
-- Next action: Runtime collectors (pytest/Playwright/API/Play observation normalizer)
+- Current work package: `PDT-10`
+- Next action: Static/runtime reconciliation (contradiction detection, invalidation, confidence)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -30,7 +30,7 @@
 | PDT-6 | Memory integration | Completed | pdt-6-memory-integration | `pytest -q tests/test_project_twin_memory_adapter.py` -> 6 passed |
 | PDT-7 | Skill integration | Completed | pdt-7-skill-integration | `pytest -q tests/test_project_twin_skill_registry.py` -> 6 passed |
 | PDT-8 | Behavioral Graph | Completed | pdt-8-behavioral-graph | `pytest -q tests/test_project_twin_behavioral_graph.py` -> 4 passed |
-| PDT-9 | Runtime collectors | Not started | — | — |
+| PDT-9 | Runtime collectors | Completed | pdt-9-runtime-collectors | `pytest -q tests/test_project_twin_runtime_collectors.py` -> 7 passed |
 | PDT-10 | Static/runtime reconciliation | Not started | — | — |
 | PDT-11 | Impact and path analysis | Not started | — | — |
 | PDT-12 | Nexus integration | Not started | — | — |
@@ -90,6 +90,37 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-9 — Runtime collectors
+PR/commit: branch pdt-9-runtime-collectors
+Changed files:
+- agent/project_twin/runtime_collectors.py (new) — collectors + RuntimeObservationPort ingestor
+- tests/test_project_twin_runtime_collectors.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- PytestCollector, PlaywrightCollector, ApiObservationCollector and PlayConsoleCollector
+  normalize their inputs into RuntimeObservation records with distinct passed/failed/
+  observed/unavailable results and subject_refs linking to test://, route:// where possible.
+- RuntimeObservationIngestor (RuntimeObservationPort.ingest) stores observations through a
+  delta; an unavailable observation with no project is rejected with a collector_unavailable
+  diagnostic rather than ingested as project truth.
+Truthfulness:
+- Unavailable instrumentation emits a single unavailable observation and never fabricates
+  passed.
+Focused tests:
+- python -m pytest -q tests/test_project_twin_runtime_collectors.py -> 7 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/runtime_collectors.py -> passed.
+Affected tests:
+- python -m pytest -q (10 project_twin test files) -> 99 passed.
+Known limitations:
+- Reconciliation of observations against inferred static/behavioral facts is PDT-10.
+Remaining blockers: None.
+Next work package: PDT-10 — Static/runtime reconciliation.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-8 — Behavioral Graph
