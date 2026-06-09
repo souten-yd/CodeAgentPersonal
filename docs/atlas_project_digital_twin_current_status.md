@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-3 completed
+- Overall: PDT-4 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-4`
-- Next action: Intent and Delivery Trace (Conversation→Requirement→PlanItem→File/Symbol→Test→Evidence)
+- Current work package: `PDT-5`
+- Next action: Minimal Context Broker (phase-aware bounded slice; planner/patch pilot adapters)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -25,7 +25,7 @@
 | PDT-1 | Versioned contracts | Completed | pdt-1-versioned-contracts | `pytest -q tests/test_project_twin_contracts.py` -> 23 passed; baseline -> 21 passed |
 | PDT-2 | Local transactional Twin Store | Completed | pdt-2-twin-store | `pytest -q tests/test_project_twin_store.py` -> 13 passed |
 | PDT-3 | Static Structural Graph | Completed | pdt-3-static-graph | `pytest -q tests/test_project_twin_static_graph.py` -> 8 passed |
-| PDT-4 | Intent and Delivery Trace | Not started | — | — |
+| PDT-4 | Intent and Delivery Trace | Completed | pdt-4-intent-delivery-trace | `pytest -q tests/test_project_twin_intent_trace.py` -> 5 passed |
 | PDT-5 | Minimal Context Broker | Not started | — | — |
 | PDT-6 | Memory integration | Not started | — | — |
 | PDT-7 | Skill integration | Not started | — | — |
@@ -90,6 +90,44 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-4 — Intent and Delivery Trace
+PR/commit: branch pdt-4-intent-delivery-trace
+Changed files:
+- agent/project_twin/intent_trace.py (new) — IntentTracePort projector
+- tests/test_project_twin_intent_trace.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- Projects Conversation/Message, Requirement/Constraint, Plan/PlanItem, Proposal/Run,
+  Verification and Evidence references (IDs) plus their relationships into the
+  intent_delivery domain as a reference/relation model (canonical systems stay
+  authoritative; derivation=canonical_projection).
+- Cross-domain edges link PlanItems to structural file:///py:// nodes and to PDT-3
+  test:// nodes by shared canonical ref / hashed node id.
+- Missing links (no source message, no requirement, no plan item) emit diagnostics
+  instead of fabricated edges; unsupported events are reported.
+- End-to-end Message -> Requirement -> PlanItem -> File/Symbol and PlanItem ->
+  Verification -> Test -> Evidence is queryable with source IDs.
+Focused tests:
+- python -m pytest -q tests/test_project_twin_intent_trace.py -> 5 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/intent_trace.py -> passed.
+Affected tests:
+- python -m pytest -q tests/test_project_twin_intent_trace.py tests/test_project_twin_static_graph.py
+  tests/test_project_twin_store.py tests/test_project_twin_contracts.py tests/test_project_twin_baseline.py
+  -> 70 passed.
+Safety invariants:
+- Read-only projection of references; no PlanPool/workflow mutation; the twin does not
+  replace conversation/PlanPool/verification authority.
+Known limitations:
+- Projector consumes structured event payloads; wiring real Atlas event producers is a
+  later integration step. trace_path uses undirected reachability until PDT-11.
+Remaining blockers: None.
+Next work package: PDT-5 — Minimal Context Broker.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-3 — Static Structural Graph
