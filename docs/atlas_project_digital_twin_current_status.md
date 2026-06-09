@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-12 completed
+- Overall: PDT-13 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-13`
-- Next action: Project Twin API and UI (health/revision/node/query/path/impact/context endpoints + panel)
+- Current work package: `PDT-14`
+- Next action: E2E benchmark and rollout (disabled-by-default flag; benchmark scenarios)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -34,7 +34,7 @@
 | PDT-10 | Static/runtime reconciliation | Completed | pdt-10-reconciliation | `pytest -q tests/test_project_twin_reconciliation.py` -> 5 passed |
 | PDT-11 | Impact and path analysis | Completed | pdt-11-impact-analysis | `pytest -q tests/test_project_twin_analysis.py` -> 4 passed |
 | PDT-12 | Nexus integration | Completed | pdt-12-nexus-integration | `pytest -q tests/test_project_twin_nexus_adapter.py` -> 5 passed |
-| PDT-13 | Project Twin API and UI | Not started | — | — |
+| PDT-13 | Project Twin API and UI | Completed | pdt-13-twin-api-ui | `pytest -q tests/test_project_twin_api.py` -> 7 passed; `node --check project_twin_panel.js` -> passed |
 | PDT-14 | E2E benchmark and rollout | Not started | — | — |
 
 ## PDT-0 required inventory
@@ -90,6 +90,42 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-13 — Project Twin API and UI
+PR/commit: branch pdt-13-twin-api-ui
+Changed files:
+- app/api/project_twin.py (new) — read-only inspection router
+- app/server.py — register project_twin_router via include_routers()
+- web/js/project_twin_panel.js (new) — read-only inspection panel client
+- agent/project_twin/store.py — check_same_thread=False so the store can back the router
+- tests/test_project_twin_api.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- GET /health, GET /node (1-hop bounded neighbours for lazy expansion), POST /query
+  (bounded + paginated), POST /path, POST /impact, POST /context endpoints.
+- JS panel with Structure/Behavior/Delivery/History/Impact views, lazy expansion, source
+  navigation hooks and confidence/status/revision filters.
+Acceptance:
+- initial graph is bounded (default limit 100, hard cap 1000); large projects paginate
+  (cursor); query over-limit is rejected at the contract boundary.
+- UI cannot authorize execution: the router exposes only GET/POST read endpoints with no
+  apply/execute/mutate path (test-enforced); the JS client calls only read endpoints.
+- Layout uses simple flex/list markup to remain usable on mobile.
+Focused tests:
+- python -m pytest -q tests/test_project_twin_api.py -> 7 passed.
+Syntax/type checks:
+- python -m py_compile app/api/project_twin.py app/server.py -> passed.
+- node --check web/js/project_twin_panel.js -> passed.
+Affected tests:
+- python -m pytest -q (14 project_twin test files) -> 120 passed.
+Safety:
+- Read-only projection viewer; no workflow/PlanPool/approval mutation; no execution route.
+Remaining blockers: None.
+Next work package: PDT-14 — E2E benchmark and rollout.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-12 — Nexus integration

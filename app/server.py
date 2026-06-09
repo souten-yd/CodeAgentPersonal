@@ -144,6 +144,7 @@ def include_routers(app: FastAPI) -> None:
     from app.api.system import router as system_router
     from app.api.system_status import router as system_status_router
     from app.api.portal import router as portal_router
+    from app.api.project_twin import router as project_twin_router
 
     app.include_router(atlas_workflow_state_router)
     app.include_router(atlas_automation_safety_profile_router)
@@ -188,6 +189,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(projects_router)
     app.include_router(portal_router)
     app.include_router(nexus_router)
+    app.include_router(project_twin_router)
 
 
 def configure_middleware(app: FastAPI) -> None:

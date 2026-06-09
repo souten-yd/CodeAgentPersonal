@@ -57,8 +57,10 @@ class SqliteProjectTwinStore:
         self._db_path = str(db_path)
         self._now = now_fn or _utcnow_iso
         # isolation_level=None -> autocommit; we control transactions explicitly with
-        # BEGIN/COMMIT so one delta is exactly one transaction.
-        self._conn = sqlite3.connect(self._db_path, isolation_level=None)
+        # BEGIN/COMMIT so one delta is exactly one transaction. check_same_thread=False
+        # lets the store back a FastAPI router whose sync handlers run in a threadpool;
+        # access stays logically single-threaded (one transaction per delta).
+        self._conn = sqlite3.connect(self._db_path, isolation_level=None, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         if self._db_path != ":memory:":
