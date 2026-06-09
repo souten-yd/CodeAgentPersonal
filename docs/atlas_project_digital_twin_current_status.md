@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-1 completed
+- Overall: PDT-2 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-2`
-- Next action: Local transactional Twin Store (SQLite behind `ProjectTwinPort`)
+- Current work package: `PDT-3`
+- Next action: Static Structural Graph (Python + web asset projection into typed nodes/edges)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -23,7 +23,7 @@
 |---|---|---|---|---|
 | PDT-0 | Baseline and boundary inventory | Completed | pdt-0-baseline-inventory | `pytest -q tests/test_project_twin_baseline.py` -> 21 passed |
 | PDT-1 | Versioned contracts | Completed | pdt-1-versioned-contracts | `pytest -q tests/test_project_twin_contracts.py` -> 23 passed; baseline -> 21 passed |
-| PDT-2 | Local transactional Twin Store | Not started | — | — |
+| PDT-2 | Local transactional Twin Store | Completed | pdt-2-twin-store | `pytest -q tests/test_project_twin_store.py` -> 13 passed |
 | PDT-3 | Static Structural Graph | Not started | — | — |
 | PDT-4 | Intent and Delivery Trace | Not started | — | — |
 | PDT-5 | Minimal Context Broker | Not started | — | — |
@@ -90,6 +90,43 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-2 — Local transactional Twin Store
+PR/commit: branch pdt-2-twin-store
+Changed files:
+- agent/project_twin/migrations.py (new) — SQLite schema + transactional migration runner
+- agent/project_twin/store.py (new) — SqliteProjectTwinStore implementing ProjectTwinPort
+- tests/test_project_twin_store.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- One-transaction-per-delta apply with rollback on any failure (no partial revision).
+- Idempotent delta application keyed by (project_id, idempotency_key) — repeat is stable.
+- Stale-base-revision rejection; revision parent linkage; head pointer maintenance.
+- Project isolation: payload scope check + project-scoped reads/writes.
+- Supersede-by-canonical_ref with preserved history; explicit invalidation with counts.
+- Current and point-in-time snapshots; filtered/paginated query; health diagnostics.
+- Foreign keys ON, WAL on file DBs, autocommit connection with explicit BEGIN/COMMIT.
+- trace_path/assess_impact return truthful "analysis_deferred" results (full in PDT-11).
+Focused tests:
+- python -m pytest -q tests/test_project_twin_store.py -> 13 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/migrations.py agent/project_twin/store.py -> passed.
+Affected tests:
+- python -m pytest -q tests/test_project_twin_store.py tests/test_project_twin_baseline.py
+  tests/test_project_twin_contracts.py -> 57 passed.
+Safety invariants:
+- Store touches only its own SQLite tables; consumers depend on ProjectTwinPort.
+- No workflow/PlanPool/approval/allowed-path/Safe Apply/verification behavior touched.
+- Migration failure rolls back and is not recorded (tested).
+Known limitations:
+- query traversal is shallow (single hop); deep path/impact analysis is PDT-11.
+- Store is not yet wired to any producer; PDT-3 adds the static projection.
+Remaining blockers: None.
+Next work package: PDT-3 — Static Structural Graph.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-1 — Versioned contracts
