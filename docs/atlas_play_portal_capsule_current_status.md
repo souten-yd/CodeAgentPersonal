@@ -11,8 +11,8 @@
 - Atlas Play specification: `docs/atlas_play_spec.md`
 - Capsule and Portal specification: `docs/atlas_capsule_portal_spec.md`
 - Canonical plan: `docs/atlas_play_portal_capsule_implementation_plan.md`
-- Current work package: PR-PPC-3
-- Next action: implement environment resolver and structured launch adapters
+- Current work package: PR-PPC-4
+- Next action: implement process supervisor, sessions, events and cleanup
 
 ## Baseline observations
 
@@ -34,7 +34,7 @@
 | PR-PPC-0 | Baseline, contracts and threat model | Completed | `python -m pytest -q tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 8 passed; affected router/API slice -> 16 passed; `python -m py_compile ...` -> passed |
 | PR-PPC-1 | Workspace access policy and file service | Completed | `python -m pytest -q tests/test_atlas_play_workspace_policy.py` -> 11 passed, 1 skipped; affected policy/snapshot/Safe Apply slice -> 48 passed, 5 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-2 | Play target and dependency discovery | Completed | `python -m pytest -q tests/test_atlas_play_target_discovery.py` -> 6 passed; affected Play/Lumen slice -> 29 passed, 1 skipped; `python -m py_compile ...` and `node --check ...` -> passed |
-| PR-PPC-3 | Environment resolver and launch adapters | Not started | - |
+| PR-PPC-3 | Environment resolver and launch adapters | Completed | `python -m pytest -q tests/test_atlas_play_environment_adapters.py` -> 7 passed; affected Play contract slice -> 32 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-4 | Process supervisor and Play sessions | Not started | - |
 | PR-PPC-4b | Composite runtime startup and cleanup | Not started | - |
 | PR-PPC-5a | Session-bound static preview serving | Not started | - |
@@ -49,64 +49,57 @@
 
 ## Safety checkpoint
 
-PR-PPC-2 adds Play target resolution, launch candidate detection, static dependency graph discovery, latest target graph persistence and Atlas-only `/play` intent routing to target discovery. It does not add process execution, preview serving, package extraction, Portal data writes, general shell access or UI authority. Existing Atlas workflow state, PlanPool, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
+PR-PPC-3 adds environment inspection, structured launch adapter construction, loopback-only port contracts and composite DAG validation. It does not start processes, mutate host environments, install dependencies, open ports, preview applications, extract packages, write Portal data or add UI authority. Existing Atlas workflow state, PlanPool, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
 
 ## Latest completed package evidence
 
 Completed package:
-PR-PPC-2 - Play target and dependency discovery.
+PR-PPC-3 - Environment resolver and structured launch adapters.
 
 PR/commit:
-PR #1618 package commit.
+PR #1619 package commit.
 
 Changed files:
 - `app/api/atlas_play.py`
-- `app/atlas/play/paths.py`
-- `app/atlas/play/target_discovery.py`
-- `web/js/atlas_claude_panel.js`
-- `web/js/atlas_pipeline_api.js`
-- `tests/test_atlas_play_target_discovery.py`
+- `app/atlas/play/environment.py`
+- `tests/test_atlas_play_environment_adapters.py`
 - `docs/atlas_play_portal_capsule_current_status.md`
 
 Public contracts added or changed:
-- Added versioned Play target discovery request/result, launch candidate and dependency graph contracts.
-- Added `/api/atlas/play/target/resolve` endpoint.
-- Added target graph persistence under `ca_data/atlas/play/target_graphs/<project>/latest.json`.
-- Added `AtlasPipelineAPI.resolvePlayTarget()` client method and Atlas chat `/play` intent dispatch to target discovery.
+- Added versioned environment resolver, structured launch adapter, loopback port contract and composite validation models.
+- Added `/api/atlas/play/environment/resolve` endpoint.
 
 Behavior implemented:
-- Target resolution order supports explicit `/play <entrypoint>`, current editor path, selected file path, last target and detected candidates.
-- Button and command sources share the same backend resolver contract.
-- Candidate detection covers HTML, Python scripts/ASGI hints and `package.json` scripts for npm/Vite/Next.
-- Static dependency discovery follows HTML scripts/styles/assets, JS imports/requires, CSS imports/URLs and local Python imports.
-- Missing or unsafe dependencies are diagnostic evidence and are not allowed to escape the project root.
-- Multiple candidates return a mobile-selection-ready payload instead of guessing.
-- `/play` is classified before `/plan` in Atlas and no Lumen route/client is added.
+- Python environment inspection prefers local `.venv`/`venv` interpreters and records missing local environment evidence without host mutation.
+- Node environment inspection validates `package.json` and selects pnpm/yarn/npm from lockfile precedence.
+- Structured adapters cover static web, Python script, ASGI, WSGI, Streamlit, Django, Node script, npm script, Vite, Next and composite profiles.
+- Adapter argv is bounded and structured; disallowed shell-like args and environment keys fail closed.
+- All port contracts are loopback-only and not directly exposed.
+- Composite profile validation rejects unknown dependencies and cycles, and returns deterministic startup order.
+- Missing entrypoints or package metadata return `missing_dependency`, not a fallback command.
 
 Focused tests:
-- `python -m pytest -q tests/test_atlas_play_target_discovery.py` -> 6 passed.
+- `python -m pytest -q tests/test_atlas_play_environment_adapters.py` -> 7 passed.
 
 Syntax checks:
-- `python -m py_compile app\atlas\play\target_discovery.py app\atlas\play\paths.py app\api\atlas_play.py` -> passed.
-- `node --check web\js\atlas_claude_panel.js; node --check web\js\atlas_pipeline_api.js` -> passed.
+- `python -m py_compile app\atlas\play\environment.py app\api\atlas_play.py` -> passed.
 
 Affected tests:
-- `python -m pytest -q tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py tests/test_lumen_intent_contract.py` -> 29 passed, 1 skipped.
+- `python -m pytest -q tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 32 passed, 1 skipped.
 
 Safety invariants verified:
-- `/play` remains Atlas-only and no Lumen parser or route was added.
-- Target/dependency paths reuse the workspace access policy and fail closed outside project root.
-- No process execution, preview gateway, package extraction, Portal data write, general shell endpoint or raw host-filesystem serving was added.
+- Adapter construction is metadata-only and sets `execution_started=false`.
+- Launch adapter policy remains separate from verification allowlists and does not alter workflow_state, PlanPool approval or self-apply authority.
+- No process execution, dependency installation, preview gateway, package extraction, Portal data write, general shell endpoint or raw host-filesystem serving was added.
 
 Known limitations:
-- PR-PPC-2 discovers targets and dependencies only. It does not resolve runtimes, construct launch commands, start processes or preview applications.
-- Static dependency parsing is intentionally conservative; unsupported dynamic references become diagnostics for later target/runtime work.
+- PR-PPC-3 resolves environment metadata and structured adapter argv only. It does not start processes, allocate real ports, install dependencies or verify runtime readiness.
 
 Remaining gaps:
-- PR-PPC-3 environment resolver and structured launch adapters.
+- PR-PPC-4 process supervisor, sessions, events and cleanup.
 
 Next package:
-PR-PPC-3 - Environment resolver and structured launch adapters.
+PR-PPC-4 - Process supervisor, sessions, events and cleanup.
 
 ## Update template
 
