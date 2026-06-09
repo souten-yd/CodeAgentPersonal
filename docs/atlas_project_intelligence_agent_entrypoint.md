@@ -11,10 +11,11 @@ Read in this order:
 3. `docs/atlas_project_intelligence_current_status.md`
 4. the current work package in `docs/atlas_project_intelligence_implementation_plan.md`
 5. relevant sections of `docs/atlas_project_intelligence_architecture.md`
-6. relevant sections of `docs/atlas_project_intelligence_contracts.md`
-7. relevant sections of `docs/atlas_project_intelligence_test_plan.md`
-8. `docs/atlas_project_intelligence_migration_plan.md` when touching existing capabilities or consumers
-9. target files, direct dependencies, direct callers, and related tests
+6. relevant sections of `docs/atlas_project_intelligence_detailed_design.md`
+7. relevant sections of `docs/atlas_project_intelligence_contracts.md`
+8. relevant sections of `docs/atlas_project_intelligence_test_plan.md`
+9. `docs/atlas_project_intelligence_migration_plan.md` when touching existing capabilities or consumers
+10. target files, direct dependencies, direct callers, and related tests
 
 The old `atlas_project_digital_twin_*` documents describe completed Core v1 and remain historical/reference material. Do not restart PDT-0 through PDT-14.
 
