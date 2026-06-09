@@ -230,13 +230,13 @@ def test_session_api_starts_stops_and_blocks_deferred_launch_kind(tmp_path: Path
         "/api/atlas/play/sessions/start",
         json={
             "project_id": "demo",
-            "launch_profile": {
-                "profile_id": "api",
-                "name": "API",
-                "kind": "python_asgi",
-                "entrypoint": "sleepy.py",
+                "launch_profile": {
+                    "profile_id": "streamlit",
+                    "name": "Streamlit",
+                    "kind": "streamlit",
+                    "entrypoint": "sleepy.py",
+                },
             },
-        },
     )
 
     assert response.status_code == 200
