@@ -41,6 +41,11 @@ _CATEGORY = {
     "evidence": "observations",
     "verification": "observations",
     "event_handler": "side_effects",
+    "nexus_evidence": "nexus_evidence",
+    "nexus_document": "nexus_evidence",
+    "nexus_report": "nexus_evidence",
+    "incident": "incidents",
+    "risk": "incidents",
 }
 
 _ESSENTIAL_CATEGORIES = {"requirements", "preserve_behaviors"}

@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-11 completed
+- Overall: PDT-12 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-12`
-- Next action: Nexus integration (external evidence references; support/contradict edges)
+- Current work package: `PDT-13`
+- Next action: Project Twin API and UI (health/revision/node/query/path/impact/context endpoints + panel)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -33,7 +33,7 @@
 | PDT-9 | Runtime collectors | Completed | pdt-9-runtime-collectors | `pytest -q tests/test_project_twin_runtime_collectors.py` -> 7 passed |
 | PDT-10 | Static/runtime reconciliation | Completed | pdt-10-reconciliation | `pytest -q tests/test_project_twin_reconciliation.py` -> 5 passed |
 | PDT-11 | Impact and path analysis | Completed | pdt-11-impact-analysis | `pytest -q tests/test_project_twin_analysis.py` -> 4 passed |
-| PDT-12 | Nexus integration | Not started | — | — |
+| PDT-12 | Nexus integration | Completed | pdt-12-nexus-integration | `pytest -q tests/test_project_twin_nexus_adapter.py` -> 5 passed |
 | PDT-13 | Project Twin API and UI | Not started | — | — |
 | PDT-14 | E2E benchmark and rollout | Not started | — | — |
 
@@ -90,6 +90,35 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-12 — Nexus integration
+PR/commit: branch pdt-12-nexus-integration
+Changed files:
+- agent/project_twin/nexus_adapter.py (new) — NexusProjector
+- agent/project_twin/context_broker.py — nexus + incident category mapping
+- tests/test_project_twin_nexus_adapter.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- Projects Nexus documents/evidence/reports into the learning domain retaining external
+  source, retrieval date and content hash; supports/contradicts/cited_from/includes_evidence
+  edges link evidence to requirements/decisions.
+- Context Broker now surfaces a nexus_evidence section.
+Safety:
+- External claims never become verified code truth: support/contradict edges are
+  llm_inference (status inferred, confidence < 1.0) and never change the target fact status;
+  contradictions remain explicit.
+Focused tests:
+- python -m pytest -q tests/test_project_twin_nexus_adapter.py -> 5 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/nexus_adapter.py agent/project_twin/context_broker.py -> passed.
+Affected tests:
+- python -m pytest -q (13 project_twin test files) -> 113 passed.
+Remaining blockers: None.
+Next work package: PDT-13 — Project Twin API and UI.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-11 — Impact and path analysis
