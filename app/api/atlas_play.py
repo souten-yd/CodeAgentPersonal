@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -13,6 +16,10 @@ from app.atlas.play.contracts import (
 )
 from app.atlas.play.file_service import PlayWorkspaceFileService
 from app.atlas.play.paths import AtlasPlayPathLayout
+from app.atlas.play.target_discovery import (
+    PlayTargetResolutionRequest,
+    resolve_play_target,
+)
 
 
 router = APIRouter(prefix="/api/atlas/play", tags=["atlas-play"])
@@ -45,6 +52,20 @@ def _project_work_root(request: Request, project_id: str):
     if not work_root.exists() or not work_root.is_dir():
         raise HTTPException(status_code=404, detail={"error": "not_found", "reason": "project_work_root_missing"})
     return work_root
+
+
+def _persist_target_resolution(request: Request, payload: PlayTargetResolutionRequest, result: dict) -> None:
+    root = resolve_atlas_ca_data_root(request)
+    target_dir = AtlasPlayPathLayout(root).play_target_graph_root(payload.project_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schema_version": "atlas.play.target_graph_record.v1",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "project_id": payload.project_id,
+        "source": payload.source,
+        "resolution": result,
+    }
+    (target_dir / "latest.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _raise_if_not_success(result: dict) -> None:
@@ -100,4 +121,12 @@ def write_workspace_file(payload: WorkspaceWriteRequest, request: Request) -> di
         expected_sha256=payload.expected_sha256,
     )
     _raise_if_not_success(result)
+    return result
+
+
+@router.post("/target/resolve")
+def resolve_target(payload: PlayTargetResolutionRequest, request: Request) -> dict:
+    work_root = _project_work_root(request, payload.project_id)
+    result = resolve_play_target(work_root, payload).model_dump(mode="json")
+    _persist_target_resolution(request, payload, result)
     return result

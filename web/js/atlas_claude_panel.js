@@ -554,6 +554,7 @@
     const lower = text.toLowerCase().trim();
     if (lower === 'stop' || lower === 'cancel') return 'stop';
     if (lower === 'recover' || lower.startsWith('recover ')) return 'recover';
+    if (lower === '/play' || lower.startsWith('/play ')) return 'play_project';
     if (lower === '/plan' || lower.startsWith('/plan ')) return 'show_plan_list';
     if (lower.startsWith('dry-run') || lower.startsWith('dry run')) return 'run_dry_run';
     if (lower.startsWith('show changed files') || lower.startsWith('files')) return 'show_changed_files';
@@ -578,6 +579,10 @@
     }
     if (intent === 'show_plan_list') {
       await showPlanPoolList();
+      return;
+    }
+    if (intent === 'play_project') {
+      await resolvePlayTargetFromCommand(text);
       return;
     }
     if (intent === 'switch_profile') {
@@ -649,6 +654,35 @@
     } else {
       pushSystemMessage('Profile selection alone never starts automation; backend workflow state, active envelope, and gates are required.');
     }
+  }
+
+  async function resolvePlayTargetFromCommand(text) {
+    const project = projectName() || workspaceId();
+    if (!project) {
+      pushAtlasMessage('Play target discovery requires an active Atlas project.');
+      return;
+    }
+    const resp = await root.AtlasPipelineAPI.resolvePlayTarget({
+      project_id: project,
+      source: 'atlas_command',
+      command_text: text,
+    });
+    if (!resp.ok) {
+      pushAtlasMessage(`Play target discovery failed: ${formatError(resp)}`);
+      return;
+    }
+    const data = resp.data || {};
+    if (data.status === 'resolved' && data.target) {
+      const files = (data.dependency_graph && data.dependency_graph.files) || [];
+      pushAtlasMessage(`Play target resolved: \`${data.target.entrypoint}\`${files.length ? `\nRelated files: ${files.length}` : ''}`);
+      return;
+    }
+    if (data.status === 'needs_selection') {
+      const candidates = (data.candidates || []).map((c) => `- ${c.entrypoint} (${c.launch_kind})`).join('\n');
+      pushAtlasMessage(candidates ? `Multiple Play targets found:\n${candidates}` : 'Multiple Play targets found.');
+      return;
+    }
+    pushAtlasMessage(`No supported Play target found: ${(data.diagnostics || []).join(', ') || data.status}`);
   }
 
   // Plan action prompt: approve / request-revision / cancel. State-driven so it is re-rendered on
