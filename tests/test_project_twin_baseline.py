@@ -109,8 +109,11 @@ def test_hybrid_memory_long_term_requires_saver() -> None:
     assert store.store_memory(key="x", value={"a": 1}, scope="long") is None
 
 
-# --- The twin package must not exist yet -------------------------------------
+# --- The twin contract package is introduced in PDT-1 ------------------------
 
-def test_project_twin_package_absent_at_baseline() -> None:
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("agent.project_twin.contracts")
+def test_project_twin_contracts_introduced_in_pdt1() -> None:
+    # PDT-0 pinned the absence of this package; PDT-1 introduces it as an explicit,
+    # reviewed step. The contract package must import without any storage dependency.
+    contracts = importlib.import_module("agent.project_twin.contracts")
+    assert hasattr(contracts, "TwinNode")
+    assert hasattr(contracts, "ProjectTwinPort")

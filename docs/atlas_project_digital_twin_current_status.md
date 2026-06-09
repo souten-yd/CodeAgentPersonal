@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-0 completed
+- Overall: PDT-1 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-1`
-- Next action: Versioned contracts (`agent/project_twin/{contracts,types,events,versioning}.py`)
+- Current work package: `PDT-2`
+- Next action: Local transactional Twin Store (SQLite behind `ProjectTwinPort`)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -22,7 +22,7 @@
 | WP | Title | Status | PR/Commit | Executed evidence |
 |---|---|---|---|---|
 | PDT-0 | Baseline and boundary inventory | Completed | pdt-0-baseline-inventory | `pytest -q tests/test_project_twin_baseline.py` -> 21 passed |
-| PDT-1 | Versioned contracts | Not started | — | — |
+| PDT-1 | Versioned contracts | Completed | pdt-1-versioned-contracts | `pytest -q tests/test_project_twin_contracts.py` -> 23 passed; baseline -> 21 passed |
 | PDT-2 | Local transactional Twin Store | Not started | — | — |
 | PDT-3 | Static Structural Graph | Not started | — | — |
 | PDT-4 | Intent and Delivery Trace | Not started | — | — |
@@ -90,6 +90,42 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-1 — Versioned contracts
+PR/commit: branch pdt-1-versioned-contracts
+Changed files:
+- agent/project_twin/__init__.py (new) — public surface re-export
+- agent/project_twin/types.py (new) — enums, literals, CONTRACT_VERSION
+- agent/project_twin/versioning.py (new) — version constant + compatibility helpers
+- agent/project_twin/events.py (new) — TwinEventEnvelope + EVENT_TYPES catalog
+- agent/project_twin/contracts.py (new) — schemas + public ports (Protocols)
+- tests/test_project_twin_contracts.py (new)
+- tests/test_project_twin_baseline.py — flip the PDT-0 absence pin to PDT-1 presence
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- atlas.project_twin.v1 contracts: TwinNode/Edge/Evidence/RuntimeObservation/Revision/Delta,
+  query/trace/impact/context schemas, store result envelopes, and seven public ports.
+- Deterministic pydantic-v2 serialization; invalid confidence/status/domain rejected;
+  query/depth/budget bounds enforced; version compatibility helpers; event envelope.
+- No storage/network/framework dependency in the contract package (enforced by test).
+Focused tests:
+- python -m pytest -q tests/test_project_twin_contracts.py -> 23 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/*.py -> passed.
+Affected tests:
+- python -m pytest -q tests/test_project_twin_baseline.py tests/test_project_twin_contracts.py
+  -> 44 passed.
+Safety invariants:
+- Contract-level: SkillActivation carries no authority fields; RuntimeObservation supports
+  truthful "unavailable"; contracts cannot mutate workflow/PlanPool (no store/exec deps).
+Known limitations:
+- Contracts only; no store, projection or consumer wiring yet (PDT-2+).
+Remaining blockers: None.
+Next work package: PDT-2 — Local transactional Twin Store.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-0 — Baseline and boundary inventory
