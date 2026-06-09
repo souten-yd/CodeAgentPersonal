@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api.atlas_root import resolve_atlas_ca_data_root
@@ -19,6 +20,13 @@ from app.atlas.play.environment import build_structured_launch_adapter
 from app.atlas.play.file_service import PlayWorkspaceFileService
 from app.atlas.play.paths import AtlasPlayPathLayout
 from app.atlas.play.sessions import PlaySessionError, PlaySessionManager, reconcile_play_startup_orphans
+from app.atlas.play.static_preview import (
+    StaticPreviewConsoleEvent,
+    StaticPreviewError,
+    StaticPreviewFailedRequest,
+    StaticPreviewService,
+    validate_preview_request_headers,
+)
 from app.atlas.play.target_discovery import (
     PlayTargetResolutionRequest,
     resolve_play_target,
@@ -111,6 +119,15 @@ def _raise_session_error(exc: PlaySessionError) -> None:
     raise HTTPException(status_code=status, detail={"error": exc.code}) from exc
 
 
+def _preview_service(request: Request) -> StaticPreviewService:
+    return StaticPreviewService(resolve_atlas_ca_data_root(request))
+
+
+def _raise_preview_error(exc: StaticPreviewError) -> None:
+    status = 404 if exc.code in {"static_file_missing", "session_not_found"} else 403
+    raise HTTPException(status_code=status, detail={"error": exc.code}) from exc
+
+
 @router.get("/capabilities")
 def get_atlas_play_capabilities() -> dict:
     """Expose PR-PPC-0 contracts only; no launch or file-serving capability."""
@@ -121,8 +138,9 @@ def get_atlas_play_capabilities() -> dict:
         "resource_limits": PlayResourceLimits().model_dump(),
         "threat_model": PlayThreatModel().model_dump(),
         "execution_enabled": True,
-        "file_serving_enabled": False,
+        "file_serving_enabled": True,
         "process_supervisor_enabled": True,
+        "static_preview_enabled": True,
         "preview_gateway_enabled": False,
     }
 
@@ -241,3 +259,49 @@ def reconcile_sessions(request: Request) -> dict:
         "schema_version": "atlas.play.session_reconcile.v1",
         "reconciled": [record.model_dump(mode="json") for record in records],
     }
+
+
+@router.post("/preview/{session_id}/console")
+def ingest_static_preview_console(session_id: str, payload: StaticPreviewConsoleEvent, request: Request) -> dict:
+    try:
+        validate_preview_request_headers(dict(request.headers))
+        return _preview_service(request).record_console_event(session_id, payload).model_dump(mode="json")
+    except StaticPreviewError as exc:
+        _raise_preview_error(exc)
+
+
+@router.post("/preview/{session_id}/failed-request")
+def ingest_static_preview_failed_request(session_id: str, payload: StaticPreviewFailedRequest, request: Request) -> dict:
+    try:
+        validate_preview_request_headers(dict(request.headers))
+        return _preview_service(request).record_failed_request(session_id, payload).model_dump(mode="json")
+    except StaticPreviewError as exc:
+        _raise_preview_error(exc)
+
+
+@router.get("/preview/{session_id}/observations")
+def get_static_preview_observations(session_id: str, request: Request) -> dict:
+    try:
+        return _preview_service(request).observation_record(session_id).model_dump(mode="json")
+    except StaticPreviewError as exc:
+        _raise_preview_error(exc)
+
+
+@router.get("/preview/{session_id}")
+@router.get("/preview/{session_id}/{relative_path:path}")
+def serve_static_preview(session_id: str, request: Request, relative_path: str = "index.html"):
+    try:
+        validate_preview_request_headers(dict(request.headers))
+        file_path, served_path, content_type = _preview_service(request).resolve_static_file(session_id, relative_path)
+    except StaticPreviewError as exc:
+        _raise_preview_error(exc)
+    return FileResponse(
+        path=str(file_path),
+        media_type=content_type,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Atlas-Play-Session": session_id,
+            "X-Atlas-Play-Path": served_path,
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
