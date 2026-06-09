@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-7 completed
+- Overall: PDT-8 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-8`
-- Next action: Behavioral Graph (event/action/state/transition + side-effect inference)
+- Current work package: `PDT-9`
+- Next action: Runtime collectors (pytest/Playwright/API/Play observation normalizer)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -29,7 +29,7 @@
 | PDT-5 | Minimal Context Broker | Completed | pdt-5-context-broker | `pytest -q tests/test_project_twin_context_broker.py` -> 7 passed |
 | PDT-6 | Memory integration | Completed | pdt-6-memory-integration | `pytest -q tests/test_project_twin_memory_adapter.py` -> 6 passed |
 | PDT-7 | Skill integration | Completed | pdt-7-skill-integration | `pytest -q tests/test_project_twin_skill_registry.py` -> 6 passed |
-| PDT-8 | Behavioral Graph | Not started | — | — |
+| PDT-8 | Behavioral Graph | Completed | pdt-8-behavioral-graph | `pytest -q tests/test_project_twin_behavioral_graph.py` -> 4 passed |
 | PDT-9 | Runtime collectors | Not started | — | — |
 | PDT-10 | Static/runtime reconciliation | Not started | — | — |
 | PDT-11 | Impact and path analysis | Not started | — | — |
@@ -90,6 +90,37 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-8 — Behavioral Graph
+PR/commit: branch pdt-8-behavioral-graph
+Changed files:
+- agent/project_twin/behavioral_graph.py (new) — BehavioralAnalyzer
+- tests/test_project_twin_behavioral_graph.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- Infers side-effect nodes (file/database/network/process/ui) for Python functions via AST
+  call classification, with performs_side_effect edges.
+- Models a UI path from JS: event -> action -> api_call with triggers/invokes edges and an
+  inferred reaches_route link to structural FastAPI routes.
+- Unresolved UI actions emit uncertainty diagnostics.
+Safety / truthfulness:
+- Every behavioral fact uses derivation heuristic_static, status inferred and confidence
+  < 1.0; behavioral facts are NEVER marked verified (only runtime/verification can).
+Focused tests:
+- python -m pytest -q tests/test_project_twin_behavioral_graph.py -> 4 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/behavioral_graph.py -> passed.
+Affected tests:
+- python -m pytest -q (9 project_twin test files) -> 92 passed.
+Known limitations:
+- Side-effect classification is name-based heuristic; data-flow modeling is coarse.
+  Confirmation against runtime evidence is PDT-9/PDT-10.
+Remaining blockers: None.
+Next work package: PDT-9 — Runtime collectors.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-7 — Skill integration
