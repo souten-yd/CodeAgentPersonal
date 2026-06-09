@@ -16,8 +16,8 @@ from typing import Any
 
 from pydantic import Field
 
-from app.atlas.play.contracts import LaunchKind, PlayResourceLimits, StrictContractModel
-from app.atlas.play.environment import StructuredLaunchAdapter
+from app.atlas.play.contracts import LaunchKind, LaunchProfile, PlayResourceLimits, StrictContractModel
+from app.atlas.play.environment import StructuredLaunchAdapter, build_structured_launch_adapter, validate_composite_launch_profiles
 from app.atlas.play.paths import AtlasPlayPathLayout
 from app.atlas.play.workspace_policy import WorkspacePermission, decide_workspace_access
 
@@ -40,6 +40,16 @@ class PlayProcessPolicy(StrictContractModel):
     windows_job_object_required: bool = False
     windows_child_tree_cleanup_strategy: str = ""
     cleanup_strategy: str
+
+
+class PlayCompositeServiceStatus(StrictContractModel):
+    schema_version: str = PLAY_SESSION_SCHEMA_VERSION
+    service_id: str = Field(min_length=1)
+    session_id: str = ""
+    state: str = "pending"
+    port: int | None = None
+    readiness_status: str = "pending"
+    readiness_error: str = ""
 
 
 class PlaySessionRecord(StrictContractModel):
@@ -65,6 +75,11 @@ class PlaySessionRecord(StrictContractModel):
     log_tail: list[str] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    parent_session_id: str | None = None
+    service_id: str = ""
+    child_session_ids: list[str] = Field(default_factory=list)
+    services: list[PlayCompositeServiceStatus] = Field(default_factory=list)
+    readiness_status: str = ""
 
 
 class _ActiveProcess:
@@ -77,6 +92,17 @@ class _ActiveProcess:
 
 _ACTIVE: dict[str, _ActiveProcess] = {}
 _ACTIVE_LOCK = threading.Lock()
+_RECORD_LOCKS: dict[str, threading.RLock] = {}
+_RECORD_LOCKS_LOCK = threading.Lock()
+
+
+def _record_lock(session_id: str) -> threading.RLock:
+    with _RECORD_LOCKS_LOCK:
+        lock = _RECORD_LOCKS.get(session_id)
+        if lock is None:
+            lock = threading.RLock()
+            _RECORD_LOCKS[session_id] = lock
+        return lock
 
 
 def _now() -> datetime:
@@ -220,15 +246,19 @@ class PlaySessionRepository:
         return self.session_dir(session_id) / "record.json"
 
     def save(self, record: PlaySessionRecord) -> None:
-        path = self.record_path(record.session_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8")
+        with _record_lock(record.session_id):
+            path = self.record_path(record.session_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+            tmp_path.write_text(json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp_path.replace(path)
 
     def load(self, session_id: str) -> PlaySessionRecord:
-        path = self.record_path(session_id)
-        if not path.exists():
-            raise PlaySessionError("session_not_found")
-        return PlaySessionRecord.model_validate_json(path.read_text(encoding="utf-8"))
+        with _record_lock(session_id):
+            path = self.record_path(session_id)
+            if not path.exists():
+                raise PlaySessionError("session_not_found")
+            return PlaySessionRecord.model_validate_json(path.read_text(encoding="utf-8"))
 
     def list_records(self) -> list[PlaySessionRecord]:
         root = self.data_root / "atlas" / "play" / "sessions"
@@ -261,6 +291,8 @@ class PlaySessionManager:
         adapter: StructuredLaunchAdapter,
         max_session_seconds: int | None = None,
         session_id: str | None = None,
+        parent_session_id: str | None = None,
+        service_id: str = "",
     ) -> PlaySessionRecord:
         self._assert_can_start(project_id, adapter)
         project_root_path = Path(project_root).expanduser().resolve()
@@ -287,6 +319,8 @@ class PlaySessionManager:
             started_at=_iso(now),
             updated_at=_iso(now),
             deadline_at=_iso(now + timedelta(seconds=seconds)),
+            parent_session_id=parent_session_id,
+            service_id=service_id,
         )
         _append_event(record, "session_starting", "", "starting", "starting play session")
         creationflags = 0
@@ -328,6 +362,124 @@ class PlaySessionManager:
         self.repository.save(record)
         return record
 
+    def start_composite_session(
+        self,
+        *,
+        project_id: str,
+        project_root: str | Path,
+        launch_profiles: list[LaunchProfile],
+        composite_profile_id: str,
+        readiness_timeout_seconds: float = 5.0,
+        max_session_seconds: int | None = None,
+    ) -> PlaySessionRecord:
+        validation = validate_composite_launch_profiles(launch_profiles)
+        if not validation.valid:
+            raise PlaySessionError("composite_profile_invalid", ",".join(validation.errors))
+        profiles_by_id = {profile.profile_id: profile for profile in launch_profiles}
+        composite = profiles_by_id.get(composite_profile_id)
+        if composite is None or composite.kind != LaunchKind.COMPOSITE:
+            raise PlaySessionError("composite_profile_missing")
+        project_root_path = Path(project_root).expanduser().resolve()
+        parent_id = f"play-{uuid.uuid4().hex}"
+        now = _now()
+        seconds = min(int(max_session_seconds or self.limits.max_session_seconds), self.limits.max_session_seconds)
+        parent = PlaySessionRecord(
+            session_id=parent_id,
+            project_id=project_id,
+            project_root=str(project_root_path),
+            state="starting",
+            launch_profile_id=composite.profile_id,
+            launch_kind=LaunchKind.COMPOSITE,
+            adapter=build_structured_launch_adapter(project_root_path, composite).model_dump(mode="json"),
+            process_policy=_process_policy(),
+            runtime_dir=str(self.layout.play_temp_root(parent_id)),
+            started_at=_iso(now),
+            updated_at=_iso(now),
+            deadline_at=_iso(now + timedelta(seconds=seconds)),
+        )
+        Path(parent.runtime_dir).mkdir(parents=True, exist_ok=True)
+        _append_event(parent, "composite_starting", "", "starting", "starting composite play session")
+        self.repository.save(parent)
+        started_children: list[PlaySessionRecord] = []
+
+        def fail_parent(reason: str, message: str) -> PlaySessionRecord:
+            for child in list(started_children):
+                latest = self.refresh_session(child.session_id)
+                if latest.state in ACTIVE_SESSION_STATES:
+                    self.stop_session(child.session_id, reason="composite_partial_failure")
+            previous = {service.service_id: service for service in parent.services}
+            before = parent.state
+            parent.state = "failed"
+            parent.stop_reason = reason
+            merged = self._composite_service_statuses(parent.child_session_ids)
+            for index, service in enumerate(merged):
+                prior = previous.get(service.service_id)
+                if prior and prior.readiness_status == "failed":
+                    merged[index] = prior.model_copy(update={"state": service.state, "port": service.port})
+            parent.services = merged
+            _append_event(parent, "composite_failed", before, parent.state, message, reason=reason)
+            self.repository.save(parent)
+            return parent
+
+        for profile_id in validation.startup_order:
+            profile = profiles_by_id[profile_id]
+            if profile.kind == LaunchKind.COMPOSITE:
+                continue
+            adapter = build_structured_launch_adapter(project_root_path, profile)
+            try:
+                child = self.start_session(
+                    project_id=project_id,
+                    project_root=project_root_path,
+                    adapter=adapter,
+                    max_session_seconds=max_session_seconds,
+                    parent_session_id=parent_id,
+                    service_id=profile.profile_id,
+                )
+            except PlaySessionError as exc:
+                parent.services.append(
+                    PlayCompositeServiceStatus(
+                        service_id=profile.profile_id,
+                        state="failed",
+                        readiness_status="failed",
+                        readiness_error=exc.code,
+                    )
+                )
+                return fail_parent(exc.code, f"service {profile.profile_id} failed to start")
+            started_children.append(child)
+            parent.child_session_ids.append(child.session_id)
+            _append_event(
+                parent,
+                "composite_service_started",
+                parent.state,
+                parent.state,
+                "service process started",
+                service_id=profile.profile_id,
+                session_id=child.session_id,
+            )
+            ready, readiness_error = self._wait_for_readiness(child.session_id, readiness_timeout_seconds)
+            latest = self.refresh_session(child.session_id)
+            parent.services.append(
+                PlayCompositeServiceStatus(
+                    service_id=profile.profile_id,
+                    session_id=child.session_id,
+                    state=latest.state,
+                    port=latest.port,
+                    readiness_status="ready" if ready else "failed",
+                    readiness_error=readiness_error,
+                )
+            )
+            if not ready:
+                return fail_parent(readiness_error or "readiness_timeout", f"service {profile.profile_id} did not become ready")
+            self.repository.save(parent)
+
+        before = parent.state
+        parent.state = "running"
+        parent.readiness_status = "ready"
+        parent.services = self._composite_service_statuses(parent.child_session_ids)
+        _append_event(parent, "composite_started", before, parent.state, "all services ready")
+        self.repository.save(parent)
+        return parent
+
     def get_session(self, session_id: str) -> PlaySessionRecord:
         return self.refresh_session(session_id)
 
@@ -335,7 +487,10 @@ class PlaySessionManager:
         with _ACTIVE_LOCK:
             active = _ACTIVE.get(session_id)
         if not active:
-            return self.repository.load(session_id)
+            stored = self.repository.load(session_id)
+            if stored.launch_kind == LaunchKind.COMPOSITE:
+                return self._refresh_composite(stored)
+            return stored
         process = active.process
         exit_code = process.poll()
         with active.lock:
@@ -358,6 +513,18 @@ class PlaySessionManager:
             active = _ACTIVE.get(session_id)
         if not active:
             record = self.repository.load(session_id)
+            if record.launch_kind == LaunchKind.COMPOSITE:
+                for child_id in record.child_session_ids:
+                    child = self.refresh_session(child_id)
+                    if child.state in ACTIVE_SESSION_STATES:
+                        self.stop_session(child_id, reason=reason, terminal_state=terminal_state)
+                before = record.state
+                record.state = terminal_state
+                record.stop_reason = reason
+                record.services = self._composite_service_statuses(record.child_session_ids)
+                _append_event(record, "composite_stopped", before, record.state, "all composite child services stopped")
+                self.repository.save(record)
+                return record
             if record.state in ACTIVE_SESSION_STATES:
                 before = record.state
                 record.state = terminal_state
@@ -433,11 +600,70 @@ class PlaySessionManager:
             raise PlaySessionError("launch_kind_deferred_to_later_package")
         if not adapter.port.loopback_only or adapter.port.expose_directly:
             raise PlaySessionError("port_contract_not_loopback_only")
-        active = [record for record in self.repository.list_active() if record.project_id == project_id]
+        active_records = [record for record in self.repository.list_active() if record.launch_kind != LaunchKind.COMPOSITE]
+        active = [record for record in active_records if record.project_id == project_id]
         if len(active) >= self.limits.max_sessions_per_project:
             raise PlaySessionError("project_session_limit_reached")
-        if len(self.repository.list_active()) >= self.limits.max_total_sessions:
+        if len(active_records) >= self.limits.max_total_sessions:
             raise PlaySessionError("total_session_limit_reached")
+
+    def _wait_for_readiness(self, session_id: str, timeout_seconds: float) -> tuple[bool, str]:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            record = self.refresh_session(session_id)
+            if record.state in TERMINAL_SESSION_STATES:
+                return False, "service_exit_before_ready"
+            if record.port and self._port_accepts_connection(record.port):
+                record.readiness_status = "ready"
+                self.repository.save(record)
+                return True, ""
+            time.sleep(0.05)
+        record = self.refresh_session(session_id)
+        if record.state in ACTIVE_SESSION_STATES:
+            record.readiness_status = "timeout"
+            self.repository.save(record)
+        return False, "readiness_timeout"
+
+    def _port_accepts_connection(self, port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.05)
+            try:
+                return sock.connect_ex(("127.0.0.1", port)) == 0
+            except OSError:
+                return False
+
+    def _composite_service_statuses(self, child_session_ids: list[str]) -> list[PlayCompositeServiceStatus]:
+        statuses: list[PlayCompositeServiceStatus] = []
+        for child_id in child_session_ids:
+            with _ACTIVE_LOCK:
+                has_active_handle = child_id in _ACTIVE
+            child = self.refresh_session(child_id) if has_active_handle else self.repository.load(child_id)
+            statuses.append(
+                PlayCompositeServiceStatus(
+                    service_id=child.service_id or child.launch_profile_id,
+                    session_id=child.session_id,
+                    state=child.state,
+                    port=child.port,
+                    readiness_status=child.readiness_status or ("ready" if child.state in ACTIVE_SESSION_STATES else child.state),
+                )
+            )
+        return statuses
+
+    def _refresh_composite(self, record: PlaySessionRecord) -> PlaySessionRecord:
+        services = self._composite_service_statuses(record.child_session_ids)
+        record.services = services
+        if record.state in ACTIVE_SESSION_STATES and any(service.state == "failed" for service in services):
+            for service in services:
+                child = self.repository.load(service.session_id)
+                if child.state in ACTIVE_SESSION_STATES:
+                    self.stop_session(child.session_id, reason="composite_child_failed")
+            before = record.state
+            record.state = "failed"
+            record.stop_reason = "composite_child_failed"
+            record.services = self._composite_service_statuses(record.child_session_ids)
+            _append_event(record, "composite_failed", before, record.state, "child service failed")
+        self.repository.save(record)
+        return record
 
     def _resolve_workdir(self, project_root: Path, adapter: StructuredLaunchAdapter) -> Path:
         decision = decide_workspace_access(

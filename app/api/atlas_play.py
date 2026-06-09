@@ -57,6 +57,14 @@ class SessionStartRequest(BaseModel):
     max_session_seconds: int | None = Field(default=None, ge=1)
 
 
+class CompositeSessionStartRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    launch_profiles: list[LaunchProfile] = Field(min_length=1)
+    composite_profile_id: str = Field(min_length=1)
+    readiness_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
+    max_session_seconds: int | None = Field(default=None, ge=1)
+
+
 def _project_work_root(request: Request, project_id: str):
     root = resolve_atlas_ca_data_root(request)
     try:
@@ -170,6 +178,23 @@ def start_session(payload: SessionStartRequest, request: Request) -> dict:
             project_id=payload.project_id,
             project_root=work_root,
             adapter=adapter,
+            max_session_seconds=payload.max_session_seconds,
+        )
+    except PlaySessionError as exc:
+        _raise_session_error(exc)
+    return record.model_dump(mode="json")
+
+
+@router.post("/sessions/composite/start")
+def start_composite_session(payload: CompositeSessionStartRequest, request: Request) -> dict:
+    work_root = _project_work_root(request, payload.project_id)
+    try:
+        record = _session_manager(request).start_composite_session(
+            project_id=payload.project_id,
+            project_root=work_root,
+            launch_profiles=payload.launch_profiles,
+            composite_profile_id=payload.composite_profile_id,
+            readiness_timeout_seconds=payload.readiness_timeout_seconds,
             max_session_seconds=payload.max_session_seconds,
         )
     except PlaySessionError as exc:
