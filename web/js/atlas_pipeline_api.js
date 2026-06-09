@@ -629,6 +629,30 @@
         timeoutMs: 30000,
       });
     },
+    resolvePlayEnvironment(payload) {
+      return atlasFetch('/api/atlas/play/environment/resolve', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    startPlaySession(payload) {
+      return atlasFetch('/api/atlas/play/sessions/start', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 30000 });
+    },
+    getPlaySession(sessionId) {
+      return atlasFetch(`/api/atlas/play/sessions/${encodeURIComponent(sessionId)}`, { timeoutMs: 15000 });
+    },
+    stopPlaySession(sessionId) {
+      return atlasFetch(`/api/atlas/play/sessions/${encodeURIComponent(sessionId)}/stop`, { method: 'POST', body: JSON.stringify({}) });
+    },
+    restartPlaySession(sessionId) {
+      return atlasFetch(`/api/atlas/play/sessions/${encodeURIComponent(sessionId)}/restart`, { method: 'POST', body: JSON.stringify({}) });
+    },
+    listPlayWorkspaceFiles(payload) {
+      return atlasFetch('/api/atlas/play/workspace/files/list', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    readPlayWorkspaceFile(payload) {
+      return atlasFetch('/api/atlas/play/workspace/files/read', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    writePlayWorkspaceFile(payload) {
+      return atlasFetch('/api/atlas/play/workspace/files/write', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
 
   };
 
