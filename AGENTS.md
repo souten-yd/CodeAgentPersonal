@@ -10,15 +10,16 @@ Read in this order:
 
 1. `AGENTS.md`
 2. `docs/atlas_project_intelligence_master_goal.md`
-3. `docs/atlas_project_intelligence_current_status.md`
-4. the current work package in `docs/atlas_project_intelligence_implementation_plan.md`
-5. relevant sections of `docs/atlas_project_intelligence_architecture.md`
-6. relevant sections of `docs/atlas_project_intelligence_detailed_design.md`
-7. relevant sections of `docs/atlas_project_intelligence_contracts.md`
-8. relevant sections of `docs/atlas_project_intelligence_test_plan.md`
-9. `docs/atlas_project_intelligence_migration_plan.md` when touching existing capabilities or consumers
-10. `docs/atlas_project_intelligence_agent_entrypoint.md`
-11. target code, direct dependencies, direct callers, and related tests
+3. `docs/atlas_project_intelligence_decisions.md`
+4. `docs/atlas_project_intelligence_current_status.md`
+5. the current work package in `docs/atlas_project_intelligence_implementation_plan.md`
+6. relevant sections of `docs/atlas_project_intelligence_architecture.md`
+7. relevant sections of `docs/atlas_project_intelligence_detailed_design.md`
+8. relevant sections of `docs/atlas_project_intelligence_contracts.md`
+9. relevant sections of `docs/atlas_project_intelligence_test_plan.md`
+10. `docs/atlas_project_intelligence_migration_plan.md` when touching existing capabilities or consumers
+11. `docs/atlas_project_intelligence_agent_entrypoint.md`
+12. target code, direct dependencies, direct callers, and related tests
 
 The old `docs/atlas_project_digital_twin_*` documents are historical/reference documents for Core v1. They are not the active overall goal.
 
@@ -28,7 +29,7 @@ The old `docs/atlas_project_digital_twin_*` documents are historical/reference d
 Read AGENTS.md and execute the active Atlas Project Intelligence goal through completion.
 Start from the current work package in docs/atlas_project_intelligence_current_status.md.
 Implement work packages sequentially, run the required tests, update current status after each package, and continue automatically while acceptance criteria pass.
-Do not restart PDT-0 through PDT-14. Do not stop at planning. Do not push, merge, self-apply, weaken safety boundaries, or delete legacy paths before migration gates pass.
+Do not restart PDT-0 through PDT-14. Do not stop at planning. Do not push, merge, self-apply, weaken safety boundaries, reverse frozen design decisions without change control, or delete legacy paths before migration gates pass.
 ```
 
 ## Execution loop
@@ -48,6 +49,12 @@ For each work package:
 11. continue automatically to the next package when acceptance criteria pass.
 
 Do not perform a repository-wide reread after PI-0 unless targeted symbol discovery fails.
+
+## Decision control
+
+The accepted decisions in `docs/atlas_project_intelligence_decisions.md` are frozen inputs to implementation. Do not reverse Actual/Blueprint separation, module-level isolation, authority boundaries, phased rollout, Blueprint-before-Greenfield, partial replanning, or migration gates for implementation convenience.
+
+Changing a frozen decision requires the ADR change-control process: alternatives, impact analysis, contract/persistence/migration/safety/test/rollout updates, a replacement decision, and a current-status update before implementation.
 
 ## Module boundary rule
 
