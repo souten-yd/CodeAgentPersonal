@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.api.atlas_root import resolve_atlas_ca_data_root
@@ -20,6 +20,7 @@ from app.atlas.play.environment import build_structured_launch_adapter
 from app.atlas.play.file_service import PlayWorkspaceFileService
 from app.atlas.play.paths import AtlasPlayPathLayout
 from app.atlas.play.sessions import PlaySessionError, PlaySessionManager, reconcile_play_startup_orphans
+from app.atlas.play.proxy_gateway import ProxyGateway, ProxyGatewayError
 from app.atlas.play.static_preview import (
     StaticPreviewConsoleEvent,
     StaticPreviewError,
@@ -123,8 +124,17 @@ def _preview_service(request: Request) -> StaticPreviewService:
     return StaticPreviewService(resolve_atlas_ca_data_root(request))
 
 
+def _proxy_gateway(request: Request) -> ProxyGateway:
+    return ProxyGateway(str(resolve_atlas_ca_data_root(request)))
+
+
 def _raise_preview_error(exc: StaticPreviewError) -> None:
     status = 404 if exc.code in {"static_file_missing", "session_not_found"} else 403
+    raise HTTPException(status_code=status, detail={"error": exc.code}) from exc
+
+
+def _raise_proxy_error(exc: ProxyGatewayError) -> None:
+    status = 404 if exc.code == "session_not_found" else 403
     raise HTTPException(status_code=status, detail={"error": exc.code}) from exc
 
 
@@ -141,7 +151,7 @@ def get_atlas_play_capabilities() -> dict:
         "file_serving_enabled": True,
         "process_supervisor_enabled": True,
         "static_preview_enabled": True,
-        "preview_gateway_enabled": False,
+        "preview_gateway_enabled": True,
     }
 
 
@@ -285,6 +295,47 @@ def get_static_preview_observations(session_id: str, request: Request) -> dict:
         return _preview_service(request).observation_record(session_id).model_dump(mode="json")
     except StaticPreviewError as exc:
         _raise_preview_error(exc)
+
+
+@router.api_route("/proxy/{session_id}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
+@router.api_route("/proxy/{session_id}/{relative_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
+async def proxy_session_http(session_id: str, request: Request, relative_path: str = ""):
+    gateway = _proxy_gateway(request)
+    try:
+        response = gateway.proxy_http(
+            session_id=session_id,
+            method=request.method,
+            relative_path=relative_path,
+            query_string=request.url.query,
+            headers=dict(request.headers),
+            body=await request.body(),
+        )
+    except ProxyGatewayError as exc:
+        _raise_proxy_error(exc)
+    except StaticPreviewError as exc:
+        _raise_preview_error(exc)
+    headers = gateway.response_headers(response, session_id)
+    return StreamingResponse(
+        gateway.stream_response(response),
+        status_code=response.status_code,
+        media_type=response.headers.get("content-type"),
+        headers=headers,
+    )
+
+
+@router.websocket("/proxy/{session_id}/ws/{relative_path:path}")
+async def proxy_session_websocket(websocket: WebSocket, session_id: str, relative_path: str = "") -> None:
+    try:
+        await ProxyGateway(str(resolve_atlas_ca_data_root(websocket))).proxy_websocket(
+            websocket,
+            session_id=session_id,
+            relative_path=relative_path,
+            query_string=str(websocket.url.query),
+        )
+    except (ProxyGatewayError, StaticPreviewError):
+        await websocket.close(code=1008)
+    except WebSocketDisconnect:
+        return
 
 
 @router.get("/preview/{session_id}")
