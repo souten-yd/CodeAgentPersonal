@@ -18,6 +18,7 @@ from app.atlas.play.contracts import (
 from app.atlas.play.environment import build_structured_launch_adapter
 from app.atlas.play.file_service import PlayWorkspaceFileService
 from app.atlas.play.paths import AtlasPlayPathLayout
+from app.atlas.play.sessions import PlaySessionError, PlaySessionManager, reconcile_play_startup_orphans
 from app.atlas.play.target_discovery import (
     PlayTargetResolutionRequest,
     resolve_play_target,
@@ -48,6 +49,12 @@ class WorkspaceWriteRequest(BaseModel):
 class EnvironmentResolveRequest(BaseModel):
     project_id: str = Field(min_length=1)
     launch_profile: LaunchProfile
+
+
+class SessionStartRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    launch_profile: LaunchProfile
+    max_session_seconds: int | None = Field(default=None, ge=1)
 
 
 def _project_work_root(request: Request, project_id: str):
@@ -87,6 +94,15 @@ def _raise_if_not_success(result: dict) -> None:
     raise HTTPException(status_code=400, detail={"error": "invalid_request", **result})
 
 
+def _session_manager(request: Request) -> PlaySessionManager:
+    return PlaySessionManager(resolve_atlas_ca_data_root(request))
+
+
+def _raise_session_error(exc: PlaySessionError) -> None:
+    status = 404 if exc.code == "session_not_found" else 400
+    raise HTTPException(status_code=status, detail={"error": exc.code}) from exc
+
+
 @router.get("/capabilities")
 def get_atlas_play_capabilities() -> dict:
     """Expose PR-PPC-0 contracts only; no launch or file-serving capability."""
@@ -96,9 +112,9 @@ def get_atlas_play_capabilities() -> dict:
         "launch_kinds": [kind.value for kind in LaunchKind],
         "resource_limits": PlayResourceLimits().model_dump(),
         "threat_model": PlayThreatModel().model_dump(),
-        "execution_enabled": False,
+        "execution_enabled": True,
         "file_serving_enabled": False,
-        "process_supervisor_enabled": False,
+        "process_supervisor_enabled": True,
         "preview_gateway_enabled": False,
     }
 
@@ -143,3 +159,60 @@ def resolve_target(payload: PlayTargetResolutionRequest, request: Request) -> di
 def resolve_environment(payload: EnvironmentResolveRequest, request: Request) -> dict:
     work_root = _project_work_root(request, payload.project_id)
     return build_structured_launch_adapter(work_root, payload.launch_profile).model_dump(mode="json")
+
+
+@router.post("/sessions/start")
+def start_session(payload: SessionStartRequest, request: Request) -> dict:
+    work_root = _project_work_root(request, payload.project_id)
+    adapter = build_structured_launch_adapter(work_root, payload.launch_profile)
+    try:
+        record = _session_manager(request).start_session(
+            project_id=payload.project_id,
+            project_root=work_root,
+            adapter=adapter,
+            max_session_seconds=payload.max_session_seconds,
+        )
+    except PlaySessionError as exc:
+        _raise_session_error(exc)
+    return record.model_dump(mode="json")
+
+
+@router.get("/sessions/{session_id}")
+def get_session(session_id: str, request: Request) -> dict:
+    try:
+        return _session_manager(request).get_session(session_id).model_dump(mode="json")
+    except PlaySessionError as exc:
+        _raise_session_error(exc)
+
+
+@router.post("/sessions/{session_id}/stop")
+def stop_session(session_id: str, request: Request) -> dict:
+    try:
+        return _session_manager(request).stop_session(session_id).model_dump(mode="json")
+    except PlaySessionError as exc:
+        _raise_session_error(exc)
+
+
+@router.post("/sessions/{session_id}/restart")
+def restart_session(session_id: str, request: Request) -> dict:
+    try:
+        return _session_manager(request).restart_session(session_id).model_dump(mode="json")
+    except PlaySessionError as exc:
+        _raise_session_error(exc)
+
+
+@router.post("/sessions/{session_id}/purge")
+def purge_session(session_id: str, request: Request) -> dict:
+    try:
+        return _session_manager(request).purge_session(session_id).model_dump(mode="json")
+    except PlaySessionError as exc:
+        _raise_session_error(exc)
+
+
+@router.post("/sessions/reconcile")
+def reconcile_sessions(request: Request) -> dict:
+    records = reconcile_play_startup_orphans(resolve_atlas_ca_data_root(request))
+    return {
+        "schema_version": "atlas.play.session_reconcile.v1",
+        "reconciled": [record.model_dump(mode="json") for record in records],
+    }

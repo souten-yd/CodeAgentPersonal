@@ -127,6 +127,8 @@ from app.server import (
     configure_workspace_mount,
     include_routers,
 )
+from app.api.atlas_root import resolve_atlas_ca_data_root
+from app.atlas.play.sessions import reconcile_play_startup_orphans
 from app.api.runtime_controls import (
     CUDA_REGRESSION_BASELINE_REF,
     CUDA_REGRESSION_SUSPECTED_FILES,
@@ -169,6 +171,10 @@ async def lifespan(app):
     # 起動時: 前回の残骸コンテナをクリーンアップ（後方定義のためglobals経由）
     cleanup = globals().get("_cleanup_server_containers")
     if cleanup: cleanup()
+    try:
+        reconcile_play_startup_orphans(resolve_atlas_ca_data_root())
+    except Exception as exc:
+        print(f"[Startup] Atlas Play orphan reconciliation skipped: {exc}")
     # 起動時: DBから設定を復元
     _load_opencode_settings = globals().get("_load_ensemble_settings_from_opencode_json")
     if _load_opencode_settings: _load_opencode_settings()
