@@ -609,6 +609,7 @@ class PlaySessionManager:
 
     def _wait_for_readiness(self, session_id: str, timeout_seconds: float) -> tuple[bool, str]:
         deadline = time.monotonic() + timeout_seconds
+        time.sleep(min(0.1, max(timeout_seconds / 2, 0.0)))
         while time.monotonic() < deadline:
             record = self.refresh_session(session_id)
             if record.state in TERMINAL_SESSION_STATES:
