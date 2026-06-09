@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-2 completed
+- Overall: PDT-3 completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-3`
-- Next action: Static Structural Graph (Python + web asset projection into typed nodes/edges)
+- Current work package: `PDT-4`
+- Next action: Intent and Delivery Trace (Conversation→Requirement→PlanItem→File/Symbol→Test→Evidence)
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -24,7 +24,7 @@
 | PDT-0 | Baseline and boundary inventory | Completed | pdt-0-baseline-inventory | `pytest -q tests/test_project_twin_baseline.py` -> 21 passed |
 | PDT-1 | Versioned contracts | Completed | pdt-1-versioned-contracts | `pytest -q tests/test_project_twin_contracts.py` -> 23 passed; baseline -> 21 passed |
 | PDT-2 | Local transactional Twin Store | Completed | pdt-2-twin-store | `pytest -q tests/test_project_twin_store.py` -> 13 passed |
-| PDT-3 | Static Structural Graph | Not started | — | — |
+| PDT-3 | Static Structural Graph | Completed | pdt-3-static-graph | `pytest -q tests/test_project_twin_static_graph.py` -> 8 passed |
 | PDT-4 | Intent and Delivery Trace | Not started | — | — |
 | PDT-5 | Minimal Context Broker | Not started | — | — |
 | PDT-6 | Memory integration | Not started | — | — |
@@ -90,6 +90,42 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-3 — Static Structural Graph
+PR/commit: branch pdt-3-static-graph
+Changed files:
+- agent/project_twin/static_graph.py (new) — pure StaticAnalysisPort implementation
+- agent/project_twin/projection.py (new) — StaticProjectionService (analyzer -> store)
+- tests/test_project_twin_static_graph.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- Deterministic projection of repository/dir/file/module nodes, Python class/function/
+  method nodes, imports/inheritance/name-based call edges, FastAPI route projection,
+  test + pytest-fixture nodes, HTML <script>/<link>/<style> asset links, and basic JS
+  import + event-handler links. Node ids are a stable hash of the canonical ref.
+- Parse/read failures emit diagnostics; the file node is still created.
+- Incremental refresh: changed-file-only re-emission; unrelated nodes are not rebuilt;
+  deleted symbols/edges are explicitly invalidated (not silently lost) and linked to head.
+Focused tests:
+- python -m pytest -q tests/test_project_twin_static_graph.py -> 8 passed.
+Syntax/type checks:
+- python -m py_compile agent/project_twin/static_graph.py agent/project_twin/projection.py -> passed.
+Affected tests:
+- python -m pytest -q tests/test_project_twin_static_graph.py tests/test_project_twin_store.py
+  tests/test_project_twin_contracts.py tests/test_project_twin_baseline.py -> 65 passed.
+Safety invariants:
+- Projection is the parser->store path via typed delta; no workflow/PlanPool mutation.
+- Heuristic JS/inline facts use heuristic_static derivation and lower confidence; never
+  marked verified.
+Known limitations:
+- Call/inheritance targets are name-based (pyname:// refs), not yet resolved to defs.
+- JS analysis is regex-based (heuristic). Full resolution is later behavioral/runtime work.
+Remaining blockers: None.
+Next work package: PDT-4 — Intent and Delivery Trace.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-2 — Local transactional Twin Store
