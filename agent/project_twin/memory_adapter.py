@@ -57,8 +57,14 @@ class TwinMemoryAdapter:
     # -- recall ---------------------------------------------------------------
 
     def recall(self, request: MemoryRecallRequest) -> MemoryRecallResult:
+        # Filter to learning memory node types so durable memory is not crowded out of the
+        # candidate window by the many structural/behavioral/intent nodes.
+        statuses = []
+        if request.include_superseded:
+            statuses = ["superseded", "invalidated", "contradicted"]
         result = self._store.query(
-            TwinQuery(project_id=request.project_id, limit=max(request.limit * 4, 20),
+            TwinQuery(project_id=request.project_id, node_types=sorted(set(_MEMORY_TYPES.values())),
+                      statuses=statuses, limit=max(request.limit * 4, 50),
                       min_confidence=request.min_confidence)
         )
         items: list[ContextItem] = []
