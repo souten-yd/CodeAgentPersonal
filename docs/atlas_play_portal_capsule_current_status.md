@@ -11,8 +11,8 @@
 - Atlas Play specification: `docs/atlas_play_spec.md`
 - Capsule and Portal specification: `docs/atlas_capsule_portal_spec.md`
 - Canonical plan: `docs/atlas_play_portal_capsule_implementation_plan.md`
-- Current work package: PR-PPC-10
-- Next action: implement Portal persistent data, discard and snapshots
+- Current work package: PR-PPC-11
+- Next action: implement Portal disconnect recovery and lifecycle hardening
 
 ## Baseline observations
 
@@ -43,68 +43,73 @@
 | PR-PPC-7 | Capsule analysis and builder | Completed | `python -m pytest -q tests/test_atlas_capsule_builder.py` -> 6 passed; affected Play/Capsule slice -> 69 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-8 | Portal catalog, import and export | Completed | `python -m pytest -q tests/test_portal_catalog.py` -> 6 passed; affected Portal/Capsule/Play slice -> 75 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-9 | Portal staging and shared runtime launch | Completed | `python -m pytest -q tests/test_portal_runtime.py` -> 6 passed; affected Portal/Capsule/Play slice -> 81 passed, 1 skipped; `python -m py_compile ...` -> passed |
-| PR-PPC-10 | Persistent data, discard and snapshots | Not started | - |
+| PR-PPC-10 | Persistent data, discard and snapshots | Completed | `python -m pytest -q tests/test_portal_data_lifecycle.py` -> 7 passed; affected Portal/Capsule/Play slice -> 88 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-11 | Disconnect recovery and lifecycle hardening | Not started | - |
 | PR-PPC-12 | Acceptance, security and mobile E2E | Not started | - |
 
 ## Safety checkpoint
 
-PR-PPC-9 adds Portal installation, safe application staging and runtime launch through the shared Play session manager. It does not directly spawn processes from Portal code, install dependencies, mutate package archives, implement persistent data commits or change workflow_state / PlanPool authority. Existing Atlas workflow state, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
+PR-PPC-10 adds Portal current/session/snapshot data lifecycle, explicit save/discard decisions and separate data backup/delete operations. It does not include runtime data in Package Export, install dependencies, expose a host shell, mutate immutable package archives or change workflow_state / PlanPool authority. Existing Atlas workflow state, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
 
 ## Latest completed package evidence
 
 Completed package:
-PR-PPC-9 - Portal staging and shared runtime launch.
+PR-PPC-10 - Portal persistent data, discard and snapshots.
 
 PR/commit:
-PR-PPC-9 package branch.
+PR-PPC-10 package branch.
 
 Changed files:
 - `app/api/portal.py`
+- `app/atlas/play/sessions.py`
+- `app/portal/data_lifecycle.py`
 - `app/portal/runtime.py`
-- `tests/test_portal_runtime.py`
+- `tests/test_portal_data_lifecycle.py`
 - `tests/test_atlas_play_portal_capsule_ppc0_contracts.py`
 - `docs/atlas_play_portal_capsule_current_status.md`
 
 Public contracts added or changed:
-- Portal capabilities now enable run.
-- Added Portal install, run, stop and purge endpoints.
-- Portal runtime records map installation id, portal session id, play session id, application root and launch profile.
+- Portal capabilities now enable data management.
+- Added Portal data summary, backup, confirmed delete, save, snapshot and discard endpoints.
+- Portal runtime records include managed session data/cache/temp roots and data decision state.
+- Play session environment now respects structured adapter environment values for safe Portal-managed path variables.
 
 Behavior implemented:
-- Every run revalidates stored package content hash before extraction.
-- Application files are safely extracted into Portal session application root.
-- Extracted application files are marked read-only.
-- Launch profile selection supports single-process and composite profiles.
-- Portal run requests are mapped to PlaySessionManager start/start_composite calls.
-- Untrusted imported packages remain blocked without explicit override acknowledgement.
-- Stop and purge use Play session manager and remove disposable staged application, cache and temp content.
+- Continue mode copies installation current data into writable session data.
+- Start-empty and ephemeral modes begin from an empty writable data root.
+- Snapshot mode copies immutable snapshot data without mutating the source snapshot.
+- Save and exit commits session data to current data with failure-preserving staging.
+- Save as snapshot records immutable snapshot metadata and does not mutate current data.
+- Discard and purge remove writable session data, cache and temp content.
+- Data backup is a separate ZIP contract from Package Export.
+- Data deletion requires explicit confirmation and does not uninstall the package.
 
 Focused tests:
-- `python -m pytest -q tests/test_portal_runtime.py` -> 6 passed.
+- `python -m pytest -q tests/test_portal_data_lifecycle.py` -> 7 passed.
 
 Syntax checks:
-- `python -m py_compile app\portal\runtime.py app\api\portal.py tests\test_portal_runtime.py tests\test_atlas_play_portal_capsule_ppc0_contracts.py` -> passed.
+- `python -m py_compile app\portal\data_lifecycle.py app\portal\runtime.py app\api\portal.py app\atlas\play\sessions.py tests\test_portal_data_lifecycle.py tests\test_atlas_play_portal_capsule_ppc0_contracts.py` -> passed.
 
 Affected tests:
-- `python -m pytest -q tests/test_portal_runtime.py tests/test_portal_catalog.py tests/test_atlas_capsule_builder.py tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_play_proxy_gateway.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 81 passed, 1 skipped.
+- `python -m pytest -q tests/test_portal_data_lifecycle.py tests/test_portal_runtime.py tests/test_portal_catalog.py tests/test_atlas_capsule_builder.py tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_play_proxy_gateway.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 88 passed, 1 skipped.
 
 Safety invariants verified:
-- Portal runtime does not directly import subprocess or call Popen.
-- Stored package hash tampering fails before staging.
-- Untrusted imported package run is blocked by default.
-- Portal purge removes disposable staged application content.
+- Package Export remains package-only and excludes current/snapshot/session data.
+- Data Backup is a separate versioned backup ZIP.
+- Failed current-data commit preserves previous current data.
+- Data delete requires explicit confirmation and leaves package artifacts installed.
+- Snapshot start and derived snapshot save do not mutate the source snapshot.
 - Launch adapter policy remains separate from verification allowlists and does not alter workflow_state, PlanPool approval or self-apply authority.
 
 Known limitations:
-- Persistent data commit/snapshot lifecycle remains PR-PPC-10.
+- Disconnect/restart recovery, bounded retention and startup reconciliation remain PR-PPC-11.
 - Portal Preview/Logs/Stop UI wiring is API-ready but still minimal.
 
 Remaining gaps:
-- PR-PPC-10 Portal persistent data, discard and snapshots.
+- PR-PPC-11 Disconnect recovery and lifecycle hardening.
 
 Next package:
-PR-PPC-10 - Portal persistent data, discard and snapshots.
+PR-PPC-11 - Disconnect recovery and lifecycle hardening.
 
 ## Update template
 

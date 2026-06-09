@@ -178,9 +178,9 @@ def _base_environment(adapter: StructuredLaunchAdapter, port: int) -> dict[str, 
         value = os.environ.get(key)
         if value:
             env[key] = value
-    for key in adapter.environment:
+    for key, configured_value in adapter.environment.items():
         if key not in {"PATH", "PYTHONPATH", "NODE_OPTIONS"}:
-            env[key] = os.environ.get(key, "")
+            env[key] = str(configured_value) if configured_value else os.environ.get(key, "")
     return env
 
 
@@ -371,6 +371,7 @@ class PlaySessionManager:
         composite_profile_id: str,
         readiness_timeout_seconds: float = 5.0,
         max_session_seconds: int | None = None,
+        environment: dict[str, str] | None = None,
     ) -> PlaySessionRecord:
         validation = validate_composite_launch_profiles(launch_profiles)
         if not validation.valid:
@@ -426,6 +427,8 @@ class PlaySessionManager:
             if profile.kind == LaunchKind.COMPOSITE:
                 continue
             adapter = build_structured_launch_adapter(project_root_path, profile)
+            if environment:
+                adapter.environment.update(environment)
             try:
                 child = self.start_session(
                     project_id=project_id,

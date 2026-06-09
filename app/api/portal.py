@@ -31,6 +31,14 @@ class PortalInstallRequest(BaseModel):
     installation_id: str | None = None
 
 
+class PortalSnapshotRequest(BaseModel):
+    snapshot_id: str | None = None
+
+
+class PortalDeleteDataRequest(BaseModel):
+    confirm_delete_data: bool = False
+
+
 def _catalog(request: Request) -> PortalCatalogService:
     return PortalCatalogService(resolve_atlas_ca_data_root(request))
 
@@ -45,7 +53,7 @@ def _runtime(request: Request) -> PortalRuntimeService:
 
 
 def _raise_runtime_error(exc: PortalRuntimeError) -> None:
-    status = 404 if exc.code in {"installation_not_found", "package_not_found", "portal_runtime_not_found"} else 400
+    status = 404 if exc.code in {"installation_not_found", "package_not_found", "portal_runtime_not_found", "snapshot_not_found"} else 400
     raise HTTPException(status_code=status, detail={"error": exc.code}) from exc
 
 
@@ -59,7 +67,7 @@ def get_portal_capabilities() -> dict:
         "import_enabled": True,
         "export_enabled": True,
         "run_enabled": True,
-        "data_management_enabled": False,
+        "data_management_enabled": True,
         "package_export_includes_runtime_data": False,
     }
 
@@ -140,5 +148,54 @@ def stop_portal_run(play_session_id: str, request: Request) -> dict:
 def purge_portal_run(play_session_id: str, request: Request) -> dict:
     try:
         return _runtime(request).purge(play_session_id)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+
+
+@router.get("/installations/{installation_id}/data")
+def get_installation_data(installation_id: str, request: Request) -> dict:
+    try:
+        return _runtime(request).data_summary(installation_id)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+
+
+@router.get("/installations/{installation_id}/data/backup")
+def export_installation_data_backup(installation_id: str, request: Request):
+    try:
+        path = _runtime(request).data_backup_path(installation_id)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+    return FileResponse(str(path), media_type="application/zip", filename=path.name)
+
+
+@router.delete("/installations/{installation_id}/data")
+def delete_installation_data(installation_id: str, payload: PortalDeleteDataRequest, request: Request) -> dict:
+    try:
+        return _runtime(request).delete_data(installation_id, confirm_delete_data=payload.confirm_delete_data)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+
+
+@router.post("/runs/{play_session_id}/data/save")
+def save_portal_run_data(play_session_id: str, request: Request) -> dict:
+    try:
+        return _runtime(request).save_and_exit(play_session_id)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+
+
+@router.post("/runs/{play_session_id}/data/snapshot")
+def save_portal_run_snapshot(play_session_id: str, payload: PortalSnapshotRequest, request: Request) -> dict:
+    try:
+        return _runtime(request).save_snapshot_and_exit(play_session_id, payload.snapshot_id)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+
+
+@router.post("/runs/{play_session_id}/data/discard")
+def discard_portal_run_data(play_session_id: str, request: Request) -> dict:
+    try:
+        return _runtime(request).discard_and_exit(play_session_id)
     except PortalRuntimeError as exc:
         _raise_runtime_error(exc)
