@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from app.portal.catalog import PortalCatalogError, PortalCatalogService
-from app.portal.contracts import PORTAL_SCHEMA_VERSION, PortalRunMode
+from app.portal.contracts import PORTAL_SCHEMA_VERSION, PortalRunMode, PortalRunRequest
+from app.portal.runtime import PortalRuntimeError, PortalRuntimeService
 
 
 router = APIRouter(prefix="/api/portal", tags=["portal"])
@@ -23,12 +24,28 @@ class PortalForkRequest(BaseModel):
     new_project_id: str = Field(min_length=1)
 
 
+class PortalInstallRequest(BaseModel):
+    package_id: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    content_hash: str = Field(min_length=1)
+    installation_id: str | None = None
+
+
 def _catalog(request: Request) -> PortalCatalogService:
     return PortalCatalogService(resolve_atlas_ca_data_root(request))
 
 
 def _raise_catalog_error(exc: PortalCatalogError) -> None:
     status = 404 if exc.code == "package_not_found" else 400
+    raise HTTPException(status_code=status, detail={"error": exc.code}) from exc
+
+
+def _runtime(request: Request) -> PortalRuntimeService:
+    return PortalRuntimeService(resolve_atlas_ca_data_root(request))
+
+
+def _raise_runtime_error(exc: PortalRuntimeError) -> None:
+    status = 404 if exc.code in {"installation_not_found", "package_not_found", "portal_runtime_not_found"} else 400
     raise HTTPException(status_code=status, detail={"error": exc.code}) from exc
 
 
@@ -41,7 +58,7 @@ def get_portal_capabilities() -> dict:
         "catalog_enabled": True,
         "import_enabled": True,
         "export_enabled": True,
-        "run_enabled": False,
+        "run_enabled": True,
         "data_management_enabled": False,
         "package_export_includes_runtime_data": False,
     }
@@ -91,3 +108,37 @@ def fork_to_atlas(payload: PortalForkRequest, request: Request) -> dict:
         return _catalog(request).fork_to_atlas(payload.package_id, payload.version, payload.content_hash, payload.new_project_id)
     except PortalCatalogError as exc:
         _raise_catalog_error(exc)
+
+
+@router.post("/install")
+def install_package(payload: PortalInstallRequest, request: Request) -> dict:
+    try:
+        return _runtime(request).install_package(payload.package_id, payload.version, payload.content_hash, payload.installation_id)
+    except (PortalRuntimeError, PortalCatalogError) as exc:
+        if isinstance(exc, PortalCatalogError):
+            _raise_catalog_error(exc)
+        _raise_runtime_error(exc)
+
+
+@router.post("/run")
+def run_portal(payload: PortalRunRequest, request: Request) -> dict:
+    try:
+        return _runtime(request).run(payload)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+
+
+@router.post("/runs/{play_session_id}/stop")
+def stop_portal_run(play_session_id: str, request: Request) -> dict:
+    try:
+        return _runtime(request).stop(play_session_id)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+
+
+@router.post("/runs/{play_session_id}/purge")
+def purge_portal_run(play_session_id: str, request: Request) -> dict:
+    try:
+        return _runtime(request).purge(play_session_id)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)

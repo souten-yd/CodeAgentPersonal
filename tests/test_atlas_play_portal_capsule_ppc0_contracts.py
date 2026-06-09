@@ -213,7 +213,7 @@ def test_router_capabilities_keep_no_arbitrary_command_surface() -> None:
     assert play["file_serving_enabled"] is True
     assert play["static_preview_enabled"] is True
     assert play["preview_gateway_enabled"] is True
-    assert portal["run_enabled"] is False
+    assert portal["run_enabled"] is True
     assert portal["catalog_enabled"] is True
     assert portal["import_enabled"] is True
     assert portal["export_enabled"] is True

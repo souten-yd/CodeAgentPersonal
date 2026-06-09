@@ -11,8 +11,8 @@
 - Atlas Play specification: `docs/atlas_play_spec.md`
 - Capsule and Portal specification: `docs/atlas_capsule_portal_spec.md`
 - Canonical plan: `docs/atlas_play_portal_capsule_implementation_plan.md`
-- Current work package: PR-PPC-9
-- Next action: implement Portal staging and shared runtime launch
+- Current work package: PR-PPC-10
+- Next action: implement Portal persistent data, discard and snapshots
 
 ## Baseline observations
 
@@ -42,68 +42,69 @@
 | PR-PPC-6 | Atlas Play mobile workspace and controls | Completed | `python -m pytest -q tests/test_atlas_play_mobile_workspace_ui_contract.py` -> 5 passed; affected Play/UI slice -> 63 passed, 1 skipped; `node --check ...` -> passed |
 | PR-PPC-7 | Capsule analysis and builder | Completed | `python -m pytest -q tests/test_atlas_capsule_builder.py` -> 6 passed; affected Play/Capsule slice -> 69 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-8 | Portal catalog, import and export | Completed | `python -m pytest -q tests/test_portal_catalog.py` -> 6 passed; affected Portal/Capsule/Play slice -> 75 passed, 1 skipped; `python -m py_compile ...` -> passed |
-| PR-PPC-9 | Portal staging and shared runtime launch | Not started | - |
+| PR-PPC-9 | Portal staging and shared runtime launch | Completed | `python -m pytest -q tests/test_portal_runtime.py` -> 6 passed; affected Portal/Capsule/Play slice -> 81 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-10 | Persistent data, discard and snapshots | Not started | - |
 | PR-PPC-11 | Disconnect recovery and lifecycle hardening | Not started | - |
 | PR-PPC-12 | Acceptance, security and mobile E2E | Not started | - |
 
 ## Safety checkpoint
 
-PR-PPC-8 adds Portal catalog, secure import preflight, package import/export, uninstall and Fork to Atlas. It does not run Portal packages, stage runtime data, install dependencies, expose host shell input or change workflow_state / PlanPool authority. Existing Atlas workflow state, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
+PR-PPC-9 adds Portal installation, safe application staging and runtime launch through the shared Play session manager. It does not directly spawn processes from Portal code, install dependencies, mutate package archives, implement persistent data commits or change workflow_state / PlanPool authority. Existing Atlas workflow state, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
 
 ## Latest completed package evidence
 
 Completed package:
-PR-PPC-8 - Portal package repository, catalog, import and export.
+PR-PPC-9 - Portal staging and shared runtime launch.
 
 PR/commit:
-PR-PPC-8 package branch.
+PR-PPC-9 package branch.
 
 Changed files:
 - `app/api/portal.py`
-- `app/portal/catalog.py`
-- `tests/test_portal_catalog.py`
+- `app/portal/runtime.py`
+- `tests/test_portal_runtime.py`
 - `tests/test_atlas_play_portal_capsule_ppc0_contracts.py`
 - `docs/atlas_play_portal_capsule_current_status.md`
 
 Public contracts added or changed:
-- Portal capabilities now enable catalog, import and export while run remains disabled.
-- Added `/api/portal/catalog`, import preflight/import, package export/uninstall and fork-to-Atlas endpoints.
-- Portal catalog reads Capsule package records from the package store.
+- Portal capabilities now enable run.
+- Added Portal install, run, stop and purge endpoints.
+- Portal runtime records map installation id, portal session id, play session id, application root and launch profile.
 
 Behavior implemented:
-- Import preflight rejects traversal, absolute, Windows-drive, duplicate, oversized and high-ratio zip entries.
-- Manifest and checksums are validated before import.
-- Imported packages are classified as untrusted and same package/version hash conflicts fail closed.
-- Export returns package ZIP only; runtime data is never included.
-- Uninstall removes package artifacts without deleting installation data.
-- Fork to Atlas extracts application files into a new immutable Atlas project work root.
+- Every run revalidates stored package content hash before extraction.
+- Application files are safely extracted into Portal session application root.
+- Extracted application files are marked read-only.
+- Launch profile selection supports single-process and composite profiles.
+- Portal run requests are mapped to PlaySessionManager start/start_composite calls.
+- Untrusted imported packages remain blocked without explicit override acknowledgement.
+- Stop and purge use Play session manager and remove disposable staged application, cache and temp content.
 
 Focused tests:
-- `python -m pytest -q tests/test_portal_catalog.py` -> 6 passed.
+- `python -m pytest -q tests/test_portal_runtime.py` -> 6 passed.
 
 Syntax checks:
-- `python -m py_compile app\portal\catalog.py app\api\portal.py tests\test_portal_catalog.py tests\test_atlas_play_portal_capsule_ppc0_contracts.py` -> passed.
+- `python -m py_compile app\portal\runtime.py app\api\portal.py tests\test_portal_runtime.py tests\test_atlas_play_portal_capsule_ppc0_contracts.py` -> passed.
 
 Affected tests:
-- `python -m pytest -q tests/test_portal_catalog.py tests/test_atlas_capsule_builder.py tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_play_proxy_gateway.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 75 passed, 1 skipped.
+- `python -m pytest -q tests/test_portal_runtime.py tests/test_portal_catalog.py tests/test_atlas_capsule_builder.py tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_play_proxy_gateway.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 81 passed, 1 skipped.
 
 Safety invariants verified:
-- Import validates archive shape and checksums before accepting package content.
-- Package export excludes runtime data.
-- Uninstall is independent from data deletion.
-- Portal run remains disabled.
+- Portal runtime does not directly import subprocess or call Popen.
+- Stored package hash tampering fails before staging.
+- Untrusted imported package run is blocked by default.
+- Portal purge removes disposable staged application content.
 - Launch adapter policy remains separate from verification allowlists and does not alter workflow_state, PlanPool approval or self-apply authority.
 
 Known limitations:
-- Portal run/staging remains PR-PPC-9.
-- Portal UI cards are API-backed but not yet wired into top-level navigation in this slice.
+- Persistent data commit/snapshot lifecycle remains PR-PPC-10.
+- Portal Preview/Logs/Stop UI wiring is API-ready but still minimal.
 
 Remaining gaps:
-- PR-PPC-9 Portal staging and shared runtime launch.
+- PR-PPC-10 Portal persistent data, discard and snapshots.
 
 Next package:
-PR-PPC-9 - Portal staging and shared runtime launch.
+PR-PPC-10 - Portal persistent data, discard and snapshots.
 
 ## Update template
 
