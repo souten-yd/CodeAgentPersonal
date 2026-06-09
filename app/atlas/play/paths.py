@@ -54,3 +54,7 @@ class AtlasPlayPathLayout:
     def play_temp_root(self, session_id: str) -> Path:
         session = _safe_component(session_id, "session_id")
         return _resolve_under(self.data_root, "atlas", "play", "temp", session)
+
+    def play_target_graph_root(self, project_id: str) -> Path:
+        project = _safe_component(project_id, "project_id")
+        return _resolve_under(self.data_root, "atlas", "play", "target_graphs", project)

@@ -622,6 +622,13 @@
     getLatestAutonomousCodegen(poolId) {
       return atlasFetch(`/api/atlas/autonomous-codegen/latest/${encodeURIComponent(poolId)}`);
     },
+    resolvePlayTarget(payload) {
+      return atlasFetch('/api/atlas/play/target/resolve', {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
+        timeoutMs: 30000,
+      });
+    },
 
   };
 
