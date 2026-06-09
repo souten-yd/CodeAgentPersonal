@@ -6,14 +6,14 @@
 
 ## Goal status
 
-- Overall: PDT-13 completed
+- Overall: COMPLETE — PDT-0 through PDT-14 all completed
 - Canonical goal: `docs/atlas_project_digital_twin_goal.md`
 - Architecture: `docs/atlas_project_digital_twin_architecture.md`
 - Contracts: `docs/atlas_project_digital_twin_contracts.md`
 - Implementation plan: `docs/atlas_project_digital_twin_implementation_plan.md`
 - Agent entrypoint: `docs/atlas_project_digital_twin_agent_entrypoint.md`
-- Current work package: `PDT-14`
-- Next action: E2E benchmark and rollout (disabled-by-default flag; benchmark scenarios)
+- Current work package: none (all 15 packages complete)
+- Next action: monitor CI; enable rollout per phase behind the disabled-by-default flag
 - Blocker: None recorded
 - Safety posture: Existing Atlas authority and verification rules unchanged
 
@@ -35,7 +35,7 @@
 | PDT-11 | Impact and path analysis | Completed | pdt-11-impact-analysis | `pytest -q tests/test_project_twin_analysis.py` -> 4 passed |
 | PDT-12 | Nexus integration | Completed | pdt-12-nexus-integration | `pytest -q tests/test_project_twin_nexus_adapter.py` -> 5 passed |
 | PDT-13 | Project Twin API and UI | Completed | pdt-13-twin-api-ui | `pytest -q tests/test_project_twin_api.py` -> 7 passed; `node --check project_twin_panel.js` -> passed |
-| PDT-14 | E2E benchmark and rollout | Not started | — | — |
+| PDT-14 | E2E benchmark and rollout | Completed | pdt-14-benchmark-rollout | `pytest -q tests/test_project_twin_benchmark.py` -> 5 passed (14/14 scenarios) |
 
 ## PDT-0 required inventory
 
@@ -90,6 +90,44 @@ The inventory must include:
 7. Continue only after acceptance criteria pass.
 
 ## Latest completed package
+
+```text
+Completed work package: PDT-14 — E2E benchmark and rollout (FINAL)
+PR/commit: branch pdt-14-benchmark-rollout
+Changed files:
+- agent/project_twin/feature_flag.py (new) — disabled-by-default rollout flag + shadow mode
+- agent/project_twin/benchmark.py (new) — 14-scenario E2E benchmark harness
+- agent/project_twin/memory_adapter.py — recall filters to learning memory node types
+- tests/test_project_twin_benchmark.py (new)
+- docs/atlas_project_digital_twin_current_status.md (this file)
+Behavior implemented:
+- run_benchmark assembles the full twin (static + behavioral + intent + memory + skill +
+  nexus + runtime reconciliation) and runs all 14 acceptance scenarios with pass/fail
+  evidence: function impact, UI-to-persistence trace, requirement trace, API side effects,
+  static/runtime reconciliation, test recommendation, design decision history, incident
+  history, project isolation, token-bounded context, incremental refresh, memory promotion,
+  skill activation/safety, nexus evidence linkage.
+- RolloutConfig: disabled by default; per-phase enablement; shadow mode that computes but
+  never applies; guaranteed rollback path (flag off => unchanged Atlas behavior).
+Final benchmark evidence:
+- python -m pytest -q tests/test_project_twin_benchmark.py -> 5 passed; the benchmark
+  asserts all 14 scenarios pass (len(results)==14, report.passed True).
+Syntax/type checks:
+- python -m py_compile agent/project_twin/feature_flag.py agent/project_twin/benchmark.py -> passed.
+Affected tests:
+- python -m pytest -q (15 project_twin test files) -> 125 passed.
+Definition of done:
+- All mandatory work packages PDT-0..PDT-14 completed; contracts versioned and
+  contract-tested; local transactional store; static/delivery/runtime integrated; impact
+  and path queries work; bounded twin context via broker; Conversation/Memory/Skill/Nexus
+  provenance retained; stale/contradictory info explicit; UI/API non-authoritative;
+  E2E acceptance scenarios have automated evidence; existing Atlas safety and
+  truthful-verification invariants intact.
+Remaining blockers: None.
+Next work package: none — goal complete. Rollout is disabled-by-default; enable per phase.
+```
+
+## Earlier completed package
 
 ```text
 Completed work package: PDT-13 — Project Twin API and UI
