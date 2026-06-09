@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
+from app.api.atlas_root import resolve_atlas_ca_data_root
 from app.atlas.play.contracts import (
     PLAY_SCHEMA_VERSION,
     PLAY_THREAT_MODEL_VERSION,
@@ -9,9 +11,52 @@ from app.atlas.play.contracts import (
     PlayResourceLimits,
     PlayThreatModel,
 )
+from app.atlas.play.file_service import PlayWorkspaceFileService
+from app.atlas.play.paths import AtlasPlayPathLayout
 
 
 router = APIRouter(prefix="/api/atlas/play", tags=["atlas-play"])
+
+
+class WorkspaceListRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    directory: str = "."
+    limit: int = Field(default=200, ge=1, le=1000)
+
+
+class WorkspaceReadRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    relative_path: str = Field(min_length=1)
+
+
+class WorkspaceWriteRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    relative_path: str = Field(min_length=1)
+    content: str = ""
+    expected_sha256: str = Field(min_length=1)
+
+
+def _project_work_root(request: Request, project_id: str):
+    root = resolve_atlas_ca_data_root(request)
+    try:
+        work_root = AtlasPlayPathLayout(root).atlas_project_work_root(project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error": "invalid_project_id", "reason": str(exc)}) from exc
+    if not work_root.exists() or not work_root.is_dir():
+        raise HTTPException(status_code=404, detail={"error": "not_found", "reason": "project_work_root_missing"})
+    return work_root
+
+
+def _raise_if_not_success(result: dict) -> None:
+    status = str(result.get("status") or "")
+    if status in {"ok", "written"}:
+        return
+    reason = str(result.get("reason") or "workspace_file_request_failed")
+    if status == "conflict":
+        raise HTTPException(status_code=409, detail={"error": "conflict", **result})
+    if reason in {"file_missing", "directory_missing"}:
+        raise HTTPException(status_code=404, detail={"error": "not_found", **result})
+    raise HTTPException(status_code=400, detail={"error": "invalid_request", **result})
 
 
 @router.get("/capabilities")
@@ -28,3 +73,31 @@ def get_atlas_play_capabilities() -> dict:
         "process_supervisor_enabled": False,
         "preview_gateway_enabled": False,
     }
+
+
+@router.post("/workspace/files/list")
+def list_workspace_files(payload: WorkspaceListRequest, request: Request) -> dict:
+    service = PlayWorkspaceFileService(project_root=_project_work_root(request, payload.project_id))
+    result = service.list_files(directory=payload.directory, limit=payload.limit)
+    _raise_if_not_success(result)
+    return result
+
+
+@router.post("/workspace/files/read")
+def read_workspace_file(payload: WorkspaceReadRequest, request: Request) -> dict:
+    service = PlayWorkspaceFileService(project_root=_project_work_root(request, payload.project_id))
+    result = service.read_file(relative_path=payload.relative_path)
+    _raise_if_not_success(result)
+    return result
+
+
+@router.post("/workspace/files/write")
+def write_workspace_file(payload: WorkspaceWriteRequest, request: Request) -> dict:
+    service = PlayWorkspaceFileService(project_root=_project_work_root(request, payload.project_id))
+    result = service.write_file(
+        relative_path=payload.relative_path,
+        content=payload.content,
+        expected_sha256=payload.expected_sha256,
+    )
+    _raise_if_not_success(result)
+    return result
