@@ -11,8 +11,8 @@
 - Atlas Play specification: `docs/atlas_play_spec.md`
 - Capsule and Portal specification: `docs/atlas_capsule_portal_spec.md`
 - Canonical plan: `docs/atlas_play_portal_capsule_implementation_plan.md`
-- Current work package: PR-PPC-1
-- Next action: implement shared workspace access policy and safe file service
+- Current work package: PR-PPC-2
+- Next action: implement Play target and dependency discovery
 
 ## Baseline observations
 
@@ -32,7 +32,7 @@
 | Package | Title | Status | Evidence |
 |---|---|---|---|
 | PR-PPC-0 | Baseline, contracts and threat model | Completed | `python -m pytest -q tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 8 passed; affected router/API slice -> 16 passed; `python -m py_compile ...` -> passed |
-| PR-PPC-1 | Workspace access policy and file service | Not started | - |
+| PR-PPC-1 | Workspace access policy and file service | Completed | `python -m pytest -q tests/test_atlas_play_workspace_policy.py` -> 11 passed, 1 skipped; affected policy/snapshot/Safe Apply slice -> 48 passed, 5 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-2 | Play target and dependency discovery | Not started | - |
 | PR-PPC-3 | Environment resolver and launch adapters | Not started | - |
 | PR-PPC-4 | Process supervisor and Play sessions | Not started | - |
@@ -49,76 +49,59 @@
 
 ## Safety checkpoint
 
-PR-PPC-0 adds contracts, reducers, path layout helpers and GET-only capability routers. It does not add process execution, file serving, package extraction, Portal data writes, preview proxying or UI authority. Existing Atlas workflow state, PlanPool, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
+PR-PPC-1 adds shared workspace access decisions and bounded Play file list/read/write APIs under the selected Atlas project work root. It does not add process execution, preview serving, package extraction, Portal data writes, general shell access or UI authority. Existing Atlas workflow state, PlanPool, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
 
 ## Latest completed package evidence
 
 Completed package:
-PR-PPC-0 - Baseline, contracts and threat model.
+PR-PPC-1 - Workspace access policy and file service.
 
 PR/commit:
-PR #1616 package commit.
+PR #1617 package commit.
 
 Changed files:
-- `app/atlas/play/__init__.py`
-- `app/atlas/play/contracts.py`
-- `app/atlas/play/state.py`
-- `app/atlas/play/paths.py`
-- `app/atlas/capsule/__init__.py`
-- `app/atlas/capsule/contracts.py`
-- `app/portal/__init__.py`
-- `app/portal/contracts.py`
-- `app/portal/paths.py`
 - `app/api/atlas_play.py`
-- `app/api/portal.py`
-- `app/server.py`
-- `tests/test_atlas_play_portal_capsule_ppc0_contracts.py`
-- `docs/atlas_play_portal_capsule_goal.md`
-- `docs/atlas_play_spec.md`
-- `docs/atlas_capsule_portal_spec.md`
-- `docs/atlas_play_portal_capsule_implementation_plan.md`
+- `app/atlas/play/workspace_policy.py`
+- `app/atlas/play/file_service.py`
+- `tests/test_atlas_play_workspace_policy.py`
 - `docs/atlas_play_portal_capsule_current_status.md`
 
 Public contracts added or changed:
-- Added versioned Play request, target, launch profile, environment, session view, lifecycle event, resource limit and threat model contracts.
-- Added versioned Capsule manifest, build request, package record and data-policy contracts.
-- Added versioned Portal installation, run, data commit and snapshot contracts.
-- Added no-side-effect Play lifecycle reducer.
-- Added Atlas Play and Portal path layout helpers with containment-safe identifiers.
-- Added GET-only `/api/atlas/play/capabilities` and `/api/portal/capabilities` router placeholders.
-- Reflected review corrections C1-C5/O1-O3/S1 into canonical docs, including PR-PPC-4b and PR-PPC-5a/5b split, Console naming and untrusted package default-run block.
+- Added versioned workspace access policy decisions with independent `read`, `write`, `execute` and `serve` permissions.
+- Added bounded Play workspace file list/read/write service.
+- Added `/api/atlas/play/workspace/files/list`, `/read` and `/write` endpoints scoped to `ca_data/atlas/projects/<project>/work`.
 
 Behavior implemented:
-- Unknown launch kinds fail closed through typed schema validation.
-- Free-form `command` fields are rejected by strict persisted/imported models.
-- Composite launch profiles are structured dependency lists, not shell command fields.
-- Untrusted imported Portal package runs are blocked by default; explicit override returns a warning that v1 is not OS-isolated.
-- State transitions reject invalid backward transitions and terminal-state restarts.
-- Router placeholders expose contract metadata only and no execution/import/export/file-serving methods.
+- Path normalization rejects traversal, encoded traversal, absolute paths, Windows drives, UNC paths and empty path segments.
+- Existing symlinks/junction-like escapes are rejected before read/write/list operations.
+- Protected dependency/runtime directories such as `.git`, `.venv`, `node_modules`, `dist`, `build` and `ca_data` are excluded from normal file APIs.
+- File reads are bounded by size, text encoding and binary-file checks.
+- Writes require an optimistic SHA-256 precondition or the `absent` marker for new files.
+- Stale writes return conflict without modifying the target file.
 
 Focused tests:
-- `python -m pytest -q tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 8 passed.
+- `python -m pytest -q tests/test_atlas_play_workspace_policy.py` -> 11 passed, 1 skipped.
 
 Syntax checks:
-- `python -m py_compile app\atlas\play\__init__.py app\atlas\play\contracts.py app\atlas\play\state.py app\atlas\play\paths.py app\atlas\capsule\__init__.py app\atlas\capsule\contracts.py app\portal\__init__.py app\portal\contracts.py app\portal\paths.py app\api\atlas_play.py app\api\portal.py app\server.py` -> passed.
+- `python -m py_compile app\atlas\play\workspace_policy.py app\atlas\play\file_service.py app\api\atlas_play.py` -> passed.
 
 Affected tests:
-- `python -m pytest -q tests/test_atlas_play_portal_capsule_ppc0_contracts.py tests/test_atlas_workflow_state_router_registration_contract.py tests/test_lumen_api_router_contract.py tests/test_projects_router_contract.py` -> 16 passed.
+- `python -m pytest -q tests/test_atlas_play_workspace_policy.py tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_workspace_snapshot_service.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 48 passed, 5 skipped.
 
 Safety invariants verified:
-- No process execution, file serving, preview gateway, package extraction, Portal data write, general shell endpoint or raw host-filesystem serving was added.
-- Play/Portal launch adapter contracts remain independent from verification allowlists and do not change workflow_state, PlanPool approval or self-apply authority.
-- Untrusted package execution is blocked by default in the public contract.
+- Safe Apply code paths were not weakened or modified.
+- Play file writes remain project-root scoped and require revision preconditions.
+- No process execution, preview gateway, package extraction, Portal data write, general shell endpoint or raw host-filesystem serving was added.
 
 Known limitations:
-- PR-PPC-0 is contract-only. Runtime launch, workspace file access, preview, Capsule build and Portal package/data lifecycle remain unimplemented by design.
-- OS-level isolation for untrusted packages is not implemented in v1; untrusted Run is default-blocked and requires explicit override with warning.
+- Symlink tests are skipped when the platform does not allow symlink creation in the test environment.
+- PR-PPC-1 does not implement Play target discovery, launch adapters, preview or runtime sessions.
 
 Remaining gaps:
-- PR-PPC-1 shared workspace access policy and safe file service.
+- PR-PPC-2 Play target and dependency discovery.
 
 Next package:
-PR-PPC-1 - Workspace access policy and file service.
+PR-PPC-2 - Play target and dependency discovery.
 
 ## Update template
 
