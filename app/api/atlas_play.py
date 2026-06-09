@@ -13,7 +13,9 @@ from app.atlas.play.contracts import (
     LaunchKind,
     PlayResourceLimits,
     PlayThreatModel,
+    LaunchProfile,
 )
+from app.atlas.play.environment import build_structured_launch_adapter
 from app.atlas.play.file_service import PlayWorkspaceFileService
 from app.atlas.play.paths import AtlasPlayPathLayout
 from app.atlas.play.target_discovery import (
@@ -41,6 +43,11 @@ class WorkspaceWriteRequest(BaseModel):
     relative_path: str = Field(min_length=1)
     content: str = ""
     expected_sha256: str = Field(min_length=1)
+
+
+class EnvironmentResolveRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+    launch_profile: LaunchProfile
 
 
 def _project_work_root(request: Request, project_id: str):
@@ -130,3 +137,9 @@ def resolve_target(payload: PlayTargetResolutionRequest, request: Request) -> di
     result = resolve_play_target(work_root, payload).model_dump(mode="json")
     _persist_target_resolution(request, payload, result)
     return result
+
+
+@router.post("/environment/resolve")
+def resolve_environment(payload: EnvironmentResolveRequest, request: Request) -> dict:
+    work_root = _project_work_root(request, payload.project_id)
+    return build_structured_launch_adapter(work_root, payload.launch_profile).model_dump(mode="json")
