@@ -212,7 +212,7 @@ def test_router_capabilities_keep_no_arbitrary_command_surface() -> None:
     assert play["process_supervisor_enabled"] is True
     assert play["file_serving_enabled"] is True
     assert play["static_preview_enabled"] is True
-    assert play["preview_gateway_enabled"] is False
+    assert play["preview_gateway_enabled"] is True
     assert portal["run_enabled"] is False
     assert portal["import_enabled"] is False
     assert portal["export_enabled"] is False
@@ -220,7 +220,7 @@ def test_router_capabilities_keep_no_arbitrary_command_surface() -> None:
     methods_by_path = {
         route.path: route.methods
         for route in app.routes
-        if route.path.startswith(("/api/atlas/play", "/api/portal"))
+        if route.path.startswith(("/api/atlas/play", "/api/portal")) and hasattr(route, "methods")
     }
     assert methods_by_path["/api/atlas/play/capabilities"] == {"GET"}
     assert "/api/atlas/play/sessions/start" in methods_by_path

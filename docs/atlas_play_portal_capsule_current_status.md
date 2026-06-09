@@ -11,8 +11,8 @@
 - Atlas Play specification: `docs/atlas_play_spec.md`
 - Capsule and Portal specification: `docs/atlas_capsule_portal_spec.md`
 - Canonical plan: `docs/atlas_play_portal_capsule_implementation_plan.md`
-- Current work package: PR-PPC-5b
-- Next action: implement reverse proxy, WebSocket and SSE gateway
+- Current work package: PR-PPC-6
+- Next action: implement Atlas Play mobile workspace and controls
 
 ## Baseline observations
 
@@ -38,7 +38,7 @@
 | PR-PPC-4 | Process supervisor and Play sessions | Completed | `python -m pytest -q tests/test_atlas_play_process_sessions.py` -> 10 passed; affected Play contract slice -> 42 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-4b | Composite runtime startup and cleanup | Completed | `python -m pytest -q tests/test_atlas_play_composite_runtime.py` -> 5 passed; affected Play runtime slice -> 47 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-5a | Session-bound static preview serving | Completed | `python -m pytest -q tests/test_atlas_play_static_preview.py` -> 5 passed; affected Play runtime slice -> 52 passed, 1 skipped; `python -m py_compile ...` -> passed |
-| PR-PPC-5b | Reverse proxy, WebSocket and SSE gateway | Not started | - |
+| PR-PPC-5b | Reverse proxy, WebSocket and SSE gateway | Completed | `python -m pytest -q tests/test_atlas_play_proxy_gateway.py` -> 6 passed; affected Play runtime slice -> 58 passed, 1 skipped; `python -m py_compile ...` -> passed |
 | PR-PPC-6 | Atlas Play mobile workspace and controls | Not started | - |
 | PR-PPC-7 | Capsule analysis and builder | Not started | - |
 | PR-PPC-8 | Portal catalog, import and export | Not started | - |
@@ -49,63 +49,62 @@
 
 ## Safety checkpoint
 
-PR-PPC-5a adds session-bound static preview serving through KasaneCore for active static-web Play sessions. It does not expose `file://`, raw host filesystem serving, direct temporary ports, reverse proxy behavior, dependency installation, package extraction, Portal data write or UI authority. Existing Atlas workflow state, PlanPool, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
+PR-PPC-5b adds a reverse proxy gateway for active Play sessions with owned loopback ports, including HTTP, SSE and WebSocket forwarding. It does not expose `file://`, direct temporary ports, open-proxy target selection, dependency installation, package extraction, Portal data write or UI authority. Existing Atlas workflow state, PlanPool, approval, critical-event, allowed-path, rollback and retry boundaries are unchanged.
 
 ## Latest completed package evidence
 
 Completed package:
-PR-PPC-5a - Session-bound static preview serving.
+PR-PPC-5b - Reverse proxy, WebSocket and SSE gateway.
 
 PR/commit:
-PR-PPC-5a package branch.
+PR-PPC-5b package branch.
 
 Changed files:
 - `app/api/atlas_play.py`
-- `app/atlas/play/static_preview.py`
-- `app/atlas/play/sessions.py`
-- `tests/test_atlas_play_static_preview.py`
+- `app/atlas/play/proxy_gateway.py`
+- `tests/test_atlas_play_proxy_gateway.py`
 - `tests/test_atlas_play_portal_capsule_ppc0_contracts.py`
 - `docs/atlas_play_portal_capsule_current_status.md`
 
 Public contracts added or changed:
-- Added `/api/atlas/play/preview/{session_id}/...` static preview serving endpoints.
-- Added console, failed-request and observation endpoints under a session-bound preview path.
-- Capabilities now report static preview and file serving enabled while reverse proxy gateway remains disabled.
+- Added `/api/atlas/play/proxy/{session_id}/...` HTTP/SSE reverse proxy endpoints.
+- Added `/api/atlas/play/proxy/{session_id}/ws/{path}` WebSocket forwarding.
+- Capabilities now report preview gateway enabled.
 
 Behavior implemented:
-- Static preview serves only active `static_web` session working directories.
-- Nested static assets are served through KasaneCore with no direct temporary port exposure.
-- Extensionless missing paths fall back to `index.html` for SPA routes.
-- Host and origin/referer validation reject non-local preview requests.
-- Traversal, unsafe paths and cross-session file access fail closed.
-- Browser console events, failed requests and runtime-observed served paths are persisted per session.
-- Composite readiness now waits briefly before probing a newly allocated child port to avoid false-positive port reuse on Windows.
+- HTTP proxy targets are derived only from the active session record's loopback port.
+- Query-based proxy target injection keys fail closed.
+- Host and origin/referer validation reject non-local proxy requests.
+- Redirect `Location` headers are rewritten back through the session proxy path.
+- Cookie paths are contained to the session proxy path.
+- SSE streams are forwarded through bounded streaming responses.
+- WebSocket text and binary messages are forwarded to the owned loopback session port.
 
 Focused tests:
-- `python -m pytest -q tests/test_atlas_play_static_preview.py` -> 5 passed.
+- `python -m pytest -q tests/test_atlas_play_proxy_gateway.py` -> 6 passed.
 
 Syntax checks:
-- `python -m py_compile app\atlas\play\static_preview.py app\atlas\play\sessions.py app\api\atlas_play.py tests\test_atlas_play_static_preview.py tests\test_atlas_play_portal_capsule_ppc0_contracts.py` -> passed.
+- `python -m py_compile app\atlas\play\proxy_gateway.py app\api\atlas_play.py tests\test_atlas_play_proxy_gateway.py tests\test_atlas_play_portal_capsule_ppc0_contracts.py` -> passed.
 
 Affected tests:
-- `python -m pytest -q tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 52 passed, 1 skipped.
+- `python -m pytest -q tests/test_atlas_play_proxy_gateway.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_composite_runtime.py tests/test_atlas_play_process_sessions.py tests/test_atlas_play_environment_adapters.py tests/test_atlas_play_target_discovery.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py` -> 58 passed, 1 skipped.
 
 Safety invariants verified:
-- Static preview is session-bound and accepts only active static-web session ids.
-- Host/origin validation rejects non-local origins.
-- Traversal and cross-session file access fail closed.
+- Proxy targets are session-derived and cannot be supplied by request query or path.
+- Cross-session port access and non-local host/origin requests fail closed.
+- Redirect and cookie headers are rewritten or contained to the session proxy path.
 - No arbitrary command or shell API was added.
 - Launch adapter policy remains separate from verification allowlists and does not alter workflow_state, PlanPool approval or self-apply authority.
 
 Known limitations:
-- PR-PPC-5a does not implement reverse proxy, WebSocket or SSE forwarding.
-- Browser instrumentation is ingestion-only here; UI wiring remains later work.
+- Gateway path/base rewriting is intentionally minimal and covered for redirects/cookies; richer app-specific base rewriting remains later hardening.
+- Browser UI wiring remains later work.
 
 Remaining gaps:
-- PR-PPC-5b reverse proxy, WebSocket and SSE gateway.
+- PR-PPC-6 Atlas Play mobile workspace and controls.
 
 Next package:
-PR-PPC-5b - Reverse proxy, WebSocket and SSE gateway.
+PR-PPC-6 - Atlas Play mobile workspace and controls.
 
 ## Update template
 
