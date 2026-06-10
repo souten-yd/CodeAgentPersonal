@@ -53,6 +53,42 @@
       "class_name": "DisabledDigitalTwinModule",
       "module": "agent.project_intelligence.factory",
       "path": "agent/project_intelligence/factory.py"
+    },
+    {
+      "call": "ArchitectureBlueprintModuleImpl",
+      "class_name": "ArchitectureBlueprintModuleImpl",
+      "module": "agent.project_intelligence.production_factory",
+      "path": "agent/project_intelligence/production_factory.py"
+    },
+    {
+      "call": "ConvergenceModuleImpl",
+      "class_name": "ConvergenceModuleImpl",
+      "module": "agent.project_intelligence.production_factory",
+      "path": "agent/project_intelligence/production_factory.py"
+    },
+    {
+      "call": "DigitalTwinModuleImpl",
+      "class_name": "DigitalTwinModuleImpl",
+      "module": "agent.project_intelligence.production_factory",
+      "path": "agent/project_intelligence/production_factory.py"
+    },
+    {
+      "call": "DisabledArchitectureBlueprintModule",
+      "class_name": "DisabledArchitectureBlueprintModule",
+      "module": "agent.project_intelligence.production_factory",
+      "path": "agent/project_intelligence/production_factory.py"
+    },
+    {
+      "call": "DisabledConvergenceModule",
+      "class_name": "DisabledConvergenceModule",
+      "module": "agent.project_intelligence.production_factory",
+      "path": "agent/project_intelligence/production_factory.py"
+    },
+    {
+      "call": "DisabledDigitalTwinModule",
+      "class_name": "DisabledDigitalTwinModule",
+      "module": "agent.project_intelligence.production_factory",
+      "path": "agent/project_intelligence/production_factory.py"
     }
   ],
   "critical_findings": [
@@ -237,6 +273,12 @@
         },
         {
           "imports_legacy_capability": [],
+          "imports_project_intelligence": true,
+          "module": "app.api.atlas_project_intelligence",
+          "path": "app/api/atlas_project_intelligence.py"
+        },
+        {
+          "imports_legacy_capability": [],
           "imports_project_intelligence": false,
           "module": "app.api.atlas_projects",
           "path": "app/api/atlas_projects.py"
@@ -386,7 +428,7 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-10T13:25:35+00:00",
+  "generated_at": "2026-06-10T13:40:56+00:00",
   "legacy_consumers": [
     {
       "capability": "legacy_code_explorer",
@@ -847,6 +889,12 @@
     },
     {
       "imports_legacy_capability": [],
+      "imports_project_intelligence": true,
+      "module": "app.api.atlas_project_intelligence",
+      "path": "app/api/atlas_project_intelligence.py"
+    },
+    {
+      "imports_legacy_capability": [],
       "imports_project_intelligence": false,
       "module": "app.api.atlas_projects",
       "path": "app/api/atlas_projects.py"
@@ -1033,6 +1081,6 @@
     "disabled_facade_count": 4,
     "facade_module_count": 6,
     "legacy_production_consumer_count": 43,
-    "production_entrypoint_count": 31
+    "production_entrypoint_count": 32
   }
 }

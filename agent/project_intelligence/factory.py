@@ -10,21 +10,23 @@ that is behaviourally equivalent to the legacy baseline and constructs no persis
 
 from __future__ import annotations
 
+from agent.architecture_blueprint.contracts import ArchitectureBlueprintModule
 from agent.architecture_blueprint.facade import DisabledArchitectureBlueprintModule
+from agent.project_convergence.contracts import ConvergenceModule
 from agent.project_convergence.facade import DisabledConvergenceModule
 from agent.project_intelligence.coordinator import ProjectIntelligenceCoordinator
 from agent.project_intelligence.rollout import RolloutConfig
 from agent.project_intelligence.telemetry import TelemetrySink
-from agent.project_twin.facade import DisabledDigitalTwinModule
+from agent.project_twin.facade import DigitalTwinModule, DisabledDigitalTwinModule
 
 
 def build_project_intelligence(
     *,
     rollout: RolloutConfig | None = None,
     env: dict | None = None,
-    digital_twin: DisabledDigitalTwinModule | None = None,
-    blueprint: DisabledArchitectureBlueprintModule | None = None,
-    convergence: DisabledConvergenceModule | None = None,
+    digital_twin: DigitalTwinModule | None = None,
+    blueprint: ArchitectureBlueprintModule | None = None,
+    convergence: ConvergenceModule | None = None,
     telemetry: TelemetrySink | None = None,
 ) -> ProjectIntelligenceCoordinator:
     """Compose the Project Intelligence coordinator.

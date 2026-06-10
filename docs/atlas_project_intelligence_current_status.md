@@ -23,8 +23,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: recovery track `PIR-2` after the PIR-1 durable module foundations
-- Next action: wire production composition and rollout preflight through the recovery plan;
+- Current work package: recovery track `PIR-3` after the PIR-2 production composition root
+- Next action: implement source snapshots and Twin refresh lifecycle through the recovery plan;
   do not claim production completion from the old Foundation Track package table
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged

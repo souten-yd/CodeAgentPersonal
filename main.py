@@ -128,6 +128,10 @@ from app.server import (
     include_routers,
 )
 from app.api.atlas_root import resolve_atlas_ca_data_root
+from agent.project_intelligence.service_registry import (
+    close_project_intelligence_service,
+    register_project_intelligence_service,
+)
 from app.atlas.play.sessions import reconcile_play_startup_orphans
 from app.portal.recovery import reconcile_portal_startup_recovery
 from app.api.runtime_controls import (
@@ -180,6 +184,7 @@ async def lifespan(app):
         reconcile_portal_startup_recovery(resolve_atlas_ca_data_root())
     except Exception as exc:
         print(f"[Startup] Portal recovery reconciliation skipped: {exc}")
+    register_project_intelligence_service(app, ca_data_dir=resolve_atlas_ca_data_root())
     # 起動時: DBから設定を復元
     _load_opencode_settings = globals().get("_load_ensemble_settings_from_opencode_json")
     if _load_opencode_settings: _load_opencode_settings()
@@ -213,6 +218,7 @@ async def lifespan(app):
     _load_echo_voice_ref = globals().get("_load_persisted_echo_voice_ref")
     if _load_echo_voice_ref: _load_echo_voice_ref()
     yield
+    close_project_intelligence_service(app)
     # 終了時: サーバーコンテナを全て停止
     cleanup = globals().get("_cleanup_server_containers")
     if cleanup: cleanup()

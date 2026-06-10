@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-2`
-- Next action: wire the concrete Project Intelligence service into production composition and rollout preflight
+- Current package: `PIR-3`
+- Next action: implement real project source snapshots and Twin refresh lifecycle
 - Blocker: none
 - Rollout: off by default
 
@@ -42,7 +42,7 @@ This file selects the active package. The old PI package table does not prove fi
 |---|---|---|
 | PIR-0 | baseline, inventory, regression locks | acceptance_complete |
 | PIR-1 | durable concrete modules | acceptance_complete |
-| PIR-2 | production composition and rollout preflight | not_started |
+| PIR-2 | production composition and rollout preflight | acceptance_complete |
 | PIR-3 | source snapshots and Twin refresh | not_started |
 | PIR-4 | durable event and delivery integration | not_started |
 | PIR-5 | verification ingest, context, impact, test selection | not_started |
@@ -168,5 +168,61 @@ Known limitations: Digital Twin source snapshots/analyzers and production constr
   wired until PIR-2/PIR-3; Convergence uses injected loaders until production composition supplies
   real Blueprint/Actual sources.
 Next package: PIR-2 — production composition and rollout preflight.
+Blocker: none.
+```
+
+```text
+Work package: PIR-2 — Production composition root, service lifecycle, and rollout preflight
+Status: acceptance_complete
+Changed modules/files:
+- agent/project_intelligence/production_factory.py — production composition root resolving
+  durable module DBs under ca_data/project_intelligence, off-mode disabled compatibility,
+  shadow/active concrete composition, persisted rollout state, and fail-closed preflight.
+- agent/project_intelligence/service_registry.py — app.state lifecycle holder and shutdown close.
+- app/api/atlas_project_intelligence.py and app/server.py — read-only health route under
+  /api/atlas/project-intelligence/health.
+- main.py — production lifespan registration/close for the Project Intelligence service.
+- agent/project_intelligence/coordinator.py and factory.py — composition dependency types moved
+  to public facade protocols.
+- tests/test_project_intelligence_production_composition.py
+- tests/test_project_intelligence_app_lifecycle.py
+- tests/test_project_intelligence_rollout_preflight.py
+- tests/test_project_intelligence_health_api.py
+- tests/test_project_intelligence_recovery_baseline.py — PIR0-C01 production-composition lock
+  now passes; remaining later-package locks stay strict xfail.
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/coordinator.py
+  agent/project_intelligence/factory.py agent/project_intelligence/production_factory.py
+  agent/project_intelligence/service_registry.py app/api/atlas_project_intelligence.py
+  app/server.py main.py tests/test_project_intelligence_production_composition.py
+  tests/test_project_intelligence_app_lifecycle.py tests/test_project_intelligence_rollout_preflight.py
+  tests/test_project_intelligence_health_api.py -> compile OK
+- python -m pytest -q tests/test_project_intelligence_production_composition.py
+  tests/test_project_intelligence_app_lifecycle.py tests/test_project_intelligence_rollout_preflight.py
+  tests/test_project_intelligence_health_api.py tests/test_project_intelligence_recovery_baseline.py ->
+  15 passed, 3 xfailed in 16.15s
+- python -m pytest -q tests/test_project_intelligence_rollout.py
+  tests/test_project_intelligence_planner_bridge.py tests/test_project_intelligence_generator_bridge.py
+  tests/test_project_intelligence_contracts.py tests/test_project_intelligence_production_composition.py
+  tests/test_project_intelligence_app_lifecycle.py tests/test_project_intelligence_rollout_preflight.py
+  tests/test_project_intelligence_health_api.py tests/test_project_intelligence_recovery_baseline.py ->
+  50 passed, 3 xfailed in 17.47s
+- PowerShell-expanded project_intelligence + project_twin suites plus PIR-1 durability/isolation
+  tests -> 435 passed, 3 xfailed in 38.09s
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=32 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+- python -m pytest -q tests/test_project_intelligence_recovery_baseline.py ->
+  8 passed, 3 xfailed in 13.48s
+Unavailable checks: production planner/generator/verification consumer cutover remains later
+  PIR work; no behavior change is claimed for those consumers in PIR-2.
+Safety invariants checked: off mode composes disabled modules and remains legacy-compatible;
+  shadow/active compose concrete modules and fail closed on unusable stores; health endpoint
+  returns no private rows; no Safe Apply, Proposal, Verification, PlanPool, or legacy deletion.
+Migration/rollout state: rollout_state.json is persisted under ca_data/project_intelligence;
+  rollback history is represented and preserved, but no phase cutover performed.
+Known limitations: Project Intelligence service is registered and inspectable; real source
+  snapshots and Twin refresh lifecycle begin in PIR-3.
+Next package: PIR-3 — real project source snapshots and Twin refresh lifecycle.
 Blocker: none.
 ```
