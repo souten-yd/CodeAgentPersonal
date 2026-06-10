@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-0`
-- Next action: generate the real production-consumer inventory and add regression locks for the audit findings
+- Current package: `PIR-1`
+- Next action: implement durable concrete module foundations behind the public facades
 - Blocker: none
 - Rollout: off by default
 
@@ -40,7 +40,7 @@ This file selects the active package. The old PI package table does not prove fi
 
 | Package | Goal | Status |
 |---|---|---|
-| PIR-0 | baseline, inventory, regression locks | not_started |
+| PIR-0 | baseline, inventory, regression locks | acceptance_complete |
 | PIR-1 | durable concrete modules | not_started |
 | PIR-2 | production composition and rollout preflight | not_started |
 | PIR-3 | source snapshots and Twin refresh | not_started |
@@ -73,3 +73,41 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 ## Completion rule
 
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
+
+## Executed package log
+
+```text
+Work package: PIR-0 — Truthful baseline, executable inventory, and regression locks
+Status: acceptance_complete
+Changed modules/files:
+- agent/project_intelligence/inspection/consumer_inventory.py — AST-based production entrypoint,
+  legacy consumer, facade/adapter, construction-site, module implementation, and persistence
+  default inventory generator.
+- tools/generate_project_intelligence_consumer_inventory.py — CLI for regenerating the inventory.
+- docs/generated/atlas_project_intelligence_consumer_inventory.json — generated artifact from
+  the current checkout.
+- tests/test_project_intelligence_recovery_baseline.py — PIR-0 inventory assertions plus strict
+  xfail regression locks for audited defects PIR0-C01..PIR0-C07.
+- docs/atlas_project_intelligence_current_status.md — PI-0..PI-25 reframed as Foundation Track.
+Executed commands and exact results:
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=31 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+- python -m py_compile agent/project_intelligence/inspection/consumer_inventory.py
+  tools/generate_project_intelligence_consumer_inventory.py
+  tests/test_project_intelligence_recovery_baseline.py -> compile OK
+- python -m pytest -q tests/test_project_intelligence_recovery_baseline.py ->
+  5 passed, 6 xfailed in 16.30s
+- python -m pytest -q tests/test_project_intelligence_baseline.py
+  tests/test_project_intelligence_contracts.py tests/test_project_intelligence_rollout.py
+  tests/test_project_intelligence_recovery_baseline.py -> 74 passed, 6 xfailed in 18.44s
+- $files = Get-ChildItem tests -Filter 'test_project_intelligence_*.py' | ForEach-Object { $_.FullName };
+  python -m pytest -q @files -> 291 passed, 6 xfailed in 30.20s
+Unavailable checks: none for PIR-0; no production behavior change or live environment claim.
+Safety invariants checked: read-only source inspection only; no production runtime, PlanPool,
+  Proposal, Safe Apply, verification, rollout, or legacy path behavior changed.
+Migration/rollout state: off by default; no consumer cutover and no legacy deletion.
+Known limitations: regression locks intentionally xfail until PIR-1+ fixes the underlying defects.
+Next package: PIR-1 — durable concrete modules.
+Blocker: none.
+```
