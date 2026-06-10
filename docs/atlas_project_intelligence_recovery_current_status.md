@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-4`
-- Next action: implement durable canonical event and delivery projection integration
+- Current package: `PIR-5`
+- Next action: implement real verification ingestion, reconciliation, context, impact, and test selection
 - Blocker: none
 - Rollout: off by default
 
@@ -44,7 +44,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-1 | durable concrete modules | acceptance_complete |
 | PIR-2 | production composition and rollout preflight | acceptance_complete |
 | PIR-3 | source snapshots and Twin refresh | acceptance_complete |
-| PIR-4 | durable event and delivery integration | not_started |
+| PIR-4 | durable event and delivery integration | acceptance_complete |
 | PIR-5 | verification ingest, context, impact, test selection | not_started |
 | PIR-6 | whole-project semantic graph | not_started |
 | PIR-7 | CFG, data flow, state/event/resource graphs | not_started |
@@ -286,5 +286,71 @@ Migration/rollout state: production composition remains off by default; active/s
 Known limitations: restart-safe durable event projection, runtime verification ingest, deeper
   semantic/CFG/data-flow/resource graphs, and real Planner/PlanPool integration begin in PIR-4+.
 Next package: PIR-4 — durable canonical event and delivery projection integration.
+Blocker: none.
+```
+
+```text
+Work package: PIR-4 — Durable canonical event and delivery projection integration
+Status: acceptance_complete
+Changed modules/files:
+- agent/project_twin/event_projection_store.py — durable SQLite event inbox, delivery nodes,
+  delivery edges, diagnostics, full event payload retention, idempotent replay, poison state,
+  workspace-isolated trace queries, and DurableDeliveryTraceProjector.
+- agent/project_twin/event_bridge.py — in-memory compatibility projector is now workspace
+  isolated; projection failure retry jobs include full event payloads; bridge/projector close
+  hook added.
+- agent/project_twin/module.py — concrete DigitalTwinModuleImpl projects canonical events
+  through the event bridge and triggers source-backed refresh for workspace.changed and
+  safe_apply.completed events when project_path is present.
+- agent/project_intelligence/production_factory.py — production composition creates durable
+  event_projection.sqlite3 and injects the durable bridge into the concrete Twin.
+- agent/project_intelligence/coordinator.py — active record_apply_result and
+  record_verification_result emit canonical ProjectEventEnvelope instances into the injected
+  Twin facade without becoming mutation authority.
+- tests/test_project_twin_durable_event_projection.py
+- tests/test_project_intelligence_recovery_baseline.py — PIR-4 status lock advanced; later
+  package locks stay strict xfail.
+Executed commands and exact results:
+- python -m py_compile agent/project_twin/event_bridge.py
+  agent/project_twin/event_projection_store.py agent/project_twin/module.py
+  agent/project_twin/__init__.py agent/project_intelligence/production_factory.py
+  tests/test_project_twin_durable_event_projection.py -> compile OK
+- python -m pytest -q tests/test_project_twin_durable_event_projection.py
+  tests/test_project_intelligence_event_bridge.py tests/test_project_intelligence_rollout.py ->
+  24 passed in 2.95s
+- python -m pytest -q tests/test_project_twin_durable_event_projection.py
+  tests/test_project_intelligence_event_bridge.py tests/test_project_intelligence_rollout.py
+  tests/test_project_twin_source_refresh_lifecycle.py tests/test_project_twin_module_durability.py
+  tests/test_project_intelligence_production_composition.py
+  tests/test_project_intelligence_app_lifecycle.py tests/test_project_intelligence_rollout_preflight.py
+  tests/test_project_intelligence_health_api.py -> 38 passed in 10.75s
+- python -m pytest -q tests/test_project_twin_durable_event_projection.py
+  tests/test_project_intelligence_event_bridge.py tests/test_project_intelligence_rollout.py
+  tests/test_project_twin_source_refresh_lifecycle.py tests/test_project_twin_module_durability.py
+  tests/test_project_intelligence_production_composition.py
+  tests/test_project_intelligence_app_lifecycle.py tests/test_project_intelligence_rollout_preflight.py
+  tests/test_project_intelligence_health_api.py tests/test_project_intelligence_recovery_baseline.py ->
+  46 passed, 3 xfailed in 21.51s
+- $files = @(Get-ChildItem tests -Filter 'test_project_intelligence_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_project_twin_*.py' | ForEach-Object { $_.FullName });
+  python -m pytest -q @files -> 445 passed, 3 xfailed in 41.20s
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=32 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+Unavailable checks: no live Atlas UI/operator flow was run; PIR-4 verifies the production
+  Project Intelligence facade caller path and the concrete Twin ingest path. Direct producer
+  call-site cutover in every legacy Atlas service remains migration work for later PIR packages.
+Safety invariants checked: events are emitted after Project Intelligence apply/verification
+  records, not before canonical writes; projection failures queue retry payloads and do not
+  mutate PlanPool/Safe Apply/Verification canonical state; duplicate replay is idempotent;
+  poison events are diagnosable and do not block later events; project/workspace isolation is
+  enforced in durable projection tables.
+Migration/rollout state: rollout remains off by default; active production composition has
+  durable delivery projection available, but no legacy path deletion or broad consumer cutover.
+Known limitations: real verification artifact normalization, source/Twin revision separation
+  in reconciliation, context ranking, impact/test selection, and deeper graph precision begin
+  in PIR-5+.
+Next package: PIR-5 — real verification ingestion, reconciliation, context, impact, and test
+  selection.
 Blocker: none.
 ```

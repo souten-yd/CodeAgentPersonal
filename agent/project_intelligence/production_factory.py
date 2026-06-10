@@ -18,6 +18,8 @@ from agent.project_intelligence.coordinator import ProjectIntelligenceCoordinato
 from agent.project_intelligence.factory import build_project_intelligence
 from agent.project_intelligence.rollout import RolloutConfig
 from agent.project_twin.facade import DisabledDigitalTwinModule
+from agent.project_twin.event_bridge import CanonicalEventBridge
+from agent.project_twin.event_projection_store import DurableDeliveryTraceProjector, EventProjectionStore
 from agent.project_twin.module import DigitalTwinModuleImpl
 
 
@@ -134,6 +136,7 @@ def build_production_project_intelligence(
     data_dir.mkdir(parents=True, exist_ok=True)
     module_paths = {
         "digital_twin": data_dir / "digital_twin.sqlite3",
+        "event_projection": data_dir / "event_projection.sqlite3",
         "blueprint": data_dir / "blueprint.sqlite3",
         "convergence": data_dir / "convergence.sqlite3",
     }
@@ -148,7 +151,12 @@ def build_production_project_intelligence(
     else:
         coordinator = build_project_intelligence(
             rollout=config,
-            digital_twin=DigitalTwinModuleImpl(module_paths["digital_twin"]),
+            digital_twin=DigitalTwinModuleImpl(
+                module_paths["digital_twin"],
+                event_bridge=CanonicalEventBridge(
+                    DurableDeliveryTraceProjector(EventProjectionStore(module_paths["event_projection"]))
+                ),
+            ),
             blueprint=ArchitectureBlueprintModuleImpl(BlueprintStore(module_paths["blueprint"])),
             convergence=ConvergenceModuleImpl(store=ConvergenceStore(module_paths["convergence"])),
         )

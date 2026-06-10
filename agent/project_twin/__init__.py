@@ -68,6 +68,7 @@ from agent.project_twin.contracts import (
     TwinSnapshot,
 )
 from agent.project_twin.module import DigitalTwinModuleImpl
+from agent.project_twin.event_projection_store import DurableDeliveryTraceProjector, EventProjectionStore
 from agent.project_twin.source_adapter import ProjectSourceAdapter, SourceSnapshot, SourceSnapshotError
 
 __all__ = [
@@ -121,6 +122,8 @@ __all__ = [
     "TwinSkillPort",
     "TwinSnapshot",
     "DigitalTwinModuleImpl",
+    "DurableDeliveryTraceProjector",
+    "EventProjectionStore",
     "ProjectSourceAdapter",
     "SourceSnapshot",
     "SourceSnapshotError",

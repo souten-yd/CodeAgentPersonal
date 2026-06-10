@@ -49,6 +49,7 @@ from agent.project_twin.facade import (
     TwinRefreshResult,
 )
 from agent.project_twin.behavioral_graph import BehavioralAnalyzer
+from agent.project_twin.event_bridge import CanonicalEventBridge
 from agent.project_twin.store import SQLITE_MEMORY_PATH, SqliteProjectTwinStore, TwinStoreError
 from agent.project_twin.lifecycle import LastBuildRecord, build_project_state
 from agent.project_twin.source_adapter import ProjectSourceAdapter, SourceSnapshot, SourceSnapshotError
@@ -91,6 +92,7 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
         last_build_path: str | Path | None = None,
         static_analyzer: StaticStructuralAnalyzer | None = None,
         behavioral_analyzer: BehavioralAnalyzer | None = None,
+        event_bridge: CanonicalEventBridge | None = None,
     ) -> None:
         self._store = store or SqliteProjectTwinStore(db_path)
         self._source_adapter = source_adapter or ProjectSourceAdapter()
@@ -102,8 +104,11 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
             self._last_build_path = Path(str(db_path) + ".last_build.json")
         else:
             self._last_build_path = None
+        self._event_bridge = event_bridge
 
     def close(self) -> None:
+        if self._event_bridge is not None:
+            self._event_bridge.close()
         self._store.close()
 
     @staticmethod
@@ -444,6 +449,40 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
         )
 
     def ingest_event(self, event: ProjectEventEnvelope) -> TwinEventResult:
+        diagnostics: list[IntelligenceDiagnostic] = []
+        if self._event_bridge is not None:
+            projected = self._event_bridge.handle(event)
+            diagnostics.extend(projected.diagnostics)
+            if not projected.accepted and projected.degraded:
+                return TwinEventResult(
+                    project_id=event.project_id,
+                    workspace_id=event.workspace_id,
+                    event_id=event.event_id,
+                    accepted=False,
+                    twin_revision_id=self._health(event.project_id, event.workspace_id).twin_revision_id,
+                    diagnostics=diagnostics,
+                )
+            if not projected.accepted:
+                return TwinEventResult(
+                    project_id=event.project_id,
+                    workspace_id=event.workspace_id,
+                    event_id=event.event_id,
+                    accepted=False,
+                    twin_revision_id=self._health(event.project_id, event.workspace_id).twin_revision_id,
+                    diagnostics=diagnostics,
+                )
+
+        refresh_result = self._refresh_from_event(event)
+        if refresh_result is not None:
+            return TwinEventResult(
+                project_id=event.project_id,
+                workspace_id=event.workspace_id,
+                event_id=event.event_id,
+                accepted=refresh_result.readiness != TwinReadiness.DEGRADED,
+                twin_revision_id=refresh_result.twin_revision_id,
+                diagnostics=[*diagnostics, *refresh_result.diagnostics],
+            )
+
         try:
             rev = self._apply_marker(
                 event.project_id,
@@ -457,6 +496,7 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
                 event_id=event.event_id,
                 accepted=True,
                 twin_revision_id=rev.revision_id,
+                diagnostics=diagnostics,
             )
         except TwinStoreError as exc:
             return TwinEventResult(
@@ -466,6 +506,43 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
                 accepted=False,
                 diagnostics=[_diag(IntelligenceErrorCode.STORE_UNAVAILABLE, str(exc))],
             )
+
+    def _refresh_from_event(self, event: ProjectEventEnvelope) -> TwinRefreshResult | None:
+        if event.event_type not in {"workspace.changed", "safe_apply.completed"}:
+            return None
+        project_path = event.payload.get("project_path")
+        if not project_path:
+            return TwinRefreshResult(
+                project_id=event.project_id,
+                workspace_id=event.workspace_id,
+                twin_revision_id=self._health(event.project_id, event.workspace_id).twin_revision_id,
+                readiness=TwinReadiness.DEGRADED,
+                diagnostics=[
+                    _diag(
+                        IntelligenceErrorCode.REVISION_NOT_FOUND,
+                        f"{event.event_type} did not include project_path for Twin refresh",
+                    )
+                ],
+            )
+        changed_paths = list(event.payload.get("changed_paths") or [])
+        for ref in event.payload.get("applied_refs", []) or []:
+            if isinstance(ref, str) and ref.startswith("file://"):
+                changed_paths.append(ref[len("file://"):])
+        project = ProjectIdentity(
+            project_id=event.project_id,
+            workspace_id=event.workspace_id,
+            project_path=str(project_path),
+            source_revision=event.source_revision,
+        )
+        return self.refresh(
+            RefreshTwinRequest(
+                project=project,
+                changed_paths=list(dict.fromkeys(changed_paths)),
+                trigger_type=event.event_type,
+                trigger_ref=event.event_id,
+                correlation_id=event.correlation_id,
+            )
+        )
 
     def ingest_runtime(self, request: RuntimeIngestRequest) -> RuntimeIngestResult:
         internal = self._key(request.project.project_id, request.project.workspace_id)

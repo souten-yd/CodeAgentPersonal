@@ -43,6 +43,8 @@ from agent.project_intelligence.telemetry import TelemetrySink
 from agent.project_twin.facade import (
     DigitalTwinModule,
     DisabledDigitalTwinModule,
+    ProjectEventEnvelope,
+    RuntimeIngestRequest,
     TwinContextRequest,
 )
 
@@ -183,8 +185,36 @@ class ProjectIntelligenceCoordinator:
         return self._baseline_generation(request, "off")
 
     def record_apply_result(self, request: ApplyResultRequest) -> PostApplyIntelligenceResult:
-        # Off/shadow never accept; active requests a refresh (the real refresh lands in PI-4+).
         active = self._rollout.phase_active("generation")
+        if active and request.success:
+            event = ProjectEventEnvelope(
+                event_id=request.correlation_id or f"apply:{request.plan_pool_id}:{request.plan_item_id}",
+                event_type="safe_apply.completed",
+                project_id=request.project.project_id,
+                workspace_id=request.project.workspace_id,
+                source="project_intelligence",
+                source_revision=request.new_source_revision,
+                correlation_id=request.correlation_id,
+                plan_pool_id=request.plan_pool_id,
+                plan_item_id=request.plan_item_id,
+                payload={
+                    "plan_pool_id": request.plan_pool_id,
+                    "plan_item_id": request.plan_item_id,
+                    "applied_refs": list(request.applied_refs),
+                    "new_source_revision": request.new_source_revision,
+                    "project_path": request.project.project_path,
+                    "changed_paths": [ref[len("file://"):] for ref in request.applied_refs if ref.startswith("file://")],
+                },
+            )
+            result = self._twin.ingest_event(event)
+            return PostApplyIntelligenceResult(
+                project_id=request.project.project_id,
+                workspace_id=request.project.workspace_id,
+                accepted=result.accepted,
+                refresh_requested=True,
+                twin_revision_id=result.twin_revision_id,
+                diagnostics=list(result.diagnostics),
+            )
         return PostApplyIntelligenceResult(
             project_id=request.project.project_id,
             workspace_id=request.project.workspace_id,
@@ -195,13 +225,43 @@ class ProjectIntelligenceCoordinator:
         )
 
     def record_verification_result(self, request: VerificationResultRequest) -> PostVerificationIntelligenceResult:
+        active = self._rollout.phase_active("verification")
+        if active:
+            ingest = self._twin.ingest_runtime(RuntimeIngestRequest(project=request.project, observations=request.observations))
+            evidence_refs = [ref for obs in request.observations for ref in obs.evidence_refs]
+            event = ProjectEventEnvelope(
+                event_id=request.correlation_id or f"verification:{request.plan_pool_id}:{request.plan_item_id}",
+                event_type="verification.completed",
+                project_id=request.project.project_id,
+                workspace_id=request.project.workspace_id,
+                source="project_intelligence",
+                correlation_id=request.correlation_id,
+                plan_pool_id=request.plan_pool_id,
+                plan_item_id=request.plan_item_id,
+                payload={
+                    "verification_id": request.correlation_id or request.plan_item_id,
+                    "plan_pool_id": request.plan_pool_id,
+                    "plan_item_id": request.plan_item_id,
+                    "result": "passed" if request.observations and all(obs.result == "passed" for obs in request.observations) else "observed",
+                    "evidence_refs": evidence_refs,
+                },
+            )
+            projected = self._twin.ingest_event(event)
+            return PostVerificationIntelligenceResult(
+                project_id=request.project.project_id,
+                workspace_id=request.project.workspace_id,
+                accepted=projected.accepted and ingest.ingested_count > 0,
+                reconciled=False,
+                convergence_requested=True,
+                diagnostics=[*ingest.diagnostics, *projected.diagnostics],
+            )
         # Unavailable is never converted to passed (ADR-PI-013).
         return PostVerificationIntelligenceResult(
             project_id=request.project.project_id,
             workspace_id=request.project.workspace_id,
             accepted=False,
             reconciled=False,
-            convergence_requested=self._rollout.phase_active("verification"),
+            convergence_requested=False,
             diagnostics=[_diag(IntelligenceErrorCode.ANALYSIS_UNAVAILABLE,
                                f"rollout mode {self._rollout.mode()}")],
         )
