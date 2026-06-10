@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-7`
-- Next action: implement real CFG, data-flow, state/event/recovery, and resource graphs
+- Current package: `PIR-8`
+- Next action: implement durable Blueprint planning, review, and critical-decision integration
 - Blocker: none
 - Rollout: off by default
 
@@ -30,7 +30,7 @@ This file selects the active package. The old PI package table does not prove fi
 - concrete Twin and Convergence facades are missing;
 - new Planner, Generator, and Verification adapters are not connected to real Atlas consumers;
 - durability defects remain in Blueprint, event projection, and checkpoints;
-- CFG, data flow, frontend semantics, and resource graphs are incomplete;
+- Blueprint target-state authority, review, and activation remain incomplete;
 - Convergence revision and completion logic require correction;
 - Plan Compiler is not authoritative PlanPool integration;
 - Greenfield E2E and final benchmark are synthetic;
@@ -47,7 +47,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-4 | durable event and delivery integration | acceptance_complete |
 | PIR-5 | verification ingest, context, impact, test selection | acceptance_complete |
 | PIR-6 | whole-project semantic graph | acceptance_complete |
-| PIR-7 | CFG, data flow, state/event/resource graphs | not_started |
+| PIR-7 | CFG, data flow, state/event/resource graphs | acceptance_complete |
 | PIR-8 | durable Blueprint planning and review | not_started |
 | PIR-9 | Convergence correctness and evidence policy | not_started |
 | PIR-10 | Planner and PlanPool production integration | not_started |
@@ -453,5 +453,54 @@ Migration/rollout state: rollout remains off by default; no legacy consumer cuto
 Known limitations: full CFG/data-flow/state/resource precision and frontend handler-scope
   behavior begin in PIR-7.
 Next package: PIR-7 — real CFG, data-flow, state/event/recovery, and resource graphs.
+Blocker: none.
+```
+
+```text
+Work package: PIR-7 — Real CFG, data-flow, state/event/recovery, and resource graphs
+Status: acceptance_complete
+Changed modules/files:
+- agent/project_twin/behavioral_graph.py — production Digital Twin behavioral analyzer now
+  emits per-callable CFG block nodes and branch/loop/exception/return edges; SSA-lite
+  definition/use/resource flow facts; concrete file/database/API/process/UI resource
+  identities; state transition nodes/edges; retry/backoff/rollback recovery facts; event
+  producer facts; source ranges and bounded inferred confidence; JS event handlers now link
+  only to API calls inside their reachable handler body instead of all APIs in the file.
+- tests/test_project_twin_pir7_graphs.py — labeled PIR-7 corpus for branch/loop/exception,
+  parameter-to-resource flow, cross-function argument propagation, state/recovery transitions,
+  scoped UI handler-to-API paths, and a concrete DigitalTwinModuleImpl production connection.
+- tests/test_project_intelligence_recovery_baseline.py — PIR-7 status lock advanced; later
+  package locks stay strict xfail.
+Executed commands and exact results:
+- python -m py_compile agent/project_twin/behavioral_graph.py
+  tests/test_project_twin_pir7_graphs.py -> compile OK
+- python -m pytest -q tests/test_project_twin_pir7_graphs.py
+  tests/test_project_twin_behavioral_graph.py tests/test_project_intelligence_behavioral_graph.py ->
+  16 passed in 1.84s
+- python -m pytest -q tests/test_project_twin_pir7_graphs.py
+  tests/test_project_twin_behavioral_graph.py tests/test_project_intelligence_behavioral_graph.py
+  tests/test_project_intelligence_recovery_baseline.py -> 24 passed, 3 xfailed in 14.49s
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=32 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+- python -m pytest -q tests/test_project_twin_pir7_graphs.py
+  tests/test_project_twin_behavioral_graph.py tests/test_project_intelligence_behavioral_graph.py
+  tests/test_project_intelligence_semantic_graph.py tests/test_project_twin_source_refresh_lifecycle.py
+  tests/test_project_twin_verification_context.py tests/test_project_intelligence_query_context.py
+  tests/test_project_intelligence_recovery_baseline.py -> 61 passed, 3 xfailed in 20.21s
+- $files = @(Get-ChildItem tests -Filter 'test_project_intelligence_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_project_twin_*.py' | ForEach-Object { $_.FullName });
+  python -m pytest -q @files -> 457 passed, 3 xfailed in 44.00s
+Unavailable checks: no live browser/runtime UI execution was required for this package; the
+  package verifies parser/static graph facts and a concrete Twin facade refresh. PIR-13/PIR-14
+  remain the real Greenfield E2E, platform, and rollout gates.
+Safety invariants checked: behavioral facts remain inferred with confidence below 1.0; production
+  Twin persists the facts behind the facade; frontend calls outside a handler are not promoted to
+  reachable handler behavior; resource and state facts do not mutate PlanPool/Safe Apply authority.
+Migration/rollout state: rollout remains off by default; no legacy consumer cutover or legacy
+  deletion was performed.
+Known limitations: Blueprint target authority, Convergence gap policy, Planner/PlanPool integration,
+  and final benchmark/retirement remain in PIR-8+.
+Next package: PIR-8 — durable Blueprint planning, review, and critical-decision integration.
 Blocker: none.
 ```
