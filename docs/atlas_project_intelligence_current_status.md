@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-10` (PI-0..PI-9 completed; Milestone B done)
-- Next action: Blueprint model, store, and lifecycle (PI-10)
+- Current work package: `PI-11` (PI-0..PI-10 completed)
+- Next action: Blueprint generation, review, and validation (PI-11)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -49,8 +49,8 @@ Current gaps include:
 | PI-7 | Behavioral graph v2 | Completed | behavioral analyzer+graph (control-flow/side-effect/route/state/recovery/UI); `tests/test_project_intelligence_behavioral_graph.py` → 9 passed; PI+behavioral+baseline 168 passed |
 | PI-8 | Runtime intelligence and reconciliation v2 | Completed | collectors+reconciliation+rollup; `tests/test_project_intelligence_runtime.py` → 9 passed; PI+reconciliation+collectors+baseline 185 passed |
 | PI-9 | Context, path, impact, test selection v2 | Completed | impact/path/test-select+bounded context package; `tests/test_project_intelligence_query_context.py` → 10 passed; PI+analysis+context_broker+baseline 194 passed |
-| PI-10 | Blueprint model, store, lifecycle | In Progress | current package |
-| PI-11 | Blueprint generation, review, validation | Not Started | |
+| PI-10 | Blueprint model, store, lifecycle | Completed | lifecycle+module(state machine/scopes/diff/authority/planned-ref guard)+store set_head; `tests/test_project_intelligence_blueprint_lifecycle.py` → 9 passed; PI+baseline 192 passed |
+| PI-11 | Blueprint generation, review, validation | In Progress | current package |
 | PI-12 | Blueprint-to-Actual mapping hints | Not Started | |
 | PI-13 | Convergence matcher and evaluator | Not Started | |
 | PI-14 | Convergence decision and incremental evaluation | Not Started | |
@@ -85,6 +85,51 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-10 — Blueprint model, store, and lifecycle (Milestone C begins)
+Status: Completed
+Commit/PR: local branch pi-10-blueprint-model (not pushed/merged yet)
+Changed modules/files:
+- agent/architecture_blueprint/lifecycle.py (new) — scopes, state machine + transitions,
+  planned-vs-Actual ref guard, authority guards (planner vs user decision), revision diff.
+- agent/architecture_blueprint/module.py (new) — ArchitectureBlueprintModuleImpl over the
+  immutable store: create/revise/review/activate/get_active_revision/get_revision.
+- agent/architecture_blueprint/store.py — save_revision advance_head param + activate_revision.
+- agent/project_intelligence/_persistence.py — ArtifactStore.set_head (activate an existing
+  revision as head; never dangles).
+- tests/test_project_intelligence_blueprint_lifecycle.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Scopes full_project/change_set/repair; states proposed/reviewed/approved/active/
+  materializing/satisfied/diverged/superseded/rejected with validated transitions.
+- create -> proposed (head not advanced); review -> approved when valid; activate ->
+  active (sets store head, supersedes prior active); revise -> immutable child (parent
+  preserved). Activated content immutable (store rejects same-id different content).
+- Authority: planner_decision forces planner_recommendation; user_decision requires explicit
+  confirmation — an LLM path can never fabricate a user_decision.
+- Planned elements must not use Actual refs (py://, file://, ...); only expected_actual_refs
+  may carry actual refs (ADR-PI-001). Structural diff (added/removed/changed elements).
+- Project isolation + point-in-time reads via the immutable store.
+Executed commands and exact results:
+- python -m py_compile (5 files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_blueprint_lifecycle.py -> 9 passed in 0.59s
+- python -m pytest -q tests/test_project_intelligence_persistence.py
+  tests/test_project_intelligence_blueprint_lifecycle.py -> 21 passed (PI-2 contract preserved
+  after reverting advance_head default to True)
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 192 passed in 6.91s
+Unavailable checks: none required.
+Safety invariants checked: activated revisions immutable; LLM cannot fabricate user_decision;
+  planned != actual; project isolation; no PlanPool/Safe Apply/verification touched; Blueprint
+  never reports actual implementation status.
+Migration/rollout state: Blueprint module concrete impl behind the facade; the disabled
+  facade stub remains for the off path. No consumer cutover yet.
+Known limitations: operational lifecycle status is tracked in-module (durable content is in the
+  store); generation/validation of full target contracts is PI-11; mapping hints PI-12.
+Next package: PI-11 — Blueprint generation, review, and validation.
+Blocker: none.
+```
 
 ```text
 Work package: PI-9 — Context, path, impact, and test selection v2 (Milestone B complete)

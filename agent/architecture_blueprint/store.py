@@ -45,8 +45,15 @@ class BlueprintStore:
         expected_parent_id: str | None = None,
         status: str = "draft",
         idempotency_key: str | None = None,
+        advance_head: bool = True,
     ) -> str:
-        """Persist an immutable Blueprint revision and advance the blueprint head."""
+        """Persist an immutable Blueprint revision.
+
+        ``advance_head`` defaults True (the head tracks the latest saved revision). The
+        Blueprint module passes ``advance_head=False`` for proposed/child revisions and
+        selects the active revision explicitly via :meth:`activate_revision`, so a proposed
+        or rejected child never becomes active just by being saved.
+        """
         return self._artifacts.put(
             project_id=project_id,
             workspace_id=workspace_id,
@@ -58,7 +65,12 @@ class BlueprintStore:
             parent_artifact_id=parent_revision_id,
             expected_parent_id=expected_parent_id,
             idempotency_key=idempotency_key,
+            advance_head=advance_head,
         )
+
+    def activate_revision(self, *, project_id: str, workspace_id: str, blueprint_id: str, revision_id: str) -> None:
+        """Make an existing revision the active (head) one for its blueprint."""
+        self._artifacts.set_head(project_id, workspace_id, blueprint_id, revision_id)
 
     def get_revision(self, project_id: str, revision_id: str) -> dict[str, Any] | None:
         return self._artifacts.get(project_id, revision_id)
