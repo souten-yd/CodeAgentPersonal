@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-8` (PI-0..PI-7 completed)
-- Next action: runtime intelligence and reconciliation v2 (PI-8)
+- Current work package: `PI-9` (PI-0..PI-8 completed)
+- Next action: context, path, impact, and test selection v2 (PI-9)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -47,8 +47,8 @@ Current gaps include:
 | PI-5 | Canonical event bridge and trace expansion | Completed | event_bridge delivery trace; `tests/test_project_intelligence_event_bridge.py` → 8 passed; PI+intent_trace+baseline 147 passed |
 | PI-6 | Static and semantic graph v2 | Completed | analyzers(py/js/ts-vue)+semantic graph+LSP fallback; `tests/test_project_intelligence_semantic_graph.py` → 13 passed; PI+static_graph+baseline 163 passed |
 | PI-7 | Behavioral graph v2 | Completed | behavioral analyzer+graph (control-flow/side-effect/route/state/recovery/UI); `tests/test_project_intelligence_behavioral_graph.py` → 9 passed; PI+behavioral+baseline 168 passed |
-| PI-8 | Runtime intelligence and reconciliation v2 | In Progress | current package |
-| PI-9 | Context, path, impact, test selection v2 | Not Started | |
+| PI-8 | Runtime intelligence and reconciliation v2 | Completed | collectors+reconciliation+rollup; `tests/test_project_intelligence_runtime.py` → 9 passed; PI+reconciliation+collectors+baseline 185 passed |
+| PI-9 | Context, path, impact, test selection v2 | In Progress | current package |
 | PI-10 | Blueprint model, store, lifecycle | Not Started | |
 | PI-11 | Blueprint generation, review, validation | Not Started | |
 | PI-12 | Blueprint-to-Actual mapping hints | Not Started | |
@@ -85,6 +85,46 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-8 — Runtime intelligence and reconciliation v2
+Status: Completed
+Commit/PR: local branch pi-8-runtime-reconciliation (not pushed/merged yet)
+Changed modules/files:
+- agent/project_twin/runtime/__init__.py, collectors.py, reconciliation.py (new)
+- tests/test_project_intelligence_runtime.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Collectors v2 normalize pytest (+coverage), Playwright, and API observations into
+  RuntimeObservationRecord with result passed/failed/observed/unavailable; coverage and
+  stack frames map to PI-6 symbol refs; source revision preserved.
+- safe_collect turns a collector exception into a single unavailable observation (never a
+  fabricated passed); unavailable_observation is explicit and non-convertible.
+- reconcile(): confirm/partially_confirm (passed at current revision), contradict (failed,
+  prior status retained in history -> contradicted), unavailable, stale (only stale-revision
+  observations -> not verified), not_observed. A verified status requires a matching source
+  revision; stale observations never verify new source.
+- summarize_rollup(): success requires >=1 passed, zero failed, zero unavailable; unavailable
+  is counted and forces success=False everywhere (UI + rollup).
+- Collectors carry no execution authority (pure normalization/decision functions).
+Executed commands and exact results:
+- python -m py_compile (3 new files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_runtime.py -> 9 passed in 0.64s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_reconciliation.py
+  tests/test_project_twin_runtime_collectors.py tests/test_project_twin_baseline.py
+  -> 185 passed in 6.87s (Core v1 reconciliation + collectors unbroken)
+Unavailable checks: real pytest/playwright runs not executed here; collectors tested on
+  normalized report fixtures; unavailable path explicitly tested.
+Safety invariants checked: unavailable never becomes passed (reconcile + rollup + safe_collect);
+  collector failure cannot mark success; verified requires revision match; contradicted facts
+  retained historically; no execution authority in collectors; no canonical store mutated.
+Migration/rollout state: v2 runtime added beside Core v1 collectors/reconciliation; no cutover.
+Known limitations: latency/memory and Atlas Play/DB/file/process collectors are stubs to be
+  extended; coverage-to-symbol mapping assumes qualname granularity; reconciliation is a
+  pure decision layer not yet persisted into the twin store (PI-9+ wiring).
+Next package: PI-9 — Context, path, impact, and test selection v2.
+Blocker: none.
+```
 
 ```text
 Work package: PI-7 — Behavioral graph v2
