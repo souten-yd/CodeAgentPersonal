@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-13` (PI-0..PI-12 completed; Milestone C done)
-- Next action: Convergence deterministic matcher and evaluator (PI-13)
+- Current work package: `PI-14` (PI-0..PI-13 completed)
+- Next action: Convergence decision policy and incremental reevaluation (PI-14)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -52,8 +52,8 @@ Current gaps include:
 | PI-10 | Blueprint model, store, lifecycle | Completed | lifecycle+module(state machine/scopes/diff/authority/planned-ref guard)+store set_head; `tests/test_project_intelligence_blueprint_lifecycle.py` → 9 passed; PI+baseline 192 passed |
 | PI-11 | Blueprint generation, review, validation | Completed | validator+generator (coverage/manifest/cycle/exec-contract/vague); `tests/test_project_intelligence_blueprint_generation.py` → 8 passed; PI+baseline 200 passed |
 | PI-12 | Blueprint-to-Actual mapping hints | Completed | mapping.py (materialized/realized/blocked, evidence-gated verify, public snapshot, decoupled); `tests/test_project_intelligence_blueprint_mapping.py` → 5 passed; PI+baseline 205 passed |
-| PI-13 | Convergence matcher and evaluator | In Progress | current package |
-| PI-14 | Convergence decision and incremental evaluation | Not Started | |
+| PI-13 | Convergence matcher and evaluator | Completed | matcher+evaluator (8 distinct states, file≠verified, stale guard); `tests/test_project_intelligence_convergence_eval.py` → 7 passed; PI+baseline 212 passed |
+| PI-14 | Convergence decision and incremental evaluation | In Progress | current package |
 | PI-15 | Completion and requirement-evidence integration | Not Started | |
 | PI-16 | Planning envelope and Plan Compiler | Not Started | |
 | PI-17 | Planner production integration | Not Started | |
@@ -85,6 +85,41 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-13 — Deterministic matcher and multidimensional evaluator (Milestone D begins)
+Status: Completed
+Commit/PR: local branch pi-13-convergence-matcher (not pushed/merged yet)
+Changed modules/files:
+- agent/project_convergence/matcher.py (new) — match_elements over public snapshot + PI-12
+  mapping hints (no Twin/Blueprint internals); reproducible.
+- agent/project_convergence/evaluator.py (new) — VerificationEvidence; evaluate_element +
+  evaluate_convergence producing ElementConvergenceResult and a ConvergenceReport.
+- tests/test_project_intelligence_convergence_eval.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Eight distinct states: absent/partial/materialized/observed/verified/divergent/blocked/stale.
+- File existence -> MATERIALIZED only (never verified); runtime passed at the current twin
+  revision -> VERIFIED; passed at a different revision -> STALE (stale evidence cannot satisfy
+  mandatory verification, element stays a gap); observed -> OBSERVED; failed/interface mismatch
+  -> DIVERGENT; unavailable never upgrades. Mandatory unmatched -> BLOCKED; optional -> ABSENT.
+- Mismatches carry dimension + explanation; evidence_refs preserved. Report aggregates
+  mandatory/optional gaps, stale evidence, coverage. Pure + reproducible; public data only.
+Executed commands and exact results:
+- python -m py_compile (2 files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_convergence_eval.py -> 7 passed in 0.61s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 212 passed in 7.83s
+Unavailable checks: none required.
+Safety invariants checked: file existence != verified; unavailable != passed; stale evidence
+  cannot satisfy mandatory verification; Convergence consumes public snapshots only and mutates
+  nothing.
+Migration/rollout state: Convergence evaluator complete behind the module; decision policy PI-14.
+Known limitations: interface/data/nonfunctional dimensions are coarse (structural + runtime are
+  primary); evaluator not yet persisted to the convergence store / wired to decision (PI-14).
+Next package: PI-14 — Convergence decision policy and incremental reevaluation.
+Blocker: none.
+```
 
 ```text
 Work package: PI-12 — Blueprint-to-Actual mapping hints (Milestone C complete)
