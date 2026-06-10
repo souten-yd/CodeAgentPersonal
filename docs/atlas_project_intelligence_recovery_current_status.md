@@ -6,8 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-13`
-- Next action: add PIR-13 real verification/readiness, restart, fault repair/resume, and additional
-  Greenfield scenarios through the normal Atlas entrypoint
+- Next action: add PIR-13 restart, fault repair/resume, additional Greenfield scenarios, and a live
+  configured-model run through the normal Atlas entrypoint
 - Blocker: none
 - Rollout: off by default
 
@@ -931,5 +931,47 @@ Known limitations: production_connected means the normal Atlas API path now reac
   scenario breadth, artifact retention, and live-model gates are complete.
 Next package: PIR-13 — add real verification/readiness, restart, fault repair/resume, and scenario
   breadth.
+Blocker: none.
+```
+
+```text
+Work package: PIR-13 — Single HTML visual verification and readiness evidence
+Status: production_connected
+Changed modules/files:
+- agent/atlas_auto_verification_service.py — auto verification metadata now normalizes legacy
+  boolean auto_verification flags into structured runtime metadata before command, visual, or
+  Project Intelligence verification persistence.
+- tests/test_project_intelligence_pir13_entrypoint_scenarios.py — the normal Atlas entrypoint
+  Greenfield scenario now continues after real Safe Apply into /api/atlas/automation/verify-one,
+  requiring visual contract pass, browser smoke pass/skip truth, verify_level evidence, persisted
+  auto_verification metadata, and the auto_verification_passed event.
+Executed commands and exact results:
+- python -m py_compile agent/atlas_auto_verification_service.py
+  tests/test_project_intelligence_pir13_entrypoint_scenarios.py -> compile OK
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py ->
+  1 passed in 8.49s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py
+  tests/test_atlas_auto_verification_service.py tests/test_visual_contract_matrix.py
+  tests/test_project_intelligence_pir12_verification_recovery.py
+  tests/test_project_intelligence_recovery_baseline.py -> 78 passed, 2 xfailed in 32.44s
+- Ad hoc API evidence capture for the same single-HTML scenario returned status=passed,
+  visual_contract.status=passed, visual_contract.contract_id=static_html_visual_v1,
+  browser_smoke.status=browser_smoke_passed, and verify_level=runtime_smoke_checked.
+- python -m pytest -q tests/test_atlas_auto_verification_api.py::test_safe_apply_one_and_verify_success ->
+  failed in 7.45s with status=applied_but_verification_failed because the existing test fixture
+  trips requirement_coverage_incomplete even though its allowlisted pytest command passed. This is
+  not used as PIR-13 proof.
+Unavailable checks: restart/reopen persistence, injected intermediate failure with repair/resume,
+  Python CLI/FastAPI/FastAPI+SQLite/frontend-backend scenario breadth, artifact-retention audit,
+  and a live configured-model Greenfield run are not proven by this slice.
+Safety invariants checked: verification runs only after Safe Apply metadata is applied; legacy
+  boolean auto_verification flags are retained as enabled=false metadata instead of authorizing
+  automatic execution; browser smoke is truthful evidence, not substituted by file existence; no
+  unavailable check is converted to passed.
+Migration/rollout state: no legacy Greenfield helper deletion and no consumer cutover were
+  performed.
+Known limitations: PIR-13 remains production_connected, not acceptance_complete, until restart,
+  fault repair/resume, scenario breadth, artifact-retention, and live-model gates pass.
+Next package: PIR-13 — add restart/reopen persistence and fault repair/resume evidence.
 Blocker: none.
 ```

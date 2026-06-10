@@ -171,8 +171,8 @@ class AtlasAutoVerificationService:
         event = {"passed": "auto_verification_passed", "blocked": "auto_verification_blocked"}.get(status, "auto_verification_failed")
         self._append_event(pool.pool_id, request.run_id, event, item.item_id, status=status, warnings=warnings)
         out = AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status=status, verification_result=res.model_dump(), command_id=command_id, command=command, exit_code=res.returncode, stdout_tail=(res.stdout or "")[-4000:], stderr_tail=(res.stderr or "")[-4000:], warnings=warnings, errors=list(res.errors), metadata=metadata, plan_pool=pool.model_dump())
-        item.metadata.setdefault("auto_verification", {})
-        item.metadata["auto_verification"].update({"status": status, "command_id": command_id, "verified_at": datetime.now(timezone.utc).isoformat()})
+        auto_verification = self._ensure_auto_verification_metadata(item)
+        auto_verification.update({"status": status, "command_id": command_id, "verified_at": datetime.now(timezone.utc).isoformat()})
         self._persist_task_contract(pool, item, task_contract, status=status, evidence=metadata.get("task_verification_contract"))
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
@@ -413,8 +413,8 @@ class AtlasAutoVerificationService:
             status=status, verification_result={"status": status, "source": "visual_artifact"},
             warnings=warnings, errors=[], metadata=metadata, plan_pool=pool.model_dump(),
         )
-        item.metadata.setdefault("auto_verification", {})
-        item.metadata["auto_verification"].update({
+        auto_verification = self._ensure_auto_verification_metadata(item)
+        auto_verification.update({
             "status": status, "source": "visual_artifact",
             "visual_contract_status": ev["static"].get("status"),
             "visual_contract_id": ev.get("contract_id", ""),
@@ -454,11 +454,20 @@ class AtlasAutoVerificationService:
         if not pi_verification:
             return
         item.metadata.setdefault("verification", {})["project_intelligence_verification"] = pi_verification
-        item.metadata.setdefault("auto_verification", {})["project_intelligence_verification"] = pi_verification
+        self._ensure_auto_verification_metadata(item)["project_intelligence_verification"] = pi_verification
         result.metadata.setdefault("project_intelligence_verification", pi_verification)
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
         result.plan_pool = pool.model_dump()
+
+    @staticmethod
+    def _ensure_auto_verification_metadata(item) -> dict:
+        item.metadata = dict(getattr(item, "metadata", {}) or {})
+        current = item.metadata.get("auto_verification")
+        if not isinstance(current, dict):
+            current = {"enabled": bool(current)}
+            item.metadata["auto_verification"] = current
+        return current
 
     def _safe_rel(self, value: str) -> bool:
         if not value:
