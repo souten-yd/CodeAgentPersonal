@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-7` (PI-0..PI-6 completed)
-- Next action: behavioral graph v2 (PI-7)
+- Current work package: `PI-8` (PI-0..PI-7 completed)
+- Next action: runtime intelligence and reconciliation v2 (PI-8)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -46,8 +46,8 @@ Current gaps include:
 | PI-4 | Project identity, mode detection, lifecycle | Completed | identity/mode/lifecycle/jobs; `tests/test_project_intelligence_lifecycle.py` → 14 passed; full PI suite 134 passed |
 | PI-5 | Canonical event bridge and trace expansion | Completed | event_bridge delivery trace; `tests/test_project_intelligence_event_bridge.py` → 8 passed; PI+intent_trace+baseline 147 passed |
 | PI-6 | Static and semantic graph v2 | Completed | analyzers(py/js/ts-vue)+semantic graph+LSP fallback; `tests/test_project_intelligence_semantic_graph.py` → 13 passed; PI+static_graph+baseline 163 passed |
-| PI-7 | Behavioral graph v2 | In Progress | current package |
-| PI-8 | Runtime intelligence and reconciliation v2 | Not Started | |
+| PI-7 | Behavioral graph v2 | Completed | behavioral analyzer+graph (control-flow/side-effect/route/state/recovery/UI); `tests/test_project_intelligence_behavioral_graph.py` → 9 passed; PI+behavioral+baseline 168 passed |
+| PI-8 | Runtime intelligence and reconciliation v2 | In Progress | current package |
 | PI-9 | Context, path, impact, test selection v2 | Not Started | |
 | PI-10 | Blueprint model, store, lifecycle | Not Started | |
 | PI-11 | Blueprint generation, review, validation | Not Started | |
@@ -85,6 +85,45 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-7 — Behavioral graph v2
+Status: Completed
+Commit/PR: local branch pi-7-behavioral-graph (not pushed/merged yet)
+Changed modules/files:
+- agent/project_twin/graph/behavioral.py (new) — BehavioralGraph (facts/relations,
+  inferred-only invariant, incremental invalidation).
+- agent/project_twin/analyzers/behavioral.py (new) — BehavioralAnalyzer + combined traces
+  (trace_request_to_persistence, trace_ui_to_api).
+- tests/test_project_intelligence_behavioral_graph.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Python: per-function control-flow summary (branches/loops/returns/raises/try/finally/
+  awaits); concrete side effects (file path, DB table from SQL, network URL, process) with
+  recorded resources; FastAPI route decorators -> route facts handled_by the handler; self
+  state mutation; retry + rollback recovery detection.
+- HTTP request-to-persistence trace: route -> handler -> resolved calls (reusing PI-6
+  semantic call edges) -> DB side effects/tables, queryable.
+- JS UI path: ui_event (addEventListener/onX) -> api_call (fetch/axios) -> route, queryable.
+- Every behavioral fact/relation is status=inferred with a derivation and confidence < 1.0;
+  heuristics are never verified (false-certainty test). Behavior owners reuse the PI-6
+  static refs (no duplicate identities). Unsupported constructs emit diagnostics.
+Executed commands and exact results:
+- python -m py_compile (2 new files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_behavioral_graph.py -> 9 passed in 0.63s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_behavioral_graph.py
+  tests/test_project_twin_baseline.py -> 168 passed in 6.28s (Core v1 behavioral graph unbroken)
+Unavailable checks: none required.
+Safety invariants checked: pure stdlib analyzers; heuristics never verified; no canonical
+  store/PlanPool/FastAPI/SQLite imported; static identities reused not duplicated.
+Migration/rollout state: v2 behavioral foundation added beside Core v1 behavioral_graph;
+  no cutover, no deletion.
+Known limitations: data-flow propagation is coarse (control-flow summary, not full SSA);
+  interprocedural propagation relies on resolved call edges only; JS UI linkage is file-level
+  heuristic; runtime confirmation is PI-8.
+Next package: PI-8 — Runtime intelligence and reconciliation v2.
+Blocker: none.
+```
 
 ```text
 Work package: PI-6 — Static and semantic graph v2
