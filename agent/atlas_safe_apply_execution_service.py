@@ -13,14 +13,24 @@ from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
 from agent.atlas_safe_apply_adapter_schema import AtlasSafeApplyRequest
 from agent.atlas_safe_apply_execution_schema import AtlasSafeApplyExecutionRequest, AtlasSafeApplyExecutionResult
+from agent.project_intelligence.contracts import ApplyResultRequest, ProjectIdentity
 
 
 class AtlasSafeApplyExecutionService:
-    def __init__(self, *, journal: AtlasJournal, storage: AtlasPlanPoolStorage, safe_apply_adapter: AtlasSafeApplyAdapter | None = None, workspace_root: Path | str | None = None):
+    def __init__(
+        self,
+        *,
+        journal: AtlasJournal,
+        storage: AtlasPlanPoolStorage,
+        safe_apply_adapter: AtlasSafeApplyAdapter | None = None,
+        workspace_root: Path | str | None = None,
+        project_intelligence=None,
+    ):
         self.journal = journal
         self.storage = storage
         self.safe_apply_adapter = safe_apply_adapter
         self.change_snapshot_service = AtlasChangeSnapshotService(journal=journal, storage=storage, workspace_root=workspace_root)
+        self.project_intelligence = project_intelligence
 
     def execute_item(self, request: AtlasSafeApplyExecutionRequest) -> AtlasSafeApplyExecutionResult:
         pool = self.storage.load_pool(request.pool_id)
@@ -98,10 +108,60 @@ class AtlasSafeApplyExecutionService:
             event_type = 'safe_apply_manual_failed'
         self._append_event(pool.pool_id, request.run_id, event_type, item, status=status, warnings=reasons, execution_record_json=json_path, execution_record_md=md_path)
         self.persist_safe_apply_metadata(item, {**result_payload, 'status': status, 'reasons': reasons}, change_snapshot=snapshot_meta)
+        pi_apply = self._record_project_intelligence_apply_result(pool, item, request, status=status, result=result_payload)
+        if pi_apply:
+            item.metadata.setdefault('safe_apply', {})['project_intelligence_apply'] = pi_apply
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
         executor_meta = {'actual_file_changed': bool(result_payload.get('actual_file_changed')), 'changed_files': list(result_payload.get('changed_files') or []), 'file_results': list(result_payload.get('file_results') or [])}
-        return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status=status, safe_apply_result={**result_payload, 'decision': 'allow' if status == 'applied' else 'block', 'status': status, 'reasons': reasons, 'change_snapshot': snapshot_meta}, plan_pool=pool.model_dump(), warnings=reasons, metadata={'execution_record_json': json_path, 'execution_record_md': md_path, 'workspace_root': str(getattr(getattr(self.safe_apply_adapter, 'implementation_executor', None), 'workspace_root', '')), 'change_snapshot': snapshot_meta, 'executor_result': executor_meta})
+        metadata = {'execution_record_json': json_path, 'execution_record_md': md_path, 'workspace_root': str(getattr(getattr(self.safe_apply_adapter, 'implementation_executor', None), 'workspace_root', '')), 'change_snapshot': snapshot_meta, 'executor_result': executor_meta}
+        if pi_apply:
+            metadata['project_intelligence_apply'] = pi_apply
+        return AtlasSafeApplyExecutionResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, status=status, safe_apply_result={**result_payload, 'decision': 'allow' if status == 'applied' else 'block', 'status': status, 'reasons': reasons, 'change_snapshot': snapshot_meta}, plan_pool=pool.model_dump(), warnings=reasons, metadata=metadata)
+
+    def _record_project_intelligence_apply_result(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasSafeApplyExecutionRequest, *, status: str, result: dict) -> dict:
+        if self.project_intelligence is None or status != 'applied':
+            return {}
+        prior = ((item.metadata or {}).get('safe_apply') or {}).get('project_intelligence_apply') or {}
+        correlation_id = request.run_id or f"safe_apply:{pool.pool_id}:{item.item_id}"
+        if prior.get('correlation_id') == correlation_id and prior.get('status') == 'recorded':
+            return {**prior, 'idempotent_replay': True}
+        changed_files = [str(path) for path in list(result.get('changed_files') or []) if str(path)]
+        applied_refs = [path if '://' in path else f'file://{path}' for path in changed_files]
+        try:
+            pi_result = self.project_intelligence.record_apply_result(
+                ApplyResultRequest(
+                    project=ProjectIdentity(
+                        project_id=str(pool.project_name or (pool.metadata or {}).get('project_id') or 'atlas'),
+                        workspace_id=str(request.workspace_id or (pool.metadata or {}).get('workspace_id') or 'default'),
+                        project_path=str(pool.project_path or ''),
+                    ),
+                    plan_pool_id=pool.pool_id,
+                    plan_item_id=item.item_id,
+                    applied_refs=applied_refs,
+                    base_revision=str(request.metadata.get('base_revision') or (pool.metadata or {}).get('actual_twin_revision_id') or '') or None,
+                    new_source_revision=str(request.metadata.get('new_source_revision') or result.get('new_source_revision') or result.get('source_revision') or '') or None,
+                    success=True,
+                    correlation_id=correlation_id,
+                )
+            )
+            return {
+                'status': 'recorded',
+                'correlation_id': correlation_id,
+                'accepted': bool(pi_result.accepted),
+                'refresh_requested': bool(pi_result.refresh_requested),
+                'twin_revision_id': pi_result.twin_revision_id,
+                'applied_refs': applied_refs,
+                'diagnostics': [d.model_dump() if hasattr(d, 'model_dump') else dict(d) for d in pi_result.diagnostics],
+            }
+        except Exception as exc:  # noqa: BLE001 - canonical apply success must stand.
+            return {
+                'status': 'degraded_retry_required',
+                'correlation_id': correlation_id,
+                'applied_refs': applied_refs,
+                'error_kind': exc.__class__.__name__,
+                'diagnostics': [str(exc)[:300]],
+            }
 
     def validate_item_for_safe_apply(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasSafeApplyExecutionRequest | None = None):
         warnings: list[str] = []

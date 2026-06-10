@@ -2480,7 +2480,13 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
                 "tokens_generated": int(payload.get("tokens_generated") or 0),
             })
         llm_json_fn = llm_json_fn.with_progress(_on_patchgen_progress)
-    service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_json_fn)
+    pi_service = get_project_intelligence_service(request.app)
+    service = AtlasPatchProposalService(
+        journal=journal,
+        storage=storage,
+        llm_json_fn=llm_json_fn,
+        project_intelligence=pi_service.coordinator if pi_service is not None else None,
+    )
     result = service.propose_for_item(req)
     patch_generation = (result.metadata or {}).get("patch_generation") if isinstance((result.metadata or {}).get("patch_generation"), dict) else {}
     _write_patchgen_job(ca_data_root, req.pool_id, req.item_id, {

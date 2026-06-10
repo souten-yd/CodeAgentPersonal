@@ -18,6 +18,10 @@ from agent.atlas_self_correction_service import AtlasSelfCorrectionService
 from agent.test_command_runner import TestCommandRunner
 
 
+def _project_intelligence_coordinator(request: Request | Any) -> Any | None:
+    return getattr(getattr(getattr(request, "app", None), "state", None), "project_intelligence", None)
+
+
 def build_safe_apply_execution_service(
     *,
     request: Request | Any,
@@ -47,6 +51,7 @@ def build_safe_apply_execution_service(
         journal=journal,
         safe_apply_adapter=safe_apply_adapter,
         workspace_root=workspace_root,
+        project_intelligence=_project_intelligence_coordinator(request),
     )
 
 
@@ -83,6 +88,7 @@ def build_self_correction_service(
         journal=journal,
         storage=storage,
         llm_json_fn=llm_json_fn,
+        project_intelligence=_project_intelligence_coordinator(request),
     )
     return AtlasSelfCorrectionService(
         storage=storage,
