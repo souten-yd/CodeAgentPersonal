@@ -6,7 +6,7 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-13`
-- Next action: implement real Greenfield E2E through the normal Atlas entrypoint
+- Next action: connect the PIR-13 Greenfield state machine to the normal Atlas entrypoint and real scenarios
 - Blocker: none
 - Rollout: off by default
 
@@ -52,7 +52,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-10 | Planner and PlanPool production integration | acceptance_complete |
 | PIR-11 | Proposal, Safe Apply, and refresh integration | acceptance_complete |
 | PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |
-| PIR-13 | real Greenfield E2E | not_started |
+| PIR-13 | real Greenfield E2E | component_complete |
 | PIR-14 | CI, platform, scale, and consumer cutover | not_started |
 | PIR-15 | real benchmark and retirement | not_started |
 
@@ -850,5 +850,36 @@ Migration/rollout state: rollout remains off by default; no legacy consumer cuto
 Known limitations: real Greenfield E2E, CI/platform/scale/cutover, benchmark, and legacy retirement
   remain in PIR-13+.
 Next package: PIR-13 — real Greenfield E2E.
+Blocker: none.
+```
+
+```text
+Work package: PIR-13 — Real Greenfield state machine and end-to-end generation
+Status: component_complete
+Changed modules/files:
+- agent/project_intelligence/greenfield_state_machine.py — durable Greenfield run state,
+  transition store, explicit PIR-13 states, typed canonical outcomes, transition validation,
+  idempotency keys, revision/ref/evidence capture, slice advancement, and completion gate
+  requiring canonical verification plus Convergence acceptance.
+- tests/test_project_intelligence_pir13_greenfield_state_machine.py — component coverage for
+  persistence/restart, typed slice outcomes, idempotent replay, invalid transition rejection,
+  and blocked completion without verification/Convergence acceptance.
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/greenfield_state_machine.py
+  tests/test_project_intelligence_pir13_greenfield_state_machine.py -> compile OK
+- python -m pytest -q tests/test_project_intelligence_pir13_greenfield_state_machine.py
+  tests/test_project_intelligence_greenfield.py tests/test_project_intelligence_greenfield_e2e.py ->
+  19 passed in 1.65s
+Unavailable checks: normal Atlas API entrypoint wiring, real temporary workspace scenario execution,
+  browser/API readiness probes, failure repair/resume, and live configured-model Greenfield evidence
+  remain for later PIR-13 slices.
+Safety invariants checked: the state machine accepts typed outcomes instead of Booleans, rejects
+  invalid skips to completion, records idempotency/revision/evidence refs for every transition, and
+  does not write the workspace or bypass Proposal/Safe Apply/Verification.
+Migration/rollout state: rollout remains off by default; no legacy Greenfield helper deletion and no
+  consumer cutover were performed.
+Known limitations: this is component-complete only; production entrypoint and real scenario evidence
+  are still incomplete.
+Next package: PIR-13 — connect Greenfield state machine to normal Atlas entrypoint and real scenarios.
 Blocker: none.
 ```
