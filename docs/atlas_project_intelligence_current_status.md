@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-15` (PI-0..PI-14 completed)
-- Next action: final completion and requirement-evidence integration (PI-15)
+- Current work package: `PI-16` (PI-0..PI-15 completed; Milestone D done)
+- Next action: planning envelope and Blueprint Plan Compiler (PI-16)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -54,8 +54,8 @@ Current gaps include:
 | PI-12 | Blueprint-to-Actual mapping hints | Completed | mapping.py (materialized/realized/blocked, evidence-gated verify, public snapshot, decoupled); `tests/test_project_intelligence_blueprint_mapping.py` → 5 passed; PI+baseline 205 passed |
 | PI-13 | Convergence matcher and evaluator | Completed | matcher+evaluator (8 distinct states, file≠verified, stale guard); `tests/test_project_intelligence_convergence_eval.py` → 7 passed; PI+baseline 212 passed |
 | PI-14 | Convergence decision and incremental evaluation | Completed | policy(7 actions)+incremental_evaluate; `tests/test_project_intelligence_convergence_decision.py` → 10 passed; PI+baseline 222 passed |
-| PI-15 | Completion and requirement-evidence integration | In Progress | current package |
-| PI-16 | Planning envelope and Plan Compiler | Not Started | |
+| PI-15 | Completion and requirement-evidence integration | Completed | completion gates+delivery-path+off fallback; `tests/test_project_intelligence_completion.py` → 8 passed; PI+baseline 230 passed |
+| PI-16 | Planning envelope and Plan Compiler | In Progress | current package |
 | PI-17 | Planner production integration | Not Started | |
 | PI-18 | Generator and repair integration | Not Started | |
 | PI-19 | Verification, checkpoint, resume | Not Started | |
@@ -85,6 +85,42 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-15 — Final completion and requirement-evidence integration (Milestone D complete)
+Status: Completed
+Commit/PR: local branch pi-15-completion-evidence (not pushed/merged yet)
+Changed modules/files:
+- agent/project_intelligence/completion.py (new) — evaluate_completion gates + per-requirement
+  delivery; off-mode legacy fallback.
+- tests/test_project_intelligence_completion.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Eight completion gates: mandatory requirement coverage (verified), zero mandatory Blueprint
+  gaps, zero unresolved decisions, zero failed verification, zero stale mandatory evidence,
+  no unsafe halt, no unavailable required evidence, delivery path for every mandatory
+  requirement. complete = all gates pass.
+- Integrates the PI-5 delivery trace (path must reach verification/evidence per mandatory
+  requirement), PI-8 runtime rollup counts (failed/unavailable), and PI-13 convergence states.
+- Does NOT replace canonical verification authority: advisory only, never marks passed,
+  unavailable stays incomplete; in off mode it defers to the legacy rollup result.
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/completion.py + test -> compile OK
+- python -m pytest -q tests/test_project_intelligence_completion.py -> 8 passed in 0.71s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 230 passed in 8.40s
+Unavailable checks: none required (rollup counts supplied by PI-8 in production).
+Safety invariants checked: false-success fails rollup; unavailable remains incomplete; stale
+  cannot complete; unsafe halt blocks; canonical verification authority not replaced; off mode
+  uses legacy rollup.
+Migration/rollout state: completion gate complete; wiring into the real Atlas final-rollup
+  call site is PI-19; until then it is an advisory evaluator.
+Known limitations: requirement_elements + delivery_terminal_kinds are supplied by the caller
+  (the Atlas adapters wire PI-5/PI-8/PI-13 outputs in PI-17..PI-19).
+Milestone: Milestone D (Convergence Module, PI-13..PI-15) COMPLETE.
+Next package: PI-16 — Planning envelope and Blueprint Plan Compiler (Milestone E).
+Blocker: none.
+```
 
 ```text
 Work package: PI-14 — Convergence decision policy and incremental reevaluation
