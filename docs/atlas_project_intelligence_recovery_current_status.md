@@ -6,8 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-13`
-- Next action: add PIR-13 additional Greenfield scenarios, artifact-retention audit, and a live
-  configured-model run through the normal Atlas entrypoint
+- Next action: add PIR-13 FastAPI, FastAPI+SQLite, and frontend/backend scenario evidence,
+  artifact-retention audit, and a live configured-model run through the normal Atlas entrypoint
 - Blocker: none
 - Rollout: off by default
 
@@ -1053,5 +1053,46 @@ Migration/rollout state: no legacy Greenfield helper deletion and no consumer cu
 Known limitations: PIR-13 remains production_connected, not acceptance_complete, until scenario
   breadth, artifact-retention, and live-model gates pass.
 Next package: PIR-13 — add scenario breadth evidence.
+Blocker: none.
+```
+
+```text
+Work package: PIR-13 — Python CLI failing-test repair scenario
+Status: production_connected
+Changed modules/files:
+- app/api/atlas_pipeline.py — /api/atlas/automation/safe-apply-one-and-verify now carries the
+  original allowlisted command_id and test_path/test_file metadata into the verification failure
+  feedback handed to bounded self-correction, so command-based repairs re-run the same authorized
+  verification target instead of losing the command target on repair.
+- tests/test_project_intelligence_pir13_entrypoint_scenarios.py — added a normal API Python CLI
+  Greenfield scenario from /api/atlas/plan-pools?sync=1 through proposal generation, proposal
+  approval, PlanItem draft, PlanItem approval, /api/atlas/automation/safe-apply-one-and-verify,
+  initial failing pytest_selected verification, bounded self-correction, repaired Safe Apply,
+  repaired pytest_selected verification, and event-journal assertions.
+Executed commands and exact results:
+- python -m py_compile app\api\atlas_pipeline.py
+  tests\test_project_intelligence_pir13_entrypoint_scenarios.py -> compile OK
+- python -m pytest -q
+  tests/test_project_intelligence_pir13_entrypoint_scenarios.py::test_pir13_python_cli_failing_test_repairs_through_allowlisted_pytest ->
+  1 passed in 8.87s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py ->
+  3 passed in 29.76s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py
+  tests/test_atlas_self_correction_service.py tests/test_atlas_auto_verification_service.py
+  tests/test_visual_contract_matrix.py tests/test_project_intelligence_pir13_greenfield_state_machine.py
+  tests/test_project_intelligence_recovery_baseline.py -> 82 passed, 2 xfailed in 52.45s
+Unavailable checks: FastAPI API, FastAPI+SQLite persistence/restart, frontend/backend browser-to-API,
+  artifact-retention audit, and a live configured-model Greenfield run are not proven by this
+  slice.
+Safety invariants checked: command execution remains allowlist-based through pytest_selected;
+  repair reuses the original command target instead of accepting arbitrary commands; the first
+  pytest failure remains recorded as failed; repair is bounded through the existing self-correction
+  service and low-risk policy; Safe Apply remains the only workspace mutation path; unavailable
+  checks are not counted as passed.
+Migration/rollout state: no legacy Greenfield helper deletion and no consumer cutover were
+  performed.
+Known limitations: PIR-13 remains production_connected, not acceptance_complete, until remaining
+  scenario breadth, artifact-retention, and live-model gates pass.
+Next package: PIR-13 — add FastAPI API scenario evidence.
 Blocker: none.
 ```

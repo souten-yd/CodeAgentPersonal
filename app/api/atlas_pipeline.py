@@ -3503,13 +3503,19 @@ def atlas_automation_safe_apply_one_and_verify(request_body: AtlasAutoSafeApplyA
             command_runner=_resolve_atlas_test_command_runner(request),
         )
         if self_correction_service is not None:
+            verification_feedback = verify.model_dump()
+            if request_body.command_id:
+                verification_feedback["command_id"] = request_body.command_id
+            for key in ("test_path", "test_file"):
+                if key in request_body.metadata:
+                    verification_feedback[key] = request_body.metadata.get(key)
             self_correction_result = self_correction_service.run(
                 AtlasSelfCorrectionRequest(
                     pool_id=request_body.pool_id,
                     item_id=request_body.item_id,
                     run_id=request_body.run_id,
                     workspace_id=request_body.workspace_id,
-                    verification_result=verify.model_dump(),
+                    verification_result=verification_feedback,
                     max_attempts=2,
                 )
             )

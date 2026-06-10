@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 import main
 from agent.atlas_file_safe_apply_executor import AtlasFileSafeApplyExecutor
+from agent.test_command_runner import TestCommandRunner
 from app.server import create_app
 from tests.test_atlas_safe_apply_execution_api import _clear_safe_apply_state
 
@@ -15,6 +16,9 @@ def _client(tmp_path: Path, repo: Path, llm_json_fn=None) -> TestClient:
     main.app.state.atlas_ca_data_dir = str(tmp_path / "atlas_data")
     main.app.state.atlas_implementation_executor = AtlasFileSafeApplyExecutor(workspace_root=repo)
     main.app.state.atlas_llm_json_fn = llm_json_fn or _greenfield_html_llm
+    main.app.state.atlas_test_command_runner = lambda: TestCommandRunner(
+        allowed_commands=["python -m pytest -q"]
+    )
     return TestClient(main.app)
 
 
@@ -87,6 +91,44 @@ def _fixed_animation_html() -> str:
         "<body><main data-atlas-animation-running=\"true\" data-atlas-color-phase=\"active\">"
         "<h1>Animate colors with a visible continuous color animation</h1></main></body>\n"
         "</html>\n"
+    )
+
+
+def _python_cli_repair_llm(_system_prompt: str, user_prompt: str) -> dict:
+    repairing = "fix_verification_failure" in user_prompt
+    return {
+        "summary": "Create a Python CLI module with an answer function.",
+        "proposed_fix": "Write cli_app.py so the CLI and tests return atlas-ok.",
+        "target_files": ["cli_app.py"],
+        "risk_level": "low",
+        "proposed_content": _fixed_python_cli() if repairing else _broken_python_cli(),
+        "suggested_changes": [{"path": "cli_app.py", "action": "create" if not repairing else "update"}],
+        "verification_plan": ["Provide answer function that returns atlas-ok for the Python CLI."],
+        "rollback_plan": ["Restore the previous cli_app.py snapshot."],
+    }
+
+
+def _broken_python_cli() -> str:
+    return (
+        "def answer() -> str:\n"
+        "    \"\"\"Provide answer function returns atlas ok for the Python CLI module.\"\"\"\n"
+        "    return \"wrong\"\n"
+        "\n"
+        "\n"
+        "if __name__ == \"__main__\":\n"
+        "    print(answer())\n"
+    )
+
+
+def _fixed_python_cli() -> str:
+    return (
+        "def answer() -> str:\n"
+        "    \"\"\"Provide answer function returns atlas ok for the Python CLI module.\"\"\"\n"
+        "    return \"atlas-ok\"\n"
+        "\n"
+        "\n"
+        "if __name__ == \"__main__\":\n"
+        "    print(answer())\n"
     )
 
 
@@ -412,3 +454,150 @@ def test_pir13_normal_entrypoint_fault_repair_recovers_and_resumes(tmp_path: Pat
     ).json()
     assert continuation["pool_id"] == pool_id
     assert draft_item_id in continuation["continuation_prompt"]
+
+
+def test_pir13_python_cli_failing_test_repairs_through_allowlisted_pytest(tmp_path: Path) -> None:
+    repo = tmp_path / "workspace"
+    tests_dir = repo / "tests"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "test_cli_app.py").write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "\n"
+        "sys.path.insert(0, str(Path(__file__).resolve().parents[1]))\n"
+        "\n"
+        "from cli_app import answer\n"
+        "\n"
+        "\n"
+        "def test_answer_returns_atlas_ok():\n"
+        "    assert answer() == \"atlas-ok\"\n",
+        encoding="utf-8",
+    )
+    client = _client(tmp_path, repo, llm_json_fn=_python_cli_repair_llm)
+
+    plan_payload = {
+        "root_goal": "Create a Greenfield Python CLI module.",
+        "requirements": [
+            {
+                "id": "REQ-CLI",
+                "text": "Provide answer function that returns atlas-ok for the Python CLI.",
+            }
+        ],
+        "implementation_steps": [
+            {
+                "step_id": "cli",
+                "title": "Create cli_app.py",
+                "description": "Create a Python CLI module with an answer function.",
+                "action_type": "create",
+                "risk_level": "low",
+                "target_files": ["cli_app.py"],
+                "acceptance_criteria": [
+                    "Provide answer function that returns atlas-ok for the Python CLI."
+                ],
+            }
+        ],
+    }
+
+    created = client.post(
+        "/api/atlas/plan-pools?sync=1",
+        json={
+            "input": "Create a Greenfield Python CLI module.",
+            "project_path": str(repo),
+            "project_name": "pir13-python-cli",
+            "workspace_id": "pir13",
+            "plan_payload": plan_payload,
+        },
+    ).json()
+    assert created["status"] == "ready"
+    pool_id = created["pool_id"]
+    source_item_id = created["plan_pool"]["items"][0]["item_id"]
+
+    proposed = client.post(
+        "/api/atlas/patch-proposals/generate",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "run_id": "pir13_cli_patchgen",
+            "source_type": "plan_item",
+        },
+    ).json()
+    assert proposed["status"] == "proposed", proposed
+    assert "return \"wrong\"" in proposed["proposal"]["metadata"]["proposed_content"]
+
+    approved_proposal = client.post(
+        "/api/atlas/patch-proposals/decide",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "proposal_id": proposed["proposal"]["proposal_id"],
+            "decision": "approved",
+            "reason": "PIR-13 Python CLI scenario approval.",
+        },
+    ).json()
+    assert approved_proposal["status"] == "approved", approved_proposal
+
+    draft = client.post(
+        "/api/atlas/patch-proposals/planitem-draft",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "proposal_id": proposed["proposal"]["proposal_id"],
+            "run_id": "pir13_cli_draft",
+        },
+    ).json()
+    assert draft["status"] == "created", draft
+    draft_item_id = draft["draft_item"]["draft_item_id"]
+
+    approved_item = client.post(
+        "/api/atlas/approvals/decide",
+        json={
+            "pool_id": pool_id,
+            "item_id": draft_item_id,
+            "workspace_id": "pir13",
+            "decision": "approved",
+            "reason": "Approve the Python CLI PlanItem for Safe Apply.",
+        },
+    ).json()
+    assert approved_item["decision"] == "approved", approved_item
+
+    repaired = client.post(
+        "/api/atlas/automation/safe-apply-one-and-verify",
+        json={
+            "pool_id": pool_id,
+            "item_id": draft_item_id,
+            "workspace_id": "pir13",
+            "run_id": "pir13_cli_repair",
+            "command_id": "pytest_selected",
+            "metadata": {"test_path": "tests/test_cli_app.py"},
+        },
+    ).json()
+    assert repaired["status"] == "applied_and_verified", repaired
+    verification = repaired["auto_verification_result"]
+    assert verification["status"] == "passed", verification
+    assert verification["command_id"] == "pytest_selected"
+    assert verification["metadata"]["recovered_by_self_correction"] is True
+    self_correction = verification["metadata"]["self_correction_result"]
+    assert self_correction["status"] == "recovered"
+    assert self_correction["attempts"] == 1
+    assert self_correction["metadata"]["final_verification_result"]["command_id"] == "pytest_selected"
+    assert "tests/test_cli_app.py" in self_correction["metadata"]["final_verification_result"]["command"]
+    assert (repo / "cli_app.py").read_text(encoding="utf-8") == _fixed_python_cli()
+
+    events_path = (
+        Path(main.app.state.atlas_ca_data_dir)
+        / "atlas"
+        / "workspaces"
+        / "pir13"
+        / "plan_pools"
+        / pool_id
+        / "pipeline_runs"
+        / "pir13_cli_repair"
+        / "events.ndjson"
+    )
+    events_text = events_path.read_text(encoding="utf-8")
+    assert '"event_type": "auto_verification_failed"' in events_text
+    assert '"event_type": "self_correction_recovered"' in events_text
+    assert '"event_type": "auto_verification_passed"' in events_text
