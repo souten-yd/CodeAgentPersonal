@@ -23,8 +23,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: recovery track `PIR-3` after the PIR-2 production composition root
-- Next action: implement source snapshots and Twin refresh lifecycle through the recovery plan;
+- Current work package: recovery track `PIR-4` after the PIR-3 source snapshot and Twin refresh slice
+- Next action: implement durable canonical event and delivery projection integration through the recovery plan;
   do not claim production completion from the old Foundation Track package table
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged

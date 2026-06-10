@@ -428,7 +428,7 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-10T13:40:56+00:00",
+  "generated_at": "2026-06-10T13:58:33+00:00",
   "legacy_consumers": [
     {
       "capability": "legacy_code_explorer",
