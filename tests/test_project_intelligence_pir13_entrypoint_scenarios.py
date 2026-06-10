@@ -145,3 +145,36 @@ def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: P
     assert applied["metadata"]["executor_result"]["actual_file_changed"] is True
     assert applied["metadata"]["executor_result"]["changed_files"] == ["index.html"]
     assert Path(applied["metadata"]["change_snapshot"]["manifest_path"]).exists()
+
+    verified = client.post(
+        "/api/atlas/automation/verify-one",
+        json={
+            "pool_id": pool_id,
+            "item_id": draft_item_id,
+            "workspace_id": "pir13",
+            "run_id": "pir13_visual_verify",
+        },
+    ).json()
+    assert verified["status"] == "passed", verified
+    assert verified["metadata"]["visual_contract"]["status"] == "passed"
+    assert verified["metadata"]["browser_smoke"]["status"] in {
+        "browser_smoke_passed",
+        "browser_smoke_skipped",
+    }
+    assert verified["metadata"]["verify_level"] in {"static_checked", "runtime_smoke_checked"}
+    verified_draft = next(
+        item for item in verified["plan_pool"]["items"] if item["item_id"] == draft_item_id
+    )
+    assert verified_draft["metadata"]["auto_verification"]["status"] == "passed"
+    events_path = (
+        Path(main.app.state.atlas_ca_data_dir)
+        / "atlas"
+        / "workspaces"
+        / "pir13"
+        / "plan_pools"
+        / pool_id
+        / "pipeline_runs"
+        / "pir13_visual_verify"
+        / "events.ndjson"
+    )
+    assert '"event_type": "auto_verification_passed"' in events_path.read_text(encoding="utf-8")
