@@ -42,6 +42,38 @@ DIVERGENT = "divergent"
 BLOCKED = "blocked"
 STALE = "stale"
 
+MATERIALIZATION_ONLY = "materialization_only"
+STATIC_CONTRACT = "static_contract"
+VERIFIED_TEST = "verified_test"
+RUNTIME_OBSERVATION = "runtime_observation"
+PERFORMANCE_MEASUREMENT = "performance_measurement"
+MANUAL_CRITICAL_DECISION = "manual_critical_decision"
+
+
+def _evidence_policy(el) -> str:
+    policy = (el.properties or {}).get("evidence_policy")
+    if policy:
+        return str(policy)
+    if el.element_type == "nfr":
+        return PERFORMANCE_MEASUREMENT
+    if el.element_type in {"runtime_scenario", "preserve_behavior"}:
+        return RUNTIME_OBSERVATION
+    if el.element_type in {"test_contract", "command", "entrypoint"}:
+        return VERIFIED_TEST
+    if el.element_type in {"api_route", "schema", "configuration", "dependency"}:
+        return STATIC_CONTRACT
+    if el.verification_contract_ids:
+        return VERIFIED_TEST
+    return MATERIALIZATION_ONLY
+
+
+def _required_evidence_refs(el) -> list[str]:
+    refs = list(el.verification_contract_ids)
+    policy = _evidence_policy(el)
+    if policy != MATERIALIZATION_ONLY and not refs:
+        refs.append(f"evidence:{el.element_id}")
+    return refs
+
 
 def _interface_mismatch(el, entry: ActualEntry | None) -> ConvergenceMismatch | None:
     """A coarse interface check: a declared interface kind must match the actual kind."""
@@ -55,11 +87,59 @@ def _interface_mismatch(el, entry: ActualEntry | None) -> ConvergenceMismatch | 
     return None
 
 
+def _typed_contract_mismatch(el, entry: ActualEntry | None) -> ConvergenceMismatch | None:
+    if entry is None:
+        return None
+    expected_kinds = {
+        "api_route": {"route", "api_route"},
+        "schema": {"schema", "data_model", "table"},
+        "configuration": {"configuration", "config"},
+        "dependency": {"dependency", "package"},
+        "runtime_scenario": {"runtime", "test", "scenario"},
+        "preserve_behavior": {"behavior", "test", "runtime"},
+        "nfr": {"nfr", "performance", "metric"},
+        "state": {"state"},
+        "event": {"event"},
+        "recovery": {"recovery"},
+        "resource": {"resource", "side_effect"},
+    }.get(el.element_type)
+    if expected_kinds and entry.kind and entry.kind not in expected_kinds:
+        dimension = {
+            "api_route": "api_schema",
+            "schema": "schema",
+            "configuration": "configuration",
+            "dependency": "dependency",
+            "runtime_scenario": "behavior",
+            "preserve_behavior": "behavior",
+            "nfr": "nfr",
+            "state": "state",
+            "event": "event",
+            "recovery": "recovery",
+            "resource": "resource",
+        }[el.element_type]
+        return ConvergenceMismatch(
+            dimension=dimension,
+            expected_ref=el.canonical_ref,
+            actual_ref=entry.ref,
+            detail=f"expected {el.element_type} actual kind, got {entry.kind}",
+        )
+    return None
+
+
+def _policy_satisfied(result: ElementConvergenceResult) -> bool:
+    if result.mismatches or result.state in {ABSENT, PARTIAL, BLOCKED, DIVERGENT, STALE}:
+        return False
+    if result.evidence_policy == MATERIALIZATION_ONLY:
+        return result.state in {MATERIALIZED, OBSERVED, VERIFIED}
+    return result.state == VERIFIED
+
+
 def evaluate_element(
     el,
     match,
     *,
     current_twin_revision_id: str | None,
+    current_source_revision_id: str | None,
     snapshot_by_ref: dict[str, ActualEntry],
     verification: dict[str, VerificationEvidence],
 ) -> ElementConvergenceResult:
@@ -67,12 +147,15 @@ def evaluate_element(
     missing = match.missing_actual_refs
     mismatches: list[ConvergenceMismatch] = []
     evidence: list[str] = []
+    evidence_policy = _evidence_policy(el)
+    required_evidence = _required_evidence_refs(el)
 
     # blocked / absent
     if not matched:
         state = BLOCKED if el.mandatory else ABSENT
         return ElementConvergenceResult(
-            blueprint_element_id=el.element_id, state=state, matched_actual_refs=[],
+            blueprint_element_id=el.element_id, state=state, evidence_policy=evidence_policy,
+            required_evidence_refs=required_evidence, matched_actual_refs=[],
             missing_actual_refs=missing or [r for r in el.expected_actual_refs],
             evidence_refs=[], mismatches=[], confidence=0.8 if state == BLOCKED else 0.6,
         )
@@ -84,11 +167,15 @@ def evaluate_element(
     im = _interface_mismatch(el, entry)
     if im:
         mismatches.append(im)
+    typed = _typed_contract_mismatch(el, entry)
+    if typed:
+        mismatches.append(typed)
 
     # verification / runtime dimension
     ev = verification.get(primary)
     state = MATERIALIZED  # structural presence only (file exists != verified)
     confidence = 0.6
+    freshness = "not_required" if not required_evidence else "unavailable"
     if ev is not None:
         evidence = list(ev.evidence_refs)
         if ev.result == "failed":
@@ -96,25 +183,31 @@ def evaluate_element(
                                                   detail="runtime observation failed"))
             state = DIVERGENT
             confidence = 0.8
+            freshness = "fresh"
         elif ev.result == "passed":
-            if ev.source_revision == current_twin_revision_id:
+            expected_revision = current_source_revision_id or current_twin_revision_id
+            if ev.source_revision == expected_revision:
                 state = VERIFIED
                 confidence = 0.95
+                freshness = "fresh"
             else:
                 # stale evidence cannot satisfy verification.
                 state = STALE
                 confidence = 0.5
+                freshness = "stale"
                 mismatches.append(ConvergenceMismatch(dimension="verification", actual_ref=primary,
                                                       detail="evidence from a different revision (stale)"))
         elif ev.result == "observed":
             state = OBSERVED
             confidence = 0.6
+            freshness = "fresh"
         elif ev.result == "unavailable":
             state = MATERIALIZED  # unavailable never upgrades to verified
             confidence = 0.5
+            freshness = "unavailable"
 
     # interface divergence overrides a non-failed structural state
-    if im and state not in (DIVERGENT,):
+    if mismatches and state not in (DIVERGENT, STALE):
         state = DIVERGENT
         confidence = max(confidence, 0.7)
 
@@ -124,9 +217,10 @@ def evaluate_element(
         confidence = 0.5
 
     return ElementConvergenceResult(
-        blueprint_element_id=el.element_id, state=state, matched_actual_refs=matched,
+        blueprint_element_id=el.element_id, state=state, evidence_policy=evidence_policy,
+        required_evidence_refs=required_evidence, matched_actual_refs=matched,
         missing_actual_refs=missing, evidence_refs=evidence, mismatches=mismatches,
-        confidence=confidence,
+        freshness=freshness, confidence=confidence,
     )
 
 
@@ -137,6 +231,10 @@ def evaluate_convergence(
     project_id: str,
     workspace_id: str,
     twin_revision_id: str,
+    source_revision_id: str | None = None,
+    requirement_revision_id: str | None = None,
+    mapping_revision_id: str | None = None,
+    evidence_revision_id: str | None = None,
     verification: dict[str, VerificationEvidence] | None = None,
     hints: list[MappingHint] | None = None,
     now: datetime | None = None,
@@ -155,14 +253,18 @@ def evaluate_convergence(
     for eid in sorted(by_id):
         el = by_id[eid]
         res = evaluate_element(el, matches[eid], current_twin_revision_id=twin_revision_id,
+                               current_source_revision_id=source_revision_id,
                                snapshot_by_ref=snapshot_by_ref, verification=verification)
         results.append(res)
         if res.state == STALE:
             stale_evidence.extend(res.evidence_refs or [res.blueprint_element_id])
-        if res.state in (ABSENT, PARTIAL, BLOCKED, DIVERGENT, STALE):
+        if res.state in (ABSENT, PARTIAL, BLOCKED, DIVERGENT, STALE) or (el.mandatory and not _policy_satisfied(res)):
+            description = f"{el.name or eid}: {res.state}"
+            if el.mandatory and not _policy_satisfied(res):
+                description = f"{description}; evidence policy {res.evidence_policy} unsatisfied"
             gap = GapSummary(gap_id=f"gap:{eid}", blueprint_element_id=eid,
-                             description=f"{el.name or eid}: {res.state}", mandatory=el.mandatory,
-                             missing_refs=res.missing_actual_refs)
+                             description=description, mandatory=el.mandatory,
+                             missing_refs=[*res.missing_actual_refs, *res.required_evidence_refs])
             (mandatory_gaps if el.mandatory else optional_gaps).append(gap)
 
     coverage: dict[str, object] = {
@@ -173,6 +275,8 @@ def evaluate_convergence(
     return ConvergenceReport(
         report_id=f"conv:{uuid.uuid4().hex[:10]}", project_id=project_id, workspace_id=workspace_id,
         blueprint_revision_id=revision.revision_id, actual_twin_revision_id=twin_revision_id,
+        actual_source_revision_id=source_revision_id, requirement_revision_id=requirement_revision_id,
+        mapping_revision_id=mapping_revision_id, evidence_revision_id=evidence_revision_id,
         element_results=results, mandatory_gaps=mandatory_gaps, optional_gaps=optional_gaps,
         stale_evidence=sorted(set(stale_evidence)), requirement_coverage=coverage,
         diagnostics=[], generated_at=now,
@@ -213,6 +317,10 @@ def incremental_evaluate(
     project_id: str,
     workspace_id: str,
     twin_revision_id: str,
+    source_revision_id: str | None = None,
+    requirement_revision_id: str | None = None,
+    mapping_revision_id: str | None = None,
+    evidence_revision_id: str | None = None,
     verification: dict[str, VerificationEvidence] | None = None,
     hints: list[MappingHint] | None = None,
     now: datetime | None = None,
@@ -238,16 +346,20 @@ def incremental_evaluate(
         el = by_id[eid]
         if eid in affected or eid not in prior:
             res = evaluate_element(el, matches[eid], current_twin_revision_id=twin_revision_id,
+                                   current_source_revision_id=source_revision_id,
                                    snapshot_by_ref=snapshot_by_ref, verification=verification)
         else:
             res = prior[eid]
         results.append(res)
         if res.state == STALE:
             stale_evidence.extend(res.evidence_refs or [eid])
-        if res.state in (ABSENT, PARTIAL, BLOCKED, DIVERGENT, STALE):
+        if res.state in (ABSENT, PARTIAL, BLOCKED, DIVERGENT, STALE) or (el.mandatory and not _policy_satisfied(res)):
+            description = f"{el.name or eid}: {res.state}"
+            if el.mandatory and not _policy_satisfied(res):
+                description = f"{description}; evidence policy {res.evidence_policy} unsatisfied"
             gap = GapSummary(gap_id=f"gap:{eid}", blueprint_element_id=eid,
-                             description=f"{el.name or eid}: {res.state}", mandatory=el.mandatory,
-                             missing_refs=res.missing_actual_refs)
+                             description=description, mandatory=el.mandatory,
+                             missing_refs=[*res.missing_actual_refs, *res.required_evidence_refs])
             (mandatory_gaps if el.mandatory else optional_gaps).append(gap)
 
     coverage = {"total_elements": len(results),
@@ -256,6 +368,8 @@ def incremental_evaluate(
     return ConvergenceReport(
         report_id=f"conv:{uuid.uuid4().hex[:10]}", project_id=project_id, workspace_id=workspace_id,
         blueprint_revision_id=revision.revision_id, actual_twin_revision_id=twin_revision_id,
+        actual_source_revision_id=source_revision_id, requirement_revision_id=requirement_revision_id,
+        mapping_revision_id=mapping_revision_id, evidence_revision_id=evidence_revision_id,
         element_results=results, mandatory_gaps=mandatory_gaps, optional_gaps=optional_gaps,
         stale_evidence=sorted(set(stale_evidence)), requirement_coverage=coverage,
         diagnostics=[], generated_at=now,

@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-9`
-- Next action: implement Convergence correctness, evidence policy, and durable decisions
+- Current package: `PIR-10`
+- Next action: implement Planner and PlanPool production integration
 - Blocker: none
 - Rollout: off by default
 
@@ -30,8 +30,7 @@ This file selects the active package. The old PI package table does not prove fi
 - concrete Twin and Convergence facades are missing;
 - new Planner, Generator, and Verification adapters are not connected to real Atlas consumers;
 - durability defects remain in Blueprint, event projection, and checkpoints;
-- Convergence revision policy and evidence-backed gap decisions remain incomplete;
-- Convergence revision and completion logic require correction;
+- Planner and PlanPool production integration remain incomplete;
 - Plan Compiler is not authoritative PlanPool integration;
 - Greenfield E2E and final benchmark are synthetic;
 - live rollout, platform evidence, consumer cutover, and retirement are incomplete.
@@ -49,7 +48,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-6 | whole-project semantic graph | acceptance_complete |
 | PIR-7 | CFG, data flow, state/event/resource graphs | acceptance_complete |
 | PIR-8 | durable Blueprint planning and review | acceptance_complete |
-| PIR-9 | Convergence correctness and evidence policy | not_started |
+| PIR-9 | Convergence correctness and evidence policy | acceptance_complete |
 | PIR-10 | Planner and PlanPool production integration | not_started |
 | PIR-11 | Proposal, Safe Apply, and refresh integration | not_started |
 | PIR-12 | Verification, recovery, checkpoint, resume | not_started |
@@ -571,5 +570,73 @@ Known limitations: Convergence gap policy, Planner/PlanPool production integrati
   Safe Apply refresh, recovery/resume, Greenfield E2E, platform rollout, benchmark, and legacy
   retirement remain in PIR-9+.
 Next package: PIR-9 — Convergence correctness, evidence policy, and durable decisions.
+Blocker: none.
+```
+
+```text
+Work package: PIR-9 — Convergence correctness, evidence policy, and durable decisions
+Status: acceptance_complete
+Changed modules/files:
+- agent/project_convergence/contracts.py — Convergence requests/reports now separate Actual
+  Twin, source, requirement, mapping, and evidence revision identities; element results carry
+  evidence policy, required evidence refs, and freshness state.
+- agent/project_convergence/evaluator.py — evidence freshness compares verification source
+  revision against Actual source revision, not Twin revision; mandatory gaps are retained until
+  each element evidence policy passes; unavailable/observed/materialized evidence does not pass
+  verified policies; typed dimension mismatches cover API/schema/config/dependency/behavior/
+  state/recovery/resource/NFR-style contracts.
+- agent/project_convergence/policy.py — completion candidate now requires every mandatory
+  element result to be verified; the old any-verified shortcut is removed.
+- agent/project_convergence/module.py and store.py — facade persists separated revision metadata
+  in reports and exposes persisted decision history for restart proof.
+- tests/test_project_convergence_pir9.py and existing Convergence/Completion tests — PIR-9
+  corpus for source-vs-Twin revision correctness, mandatory evidence policies, unavailable
+  evidence, typed dimensional gaps, persisted decisions, and no premature completion.
+- tests/test_project_intelligence_recovery_baseline.py — PIR-9 status lock advanced; later
+  package locks stay strict xfail.
+Executed commands and exact results:
+- python -m py_compile agent/project_convergence/contracts.py
+  agent/project_convergence/evaluator.py agent/project_convergence/policy.py
+  agent/project_convergence/module.py agent/project_convergence/store.py
+  tests/test_project_convergence_pir9.py
+  tests/test_project_intelligence_recovery_baseline.py -> compile OK
+- python -m pytest -q tests/test_project_convergence_pir9.py
+  tests/test_project_intelligence_convergence_eval.py
+  tests/test_project_intelligence_convergence_decision.py
+  tests/test_convergence_module_durability.py tests/test_project_intelligence_completion.py ->
+  31 passed in 2.43s
+- python -m pytest -q tests/test_project_convergence_pir9.py
+  tests/test_project_intelligence_convergence_eval.py
+  tests/test_project_intelligence_convergence_decision.py
+  tests/test_convergence_module_durability.py tests/test_project_intelligence_completion.py
+  tests/test_project_intelligence_recovery_baseline.py -> 39 passed, 3 xfailed in 14.98s
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=32 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+- python -m pytest -q tests/test_project_convergence_pir9.py
+  tests/test_project_intelligence_convergence_eval.py
+  tests/test_project_intelligence_convergence_decision.py
+  tests/test_convergence_module_durability.py tests/test_project_intelligence_completion.py
+  tests/test_project_intelligence_blueprint_generation.py tests/test_architecture_blueprint_pir8.py
+  tests/test_project_intelligence_greenfield.py tests/test_project_intelligence_plan_compiler.py
+  tests/test_project_intelligence_recovery_baseline.py -> 64 passed, 3 xfailed in 16.41s
+- $files = @(Get-ChildItem tests -Filter 'test_project_intelligence_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_project_twin_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_blueprint_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_architecture_blueprint_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_convergence_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_project_convergence_*.py' | ForEach-Object { $_.FullName });
+  python -m pytest -q @files -> 467 passed, 3 xfailed in 45.87s
+Unavailable checks: no live Planner/PlanPool production action was exercised in this package;
+  PIR-10 owns authoritative PlanPool integration.
+Safety invariants checked: source revision is not treated as Twin revision; unavailable evidence
+  remains unavailable; materialized/observed does not satisfy verified evidence policies; Convergence
+  returns bounded decisions only and does not mutate Blueprint, PlanPool, workspace, Proposal, Safe
+  Apply, or Verification state.
+Migration/rollout state: rollout remains off by default; no legacy consumer cutover or legacy
+  deletion was performed.
+Known limitations: Planner/PlanPool production integration, Proposal/Safe Apply refresh, recovery/
+  resume, Greenfield E2E, platform rollout, benchmark, and legacy retirement remain in PIR-10+.
+Next package: PIR-10 — Planner and PlanPool production integration.
 Blocker: none.
 ```

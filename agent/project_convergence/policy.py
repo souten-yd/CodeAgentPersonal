@@ -106,8 +106,10 @@ def decide(
         return ConvergenceDecision(action=CONTINUE, reason_codes=["mandatory_gaps_remain"],
                                    mandatory_gaps=sorted(mandatory_gap_ids))
 
-    # 7) all mandatory satisfied (>=1 verified) -> complete.
-    if any(r.state == VERIFIED for r in report.element_results):
+    # 7) only a report with all mandatory element policies verified may become a
+    # bounded complete candidate. Final completion remains owned by CompletionEvaluator.
+    mandatory_ids = {el.element_id for el in revision.elements if el.mandatory}
+    if mandatory_ids and all(eid in results and results[eid].state == VERIFIED for eid in mandatory_ids):
         return ConvergenceDecision(action=COMPLETE, reason_codes=["all_mandatory_verified"])
 
     return ConvergenceDecision(action=CONTINUE, reason_codes=["no_verified_evidence_yet"])
