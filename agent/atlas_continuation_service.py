@@ -106,6 +106,10 @@ Current Gate:
 - verification_manual_only: {str(bool(summary.metadata.get("verification_manual_only", False))).lower()}
 - verification_auto_debug: {str(bool(summary.metadata.get("verification_auto_debug", False))).lower()}
 - verification_note: {summary.metadata.get("verification_note", "")}
+- project_intelligence_resume_action: {summary.metadata.get("project_intelligence_resume_action", "")}
+- project_intelligence_blind_resume_allowed: {str(bool(summary.metadata.get("project_intelligence_blind_resume_allowed", False))).lower()}
+- project_intelligence_final_gate_passed: {str(bool(summary.metadata.get("project_intelligence_final_gate_passed", False))).lower()}
+- project_intelligence_final_gate_blocked_reasons: {summary.metadata.get("project_intelligence_final_gate_blocked_reasons", [])}
 
 重要方針:
 - Task独立機能は廃止。
@@ -229,6 +233,20 @@ Current Gate:
             "stale_recovery_warning": "Start a new dry-run from the recovered PlanPool." if orchestration.is_stale else "",
             "current_gate": self._current_gate(orchestration),
         })
+        pi_checkpoint = dict(recovery_metadata.get("project_intelligence_checkpoint") or {})
+        pi_final_gate = dict(recovery_metadata.get("project_intelligence_final_gate") or {})
+        if pi_checkpoint:
+            summary.metadata.update({
+                "project_intelligence_resume_action": str(pi_checkpoint.get("resume_action") or ""),
+                "project_intelligence_blind_resume_allowed": bool(pi_checkpoint.get("blind_resume_allowed", False)),
+                "project_intelligence_checkpoint_id": str(pi_checkpoint.get("checkpoint_id") or ""),
+                "project_intelligence_checkpoint_warnings": list(pi_checkpoint.get("warnings") or []),
+            })
+        if pi_final_gate:
+            summary.metadata.update({
+                "project_intelligence_final_gate_passed": bool(pi_final_gate.get("passed", False)),
+                "project_intelligence_final_gate_blocked_reasons": list(pi_final_gate.get("blocked_reasons") or []),
+            })
         approval_pending_items = []
         approval_approved_count = 0
         approval_rejected_count = 0
