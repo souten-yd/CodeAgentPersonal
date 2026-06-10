@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-4` (PI-0..PI-3 completed)
-- Next action: project identity, mode detection, and lifecycle (PI-4)
+- Current work package: `PI-5` (PI-0..PI-4 completed)
+- Next action: canonical event bridge and delivery trace expansion (PI-5)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -43,8 +43,8 @@ Current gaps include:
 | PI-1 | Module facade contracts and boundary tests | Completed | 4 module facades + contracts; `tests/test_project_intelligence_contracts.py`+`_boundaries.py` → 28 passed; affected suite 199 passed |
 | PI-2 | Persistence and migration foundation | Completed | isolated SQLite stores (blueprint/convergence/PI) + migrations; `tests/test_project_intelligence_persistence.py` → 12 passed; affected 107 passed |
 | PI-3 | Composition root and rollout model | Completed | factory/coordinator/rollout/telemetry; `tests/test_project_intelligence_rollout.py` → 27 passed (with boundaries); full PI suite 120 passed |
-| PI-4 | Project identity, mode detection, lifecycle | In Progress | current package |
-| PI-5 | Canonical event bridge and trace expansion | Not Started | |
+| PI-4 | Project identity, mode detection, lifecycle | Completed | identity/mode/lifecycle/jobs; `tests/test_project_intelligence_lifecycle.py` → 14 passed; full PI suite 134 passed |
+| PI-5 | Canonical event bridge and trace expansion | In Progress | current package |
 | PI-6 | Static and semantic graph v2 | Not Started | |
 | PI-7 | Behavioral graph v2 | Not Started | |
 | PI-8 | Runtime intelligence and reconciliation v2 | Not Started | |
@@ -85,6 +85,46 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-4 — Project identity, mode detection, and lifecycle
+Status: Completed
+Commit/PR: local branch pi-0-production-baseline (not pushed/merged)
+Changed modules/files:
+- agent/project_twin/project_identity.py (new) — stable project_id + separate workspace_id
+  (worktree isolation), read-only git probe with path fallback, deterministic working-tree hash.
+- agent/project_intelligence/project_mode.py (new) — empty/greenfield_partial/existing/
+  generated_unverified/imported_unknown detection; git/docs/metadata ignored per contract §6.1.
+- agent/project_twin/lifecycle.py (new) — readiness (absent/building/ready/stale/degraded/
+  corrupt/disabled), parser-version + source-revision + working-tree stale detection, and the
+  full-build vs incremental-refresh decision; corrupt fails closed.
+- agent/project_twin/jobs.py (new) — ProjectionJobService over an injected JobStore (the PI
+  job journal): schedule, startup recovery, bounded-retry run with never-mark-done-on-error.
+- tests/test_project_intelligence_lifecycle.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Empty directory yields a valid repository-level identity; distinct working dirs get distinct
+  project ids (no worktree leakage); explicit workspace/sandbox id honoured.
+- External edits change the working-tree hash -> STALE -> incremental refresh; parser-version
+  change -> STALE; corrupt integrity -> CORRUPT -> full rebuild (fails closed).
+- Projection jobs resume after restart (running -> requeued) and retry within bounds, failing
+  explicitly rather than fabricating completion (ADR-PI-013).
+Executed commands and exact results:
+- python -m py_compile (4 new files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_lifecycle.py -> 14 passed in 2.47s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 134 passed in 4.94s
+Unavailable checks: git probe returns None when git/repo absent (path fallback) — not an error.
+Safety invariants checked: read-only inspection; project/workspace isolation enforced in
+  identity; no PlanPool/approval/Safe Apply/rollback/command/verification behavior touched;
+  twin core does not import a concrete Atlas store (JobStore injected).
+Migration/rollout state: lifecycle primitives ready; not yet wired into the coordinator's
+  active path (that wiring lands with PI-5 event bridge and PI-17 integration).
+Known limitations: lifecycle build/refresh decisions are computed but the real graph build is
+  PI-6+. run_one retry uses a coarse project-level requeue (single-job runner model).
+Next package: PI-5 — Canonical event bridge and delivery trace expansion.
+Blocker: none.
+```
 
 ```text
 Work package: PI-3 — Composition root and rollout model
