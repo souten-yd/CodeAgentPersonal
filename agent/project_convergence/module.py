@@ -94,6 +94,10 @@ class ConvergenceModuleImpl(ConvergenceModule):
                 project_id=request.project_id,
                 workspace_id=request.workspace_id,
                 twin_revision_id=request.actual_twin_revision_id,
+                source_revision_id=request.actual_source_revision_id,
+                requirement_revision_id=request.requirement_revision_id,
+                mapping_revision_id=request.mapping_revision_id,
+                evidence_revision_id=request.evidence_revision_id,
                 verification=verification,
             )
         self._store.save_report(

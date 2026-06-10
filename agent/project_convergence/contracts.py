@@ -34,7 +34,10 @@ class ConvergenceRequest(_Frozen):
     workspace_id: str
     blueprint_revision_id: str
     actual_twin_revision_id: str
+    actual_source_revision_id: str | None = None
     requirement_revision_id: str | None = None
+    mapping_revision_id: str | None = None
+    evidence_revision_id: str | None = None
     changed_refs: list[str] = Field(default_factory=list)
     verification_refs: list[str] = Field(default_factory=list)
     full_evaluation: bool = False
@@ -59,10 +62,13 @@ ElementState = Literal[
 class ElementConvergenceResult(_Frozen):
     blueprint_element_id: str
     state: ElementState = "absent"
+    evidence_policy: str = "materialization_only"
+    required_evidence_refs: list[str] = Field(default_factory=list)
     matched_actual_refs: list[str] = Field(default_factory=list)
     missing_actual_refs: list[str] = Field(default_factory=list)
     evidence_refs: list[str] = Field(default_factory=list)
     mismatches: list[ConvergenceMismatch] = Field(default_factory=list)
+    freshness: Literal["fresh", "stale", "unavailable", "not_required"] = "not_required"
     confidence: float = 0.0
 
 
@@ -76,6 +82,10 @@ class ConvergenceReport(_Frozen):
     workspace_id: str
     blueprint_revision_id: str
     actual_twin_revision_id: str
+    actual_source_revision_id: str | None = None
+    requirement_revision_id: str | None = None
+    mapping_revision_id: str | None = None
+    evidence_revision_id: str | None = None
     element_results: list[ElementConvergenceResult] = Field(default_factory=list)
     mandatory_gaps: list[GapSummary] = Field(default_factory=list)
     optional_gaps: list[GapSummary] = Field(default_factory=list)

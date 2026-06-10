@@ -85,6 +85,9 @@ class ConvergenceStore:
             status="generated",
         )
 
+    def list_decisions(self, project_id: str, report_id: str) -> list[dict[str, Any]]:
+        return self._artifacts.list_history(project_id, f"decision:{report_id}")
+
     def list_reports(self, project_id: str, blueprint_revision_id: str) -> list[dict[str, Any]]:
         return self._artifacts.list_history(project_id, blueprint_revision_id)
 
