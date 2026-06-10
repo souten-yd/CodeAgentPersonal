@@ -6,8 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-13`
-- Next action: provision/start a configured Atlas LLM endpoint and rerun the live Greenfield
-  scenario through the normal Atlas entrypoint
+- Next action: provision/start a configured Atlas LLM endpoint and run
+  `python tools/run_pir13_live_greenfield.py`
 - Blocker: configured model unavailable in this environment (`_phase1_llm_json` returns
   `llm_not_ready` for `http://localhost:8080/v1/chat/completions`)
 - Rollout: off by default
@@ -1264,5 +1264,38 @@ Known limitations: PIR-13 remains blocked until the same normal Atlas entrypoint
   with a real configured model and records successful proposal, apply, verification, runtime, and
   restart evidence.
 Next package: PIR-13 — rerun live configured-model Greenfield evidence after model provisioning.
+Blocker: configured model unavailable in this environment.
+```
+
+```text
+Work package: PIR-13 — Opt-in live configured-model Greenfield runner
+Status: blocked
+Changed modules/files:
+- tools/run_pir13_live_greenfield.py — added an opt-in live PIR-13 runner that uses the
+  configured Atlas model adapter, creates a real temporary workspace through the normal
+  /api/atlas/plan-pools?sync=1 entrypoint with planner_mode=real_planner, refuses fallback/
+  clarification/unavailable model output as blocked, and proceeds through Proposal,
+  proposal approval, PlanItem draft, PlanItem approval, Safe Apply, and auto verification only
+  when the live model returns usable artifacts.
+- docs/atlas_project_intelligence_recovery_current_status.md — next action now points to the
+  opt-in runner command and records that the current environment still blocks on model
+  availability.
+Executed commands and exact results:
+- python -m py_compile tools\run_pir13_live_greenfield.py -> compile OK
+- python tools\run_pir13_live_greenfield.py --allow-blocked-exit-zero --output-json
+  ca_data\atlas\pir13_live_greenfield_report.current.json -> status=blocked, report written,
+  model_probe.llm_url_planner=http://localhost:8080/v1/chat/completions,
+  model_probe.result=null, blocked_reason=configured_model_unavailable.
+Unavailable checks: the required live configured-model Greenfield run still cannot be executed
+  because no configured model returned JSON from the Atlas adapter in this environment.
+Safety invariants checked: the runner does not inject deterministic success, does not count
+  fallback planning as live evidence, keeps model-unavailable as blocked by default, and only
+  auto-approves the explicitly generated low-risk scenario after Proposal creates a real proposal.
+Migration/rollout state: no legacy Greenfield helper deletion and no consumer cutover were
+  performed.
+Known limitations: PIR-13 remains blocked until the same runner passes with a real configured
+  model and records successful proposal, apply, verification, runtime, and restart evidence.
+Next package: PIR-13 — provision/start the configured model and run
+  python tools/run_pir13_live_greenfield.py without --allow-blocked-exit-zero.
 Blocker: configured model unavailable in this environment.
 ```
