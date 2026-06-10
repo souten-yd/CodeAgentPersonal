@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-3`
-- Next action: implement real project source snapshots and Twin refresh lifecycle
+- Current package: `PIR-4`
+- Next action: implement durable canonical event and delivery projection integration
 - Blocker: none
 - Rollout: off by default
 
@@ -43,7 +43,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-0 | baseline, inventory, regression locks | acceptance_complete |
 | PIR-1 | durable concrete modules | acceptance_complete |
 | PIR-2 | production composition and rollout preflight | acceptance_complete |
-| PIR-3 | source snapshots and Twin refresh | not_started |
+| PIR-3 | source snapshots and Twin refresh | acceptance_complete |
 | PIR-4 | durable event and delivery integration | not_started |
 | PIR-5 | verification ingest, context, impact, test selection | not_started |
 | PIR-6 | whole-project semantic graph | not_started |
@@ -224,5 +224,67 @@ Migration/rollout state: rollout_state.json is persisted under ca_data/project_i
 Known limitations: Project Intelligence service is registered and inspectable; real source
   snapshots and Twin refresh lifecycle begin in PIR-3.
 Next package: PIR-3 — real project source snapshots and Twin refresh lifecycle.
+Blocker: none.
+```
+
+```text
+Work package: PIR-3 — Real project source snapshots and Twin refresh lifecycle
+Status: acceptance_complete
+Changed modules/files:
+- agent/project_twin/source_adapter.py — read-only ProjectSourceAdapter with workspace-safe
+  root resolution, path-escape rejection, symlink/binary/oversize/file-count guards, dirty
+  changed/deleted path detection, and parser manifest.
+- agent/project_twin/project_identity.py — working-tree identity now includes bounded file
+  content hashes so same-size dirty edits produce distinct source identities.
+- agent/project_twin/contracts.py and store.py — TwinDelta carries source_commit,
+  working_tree_hash, and parser_versions; SqliteProjectTwinStore persists them on revisions.
+- agent/project_twin/module.py — concrete DigitalTwinModuleImpl opens real repositories by
+  running static and behavioral analyzers behind the facade, persists last successful source
+  build records, performs scoped incremental refresh, invalidates deleted stale facts, and
+  retains the prior active revision on failed refresh.
+- agent/project_twin/__init__.py — exports source snapshot adapter DTOs.
+- tests/test_project_twin_source_adapter.py
+- tests/test_project_twin_source_refresh_lifecycle.py
+- tests/test_project_intelligence_recovery_baseline.py — PIR-3 remains represented in the
+  active recovery status table; later-package locks stay strict xfail.
+Executed commands and exact results:
+- python -m py_compile agent/project_twin/contracts.py agent/project_twin/store.py
+  agent/project_twin/project_identity.py agent/project_twin/source_adapter.py
+  agent/project_twin/module.py agent/project_twin/__init__.py
+  tests/test_project_twin_source_adapter.py tests/test_project_twin_source_refresh_lifecycle.py
+  -> compile OK
+- python -m pytest -q tests/test_project_twin_source_adapter.py
+  tests/test_project_twin_source_refresh_lifecycle.py tests/test_project_twin_module_durability.py
+  tests/test_project_workspace_isolation.py -> 13 passed in 6.08s
+- python -m pytest -q tests/test_project_intelligence_recovery_baseline.py
+  tests/test_project_twin_source_adapter.py tests/test_project_twin_source_refresh_lifecycle.py
+  tests/test_project_twin_module_durability.py tests/test_project_workspace_isolation.py ->
+  21 passed, 3 xfailed in 18.93s
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=32 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+- python -m pytest -q tests/test_project_twin_source_adapter.py
+  tests/test_project_twin_source_refresh_lifecycle.py tests/test_project_twin_module_durability.py
+  tests/test_project_workspace_isolation.py tests/test_project_twin_static_graph.py
+  tests/test_project_twin_behavioral_graph.py tests/test_project_twin_store.py
+  tests/test_project_intelligence_lifecycle.py tests/test_project_intelligence_production_composition.py
+  tests/test_project_intelligence_app_lifecycle.py tests/test_project_intelligence_rollout_preflight.py
+  tests/test_project_intelligence_health_api.py tests/test_project_intelligence_recovery_baseline.py ->
+  67 passed, 3 xfailed in 27.19s
+- $files = @(Get-ChildItem tests -Filter 'test_project_intelligence_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_project_twin_*.py' | ForEach-Object { $_.FullName });
+  python -m pytest -q @files -> 438 passed, 3 xfailed in 43.29s
+Unavailable checks: no external Atlas workspace restart process was required for PIR-3; restart
+  persistence is covered by close/reopen of durable store plus last-build sidecar. Planner,
+  Generator, Verification, and delivery-event cutover remain later PIR work.
+Safety invariants checked: source adapter is read-only and rejects path escapes; concrete Twin
+  remains behind the public facade; failed refresh returns degraded with the prior active
+  revision; no PlanPool, Proposal, Safe Apply, Verification, command authority, rollout
+  cutover, or legacy deletion behavior changed.
+Migration/rollout state: production composition remains off by default; active/shadow concrete
+  service now gets source-backed Twin behavior when called, but no consumer cutover performed.
+Known limitations: restart-safe durable event projection, runtime verification ingest, deeper
+  semantic/CFG/data-flow/resource graphs, and real Planner/PlanPool integration begin in PIR-4+.
+Next package: PIR-4 — durable canonical event and delivery projection integration.
 Blocker: none.
 ```

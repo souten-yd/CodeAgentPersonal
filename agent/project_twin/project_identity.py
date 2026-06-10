@@ -44,8 +44,13 @@ def _is_significant(rel_parts: tuple[str, ...]) -> bool:
     return not any(part.lower() in _IGNORE_NAMES for part in rel_parts)
 
 
-def compute_working_tree_hash(project_path: Path, *, max_files: int = 5000) -> str:
-    """Deterministic hash of the significant working-tree contents (path + size)."""
+def compute_working_tree_hash(project_path: Path, *, max_files: int = 5000, max_bytes_per_file: int = 1_000_000) -> str:
+    """Deterministic hash of significant working-tree contents.
+
+    The hash includes path, size, and bounded file content so same-size dirty edits still
+    produce a distinct source identity. Large files are represented by size plus a head
+    sample to keep identity computation bounded.
+    """
     root = project_path.resolve()
     entries: list[str] = []
     count = 0
@@ -59,7 +64,13 @@ def compute_working_tree_hash(project_path: Path, *, max_files: int = 5000) -> s
             size = path.stat().st_size
         except OSError:
             continue
-        entries.append(f"{rel.as_posix()}\0{size}")
+        try:
+            with path.open("rb") as fh:
+                sample = fh.read(max_bytes_per_file)
+        except OSError:
+            sample = b""
+        content_hash = hashlib.sha256(sample).hexdigest()
+        entries.append(f"{rel.as_posix()}\0{size}\0{content_hash}")
         count += 1
         if count >= max_files:
             break

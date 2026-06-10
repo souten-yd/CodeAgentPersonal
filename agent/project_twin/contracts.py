@@ -130,6 +130,9 @@ class TwinDelta(BaseModel):
     idempotency_key: str
     trigger_type: str
     trigger_ref: str | None = None
+    source_commit: str | None = None
+    working_tree_hash: str | None = None
+    parser_versions: dict[str, str] = Field(default_factory=dict)
     nodes: list[TwinNode] = Field(default_factory=list)
     edges: list[TwinEdge] = Field(default_factory=list)
     evidence: list[TwinEvidence] = Field(default_factory=list)
