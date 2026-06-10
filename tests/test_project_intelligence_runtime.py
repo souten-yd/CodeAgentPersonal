@@ -58,7 +58,7 @@ def test_api_observation_normalized() -> None:
 
 def test_stack_frames_mapped_to_symbols() -> None:
     refs = map_stack_frames([{"file": "svc.py", "function": "run"}, {"file": "x.txt", "function": "n"}])
-    assert "py://svc#run" in refs and len(refs) == 1
+    assert "py://svc.py#run" in refs and len(refs) == 1
 
 
 # --- Confirm requires matching revision --------------------------------------

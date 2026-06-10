@@ -162,6 +162,12 @@ SCHEMA_MIGRATIONS: list[tuple[int, list[str]]] = [
             "CREATE INDEX IF NOT EXISTS idx_twin_observations_project ON twin_observations (project_id)",
         ],
     ),
+    (
+        2,
+        [
+            "ALTER TABLE twin_observations ADD COLUMN source_revision TEXT",
+        ],
+    ),
 ]
 
 

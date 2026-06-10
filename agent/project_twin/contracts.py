@@ -99,6 +99,7 @@ class RuntimeObservation(BaseModel):
     collector_version: str
     observation_type: str
     subject_refs: list[str] = Field(default_factory=list)
+    source_revision: str | None = None
     timestamp: datetime
     result: ObservationResult
     summary: str
