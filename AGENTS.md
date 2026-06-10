@@ -1,66 +1,100 @@
-# Atlas Project Intelligence — Agent Instructions
+# Atlas Project Intelligence Recovery — Agent Instructions
 
-This repository has an active multi-package implementation goal for Atlas Project Intelligence.
+The active implementation track is `PIR-0..PIR-15`.
 
-The previous Project Digital Twin packages `PDT-0` through `PDT-14` are complete as **Project Digital Twin Core v1**. Do not restart them. The active sequence begins at the work package selected by `docs/atlas_project_intelligence_current_status.md`, initially `PI-0`.
+`PDT-0..PDT-14` remain Project Digital Twin Core v1 history. `PI-0..PI-25` remain the Foundation Track: useful contracts, helpers, and tests, but not proof that the production loop is complete. Do not restart or delete them.
 
-## Canonical documents
-
-Read in this order:
+## Read order
 
 1. `AGENTS.md`
-2. `docs/atlas_project_intelligence_master_goal.md`
-3. `docs/atlas_project_intelligence_decisions.md`
-4. `docs/atlas_project_intelligence_current_status.md`
-5. the current work package in `docs/atlas_project_intelligence_implementation_plan.md`
-6. relevant sections of `docs/atlas_project_intelligence_architecture.md`
-7. relevant sections of `docs/atlas_project_intelligence_detailed_design.md`
-8. relevant sections of `docs/atlas_project_intelligence_contracts.md`
-9. relevant sections of `docs/atlas_project_intelligence_test_plan.md`
-10. `docs/atlas_project_intelligence_migration_plan.md` when touching existing capabilities or consumers
-11. `docs/atlas_project_intelligence_agent_entrypoint.md`
-12. target code, direct dependencies, direct callers, and related tests
+2. `docs/atlas_project_intelligence_recovery_master_goal.md`
+3. `docs/atlas_project_intelligence_pi0_25_implementation_audit.md`
+4. `docs/atlas_project_intelligence_recovery_current_status.md`
+5. current package in `docs/atlas_project_intelligence_recovery_implementation_plan.md`
+6. relevant sections of `docs/atlas_project_intelligence_recovery_detailed_design.md`
+7. relevant sections of `docs/atlas_project_intelligence_recovery_test_plan.md`
+8. existing Project Intelligence decisions, contracts, architecture, and migration documents
+9. target code, public contracts, direct callers, dependencies, and tests
 
-The old `docs/atlas_project_digital_twin_*` documents are historical/reference documents for Core v1. They are not the active overall goal.
-
-## Goal-mode instruction
+## Goal instruction
 
 ```text
-Read AGENTS.md and execute the active Atlas Project Intelligence goal through completion.
-Start from the current work package in docs/atlas_project_intelligence_current_status.md.
-Implement work packages sequentially, run the required tests, update current status after each package, and continue automatically while acceptance criteria pass.
-Do not restart PDT-0 through PDT-14. Do not stop at planning. Do not push, merge, self-apply, weaken safety boundaries, reverse frozen design decisions without change control, or delete legacy paths before migration gates pass.
+Read AGENTS.md and execute the active Atlas Project Intelligence Recovery goal through completion.
+Start from the package selected by docs/atlas_project_intelligence_recovery_current_status.md, initially PIR-0.
+Treat PI-0 through PI-25 as the Foundation Track, not as proof of production completion.
+Implement PIR packages sequentially, test at the required proof level, update recovery current status after every coherent slice, and continue automatically while acceptance criteria pass.
+Do not stop at planning. Do not claim production integration from adapter-only tests, live E2E from injected success runners, or benchmark improvement from manually supplied metrics.
+Do not weaken safety boundaries or remove legacy paths before migration gates pass.
 ```
+
+## Proof levels
+
+Use only:
+
+```text
+not_started
+in_progress
+component_complete
+production_connected
+acceptance_complete
+blocked
+```
+
+Focused tests can prove `component_complete`. A real Atlas caller is required for `production_connected`. Real workspace, command, restart, platform, or benchmark evidence is required when the package acceptance criteria demand it.
 
 ## Execution loop
 
-For each work package:
+For the current package:
 
 1. verify current status against current code;
-2. inspect the package requirements and relevant design sections;
-3. inspect target symbols, direct callers, dependencies, and related tests;
-4. reuse existing behavior through adapters where appropriate;
-5. implement contracts before active consumers;
-6. make the smallest coherent vertical change;
-7. preserve off/shadow/rollback behavior;
-8. run focused tests, syntax/type/import checks, affected tests, and the package acceptance scenario;
-9. fix failures caused by the change;
-10. update `docs/atlas_project_intelligence_current_status.md` with exact evidence;
-11. continue automatically to the next package when acceptance criteria pass.
+2. reproduce the audited defect or missing production path;
+3. inspect public contracts and real callers;
+4. implement the smallest coherent vertical slice;
+5. preserve off, shadow, active, and rollback behavior;
+6. run regression, focused, conformance, and affected tests;
+7. run required production integration, restart, fault, and acceptance tests;
+8. record exact evidence and unavailable checks;
+9. update recovery current status with the correct proof level;
+10. continue until package acceptance passes, then advance.
 
-Do not perform a repository-wide reread after PI-0 unless targeted symbol discovery fails.
+## Required dependency order
 
-## Decision control
+```text
+baseline and regression locks
+-> durable concrete modules
+-> production composition
+-> Twin lifecycle/event/runtime/query loop
+-> semantic/CFG/data-flow/state/resource graphs
+-> durable Blueprint and Convergence
+-> Planner and PlanPool integration
+-> Proposal, Safe Apply, and refresh integration
+-> Verification, recovery, checkpoint, and resume
+-> real Greenfield E2E
+-> CI, platform, scale, and consumer cutover
+-> real benchmark and legacy retirement
+```
 
-The accepted decisions in `docs/atlas_project_intelligence_decisions.md` are frozen inputs to implementation. Do not reverse Actual/Blueprint separation, module-level isolation, authority boundaries, phased rollout, Blueprint-before-Greenfield, partial replanning, or migration gates for implementation convenience.
+Do not start broad deep-graph rewrites before concrete durable facades and production composition work.
 
-Changing a frozen decision requires the ADR change-control process: alternatives, impact analysis, contract/persistence/migration/safety/test/rollout updates, a replacement decision, and a current-status update before implementation.
+## Critical regression locks
 
-## Module boundary rule
+Do not leave or reintroduce:
 
-Isolation is at module level, not at every helper function.
+- active composition with disabled required modules;
+- Coordinator discarding concrete module output;
+- production adapters referenced only by tests;
+- Blueprint lifecycle state lost after restart;
+- event projection without project/workspace isolation;
+- retry events without durable payload/reference;
+- source revision compared directly with Twin revision;
+- completion while mandatory elements remain unsatisfied;
+- Plan Compiler accepting dependency cycles;
+- E2E claims based only on predetermined runner results;
+- benchmark results based on manually supplied outcomes.
 
-Required public facades:
+## Module boundaries
+
+Public facades:
 
 ```text
 DigitalTwinModule
@@ -69,90 +103,57 @@ ConvergenceModule
 ProjectIntelligenceModule
 ```
 
-Internal analyzers, stores, matchers, policies, and helpers remain private implementation details.
+Production must construct concrete Twin, Blueprint, and Convergence implementations behind these facades. Internal analyzers, stores, linkers, matchers, collectors, and policies remain private.
 
-Forbidden dependencies include:
+Forbidden dependencies include Planner or Generator reading private module stores, Convergence reading private Twin/Blueprint tables, Digital Twin writing PlanPool state, and portable modules importing FastAPI/UI/app APIs.
 
-```text
-Planner -> Digital Twin private store
-Generator -> Blueprint private store
-Convergence -> SQLite private tables
-Digital Twin core -> PlanPool storage
-Blueprint core -> Digital Twin private objects
-portable modules -> FastAPI, UI, or web/js
-```
+## Authority
 
-Use module facades or Atlas integration adapters.
+- Requirement owns intent and constraints.
+- Blueprint owns approved target design.
+- Workspace/Git owns source.
+- Digital Twin owns revisioned interpretation of actual source and observations.
+- PlanPool owns execution state.
+- Proposal owns generated patch artifacts.
+- Safe Apply owns mutation.
+- Verification/runtime owns observed outcomes.
+- Convergence owns immutable reports and bounded advisory decisions.
 
-## Existing feature reorganization
+Project Intelligence coordinates context and decisions. It is not mutation authority.
 
-When changing existing analysis, context, impact, trace, or verification-support code:
+## Safety
 
-- classify the capability as KEEP, ADAPT, REPLACE, or REMOVE;
-- introduce compatibility/facade behavior before cutover;
-- use shadow comparison where required;
-- migrate consumers in the canonical order;
-- do not create permanent duplicate systems;
-- do not delete legacy paths until all retirement gates in the migration plan pass.
+Never bypass Requirement/decision gates, PlanPool authority, path and revision checks, Proposal/Safe Apply, command authority, bounded retry, rollback, project/workspace isolation, or truthful verification. `unavailable` is not `passed`.
 
-## Authority rules
+Projection or refresh failure must not undo successful canonical work; record degraded state and retry work instead.
 
-- Requirement system owns user intent and constraints.
-- Architecture Blueprint owns approved target design.
-- Workspace/Git owns actual source.
-- Digital Twin owns revisioned interpretation of actual structure and behavior.
-- PlanPool/workflow owns execution state.
-- Safe Apply owns workspace mutation.
-- Verification/runtime systems own observed outcomes.
-- Convergence owns target-versus-actual gap reports, not execution.
-- Nexus owns external evidence.
-- Memory owns durable knowledge.
+## Migration
 
-No projection or inference may overwrite its canonical owner.
-
-## Safety invariants
-
-Never weaken or bypass:
-
-- PlanPool/workflow authority;
-- clarification and critical-decision gates;
-- profile, envelope, and allowed-path checks;
-- Safe Apply and base-revision preconditions;
-- rollback and bounded retry;
-- command allowlists;
-- direct merge, remote push, and self-apply restrictions;
-- project/workspace isolation;
-- truthful verification;
-- the rule that unavailable is not passed.
-
-Project Intelligence is not execution authority.
+Generate and maintain the real consumer registry. Use shadow comparison before cutover. Keep rollback available. Remove a legacy path only after consumer-zero, parity or documented superiority, data migration, rollback, and real E2E gates pass.
 
 ## Testing and evidence
 
-Required order:
+Order:
 
 ```text
-focused tests
--> syntax/type/import checks
--> directly affected tests
--> package acceptance scenario
--> milestone integration tests when applicable
+regression reproduction
+-> component tests
+-> facade/boundary tests
+-> affected legacy tests
+-> production integration
+-> restart/fault tests
+-> acceptance scenario
+-> milestone suite
 ```
 
-Do not claim a test passed unless it was executed. Record exact commands and results in current status. Record unavailable tools or environments explicitly and never convert them to success.
+Record commands, exact results, durations, platform/runtime versions, relevant revisions, unavailable checks, and artifact references. Mocks may prove unit behavior only.
 
 ## Stop conditions
 
-Stop only when:
+Stop only for an approval-required destructive migration, a safety/authority conflict, a required environment with no truthful alternative, or a critical architecture/security/data decision needing the existing decision gate.
 
-- destructive or safety-sensitive user judgment is required;
-- a migration has credible data-loss risk without approved backup/rollback;
-- current code contradicts the canonical architecture too broadly for safe local adaptation;
-- a required environment is unavailable with no trustworthy alternative verification;
-- proceeding requires weakening approval, Safe Apply, rollback, retry, command authority, isolation, or truthful verification.
-
-Implementation size, context size, test duration, and remaining package count are not blockers.
+Implementation size, test count, and remaining packages are not blockers.
 
 ## Completion
 
-Do not mark the overall goal complete before `PI-25` and all master-goal Definition of Done conditions pass. Production integration, deep graph implementation, Blueprint, Convergence, Greenfield E2E, reorganization, rollout, cross-platform evidence, and the final comparative benchmark are mandatory.
+Do not mark the program complete before `PIR-15` and every live gate in the recovery master goal passes. Old PI status, synthetic runners, adapter-only tests, and manually supplied metrics are not substitutes for production wiring, real execution, rollout evidence, or retirement.
