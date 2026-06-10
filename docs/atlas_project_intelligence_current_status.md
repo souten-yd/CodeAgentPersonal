@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-20` (PI-0..PI-19 completed; Milestone E done)
-- Next action: Greenfield bootstrap orchestrator (PI-20)
+- Current work package: `PI-21` (PI-0..PI-20 completed)
+- Next action: coherent multi-file generation and consistency validation (PI-21)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -59,8 +59,8 @@ Current gaps include:
 | PI-17 | Planner production integration | Completed | AtlasPlannerBridge (off=legacy/shadow=unchanged+telemetry/active=manifest-backed, readiness explicit, no store); `tests/test_project_intelligence_planner_bridge.py` → 5 passed; PI+baseline 242 passed |
 | PI-18 | Generator and repair integration | Completed | AtlasGeneratorBridge (stale block/refresh, planned≠real, manifest in proposal, bounded repair); `tests/test_project_intelligence_generator_bridge.py` → 7 passed; PI+baseline 249 passed |
 | PI-19 | Verification, checkpoint, resume | Completed | checkpoint+AtlasVerificationBridge (auto-ingest, post-verif convergence, exact-revision resume, external-change detect, idempotent replay, rollback); `tests/test_project_intelligence_verification_resume.py` → 7 passed; PI+baseline 256 passed |
-| PI-20 | Greenfield bootstrap orchestrator | In Progress | current package |
-| PI-21 | Coherent multi-file generation | Not Started | |
+| PI-20 | Greenfield bootstrap orchestrator | Completed | GreenfieldOrchestrator (mode gate, active-blueprint gate, dep-ordered slices, refresh/convergence per apply, no-bypass Safe Apply, resumable); `tests/test_project_intelligence_greenfield.py` → 7 passed; PI+baseline 263 passed |
+| PI-21 | Coherent multi-file generation | In Progress | current package |
 | PI-22 | Greenfield build/run/test and real E2E | Not Started | |
 | PI-23 | Capability consolidation and consumer cutover | Not Started | |
 | PI-24 | Cross-platform, scale, storage, rollout hardening | Not Started | |
@@ -85,6 +85,40 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-20 — Greenfield bootstrap orchestrator (Milestone F begins)
+Status: Completed
+Commit/PR: local branch pi-20-greenfield-bootstrap (not pushed/merged yet)
+Changed modules/files:
+- agent/project_intelligence/greenfield.py (new) — GreenfieldOrchestrator + GreenfieldSession.
+- tests/test_project_intelligence_greenfield.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- start() requires a greenfield project mode (empty/greenfield_partial), an active Blueprint,
+  and a passing PI-11 validation (exact file manifest + execution contracts); otherwise it
+  raises — no broad generation without a reviewed/active/valid Blueprint.
+- Compiles dependency-ordered PlanItems (PI-16) and layers them into coherent slices (Kahn).
+  next_slice emits one slice of apply intents at a time; complete_slice requests an Actual Twin
+  refresh + Convergence after each apply and advances.
+- The orchestrator NEVER writes the workspace: it exposes no apply/write method and every slice
+  carries must_use_safe_apply=True (cannot bypass Safe Apply). GreenfieldSession.to_state/
+  from_state make an interrupted bootstrap resume safely without regenerating completed slices.
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/greenfield.py + test -> compile OK
+- python -m pytest -q tests/test_project_intelligence_greenfield.py -> 7 passed in 0.60s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 263 passed in 10.16s
+Unavailable checks: none required.
+Safety invariants checked: no broad generation without active/valid Blueprint; one coherent
+  slice at a time; refresh+convergence after each apply; orchestrator cannot bypass Safe Apply
+  (no write method); resumable; uses normal PlanPool/Proposal/Safe Apply/Verification boundaries.
+Migration/rollout state: greenfield orchestration ready; build/run/test E2E is PI-22.
+Known limitations: per-slice multi-file coherence validation is PI-21; the orchestrator emits
+  apply intents consumed by the normal Safe Apply pipeline (not executed here).
+Next package: PI-21 — Coherent multi-file generation and consistency validation.
+Blocker: none.
+```
 
 ```text
 Work package: PI-19 — Verification, checkpoint, and resume integration (Milestone E complete)
