@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-6`
-- Next action: implement whole-project semantic graph and parser-backed frontend analysis
+- Current package: `PIR-7`
+- Next action: implement real CFG, data-flow, state/event/recovery, and resource graphs
 - Blocker: none
 - Rollout: off by default
 
@@ -46,7 +46,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-3 | source snapshots and Twin refresh | acceptance_complete |
 | PIR-4 | durable event and delivery integration | acceptance_complete |
 | PIR-5 | verification ingest, context, impact, test selection | acceptance_complete |
-| PIR-6 | whole-project semantic graph | not_started |
+| PIR-6 | whole-project semantic graph | acceptance_complete |
 | PIR-7 | CFG, data flow, state/event/resource graphs | not_started |
 | PIR-8 | durable Blueprint planning and review | not_started |
 | PIR-9 | Convergence correctness and evidence policy | not_started |
@@ -411,5 +411,47 @@ Known limitations: cross-module semantic precision, parser-backed frontend analy
   CFG/data-flow/resource graphs, and labeled precision/recall benchmark expansion continue
   in PIR-6/PIR-7/PIR-15.
 Next package: PIR-6 — whole-project semantic graph and parser-backed frontend analysis.
+Blocker: none.
+```
+
+```text
+Work package: PIR-6 — Whole-project semantic graph and parser-backed frontend analysis
+Status: acceptance_complete
+Changed modules/files:
+- agent/project_twin/analyzers/python.py — Python semantic analyzer now records source
+  ranges, resolves receiver method calls from annotations and constructor assignments, and
+  records Protocol/ABC-style implements edges.
+- agent/project_twin/analyzers/registry.py — project-level linker resolves calls/imports
+  through package re-export aliases after all files are analyzed.
+- tests/test_project_intelligence_semantic_graph.py — labeled fixtures for re-export call
+  resolution, receiver-type method resolution, Protocol implementation, source ranges, and
+  incremental/full equivalence.
+Executed commands and exact results:
+- python -m py_compile agent/project_twin/analyzers/python.py
+  agent/project_twin/analyzers/registry.py tests/test_project_intelligence_semantic_graph.py ->
+  compile OK
+- python -m pytest -q tests/test_project_intelligence_semantic_graph.py ->
+  18 passed in 0.81s
+- python -m pytest -q tests/test_project_intelligence_semantic_graph.py
+  tests/test_project_intelligence_query_context.py tests/test_project_twin_static_graph.py
+  tests/test_project_twin_verification_context.py tests/test_project_intelligence_recovery_baseline.py ->
+  48 passed, 3 xfailed in 15.81s
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=32 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+- $files = @(Get-ChildItem tests -Filter 'test_project_intelligence_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_project_twin_*.py' | ForEach-Object { $_.FullName });
+  python -m pytest -q @files -> 454 passed, 3 xfailed in 43.29s
+Unavailable checks: no external LSP server was required; LSP-unavailable remains an explicit
+  degraded fallback. The larger labeled precision/recall benchmark corpus remains tracked for
+  final benchmark work.
+Safety invariants checked: semantic analysis remains pure/read-only; unresolved dynamic calls
+  remain bounded candidates with lower confidence; parser fallback is recorded as degraded,
+  not silently equivalent; incremental invalidation keeps unchanged file facts.
+Migration/rollout state: rollout remains off by default; no legacy consumer cutover or legacy
+  deletion was performed.
+Known limitations: full CFG/data-flow/state/resource precision and frontend handler-scope
+  behavior begin in PIR-7.
+Next package: PIR-7 — real CFG, data-flow, state/event/recovery, and resource graphs.
 Blocker: none.
 ```

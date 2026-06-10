@@ -100,6 +100,37 @@ def test_inheritance_and_override() -> None:
     assert ("py://h#Child.run", "py://h#Base.run") in ovr
 
 
+def test_receiver_annotation_and_constructor_resolve_method_calls() -> None:
+    g = _analyze({
+        "svc.py": (
+            "class Service:\n"
+            "    def process(self):\n        return 1\n"
+            "def run_arg(s: Service):\n"
+            "    s.process()\n"
+            "def run_ctor():\n"
+            "    local = Service()\n"
+            "    local.process()\n"
+        ),
+    })
+    resolved = {(e.source_ref, e.target_ref) for e in g.edges(kind="calls", resolved=True)}
+    assert ("py://svc#run_arg", "py://svc#Service.process") in resolved
+    assert ("py://svc#run_ctor", "py://svc#Service.process") in resolved
+
+
+def test_protocol_named_base_records_implements_candidate() -> None:
+    g = _analyze({
+        "p.py": (
+            "class ServiceProtocol:\n"
+            "    def run(self):\n        pass\n"
+            "class Impl(ServiceProtocol):\n"
+            "    def run(self):\n        return 1\n"
+        ),
+    })
+    assert ("py://p#Impl", "py://p#ServiceProtocol") in {
+        (e.source_ref, e.target_ref) for e in g.edges(kind="implements")
+    }
+
+
 def test_decorator_relationship() -> None:
     g = _analyze({
         "d.py": (
@@ -119,6 +150,16 @@ def test_init_reexport() -> None:
     })
     reex = {(e.source_ref, e.target_ref) for e in g.edges(kind="reexports")}
     assert ("module://pkg", "py://pkg.core#thing") in reex
+
+
+def test_reexported_symbol_call_resolves_to_actual_target() -> None:
+    g = _analyze({
+        "pkg/__init__.py": "from pkg.core import thing\n",
+        "pkg/core.py": "def thing():\n    return 1\n",
+        "app.py": "from pkg import thing\n\ndef use():\n    thing()\n",
+    })
+    calls = {(e.source_ref, e.target_ref, e.properties.get("via_reexport")) for e in g.edges(kind="calls")}
+    assert ("py://app#use", "py://pkg.core#thing", "py://pkg#thing") in calls
 
 
 # --- JS / TS / Vue basics ----------------------------------------------------
@@ -153,6 +194,14 @@ def test_capability_manifest_and_versions() -> None:
     assert {"python", "javascript", "typescript_vue"} <= langs
     py = next(m for m in reg.manifests() if m.language == "python")
     assert "calls_resolved" in py.capabilities and py.version
+
+
+def test_python_symbols_include_source_ranges() -> None:
+    g = _analyze({"a.py": "\n\nclass C:\n    def f(self):\n        return 1\n"})
+    cls = g.get("py://a#C")
+    method = g.get("py://a#C.f")
+    assert cls and cls.properties["start_line"] == 3
+    assert method and method.properties["start_line"] == 4
 
 
 def test_lsp_unavailable_falls_back_to_ast_with_degradation() -> None:
@@ -194,3 +243,19 @@ def test_reanalysis_is_idempotent() -> None:
     n1, e1 = g.node_count, g.edge_count
     reg.analyze_project(ROOT, files, graph=g)  # same input again
     assert (g.node_count, g.edge_count) == (n1, e1)
+
+
+def test_incremental_matches_full_for_changed_file() -> None:
+    reg = build_default_registry()
+    base = {
+        "a.py": "def f():\n    return 1\n",
+        "b.py": "def g():\n    return f()\n",
+    }
+    changed = {"a.py": "def f2():\n    return 2\n"}
+    inc = reg.analyze_project(ROOT, base).graph
+    reg.analyze_project(ROOT, changed, graph=inc)
+    full = reg.analyze_project(ROOT, {**base, **changed}).graph
+    assert {n.ref for n in inc.nodes()} == {n.ref for n in full.nodes()}
+    assert {(e.source_ref, e.target_ref, e.kind) for e in inc.edges()} == {
+        (e.source_ref, e.target_ref, e.kind) for e in full.edges()
+    }

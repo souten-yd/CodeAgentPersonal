@@ -84,6 +84,7 @@ class AnalyzerRegistry:
             if out.degraded:
                 degradations.extend(out.diagnostics)
             analyzed += 1
+        self._link_reexports(graph)
         return AnalysisResult(
             graph=graph,
             manifests=self.manifests(),
@@ -91,6 +92,37 @@ class AnalyzerRegistry:
             parity={},
             analyzed_files=analyzed,
         )
+
+    @staticmethod
+    def _link_reexports(graph: SemanticGraph) -> None:
+        """Resolve module re-export aliases after all files have been analyzed."""
+        aliases: dict[str, str] = {}
+        for edge in graph.edges(kind="reexports"):
+            if not edge.target_ref.startswith("py://"):
+                continue
+            module_ref = edge.source_ref.removeprefix("module://")
+            name = edge.target_ref.rsplit("#", 1)[-1]
+            aliases[f"py://{module_ref}#{name}"] = edge.target_ref
+        if not aliases:
+            return
+        additions: list[SemanticEdge] = []
+        for edge in graph.edges():
+            target = aliases.get(edge.target_ref)
+            if target is None:
+                continue
+            additions.append(
+                SemanticEdge(
+                    source_ref=edge.source_ref,
+                    target_ref=target,
+                    kind=edge.kind,
+                    resolved=edge.resolved,
+                    confidence=edge.confidence,
+                    file=edge.file,
+                    properties={**edge.properties, "via_reexport": edge.target_ref},
+                )
+            )
+        for edge in additions:
+            graph.add_edge(edge)
 
 
 def compute_codeintel_parity(graph: SemanticGraph, codeintel_symbol_names: set[str]) -> dict[str, object]:
