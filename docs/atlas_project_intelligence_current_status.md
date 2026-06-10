@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-9` (PI-0..PI-8 completed)
-- Next action: context, path, impact, and test selection v2 (PI-9)
+- Current work package: `PI-10` (PI-0..PI-9 completed; Milestone B done)
+- Next action: Blueprint model, store, and lifecycle (PI-10)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -48,8 +48,8 @@ Current gaps include:
 | PI-6 | Static and semantic graph v2 | Completed | analyzers(py/js/ts-vue)+semantic graph+LSP fallback; `tests/test_project_intelligence_semantic_graph.py` → 13 passed; PI+static_graph+baseline 163 passed |
 | PI-7 | Behavioral graph v2 | Completed | behavioral analyzer+graph (control-flow/side-effect/route/state/recovery/UI); `tests/test_project_intelligence_behavioral_graph.py` → 9 passed; PI+behavioral+baseline 168 passed |
 | PI-8 | Runtime intelligence and reconciliation v2 | Completed | collectors+reconciliation+rollup; `tests/test_project_intelligence_runtime.py` → 9 passed; PI+reconciliation+collectors+baseline 185 passed |
-| PI-9 | Context, path, impact, test selection v2 | In Progress | current package |
-| PI-10 | Blueprint model, store, lifecycle | Not Started | |
+| PI-9 | Context, path, impact, test selection v2 | Completed | impact/path/test-select+bounded context package; `tests/test_project_intelligence_query_context.py` → 10 passed; PI+analysis+context_broker+baseline 194 passed |
+| PI-10 | Blueprint model, store, lifecycle | In Progress | current package |
 | PI-11 | Blueprint generation, review, validation | Not Started | |
 | PI-12 | Blueprint-to-Actual mapping hints | Not Started | |
 | PI-13 | Convergence matcher and evaluator | Not Started | |
@@ -85,6 +85,46 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-9 — Context, path, impact, and test selection v2 (Milestone B complete)
+Status: Completed
+Commit/PR: local branch pi-9-context-impact (not pushed/merged yet)
+Changed modules/files:
+- agent/project_twin/query/__init__.py, impact.py, context.py, metrics.py (new)
+- tests/test_project_intelligence_query_context.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- impact.py: assess_impact (direct/transitive resolved callers + candidate callers,
+  affected behaviors/side effects, recommended tests, confidence, explanation); trace_path
+  (directed reachability, truthful no-path); select_tests (from real runtime coverage).
+- context.py: build_context_package -> TwinContextPackage with graph-neighborhood candidate
+  generation, bounded traversal (max neighborhood + token budget), objective/phase relevance,
+  contradiction -> uncertainties, stale labeling, source excerpts at the manifest revision,
+  all sections + persisted-shaped manifest. Essential requirement/preserve items never dropped.
+- metrics.py: impact precision/recall + test-recommendation precision (recorded).
+Acceptance: no full graph dump (bounded); target + mandatory requirements prioritized;
+  stale/contradicted labeled or excluded; source excerpts match manifest revision; package is
+  portable (pure contract DTO, no Atlas schema).
+Executed commands and exact results:
+- python -m py_compile (4 new files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_query_context.py -> 10 passed in 0.68s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_analysis.py
+  tests/test_project_twin_context_broker.py tests/test_project_twin_baseline.py
+  -> 194 passed in 7.40s (Core v1 analysis + context broker unbroken)
+Unavailable checks: none required.
+Safety invariants checked: bounded context (no full dump); contradicted/stale never presented
+  as verified fact; essential safety/requirement items preserved; portable (no FastAPI/PlanPool/
+  SQLite); read-only over graphs + workspace sources.
+Migration/rollout state: Digital Twin Module query/context engine complete; wiring into the
+  DigitalTwinModule facade active path + production consumers is PI-16..PI-18.
+Known limitations: relevance scoring is coarse (target-proximity + confidence); freshness uses
+  injected stale/contradicted sets rather than per-node revision tracking; incidents/memory/
+  skills/nexus sections are passed in by the caller (adapters wire them in PI-16+).
+Milestone: Milestone B (Digital Twin Module production integration, PI-4..PI-9) COMPLETE.
+Next package: PI-10 — Blueprint model, store, and lifecycle (Milestone C).
+Blocker: none.
+```
 
 ```text
 Work package: PI-8 — Runtime intelligence and reconciliation v2
