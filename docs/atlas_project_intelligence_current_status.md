@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-17` (PI-0..PI-16 completed)
-- Next action: Planner production integration (PI-17)
+- Current work package: `PI-18` (PI-0..PI-17 completed)
+- Next action: Generator and repair production integration (PI-18)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -56,8 +56,8 @@ Current gaps include:
 | PI-14 | Convergence decision and incremental evaluation | Completed | policy(7 actions)+incremental_evaluate; `tests/test_project_intelligence_convergence_decision.py` → 10 passed; PI+baseline 222 passed |
 | PI-15 | Completion and requirement-evidence integration | Completed | completion gates+delivery-path+off fallback; `tests/test_project_intelligence_completion.py` → 8 passed; PI+baseline 230 passed |
 | PI-16 | Planning envelope and Plan Compiler | Completed | plan_compiler (deterministic order, create/modify/repair, completed preserved, downstream replan, PlanPool refs); `tests/test_project_intelligence_plan_compiler.py` → 7 passed; PI+baseline 237 passed |
-| PI-17 | Planner production integration | In Progress | current package |
-| PI-18 | Generator and repair integration | Not Started | |
+| PI-17 | Planner production integration | Completed | AtlasPlannerBridge (off=legacy/shadow=unchanged+telemetry/active=manifest-backed, readiness explicit, no store); `tests/test_project_intelligence_planner_bridge.py` → 5 passed; PI+baseline 242 passed |
+| PI-18 | Generator and repair integration | In Progress | current package |
 | PI-19 | Verification, checkpoint, resume | Not Started | |
 | PI-20 | Greenfield bootstrap orchestrator | Not Started | |
 | PI-21 | Coherent multi-file generation | Not Started | |
@@ -85,6 +85,39 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-17 — Planner production integration
+Status: Completed
+Commit/PR: local branch pi-17-planner-integration (not pushed/merged yet)
+Changed modules/files:
+- agent/project_intelligence/adapters/__init__.py, atlas_planning.py (new) — AtlasPlannerBridge.
+- tests/test_project_intelligence_planner_bridge.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- AtlasPlannerBridge.build_planner_context wraps the PI-3 coordinator's prepare_planning_context:
+  off -> legacy context only (Intelligence not consulted as input); shadow -> legacy context
+  unchanged + a side shadow artifact + recorded comparison telemetry; active -> manifest-backed
+  Intelligence context layered over legacy (source=project_intelligence, manifest id, requirements/
+  impacted/gaps). Twin readiness and staleness surfaced explicitly in every result.
+- The bridge is an Atlas integration adapter (outside the portable cores); it holds only the
+  coordinator and exposes no module store (planner never touches stores) — asserted.
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/adapters/atlas_planning.py + test -> compile OK
+- python -m pytest -q tests/test_project_intelligence_planner_bridge.py -> 5 passed in 0.69s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 242 passed in 9.30s
+Unavailable checks: none required.
+Safety invariants checked: off=legacy unchanged; shadow does not change planner input; active
+  manifest-backed; readiness/stale explicit; planner does not access module stores.
+Migration/rollout state: planner bridge ready; the real Atlas planner call site adopts it behind
+  the rollout flag (no legacy path removed). Active context is still backed by the disabled twin
+  stub until production twin wiring (full active rollout) is enabled.
+Known limitations: active context currently layers the disabled-twin package (empty sections)
+  over legacy; once the rollout flag enables the real twin, sections populate without bridge changes.
+Next package: PI-18 — Generator and repair production integration.
+Blocker: none.
+```
 
 ```text
 Work package: PI-16 — Planning envelope and Blueprint Plan Compiler (Milestone E begins)
