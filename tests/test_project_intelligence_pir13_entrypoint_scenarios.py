@@ -159,6 +159,73 @@ def _fastapi_api_main() -> str:
     )
 
 
+def _fastapi_sqlite_llm(_system_prompt: str, _user_prompt: str) -> dict:
+    return {
+        "summary": "Create a FastAPI API with SQLite persistence.",
+        "proposed_fix": "Write app/main.py with SQLite-backed item create/read endpoints.",
+        "target_files": ["app/main.py"],
+        "risk_level": "low",
+        "proposed_content": _fastapi_sqlite_main(),
+        "suggested_changes": [{"path": "app/main.py", "action": "create"}],
+        "verification_plan": [
+            "Persist items in SQLite and return them after FastAPI app reload."
+        ],
+        "rollback_plan": ["Delete app/main.py and its SQLite database file."],
+    }
+
+
+def _fastapi_sqlite_main() -> str:
+    return (
+        "from pathlib import Path\n"
+        "import sqlite3\n"
+        "\n"
+        "from fastapi import FastAPI, HTTPException\n"
+        "from pydantic import BaseModel\n"
+        "\n"
+        "DB_PATH = Path(__file__).with_name(\"atlas_items.sqlite3\")\n"
+        "app = FastAPI(title=\"Atlas SQLite Scenario\")\n"
+        "\n"
+        "\n"
+        "class ItemIn(BaseModel):\n"
+        "    name: str\n"
+        "\n"
+        "\n"
+        "def _connect() -> sqlite3.Connection:\n"
+        "    connection = sqlite3.connect(DB_PATH)\n"
+        "    connection.row_factory = sqlite3.Row\n"
+        "    return connection\n"
+        "\n"
+        "\n"
+        "def _init_db() -> None:\n"
+        "    with _connect() as connection:\n"
+        "        connection.execute(\n"
+        "            \"CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL)\"\n"
+        "        )\n"
+        "\n"
+        "\n"
+        "_init_db()\n"
+        "\n"
+        "\n"
+        "@app.post(\"/items\")\n"
+        "def create_item(item: ItemIn) -> dict[str, object]:\n"
+        "    \"\"\"Persist items in SQLite and return the created row.\"\"\"\n"
+        "    with _connect() as connection:\n"
+        "        cursor = connection.execute(\"INSERT INTO items (name) VALUES (?)\", (item.name,))\n"
+        "        item_id = int(cursor.lastrowid)\n"
+        "    return {\"id\": item_id, \"name\": item.name}\n"
+        "\n"
+        "\n"
+        "@app.get(\"/items/{item_id}\")\n"
+        "def read_item(item_id: int) -> dict[str, object]:\n"
+        "    \"\"\"Return persisted items after FastAPI app reload.\"\"\"\n"
+        "    with _connect() as connection:\n"
+        "        row = connection.execute(\"SELECT id, name FROM items WHERE id = ?\", (item_id,)).fetchone()\n"
+        "    if row is None:\n"
+        "        raise HTTPException(status_code=404, detail=\"item_not_found\")\n"
+        "    return {\"id\": int(row[\"id\"]), \"name\": str(row[\"name\"])}\n"
+    )
+
+
 def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: Path) -> None:
     repo = tmp_path / "workspace"
     repo.mkdir()
@@ -764,6 +831,157 @@ def test_pir13_fastapi_api_scenario_reaches_real_pytest_probe(tmp_path: Path) ->
         / pool_id
         / "pipeline_runs"
         / "pir13_fastapi_verify"
+        / "events.ndjson"
+    )
+    events_text = events_path.read_text(encoding="utf-8")
+    assert '"event_type": "auto_safe_apply_completed"' in events_text
+    assert '"event_type": "auto_verification_passed"' in events_text
+
+
+def test_pir13_fastapi_sqlite_persists_after_reload(tmp_path: Path) -> None:
+    repo = tmp_path / "workspace"
+    tests_dir = repo / "tests"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "test_api_sqlite.py").write_text(
+        "import importlib\n"
+        "\n"
+        "from fastapi.testclient import TestClient\n"
+        "\n"
+        "import app.main as api_main\n"
+        "\n"
+        "\n"
+        "def test_item_persists_after_module_reload():\n"
+        "    first_client = TestClient(api_main.app)\n"
+        "    created = first_client.post(\"/items\", json={\"name\": \"atlas\"})\n"
+        "    assert created.status_code == 200\n"
+        "    assert created.json() == {\"id\": 1, \"name\": \"atlas\"}\n"
+        "\n"
+        "    reloaded = importlib.reload(api_main)\n"
+        "    second_client = TestClient(reloaded.app)\n"
+        "    response = second_client.get(\"/items/1\")\n"
+        "    assert response.status_code == 200\n"
+        "    assert response.json() == {\"id\": 1, \"name\": \"atlas\"}\n",
+        encoding="utf-8",
+    )
+    client = _client(tmp_path, repo, llm_json_fn=_fastapi_sqlite_llm)
+
+    plan_payload = {
+        "root_goal": "Create a Greenfield FastAPI API with SQLite persistence.",
+        "requirements": [
+            {
+                "id": "REQ-SQLITE",
+                "text": "Persist items in SQLite and return them after FastAPI app reload.",
+            }
+        ],
+        "implementation_steps": [
+            {
+                "step_id": "sqlite_api",
+                "title": "Create SQLite-backed FastAPI API",
+                "description": "Create app/main.py with SQLite item create/read endpoints.",
+                "action_type": "create",
+                "risk_level": "low",
+                "target_files": ["app/main.py"],
+                "acceptance_criteria": [
+                    "Persist items in SQLite and return them after FastAPI app reload."
+                ],
+            }
+        ],
+    }
+
+    created = client.post(
+        "/api/atlas/plan-pools?sync=1",
+        json={
+            "input": "Create a Greenfield FastAPI API with SQLite persistence.",
+            "project_path": str(repo),
+            "project_name": "pir13-fastapi-sqlite",
+            "workspace_id": "pir13",
+            "plan_payload": plan_payload,
+        },
+    ).json()
+    assert created["status"] == "ready"
+    pool_id = created["pool_id"]
+    source_item_id = created["plan_pool"]["items"][0]["item_id"]
+
+    proposed = client.post(
+        "/api/atlas/patch-proposals/generate",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "run_id": "pir13_sqlite_patchgen",
+            "source_type": "plan_item",
+        },
+    ).json()
+    assert proposed["status"] == "proposed", proposed
+    assert proposed["proposal"]["metadata"]["proposed_content"] == _fastapi_sqlite_main()
+
+    approved_proposal = client.post(
+        "/api/atlas/patch-proposals/decide",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "proposal_id": proposed["proposal"]["proposal_id"],
+            "decision": "approved",
+            "reason": "PIR-13 FastAPI SQLite scenario approval.",
+        },
+    ).json()
+    assert approved_proposal["status"] == "approved", approved_proposal
+
+    draft = client.post(
+        "/api/atlas/patch-proposals/planitem-draft",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "proposal_id": proposed["proposal"]["proposal_id"],
+            "run_id": "pir13_sqlite_draft",
+        },
+    ).json()
+    assert draft["status"] == "created", draft
+    draft_item_id = draft["draft_item"]["draft_item_id"]
+
+    approved_item = client.post(
+        "/api/atlas/approvals/decide",
+        json={
+            "pool_id": pool_id,
+            "item_id": draft_item_id,
+            "workspace_id": "pir13",
+            "decision": "approved",
+            "reason": "Approve the FastAPI SQLite PlanItem for Safe Apply.",
+        },
+    ).json()
+    assert approved_item["decision"] == "approved", approved_item
+
+    verified = client.post(
+        "/api/atlas/automation/safe-apply-one-and-verify",
+        json={
+            "pool_id": pool_id,
+            "item_id": draft_item_id,
+            "workspace_id": "pir13",
+            "run_id": "pir13_sqlite_verify",
+            "command_id": "pytest_selected",
+            "metadata": {"test_path": "tests/test_api_sqlite.py"},
+        },
+    ).json()
+    assert verified["status"] == "applied_and_verified", verified
+    assert verified["auto_safe_apply_result"]["status"] == "applied"
+    verification = verified["auto_verification_result"]
+    assert verification["status"] == "passed", verification
+    assert verification["command_id"] == "pytest_selected"
+    assert "tests/test_api_sqlite.py" in verification["command"]
+    assert (repo / "app" / "main.py").read_text(encoding="utf-8") == _fastapi_sqlite_main()
+    assert (repo / "app" / "atlas_items.sqlite3").exists()
+
+    events_path = (
+        Path(main.app.state.atlas_ca_data_dir)
+        / "atlas"
+        / "workspaces"
+        / "pir13"
+        / "plan_pools"
+        / pool_id
+        / "pipeline_runs"
+        / "pir13_sqlite_verify"
         / "events.ndjson"
     )
     events_text = events_path.read_text(encoding="utf-8")

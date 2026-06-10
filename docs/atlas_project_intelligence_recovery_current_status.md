@@ -6,8 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-13`
-- Next action: add PIR-13 FastAPI+SQLite and frontend/backend scenario evidence,
-  artifact-retention audit, and a live configured-model run through the normal Atlas entrypoint
+- Next action: add PIR-13 frontend/backend scenario evidence, artifact-retention audit, and a
+  live configured-model run through the normal Atlas entrypoint
 - Blocker: none
 - Rollout: off by default
 
@@ -1130,5 +1130,41 @@ Migration/rollout state: no legacy Greenfield helper deletion and no consumer cu
 Known limitations: PIR-13 remains production_connected, not acceptance_complete, until remaining
   scenario breadth, artifact-retention, and live-model gates pass.
 Next package: PIR-13 — add FastAPI+SQLite persistence/restart scenario evidence.
+Blocker: none.
+```
+
+```text
+Work package: PIR-13 — FastAPI + SQLite persistence/restart scenario
+Status: production_connected
+Changed modules/files:
+- tests/test_project_intelligence_pir13_entrypoint_scenarios.py — added a normal API
+  FastAPI+SQLite Greenfield scenario from /api/atlas/plan-pools?sync=1 through proposal
+  generation, proposal approval, PlanItem draft, PlanItem approval,
+  /api/atlas/automation/safe-apply-one-and-verify, real Safe Apply of app/main.py, and real
+  pytest_selected verification that writes an item to SQLite, reloads the generated FastAPI module,
+  and reads the persisted row back.
+Executed commands and exact results:
+- python -m py_compile tests\test_project_intelligence_pir13_entrypoint_scenarios.py ->
+  compile OK
+- python -m pytest -q
+  tests/test_project_intelligence_pir13_entrypoint_scenarios.py::test_pir13_fastapi_sqlite_persists_after_reload ->
+  1 passed in 8.44s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py ->
+  5 passed in 33.81s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py
+  tests/test_atlas_auto_verification_service.py tests/test_visual_contract_matrix.py
+  tests/test_project_intelligence_pir13_greenfield_state_machine.py
+  tests/test_project_intelligence_recovery_baseline.py -> 78 passed, 2 xfailed in 56.24s
+Unavailable checks: frontend/backend browser-to-API, artifact-retention audit, and a live
+  configured-model Greenfield run are not proven by this slice.
+Safety invariants checked: SQLite-backed FastAPI code is generated through Proposal and applied
+  only through Safe Apply after manual proposal and PlanItem approvals; persistence/restart is
+  proven by an allowlisted pytest_selected TestClient probe that reloads the generated module and
+  reads the SQLite row back; no unavailable check is counted as passed.
+Migration/rollout state: no legacy Greenfield helper deletion and no consumer cutover were
+  performed.
+Known limitations: PIR-13 remains production_connected, not acceptance_complete, until frontend/
+  backend scenario, artifact-retention, and live-model gates pass.
+Next package: PIR-13 — add frontend/backend browser-to-API scenario evidence.
 Blocker: none.
 ```
