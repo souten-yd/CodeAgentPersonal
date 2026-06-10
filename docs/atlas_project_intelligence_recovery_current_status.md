@@ -6,7 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-13`
-- Next action: connect the PIR-13 Greenfield state machine to the normal Atlas entrypoint and real scenarios
+- Next action: add PIR-13 real verification/readiness, restart, fault repair/resume, and additional
+  Greenfield scenarios through the normal Atlas entrypoint
 - Blocker: none
 - Rollout: off by default
 
@@ -52,7 +53,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-10 | Planner and PlanPool production integration | acceptance_complete |
 | PIR-11 | Proposal, Safe Apply, and refresh integration | acceptance_complete |
 | PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |
-| PIR-13 | real Greenfield E2E | component_complete |
+| PIR-13 | real Greenfield E2E | production_connected |
 | PIR-14 | CI, platform, scale, and consumer cutover | not_started |
 | PIR-15 | real benchmark and retirement | not_started |
 
@@ -881,5 +882,54 @@ Migration/rollout state: rollout remains off by default; no legacy Greenfield he
 Known limitations: this is component-complete only; production entrypoint and real scenario evidence
   are still incomplete.
 Next package: PIR-13 — connect Greenfield state machine to normal Atlas entrypoint and real scenarios.
+Blocker: none.
+```
+
+```text
+Work package: PIR-13 — Normal Atlas entrypoint to real Safe Apply Greenfield scenario
+Status: production_connected
+Changed modules/files:
+- agent/atlas_patch_proposal_planitem_service.py — approved patch proposal PlanItem drafts now
+  preserve the source proposal's successful patch_generation contract and the canonical source
+  action_type create/update, so Greenfield create work reaches Safe Apply as a real create instead
+  of an update against a missing file.
+- tests/test_project_intelligence_pir13_entrypoint_scenarios.py — normal API scenario from
+  /api/atlas/plan-pools?sync=1 through patch proposal generation, proposal approval, PlanItem draft,
+  PlanItem approval, and /api/atlas/safe-apply/execute against a real temporary workspace and the
+  canonical AtlasFileSafeApplyExecutor.
+- tests/test_project_intelligence_recovery_baseline.py — status lock updated to the PIR-13
+  production_connected proof level.
+Executed commands and exact results:
+- python -m py_compile agent/atlas_patch_proposal_planitem_service.py
+  tests/test_project_intelligence_pir13_entrypoint_scenarios.py
+  tests/test_project_intelligence_recovery_baseline.py -> compile OK
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py ->
+  1 passed in 6.80s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py
+  tests/test_atlas_patch_proposal_planitem_draft_api.py
+  tests/test_project_intelligence_pir13_greenfield_state_machine.py
+  tests/test_project_intelligence_greenfield.py tests/test_project_intelligence_greenfield_e2e.py
+  tests/test_project_intelligence_recovery_baseline.py -> 45 passed, 2 xfailed in 24.28s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py
+  tests/test_atlas_patch_proposal_planitem_draft_api.py
+  tests/test_atlas_patch_proposal_planitem_safe_apply_flow.py
+  tests/test_atlas_patch_proposal_to_safe_apply_e2e.py
+  tests/test_atlas_safe_apply_execution_api.py -> 22 passed, 18 failed in 11.03s
+  because stale helper tests still call /api/atlas/plan-pools without sync=1 and receive the
+  current async job handle instead of an inline plan_pool payload.
+Unavailable checks: browser assertion/readiness probe, API readiness, restart reopen, injected
+  intermediate failure with repair/resume, additional Python/FastAPI/SQLite/frontend-backend
+  scenarios, and a live configured-model Greenfield run are not proven by this slice.
+Safety invariants checked: Proposal remains non-mutating; proposal approval and PlanItem approval
+  remain manual gates; Safe Apply is still the only workspace mutation path; no verification is
+  converted from unavailable to passed; rollout remains off.
+Migration/rollout state: no legacy Greenfield helper deletion and no consumer cutover were
+  performed.
+Known limitations: production_connected means the normal Atlas API path now reaches a real
+  temporary workspace write through canonical Safe Apply for one single-HTML scenario. PIR-13 is not
+  acceptance_complete until real verification/readiness, restart, failure repair/resume, supported
+  scenario breadth, artifact retention, and live-model gates are complete.
+Next package: PIR-13 — add real verification/readiness, restart, fault repair/resume, and scenario
+  breadth.
 Blocker: none.
 ```
