@@ -6,8 +6,7 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-13`
-- Next action: add PIR-13 artifact-retention audit and a live configured-model run through the
-  normal Atlas entrypoint
+- Next action: run a live configured-model Greenfield scenario through the normal Atlas entrypoint
 - Blocker: none
 - Rollout: off by default
 
@@ -1202,5 +1201,35 @@ Migration/rollout state: no legacy Greenfield helper deletion and no consumer cu
 Known limitations: PIR-13 remains production_connected, not acceptance_complete, until
   artifact-retention and live-model gates pass.
 Next package: PIR-13 — add artifact-retention audit evidence.
+Blocker: none.
+```
+
+```text
+Work package: PIR-13 — Artifact-retention audit for the normal Atlas entrypoint
+Status: production_connected
+Changed modules/files:
+- tests/test_project_intelligence_pir13_entrypoint_scenarios.py — the normal single-HTML
+  Greenfield scenario now asserts retained proposal JSON/Markdown, proposal-approval
+  JSON/Markdown, PlanItem draft JSON/Markdown, Safe Apply execution JSON/Markdown, workspace
+  change-snapshot manifest, verification events.ndjson, and the persisted restart-visible Safe
+  Apply snapshot reference.
+Executed commands and exact results:
+- python -m py_compile tests\test_project_intelligence_pir13_entrypoint_scenarios.py ->
+  compile OK
+- python -m pytest -q
+  tests/test_project_intelligence_pir13_entrypoint_scenarios.py::test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply ->
+  1 passed in 8.91s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py ->
+  6 passed in 38.79s
+Unavailable checks: a live configured-model Greenfield run is not proven by this slice.
+Safety invariants checked: proposal, approval, draft, Safe Apply, snapshot, verification event,
+  restart, recovery, and continuation evidence is read from durable artifacts written by the
+  normal Atlas entrypoint; snapshot artifacts are asserted under the target workspace root while
+  Atlas journal artifacts remain under ca_data; unavailable checks are not counted as passed.
+Migration/rollout state: no legacy Greenfield helper deletion and no consumer cutover were
+  performed.
+Known limitations: PIR-13 remains production_connected, not acceptance_complete, until the live
+  configured-model Greenfield run passes through the normal entrypoint with recorded evidence.
+Next package: PIR-13 — run live configured-model Greenfield evidence.
 Blocker: none.
 ```
