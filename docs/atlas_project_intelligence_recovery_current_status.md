@@ -6,7 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-14`
-- Next action: start PIR-14 CI, platform, scale, and consumer cutover evidence.
+- Next action: add PIR-14 consumer registry, shadow parity, rollback drill, platform, and scale
+  evidence.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -53,7 +54,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-11 | Proposal, Safe Apply, and refresh integration | acceptance_complete |
 | PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |
 | PIR-13 | real Greenfield E2E | acceptance_complete |
-| PIR-14 | CI, platform, scale, and consumer cutover | not_started |
+| PIR-14 | CI, platform, scale, and consumer cutover | in_progress |
 | PIR-15 | real benchmark and retirement | not_started |
 
 ## Status values
@@ -1347,5 +1348,61 @@ Migration/rollout state: no legacy Greenfield helper deletion and no consumer cu
 Known limitations: PIR-14 CI/platform/scale/consumer cutover and PIR-15 benchmark/retirement
   remain incomplete.
 Next package: PIR-14 — CI, platform, scale, and consumer cutover.
+Blocker: none.
+```
+
+```text
+Work package: PIR-14 — Recovery CI workflow entrypoint
+Status: in_progress
+Changed modules/files:
+- .github/workflows/atlas-project-intelligence-recovery.yml — added a pull_request, main push,
+  and manual workflow with focused-regression, integration, restart-fault, fixture-e2e, and
+  cutover-platform-contract suites; each suite writes JUnit XML, appends a GitHub Step Summary,
+  and uploads artifacts.
+- tests/test_project_intelligence_pir14_ci_workflow.py — added static workflow contract tests
+  for required suites, artifact retention, and truthful non-claims around live model runs and
+  consumer-zero/legacy retirement.
+- tests/test_project_intelligence_recovery_baseline.py — recovery status lock updated to require
+  PIR-14 in_progress.
+- docs/atlas_project_intelligence_recovery_current_status.md — PIR-14 marked in_progress with
+  next evidence steps for GitHub CI, consumer registry, shadow parity, rollback, platform, and
+  scale.
+Executed commands and exact results:
+- python -m py_compile tests\test_project_intelligence_pir14_ci_workflow.py
+  tests\test_project_intelligence_recovery_baseline.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir14_ci_workflow.py
+  tests\test_project_intelligence_recovery_baseline.py::test_recovery_status_selects_next_active_package ->
+  4 passed in 0.86s.
+- python -m pytest -q tests/test_project_intelligence_recovery_baseline.py
+  tests/test_project_intelligence_contracts.py tests/test_project_intelligence_rollout.py
+  tests/test_project_intelligence_boundaries.py -> 50 passed, 2 xfailed in 19.86s.
+- python -m pytest -q tests/test_project_intelligence_production_composition.py
+  tests/test_project_intelligence_planner_bridge.py tests/test_project_intelligence_generator_bridge.py
+  tests/test_project_intelligence_pir11_generation_apply.py
+  tests/test_project_intelligence_pir12_verification_recovery.py -> 27 passed in 7.91s.
+- python -m pytest -q tests/test_project_intelligence_app_lifecycle.py
+  tests/test_project_intelligence_persistence.py tests/test_project_intelligence_blueprint_lifecycle.py
+  tests/test_project_intelligence_event_bridge.py tests/test_project_intelligence_verification_resume.py ->
+  37 passed in 2.99s.
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py
+  tests/test_pir13_live_greenfield_runner.py -> 7 passed in 42.12s.
+- python -m pytest -q tests/test_project_intelligence_consolidation.py
+  tests/test_project_intelligence_hardening.py tests/test_project_intelligence_benchmark.py ->
+  28 passed in 1.57s.
+- gh pr checks 1701 --watch --interval 20 -> exit 0; GitHub Actions workflow
+  "Atlas Project Intelligence Recovery" passed on pull_request run 27311076310 and branch push
+  run 27311074180. Both runs completed focused-regression, integration, restart-fault,
+  fixture-e2e, and cutover-platform-contracts successfully.
+Unavailable checks: live model execution, consumer cutover, platform matrix, and scale evidence
+  are not claimed by this CI-entrypoint slice.
+Safety invariants checked: the new workflow runs pytest suites only, does not run the live
+  configured-model runner, does not enable rollout, does not mutate production data, and does not
+  remove or retire legacy paths.
+Migration/rollout state: rollout remains off by default; no consumer cutover and no legacy
+  deletion.
+Known limitations: PIR-14 remains in_progress until real consumer registry, shadow parity,
+  rollback drills, platform/scale artifacts, and consumer cutover evidence pass.
+Next package: PIR-14 — add consumer registry, shadow parity, rollback, platform, scale, and
+  cutover evidence.
 Blocker: none.
 ```

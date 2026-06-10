@@ -76,7 +76,7 @@ def test_recovery_status_selects_next_active_package() -> None:
     assert "| PIR-11 | Proposal, Safe Apply, and refresh integration | acceptance_complete |" in status
     assert "| PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |" in status
     assert "| PIR-13 | real Greenfield E2E | acceptance_complete |" in status
-    assert "| PIR-14 | CI, platform, scale, and consumer cutover | not_started |" in status
+    assert "| PIR-14 | CI, platform, scale, and consumer cutover | in_progress |" in status
 
 
 def test_legacy_status_treats_pi_as_foundation_not_completion() -> None:
