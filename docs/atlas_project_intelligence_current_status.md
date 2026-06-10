@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-2` (PI-0, PI-1 completed)
-- Next action: persistence and migration foundation (PI-2)
+- Current work package: `PI-3` (PI-0, PI-1, PI-2 completed)
+- Next action: composition root and rollout model (PI-3)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -41,8 +41,8 @@ Current gaps include:
 |---|---|---|---|
 | PI-0 | Production baseline and consumer map | Completed | maps + `tests/test_project_intelligence_baseline.py` → 46 passed; twin baseline 21 passed; full twin+PI suites 171 passed |
 | PI-1 | Module facade contracts and boundary tests | Completed | 4 module facades + contracts; `tests/test_project_intelligence_contracts.py`+`_boundaries.py` → 28 passed; affected suite 199 passed |
-| PI-2 | Persistence and migration foundation | In Progress | current package |
-| PI-3 | Composition root and rollout model | Not Started | |
+| PI-2 | Persistence and migration foundation | Completed | isolated SQLite stores (blueprint/convergence/PI) + migrations; `tests/test_project_intelligence_persistence.py` → 12 passed; affected 107 passed |
+| PI-3 | Composition root and rollout model | In Progress | current package |
 | PI-4 | Project identity, mode detection, lifecycle | Not Started | |
 | PI-5 | Canonical event bridge and trace expansion | Not Started | |
 | PI-6 | Static and semantic graph v2 | Not Started | |
@@ -85,6 +85,44 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-2 — Persistence and migration foundation
+Status: Completed
+Commit/PR: local branch pi-0-production-baseline (not pushed/merged)
+Changed modules/files:
+- agent/project_intelligence/_persistence.py (new) — shared, dependency-neutral SQLite
+  kernel: connection factory, transactional/repeatable migration runner, generic immutable
+  revisioned ArtifactStore (idempotency, stale-parent rejection, point-in-time, integrity).
+- agent/architecture_blueprint/migrations.py, store.py (new) — immutable Blueprint revisions.
+- agent/project_convergence/migrations.py, store.py (new) — immutable Convergence report history.
+- agent/project_intelligence/migrations.py, store.py (new) — immutable Context Manifests +
+  restart-safe job journal (enqueue/claim/complete/recover, ADR-PI-011).
+- tests/test_project_intelligence_persistence.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Each module owns an isolated SQLite store behind its facade; SQLite stays an internal
+  adapter (ADR-PI-015) — no public contract imports it (boundary test unchanged).
+- Immutable revision rows; one put == one transaction with rollback; duplicate idempotency
+  key is a harmless no-op; stale expected-parent is rejected; project/workspace isolation;
+  point-in-time reads; integrity check returns ok/corrupt with diagnostics.
+- Migrations are repeatable (IF NOT EXISTS + version guard) and rollback-safe (per-migration
+  BEGIN/COMMIT/ROLLBACK; a failed migration is not recorded).
+- No PlanPool/Conversation/Nexus/Memory canonical data is migrated or rewritten (ADR-PI-004).
+Executed commands and exact results:
+- python -m py_compile (7 new module files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_persistence.py -> 12 passed in 0.63s
+- python -m pytest -q boundaries+contracts+persistence+baseline+twin_baseline -> 107 passed in 2.45s
+Unavailable checks: none required (in-memory + temp SQLite only).
+Safety invariants checked: stores are advisory persistence; no workflow/PlanPool/approval/
+  Safe Apply/rollback/retry/command/isolation/verification behavior touched; SQLite not
+  exposed through any facade.
+Migration/rollout state: persistence introduced; not yet wired to facades (PI-3 composition).
+Known limitations: stores are standalone; the facades still return disabled results until
+  PI-3 composition root + rollout wire them behind the rollout flag.
+Next package: PI-3 — Composition root and rollout model.
+Blocker: none.
+```
 
 ```text
 Work package: PI-1 — Module facade contracts and boundary tests
