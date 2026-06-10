@@ -10,11 +10,11 @@ from app.server import create_app
 from tests.test_atlas_safe_apply_execution_api import _clear_safe_apply_state
 
 
-def _client(tmp_path: Path, repo: Path) -> TestClient:
+def _client(tmp_path: Path, repo: Path, llm_json_fn=None) -> TestClient:
     _clear_safe_apply_state()
     main.app.state.atlas_ca_data_dir = str(tmp_path / "atlas_data")
     main.app.state.atlas_implementation_executor = AtlasFileSafeApplyExecutor(workspace_root=repo)
-    main.app.state.atlas_llm_json_fn = _greenfield_html_llm
+    main.app.state.atlas_llm_json_fn = llm_json_fn or _greenfield_html_llm
     return TestClient(main.app)
 
 
@@ -35,6 +35,59 @@ def _greenfield_html_llm(_system_prompt: str, _user_prompt: str) -> dict:
         "verification_plan": ["Assert index.html contains the ready status."],
         "rollback_plan": ["Delete index.html."],
     }
+
+
+def _broken_animation_html_llm(_system_prompt: str, user_prompt: str) -> dict:
+    repairing = "fix_verification_failure" in user_prompt
+    content = _fixed_animation_html() if repairing else _static_animation_failure_html()
+    return {
+        "summary": "Create a single-file HTML color animation.",
+        "proposed_fix": "Write index.html with visible color animation evidence.",
+        "target_files": ["index.html"],
+        "risk_level": "low",
+        "proposed_content": content,
+        "suggested_changes": [{"path": "index.html", "action": "create" if not repairing else "update"}],
+        "verification_plan": ["Verify index.html contains color animation signals."],
+        "rollback_plan": ["Restore the previous index.html snapshot."],
+    }
+
+
+def _static_animation_failure_html() -> str:
+    return (
+        "<!doctype html>\n"
+        "<html lang=\"en\">\n"
+        "<head><meta charset=\"utf-8\"><title>Atlas Color Animation</title></head>\n"
+        "<body><main><h1>Animate colors</h1><p>The page is static.</p></main></body>\n"
+        "</html>\n"
+    )
+
+
+def _fixed_animation_html() -> str:
+    return (
+        "<!doctype html>\n"
+        "<html lang=\"en\">\n"
+        "<head>\n"
+        "  <meta charset=\"utf-8\">\n"
+        "  <title>Atlas Color Animation</title>\n"
+        "  <style>\n"
+        "    @keyframes atlasHue {\n"
+        "      0% { background-color: hsl(0, 90%, 55%); color: rgb(255, 255, 255); }\n"
+        "      50% { background-color: hsl(180, 90%, 45%); color: rgb(20, 20, 20); }\n"
+        "      100% { background-color: hsl(360, 90%, 55%); color: rgb(255, 255, 255); }\n"
+        "    }\n"
+        "    body { margin: 0; font-family: system-ui, sans-serif; }\n"
+        "    main {\n"
+        "      min-height: 100vh;\n"
+        "      display: grid;\n"
+        "      place-items: center;\n"
+        "      animation: atlasHue 1.4s linear infinite;\n"
+        "    }\n"
+        "  </style>\n"
+        "</head>\n"
+        "<body><main data-atlas-animation-running=\"true\" data-atlas-color-phase=\"active\">"
+        "<h1>Animate colors with a visible continuous color animation</h1></main></body>\n"
+        "</html>\n"
+    )
 
 
 def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: Path) -> None:
@@ -197,6 +250,161 @@ def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: P
     ).json()
     assert recovery["recovery_summary"]["pool_id"] == pool_id
     assert recovery["recovery_summary"]["total_items"] == 2
+    assert recovery["recovery_summary"]["completed_count"] >= 1
+
+    continuation = restarted_client.get(
+        f"/api/atlas/continuation/pools/{pool_id}", params={"workspace_id": "pir13"}
+    ).json()
+    assert continuation["pool_id"] == pool_id
+    assert draft_item_id in continuation["continuation_prompt"]
+
+
+def test_pir13_normal_entrypoint_fault_repair_recovers_and_resumes(tmp_path: Path) -> None:
+    repo = tmp_path / "workspace"
+    repo.mkdir()
+    client = _client(tmp_path, repo, llm_json_fn=_broken_animation_html_llm)
+
+    plan_payload = {
+        "root_goal": "Create a Greenfield HTML page that animates colors.",
+        "requirements": [
+            {
+                "id": "REQ-COLOR",
+                "text": "Animate colors with a visible continuous color animation in index.html.",
+            }
+        ],
+        "implementation_steps": [
+            {
+                "step_id": "html",
+                "title": "Create animated index.html",
+                "description": "Create a single HTML page with visible continuous color animation.",
+                "action_type": "create",
+                "risk_level": "low",
+                "target_files": ["index.html"],
+                "acceptance_criteria": [
+                    "index.html includes CSS animation and visible color mutation signals."
+                ],
+            }
+        ],
+    }
+
+    created = client.post(
+        "/api/atlas/plan-pools?sync=1",
+        json={
+            "input": "Create a Greenfield HTML page that animates colors.",
+            "project_path": str(repo),
+            "project_name": "pir13-greenfield-repair",
+            "workspace_id": "pir13",
+            "plan_payload": plan_payload,
+        },
+    ).json()
+    assert created["status"] == "ready"
+    pool_id = created["pool_id"]
+    source_item_id = created["plan_pool"]["items"][0]["item_id"]
+
+    proposed = client.post(
+        "/api/atlas/patch-proposals/generate",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "run_id": "pir13_fault_patchgen",
+            "source_type": "plan_item",
+        },
+    ).json()
+    assert proposed["status"] == "proposed", proposed
+    assert "The page is static" in proposed["proposal"]["metadata"]["proposed_content"]
+
+    approved_proposal = client.post(
+        "/api/atlas/patch-proposals/decide",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "proposal_id": proposed["proposal"]["proposal_id"],
+            "decision": "approved",
+            "reason": "PIR-13 fault-repair scenario approval.",
+        },
+    ).json()
+    assert approved_proposal["status"] == "approved", approved_proposal
+
+    draft = client.post(
+        "/api/atlas/patch-proposals/planitem-draft",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "proposal_id": proposed["proposal"]["proposal_id"],
+            "run_id": "pir13_fault_draft",
+        },
+    ).json()
+    assert draft["status"] == "created", draft
+    draft_item_id = draft["draft_item"]["draft_item_id"]
+
+    approved_item = client.post(
+        "/api/atlas/approvals/decide",
+        json={
+            "pool_id": pool_id,
+            "item_id": draft_item_id,
+            "workspace_id": "pir13",
+            "decision": "approved",
+            "reason": "Approve only this drafted PlanItem for bounded repair proof.",
+        },
+    ).json()
+    assert approved_item["decision"] == "approved", approved_item
+
+    repaired = client.post(
+        "/api/atlas/automation/safe-apply-one-and-verify",
+        json={
+            "pool_id": pool_id,
+            "item_id": draft_item_id,
+            "workspace_id": "pir13",
+            "run_id": "pir13_fault_repair",
+        },
+    ).json()
+    assert repaired["status"] == "applied_and_verified", repaired
+    verification = repaired["auto_verification_result"]
+    assert verification["status"] == "passed", verification
+    assert verification["metadata"]["recovered_by_self_correction"] is True
+    self_correction = verification["metadata"]["self_correction_result"]
+    assert self_correction["status"] == "recovered"
+    assert self_correction["attempts"] == 1
+    assert self_correction["final_verification_status"] == "passed"
+    assert repaired["failure_stop_suggestion"] == {}
+
+    html = (repo / "index.html").read_text(encoding="utf-8")
+    assert "The page is static" not in html
+    assert "animation: atlasHue" in html
+    assert "data-atlas-color-phase" in html
+
+    events_path = (
+        Path(main.app.state.atlas_ca_data_dir)
+        / "atlas"
+        / "workspaces"
+        / "pir13"
+        / "plan_pools"
+        / pool_id
+        / "pipeline_runs"
+        / "pir13_fault_repair"
+        / "events.ndjson"
+    )
+    events_text = events_path.read_text(encoding="utf-8")
+    assert '"event_type": "auto_verification_failed"' in events_text
+    assert '"event_type": "self_correction_attempt"' in events_text
+    assert '"event_type": "self_correction_recovered"' in events_text
+    assert '"event_type": "auto_verification_passed"' in events_text
+
+    restarted_app = create_app()
+    restarted_app.state.atlas_ca_data_dir = main.app.state.atlas_ca_data_dir
+    restarted_client = TestClient(restarted_app)
+    reloaded = restarted_client.get(f"/api/atlas/plan-pools/{pool_id}").json()["plan_pool"]
+    reloaded_draft = next(item for item in reloaded["items"] if item["item_id"] == draft_item_id)
+    assert reloaded_draft["metadata"]["auto_verification"]["status"] == "passed"
+    assert reloaded_draft["metadata"]["verification"]["status"] == "failed"
+
+    recovery = restarted_client.get(
+        f"/api/atlas/recovery/pools/{pool_id}", params={"workspace_id": "pir13"}
+    ).json()
+    assert recovery["recovery_summary"]["pool_id"] == pool_id
     assert recovery["recovery_summary"]["completed_count"] >= 1
 
     continuation = restarted_client.get(
