@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-16` (PI-0..PI-15 completed; Milestone D done)
-- Next action: planning envelope and Blueprint Plan Compiler (PI-16)
+- Current work package: `PI-17` (PI-0..PI-16 completed)
+- Next action: Planner production integration (PI-17)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -55,8 +55,8 @@ Current gaps include:
 | PI-13 | Convergence matcher and evaluator | Completed | matcher+evaluator (8 distinct states, file≠verified, stale guard); `tests/test_project_intelligence_convergence_eval.py` → 7 passed; PI+baseline 212 passed |
 | PI-14 | Convergence decision and incremental evaluation | Completed | policy(7 actions)+incremental_evaluate; `tests/test_project_intelligence_convergence_decision.py` → 10 passed; PI+baseline 222 passed |
 | PI-15 | Completion and requirement-evidence integration | Completed | completion gates+delivery-path+off fallback; `tests/test_project_intelligence_completion.py` → 8 passed; PI+baseline 230 passed |
-| PI-16 | Planning envelope and Plan Compiler | In Progress | current package |
-| PI-17 | Planner production integration | Not Started | |
+| PI-16 | Planning envelope and Plan Compiler | Completed | plan_compiler (deterministic order, create/modify/repair, completed preserved, downstream replan, PlanPool refs); `tests/test_project_intelligence_plan_compiler.py` → 7 passed; PI+baseline 237 passed |
+| PI-17 | Planner production integration | In Progress | current package |
 | PI-18 | Generator and repair integration | Not Started | |
 | PI-19 | Verification, checkpoint, resume | Not Started | |
 | PI-20 | Greenfield bootstrap orchestrator | Not Started | |
@@ -85,6 +85,42 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-16 — Planning envelope and Blueprint Plan Compiler (Milestone E begins)
+Status: Completed
+Commit/PR: local branch pi-16-plan-compiler (not pushed/merged yet)
+Changed modules/files:
+- agent/project_intelligence/plan_compiler.py (new) — compile_plan, requirement coverage,
+  PlanPool metadata + legacy loader.
+- tests/test_project_intelligence_plan_compiler.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Phases architecture/delivery/repair from project mode. Deterministic item order from the
+  Blueprint dependency graph (topological). Item kinds: greenfield -> create_file/
+  create_structure; existing -> modify; repair -> repair.
+- Completed items are preserved (status completed), never recreated. Downstream-only replan
+  (replan_scope) recompiles only in-scope elements; out-of-scope items are preserved; completed
+  items stay completed.
+- Complete requirement + Blueprint element mappings (every element -> item; coverage helper).
+- PlanPool metadata records blueprint/actual-twin/convergence/context-manifest refs (ADR-PI-012);
+  load_plan_pool_metadata fills defaults so old PlanPools load cleanly.
+- Deterministic code owns identity/order/mapping; LLM grouping is an optional overlay (ADR-PI-008).
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/plan_compiler.py + test -> compile OK
+- python -m pytest -q tests/test_project_intelligence_plan_compiler.py -> 7 passed in 0.58s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 237 passed in 8.77s
+Unavailable checks: none required.
+Safety invariants checked: completed items not recreated; deterministic identity bookkeeping;
+  PlanPool refs recorded; legacy PlanPool compatibility; no PlanPool/workspace mutation (compiler
+  produces specs, does not write PlanPool — that is the Planner's authority in PI-17).
+Migration/rollout state: plan compilation ready; wiring into the real Planner path is PI-17.
+Known limitations: the compiler emits PlanItem specs; persisting to the canonical PlanPool and
+  shadow comparison happen in PI-17 via the Atlas planner bridge.
+Next package: PI-17 — Planner production integration.
+Blocker: none.
+```
 
 ```text
 Work package: PI-15 — Final completion and requirement-evidence integration (Milestone D complete)
