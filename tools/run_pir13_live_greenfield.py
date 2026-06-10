@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 import main
 from agent.atlas_file_safe_apply_executor import AtlasFileSafeApplyExecutor
 from agent.test_command_runner import TestCommandRunner
+from app.server import create_app
 
 
 LIVE_GOAL = (
@@ -54,6 +55,19 @@ def _write_report(path: Path, report: dict[str, Any]) -> None:
 
 def _post(client: TestClient, path: str, payload: dict[str, Any]) -> dict[str, Any]:
     response = client.post(path, json=payload)
+    body = response.json()
+    if response.status_code >= 400:
+        return {
+            "status": "failed",
+            "http_status": response.status_code,
+            "path": path,
+            "body": body,
+        }
+    return body
+
+
+def _get(client: TestClient, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    response = client.get(path, params=params or {})
     body = response.json()
     if response.status_code >= 400:
         return {
@@ -102,6 +116,35 @@ def _configure_app(workspace: Path, data_dir: Path) -> TestClient:
         allowed_commands=["python -m pytest -q"]
     )
     return TestClient(main.app)
+
+
+def _restart_evidence(data_dir: Path, pool_id: str, draft_item_id: str) -> dict[str, Any]:
+    restarted_app = create_app()
+    restarted_app.state.atlas_ca_data_dir = str(data_dir)
+    client = TestClient(restarted_app)
+    reloaded = _get(client, f"/api/atlas/plan-pools/{pool_id}")
+    recovery = _get(client, f"/api/atlas/recovery/pools/{pool_id}", params={"workspace_id": WORKSPACE_ID})
+    continuation = _get(client, f"/api/atlas/continuation/pools/{pool_id}", params={"workspace_id": WORKSPACE_ID})
+    evidence = {
+        "status": "failed",
+        "plan_pool": reloaded,
+        "recovery": recovery,
+        "continuation": continuation,
+    }
+    pool = reloaded.get("plan_pool") or {}
+    items = list(pool.get("items") or [])
+    draft = next((item for item in items if item.get("item_id") == draft_item_id), {})
+    safe_apply = draft.get("metadata", {}).get("safe_apply", {}) if isinstance(draft.get("metadata"), dict) else {}
+    auto_verification = draft.get("metadata", {}).get("auto_verification", {}) if isinstance(draft.get("metadata"), dict) else {}
+    if (
+        pool.get("pool_id") == pool_id
+        and safe_apply.get("status") == "applied"
+        and auto_verification.get("status") == "passed"
+        and (recovery.get("recovery_summary") or {}).get("pool_id") == pool_id
+        and draft_item_id in str(continuation.get("continuation_prompt") or "")
+    ):
+        evidence["status"] = "passed"
+    return evidence
 
 
 def run_live_greenfield(workspace: Path, data_dir: Path) -> dict[str, Any]:
@@ -290,7 +333,13 @@ def run_live_greenfield(workspace: Path, data_dir: Path) -> dict[str, Any]:
         and auto_verify.get("status") == "passed"
         and REQUIRED_TEXT in html_text
     ):
-        report["status"] = "passed"
+        restart = _restart_evidence(data_dir, pool_id, draft_item_id)
+        report["restart_evidence"] = restart
+        if restart.get("status") == "passed":
+            report["status"] = "passed"
+        else:
+            report["status"] = "failed"
+            report["errors"].append("live_greenfield_restart_evidence_failed")
     else:
         report["status"] = "failed"
         report["errors"].append("live_greenfield_acceptance_failed")
