@@ -102,7 +102,12 @@ def test_revise_creates_child() -> None:
 
 def test_one_active_revision_supersedes_prior() -> None:
     m = _module()
-    r1 = m.create(BlueprintCreateRequest(project_id="p1", workspace_id="w1", scope="full_project"))
+    r1 = m.create(BlueprintCreateRequest(
+        project_id="p1",
+        workspace_id="w1",
+        scope="full_project",
+        allow_full_redesign=True,
+    ))
     m.review(BlueprintReviewRequest(project_id="p1", blueprint_id=r1.blueprint_id, revision_id=r1.revision_id))
     m.activate(BlueprintActivationRequest(project_id="p1", blueprint_id=r1.blueprint_id, revision_id=r1.revision_id))
     # A child revision, reviewed + activated, supersedes the first.

@@ -114,6 +114,20 @@ class BlueprintCreateRequest(_Frozen):
     source_requirement_ids: list[str] = Field(default_factory=list)
     source_twin_revision_id: str | None = None
     project_mode: str = "imported_unknown"
+    requirement_text: str = ""
+    target_files: list[str] = Field(default_factory=list)
+    changed_files: list[str] = Field(default_factory=list)
+    interfaces: dict[str, list[str]] = Field(default_factory=dict)
+    api_routes: list[str] = Field(default_factory=list)
+    schemas: list[str] = Field(default_factory=list)
+    config_keys: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    runtime_scenarios: list[str] = Field(default_factory=list)
+    nfrs: list[str] = Field(default_factory=list)
+    preserve_behaviors: list[str] = Field(default_factory=list)
+    commands: dict[str, str] = Field(default_factory=dict)
+    allow_full_redesign: bool = False
+    critical_decisions: list[BlueprintDecisionRequest] = Field(default_factory=list)
     rollout_mode: str = "off"
     correlation_id: str = ""
 

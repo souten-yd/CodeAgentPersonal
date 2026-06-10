@@ -14,32 +14,29 @@ from pathlib import Path
 from typing import Callable
 
 from agent.architecture_blueprint.contracts import (
-    ArchitectureDecision,
     BlueprintActivationRequest,
     BlueprintCreateRequest,
     BlueprintGetRequest,
     BlueprintGetRevisionRequest,
-    BlueprintElement,
     BlueprintResult,
     BlueprintReviewRequest,
     BlueprintReviewResult,
     BlueprintRevision,
     BlueprintRevisionRequest,
 )
+from agent.architecture_blueprint.generator import generate_blueprint
 from agent.architecture_blueprint.lifecycle import (
     ACTIVE,
     APPROVED,
     PROPOSED,
-    REJECTED,
     REVIEWED,
     SUPERSEDED,
-    assert_planned_refs,
     assert_transition,
-    planner_decision,
-    validate_planned_refs,
     validate_scope,
 )
+from agent.architecture_blueprint.planner_adapter import BlueprintPlannerAdapter
 from agent.architecture_blueprint.store import BlueprintStore
+from agent.architecture_blueprint.validator import validate_blueprint
 from agent.project_intelligence.contracts import (
     IntelligenceDiagnostic,
     IntelligenceError,
@@ -51,16 +48,27 @@ def _uid(prefix: str) -> str:
     return f"{prefix}:{uuid.uuid4().hex[:12]}"
 
 
-def _diag(message: str, code: IntelligenceErrorCode = IntelligenceErrorCode.BLUEPRINT_INVALID) -> IntelligenceDiagnostic:
-    return IntelligenceDiagnostic(code=code, message=message, severity="info")
+def _diag(
+    message: str,
+    code: IntelligenceErrorCode = IntelligenceErrorCode.BLUEPRINT_INVALID,
+    refs: list[str] | None = None,
+) -> IntelligenceDiagnostic:
+    return IntelligenceDiagnostic(code=code, message=message, refs=list(refs or []), severity="info")
 
 
 class ArchitectureBlueprintModuleImpl:
     """Store-backed Blueprint facade with lifecycle and authority guards."""
 
-    def __init__(self, store: BlueprintStore | None = None, *, now_fn: Callable[[], datetime] | None = None) -> None:
+    def __init__(
+        self,
+        store: BlueprintStore | None = None,
+        *,
+        now_fn: Callable[[], datetime] | None = None,
+        planner_adapter: BlueprintPlannerAdapter | None = None,
+    ) -> None:
         self._store = store or BlueprintStore()
         self._now = now_fn or (lambda: datetime.now(timezone.utc))
+        self._planner = planner_adapter or BlueprintPlannerAdapter()
         # operational lifecycle state (content is immutable in the store)
         self._status: dict[tuple[str, str], str] = {}
 
@@ -83,19 +91,23 @@ class ArchitectureBlueprintModuleImpl:
         validate_scope(request.scope)
         blueprint_id = _uid("bp")
         revision_id = _uid("bprev")
-        decision = planner_decision(_uid("dec"), "initial architecture", [], "", ["bootstrap"])
-        revision = BlueprintRevision(
-            blueprint_id=blueprint_id, revision_id=revision_id,
-            project_id=request.project_id, workspace_id=request.workspace_id,
-            scope=request.scope, source_requirement_ids=list(request.source_requirement_ids),
+        planned = self._planner.plan(request)
+        revision = generate_blueprint(
+            project_id=request.project_id,
+            workspace_id=request.workspace_id,
+            spec=planned.spec,
+            project_mode=request.project_mode,
             source_twin_revision_id=request.source_twin_revision_id,
-            project_mode=request.project_mode, status=PROPOSED,
-            selected_architecture=decision, created_at=self._now(),
+            scope=planned.scope,
+            now=self._now(),
+        ).model_copy(
+            update={
+                "blueprint_id": blueprint_id,
+                "revision_id": revision_id,
+                "status": PROPOSED,
+                "unresolved_decisions": planned.unresolved_decisions,
+            }
         )
-        bad = validate_planned_refs(revision)
-        if bad:
-            return BlueprintResult(blueprint_id=blueprint_id, revision_id=revision_id, status="invalid",
-                                   diagnostics=[_diag(f"planned elements use actual refs: {bad}")])
         self._store.save_revision(
             project_id=request.project_id, workspace_id=request.workspace_id,
             blueprint_id=blueprint_id, revision_id=revision_id,
@@ -129,14 +141,16 @@ class ArchitectureBlueprintModuleImpl:
     def review(self, request: BlueprintReviewRequest) -> BlueprintReviewResult:
         rev = self._load(request.project_id, request.revision_id)
         diagnostics: list[IntelligenceDiagnostic] = []
-        bad = validate_planned_refs(rev)
-        if bad:
-            diagnostics.append(_diag(f"planned elements use actual refs: {bad}"))
+        report = validate_blueprint(rev)
         unresolved = list(rev.unresolved_decisions)
-        if unresolved:
-            diagnostics.append(_diag("unresolved architecture decisions remain",
-                                     IntelligenceErrorCode.BLUEPRINT_DECISION_REQUIRED))
-        valid = not bad and not unresolved
+        for item in report.diagnostics:
+            code = (
+                IntelligenceErrorCode.BLUEPRINT_DECISION_REQUIRED
+                if item.code == "unresolved_decision"
+                else IntelligenceErrorCode.BLUEPRINT_INVALID
+            )
+            diagnostics.append(_diag(f"{item.code}: {item.message}", code, list(item.refs)))
+        valid = report.valid
         current = self._status_of(request.project_id, request.revision_id) or rev.status
         if valid:
             assert_transition(current, REVIEWED)
@@ -149,11 +163,32 @@ class ArchitectureBlueprintModuleImpl:
             self._store.set_revision_status(
                 project_id=request.project_id, revision_id=request.revision_id, status=REVIEWED
             )
+        self._store.save_review(
+            project_id=request.project_id,
+            workspace_id=rev.workspace_id or "",
+            blueprint_id=rev.blueprint_id,
+            revision_id=rev.revision_id,
+            payload={
+                "valid": valid,
+                "diagnostics": [d.model_dump(mode="json") for d in diagnostics],
+                "unresolved_decisions": [d.model_dump(mode="json") for d in unresolved],
+                "topological_order": report.topological_order,
+                "requirement_coverage": report.requirement_coverage,
+            },
+        )
         return BlueprintReviewResult(blueprint_id=rev.blueprint_id, revision_id=rev.revision_id,
                                      valid=valid, unresolved_decisions=unresolved, diagnostics=diagnostics)
 
     def activate(self, request: BlueprintActivationRequest) -> BlueprintRevision:
         rev = self._load(request.project_id, request.revision_id)
+        report = validate_blueprint(rev)
+        if not report.valid:
+            code = (
+                IntelligenceErrorCode.BLUEPRINT_DECISION_REQUIRED
+                if rev.unresolved_decisions
+                else IntelligenceErrorCode.BLUEPRINT_INVALID
+            )
+            raise IntelligenceError(code, f"cannot activate invalid Blueprint: {[d.code for d in report.diagnostics]}")
         current = self._status_of(request.project_id, request.revision_id) or rev.status
         if current != APPROVED:
             raise IntelligenceError(IntelligenceErrorCode.BLUEPRINT_INVALID,
