@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-18` (PI-0..PI-17 completed)
-- Next action: Generator and repair production integration (PI-18)
+- Current work package: `PI-19` (PI-0..PI-18 completed)
+- Next action: Verification, checkpoint, and resume integration (PI-19)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -57,8 +57,8 @@ Current gaps include:
 | PI-15 | Completion and requirement-evidence integration | Completed | completion gates+delivery-path+off fallback; `tests/test_project_intelligence_completion.py` → 8 passed; PI+baseline 230 passed |
 | PI-16 | Planning envelope and Plan Compiler | Completed | plan_compiler (deterministic order, create/modify/repair, completed preserved, downstream replan, PlanPool refs); `tests/test_project_intelligence_plan_compiler.py` → 7 passed; PI+baseline 237 passed |
 | PI-17 | Planner production integration | Completed | AtlasPlannerBridge (off=legacy/shadow=unchanged+telemetry/active=manifest-backed, readiness explicit, no store); `tests/test_project_intelligence_planner_bridge.py` → 5 passed; PI+baseline 242 passed |
-| PI-18 | Generator and repair integration | In Progress | current package |
-| PI-19 | Verification, checkpoint, resume | Not Started | |
+| PI-18 | Generator and repair integration | Completed | AtlasGeneratorBridge (stale block/refresh, planned≠real, manifest in proposal, bounded repair); `tests/test_project_intelligence_generator_bridge.py` → 7 passed; PI+baseline 249 passed |
+| PI-19 | Verification, checkpoint, resume | In Progress | current package |
 | PI-20 | Greenfield bootstrap orchestrator | Not Started | |
 | PI-21 | Coherent multi-file generation | Not Started | |
 | PI-22 | Greenfield build/run/test and real E2E | Not Started | |
@@ -85,6 +85,40 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-18 — Generator and repair production integration
+Status: Completed
+Commit/PR: local branch pi-18-generator-integration (not pushed/merged yet)
+Changed modules/files:
+- agent/project_intelligence/adapters/atlas_generation.py (new) — AtlasGeneratorBridge.
+- tests/test_project_intelligence_generator_bridge.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- build_generation_context over the coordinator: off -> legacy; shadow -> legacy unchanged;
+  active -> manifest-backed generation context. A stale Actual revision (base != current
+  actual) BLOCKS and requests a refresh before generation.
+- Planned Blueprint contracts are labelled planned=True and kept separate from actual_symbols
+  (real twin symbols), so imaginary/planned symbols are never presented as real.
+- proposal_metadata() exposes the context_manifest_id + base_revision for the Proposal to store.
+- build_repair_context drives repair from actual failure evidence (failed observations only)
+  and a bounded decision action; a non-bounded action is rejected -> halt_unsafe (never auto-exec).
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/adapters/atlas_generation.py + test -> compile OK
+- python -m pytest -q tests/test_project_intelligence_generator_bridge.py -> 7 passed in 0.71s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 249 passed in 9.44s
+Unavailable checks: none required.
+Safety invariants checked: stale actual blocks generation; planned != real symbols; manifest
+  attached to proposal; repair is evidence-driven and bounded (never auto-execution); no store
+  exposed to the generator.
+Migration/rollout state: generator/repair bridge ready behind the rollout flag; adopted by the
+  real AtlasPatchProposalService/repair call sites without removing the legacy path.
+Known limitations: active sections come from the disabled-twin stub until full active rollout;
+  multi-file coherence relies on the Blueprint contracts + plan compiler ordering (PI-16).
+Next package: PI-19 — Verification, checkpoint, and resume integration.
+Blocker: none.
+```
 
 ```text
 Work package: PI-17 — Planner production integration
