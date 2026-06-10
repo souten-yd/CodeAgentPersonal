@@ -276,6 +276,30 @@ class ArtifactStore:
         head_id = self.get_head_id(project_id, workspace_id, group_id)
         return self.get(project_id, head_id) if head_id else None
 
+    def set_head(self, project_id: str, workspace_id: str, group_id: str, artifact_id: str) -> None:
+        """Point the group head at an existing artifact (e.g. activate a revision).
+
+        The target must already exist in the same project (no head ever dangles).
+        """
+        if self.get(project_id, artifact_id) is None:
+            raise StoreError("revision_not_found", f"{artifact_id!r} not in project {project_id!r}")
+        now = self._now()
+        try:
+            self._conn.execute("BEGIN")
+            self._conn.execute(
+                f"""INSERT INTO {self._table}_head
+                    (project_id, workspace_id, group_id, head_artifact_id, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT (project_id, workspace_id, group_id)
+                    DO UPDATE SET head_artifact_id = excluded.head_artifact_id,
+                                  updated_at = excluded.updated_at""",
+                (project_id, workspace_id, group_id, artifact_id, now),
+            )
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
     def list_history(self, project_id: str, group_id: str) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             f"SELECT * FROM {self._table} WHERE project_id = ? AND group_id = ? ORDER BY row_id ASC",
