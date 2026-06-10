@@ -6,7 +6,15 @@
 
 ## Program status
 
-- Overall: **ACTIVE — NOT COMPLETE**
+- Overall: **IMPLEMENTATION COMPLETE (PI-0..PI-25) — PROGRAM NOT YET MARKED COMPLETE**
+  All 26 work packages are implemented and tested at the unit/integration level (411 tests:
+  286 project_intelligence + 125 Core v1). The master-goal Definition of Done has remaining
+  **live-rollout gates** that require real environment evidence and are NOT fabricated as
+  passed (truthful verification): production cutover of real Atlas consumers + legacy
+  retirement (gated on consumer-zero + shadow parity), and real cross-platform (Windows/
+  Linux/Docker/Runpod) + real-repo deep-graph/Greenfield execution evidence. The program is
+  set to COMPLETE only when those live gates pass (PI-25 DoD rule). Rollout is disabled by
+  default; off mode == legacy baseline.
 - Completed foundation: Project Digital Twin Core v1, PDT-0 through PDT-14
 - Active canonical goal: `docs/atlas_project_intelligence_master_goal.md`
 - Architecture: `docs/atlas_project_intelligence_architecture.md`
@@ -16,8 +24,10 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-25` (PI-0..PI-24 completed)
-- Next action: final comparative benchmark and legacy retirement (PI-25)
+- Current work package: none — `PI-0..PI-25` all implemented & tested
+- Next action: live phased rollout (off→shadow→…→active) + real cross-platform/E2E evidence
+  capture, then legacy retirement per the gate; flip program status to COMPLETE when DoD live
+  gates pass
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -64,7 +74,7 @@ Current gaps include:
 | PI-22 | Greenfield build/run/test and real E2E | Completed | ProjectRuntimeAdapter+E2E harness (6 profiles, allowlist, unavailable≠passed, persistence-across-restart); `tests/test_project_intelligence_greenfield_e2e.py` → 7 passed; PI+baseline 279 passed |
 | PI-23 | Capability consolidation and consumer cutover | Completed | consolidation (compat adapter, shadow compare, consumer registry+cutover order, retirement gate, rollback); `tests/test_project_intelligence_consolidation.py` → 10 passed; PI+baseline 289 passed |
 | PI-24 | Cross-platform, scale, storage, rollout hardening | Completed | hardening (platform detect, regression budget, bounded growth, retention/compaction, export/import+integrity, job coalescing, rollout gate+rollback, no-leakage); `tests/test_project_intelligence_hardening.py` → 10 passed; PI+baseline 299 passed |
-| PI-25 | Final benchmark and legacy retirement | Not Started | |
+| PI-25 | Final benchmark and legacy retirement | Completed | benchmark (identical constraints, metric table, improvement verdict) + retirement gate + DoD checker (live gates truthful); `tests/test_project_intelligence_benchmark.py` → 8 passed; ALL PI 286 + Core v1 125 passed |
 
 ## Per-package update template
 
@@ -85,6 +95,56 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-25 — Final comparative benchmark and legacy retirement (Milestone G complete)
+Status: Completed
+Commit/PR: local branch pi-25-final-benchmark (not pushed/merged yet)
+Changed modules/files:
+- agent/project_intelligence/benchmark.py (new) — BenchmarkConstraints (+identical guard),
+  run_comparative (15-metric table + improvement verdict), DoDGate/evaluate_definition_of_done
+  (live gates truthful), retirement_decision (all PI-25 conditions).
+- tests/test_project_intelligence_benchmark.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Comparative benchmark runs legacy vs final under IDENTICAL constraints (model/repo/
+  requirement/token budget/tool authority/retry limit — enforced); computes the program metric
+  deltas (higher-is-better vs lower-is-better) and a verdict (improved/parity/regressed). A
+  regression with no key-outcome improvement is "regressed".
+- retirement_decision enforces every PI-25 condition: consumer-zero + shadow parity/superiority
+  + rollback tested + tests pass + data-migration verified + docs updated. No legacy path is
+  removed until all pass.
+- evaluate_definition_of_done marks the program COMPLETE only when every DoD gate passes; gates
+  that require LIVE evidence are reported as pending (not fabricated as passed), and
+  executable_complete is reported separately.
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/benchmark.py + test -> compile OK
+- python -m pytest -q tests/test_project_intelligence_benchmark.py -> 8 passed in 0.58s
+- python -m pytest -q tests/test_project_intelligence_*.py -> 286 passed in 11.32s
+- python -m pytest -q tests/test_project_twin_*.py -> 125 passed in 6.41s
+- (program total: 411 passed across project_intelligence + Core v1)
+Unavailable checks: real cross-platform (Windows/Linux/Docker/Runpod) runs, real-repo deep-graph
+  and Greenfield execution, and production consumer cutover are LIVE-rollout activities; their
+  evidence is recorded as pending — explicitly unavailable, never marked passed.
+Safety invariants checked: identical-constraint benchmark; retirement gated (no deletion before
+  parity/consumer-zero/rollback/tests/data-migration/docs); DoD live gates truthful; all safety
+  boundaries from PI-0..PI-24 intact; rollout disabled by default (off == legacy baseline).
+Migration/rollout state: all machinery in place; live phased rollout + legacy retirement proceed
+  under the gate. Program status flips to COMPLETE only when the DoD live gates pass.
+Known limitations: full program COMPLETE requires live production wiring + real cross-platform/
+  E2E evidence, which are environment/deployment actions outside this implementation's executable
+  scope and are therefore recorded as pending rather than asserted.
+Milestone: Milestone G (Reorganization, rollout, completion) COMPLETE for implementation.
+Definition of Done (executable gates): facades present (PI-1), persistence (PI-2), composition/
+  rollout (PI-3), lifecycle (PI-4), event bridge (PI-5), deep semantic+behavioral+runtime graphs
+  (PI-6..8), context/impact/test-selection (PI-9), Blueprint module (PI-10..12), Convergence
+  module (PI-13..15), planner/generator/verification/resume integration (PI-16..19), Greenfield
+  (PI-20..22), consolidation (PI-23), hardening (PI-24), benchmark+DoD (PI-25) — all PASS.
+Definition of Done (live gates, pending evidence): production consumer cutover + legacy
+  retirement; real cross-platform results; real-repo deep-graph + Greenfield execution.
+Next package: none (PI-0..PI-25 implemented). Remaining work is live rollout + evidence capture.
+Blocker: none.
+```
 
 ```text
 Work package: PI-24 — Cross-platform, scale, storage, and rollout hardening
