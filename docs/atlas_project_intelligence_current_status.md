@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-22` (PI-0..PI-21 completed)
-- Next action: Greenfield build/run/test and real E2E (PI-22)
+- Current work package: `PI-23` (PI-0..PI-22 completed; Milestone F done)
+- Next action: existing capability consolidation and consumer cutover (PI-23)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -61,8 +61,8 @@ Current gaps include:
 | PI-19 | Verification, checkpoint, resume | Completed | checkpoint+AtlasVerificationBridge (auto-ingest, post-verif convergence, exact-revision resume, external-change detect, idempotent replay, rollback); `tests/test_project_intelligence_verification_resume.py` → 7 passed; PI+baseline 256 passed |
 | PI-20 | Greenfield bootstrap orchestrator | Completed | GreenfieldOrchestrator (mode gate, active-blueprint gate, dep-ordered slices, refresh/convergence per apply, no-bypass Safe Apply, resumable); `tests/test_project_intelligence_greenfield.py` → 7 passed; PI+baseline 263 passed |
 | PI-21 | Coherent multi-file generation | Completed | coherence checks(imports/assets/api/manifest/placeholder/deps)+typed gaps+separate recovery; `tests/test_project_intelligence_coherence.py` → 9 passed; PI+baseline 272 passed |
-| PI-22 | Greenfield build/run/test and real E2E | In Progress | current package |
-| PI-23 | Capability consolidation and consumer cutover | Not Started | |
+| PI-22 | Greenfield build/run/test and real E2E | Completed | ProjectRuntimeAdapter+E2E harness (6 profiles, allowlist, unavailable≠passed, persistence-across-restart); `tests/test_project_intelligence_greenfield_e2e.py` → 7 passed; PI+baseline 279 passed |
+| PI-23 | Capability consolidation and consumer cutover | In Progress | current package |
 | PI-24 | Cross-platform, scale, storage, rollout hardening | Not Started | |
 | PI-25 | Final benchmark and legacy retirement | Not Started | |
 
@@ -85,6 +85,45 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-22 — Greenfield build/run/test and real E2E (Milestone F complete)
+Status: Completed
+Commit/PR: local branch pi-22-greenfield-e2e (not pushed/merged yet)
+Changed modules/files:
+- agent/project_intelligence/runtime_adapter.py (new) — ProjectRuntimeAdapter (profile
+  detection; build/test/start under a command allowlist + injected runner; unavailable handling).
+- agent/project_intelligence/greenfield_e2e.py (new) — E2E harness + the required scenarios.
+- tests/test_project_intelligence_greenfield_e2e.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- detect_profile resolves single_html / html_js_css / python_cli / fastapi_api /
+  fastapi_persistence / vue_fastapi. The adapter runs build/test/start via an injected
+  CommandRunner under the existing command allowlist; a non-allowlisted command or an
+  unavailable tool/environment yields an unavailable observation — never passed (ADR-PI-013).
+- run_scenario drives each scenario from the normal runtime entrypoint (adapter commands),
+  NOT synthetic Twin injection; captures build/start/test evidence; verifies persistence across
+  a (simulated) restart for the persistence scenario; success requires a truthful rollup
+  (no failed/unavailable) + passing tests + persistence when required.
+- Intermediate failure blocks success and recovers on a subsequent working run.
+Executed commands and exact results:
+- python -m py_compile (2 files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_greenfield_e2e.py -> 7 passed in 0.63s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 279 passed in 10.82s
+Unavailable checks: real build/serve processes are driven by an injected runner in tests; the
+  unavailable path (missing tool / blocked command) is explicitly tested and never becomes passed.
+Safety invariants checked: command allowlist never bypassed; unsupported environment unavailable
+  not passed; tests start from the normal runtime entrypoint; persistence verified across restart;
+  truthful rollup gates success.
+Migration/rollout state: greenfield E2E harness ready; the real runner is wired under existing
+  Atlas command authority at deployment (the adapter is runner-agnostic).
+Known limitations: scenarios use representative fixtures + an injected runner; wiring a real
+  subprocess runner under the live command allowlist is an environment-specific deployment step.
+Milestone: Milestone F (Greenfield generation, PI-20..PI-22) COMPLETE.
+Next package: PI-23 — Existing capability consolidation and consumer cutover (Milestone G).
+Blocker: none.
+```
 
 ```text
 Work package: PI-21 — Coherent multi-file generation and consistency validation
