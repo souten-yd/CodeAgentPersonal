@@ -1276,16 +1276,23 @@ Changed modules/files:
   /api/atlas/plan-pools?sync=1 entrypoint with planner_mode=real_planner, refuses fallback/
   clarification/unavailable model output as blocked, and proceeds through Proposal,
   proposal approval, PlanItem draft, PlanItem approval, Safe Apply, and auto verification only
-  when the live model returns usable artifacts.
+  when the live model returns usable artifacts. The pass path also reopens a fresh app and
+  requires persisted PlanPool, Safe Apply, auto-verification, recovery, and continuation evidence.
+- tests/test_pir13_live_greenfield_runner.py — added a synthetic-model runner mechanics test
+  proving the opt-in runner reaches Safe Apply, verification, and restart evidence through the
+  same API path when a model adapter returns usable structured output. This is not counted as
+  live-model PIR-13 evidence.
 - docs/atlas_project_intelligence_recovery_current_status.md — next action now points to the
   opt-in runner command and records that the current environment still blocks on model
   availability.
 Executed commands and exact results:
-- python -m py_compile tools\run_pir13_live_greenfield.py -> compile OK
+- python -m py_compile tools\run_pir13_live_greenfield.py
+  tests\test_pir13_live_greenfield_runner.py -> compile OK
 - python tools\run_pir13_live_greenfield.py --allow-blocked-exit-zero --output-json
   ca_data\atlas\pir13_live_greenfield_report.current.json -> status=blocked, report written,
   model_probe.llm_url_planner=http://localhost:8080/v1/chat/completions,
   model_probe.result=null, blocked_reason=configured_model_unavailable.
+- python -m pytest -q tests\test_pir13_live_greenfield_runner.py -> 1 passed in 8.75s
 Unavailable checks: the required live configured-model Greenfield run still cannot be executed
   because no configured model returned JSON from the Atlas adapter in this environment.
 Safety invariants checked: the runner does not inject deterministic success, does not count
