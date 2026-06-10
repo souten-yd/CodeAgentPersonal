@@ -139,6 +139,7 @@ class AtlasSafeApplyExecutionService:
                     plan_pool_id=pool.pool_id,
                     plan_item_id=item.item_id,
                     applied_refs=applied_refs,
+                    blueprint_revision_id=str((item.metadata or {}).get('blueprint_revision_id') or (pool.metadata or {}).get('blueprint_revision_id') or '') or None,
                     base_revision=str(request.metadata.get('base_revision') or (pool.metadata or {}).get('actual_twin_revision_id') or '') or None,
                     new_source_revision=str(request.metadata.get('new_source_revision') or result.get('new_source_revision') or result.get('source_revision') or '') or None,
                     success=True,
@@ -151,6 +152,8 @@ class AtlasSafeApplyExecutionService:
                 'accepted': bool(pi_result.accepted),
                 'refresh_requested': bool(pi_result.refresh_requested),
                 'twin_revision_id': pi_result.twin_revision_id,
+                'convergence_report_id': pi_result.convergence_report_id,
+                'convergence_decision': dict(pi_result.convergence_decision or {}),
                 'applied_refs': applied_refs,
                 'diagnostics': [d.model_dump() if hasattr(d, 'model_dump') else dict(d) for d in pi_result.diagnostics],
             }

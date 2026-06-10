@@ -18,6 +18,7 @@ from __future__ import annotations
 from agent.architecture_blueprint.contracts import ArchitectureBlueprintModule
 from agent.architecture_blueprint.facade import DisabledArchitectureBlueprintModule
 from agent.project_convergence.contracts import ConvergenceModule
+from agent.project_convergence.contracts import ConvergenceDecisionRequest, ConvergenceRequest
 from agent.project_convergence.facade import DisabledConvergenceModule
 from agent.project_intelligence.contracts import (
     ApplyResultRequest,
@@ -207,13 +208,46 @@ class ProjectIntelligenceCoordinator:
                 },
             )
             result = self._twin.ingest_event(event)
+            convergence_report_id = None
+            convergence_decision = {}
+            convergence_diagnostics: list[IntelligenceDiagnostic] = []
+            if result.twin_revision_id:
+                try:
+                    report = self._convergence.evaluate(
+                        ConvergenceRequest(
+                            project_id=request.project.project_id,
+                            workspace_id=request.project.workspace_id,
+                            blueprint_revision_id=request.blueprint_revision_id or "unknown",
+                            actual_twin_revision_id=result.twin_revision_id,
+                            actual_source_revision_id=request.new_source_revision,
+                            changed_refs=list(request.applied_refs),
+                        )
+                    )
+                    convergence_report_id = report.report_id
+                    decision = self._convergence.decide(
+                        ConvergenceDecisionRequest(
+                            project_id=request.project.project_id,
+                            workspace_id=request.project.workspace_id,
+                            report_id=report.report_id,
+                            correlation_id=request.correlation_id,
+                        )
+                    )
+                    convergence_decision = decision.model_dump()
+                    convergence_diagnostics.extend(report.diagnostics)
+                    convergence_diagnostics.extend(decision.diagnostics)
+                except Exception as exc:  # noqa: BLE001 - apply success remains canonical truth.
+                    convergence_diagnostics.append(
+                        _diag(IntelligenceErrorCode.CONVERGENCE_UNAVAILABLE, f"post-apply convergence failed: {exc}")
+                    )
             return PostApplyIntelligenceResult(
                 project_id=request.project.project_id,
                 workspace_id=request.project.workspace_id,
                 accepted=result.accepted,
                 refresh_requested=True,
                 twin_revision_id=result.twin_revision_id,
-                diagnostics=list(result.diagnostics),
+                convergence_report_id=convergence_report_id,
+                convergence_decision=convergence_decision,
+                diagnostics=[*result.diagnostics, *convergence_diagnostics],
             )
         return PostApplyIntelligenceResult(
             project_id=request.project.project_id,
