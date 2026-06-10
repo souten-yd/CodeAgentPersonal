@@ -6,7 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-14`
-- Next action: add PIR-14 shadow parity, rollback drill, platform, scale, and cutover evidence.
+- Next action: extend PIR-14 shadow parity and rollback drills beyond planning/generation,
+  then add platform, scale, threshold rollback, and cutover evidence.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -108,6 +109,49 @@ Safety invariants checked: read-only source inspection only; no production runti
 Migration/rollout state: off by default; no consumer cutover and no legacy deletion.
 Known limitations: regression locks intentionally xfail until PIR-1+ fixes the underlying defects.
 Next package: PIR-1 — durable concrete modules.
+Blocker: none.
+```
+
+```text
+Work package: PIR-14 — Shadow parity and flag-off rollback evidence
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/rollout_evidence.py — added a non-destructive evidence helper
+  that calls the public ProjectIntelligence facade in off, shadow, and active modes,
+  compares off vs shadow results after removing volatile manifest fields, and records that
+  an active phase can return to off mode without mutating source or retiring legacy paths.
+- tests/test_project_intelligence_pir14_rollout_evidence.py — added focused coverage for
+  planning/generation shadow parity, flag-off rollback drill status, persisted JSON output,
+  safety non-claims, and unsupported phase rejection.
+- docs/atlas_project_intelligence_recovery_current_status.md — updated PIR-14 next action to
+  treat planning/generation shadow parity and rollback drill evidence as partial, with the
+  remaining phases, platform, scale, threshold rollback, and cutover evidence still pending.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\rollout_evidence.py
+  tests\test_project_intelligence_pir14_rollout_evidence.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir14_rollout_evidence.py ->
+  2 passed in 0.89s.
+- python - <<script invoking write_rollout_evidence(...)>> ->
+  artifact=C:\Users\kkens\code\KasaneCore\ca_data\atlas\pir14_rollout_evidence.current.json
+  phase_count=2 shadow_parity_passed=2 rollback_passed=2 telemetry_events=2.
+- python -m pytest -q tests\test_project_intelligence_pir14_rollout_evidence.py
+  tests\test_project_intelligence_pir14_consumer_registry.py
+  tests\test_project_intelligence_rollout.py tests\test_project_intelligence_consolidation.py ->
+  23 passed in 9.88s.
+Unavailable checks: parity and rollback drills are only proven for planning/generation public
+  facade calls in this slice. Verification, repair, Greenfield, platform matrix,
+  scale/concurrency, automatic threshold rollback, and actual production consumer cutover
+  remain unclaimed.
+Safety invariants checked: the helper compares public facade outputs only, strips volatile
+  manifest fields, performs no source mutation, does not enable consumer cutover, does not
+  execute automatic rollback, and does not retire legacy paths.
+Migration/rollout state: rollout remains off by default; planning/generation evidence shows
+  shadow output parity with baseline and flag-off rollback availability.
+Known limitations: PIR-14 remains in_progress until remaining phase parity/rollback, platform
+  and scale artifacts, automatic threshold rollback, and production consumer cutover evidence
+  pass.
+Next package: PIR-14 — extend parity/rollback evidence beyond planning/generation and add
+  platform, scale, threshold rollback, and cutover evidence.
 Blocker: none.
 ```
 
