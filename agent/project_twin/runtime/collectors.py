@@ -15,8 +15,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from agent.project_intelligence.contracts import RuntimeObservationRecord
-from agent.project_twin.analyzers.python import module_dotted
-
 _PYTEST_OUTCOME = {"passed": "passed", "failed": "failed", "error": "failed", "skipped": "observed"}
 
 
@@ -30,7 +28,14 @@ def _oid(prefix: str) -> str:
 
 def map_symbol_ref(relpath: str, qualname: str) -> str:
     """Map a (file, qualname) to the PI-6 canonical symbol ref."""
-    return f"py://{module_dotted(relpath)}#{qualname}"
+    return f"py://{Path(relpath).as_posix()}#{qualname}"
+
+
+def _legacy_module_symbol_ref(relpath: str, qualname: str) -> str | None:
+    path = Path(relpath).as_posix()
+    if not path.endswith(".py"):
+        return None
+    return f"py://{path[:-3].replace('/', '.')}#{qualname}"
 
 
 def map_test_ref(nodeid: str) -> str:
@@ -59,15 +64,22 @@ def normalize_pytest(
 ) -> list[RuntimeObservationRecord]:
     """Normalize a pytest report ``{"tests": [{"nodeid","outcome",...}]}``.
 
-    Coverage ``{relpath: [qualnames]}`` attaches covered symbol refs as subjects so a
-    passing test confirms the specific symbols it exercised.
+    Per-test coverage can be supplied on each test row as ``{"coverage": {relpath:
+    [qualnames]}}``. The legacy function-level ``coverage`` argument is retained as a
+    fallback only; it is not applied when a test row carries its own coverage map.
     """
-    cov_refs: list[str] = []
-    for rel, quals in (coverage or {}).items():
-        cov_refs.extend(map_symbol_ref(rel, q) for q in quals)
     out: list[RuntimeObservationRecord] = []
     for t in report.get("tests", []):
         outcome = _PYTEST_OUTCOME.get(str(t.get("outcome", "")).lower(), "observed")
+        row_coverage = t.get("coverage")
+        coverage_map = row_coverage if isinstance(row_coverage, dict) else (coverage or {})
+        cov_refs: list[str] = []
+        for rel, quals in coverage_map.items():
+            for qual in quals:
+                cov_refs.append(map_symbol_ref(rel, qual))
+                legacy_ref = _legacy_module_symbol_ref(rel, qual)
+                if legacy_ref and legacy_ref not in cov_refs:
+                    cov_refs.append(legacy_ref)
         subjects = [map_test_ref(t.get("nodeid", "?"))] + cov_refs
         out.append(RuntimeObservationRecord(
             observation_id=_oid("pytest"), project_id=project_id, workspace_id=workspace_id,

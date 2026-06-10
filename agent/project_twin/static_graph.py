@@ -213,7 +213,11 @@ def _analyze_python(b: _Builder, root: Path, path: Path, file_ref: str) -> None:
         sym_ref = f"py://{rel}#{qual}"
         node_type = "method" if "." in qual else "function"
         b.node(domain="structural", node_type=node_type, canonical_ref=sym_ref, label=qual, source_ref=rel,
-               properties={"async": isinstance(fn, ast.AsyncFunctionDef)})
+               properties={
+                   "async": isinstance(fn, ast.AsyncFunctionDef),
+                   "start_line": getattr(fn, "lineno", 1),
+                   "end_line": getattr(fn, "end_lineno", getattr(fn, "lineno", 1)),
+               })
         b.edge(domain="structural", edge_type="defines", source_ref_node=container_ref, target_ref_node=sym_ref, source_ref=rel)
 
         for dec in fn.decorator_list:
@@ -225,7 +229,11 @@ def _analyze_python(b: _Builder, root: Path, path: Path, file_ref: str) -> None:
                 if rpath:
                     route_ref = f"route://{tail.upper()} {rpath}"
                     b.node(domain="structural", node_type="api_route", canonical_ref=route_ref,
-                           label=f"{tail.upper()} {rpath}", source_ref=rel)
+                           label=f"{tail.upper()} {rpath}", source_ref=rel,
+                           properties={
+                               "start_line": getattr(fn, "lineno", 1),
+                               "end_line": getattr(fn, "end_lineno", getattr(fn, "lineno", 1)),
+                           })
                     b.edge(domain="structural", edge_type="handled_by", source_ref_node=route_ref, target_ref_node=sym_ref, source_ref=rel)
             # pytest fixture
             if tail == "fixture" and ("pytest" in dname or dname == "fixture"):
@@ -255,7 +263,17 @@ def _analyze_python(b: _Builder, root: Path, path: Path, file_ref: str) -> None:
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             cls_ref = f"py://{rel}#{node.name}"
-            b.node(domain="structural", node_type="class", canonical_ref=cls_ref, label=node.name, source_ref=rel)
+            b.node(
+                domain="structural",
+                node_type="class",
+                canonical_ref=cls_ref,
+                label=node.name,
+                source_ref=rel,
+                properties={
+                    "start_line": getattr(node, "lineno", 1),
+                    "end_line": getattr(node, "end_lineno", getattr(node, "lineno", 1)),
+                },
+            )
             b.edge(domain="structural", edge_type="defines", source_ref_node=module_ref, target_ref_node=cls_ref, source_ref=rel)
             for base in node.bases:
                 base_name = base.id if isinstance(base, ast.Name) else (base.attr if isinstance(base, ast.Attribute) else None)

@@ -380,8 +380,8 @@ class SqliteProjectTwinStore:
         for obs in delta.observations:
             self._conn.execute(
                 "INSERT INTO twin_observations (observation_id, project_id, run_id, collector, collector_version, "
-                "observation_type, subject_refs, timestamp, result, summary, payload_ref, evidence_ids, revision_id) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "observation_type, subject_refs, source_revision, timestamp, result, summary, payload_ref, evidence_ids, revision_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     obs.observation_id,
                     obs.project_id,
@@ -390,6 +390,7 @@ class SqliteProjectTwinStore:
                     obs.collector_version,
                     obs.observation_type,
                     json.dumps(obs.subject_refs, ensure_ascii=False),
+                    obs.source_revision,
                     obs.timestamp.isoformat(),
                     obs.result,
                     obs.summary,
@@ -400,6 +401,46 @@ class SqliteProjectTwinStore:
             )
             count += 1
         return count
+
+    @staticmethod
+    def _observation_from_row(row: sqlite3.Row) -> RuntimeObservation:
+        return RuntimeObservation(
+            observation_id=row["observation_id"],
+            project_id=row["project_id"],
+            run_id=row["run_id"],
+            collector=row["collector"],
+            collector_version=row["collector_version"],
+            observation_type=row["observation_type"],
+            subject_refs=json.loads(row["subject_refs"]),
+            source_revision=row["source_revision"],
+            timestamp=row["timestamp"],
+            result=row["result"],
+            summary=row["summary"],
+            payload_ref=row["payload_ref"],
+            evidence_ids=json.loads(row["evidence_ids"]),
+        )
+
+    def list_observations(
+        self,
+        project_id: str,
+        *,
+        subject_ref: str | None = None,
+        limit: int = 100,
+    ) -> list[RuntimeObservation]:
+        clauses = ["project_id = ?"]
+        params: list[Any] = [project_id]
+        if subject_ref:
+            clauses.append("subject_refs LIKE ?")
+            params.append(f"%{subject_ref}%")
+        where = " AND ".join(clauses)
+        rows = self._conn.execute(
+            f"SELECT * FROM twin_observations WHERE {where} ORDER BY row_id DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        observations = [self._observation_from_row(row) for row in rows]
+        if subject_ref:
+            observations = [obs for obs in observations if subject_ref in obs.subject_refs]
+        return observations
 
     def get_health(self, project_id: str) -> TwinHealth:
         now = self._now()

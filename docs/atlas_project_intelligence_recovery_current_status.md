@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-5`
-- Next action: implement real verification ingestion, reconciliation, context, impact, and test selection
+- Current package: `PIR-6`
+- Next action: implement whole-project semantic graph and parser-backed frontend analysis
 - Blocker: none
 - Rollout: off by default
 
@@ -45,7 +45,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-2 | production composition and rollout preflight | acceptance_complete |
 | PIR-3 | source snapshots and Twin refresh | acceptance_complete |
 | PIR-4 | durable event and delivery integration | acceptance_complete |
-| PIR-5 | verification ingest, context, impact, test selection | not_started |
+| PIR-5 | verification ingest, context, impact, test selection | acceptance_complete |
 | PIR-6 | whole-project semantic graph | not_started |
 | PIR-7 | CFG, data flow, state/event/resource graphs | not_started |
 | PIR-8 | durable Blueprint planning and review | not_started |
@@ -352,5 +352,64 @@ Known limitations: real verification artifact normalization, source/Twin revisio
   in PIR-5+.
 Next package: PIR-5 — real verification ingestion, reconciliation, context, impact, and test
   selection.
+Blocker: none.
+```
+
+```text
+Work package: PIR-5 — Real verification ingestion, reconciliation, context, impact, and test selection
+Status: acceptance_complete
+Changed modules/files:
+- agent/project_twin/runtime/collectors.py — pytest normalization preserves per-test coverage
+  subjects and emits concrete plus legacy-compatible symbol refs.
+- agent/project_twin/contracts.py, migrations.py, store.py — RuntimeObservation carries
+  source_revision, persisted through a Twin store migration, with durable observation queries.
+- agent/project_twin/static_graph.py — Python class/function/route facts persist source line
+  ranges for targeted source excerpts.
+- agent/project_twin/module.py — runtime ingest diagnoses stale source evidence; test
+  selection and context evidence use durable observations and filter stale evidence; context
+  includes bounded runtime/test items and source excerpts with manifest source revisions.
+- tests/test_project_twin_verification_context.py
+- tests/test_project_intelligence_runtime.py — stack-frame expectation aligned with concrete
+  source-backed Twin refs.
+- tests/test_project_intelligence_recovery_baseline.py — PIR-5 status lock advanced; later
+  package locks stay strict xfail.
+Executed commands and exact results:
+- python -m py_compile agent/project_twin/contracts.py agent/project_twin/migrations.py
+  agent/project_twin/store.py agent/project_twin/static_graph.py
+  agent/project_twin/runtime/collectors.py agent/project_twin/module.py
+  tests/test_project_twin_verification_context.py tests/test_project_intelligence_runtime.py ->
+  compile OK
+- python -m pytest -q tests/test_project_twin_verification_context.py
+  tests/test_project_intelligence_runtime.py tests/test_project_twin_source_refresh_lifecycle.py
+  tests/test_project_twin_store.py -> 31 passed in 5.99s
+- python -m pytest -q tests/test_project_twin_verification_context.py
+  tests/test_project_intelligence_runtime.py tests/test_project_twin_source_refresh_lifecycle.py
+  tests/test_project_twin_store.py tests/test_project_twin_static_graph.py
+  tests/test_project_twin_durable_event_projection.py tests/test_project_intelligence_event_bridge.py
+  tests/test_project_intelligence_rollout.py tests/test_project_intelligence_recovery_baseline.py ->
+  71 passed, 3 xfailed in 21.26s
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=32 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+- python -m pytest -q tests/test_project_intelligence_query_context.py::test_impact_recommended_tests_from_coverage
+  tests/test_project_twin_verification_context.py tests/test_project_intelligence_runtime.py ->
+  14 passed in 2.84s
+- $files = @(Get-ChildItem tests -Filter 'test_project_intelligence_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_project_twin_*.py' | ForEach-Object { $_.FullName });
+  python -m pytest -q @files -> 449 passed, 3 xfailed in 43.08s
+Unavailable checks: no live external pytest/playwright command execution was run in this
+  package; the package verifies canonical normalized artifacts and Project Intelligence/Twin
+  ingestion APIs. PIR-13 remains the real Greenfield E2E gate.
+Safety invariants checked: unavailable observations remain unavailable; stale source evidence
+  is diagnosed and not used for current test selection/context verification; per-test coverage
+  is preserved; source and Twin revisions remain separate; context is bounded and manifests
+  record overflow rather than pretending complete context.
+Migration/rollout state: rollout remains off by default; active concrete Twin now supports
+  runtime evidence and context/test-selection queries, but no legacy consumer cutover or
+  legacy deletion was performed.
+Known limitations: cross-module semantic precision, parser-backed frontend analysis, richer
+  CFG/data-flow/resource graphs, and labeled precision/recall benchmark expansion continue
+  in PIR-6/PIR-7/PIR-15.
+Next package: PIR-6 — whole-project semantic graph and parser-backed frontend analysis.
 Blocker: none.
 ```

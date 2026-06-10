@@ -20,8 +20,10 @@ from agent.project_intelligence.contracts import (
     IntelligenceErrorCode,
     ProjectIdentity,
     RuntimeObservationRecord,
+    SourceExcerpt,
 )
 from agent.project_twin.contracts import (
+    ImpactRequest,
     StaticAnalysisRequest,
     RuntimeObservation,
     TwinDelta,
@@ -45,6 +47,7 @@ from agent.project_twin.facade import (
     TwinQueryRequest,
     TwinQueryResult,
     TwinQueryResultItem,
+    TwinQueryKind,
     TwinReadiness,
     TwinRefreshResult,
 )
@@ -145,6 +148,7 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
         source_revision: str | None,
         working_tree_hash: str,
         parser_versions: dict[str, str],
+        project_path: str | None = None,
     ) -> None:
         if self._last_build_path is None:
             return
@@ -154,6 +158,7 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
             "source_revision": source_revision,
             "working_tree_hash": working_tree_hash,
             "parser_versions": dict(sorted(parser_versions.items())),
+            "project_path": project_path,
             "updated_at": _now().isoformat(),
         }
         self._last_build_path.parent.mkdir(parents=True, exist_ok=True)
@@ -309,6 +314,7 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
             source_revision=snapshot.project.source_revision,
             working_tree_hash=snapshot.project.working_tree_hash,
             parser_versions=delta.parser_versions,
+            project_path=project.project_path,
         )
         return before, rev, delta, snapshot.diagnostics
 
@@ -548,12 +554,25 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
         internal = self._key(request.project.project_id, request.project.workspace_id)
         observations: list[RuntimeObservation] = []
         diagnostics: list[IntelligenceDiagnostic] = []
+        last_build = self._last_build(request.project.project_id, request.project.workspace_id)
         for obs in request.observations:
             if obs.project_id != request.project.project_id or obs.workspace_id != request.project.workspace_id:
                 diagnostics.append(
                     _diag(IntelligenceErrorCode.PROJECT_SCOPE_VIOLATION, f"observation {obs.observation_id}")
                 )
                 continue
+            if (
+                obs.source_revision
+                and last_build is not None
+                and obs.source_revision != (last_build.source_revision or "")
+            ):
+                diagnostics.append(
+                    _diag(
+                        IntelligenceErrorCode.STALE_SOURCE_REVISION,
+                        f"observation {obs.observation_id} source revision {obs.source_revision} "
+                        f"does not match current source revision {last_build.source_revision}",
+                    )
+                )
             observations.append(
                 RuntimeObservation(
                     observation_id=obs.observation_id,
@@ -563,6 +582,7 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
                     collector_version=obs.collector_version,
                     observation_type=obs.observation_type,
                     subject_refs=list(obs.subject_refs),
+                    source_revision=obs.source_revision,
                     timestamp=obs.timestamp,
                     result=obs.result,
                     summary=obs.summary,
@@ -601,6 +621,56 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
 
     def query(self, request: TwinQueryRequest) -> TwinQueryResult:
         internal = self._key(request.project_id, request.workspace_id)
+        if request.kind == TwinQueryKind.TEST_SELECTION:
+            tests: dict[str, RuntimeObservation] = {}
+            last_build = self._last_build(request.project_id, request.workspace_id)
+            for ref in request.refs:
+                for obs in self._store.list_observations(internal, subject_ref=ref, limit=request.limit):
+                    if last_build and obs.source_revision and obs.source_revision != (last_build.source_revision or ""):
+                        continue
+                    for subject in obs.subject_refs:
+                        if subject.startswith("test://") and subject not in tests:
+                            tests[subject] = obs
+            return TwinQueryResult(
+                project_id=request.project_id,
+                workspace_id=request.workspace_id,
+                twin_revision_id=self._health(request.project_id, request.workspace_id).twin_revision_id,
+                kind=request.kind,
+                items=[
+                    TwinQueryResultItem(
+                        ref=ref,
+                        kind="test",
+                        summary=obs.summary,
+                        status=obs.result,
+                        confidence=0.9,
+                        source_refs=list(obs.subject_refs),
+                    )
+                    for ref, obs in sorted(tests.items())
+                ][: request.limit],
+            )
+        if request.kind == TwinQueryKind.IMPACT and request.refs:
+            impacts = self._store.assess_impact(
+                ImpactRequest(project_id=internal, changed_refs=list(request.refs), change_kind="edit")
+            )
+            items = [
+                TwinQueryResultItem(
+                    ref=item.canonical_ref,
+                    kind=item.item_type,
+                    summary=item.reason,
+                    status=item.status,
+                    confidence=item.confidence,
+                    source_refs=item.source_refs,
+                )
+                for item in [*impacts.direct_impacts, *impacts.transitive_impacts, *impacts.recommended_tests]
+            ]
+            return TwinQueryResult(
+                project_id=request.project_id,
+                workspace_id=request.workspace_id,
+                twin_revision_id=impacts.twin_revision_id,
+                kind=request.kind,
+                items=items[: request.limit],
+                diagnostics=[_diag(IntelligenceErrorCode.ANALYSIS_UNAVAILABLE, d.get("code", "")) for d in impacts.diagnostics],
+            )
         result = self._store.query(
             StoreTwinQuery(
                 project_id=internal,
@@ -632,6 +702,34 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
             next_cursor=result.cursor,
         )
 
+    def _source_excerpt(self, project_id: str, workspace_id: str, node_ref: str) -> SourceExcerpt | None:
+        internal = self._key(project_id, workspace_id)
+        result = self._store.query(StoreTwinQuery(project_id=internal, canonical_refs=[node_ref], limit=1))
+        if not result.nodes:
+            return None
+        node = result.nodes[0]
+        payload = self._last_builds().get(internal, {})
+        project_path = payload.get("project_path") if isinstance(payload, dict) else None
+        if not project_path or not node.source_ref:
+            return None
+        source_path = (Path(project_path) / node.source_ref).resolve()
+        try:
+            lines = source_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        start = int(node.properties.get("start_line") or 1)
+        end = int(node.properties.get("end_line") or min(len(lines), start + 24))
+        start = max(1, min(start, len(lines) or 1))
+        end = max(start, min(end, len(lines)))
+        return SourceExcerpt(
+            ref=node_ref,
+            path=node.source_ref,
+            start_line=start,
+            end_line=end,
+            excerpt="\n".join(lines[start - 1:end]),
+            source_revision=payload.get("source_revision") if isinstance(payload, dict) else None,
+        )
+
     def build_context(self, request: TwinContextRequest) -> TwinContextPackage:
         query = self.query(
             TwinQueryRequest(
@@ -654,22 +752,74 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
             )
             for item in query.items
         ]
+        runtime_items: list[ContextItem] = []
+        tests: list[ContextItem] = []
+        for ref in request.target_refs:
+            for obs in self._store.list_observations(self._key(request.project_id, request.workspace_id), subject_ref=ref):
+                last_build = self._last_build(request.project_id, request.workspace_id)
+                if last_build and obs.source_revision and obs.source_revision != (last_build.source_revision or ""):
+                    continue
+                runtime_items.append(
+                    ContextItem(
+                        ref=obs.observation_id,
+                        kind="runtime",
+                        summary=f"{obs.collector}:{obs.result} {obs.summary}",
+                        status=obs.result,
+                        confidence=0.9,
+                        source_refs=list(obs.subject_refs),
+                        inclusion_reason="runtime evidence for target",
+                    )
+                )
+                for subject in obs.subject_refs:
+                    if subject.startswith("test://"):
+                        tests.append(
+                            ContextItem(
+                                ref=subject,
+                                kind="test",
+                                summary=obs.summary,
+                                status=obs.result,
+                                confidence=0.9,
+                                source_refs=[obs.observation_id],
+                                inclusion_reason="covers target",
+                            )
+                        )
+        source_material = [
+            excerpt for ref in request.target_refs if (excerpt := self._source_excerpt(request.project_id, request.workspace_id, ref))
+        ]
+        used_tokens = (len(items) + len(runtime_items) + len(tests)) * 50 + sum(
+            max(1, len(excerpt.excerpt) // 4) for excerpt in source_material
+        )
+        truncated = used_tokens > request.token_budget or query.truncated
+        if truncated:
+            budget_left = max(0, request.token_budget - sum(max(1, len(excerpt.excerpt) // 4) for excerpt in source_material))
+            max_items = max(0, budget_left // 50)
+            combined = [*items, *runtime_items, *tests][:max_items]
+            item_refs = {item.ref for item in combined}
+            items = [item for item in items if item.ref in item_refs]
+            runtime_items = [item for item in runtime_items if item.ref in item_refs]
+            tests = [item for item in tests if item.ref in item_refs]
+            used_tokens = min(request.token_budget, used_tokens)
         return TwinContextPackage(
             project_id=request.project_id,
             workspace_id=request.workspace_id,
             twin_revision_id=query.twin_revision_id,
             phase=request.phase,
             symbols=items,
+            tests=tests,
+            runtime_evidence=runtime_items,
+            source_material=source_material,
             manifest=ContextManifest(
                 manifest_id=f"twin:{query.twin_revision_id or 'empty'}:{request.phase}",
                 project_id=request.project_id,
                 workspace_id=request.workspace_id,
                 phase=request.phase,
                 actual_twin_revision_id=query.twin_revision_id,
-                included_refs=[item.ref for item in items],
+                included_refs=[item.ref for item in [*items, *runtime_items, *tests]] + [item.ref for item in source_material],
+                excluded_refs=[] if not truncated else ["token_budget_overflow"],
+                source_revisions={item.path: item.source_revision for item in source_material if item.source_revision},
                 token_budget=request.token_budget,
-                used_tokens=len(items) * 50,
-                truncated=query.truncated,
+                used_tokens=used_tokens,
+                truncated=truncated,
                 rollout_mode="concrete",
             ),
         )
