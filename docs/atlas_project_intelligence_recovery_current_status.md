@@ -6,8 +6,7 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-14`
-- Next action: add PIR-14 consumer registry, shadow parity, rollback drill, platform, and scale
-  evidence.
+- Next action: add PIR-14 shadow parity, rollback drill, platform, scale, and cutover evidence.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -109,6 +108,47 @@ Safety invariants checked: read-only source inspection only; no production runti
 Migration/rollout state: off by default; no consumer cutover and no legacy deletion.
 Known limitations: regression locks intentionally xfail until PIR-1+ fixes the underlying defects.
 Next package: PIR-1 — durable concrete modules.
+Blocker: none.
+```
+
+```text
+Work package: PIR-14 — Source-derived consumer registry and phase telemetry artifact
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/consumer_registry.py — added a PIR-14 registry generator that
+  derives real consumer rows from the current checkout inventory, folds in runtime telemetry
+  records by phase, records rollout mode, shadow status, rollback status, legacy consumer
+  counts/paths, owner/tests, and persists the result as a JSON artifact without granting
+  mutation, rollout, rollback, or retirement authority.
+- tests/test_project_intelligence_pir14_consumer_registry.py — added focused coverage for
+  source-derived entries, runtime telemetry call counts, shadow parity status, rollback drill
+  status, JSON persistence, and off-by-default non-claims.
+- docs/atlas_project_intelligence_recovery_current_status.md — next PIR-14 action updated to
+  keep registry evidence complete while shadow parity, rollback drill, platform, scale, and
+  cutover evidence remain pending.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\consumer_registry.py
+  tests\test_project_intelligence_pir14_consumer_registry.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir14_consumer_registry.py ->
+  2 passed in 8.42s.
+- python - <<script invoking build_project_intelligence in shadow planning,generation mode and
+  write_consumer_registry(...)>> -> artifact=C:\Users\kkens\code\KasaneCore\ca_data\atlas\pir14_consumer_registry.current.json
+  entries=9 telemetry_events=3 shadow_entries=3.
+- python -m pytest -q tests\test_project_intelligence_pir14_consumer_registry.py
+  tests\test_project_intelligence_rollout.py tests\test_project_intelligence_consolidation.py ->
+  21 passed in 9.51s.
+Unavailable checks: consumer cutover, shadow parity from real tasks across all phases, rollback
+  drills, platform matrix, scale/concurrency artifacts, and automatic phase rollback thresholds
+  remain unclaimed by this registry slice.
+Safety invariants checked: the registry is advisory evidence only, uses source inventory plus
+  supplied runtime telemetry, does not enable rollout, does not mutate canonical state, does not
+  execute rollback, and does not retire legacy paths.
+Migration/rollout state: rollout remains off by default; the generated artifact records shadow
+  planning/generation telemetry but performs no consumer cutover.
+Known limitations: PIR-14 remains in_progress until shadow parity, rollback drills,
+  platform/scale artifacts, automatic threshold rollback, and production consumer cutover
+  evidence pass.
+Next package: PIR-14 — add shadow parity, rollback, platform, scale, and cutover evidence.
 Blocker: none.
 ```
 
