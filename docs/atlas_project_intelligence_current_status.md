@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-11` (PI-0..PI-10 completed)
-- Next action: Blueprint generation, review, and validation (PI-11)
+- Current work package: `PI-12` (PI-0..PI-11 completed)
+- Next action: Blueprint-to-Actual mapping hints (PI-12)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -50,8 +50,8 @@ Current gaps include:
 | PI-8 | Runtime intelligence and reconciliation v2 | Completed | collectors+reconciliation+rollup; `tests/test_project_intelligence_runtime.py` → 9 passed; PI+reconciliation+collectors+baseline 185 passed |
 | PI-9 | Context, path, impact, test selection v2 | Completed | impact/path/test-select+bounded context package; `tests/test_project_intelligence_query_context.py` → 10 passed; PI+analysis+context_broker+baseline 194 passed |
 | PI-10 | Blueprint model, store, lifecycle | Completed | lifecycle+module(state machine/scopes/diff/authority/planned-ref guard)+store set_head; `tests/test_project_intelligence_blueprint_lifecycle.py` → 9 passed; PI+baseline 192 passed |
-| PI-11 | Blueprint generation, review, validation | In Progress | current package |
-| PI-12 | Blueprint-to-Actual mapping hints | Not Started | |
+| PI-11 | Blueprint generation, review, validation | Completed | validator+generator (coverage/manifest/cycle/exec-contract/vague); `tests/test_project_intelligence_blueprint_generation.py` → 8 passed; PI+baseline 200 passed |
+| PI-12 | Blueprint-to-Actual mapping hints | In Progress | current package |
 | PI-13 | Convergence matcher and evaluator | Not Started | |
 | PI-14 | Convergence decision and incremental evaluation | Not Started | |
 | PI-15 | Completion and requirement-evidence integration | Not Started | |
@@ -85,6 +85,43 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-11 — Blueprint generation, review, and validation
+Status: Completed
+Commit/PR: local branch pi-11-blueprint-generation (not pushed/merged yet)
+Changed modules/files:
+- agent/architecture_blueprint/validator.py (new) — deterministic validation with stable
+  machine-readable codes (requirement_uncovered, vague_plan, dependency_cycle,
+  missing_file_manifest, missing_execution_contract, unresolved_decision, planned_uses_actual_ref);
+  topological order + cycle detection; requirement coverage map.
+- agent/architecture_blueprint/generator.py (new) — BlueprintSpec/FileSpec; decide_scope
+  (greenfield->full_project, existing small change->change_set, repair->repair);
+  generate_blueprint assembles concrete bp:// elements + execution contracts deterministically.
+- tests/test_project_intelligence_blueprint_generation.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Greenfield Blueprint has an exact file manifest (bp:// planned refs with file:// expected
+  actual targets), entrypoint + test_contract execution contracts, dependency order; validates.
+- Existing small change yields a change_set (not a full redesign); validates without forcing
+  execution-contract redesign.
+- Vague plans (no concrete materialization target) rejected; requirement-coverage gaps and
+  dependency cycles detected; validation deterministic; diagnostics machine-readable.
+Executed commands and exact results:
+- python -m py_compile (2 files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_blueprint_generation.py -> 8 passed in 0.60s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 200 passed in 7.01s
+Unavailable checks: none required (no LLM call — generator consumes a structured spec).
+Safety invariants checked: planned bp:// never an Actual ref; LLM cannot fabricate user
+  decision (planner_recommendation); Blueprint reports target only, not actual status.
+Migration/rollout state: generation/validation complete behind the Blueprint module; no cutover.
+Known limitations: the spec is supplied structurally (the LLM that produces it is wired in
+  PI-16/PI-20); interface/schema/nonfunctional dimensions are coarse; cross-file interface
+  consistency checks are minimal.
+Next package: PI-12 — Blueprint-to-Actual mapping hints.
+Blocker: none.
+```
 
 ```text
 Work package: PI-10 — Blueprint model, store, and lifecycle (Milestone C begins)
