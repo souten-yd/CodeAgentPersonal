@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-6` (PI-0..PI-5 completed)
-- Next action: static and semantic graph v2 (PI-6)
+- Current work package: `PI-7` (PI-0..PI-6 completed)
+- Next action: behavioral graph v2 (PI-7)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -45,8 +45,8 @@ Current gaps include:
 | PI-3 | Composition root and rollout model | Completed | factory/coordinator/rollout/telemetry; `tests/test_project_intelligence_rollout.py` → 27 passed (with boundaries); full PI suite 120 passed |
 | PI-4 | Project identity, mode detection, lifecycle | Completed | identity/mode/lifecycle/jobs; `tests/test_project_intelligence_lifecycle.py` → 14 passed; full PI suite 134 passed |
 | PI-5 | Canonical event bridge and trace expansion | Completed | event_bridge delivery trace; `tests/test_project_intelligence_event_bridge.py` → 8 passed; PI+intent_trace+baseline 147 passed |
-| PI-6 | Static and semantic graph v2 | In Progress | current package |
-| PI-7 | Behavioral graph v2 | Not Started | |
+| PI-6 | Static and semantic graph v2 | Completed | analyzers(py/js/ts-vue)+semantic graph+LSP fallback; `tests/test_project_intelligence_semantic_graph.py` → 13 passed; PI+static_graph+baseline 163 passed |
+| PI-7 | Behavioral graph v2 | In Progress | current package |
 | PI-8 | Runtime intelligence and reconciliation v2 | Not Started | |
 | PI-9 | Context, path, impact, test selection v2 | Not Started | |
 | PI-10 | Blueprint model, store, lifecycle | Not Started | |
@@ -85,6 +85,47 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-6 — Static and semantic graph v2
+Status: Completed
+Commit/PR: local branch pi-6-semantic-graph (not pushed/merged yet)
+Changed modules/files:
+- agent/project_twin/graph/__init__.py, graph/semantic.py (new) — deterministic node/edge
+  model, collision-free canonical refs, resolved vs candidate edges, incremental invalidation.
+- agent/project_twin/analyzers/__init__.py, registry.py, python.py, javascript.py,
+  typescript_vue.py, default.py (new) — coarse analyze op + capability/version manifest;
+  Python AST semantics; JS/TS/Vue heuristic basics; CodeIntel parity helper.
+- agent/project_twin/lsp_adapter.py (new) — AST fallback with recorded degradation.
+- tests/test_project_intelligence_semantic_graph.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Python: module/symbol/type graph; import & module resolution; alias and re-export edges;
+  inheritance + override; decorator edges; resolved call targets (local/imported/module-alias/
+  self) vs may-call candidates (confidence < 1.0). Same-name functions in different modules
+  are distinct refs (not collapsed).
+- JS/TS/Vue: imports + top-level functions; Vue component node with template flag; heuristic
+  facts carry confidence < 1.0.
+- Capability/version manifest per analyzer; LSP unavailable -> AST fallback records
+  lsp_unavailable_ast_fallback; old-CodeIntel parity (matched/missing/coverage) recorded;
+  incremental invalidation drops only the changed file; re-analysis is idempotent.
+- Core v1 static_graph.py kept unchanged (ADAPT-then-REPLACE; parity recorded, no cutover).
+Executed commands and exact results:
+- python -m py_compile (8 new files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_semantic_graph.py -> 13 passed in 0.58s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_static_graph.py
+  tests/test_project_twin_baseline.py -> 163 passed in 5.96s (Core v1 static graph unbroken)
+Unavailable checks: LSP server intentionally not spawned (probe -> unavailable); recorded
+  as degradation, never claimed as LSP-quality.
+Safety invariants checked: analyzers are pure (stdlib only); no FastAPI/PlanPool/SQLite;
+  heuristic facts never marked verified; no canonical store touched.
+Migration/rollout state: v2 semantic foundation added beside Core v1 with parity recorded;
+  no consumer cutover, no legacy deletion (REPLACE gate not yet reached).
+Known limitations: data-flow/control-flow and full JS/TS call resolution are PI-7+; JS/TS/Vue
+  remain regex-heuristic; cross-module call resolution beyond imports is candidate-only.
+Next package: PI-7 — Behavioral graph v2.
+Blocker: none.
+```
 
 ```text
 Work package: PI-5 — Canonical event bridge and delivery trace expansion
