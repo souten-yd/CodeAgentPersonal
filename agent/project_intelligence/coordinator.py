@@ -261,7 +261,13 @@ class ProjectIntelligenceCoordinator:
     def record_verification_result(self, request: VerificationResultRequest) -> PostVerificationIntelligenceResult:
         active = self._rollout.phase_active("verification")
         if active:
-            ingest = self._twin.ingest_runtime(RuntimeIngestRequest(project=request.project, observations=request.observations))
+            ingest = self._twin.ingest_runtime(
+                RuntimeIngestRequest(
+                    project=request.project,
+                    observations=request.observations,
+                    correlation_id=request.correlation_id,
+                )
+            )
             evidence_refs = [ref for obs in request.observations for ref in obs.evidence_refs]
             event = ProjectEventEnvelope(
                 event_id=request.correlation_id or f"verification:{request.plan_pool_id}:{request.plan_item_id}",
@@ -269,6 +275,7 @@ class ProjectIntelligenceCoordinator:
                 project_id=request.project.project_id,
                 workspace_id=request.project.workspace_id,
                 source="project_intelligence",
+                source_revision=request.source_revision or request.project.source_revision,
                 correlation_id=request.correlation_id,
                 plan_pool_id=request.plan_pool_id,
                 plan_item_id=request.plan_item_id,
@@ -278,16 +285,56 @@ class ProjectIntelligenceCoordinator:
                     "plan_item_id": request.plan_item_id,
                     "result": "passed" if request.observations and all(obs.result == "passed" for obs in request.observations) else "observed",
                     "evidence_refs": evidence_refs,
+                    "source_revision": request.source_revision or request.project.source_revision,
+                    "actual_twin_revision_id": request.actual_twin_revision_id,
+                    "plan_pool_revision": request.plan_pool_revision,
                 },
             )
             projected = self._twin.ingest_event(event)
+            twin_revision_id = projected.twin_revision_id or ingest.twin_revision_id or request.actual_twin_revision_id
+            convergence_report_id = None
+            convergence_decision = {}
+            convergence_diagnostics: list[IntelligenceDiagnostic] = []
+            if twin_revision_id:
+                try:
+                    report = self._convergence.evaluate(
+                        ConvergenceRequest(
+                            project_id=request.project.project_id,
+                            workspace_id=request.project.workspace_id,
+                            blueprint_revision_id=request.blueprint_revision_id or "unknown",
+                            actual_twin_revision_id=twin_revision_id,
+                            actual_source_revision_id=request.source_revision or request.project.source_revision,
+                            evidence_revision_id=request.correlation_id or None,
+                            verification_refs=evidence_refs,
+                            full_evaluation=False,
+                        )
+                    )
+                    convergence_report_id = report.report_id
+                    decision = self._convergence.decide(
+                        ConvergenceDecisionRequest(
+                            project_id=request.project.project_id,
+                            workspace_id=request.project.workspace_id,
+                            report_id=report.report_id,
+                            correlation_id=request.correlation_id,
+                        )
+                    )
+                    convergence_decision = decision.model_dump()
+                    convergence_diagnostics.extend(report.diagnostics)
+                    convergence_diagnostics.extend(decision.diagnostics)
+                except Exception as exc:  # noqa: BLE001 - verification persistence remains canonical.
+                    convergence_diagnostics.append(
+                        _diag(IntelligenceErrorCode.CONVERGENCE_UNAVAILABLE, f"post-verification convergence failed: {exc}")
+                    )
             return PostVerificationIntelligenceResult(
                 project_id=request.project.project_id,
                 workspace_id=request.project.workspace_id,
                 accepted=projected.accepted and ingest.ingested_count > 0,
                 reconciled=False,
-                convergence_requested=True,
-                diagnostics=[*ingest.diagnostics, *projected.diagnostics],
+                convergence_requested=bool(convergence_report_id),
+                twin_revision_id=twin_revision_id,
+                convergence_report_id=convergence_report_id,
+                convergence_decision=convergence_decision,
+                diagnostics=[*ingest.diagnostics, *projected.diagnostics, *convergence_diagnostics],
             )
         # Unavailable is never converted to passed (ADR-PI-013).
         return PostVerificationIntelligenceResult(

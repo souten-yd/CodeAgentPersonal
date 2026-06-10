@@ -17,6 +17,8 @@ from agent.atlas_visual_failure_taxonomy import failures_from_missing_signals
 from agent.atlas_visual_requirement_normalizer import VisualRequirementNormalizer
 from agent.atlas_visual_task_classifier import VisualTaskClassifier
 from agent.test_command_runner_schema import AtlasTestCommandRequest
+from agent.project_intelligence.adapters.atlas_verification import AtlasVerificationBridge
+from agent.project_intelligence.verification_integration import record_project_intelligence_verification
 
 _normalizer = VisualRequirementNormalizer()
 _classifier = VisualTaskClassifier()
@@ -35,12 +37,24 @@ _HARD_SMOKE_REASONS = ("js_error", "expected_text_missing", "html_file_missing")
 
 
 class AtlasAutoVerificationService:
-    def __init__(self, *, journal, storage, command_runner, visual_verifier=None, playwright_verifier=None):
+    def __init__(
+        self,
+        *,
+        journal,
+        storage,
+        command_runner,
+        visual_verifier=None,
+        playwright_verifier=None,
+        project_intelligence=None,
+        verification_bridge: AtlasVerificationBridge | None = None,
+    ):
         self.journal = journal
         self.storage = storage
         self.command_runner = command_runner
         self.visual_verifier = visual_verifier or AtlasVisualArtifactVerifier()
         self.playwright_verifier = playwright_verifier or AtlasPlaywrightSmokeVerifier()
+        self.project_intelligence = project_intelligence
+        self.verification_bridge = verification_bridge or AtlasVerificationBridge()
 
     def run_after_auto_safe_apply(self, request: AtlasAutoVerificationRequest) -> AtlasAutoVerificationResult:
         pool = self.storage.load_pool(request.pool_id)
@@ -163,6 +177,7 @@ class AtlasAutoVerificationService:
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
         out.plan_pool = pool.model_dump()
+        self._record_project_intelligence_verification(pool, item, request, out)
         return out
 
     def _classify(self, res, command_id: str) -> tuple[str, list[str]]:
@@ -423,7 +438,27 @@ class AtlasAutoVerificationService:
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
         out.plan_pool = pool.model_dump()
+        self._record_project_intelligence_verification(pool, item, request, out)
         return out
+
+    def _record_project_intelligence_verification(self, pool, item, request, result) -> None:
+        pi_verification = record_project_intelligence_verification(
+            project_intelligence=self.project_intelligence,
+            checkpoint_bridge=self.verification_bridge,
+            pool=pool,
+            item=item,
+            request=request,
+            result=result,
+            source="auto",
+        )
+        if not pi_verification:
+            return
+        item.metadata.setdefault("verification", {})["project_intelligence_verification"] = pi_verification
+        item.metadata.setdefault("auto_verification", {})["project_intelligence_verification"] = pi_verification
+        result.metadata.setdefault("project_intelligence_verification", pi_verification)
+        self.storage.save_pool(pool)
+        self.journal.save_plan_pool(pool)
+        result.plan_pool = pool.model_dump()
 
     def _safe_rel(self, value: str) -> bool:
         if not value:

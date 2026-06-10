@@ -83,6 +83,7 @@ def build_self_correction_service(
         journal=journal,
         storage=storage,
         command_runner=command_runner or TestCommandRunner(),
+        project_intelligence=_project_intelligence_coordinator(request),
     )
     patch_proposal_service = AtlasPatchProposalService(
         journal=journal,

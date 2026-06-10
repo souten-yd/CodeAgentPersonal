@@ -62,7 +62,12 @@ def _service(request: Request | None = None, workspace_id: str = "default", pool
     workspace_root = _resolve_pool_workspace_root(storage=storage, ca_data_root=root, workspace_id=workspace_id or "default", pool_id=pool_id)
     safe_apply_service = build_safe_apply_execution_service(request=request, storage=storage, journal=journal, workspace_root=workspace_root)
     auto_safe_apply_service = AtlasAutoSafeApplyService(automation_gate=AtlasAutomationGateService(), safe_apply_service=safe_apply_service, journal=journal, storage=storage)
-    auto_verification_service = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner())
+    auto_verification_service = AtlasAutoVerificationService(
+        journal=journal,
+        storage=storage,
+        command_runner=TestCommandRunner(),
+        project_intelligence=_project_intelligence_coordinator(request),
+    )
     # Self-correction reuses the same apply/verify services and a patch generator backed by the app's
     # LLM json fn (None in tests -> the service is simply not constructed and the loop is a no-op).
     llm_json_fn = getattr(getattr(getattr(request, "app", None), "state", None), "atlas_llm_json_fn", None)
@@ -99,7 +104,18 @@ def _service(request: Request | None = None, workspace_id: str = "default", pool
         auto_verification_service=auto_verification_service,
         context_refresh_service=AtlasContextRefreshService(journal=journal),
         evaluator_service=AtlasLLMEvaluatorService(journal=journal),
-        bounded_retry_service=AtlasBoundedRetryService(storage=storage, journal=journal, auto_verification_service=AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner()), context_refresh_service=AtlasContextRefreshService(journal=journal), evaluator_service=AtlasLLMEvaluatorService(journal=journal)),
+        bounded_retry_service=AtlasBoundedRetryService(
+            storage=storage,
+            journal=journal,
+            auto_verification_service=AtlasAutoVerificationService(
+                journal=journal,
+                storage=storage,
+                command_runner=TestCommandRunner(),
+                project_intelligence=_project_intelligence_coordinator(request),
+            ),
+            context_refresh_service=AtlasContextRefreshService(journal=journal),
+            evaluator_service=AtlasLLMEvaluatorService(journal=journal),
+        ),
         self_correction_service=self_correction_service,
         harness_provisioner=AtlasTestHarnessProvisioner(),
         correction_router_service=correction_router_service,

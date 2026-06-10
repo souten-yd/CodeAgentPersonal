@@ -381,6 +381,10 @@ class VerificationResultRequest(_Frozen):
     plan_pool_id: str
     plan_item_id: str
     observations: list[RuntimeObservationRecord] = Field(default_factory=list)
+    blueprint_revision_id: str | None = None
+    actual_twin_revision_id: str | None = None
+    source_revision: str | None = None
+    plan_pool_revision: str | None = None
     correlation_id: str = ""
 
 
@@ -390,6 +394,9 @@ class PostVerificationIntelligenceResult(_Frozen):
     accepted: bool = False
     reconciled: bool = False
     convergence_requested: bool = False
+    twin_revision_id: str | None = None
+    convergence_report_id: str | None = None
+    convergence_decision: dict[str, Any] = Field(default_factory=dict)
     diagnostics: list[IntelligenceDiagnostic] = Field(default_factory=list)
 
 

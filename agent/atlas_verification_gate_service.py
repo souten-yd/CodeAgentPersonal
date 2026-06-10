@@ -8,6 +8,8 @@ from agent.atlas_journal import AtlasJournal
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_verification_gate_schema import AtlasVerificationRequest, AtlasVerificationResult
+from agent.project_intelligence.adapters.atlas_verification import AtlasVerificationBridge
+from agent.project_intelligence.verification_integration import record_project_intelligence_verification
 from agent.test_command_runner import TestCommandRunner
 from agent.test_command_runner_schema import AtlasTestCommandRequest
 
@@ -15,10 +17,20 @@ from agent.test_command_runner_schema import AtlasTestCommandRequest
 class AtlasVerificationGateService:
     ALLOWED_PROFILES = {"default"}
 
-    def __init__(self, *, journal: AtlasJournal, storage: AtlasPlanPoolStorage, test_runner: TestCommandRunner | None = None):
+    def __init__(
+        self,
+        *,
+        journal: AtlasJournal,
+        storage: AtlasPlanPoolStorage,
+        test_runner: TestCommandRunner | None = None,
+        project_intelligence=None,
+        verification_bridge: AtlasVerificationBridge | None = None,
+    ):
         self.journal = journal
         self.storage = storage
         self.test_runner = test_runner
+        self.project_intelligence = project_intelligence
+        self.verification_bridge = verification_bridge or AtlasVerificationBridge()
 
     def verify_item(self, request: AtlasVerificationRequest) -> AtlasVerificationResult:
         pool = self.storage.load_pool(request.pool_id)
@@ -51,7 +63,31 @@ class AtlasVerificationGateService:
         self._append_event(pool.pool_id, request.run_id, event_type, item, status=status, execution_record_json=json_path, execution_record_md=md_path)
         result.plan_pool = pool.model_dump()
         result.metadata.update({"verification_record_json": json_path, "verification_record_md": md_path})
+        pi_verification = self._record_project_intelligence_verification(pool, item, request, result)
+        if pi_verification:
+            item.metadata.setdefault("verification", {})["project_intelligence_verification"] = pi_verification
+            self.storage.save_pool(pool)
+            self.journal.save_plan_pool(pool)
+            result.plan_pool = pool.model_dump()
+            result.metadata["project_intelligence_verification"] = pi_verification
         return result
+
+    def _record_project_intelligence_verification(
+        self,
+        pool: AtlasPlanPool,
+        item: AtlasPlanItem,
+        request: AtlasVerificationRequest,
+        result: AtlasVerificationResult,
+    ) -> dict:
+        return record_project_intelligence_verification(
+            project_intelligence=self.project_intelligence,
+            checkpoint_bridge=self.verification_bridge,
+            pool=pool,
+            item=item,
+            request=request,
+            result=result,
+            source="manual",
+        )
 
     def validate_item_for_verification(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasVerificationRequest) -> tuple[bool, list[str]]:
         warnings = []
