@@ -134,7 +134,7 @@ def test_safe_apply_records_project_intelligence_after_canonical_apply(tmp_path)
         rollout=RolloutConfig.from_env({ENV_ENABLED: "1"}),
     )
     try:
-        storage, journal = _store_pool(tmp_path, _pool(project, metadata={"actual_twin_revision_id": "tw-base"}))
+        storage, journal = _store_pool(tmp_path, _pool(project, metadata={"actual_twin_revision_id": "tw-base", "blueprint_revision_id": "bp-base"}))
         service = AtlasSafeApplyExecutionService(
             journal=journal,
             storage=storage,
@@ -160,6 +160,8 @@ def test_safe_apply_records_project_intelligence_after_canonical_apply(tmp_path)
         assert pi_apply["accepted"] is True
         assert pi_apply["refresh_requested"] is True
         assert pi_apply["twin_revision_id"]
+        assert pi_apply["convergence_report_id"]
+        assert pi_apply["convergence_decision"]["action"] == "continue"
         item = storage.load_pool("pool_1").get_item("item_1")
         assert item.metadata["safe_apply"]["project_intelligence_apply"]["correlation_id"] == "apply_1"
     finally:

@@ -358,6 +358,7 @@ class ApplyResultRequest(_Frozen):
     plan_pool_id: str
     plan_item_id: str
     applied_refs: list[str] = Field(default_factory=list)
+    blueprint_revision_id: str | None = None
     base_revision: str | None = None
     new_source_revision: str | None = None
     success: bool = False
@@ -370,6 +371,8 @@ class PostApplyIntelligenceResult(_Frozen):
     accepted: bool = False
     refresh_requested: bool = False
     twin_revision_id: str | None = None
+    convergence_report_id: str | None = None
+    convergence_decision: dict[str, Any] = Field(default_factory=dict)
     diagnostics: list[IntelligenceDiagnostic] = Field(default_factory=list)
 
 

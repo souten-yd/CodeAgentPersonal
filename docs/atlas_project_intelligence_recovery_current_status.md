@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-11`
-- Next action: complete PIR-11 post-apply Convergence report/decision integration
+- Current package: `PIR-12`
+- Next action: implement Verification, recovery, checkpoint, and resume integration
 - Blocker: none
 - Rollout: off by default
 
@@ -28,9 +28,9 @@ This file selects the active package. The old PI package table does not prove fi
 - production composition uses disabled modules;
 - coordinator active paths do not return real module output;
 - concrete Twin, Blueprint, and Convergence facades exist, but later consumer cutover remains incomplete;
-- Generator and Verification adapters are not connected to real Atlas consumers;
+- Verification adapter is not connected to real Atlas consumers;
 - durability defects remain in Blueprint, event projection, and checkpoints;
-- Proposal, Safe Apply, and refresh production integration remain incomplete;
+- Verification, recovery, checkpoint, and resume production integration remain incomplete;
 - Greenfield E2E and final benchmark are synthetic;
 - live rollout, platform evidence, consumer cutover, and retirement are incomplete.
 
@@ -49,7 +49,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-8 | durable Blueprint planning and review | acceptance_complete |
 | PIR-9 | Convergence correctness and evidence policy | acceptance_complete |
 | PIR-10 | Planner and PlanPool production integration | acceptance_complete |
-| PIR-11 | Proposal, Safe Apply, and refresh integration | production_connected |
+| PIR-11 | Proposal, Safe Apply, and refresh integration | acceptance_complete |
 | PIR-12 | Verification, recovery, checkpoint, resume | not_started |
 | PIR-13 | real Greenfield E2E | not_started |
 | PIR-14 | CI, platform, scale, and consumer cutover | not_started |
@@ -701,7 +701,7 @@ Blocker: none.
 
 ```text
 Work package: PIR-11 — Proposal, Safe Apply, refresh, and generation-context integration
-Status: production_connected
+Status: acceptance_complete
 Changed modules/files:
 - agent/atlas_patch_proposal_service.py — Proposal generation accepts an optional Project
   Intelligence coordinator, builds manifest-backed generation context at the canonical
@@ -709,17 +709,22 @@ Changed modules/files:
   and blocks stale Actual/Twin revisions before model invocation.
 - agent/atlas_safe_apply_execution_service.py — after canonical Safe Apply persistence,
   successful applies notify Project Intelligence through record_apply_result, persist Twin
-  refresh metadata on safe_apply, preserve canonical apply success on PI failure as degraded
-  retry metadata, and avoid duplicate PI notification for the same run correlation.
+  refresh and Convergence metadata on safe_apply, preserve canonical apply success on PI
+  failure as degraded retry metadata, and avoid duplicate PI notification for the same run
+  correlation.
+- agent/project_intelligence/contracts.py and coordinator.py — post-apply results now carry
+  Convergence report/decision metadata; active record_apply_result evaluates and persists
+  a bounded Convergence report/decision through the public Convergence facade after Twin ingest.
 - app/api/atlas_pipeline.py, app/api/atlas_autopilot_factory.py,
   app/api/atlas_multi_item_autopilot.py, app/api/atlas_autonomous_codegen.py — app-created
   Proposal/Safe Apply services now pass the registered Project Intelligence coordinator when
   available while no-service/off behavior remains unchanged.
 - tests/test_project_intelligence_pir11_generation_apply.py — real Proposal and Safe Apply
   service coverage in a temporary workspace for generation metadata, stale no-call blocking,
-  post-apply Twin refresh notification, and PI notification idempotence.
+  post-apply Twin refresh plus Convergence report/decision, and PI notification idempotence.
 Executed commands and exact results:
-- python -m py_compile agent/atlas_patch_proposal_service.py
+- python -m py_compile agent/project_intelligence/contracts.py
+  agent/project_intelligence/coordinator.py agent/atlas_patch_proposal_service.py
   agent/atlas_safe_apply_execution_service.py app/api/atlas_pipeline.py
   app/api/atlas_autopilot_factory.py app/api/atlas_multi_item_autopilot.py
   app/api/atlas_autonomous_codegen.py
@@ -728,23 +733,23 @@ Executed commands and exact results:
   tests/test_project_intelligence_generator_bridge.py
   tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_patch_generation_incident.py
   tests/test_atlas_read_before_edit.py tests/test_atlas_safe_apply_metadata_persistence.py
-  tests/test_atlas_api_pipeline.py -> 75 passed in 13.91s
+  tests/test_atlas_api_pipeline.py tests/test_project_intelligence_recovery_baseline.py ->
+  84 passed, 2 xfailed in 28.67s
 - python tools/generate_project_intelligence_consumer_inventory.py -> wrote
   docs/generated/atlas_project_intelligence_consumer_inventory.json
   production_entrypoints=32 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
-Unavailable checks: PIR-11 is not acceptance_complete yet. The remaining package acceptance gap
-  is post-apply Convergence report/decision persistence. A broader legacy manual-flow batch was
-  not used as proof because it contains unrelated stale tests that call /plan-pools without sync=1
-  and Windows default-encoding source reads.
+Unavailable checks: no live external UI session was required for this package. A broader legacy
+  manual-flow batch was not used as proof because it contains unrelated stale tests that call
+  /plan-pools without sync=1 and Windows default-encoding source reads.
 Safety invariants checked: stale generation blocks before the LLM call; Proposal remains
   proposal-only and does not run Safe Apply; Safe Apply remains canonical mutation authority;
   Project Intelligence post-apply failures are recorded as degraded retry metadata and do not
   undo successful canonical apply; duplicate PI post-apply notification is suppressed by
-  correlation ID.
+  correlation ID; Convergence remains advisory and does not mutate PlanPool or workspace state.
 Migration/rollout state: rollout remains off by default; no legacy consumer cutover or legacy
   deletion was performed.
-Known limitations: post-apply Convergence report/decision integration, recovery/resume,
-  Greenfield E2E, platform rollout, benchmark, and legacy retirement remain.
-Next package: continue PIR-11 — Convergence report/decision after apply.
+Known limitations: verification adapter production integration, recovery/resume, Greenfield E2E,
+  platform rollout, benchmark, and legacy retirement remain.
+Next package: PIR-12 — Verification, recovery, checkpoint, and resume integration.
 Blocker: none.
 ```
