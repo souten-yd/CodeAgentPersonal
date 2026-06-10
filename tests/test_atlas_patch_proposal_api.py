@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -30,6 +31,35 @@ def _create_pool(c):
     pool = AtlasPlanPool(
         pool_id='p1',
         root_goal='patch proposal',
+        project_path=str(Path(c.app.state.atlas_ca_data_dir)),
+        status='ready',
+        items=[item],
+    )
+    storage = AtlasPlanPoolStorage(Path(c.app.state.atlas_ca_data_dir))
+    journal = AtlasJournal(Path(c.app.state.atlas_ca_data_dir), workspace_id='default')
+    storage.save_pool(pool)
+    journal.save_plan_pool(pool)
+    payload = pool.model_dump()
+    return {'pool_id': pool.pool_id, 'plan_pool': payload, **payload}
+
+
+def _create_structural_create_pool(c):
+    item = AtlasPlanItem(
+        item_id='create_html',
+        pool_id='p_struct',
+        title='Create index.html',
+        goal='Create index.html with Atlas Live Greenfield Ready',
+        item_type='implementation',
+        status='ready',
+        risk_level='low',
+        patch_task_kind='structural_change',
+        target_files=['index.html'],
+        operations=[{'type': 'create_file', 'path': 'index.html', 'reason': 'greenfield entrypoint'}],
+        metadata={'action_type': 'create'},
+    )
+    pool = AtlasPlanPool(
+        pool_id='p_struct',
+        root_goal='greenfield',
         project_path=str(Path(c.app.state.atlas_ca_data_dir)),
         status='ready',
         items=[item],
@@ -81,6 +111,48 @@ def test_patch_proposal_uses_injected_llm_json_fn(tmp_path):
     pool = _create_pool(c); item = pool['plan_pool']['items'][0]; _set_debug_review(c, pool['pool_id'], item['item_id'])
     body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'r3'}).json()
     assert body['status'] == 'proposed' and body['proposal']['summary'] == 'from llm' and body['proposal']['risk_level'] == 'low'
+
+
+def test_structural_create_file_prompt_requires_full_content(tmp_path):
+    c = _client(tmp_path)
+    seen = {}
+
+    def llm_json(_system, user):
+        seen['user'] = user
+        return {
+            'summary': 'create html',
+            'proposed_fix': 'Create the requested HTML entrypoint.',
+            'target_files': ['index.html'],
+            'risk_level': 'low',
+            'proposed_content': (
+                '<!doctype html>\n<html lang="en"><head><title>Atlas</title></head>'
+                '<body><h1>Atlas Live Greenfield Ready</h1></body></html>\n'
+            ),
+            'suggested_changes': [{'path': 'index.html', 'action': 'create'}],
+            'implemented_symbols': ['index.html'],
+            'behavioral_cases': ['renders readiness text'],
+            'verification_cases': ['open index.html and find Atlas Live Greenfield Ready'],
+            'verification_plan': ['Open index.html in a browser.'],
+            'rollback_plan': ['Delete index.html.'],
+        }
+
+    c.app.state.atlas_llm_json_fn = llm_json
+    pool = _create_structural_create_pool(c)
+    item = pool['plan_pool']['items'][0]
+    body = c.post(
+        '/api/atlas/patch-proposals/generate',
+        json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'struct1'},
+    ).json()
+
+    assert body['status'] == 'proposed'
+    assert body['proposal']['metadata']['patch_generation']['outcome'] == 'success'
+    prompt = json.loads(seen['user'])['task']
+    assert 'create_file' in prompt
+    assert 'content_mode "full_content"' in prompt
+    assert 'COMPLETE, WORKING file text' in prompt
+    after = c.get(f"/api/atlas/plan-pools/{pool['pool_id']}").json()['plan_pool']
+    metadata = next(i for i in after['items'] if i['item_id'] == item['item_id'])['metadata']
+    assert 'Atlas Live Greenfield Ready' in metadata['proposed_content']
 
 
 def test_patch_proposal_record_saved_and_event(tmp_path):

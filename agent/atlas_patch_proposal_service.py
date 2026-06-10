@@ -757,8 +757,12 @@ class AtlasPatchProposalService:
                 "structure, and input.item.materialization contains the Git-representable file_changes "
                 "that materialize those directories. Return target_files and file_changes for those "
                 "repository-relative files only. Do not return standalone directory names as file targets. "
-                "Do not invent frameworks, entry points, tests, or unrelated files. Every requested "
-                "directory must be materialized by a tracked file."
+                "For every input.item operation of type create_file that names a concrete repository file, "
+                "return a file_changes entry for that exact path with action_type \"create\", "
+                "content_mode \"full_content\", and non-empty \"proposed_content\" containing the COMPLETE, "
+                "WORKING file text. For exactly one concrete target file, a top-level \"proposed_content\" "
+                "for that file is also acceptable. Do not invent frameworks, entry points, tests, or "
+                "unrelated files. Every requested directory must be materialized by a tracked file."
             )
         elif target_exists:
             base_task = (
@@ -860,7 +864,8 @@ class AtlasPatchProposalService:
                         "max_attempts": self.MAX_LLM_GENERATION_ATTEMPTS,
                         "instruction": (
                             "The previous candidate did not contain Git-representable structural evidence. "
-                            "Generate concrete repository-relative file operations. Do not return standalone "
+                            "Generate concrete repository-relative file operations. For create_file operations, "
+                            "include full working proposed_content for the created file. Do not return standalone "
                             "directory names as file targets. Materialize every required directory using a tracked file. "
                             "Do not modify unrelated files."
                         ),

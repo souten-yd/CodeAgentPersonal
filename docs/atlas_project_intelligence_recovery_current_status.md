@@ -5,11 +5,9 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-13`
-- Next action: provision/start a configured Atlas LLM endpoint and run
-  `python tools/run_pir13_live_greenfield.py`
-- Blocker: configured model unavailable in this environment (`_phase1_llm_json` returns
-  `llm_not_ready` for `http://localhost:8080/v1/chat/completions`)
+- Current package: `PIR-14`
+- Next action: start PIR-14 CI, platform, scale, and consumer cutover evidence.
+- Blocker: none for the current package.
 - Rollout: off by default
 
 This file selects the active package. The old PI package table does not prove final completion.
@@ -34,8 +32,8 @@ This file selects the active package. The old PI package table does not prove fi
 - durability defects remain in Blueprint, event projection, and checkpoints;
 - Verification, bounded recovery, checkpoint, and resume acceptance is complete for existing-project
   production paths;
-- Greenfield E2E and final benchmark are synthetic;
-- live rollout, platform evidence, consumer cutover, and retirement are incomplete.
+- final benchmark is synthetic;
+- live rollout, CI/platform/scale evidence, consumer cutover, and retirement are incomplete.
 
 ## Package table
 
@@ -54,7 +52,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-10 | Planner and PlanPool production integration | acceptance_complete |
 | PIR-11 | Proposal, Safe Apply, and refresh integration | acceptance_complete |
 | PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |
-| PIR-13 | real Greenfield E2E | blocked |
+| PIR-13 | real Greenfield E2E | acceptance_complete |
 | PIR-14 | CI, platform, scale, and consumer cutover | not_started |
 | PIR-15 | real benchmark and retirement | not_started |
 
@@ -1305,4 +1303,49 @@ Known limitations: PIR-13 remains blocked until the same runner passes with a re
 Next package: PIR-13 — provision/start the configured model and run
   python tools/run_pir13_live_greenfield.py without --allow-blocked-exit-zero.
 Blocker: configured model unavailable in this environment.
+```
+
+```text
+Work package: PIR-13 — Live configured-model Greenfield acceptance
+Status: acceptance_complete
+Changed modules/files:
+- agent/atlas_patch_proposal_service.py — structural-change proposal prompts now require
+  complete full-content output for concrete create_file operations, while preserving directory
+  materialization boundaries and proposal-only authority.
+- tests/test_atlas_patch_proposal_api.py — added a structural create_file proposal regression
+  proving the prompt contract and persisted proposed_content path.
+- docs/atlas_project_intelligence_recovery_current_status.md — PIR-13 advances to
+  acceptance_complete and the active package advances to PIR-14 after live configured-model
+  evidence passed.
+Executed commands and exact results:
+- python tools\run_pir13_live_greenfield.py --output-json
+  ca_data\atlas\pir13_live_greenfield_report.live.json -> exit 1, status=failed; live model
+  reached plan_pool status=ready with source=real_planner and used_fallback=false, then
+  patch_proposal failed with semantic_validation_failed:content_missing and no file was written.
+- python -m py_compile agent\atlas_patch_proposal_service.py
+  tests\test_atlas_patch_proposal_api.py tools\run_pir13_live_greenfield.py -> compile OK.
+- python -m pytest -q
+  tests\test_atlas_patch_proposal_api.py::test_structural_create_file_prompt_requires_full_content ->
+  1 passed in 4.75s.
+- python -m pytest -q tests\test_atlas_patch_proposal_api.py -> 15 passed in 7.02s.
+- python tools\run_pir13_live_greenfield.py --output-json
+  ca_data\atlas\pir13_live_greenfield_report.live.json -> exit 0, status=passed; model_probe
+  status=ready for http://localhost:8080/v1/chat/completions; plan_pool status=ready;
+  patch_proposal status=proposed, risk_level=low; proposal_approval status=approved;
+  draft status=created; planitem_approval status=running; safe_apply_and_verify
+  status=applied_and_verified; restart_evidence.status=passed; artifacts retained proposal
+  JSON/Markdown, draft JSON/Markdown, change snapshot manifest, and events.ndjson.
+Unavailable checks: none for PIR-13 live configured-model acceptance; PIR-14 platform/scale and
+  consumer-cutover evidence remains not_started.
+Safety invariants checked: live evidence used the configured Atlas model adapter and refused
+  fallback/clarification/unavailable output; no deterministic success runner output was counted;
+  Proposal remained advisory, low-risk approval was explicit, mutation happened only through
+  Safe Apply, verification/runtime outcomes came from the normal runner path, and restart evidence
+  was read after reopening app state.
+Migration/rollout state: no legacy Greenfield helper deletion and no consumer cutover were
+  performed.
+Known limitations: PIR-14 CI/platform/scale/consumer cutover and PIR-15 benchmark/retirement
+  remain incomplete.
+Next package: PIR-14 — CI, platform, scale, and consumer cutover.
+Blocker: none.
 ```

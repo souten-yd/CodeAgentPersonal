@@ -61,7 +61,7 @@ def test_recovery_status_selects_next_active_package() -> None:
     status = (REPO_ROOT / "docs" / "atlas_project_intelligence_recovery_current_status.md").read_text(
         encoding="utf-8"
     )
-    assert "Current package: `PIR-13`" in status
+    assert "Current package: `PIR-14`" in status
     assert "| PIR-0 | baseline, inventory, regression locks | acceptance_complete |" in status
     assert "| PIR-1 | durable concrete modules | acceptance_complete |" in status
     assert "| PIR-2 | production composition and rollout preflight | acceptance_complete |" in status
@@ -75,7 +75,8 @@ def test_recovery_status_selects_next_active_package() -> None:
     assert "| PIR-10 | Planner and PlanPool production integration | acceptance_complete |" in status
     assert "| PIR-11 | Proposal, Safe Apply, and refresh integration | acceptance_complete |" in status
     assert "| PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |" in status
-    assert "| PIR-13 | real Greenfield E2E | blocked |" in status
+    assert "| PIR-13 | real Greenfield E2E | acceptance_complete |" in status
+    assert "| PIR-14 | CI, platform, scale, and consumer cutover | not_started |" in status
 
 
 def test_legacy_status_treats_pi_as_foundation_not_completion() -> None:
