@@ -93,6 +93,8 @@ class AtlasPatchProposalPlanItemDraftService:
         summary = str(patch.get("summary") or "")
         proposed_fix = str(patch.get("proposed_fix") or "")
         description = summary or proposed_fix
+        source_action_type = str((item.metadata or {}).get("action_type") or "").strip().lower()
+        action_type = source_action_type if source_action_type in {"create", "update"} else "update"
         metadata = {
             "source": "patch_proposal",
             "source_item_id": item.item_id,
@@ -105,9 +107,12 @@ class AtlasPatchProposalPlanItemDraftService:
             "auto_execute": False,
             "auto_verification": False,
             "requires_planitem_approval": True,
-            "action_type": "update",
+            "action_type": action_type,
             "expected_changes": list(patch.get("suggested_changes") or []),
         }
+        patch_generation = (item.metadata or {}).get("patch_generation")
+        if isinstance(patch_generation, dict) and patch_generation:
+            metadata["patch_generation"] = dict(patch_generation)
         proposed_content = ""
         patch_metadata = patch.get("metadata") if isinstance(patch.get("metadata"), dict) else {}
         if patch.get("proposed_content"):
