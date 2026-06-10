@@ -6,7 +6,7 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-12`
-- Next action: implement Verification, recovery, checkpoint, and resume integration
+- Next action: complete PIR-12 bounded recovery, restart resume, external-change, and final-gate acceptance scenarios
 - Blocker: none
 - Rollout: off by default
 
@@ -28,9 +28,10 @@ This file selects the active package. The old PI package table does not prove fi
 - production composition uses disabled modules;
 - coordinator active paths do not return real module output;
 - concrete Twin, Blueprint, and Convergence facades exist, but later consumer cutover remains incomplete;
-- Verification adapter is not connected to real Atlas consumers;
+- Verification adapter is connected to canonical manual and auto Atlas verification consumers;
 - durability defects remain in Blueprint, event projection, and checkpoints;
-- Verification, recovery, checkpoint, and resume production integration remain incomplete;
+- Verification checkpoint production metadata is connected, but bounded recovery, restart resume,
+  external-change prevention, and final completion-gate acceptance remain incomplete;
 - Greenfield E2E and final benchmark are synthetic;
 - live rollout, platform evidence, consumer cutover, and retirement are incomplete.
 
@@ -50,7 +51,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-9 | Convergence correctness and evidence policy | acceptance_complete |
 | PIR-10 | Planner and PlanPool production integration | acceptance_complete |
 | PIR-11 | Proposal, Safe Apply, and refresh integration | acceptance_complete |
-| PIR-12 | Verification, recovery, checkpoint, resume | not_started |
+| PIR-12 | Verification, recovery, checkpoint, resume | production_connected |
 | PIR-13 | real Greenfield E2E | not_started |
 | PIR-14 | CI, platform, scale, and consumer cutover | not_started |
 | PIR-15 | real benchmark and retirement | not_started |
@@ -751,5 +752,60 @@ Migration/rollout state: rollout remains off by default; no legacy consumer cuto
 Known limitations: verification adapter production integration, recovery/resume, Greenfield E2E,
   platform rollout, benchmark, and legacy retirement remain.
 Next package: PIR-12 — Verification, recovery, checkpoint, and resume integration.
+Blocker: none.
+```
+
+```text
+Work package: PIR-12 — Verification, bounded recovery, checkpoint, and resume integration
+Status: production_connected
+Changed modules/files:
+- agent/project_intelligence/contracts.py and coordinator.py — verification requests now carry
+  distinct Blueprint, Actual Twin, source, and PlanPool revisions; active post-verification
+  ingestion emits runtime/event records, evaluates Convergence through the public facade, and
+  returns report/decision metadata without changing verification authority.
+- agent/project_intelligence/verification_integration.py — production Atlas verification adapter
+  converts persisted manual/auto verification results to runtime observations, records durable
+  idempotent checkpoints, maps bounded Convergence decisions to existing continuation/repair/
+  replan/critical-decision/halt service names, and keeps source/apply/PlanPool revisions separate.
+- agent/atlas_verification_gate_service.py and agent/atlas_auto_verification_service.py — canonical
+  manual and auto verification services record Project Intelligence metadata only after their
+  existing verification persistence succeeds.
+- app/api/atlas_pipeline.py, app/api/atlas_autopilot_factory.py, and
+  app/api/atlas_multi_item_autopilot.py — registered production Project Intelligence coordinator
+  and durable checkpoint controller are passed into verification service construction where
+  available; no-service/off behavior remains legacy-compatible.
+- tests/test_project_intelligence_pir12_verification_recovery.py — production-path verification
+  coverage for manual service, replay idempotency, sync API wiring, and auto verification.
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/contracts.py
+  agent/project_intelligence/coordinator.py agent/project_intelligence/verification_integration.py
+  agent/atlas_verification_gate_service.py agent/atlas_auto_verification_service.py
+  app/api/atlas_pipeline.py app/api/atlas_autopilot_factory.py
+  app/api/atlas_multi_item_autopilot.py
+  tests/test_project_intelligence_pir12_verification_recovery.py -> compile OK
+- python -m pytest -q tests/test_project_intelligence_pir12_verification_recovery.py ->
+  4 passed in 3.92s
+- python -m pytest -q tests/test_project_intelligence_pir12_verification_recovery.py
+  tests/test_project_intelligence_verification_resume.py
+  tests/test_project_twin_durable_event_projection.py
+  tests/test_project_intelligence_pir11_generation_apply.py
+  tests/test_atlas_api_pipeline.py -> 50 passed in 12.16s
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=32 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+- python -m pytest -q tests/test_project_intelligence_recovery_baseline.py ->
+  9 passed, 2 xfailed in 13.18s
+Unavailable checks: PIR-12 acceptance scenarios for bounded retry routing, restart resume through
+  the recovery/continuation API, external edit prevention before blind resume, unsafe halt, critical
+  decision surfacing, and final completion gating are not yet proven by this slice.
+Safety invariants checked: verification remains canonical; Project Intelligence records only
+  post-persistence metadata; unavailable/blocked verification is not converted to passed;
+  checkpoints are idempotent by run correlation; Convergence decisions are advisory metadata and
+  do not mutate PlanPool, Proposal, Safe Apply, Verification, or workspace state.
+Migration/rollout state: rollout remains off by default; no legacy consumer cutover or legacy
+  deletion was performed.
+Known limitations: this is production-connected, not acceptance-complete; remaining PIR-12 work
+  must prove existing recovery/resume/bounded-retry/critical-decision/final-gate behavior.
+Next package: PIR-12 — complete recovery, checkpoint, resume, and final-gate acceptance.
 Blocker: none.
 ```

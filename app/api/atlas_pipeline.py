@@ -105,6 +105,8 @@ from agent.atlas_verification_recommendation_service import AtlasVerificationRec
 from agent.atlas_verification_recommendation_handoff_service import AtlasVerificationRecommendationHandoffService
 from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
 from agent.project_intelligence.adapters.atlas_planning import AtlasPlannerBridge as ProjectIntelligencePlannerBridge
+from agent.project_intelligence.adapters.atlas_verification import AtlasVerificationBridge
+from agent.project_intelligence.checkpoint import CheckpointController
 from agent.project_intelligence.contracts import PlanningContextRequest, ProjectIdentity
 from agent.project_intelligence.service_registry import get_project_intelligence_service
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
@@ -568,6 +570,13 @@ def _project_intelligence_planning_metadata(
         "shadow_artifact": result.shadow_artifact or {},
         "diagnostics": list(result.diagnostics),
     }
+
+
+def _project_intelligence_verification_bridge(app: Any) -> AtlasVerificationBridge:
+    service = get_project_intelligence_service(app)
+    if service is None:
+        return AtlasVerificationBridge()
+    return AtlasVerificationBridge(CheckpointController(service.data_dir / "checkpoint.sqlite3"))
 
 
 def _build_strategic_plan_summary(
@@ -2269,7 +2278,14 @@ def _do_verification(pool_id: str, req: "AtlasVerificationRequest", app: Any, *,
     ca_data_root, storage, journal = _atlas_components(_AppOnlyRequest(app), workspace_id=req.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, pool_id)
     runner = _resolve_atlas_test_command_runner(_AppOnlyRequest(app))
-    service = AtlasVerificationGateService(journal=journal, storage=storage, test_runner=runner)
+    pi_service = get_project_intelligence_service(app)
+    service = AtlasVerificationGateService(
+        journal=journal,
+        storage=storage,
+        test_runner=runner,
+        project_intelligence=pi_service.coordinator if pi_service is not None else None,
+        verification_bridge=_project_intelligence_verification_bridge(app),
+    )
     if progress_cb is not None:
         try:
             progress_cb(phase="running", last_progress_at=datetime.now(timezone.utc).isoformat())
@@ -3248,7 +3264,14 @@ def execute_safe_apply(req: AtlasSafeApplyExecutionRequest, request: Request) ->
                 safe_apply_adapter.implementation_executor = impl.__class__(workspace_root=workspace_root)
             except Exception:
                 impl.workspace_root = workspace_root
-    service = AtlasSafeApplyExecutionService(journal=journal, storage=storage, safe_apply_adapter=safe_apply_adapter, workspace_root=workspace_root)
+    pi_service = get_project_intelligence_service(request.app)
+    service = AtlasSafeApplyExecutionService(
+        journal=journal,
+        storage=storage,
+        safe_apply_adapter=safe_apply_adapter,
+        workspace_root=workspace_root,
+        project_intelligence=pi_service.coordinator if pi_service is not None else None,
+    )
     try:
         result = service.execute_item(req)
     except FileNotFoundError:
@@ -3327,7 +3350,19 @@ def atlas_automation_safe_apply_one(request_body: AtlasAutoSafeApplyRequest, req
                 safe_apply_adapter.implementation_executor = impl.__class__(workspace_root=workspace_root)
             except Exception:
                 impl.workspace_root = workspace_root
-    auto_service = AtlasAutoSafeApplyService(automation_gate=AtlasAutomationGateService(), safe_apply_service=AtlasSafeApplyExecutionService(journal=journal, storage=storage, safe_apply_adapter=safe_apply_adapter, workspace_root=workspace_root), journal=journal, storage=storage)
+    pi_service = get_project_intelligence_service(request.app)
+    auto_service = AtlasAutoSafeApplyService(
+        automation_gate=AtlasAutomationGateService(),
+        safe_apply_service=AtlasSafeApplyExecutionService(
+            journal=journal,
+            storage=storage,
+            safe_apply_adapter=safe_apply_adapter,
+            workspace_root=workspace_root,
+            project_intelligence=pi_service.coordinator if pi_service is not None else None,
+        ),
+        journal=journal,
+        storage=storage,
+    )
     result = auto_service.execute_one(request_body)
     refreshed_pool = storage.load_pool(request_body.pool_id)
     summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(refreshed_pool, None)
@@ -3417,7 +3452,14 @@ def atlas_automation_verify_one(request_body: AtlasAutoVerificationRequest, requ
     _, storage, journal = _atlas_components(request, workspace_id=request_body.workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, request_body.pool_id)
     runner = _resolve_atlas_test_command_runner(request)
-    service = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=runner)
+    pi_service = get_project_intelligence_service(request.app)
+    service = AtlasAutoVerificationService(
+        journal=journal,
+        storage=storage,
+        command_runner=runner,
+        project_intelligence=pi_service.coordinator if pi_service is not None else None,
+        verification_bridge=_project_intelligence_verification_bridge(request.app),
+    )
     result = service.run_after_auto_safe_apply(request_body)
     try:
         refreshed_pool = storage.load_pool(request_body.pool_id)
