@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-19` (PI-0..PI-18 completed)
-- Next action: Verification, checkpoint, and resume integration (PI-19)
+- Current work package: `PI-20` (PI-0..PI-19 completed; Milestone E done)
+- Next action: Greenfield bootstrap orchestrator (PI-20)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -58,8 +58,8 @@ Current gaps include:
 | PI-16 | Planning envelope and Plan Compiler | Completed | plan_compiler (deterministic order, create/modify/repair, completed preserved, downstream replan, PlanPool refs); `tests/test_project_intelligence_plan_compiler.py` → 7 passed; PI+baseline 237 passed |
 | PI-17 | Planner production integration | Completed | AtlasPlannerBridge (off=legacy/shadow=unchanged+telemetry/active=manifest-backed, readiness explicit, no store); `tests/test_project_intelligence_planner_bridge.py` → 5 passed; PI+baseline 242 passed |
 | PI-18 | Generator and repair integration | Completed | AtlasGeneratorBridge (stale block/refresh, planned≠real, manifest in proposal, bounded repair); `tests/test_project_intelligence_generator_bridge.py` → 7 passed; PI+baseline 249 passed |
-| PI-19 | Verification, checkpoint, resume | In Progress | current package |
-| PI-20 | Greenfield bootstrap orchestrator | Not Started | |
+| PI-19 | Verification, checkpoint, resume | Completed | checkpoint+AtlasVerificationBridge (auto-ingest, post-verif convergence, exact-revision resume, external-change detect, idempotent replay, rollback); `tests/test_project_intelligence_verification_resume.py` → 7 passed; PI+baseline 256 passed |
+| PI-20 | Greenfield bootstrap orchestrator | In Progress | current package |
 | PI-21 | Coherent multi-file generation | Not Started | |
 | PI-22 | Greenfield build/run/test and real E2E | Not Started | |
 | PI-23 | Capability consolidation and consumer cutover | Not Started | |
@@ -85,6 +85,44 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-19 — Verification, checkpoint, and resume integration (Milestone E complete)
+Status: Completed
+Commit/PR: local branch pi-19-verification-resume (not pushed/merged yet)
+Changed modules/files:
+- agent/project_intelligence/checkpoint.py (new) — Checkpoint (8 fields) + CheckpointController
+  (immutable, idempotent save; load_latest; external-change detection; resume_decision).
+- agent/project_intelligence/adapters/atlas_verification.py (new) — AtlasVerificationBridge.
+- tests/test_project_intelligence_verification_resume.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- record_verification ingests runtime observations (PI-8 truthful rollup; unavailable never
+  success), records last successful evidence, requests post-verification Convergence, and
+  persists an idempotent checkpoint capturing requirement/Blueprint/Actual-Twin/Convergence/
+  PlanPool revisions + current item + evidence + rollout mode + working-tree hash.
+- Replay with the same idempotency key is a no-op (duplicate=True, convergence not re-run) —
+  no duplicate apply/verification. Rollback base revision always available in the outcome.
+- resume() loads the latest checkpoint after restart and resumes from exact revisions; an
+  external source change (twin revision or working-tree hash differs) -> REFRESH_NEEDED before
+  continuation. Checkpoints are project-isolated.
+Executed commands and exact results:
+- python -m py_compile (2 files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_verification_resume.py -> 7 passed in 0.67s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 256 passed in 9.81s
+Unavailable checks: none required.
+Safety invariants checked: unavailable != success; idempotent replay (no duplicate apply/
+  verify); external change detected before continuation; rollback preserved; project isolation;
+  canonical verification authority not replaced (advisory rollup + checkpoint only).
+Migration/rollout state: verification/resume loop closed behind the rollout flag.
+Known limitations: post-verification Convergence is requested (flag) and run by the caller via
+  the PI-13/14 modules; the checkpoint store is a dedicated SQLite table (internal adapter).
+Milestone: Milestone E (Atlas planning/generation/verification/recovery integration, PI-16..PI-19)
+  COMPLETE.
+Next package: PI-20 — Greenfield bootstrap orchestrator (Milestone F).
+Blocker: none.
+```
 
 ```text
 Work package: PI-18 — Generator and repair production integration
