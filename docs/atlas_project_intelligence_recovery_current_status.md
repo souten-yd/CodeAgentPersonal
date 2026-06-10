@@ -6,8 +6,10 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-13`
-- Next action: run a live configured-model Greenfield scenario through the normal Atlas entrypoint
-- Blocker: none
+- Next action: provision/start a configured Atlas LLM endpoint and rerun the live Greenfield
+  scenario through the normal Atlas entrypoint
+- Blocker: configured model unavailable in this environment (`_phase1_llm_json` returns
+  `llm_not_ready` for `http://localhost:8080/v1/chat/completions`)
 - Rollout: off by default
 
 This file selects the active package. The old PI package table does not prove final completion.
@@ -52,7 +54,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-10 | Planner and PlanPool production integration | acceptance_complete |
 | PIR-11 | Proposal, Safe Apply, and refresh integration | acceptance_complete |
 | PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |
-| PIR-13 | real Greenfield E2E | production_connected |
+| PIR-13 | real Greenfield E2E | blocked |
 | PIR-14 | CI, platform, scale, and consumer cutover | not_started |
 | PIR-15 | real benchmark and retirement | not_started |
 
@@ -1232,4 +1234,35 @@ Known limitations: PIR-13 remains production_connected, not acceptance_complete,
   configured-model Greenfield run passes through the normal entrypoint with recorded evidence.
 Next package: PIR-13 — run live configured-model Greenfield evidence.
 Blocker: none.
+```
+
+```text
+Work package: PIR-13 — Live configured-model Greenfield gate probe
+Status: blocked
+Changed modules/files:
+- docs/atlas_project_intelligence_recovery_current_status.md — PIR-13 now records the live
+  configured-model gate as blocked by unavailable model runtime instead of treating it as
+  production_connected or passing an unavailable check.
+- tests/test_project_intelligence_recovery_baseline.py — recovery-status lock updated to require
+  the explicit PIR-13 blocked proof level while this gate is unavailable.
+Executed commands and exact results:
+- Get-ChildItem Env: | Where-Object { $_.Name -match 'OPENAI|ANTHROPIC|CODEAGENT|LLM|MODEL|BASE_URL|API_KEY' } -> no matching configured model environment variables were present.
+- Invoke-WebRequest -Uri 'http://127.0.0.1:8080/v1/models' -UseBasicParsing -TimeoutSec 5 ->
+  connection refused by 127.0.0.1:8080.
+- Invoke-WebRequest -Uri 'http://127.0.0.1:8000/v1/models' -UseBasicParsing -TimeoutSec 5 ->
+  connection refused by 127.0.0.1:8000.
+- python adapter probe through main._phase1_llm_json -> LLM_URL_PLANNER=
+  http://localhost:8080/v1/chat/completions; warning 503 llm_not_ready; phase1_result=None.
+Unavailable checks: the required live configured-model Greenfield run cannot be executed until a
+  configured model endpoint is started or credentials are supplied.
+Safety invariants checked: no synthetic/stubbed model output is counted as live-model evidence;
+  unavailable remains unavailable; no Safe Apply, workspace mutation, or legacy Greenfield path
+  deletion was performed for this probe.
+Migration/rollout state: no legacy Greenfield helper deletion and no consumer cutover were
+  performed.
+Known limitations: PIR-13 remains blocked until the same normal Atlas entrypoint path is rerun
+  with a real configured model and records successful proposal, apply, verification, runtime, and
+  restart evidence.
+Next package: PIR-13 — rerun live configured-model Greenfield evidence after model provisioning.
+Blocker: configured model unavailable in this environment.
 ```
