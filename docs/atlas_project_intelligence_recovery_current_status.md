@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-12`
-- Next action: complete PIR-12 bounded recovery, restart resume, external-change, and final-gate acceptance scenarios
+- Current package: `PIR-13`
+- Next action: implement real Greenfield E2E through the normal Atlas entrypoint
 - Blocker: none
 - Rollout: off by default
 
@@ -30,8 +30,8 @@ This file selects the active package. The old PI package table does not prove fi
 - concrete Twin, Blueprint, and Convergence facades exist, but later consumer cutover remains incomplete;
 - Verification adapter is connected to canonical manual and auto Atlas verification consumers;
 - durability defects remain in Blueprint, event projection, and checkpoints;
-- Verification checkpoint production metadata is connected, but bounded recovery, restart resume,
-  external-change prevention, and final completion-gate acceptance remain incomplete;
+- Verification, bounded recovery, checkpoint, and resume acceptance is complete for existing-project
+  production paths;
 - Greenfield E2E and final benchmark are synthetic;
 - live rollout, platform evidence, consumer cutover, and retirement are incomplete.
 
@@ -51,7 +51,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-9 | Convergence correctness and evidence policy | acceptance_complete |
 | PIR-10 | Planner and PlanPool production integration | acceptance_complete |
 | PIR-11 | Proposal, Safe Apply, and refresh integration | acceptance_complete |
-| PIR-12 | Verification, recovery, checkpoint, resume | production_connected |
+| PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |
 | PIR-13 | real Greenfield E2E | not_started |
 | PIR-14 | CI, platform, scale, and consumer cutover | not_started |
 | PIR-15 | real benchmark and retirement | not_started |
@@ -807,5 +807,48 @@ Migration/rollout state: rollout remains off by default; no legacy consumer cuto
 Known limitations: this is production-connected, not acceptance-complete; remaining PIR-12 work
   must prove existing recovery/resume/bounded-retry/critical-decision/final-gate behavior.
 Next package: PIR-12 — complete recovery, checkpoint, resume, and final-gate acceptance.
+Blocker: none.
+```
+
+```text
+Work package: PIR-12 — Verification, bounded recovery, checkpoint, and resume integration
+Status: acceptance_complete
+Changed modules/files:
+- agent/project_intelligence/verification_integration.py — checkpoint metadata now carries the
+  working tree hash needed to prevent blind resume after external edits.
+- agent/atlas_recovery_service.py — existing recovery summaries read Project Intelligence
+  checkpoint metadata, detect external source drift, map repair/replan/Blueprint/critical/unsafe
+  decisions to existing recovery next actions, preserve completed PlanPool items, and gate completed
+  pools on canonical verification plus Project Intelligence acceptance.
+- agent/atlas_continuation_service.py — existing continuation prompt/metadata now surfaces
+  Project Intelligence resume action, blind-resume allowance, checkpoint id, and final-gate blockers.
+- tests/test_project_intelligence_pir12_verification_recovery.py — acceptance coverage added for
+  checkpoint resume, recovery API external-edit prevention, bounded repair routing, critical-decision
+  routing, unsafe halt, and final completion gating.
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/verification_integration.py
+  agent/atlas_recovery_service.py agent/atlas_continuation_service.py
+  tests/test_project_intelligence_pir12_verification_recovery.py -> compile OK
+- python -m pytest -q tests/test_project_intelligence_pir12_verification_recovery.py ->
+  9 passed in 4.91s
+- python -m pytest -q tests/test_project_intelligence_pir12_verification_recovery.py
+  tests/test_project_intelligence_verification_resume.py tests/test_atlas_api_pipeline.py
+  tests/test_project_intelligence_pir11_generation_apply.py
+  tests/test_project_twin_durable_event_projection.py -> 55 passed in 13.46s
+- python -m pytest -q tests/test_project_intelligence_recovery_baseline.py ->
+  9 passed, 2 xfailed in 13.46s
+Unavailable checks: a broader legacy corridor was not used as proof because stale fixtures in
+  tests/test_atlas_manual_loop_smoke.py call /plan-pools without sync=1, and stale fallback-pool
+  fixtures in tests/test_atlas_bounded_retry_service.py and tests/test_atlas_orchestration_summary.py
+  index an empty fallback pool before exercising their target services.
+Safety invariants checked: blind resume is denied on external source drift; failed verification
+  routes to bounded repair without mutation; critical/unsafe decisions block continuation through
+  existing decision/failure-stop surfaces; completed PlanPool items are not reset by recovery
+  summaries; final completion requires canonical verification and Project Intelligence acceptance.
+Migration/rollout state: rollout remains off by default; no legacy consumer cutover or legacy
+  deletion was performed.
+Known limitations: real Greenfield E2E, CI/platform/scale/cutover, benchmark, and legacy retirement
+  remain in PIR-13+.
+Next package: PIR-13 — real Greenfield E2E.
 Blocker: none.
 ```

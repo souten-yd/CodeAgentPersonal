@@ -243,6 +243,7 @@ def _revision_refs(
         "source_revision": str(source_revision or "") or None,
         "apply_revision": str(pi_apply.get("correlation_id") or safe_apply.get("change_snapshot_id") or "") or None,
         "plan_pool_revision": str(pool_meta.get("plan_revision_id") or pool.updated_at or "") or None,
+        "working_tree_hash": project.working_tree_hash or None,
     }
 
 
