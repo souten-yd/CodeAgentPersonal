@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-23` (PI-0..PI-22 completed; Milestone F done)
-- Next action: existing capability consolidation and consumer cutover (PI-23)
+- Current work package: `PI-24` (PI-0..PI-23 completed)
+- Next action: cross-platform, scale, storage, and rollout hardening (PI-24)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -62,7 +62,7 @@ Current gaps include:
 | PI-20 | Greenfield bootstrap orchestrator | Completed | GreenfieldOrchestrator (mode gate, active-blueprint gate, dep-ordered slices, refresh/convergence per apply, no-bypass Safe Apply, resumable); `tests/test_project_intelligence_greenfield.py` → 7 passed; PI+baseline 263 passed |
 | PI-21 | Coherent multi-file generation | Completed | coherence checks(imports/assets/api/manifest/placeholder/deps)+typed gaps+separate recovery; `tests/test_project_intelligence_coherence.py` → 9 passed; PI+baseline 272 passed |
 | PI-22 | Greenfield build/run/test and real E2E | Completed | ProjectRuntimeAdapter+E2E harness (6 profiles, allowlist, unavailable≠passed, persistence-across-restart); `tests/test_project_intelligence_greenfield_e2e.py` → 7 passed; PI+baseline 279 passed |
-| PI-23 | Capability consolidation and consumer cutover | In Progress | current package |
+| PI-23 | Capability consolidation and consumer cutover | Completed | consolidation (compat adapter, shadow compare, consumer registry+cutover order, retirement gate, rollback); `tests/test_project_intelligence_consolidation.py` → 10 passed; PI+baseline 289 passed |
 | PI-24 | Cross-platform, scale, storage, rollout hardening | Not Started | |
 | PI-25 | Final benchmark and legacy retirement | Not Started | |
 
@@ -85,6 +85,44 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-23 — Existing capability consolidation and consumer cutover (Milestone G begins)
+Status: Completed
+Commit/PR: local branch pi-23-consolidation (not pushed/merged yet)
+Changed modules/files:
+- agent/project_intelligence/consolidation.py (new) — CompatibilityAdapter, shadow_compare/
+  ParityReport, ConsumerRegistry (cutover order + migrate/rollback), retirement_ready gate.
+- tests/test_project_intelligence_consolidation.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Compatibility adapters translate legacy results into module contracts with provenance +
+  legacy version (adapters first, before cutover). shadow_compare produces a field-by-field
+  ParityReport; mismatches are only acceptable as documented exceptions.
+- ConsumerRegistry tracks per-capability migration; the cutover order is enforced
+  (inspection_api -> planning -> generation -> impact_map -> verification_recommendation ->
+  repair -> final_rollup); a consumer with a forbidden direct legacy dependency cannot migrate;
+  rollback reverts a consumer to legacy.
+- retirement_ready enforces no deletion before parity: legacy-consumer-zero + shadow parity
+  (or documented superiority) + rollback tested + tests pass. No legacy path is deleted.
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/consolidation.py + test -> compile OK
+- python -m pytest -q tests/test_project_intelligence_consolidation.py -> 10 passed in 0.56s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 289 passed in 11.06s
+Unavailable checks: none required.
+Safety invariants checked: canonical authorities remain; compatibility adapters precede cutover;
+  cutover order enforced; rollback available + tested; forbidden direct deps zero for migrated
+  consumers; NO legacy deletion before the retirement gate passes.
+Migration/rollout state: consolidation machinery in place; real Atlas consumer cutover proceeds
+  per capability behind the gate (no production legacy path removed in this package).
+Known limitations: the registry models the migration governance; physically rewiring each real
+  Atlas consumer (app/api/atlas_pipeline.py etc.) and deleting legacy is gated to PI-25 retirement
+  with consumer-zero + parity evidence.
+Milestone: Milestone G (Reorganization, rollout, completion) begins.
+Next package: PI-24 — Cross-platform, scale, storage, and rollout hardening.
+Blocker: none.
+```
 
 ```text
 Work package: PI-22 — Greenfield build/run/test and real E2E (Milestone F complete)
