@@ -279,10 +279,35 @@ def _frontend_backend_main() -> str:
     )
 
 
+def _assert_retained_artifact(
+    path_value: str,
+    artifact_roots: Path | list[Path],
+    required_text: str | list[str],
+) -> Path:
+    path = Path(path_value).expanduser().resolve()
+    assert path.is_file(), path_value
+    roots = [artifact_roots] if isinstance(artifact_roots, Path) else artifact_roots
+    assert any(_is_relative_to(path, root.resolve()) for root in roots), path_value
+    text = path.read_text(encoding="utf-8")
+    assert text.strip()
+    for expected in [required_text] if isinstance(required_text, str) else required_text:
+        assert expected in text
+    return path
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: Path) -> None:
     repo = tmp_path / "workspace"
     repo.mkdir()
     client = _client(tmp_path, repo)
+    data_root = Path(main.app.state.atlas_ca_data_dir)
 
     plan_payload = {
         "root_goal": "Create a Greenfield single HTML app.",
@@ -326,6 +351,16 @@ def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: P
     ).json()
     assert proposed["status"] == "proposed", proposed
     assert proposed["metadata"]["patch_generation"]["outcome"] == "success"
+    _assert_retained_artifact(
+        proposed["proposal_json_path"],
+        data_root,
+        [pool_id, source_item_id, proposed["proposal"]["proposal_id"], "Atlas Greenfield Ready"],
+    )
+    _assert_retained_artifact(
+        proposed["proposal_md_path"],
+        data_root,
+        [pool_id, source_item_id, "Write index.html with a visible ready indicator."],
+    )
 
     approved_proposal = client.post(
         "/api/atlas/patch-proposals/decide",
@@ -339,6 +374,16 @@ def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: P
         },
     ).json()
     assert approved_proposal["status"] == "approved", approved_proposal
+    _assert_retained_artifact(
+        approved_proposal["metadata"]["approval_json_path"],
+        data_root,
+        [pool_id, source_item_id, proposed["proposal"]["proposal_id"], "approved"],
+    )
+    _assert_retained_artifact(
+        approved_proposal["metadata"]["approval_md_path"],
+        data_root,
+        [pool_id, source_item_id, proposed["proposal"]["proposal_id"], "approved"],
+    )
 
     draft = client.post(
         "/api/atlas/patch-proposals/planitem-draft",
@@ -354,6 +399,16 @@ def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: P
     draft_item_id = draft["draft_item"]["draft_item_id"]
     assert draft["draft_item"]["metadata"]["patch_generation"]["outcome"] == "success"
     assert draft["draft_item"]["metadata"]["action_type"] == "create"
+    _assert_retained_artifact(
+        draft["metadata"]["draft_json_path"],
+        data_root,
+        [pool_id, source_item_id, draft_item_id, "index.html"],
+    )
+    _assert_retained_artifact(
+        draft["metadata"]["draft_md_path"],
+        data_root,
+        [pool_id, source_item_id, draft_item_id, "index.html"],
+    )
 
     approved_item = client.post(
         "/api/atlas/approvals/decide",
@@ -387,7 +442,21 @@ def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: P
     assert applied["metadata"]["workspace_root"] == str(repo.resolve())
     assert applied["metadata"]["executor_result"]["actual_file_changed"] is True
     assert applied["metadata"]["executor_result"]["changed_files"] == ["index.html"]
-    assert Path(applied["metadata"]["change_snapshot"]["manifest_path"]).exists()
+    _assert_retained_artifact(
+        applied["metadata"]["execution_record_json"],
+        data_root,
+        [pool_id, draft_item_id, "applied", "index.html"],
+    )
+    _assert_retained_artifact(
+        applied["metadata"]["execution_record_md"],
+        data_root,
+        [pool_id, draft_item_id, "applied", "index.html"],
+    )
+    _assert_retained_artifact(
+        applied["metadata"]["change_snapshot"]["manifest_path"],
+        repo,
+        [pool_id, draft_item_id, "pir13_safe_apply", "index.html"],
+    )
 
     verified = client.post(
         "/api/atlas/automation/verify-one",
@@ -420,7 +489,11 @@ def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: P
         / "pir13_visual_verify"
         / "events.ndjson"
     )
-    assert '"event_type": "auto_verification_passed"' in events_path.read_text(encoding="utf-8")
+    _assert_retained_artifact(
+        str(events_path),
+        data_root,
+        [pool_id, draft_item_id, "pir13_visual_verify", '"event_type": "auto_verification_passed"'],
+    )
 
     restarted_app = create_app()
     restarted_app.state.atlas_ca_data_dir = main.app.state.atlas_ca_data_dir
@@ -429,6 +502,12 @@ def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: P
     reloaded_draft = next(item for item in reloaded["items"] if item["item_id"] == draft_item_id)
     assert reloaded_draft["metadata"]["safe_apply"]["status"] == "applied"
     assert reloaded_draft["metadata"]["auto_verification"]["status"] == "passed"
+    assert reloaded_draft["metadata"]["safe_apply"]["changed_files"] == ["index.html"]
+    _assert_retained_artifact(
+        reloaded_draft["metadata"]["safe_apply"]["change_snapshot_manifest_path"],
+        repo,
+        [pool_id, draft_item_id, "pir13_safe_apply", "index.html"],
+    )
     assert reloaded_draft["metadata"]["auto_verification"]["browser_smoke_status"] in {
         "browser_smoke_passed",
         "browser_smoke_skipped",
