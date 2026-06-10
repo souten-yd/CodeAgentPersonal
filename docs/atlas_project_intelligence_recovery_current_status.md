@@ -7,7 +7,7 @@
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-14`
 - Next action: extend PIR-14 shadow parity and rollback drills beyond planning/generation,
-  then add platform, scale, threshold rollback, and cutover evidence.
+  then add Linux/Docker/Runpod platform, large-scale, and cutover evidence.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -109,6 +109,48 @@ Safety invariants checked: read-only source inspection only; no production runti
 Migration/rollout state: off by default; no consumer cutover and no legacy deletion.
 Known limitations: regression locks intentionally xfail until PIR-1+ fixes the underlying defects.
 Next package: PIR-1 — durable concrete modules.
+Blocker: none.
+```
+
+```text
+Work package: PIR-14 — Operational platform, scale, and threshold rollback evidence
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/operational_evidence.py — added an operational evidence artifact
+  builder that records the current platform as observed, unsupported or not-run platforms as
+  unavailable, current-checkout bounded scale metrics, and threshold-driven rollout phase
+  rollback decisions without claiming a full platform matrix or large-repository benchmark.
+- tests/test_project_intelligence_pir14_operational_evidence.py — added focused coverage for
+  observed/unavailable platform rows, bounded scale evidence, JSON persistence, threshold
+  rollback triggered by a regression-budget violation, and no rollback when thresholds pass.
+- docs/atlas_project_intelligence_recovery_current_status.md — updated PIR-14 next action to
+  keep Windows/current-checkout operational evidence distinct from remaining Linux/Docker/Runpod,
+  large-scale, and cutover gates.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\operational_evidence.py
+  tests\test_project_intelligence_pir14_operational_evidence.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir14_operational_evidence.py ->
+  3 passed in 0.64s.
+- python - <<script invoking write_operational_evidence(...)>> ->
+  artifact=C:\Users\kkens\code\KasaneCore\ca_data\atlas\pir14_operational_evidence.current.json
+  current_platform=windows observed_platforms=1 unavailable_platforms=3 scale_passed=1
+  threshold_rollback_triggered=True.
+- python -m pytest -q tests\test_project_intelligence_pir14_operational_evidence.py
+  tests\test_project_intelligence_hardening.py tests\test_project_intelligence_consolidation.py ->
+  23 passed in 1.32s.
+Unavailable checks: Linux, Docker, and Runpod platform jobs are explicit unavailable rows;
+  current-checkout file count is not a large-repository benchmark; no concurrency/load run and
+  no production consumer cutover are claimed by this slice.
+Safety invariants checked: the artifact records evidence only, treats unavailable platforms as
+  unavailable rather than passed, performs no source mutation, does not cut over consumers, and
+  does not retire legacy paths.
+Migration/rollout state: rollout remains off by default; threshold rollback evidence is a
+  rollout phase-state decision from generation back to planning, not source rollback.
+Known limitations: PIR-14 remains in_progress until remaining phase parity/rollback,
+  Linux/Docker/Runpod platform artifacts, large-repository/concurrency evidence, and production
+  consumer cutover evidence pass.
+Next package: PIR-14 — add remaining phase parity/rollback, Linux/Docker/Runpod, large-scale,
+  concurrency, and cutover evidence.
 Blocker: none.
 ```
 
