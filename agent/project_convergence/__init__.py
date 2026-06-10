@@ -16,6 +16,7 @@ from agent.project_convergence.contracts import (
     ElementConvergenceResult,
 )
 from agent.project_convergence.facade import DisabledConvergenceModule
+from agent.project_convergence.module import ConvergenceModuleImpl
 
 __all__ = [
     "PROJECT_CONVERGENCE_CONTRACT_VERSION",
@@ -25,4 +26,5 @@ __all__ = [
     "ConvergenceRequest",
     "ElementConvergenceResult",
     "DisabledConvergenceModule",
+    "ConvergenceModuleImpl",
 ]

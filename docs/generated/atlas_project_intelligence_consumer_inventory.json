@@ -318,68 +318,31 @@
       "issue_code": "PIR0-C03"
     },
     {
-      "evidence": [],
+      "evidence": [
+        {
+          "class_name": "DigitalTwinModuleImpl",
+          "module": "agent.project_twin.module",
+          "path": "agent/project_twin/module.py"
+        }
+      ],
       "expected_followup_package": "PIR-1",
       "finding": "concrete DigitalTwinModuleImpl is absent",
       "issue_code": "PIR0-C04"
     },
     {
-      "evidence": [],
+      "evidence": [
+        {
+          "class_name": "ConvergenceModuleImpl",
+          "module": "agent.project_convergence.module",
+          "path": "agent/project_convergence/module.py"
+        }
+      ],
       "expected_followup_package": "PIR-1",
       "finding": "concrete ConvergenceModuleImpl is absent",
       "issue_code": "PIR0-C05"
     },
     {
-      "evidence": [
-        {
-          "imports_sqlite3": false,
-          "memory_default_count": 1,
-          "module": "agent.architecture_blueprint.store",
-          "path": "agent/architecture_blueprint/store.py"
-        },
-        {
-          "imports_sqlite3": false,
-          "memory_default_count": 1,
-          "module": "agent.project_convergence.store",
-          "path": "agent/project_convergence/store.py"
-        },
-        {
-          "imports_sqlite3": true,
-          "memory_default_count": 1,
-          "module": "agent.project_intelligence._persistence",
-          "path": "agent/project_intelligence/_persistence.py"
-        },
-        {
-          "imports_sqlite3": false,
-          "memory_default_count": 1,
-          "module": "agent.project_intelligence.checkpoint",
-          "path": "agent/project_intelligence/checkpoint.py"
-        },
-        {
-          "imports_sqlite3": false,
-          "memory_default_count": 1,
-          "module": "agent.project_intelligence.inspection.consumer_inventory",
-          "path": "agent/project_intelligence/inspection/consumer_inventory.py"
-        },
-        {
-          "imports_sqlite3": false,
-          "memory_default_count": 1,
-          "module": "agent.project_intelligence.store",
-          "path": "agent/project_intelligence/store.py"
-        },
-        {
-          "imports_sqlite3": false,
-          "memory_default_count": 1,
-          "module": "agent.project_twin.benchmark",
-          "path": "agent/project_twin/benchmark.py"
-        },
-        {
-          "imports_sqlite3": true,
-          "memory_default_count": 1,
-          "module": "agent.project_twin.store",
-          "path": "agent/project_twin/store.py"
-        }
-      ],
+      "evidence": [],
       "expected_followup_package": "PIR-1",
       "finding": "in-memory persistence defaults remain in current stores",
       "issue_code": "PIR0-C06"
@@ -387,46 +350,10 @@
   ],
   "database_defaults": [
     {
-      "imports_sqlite3": false,
-      "memory_default_count": 1,
-      "module": "agent.architecture_blueprint.store",
-      "path": "agent/architecture_blueprint/store.py"
-    },
-    {
-      "imports_sqlite3": false,
-      "memory_default_count": 1,
-      "module": "agent.project_convergence.store",
-      "path": "agent/project_convergence/store.py"
-    },
-    {
       "imports_sqlite3": true,
-      "memory_default_count": 1,
+      "memory_default_count": 0,
       "module": "agent.project_intelligence._persistence",
       "path": "agent/project_intelligence/_persistence.py"
-    },
-    {
-      "imports_sqlite3": false,
-      "memory_default_count": 1,
-      "module": "agent.project_intelligence.checkpoint",
-      "path": "agent/project_intelligence/checkpoint.py"
-    },
-    {
-      "imports_sqlite3": false,
-      "memory_default_count": 1,
-      "module": "agent.project_intelligence.inspection.consumer_inventory",
-      "path": "agent/project_intelligence/inspection/consumer_inventory.py"
-    },
-    {
-      "imports_sqlite3": false,
-      "memory_default_count": 1,
-      "module": "agent.project_intelligence.store",
-      "path": "agent/project_intelligence/store.py"
-    },
-    {
-      "imports_sqlite3": false,
-      "memory_default_count": 1,
-      "module": "agent.project_twin.benchmark",
-      "path": "agent/project_twin/benchmark.py"
     },
     {
       "imports_sqlite3": true,
@@ -436,7 +363,7 @@
     },
     {
       "imports_sqlite3": true,
-      "memory_default_count": 1,
+      "memory_default_count": 0,
       "module": "agent.project_twin.store",
       "path": "agent/project_twin/store.py"
     },
@@ -459,7 +386,7 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-10T13:10:13+00:00",
+  "generated_at": "2026-06-10T13:25:35+00:00",
   "legacy_consumers": [
     {
       "capability": "legacy_code_explorer",
@@ -733,12 +660,22 @@
     }
   ],
   "module_implementations": {
-    "concrete_facade_count": 1,
+    "concrete_facade_count": 3,
     "concrete_modules": [
       {
         "class_name": "ArchitectureBlueprintModuleImpl",
         "module": "agent.architecture_blueprint.module",
         "path": "agent/architecture_blueprint/module.py"
+      },
+      {
+        "class_name": "ConvergenceModuleImpl",
+        "module": "agent.project_convergence.module",
+        "path": "agent/project_convergence/module.py"
+      },
+      {
+        "class_name": "DigitalTwinModuleImpl",
+        "module": "agent.project_twin.module",
+        "path": "agent/project_twin/module.py"
       }
     ],
     "disabled_facade_count": 4,
@@ -1091,7 +1028,7 @@
   "source": "python_ast_current_checkout",
   "summary": {
     "adapter_module_count": 3,
-    "concrete_facade_count": 1,
+    "concrete_facade_count": 3,
     "critical_finding_count": 6,
     "disabled_facade_count": 4,
     "facade_module_count": 6,

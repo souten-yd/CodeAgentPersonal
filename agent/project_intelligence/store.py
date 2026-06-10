@@ -18,6 +18,7 @@ from agent.project_intelligence._persistence import (
     StoreError,
     apply_migrations,
     connect,
+    default_sqlite_path,
 )
 from agent.project_intelligence.migrations import (
     JOBS_TABLE,
@@ -34,8 +35,8 @@ _TERMINAL = {"done", "failed", "cancelled"}
 class ProjectIntelligenceStore:
     """Context Manifest artifacts (immutable) + a restart-safe job journal (mutable)."""
 
-    def __init__(self, db_path: str | Path = ":memory:", *, now_fn: Callable[[], str] | None = None) -> None:
-        self._conn = connect(db_path)
+    def __init__(self, db_path: str | Path | None = None, *, now_fn: Callable[[], str] | None = None) -> None:
+        self._conn = connect(db_path or default_sqlite_path("project-intelligence"))
         apply_migrations(self._conn, SCHEMA_MIGRATIONS, migration_table=MIGRATION_TABLE)
         self._now = now_fn or (lambda: datetime.now(timezone.utc).isoformat())
         self._manifests = ArtifactStore(self._conn, MANIFEST_TABLE, now_fn=now_fn)

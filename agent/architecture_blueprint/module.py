@@ -74,7 +74,7 @@ class ArchitectureBlueprintModuleImpl:
         if row is None:
             raise IntelligenceError(IntelligenceErrorCode.REVISION_NOT_FOUND, revision_id)
         rev = BlueprintRevision.model_validate(row["payload"])
-        status = self._status_of(project_id, revision_id) or rev.status
+        status = self._status_of(project_id, revision_id) or row.get("status") or rev.status
         return rev.model_copy(update={"status": status})
 
     # -- facade ---------------------------------------------------------------
@@ -141,8 +141,14 @@ class ArchitectureBlueprintModuleImpl:
         if valid:
             assert_transition(current, REVIEWED)
             self._status[(request.project_id, request.revision_id)] = APPROVED  # reviewed -> approved
+            self._store.set_revision_status(
+                project_id=request.project_id, revision_id=request.revision_id, status=APPROVED
+            )
         else:
             self._status[(request.project_id, request.revision_id)] = REVIEWED
+            self._store.set_revision_status(
+                project_id=request.project_id, revision_id=request.revision_id, status=REVIEWED
+            )
         return BlueprintReviewResult(blueprint_id=rev.blueprint_id, revision_id=rev.revision_id,
                                      valid=valid, unresolved_decisions=unresolved, diagnostics=diagnostics)
 
@@ -157,23 +163,29 @@ class ArchitectureBlueprintModuleImpl:
         prior = self._store.get_active(request.project_id, rev.workspace_id or "", rev.blueprint_id)
         if prior is not None and prior["artifact_id"] != rev.revision_id:
             self._status[(request.project_id, prior["artifact_id"])] = SUPERSEDED
+            self._store.set_revision_status(
+                project_id=request.project_id, revision_id=prior["artifact_id"], status=SUPERSEDED
+            )
         self._store.activate_revision(project_id=request.project_id, workspace_id=rev.workspace_id or "",
                                       blueprint_id=rev.blueprint_id, revision_id=rev.revision_id)
         self._status[(request.project_id, rev.revision_id)] = ACTIVE
+        self._store.set_revision_status(project_id=request.project_id, revision_id=rev.revision_id, status=ACTIVE)
         return rev.model_copy(update={"status": ACTIVE, "activated_at": self._now()})
 
     def get_active(self, request: BlueprintGetRequest) -> BlueprintRevision | None:
-        # The active revision is selected per blueprint (the store head per blueprint group).
-        # The facade request carries no blueprint id, so callers that know the blueprint use
-        # get_active_revision; this generic form returns None rather than guessing.
-        return None
+        row = self._store.get_active_for_workspace(request.project_id, request.workspace_id or "")
+        if row is None:
+            return None
+        rev = BlueprintRevision.model_validate(row["payload"])
+        status = self._status_of(request.project_id, rev.revision_id) or row.get("status") or rev.status
+        return rev.model_copy(update={"status": status})
 
     def get_active_revision(self, project_id: str, workspace_id: str, blueprint_id: str) -> BlueprintRevision | None:
         row = self._store.get_active(project_id, workspace_id, blueprint_id)
         if row is None:
             return None
         rev = BlueprintRevision.model_validate(row["payload"])
-        status = self._status_of(project_id, rev.revision_id) or rev.status
+        status = self._status_of(project_id, rev.revision_id) or row.get("status") or rev.status
         return rev.model_copy(update={"status": status})
 
     def get_revision(self, request: BlueprintGetRevisionRequest) -> BlueprintRevision:

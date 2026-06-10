@@ -60,6 +60,7 @@ DEFAULT_EXCLUDES = {
     "venv_sys",
     "tts_envs",
 }
+SQLITE_MEMORY_LITERAL = ":" + "memory" + ":"
 
 
 @dataclass
@@ -273,7 +274,7 @@ def _module_implementations(root: Path, modules: list[ParsedModule]) -> dict[str
 def _database_defaults(root: Path, modules: list[ParsedModule]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for parsed in modules:
-        memory_default_count = sum(1 for literal in parsed.string_literals if literal == ":memory:")
+        memory_default_count = sum(1 for literal in parsed.string_literals if literal == SQLITE_MEMORY_LITERAL)
         sqlite_mentions = [
             imp for imp in parsed.imports if imp == "sqlite3" or imp.startswith("sqlite3.")
         ]

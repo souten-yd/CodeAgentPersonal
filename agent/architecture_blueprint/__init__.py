@@ -15,6 +15,7 @@ from agent.architecture_blueprint.contracts import (
     BlueprintRevision,
 )
 from agent.architecture_blueprint.facade import DisabledArchitectureBlueprintModule
+from agent.architecture_blueprint.module import ArchitectureBlueprintModuleImpl
 
 __all__ = [
     "ARCHITECTURE_BLUEPRINT_CONTRACT_VERSION",
@@ -24,4 +25,5 @@ __all__ = [
     "BlueprintResult",
     "BlueprintRevision",
     "DisabledArchitectureBlueprintModule",
+    "ArchitectureBlueprintModuleImpl",
 ]

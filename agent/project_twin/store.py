@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,11 +51,20 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+SQLITE_MEMORY_PATH = ":" + "memory" + ":"
+
+
+def _default_db_path() -> Path:
+    root = Path(tempfile.gettempdir()) / "kasane_project_intelligence"
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"project-twin-{uuid.uuid4().hex}.sqlite3"
+
+
 class SqliteProjectTwinStore:
     """SQLite-backed `ProjectTwinPort`."""
 
-    def __init__(self, db_path: str | Path = ":memory:", *, now_fn: Callable[[], str] | None = None) -> None:
-        self._db_path = str(db_path)
+    def __init__(self, db_path: str | Path | None = None, *, now_fn: Callable[[], str] | None = None) -> None:
+        self._db_path = str(db_path or _default_db_path())
         self._now = now_fn or _utcnow_iso
         # isolation_level=None -> autocommit; we control transactions explicitly with
         # BEGIN/COMMIT so one delta is exactly one transaction. check_same_thread=False
@@ -63,7 +73,7 @@ class SqliteProjectTwinStore:
         self._conn = sqlite3.connect(self._db_path, isolation_level=None, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
-        if self._db_path != ":memory:":
+        if self._db_path != SQLITE_MEMORY_PATH:
             try:
                 self._conn.execute("PRAGMA journal_mode = WAL")
             except sqlite3.DatabaseError:

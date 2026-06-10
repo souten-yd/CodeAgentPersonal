@@ -20,6 +20,7 @@ from agent.project_intelligence._persistence import (
     StoreError,
     apply_migrations,
     connect,
+    default_sqlite_path,
 )
 
 __all__ = ["ConvergenceStore", "StoreError"]
@@ -28,8 +29,8 @@ __all__ = ["ConvergenceStore", "StoreError"]
 class ConvergenceStore:
     """Immutable, project-isolated Convergence report store keyed by blueprint revision."""
 
-    def __init__(self, db_path: str | Path = ":memory:", *, now_fn: Callable[[], str] | None = None) -> None:
-        self._conn = connect(db_path)
+    def __init__(self, db_path: str | Path | None = None, *, now_fn: Callable[[], str] | None = None) -> None:
+        self._conn = connect(db_path or default_sqlite_path("convergence"))
         apply_migrations(self._conn, SCHEMA_MIGRATIONS, migration_table=MIGRATION_TABLE)
         self._artifacts = ArtifactStore(self._conn, CONVERGENCE_TABLE, now_fn=now_fn)
 
@@ -60,6 +61,29 @@ class ConvergenceStore:
 
     def get_latest(self, project_id: str, workspace_id: str, blueprint_revision_id: str) -> dict[str, Any] | None:
         return self._artifacts.get_head(project_id, workspace_id, blueprint_revision_id)
+
+    def get_latest_for_workspace(self, project_id: str, workspace_id: str) -> dict[str, Any] | None:
+        heads = self._artifacts.list_heads(project_id, workspace_id)
+        return heads[0] if heads else None
+
+    def save_decision(
+        self,
+        *,
+        project_id: str,
+        workspace_id: str,
+        report_id: str,
+        decision_id: str,
+        payload: dict[str, Any],
+    ) -> str:
+        return self._artifacts.put(
+            project_id=project_id,
+            workspace_id=workspace_id,
+            group_id=f"decision:{report_id}",
+            artifact_id=decision_id,
+            artifact_type="convergence_decision",
+            payload=payload,
+            status="generated",
+        )
 
     def list_reports(self, project_id: str, blueprint_revision_id: str) -> list[dict[str, Any]]:
         return self._artifacts.list_history(project_id, blueprint_revision_id)

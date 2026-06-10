@@ -20,6 +20,7 @@ from agent.project_intelligence._persistence import (
     StoreError,
     apply_migrations,
     connect,
+    default_sqlite_path,
 )
 
 __all__ = ["BlueprintStore", "StoreError"]
@@ -28,8 +29,8 @@ __all__ = ["BlueprintStore", "StoreError"]
 class BlueprintStore:
     """Immutable, revisioned, project-isolated Blueprint revision store."""
 
-    def __init__(self, db_path: str | Path = ":memory:", *, now_fn: Callable[[], str] | None = None) -> None:
-        self._conn = connect(db_path)
+    def __init__(self, db_path: str | Path | None = None, *, now_fn: Callable[[], str] | None = None) -> None:
+        self._conn = connect(db_path or default_sqlite_path("blueprint"))
         apply_migrations(self._conn, SCHEMA_MIGRATIONS, migration_table=MIGRATION_TABLE)
         self._artifacts = ArtifactStore(self._conn, BLUEPRINT_TABLE, now_fn=now_fn)
 
@@ -72,11 +73,18 @@ class BlueprintStore:
         """Make an existing revision the active (head) one for its blueprint."""
         self._artifacts.set_head(project_id, workspace_id, blueprint_id, revision_id)
 
+    def set_revision_status(self, *, project_id: str, revision_id: str, status: str) -> None:
+        self._artifacts.set_status(project_id, revision_id, status)
+
     def get_revision(self, project_id: str, revision_id: str) -> dict[str, Any] | None:
         return self._artifacts.get(project_id, revision_id)
 
     def get_active(self, project_id: str, workspace_id: str, blueprint_id: str) -> dict[str, Any] | None:
         return self._artifacts.get_head(project_id, workspace_id, blueprint_id)
+
+    def get_active_for_workspace(self, project_id: str, workspace_id: str) -> dict[str, Any] | None:
+        heads = self._artifacts.list_heads(project_id, workspace_id)
+        return heads[0] if heads else None
 
     def list_revisions(self, project_id: str, blueprint_id: str) -> list[dict[str, Any]]:
         return self._artifacts.list_history(project_id, blueprint_id)

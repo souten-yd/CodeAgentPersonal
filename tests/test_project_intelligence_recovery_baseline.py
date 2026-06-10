@@ -57,13 +57,14 @@ def test_inventory_records_exact_facade_call_counts() -> None:
     assert inv["summary"]["concrete_facade_count"] == len(inv["module_implementations"]["concrete_modules"])
 
 
-def test_recovery_status_selects_pir1_after_baseline() -> None:
+def test_recovery_status_selects_next_active_package() -> None:
     status = (REPO_ROOT / "docs" / "atlas_project_intelligence_recovery_current_status.md").read_text(
         encoding="utf-8"
     )
-    assert "Current package: `PIR-1`" in status
+    assert "Current package: `PIR-2`" in status
     assert "| PIR-0 | baseline, inventory, regression locks | acceptance_complete |" in status
-    assert "| PIR-1 | durable concrete modules | not_started |" in status
+    assert "| PIR-1 | durable concrete modules | acceptance_complete |" in status
+    assert "| PIR-2 | production composition and rollout preflight | not_started |" in status
 
 
 def test_legacy_status_treats_pi_as_foundation_not_completion() -> None:
@@ -112,14 +113,12 @@ def test_pir0_c03_atlas_api_uses_project_intelligence_adapters() -> None:
     assert legacy_api_imports == []
 
 
-@pytest.mark.xfail(strict=True, reason="PIR0-C04/PIR0-C05: concrete Twin and Convergence facades are absent")
 def test_pir0_c04_c05_concrete_twin_and_convergence_facades_exist() -> None:
     inv = _inventory()
     concrete = {row["class_name"] for row in inv["module_implementations"]["concrete_modules"]}
     assert {"DigitalTwinModuleImpl", "ConvergenceModuleImpl"} <= concrete
 
 
-@pytest.mark.xfail(strict=True, reason="PIR0-C06: production-ready stores must not default to in-memory persistence")
 def test_pir0_c06_no_memory_database_defaults_remain() -> None:
     inv = _inventory()
     memory_defaults = [row for row in inv["database_defaults"] if row["memory_default_count"]]

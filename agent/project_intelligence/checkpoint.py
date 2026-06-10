@@ -18,6 +18,7 @@ from agent.project_intelligence._persistence import (
     apply_migrations,
     artifact_table_migration,
     connect,
+    default_sqlite_path,
 )
 
 _TABLE = "pi_checkpoints"
@@ -61,8 +62,8 @@ def _checkpoint_id(plan_pool_id: str, plan_item_id: str, idempotency_key: str) -
 class CheckpointController:
     """Immutable, idempotent checkpoint persistence + resume decisions."""
 
-    def __init__(self, db_path: str | Path = ":memory:", *, now_fn: Callable[[], str] | None = None) -> None:
-        self._conn = connect(db_path)
+    def __init__(self, db_path: str | Path | None = None, *, now_fn: Callable[[], str] | None = None) -> None:
+        self._conn = connect(db_path or default_sqlite_path("checkpoint"))
         apply_migrations(self._conn, [artifact_table_migration(_TABLE)], migration_table=_MIG)
         self._store = ArtifactStore(self._conn, _TABLE, now_fn=now_fn)
 
