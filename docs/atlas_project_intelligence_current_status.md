@@ -6,15 +6,14 @@
 
 ## Program status
 
-- Overall: **IMPLEMENTATION COMPLETE (PI-0..PI-25) — PROGRAM NOT YET MARKED COMPLETE**
-  All 26 work packages are implemented and tested at the unit/integration level (411 tests:
-  286 project_intelligence + 125 Core v1). The master-goal Definition of Done has remaining
-  **live-rollout gates** that require real environment evidence and are NOT fabricated as
-  passed (truthful verification): production cutover of real Atlas consumers + legacy
-  retirement (gated on consumer-zero + shadow parity), and real cross-platform (Windows/
-  Linux/Docker/Runpod) + real-repo deep-graph/Greenfield execution evidence. The program is
-  set to COMPLETE only when those live gates pass (PI-25 DoD rule). Rollout is disabled by
-  default; off mode == legacy baseline.
+- Overall: **FOUNDATION TRACK COMPLETE (PI-0..PI-25) — PRODUCTION LOOP INCOMPLETE**
+  PI-0..PI-25 remain useful contracts, components, adapters, helper tests, and historical
+  implementation evidence. They are not proof that the production Project Intelligence loop
+  is complete. The active corrective track is `PIR-0..PIR-15`, selected by
+  `docs/atlas_project_intelligence_recovery_current_status.md`. Recovery work must prove
+  concrete facades, production wiring, durable restart behavior, real Atlas callers,
+  rollout evidence, real E2E, benchmark evidence, and legacy retirement separately.
+  Rollout remains disabled by default; off mode == legacy baseline.
 - Completed foundation: Project Digital Twin Core v1, PDT-0 through PDT-14
 - Active canonical goal: `docs/atlas_project_intelligence_master_goal.md`
 - Architecture: `docs/atlas_project_intelligence_architecture.md`
@@ -24,10 +23,9 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: none — `PI-0..PI-25` all implemented & tested
-- Next action: live phased rollout (off→shadow→…→active) + real cross-platform/E2E evidence
-  capture, then legacy retirement per the gate; flip program status to COMPLETE when DoD live
-  gates pass
+- Current work package: recovery track `PIR-1` after the PIR-0 baseline/inventory locks
+- Next action: implement durable concrete module foundations through the recovery plan;
+  do not claim production completion from the old Foundation Track package table
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 

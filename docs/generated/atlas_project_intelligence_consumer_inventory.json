@@ -1,0 +1,1101 @@
+{
+  "construction_sites": [
+    {
+      "call": "DisabledArchitectureBlueprintModule",
+      "class_name": "DisabledArchitectureBlueprintModule",
+      "module": "agent.project_intelligence.coordinator",
+      "path": "agent/project_intelligence/coordinator.py"
+    },
+    {
+      "call": "DisabledConvergenceModule",
+      "class_name": "DisabledConvergenceModule",
+      "module": "agent.project_intelligence.coordinator",
+      "path": "agent/project_intelligence/coordinator.py"
+    },
+    {
+      "call": "DisabledDigitalTwinModule",
+      "class_name": "DisabledDigitalTwinModule",
+      "module": "agent.project_intelligence.coordinator",
+      "path": "agent/project_intelligence/coordinator.py"
+    },
+    {
+      "call": "DisabledArchitectureBlueprintModule",
+      "class_name": "DisabledArchitectureBlueprintModule",
+      "module": "agent.project_intelligence.facade",
+      "path": "agent/project_intelligence/facade.py"
+    },
+    {
+      "call": "DisabledConvergenceModule",
+      "class_name": "DisabledConvergenceModule",
+      "module": "agent.project_intelligence.facade",
+      "path": "agent/project_intelligence/facade.py"
+    },
+    {
+      "call": "DisabledDigitalTwinModule",
+      "class_name": "DisabledDigitalTwinModule",
+      "module": "agent.project_intelligence.facade",
+      "path": "agent/project_intelligence/facade.py"
+    },
+    {
+      "call": "DisabledArchitectureBlueprintModule",
+      "class_name": "DisabledArchitectureBlueprintModule",
+      "module": "agent.project_intelligence.factory",
+      "path": "agent/project_intelligence/factory.py"
+    },
+    {
+      "call": "DisabledConvergenceModule",
+      "class_name": "DisabledConvergenceModule",
+      "module": "agent.project_intelligence.factory",
+      "path": "agent/project_intelligence/factory.py"
+    },
+    {
+      "call": "DisabledDigitalTwinModule",
+      "class_name": "DisabledDigitalTwinModule",
+      "module": "agent.project_intelligence.factory",
+      "path": "agent/project_intelligence/factory.py"
+    }
+  ],
+  "critical_findings": [
+    {
+      "evidence": [
+        {
+          "call": "DisabledArchitectureBlueprintModule",
+          "class_name": "DisabledArchitectureBlueprintModule",
+          "module": "agent.project_intelligence.factory",
+          "path": "agent/project_intelligence/factory.py"
+        },
+        {
+          "call": "DisabledConvergenceModule",
+          "class_name": "DisabledConvergenceModule",
+          "module": "agent.project_intelligence.factory",
+          "path": "agent/project_intelligence/factory.py"
+        },
+        {
+          "call": "DisabledDigitalTwinModule",
+          "class_name": "DisabledDigitalTwinModule",
+          "module": "agent.project_intelligence.factory",
+          "path": "agent/project_intelligence/factory.py"
+        }
+      ],
+      "expected_followup_package": "PIR-2",
+      "finding": "production factory defaults to disabled modules",
+      "issue_code": "PIR0-C01"
+    },
+    {
+      "evidence": [
+        {
+          "module": "agent.project_intelligence.coordinator",
+          "path": "agent/project_intelligence/coordinator.py"
+        }
+      ],
+      "expected_followup_package": "PIR-2",
+      "finding": "coordinator active path builds twin context but returns baseline package",
+      "issue_code": "PIR0-C02"
+    },
+    {
+      "evidence": [
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_automation_features",
+          "path": "app/api/atlas_automation_features.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_automation_safety_profile",
+          "path": "app/api/atlas_automation_safety_profile.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_autonomous_codegen",
+          "path": "app/api/atlas_autonomous_codegen.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_autopilot_factory",
+          "path": "app/api/atlas_autopilot_factory.py"
+        },
+        {
+          "imports_legacy_capability": [
+            "legacy_context_refresh"
+          ],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_bounded_retry",
+          "path": "app/api/atlas_bounded_retry.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_capsule",
+          "path": "app/api/atlas_capsule.py"
+        },
+        {
+          "imports_legacy_capability": [
+            "legacy_code_intelligence",
+            "legacy_repository_index"
+          ],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_code_intel",
+          "path": "app/api/atlas_code_intel.py"
+        },
+        {
+          "imports_legacy_capability": [
+            "legacy_context_refresh",
+            "legacy_context_refresh"
+          ],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_context_refresh",
+          "path": "app/api/atlas_context_refresh.py"
+        },
+        {
+          "imports_legacy_capability": [
+            "legacy_git_inspection",
+            "legacy_project_inspection"
+          ],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_dev_tools",
+          "path": "app/api/atlas_dev_tools.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_guarded_operator_loop",
+          "path": "app/api/atlas_guarded_operator_loop.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_llm_evaluator",
+          "path": "app/api/atlas_llm_evaluator.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_manual_next_action_executor",
+          "path": "app/api/atlas_manual_next_action_executor.py"
+        },
+        {
+          "imports_legacy_capability": [
+            "legacy_context_refresh"
+          ],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_multi_item_autopilot",
+          "path": "app/api/atlas_multi_item_autopilot.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_multi_item_supervised_status",
+          "path": "app/api/atlas_multi_item_supervised_status.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_patch_candidate_approval",
+          "path": "app/api/atlas_patch_candidate_approval.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_patch_regen_from_recommendation",
+          "path": "app/api/atlas_patch_regen_from_recommendation.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_patch_regen_recommendation",
+          "path": "app/api/atlas_patch_regen_recommendation.py"
+        },
+        {
+          "imports_legacy_capability": [
+            "legacy_impact_map",
+            "legacy_planner_context",
+            "legacy_planner_context",
+            "legacy_repo_context",
+            "legacy_verification_gate",
+            "legacy_verification_recommendation",
+            "legacy_verification_recommendation"
+          ],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_pipeline",
+          "path": "app/api/atlas_pipeline.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_play",
+          "path": "app/api/atlas_play.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_post_manual_execution_refresh",
+          "path": "app/api/atlas_post_manual_execution_refresh.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_projects",
+          "path": "app/api/atlas_projects.py"
+        },
+        {
+          "imports_legacy_capability": [
+            "legacy_impact_map",
+            "legacy_planner_context",
+            "legacy_planner_context",
+            "legacy_repo_context",
+            "legacy_verification_recommendation",
+            "legacy_verification_recommendation"
+          ],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_repo_context",
+          "path": "app/api/atlas_repo_context.py"
+        },
+        {
+          "imports_legacy_capability": [
+            "legacy_repository_index"
+          ],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_repo_index",
+          "path": "app/api/atlas_repo_index.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_root",
+          "path": "app/api/atlas_root.py"
+        },
+        {
+          "imports_legacy_capability": [
+            "legacy_context_refresh"
+          ],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_supervised_handoff_retry",
+          "path": "app/api/atlas_supervised_handoff_retry.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_supervised_handoff_safe_apply",
+          "path": "app/api/atlas_supervised_handoff_safe_apply.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_supervised_handoff_verification",
+          "path": "app/api/atlas_supervised_handoff_verification.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_supervised_item_status",
+          "path": "app/api/atlas_supervised_item_status.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_supervised_patch_regen",
+          "path": "app/api/atlas_supervised_patch_regen.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.atlas_workflow_state",
+          "path": "app/api/atlas_workflow_state.py"
+        },
+        {
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": false,
+          "module": "app.api.project_twin",
+          "path": "app/api/project_twin.py"
+        }
+      ],
+      "expected_followup_package": "PIR-10",
+      "finding": "planner/generator/verification adapters exist but real Atlas API imports legacy consumers",
+      "issue_code": "PIR0-C03"
+    },
+    {
+      "evidence": [],
+      "expected_followup_package": "PIR-1",
+      "finding": "concrete DigitalTwinModuleImpl is absent",
+      "issue_code": "PIR0-C04"
+    },
+    {
+      "evidence": [],
+      "expected_followup_package": "PIR-1",
+      "finding": "concrete ConvergenceModuleImpl is absent",
+      "issue_code": "PIR0-C05"
+    },
+    {
+      "evidence": [
+        {
+          "imports_sqlite3": false,
+          "memory_default_count": 1,
+          "module": "agent.architecture_blueprint.store",
+          "path": "agent/architecture_blueprint/store.py"
+        },
+        {
+          "imports_sqlite3": false,
+          "memory_default_count": 1,
+          "module": "agent.project_convergence.store",
+          "path": "agent/project_convergence/store.py"
+        },
+        {
+          "imports_sqlite3": true,
+          "memory_default_count": 1,
+          "module": "agent.project_intelligence._persistence",
+          "path": "agent/project_intelligence/_persistence.py"
+        },
+        {
+          "imports_sqlite3": false,
+          "memory_default_count": 1,
+          "module": "agent.project_intelligence.checkpoint",
+          "path": "agent/project_intelligence/checkpoint.py"
+        },
+        {
+          "imports_sqlite3": false,
+          "memory_default_count": 1,
+          "module": "agent.project_intelligence.inspection.consumer_inventory",
+          "path": "agent/project_intelligence/inspection/consumer_inventory.py"
+        },
+        {
+          "imports_sqlite3": false,
+          "memory_default_count": 1,
+          "module": "agent.project_intelligence.store",
+          "path": "agent/project_intelligence/store.py"
+        },
+        {
+          "imports_sqlite3": false,
+          "memory_default_count": 1,
+          "module": "agent.project_twin.benchmark",
+          "path": "agent/project_twin/benchmark.py"
+        },
+        {
+          "imports_sqlite3": true,
+          "memory_default_count": 1,
+          "module": "agent.project_twin.store",
+          "path": "agent/project_twin/store.py"
+        }
+      ],
+      "expected_followup_package": "PIR-1",
+      "finding": "in-memory persistence defaults remain in current stores",
+      "issue_code": "PIR0-C06"
+    }
+  ],
+  "database_defaults": [
+    {
+      "imports_sqlite3": false,
+      "memory_default_count": 1,
+      "module": "agent.architecture_blueprint.store",
+      "path": "agent/architecture_blueprint/store.py"
+    },
+    {
+      "imports_sqlite3": false,
+      "memory_default_count": 1,
+      "module": "agent.project_convergence.store",
+      "path": "agent/project_convergence/store.py"
+    },
+    {
+      "imports_sqlite3": true,
+      "memory_default_count": 1,
+      "module": "agent.project_intelligence._persistence",
+      "path": "agent/project_intelligence/_persistence.py"
+    },
+    {
+      "imports_sqlite3": false,
+      "memory_default_count": 1,
+      "module": "agent.project_intelligence.checkpoint",
+      "path": "agent/project_intelligence/checkpoint.py"
+    },
+    {
+      "imports_sqlite3": false,
+      "memory_default_count": 1,
+      "module": "agent.project_intelligence.inspection.consumer_inventory",
+      "path": "agent/project_intelligence/inspection/consumer_inventory.py"
+    },
+    {
+      "imports_sqlite3": false,
+      "memory_default_count": 1,
+      "module": "agent.project_intelligence.store",
+      "path": "agent/project_intelligence/store.py"
+    },
+    {
+      "imports_sqlite3": false,
+      "memory_default_count": 1,
+      "module": "agent.project_twin.benchmark",
+      "path": "agent/project_twin/benchmark.py"
+    },
+    {
+      "imports_sqlite3": true,
+      "memory_default_count": 0,
+      "module": "agent.project_twin.migrations",
+      "path": "agent/project_twin/migrations.py"
+    },
+    {
+      "imports_sqlite3": true,
+      "memory_default_count": 1,
+      "module": "agent.project_twin.store",
+      "path": "agent/project_twin/store.py"
+    },
+    {
+      "imports_sqlite3": true,
+      "memory_default_count": 0,
+      "module": "app.nexus.answer_builder",
+      "path": "app/nexus/answer_builder.py"
+    },
+    {
+      "imports_sqlite3": true,
+      "memory_default_count": 0,
+      "module": "app.nexus.db",
+      "path": "app/nexus/db.py"
+    },
+    {
+      "imports_sqlite3": true,
+      "memory_default_count": 0,
+      "module": "app.nexus.jobs",
+      "path": "app/nexus/jobs.py"
+    }
+  ],
+  "generated_at": "2026-06-10T13:10:13+00:00",
+  "legacy_consumers": [
+    {
+      "capability": "legacy_code_explorer",
+      "legacy_module": "agent.atlas_code_explorer",
+      "production_consumer_count": 3,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_patch_proposal_service",
+          "path": "agent/atlas_patch_proposal_service.py"
+        },
+        {
+          "module": "agent.atlas_verification_resolver",
+          "path": "agent/atlas_verification_resolver.py"
+        },
+        {
+          "module": "agent.research_conductor",
+          "path": "agent/research_conductor.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_code_intelligence",
+      "legacy_module": "agent.atlas_code_intel_service",
+      "production_consumer_count": 2,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_context_local_collectors",
+          "path": "agent/atlas_context_local_collectors.py"
+        },
+        {
+          "module": "app.api.atlas_code_intel",
+          "path": "app/api/atlas_code_intel.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_context_refresh",
+      "legacy_module": "agent.atlas_context_refresh_service",
+      "production_consumer_count": 6,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_supervised_handoff_retry_service",
+          "path": "agent/atlas_supervised_handoff_retry_service.py"
+        },
+        {
+          "module": "agent.atlas_supervised_handoff_verification_service",
+          "path": "agent/atlas_supervised_handoff_verification_service.py"
+        },
+        {
+          "module": "app.api.atlas_bounded_retry",
+          "path": "app/api/atlas_bounded_retry.py"
+        },
+        {
+          "module": "app.api.atlas_context_refresh",
+          "path": "app/api/atlas_context_refresh.py"
+        },
+        {
+          "module": "app.api.atlas_multi_item_autopilot",
+          "path": "app/api/atlas_multi_item_autopilot.py"
+        },
+        {
+          "module": "app.api.atlas_supervised_handoff_retry",
+          "path": "app/api/atlas_supervised_handoff_retry.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_context_refresh",
+      "legacy_module": "agent.atlas_context_refresh_v2_service",
+      "production_consumer_count": 2,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_planner_packaging_v2_service",
+          "path": "agent/atlas_planner_packaging_v2_service.py"
+        },
+        {
+          "module": "app.api.atlas_context_refresh",
+          "path": "app/api/atlas_context_refresh.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_git_inspection",
+      "legacy_module": "agent.atlas_git_inspection_service",
+      "production_consumer_count": 2,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_context_local_collectors",
+          "path": "agent/atlas_context_local_collectors.py"
+        },
+        {
+          "module": "app.api.atlas_dev_tools",
+          "path": "app/api/atlas_dev_tools.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_impact_map",
+      "legacy_module": "agent.atlas_plan_item_impact_map_service",
+      "production_consumer_count": 4,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_context_refresh_v2_service",
+          "path": "agent/atlas_context_refresh_v2_service.py"
+        },
+        {
+          "module": "agent.atlas_planner_packaging_v2_service",
+          "path": "agent/atlas_planner_packaging_v2_service.py"
+        },
+        {
+          "module": "app.api.atlas_pipeline",
+          "path": "app/api/atlas_pipeline.py"
+        },
+        {
+          "module": "app.api.atlas_repo_context",
+          "path": "app/api/atlas_repo_context.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_planner_context",
+      "legacy_module": "agent.atlas_planner_packaging_v2_service",
+      "production_consumer_count": 3,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_verification_recommendation_service",
+          "path": "agent/atlas_verification_recommendation_service.py"
+        },
+        {
+          "module": "app.api.atlas_pipeline",
+          "path": "app/api/atlas_pipeline.py"
+        },
+        {
+          "module": "app.api.atlas_repo_context",
+          "path": "app/api/atlas_repo_context.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_planner_context",
+      "legacy_module": "agent.atlas_repo_context_planner_packager",
+      "production_consumer_count": 6,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_context_refresh_service",
+          "path": "agent/atlas_context_refresh_service.py"
+        },
+        {
+          "module": "agent.atlas_plan_item_impact_map_service",
+          "path": "agent/atlas_plan_item_impact_map_service.py"
+        },
+        {
+          "module": "agent.atlas_planner_packaging_v2_service",
+          "path": "agent/atlas_planner_packaging_v2_service.py"
+        },
+        {
+          "module": "agent.atlas_verification_planning_service",
+          "path": "agent/atlas_verification_planning_service.py"
+        },
+        {
+          "module": "app.api.atlas_pipeline",
+          "path": "app/api/atlas_pipeline.py"
+        },
+        {
+          "module": "app.api.atlas_repo_context",
+          "path": "app/api/atlas_repo_context.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_project_inspection",
+      "legacy_module": "agent.atlas_project_inspection_service",
+      "production_consumer_count": 2,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_context_local_collectors",
+          "path": "agent/atlas_context_local_collectors.py"
+        },
+        {
+          "module": "app.api.atlas_dev_tools",
+          "path": "app/api/atlas_dev_tools.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_repo_context",
+      "legacy_module": "agent.atlas_repo_context_service",
+      "production_consumer_count": 4,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_context_refresh_service",
+          "path": "agent/atlas_context_refresh_service.py"
+        },
+        {
+          "module": "agent.atlas_repo_context_planner_packager",
+          "path": "agent/atlas_repo_context_planner_packager.py"
+        },
+        {
+          "module": "app.api.atlas_pipeline",
+          "path": "app/api/atlas_pipeline.py"
+        },
+        {
+          "module": "app.api.atlas_repo_context",
+          "path": "app/api/atlas_repo_context.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_repository_index",
+      "legacy_module": "agent.atlas_repo_index_service",
+      "production_consumer_count": 3,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_repo_context_service",
+          "path": "agent/atlas_repo_context_service.py"
+        },
+        {
+          "module": "app.api.atlas_code_intel",
+          "path": "app/api/atlas_code_intel.py"
+        },
+        {
+          "module": "app.api.atlas_repo_index",
+          "path": "app/api/atlas_repo_index.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_verification_gate",
+      "legacy_module": "agent.atlas_verification_gate_service",
+      "production_consumer_count": 1,
+      "production_consumers": [
+        {
+          "module": "app.api.atlas_pipeline",
+          "path": "app/api/atlas_pipeline.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_verification_recommendation",
+      "legacy_module": "agent.atlas_verification_recommendation_handoff_service",
+      "production_consumer_count": 2,
+      "production_consumers": [
+        {
+          "module": "app.api.atlas_pipeline",
+          "path": "app/api/atlas_pipeline.py"
+        },
+        {
+          "module": "app.api.atlas_repo_context",
+          "path": "app/api/atlas_repo_context.py"
+        }
+      ]
+    },
+    {
+      "capability": "legacy_verification_recommendation",
+      "legacy_module": "agent.atlas_verification_recommendation_service",
+      "production_consumer_count": 3,
+      "production_consumers": [
+        {
+          "module": "agent.atlas_verification_recommendation_handoff_service",
+          "path": "agent/atlas_verification_recommendation_handoff_service.py"
+        },
+        {
+          "module": "app.api.atlas_pipeline",
+          "path": "app/api/atlas_pipeline.py"
+        },
+        {
+          "module": "app.api.atlas_repo_context",
+          "path": "app/api/atlas_repo_context.py"
+        }
+      ]
+    }
+  ],
+  "module_implementations": {
+    "concrete_facade_count": 1,
+    "concrete_modules": [
+      {
+        "class_name": "ArchitectureBlueprintModuleImpl",
+        "module": "agent.architecture_blueprint.module",
+        "path": "agent/architecture_blueprint/module.py"
+      }
+    ],
+    "disabled_facade_count": 4,
+    "disabled_modules": [
+      {
+        "class_name": "DisabledArchitectureBlueprintModule",
+        "module": "agent.architecture_blueprint.facade",
+        "path": "agent/architecture_blueprint/facade.py"
+      },
+      {
+        "class_name": "DisabledConvergenceModule",
+        "module": "agent.project_convergence.facade",
+        "path": "agent/project_convergence/facade.py"
+      },
+      {
+        "class_name": "DisabledDigitalTwinModule",
+        "module": "agent.project_twin.facade",
+        "path": "agent/project_twin/facade.py"
+      },
+      {
+        "class_name": "DisabledProjectIntelligenceModule",
+        "module": "agent.project_intelligence.facade",
+        "path": "agent/project_intelligence/facade.py"
+      }
+    ]
+  },
+  "parse_errors": [],
+  "production_entrypoints": [
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_automation_features",
+      "path": "app/api/atlas_automation_features.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_automation_safety_profile",
+      "path": "app/api/atlas_automation_safety_profile.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_autonomous_codegen",
+      "path": "app/api/atlas_autonomous_codegen.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_autopilot_factory",
+      "path": "app/api/atlas_autopilot_factory.py"
+    },
+    {
+      "imports_legacy_capability": [
+        "legacy_context_refresh"
+      ],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_bounded_retry",
+      "path": "app/api/atlas_bounded_retry.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_capsule",
+      "path": "app/api/atlas_capsule.py"
+    },
+    {
+      "imports_legacy_capability": [
+        "legacy_code_intelligence",
+        "legacy_repository_index"
+      ],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_code_intel",
+      "path": "app/api/atlas_code_intel.py"
+    },
+    {
+      "imports_legacy_capability": [
+        "legacy_context_refresh",
+        "legacy_context_refresh"
+      ],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_context_refresh",
+      "path": "app/api/atlas_context_refresh.py"
+    },
+    {
+      "imports_legacy_capability": [
+        "legacy_git_inspection",
+        "legacy_project_inspection"
+      ],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_dev_tools",
+      "path": "app/api/atlas_dev_tools.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_guarded_operator_loop",
+      "path": "app/api/atlas_guarded_operator_loop.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_llm_evaluator",
+      "path": "app/api/atlas_llm_evaluator.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_manual_next_action_executor",
+      "path": "app/api/atlas_manual_next_action_executor.py"
+    },
+    {
+      "imports_legacy_capability": [
+        "legacy_context_refresh"
+      ],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_multi_item_autopilot",
+      "path": "app/api/atlas_multi_item_autopilot.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_multi_item_supervised_status",
+      "path": "app/api/atlas_multi_item_supervised_status.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_patch_candidate_approval",
+      "path": "app/api/atlas_patch_candidate_approval.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_patch_regen_from_recommendation",
+      "path": "app/api/atlas_patch_regen_from_recommendation.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_patch_regen_recommendation",
+      "path": "app/api/atlas_patch_regen_recommendation.py"
+    },
+    {
+      "imports_legacy_capability": [
+        "legacy_impact_map",
+        "legacy_planner_context",
+        "legacy_planner_context",
+        "legacy_repo_context",
+        "legacy_verification_gate",
+        "legacy_verification_recommendation",
+        "legacy_verification_recommendation"
+      ],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_pipeline",
+      "path": "app/api/atlas_pipeline.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_play",
+      "path": "app/api/atlas_play.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_post_manual_execution_refresh",
+      "path": "app/api/atlas_post_manual_execution_refresh.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_projects",
+      "path": "app/api/atlas_projects.py"
+    },
+    {
+      "imports_legacy_capability": [
+        "legacy_impact_map",
+        "legacy_planner_context",
+        "legacy_planner_context",
+        "legacy_repo_context",
+        "legacy_verification_recommendation",
+        "legacy_verification_recommendation"
+      ],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_repo_context",
+      "path": "app/api/atlas_repo_context.py"
+    },
+    {
+      "imports_legacy_capability": [
+        "legacy_repository_index"
+      ],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_repo_index",
+      "path": "app/api/atlas_repo_index.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_root",
+      "path": "app/api/atlas_root.py"
+    },
+    {
+      "imports_legacy_capability": [
+        "legacy_context_refresh"
+      ],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_supervised_handoff_retry",
+      "path": "app/api/atlas_supervised_handoff_retry.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_supervised_handoff_safe_apply",
+      "path": "app/api/atlas_supervised_handoff_safe_apply.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_supervised_handoff_verification",
+      "path": "app/api/atlas_supervised_handoff_verification.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_supervised_item_status",
+      "path": "app/api/atlas_supervised_item_status.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_supervised_patch_regen",
+      "path": "app/api/atlas_supervised_patch_regen.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.atlas_workflow_state",
+      "path": "app/api/atlas_workflow_state.py"
+    },
+    {
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": false,
+      "module": "app.api.project_twin",
+      "path": "app/api/project_twin.py"
+    }
+  ],
+  "project_intelligence": {
+    "adapters": [
+      {
+        "imports_app_api": false,
+        "module": "agent.project_intelligence.adapters.atlas_planning",
+        "path": "agent/project_intelligence/adapters/atlas_planning.py",
+        "phase": "planning",
+        "present": true
+      },
+      {
+        "imports_app_api": false,
+        "module": "agent.project_intelligence.adapters.atlas_generation",
+        "path": "agent/project_intelligence/adapters/atlas_generation.py",
+        "phase": "generation",
+        "present": true
+      },
+      {
+        "imports_app_api": false,
+        "module": "agent.project_intelligence.adapters.atlas_verification",
+        "path": "agent/project_intelligence/adapters/atlas_verification.py",
+        "phase": "verification",
+        "present": true
+      }
+    ],
+    "facades": [
+      {
+        "classes": [
+          "DisabledProjectIntelligenceModule"
+        ],
+        "facade": "ProjectIntelligenceModule",
+        "module": "agent.project_intelligence.facade",
+        "path": "agent/project_intelligence/facade.py",
+        "present": true
+      },
+      {
+        "classes": [
+          "ProjectIntelligenceCoordinator"
+        ],
+        "facade": "ProjectIntelligenceCoordinator",
+        "module": "agent.project_intelligence.coordinator",
+        "path": "agent/project_intelligence/coordinator.py",
+        "present": true
+      },
+      {
+        "classes": [
+          "DigitalTwinModule",
+          "DisabledDigitalTwinModule",
+          "OpenTwinRequest",
+          "ProjectEventEnvelope",
+          "RebuildTwinRequest",
+          "RefreshTwinRequest",
+          "RuntimeIngestRequest",
+          "RuntimeIngestResult",
+          "TwinContextPackage",
+          "TwinContextRequest",
+          "TwinEventResult",
+          "TwinHealthReport",
+          "TwinHealthRequest",
+          "TwinProjectState",
+          "TwinQueryKind",
+          "TwinQueryRequest",
+          "TwinQueryResult",
+          "TwinQueryResultItem",
+          "TwinReadiness",
+          "TwinRefreshResult"
+        ],
+        "facade": "DigitalTwinModule",
+        "module": "agent.project_twin.facade",
+        "path": "agent/project_twin/facade.py",
+        "present": true
+      },
+      {
+        "classes": [
+          "DisabledArchitectureBlueprintModule"
+        ],
+        "facade": "ArchitectureBlueprintModule",
+        "module": "agent.architecture_blueprint.facade",
+        "path": "agent/architecture_blueprint/facade.py",
+        "present": true
+      },
+      {
+        "classes": [
+          "ArchitectureBlueprintModuleImpl"
+        ],
+        "facade": "ArchitectureBlueprintModuleImpl",
+        "module": "agent.architecture_blueprint.module",
+        "path": "agent/architecture_blueprint/module.py",
+        "present": true
+      },
+      {
+        "classes": [
+          "DisabledConvergenceModule"
+        ],
+        "facade": "ConvergenceModule",
+        "module": "agent.project_convergence.facade",
+        "path": "agent/project_convergence/facade.py",
+        "present": true
+      }
+    ]
+  },
+  "repository_root": "KasaneCore",
+  "schema_version": 1,
+  "source": "python_ast_current_checkout",
+  "summary": {
+    "adapter_module_count": 3,
+    "concrete_facade_count": 1,
+    "critical_finding_count": 6,
+    "disabled_facade_count": 4,
+    "facade_module_count": 6,
+    "legacy_production_consumer_count": 43,
+    "production_entrypoint_count": 31
+  }
+}
