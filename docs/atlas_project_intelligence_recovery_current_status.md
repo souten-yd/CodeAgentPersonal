@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-10`
-- Next action: implement Planner and PlanPool production integration
+- Current package: `PIR-11`
+- Next action: implement Proposal, Safe Apply, and refresh integration
 - Blocker: none
 - Rollout: off by default
 
@@ -27,11 +27,10 @@ This file selects the active package. The old PI package table does not prove fi
 
 - production composition uses disabled modules;
 - coordinator active paths do not return real module output;
-- concrete Twin and Convergence facades are missing;
-- new Planner, Generator, and Verification adapters are not connected to real Atlas consumers;
+- concrete Twin, Blueprint, and Convergence facades exist, but later consumer cutover remains incomplete;
+- Generator and Verification adapters are not connected to real Atlas consumers;
 - durability defects remain in Blueprint, event projection, and checkpoints;
-- Planner and PlanPool production integration remain incomplete;
-- Plan Compiler is not authoritative PlanPool integration;
+- Proposal, Safe Apply, and refresh production integration remain incomplete;
 - Greenfield E2E and final benchmark are synthetic;
 - live rollout, platform evidence, consumer cutover, and retirement are incomplete.
 
@@ -49,7 +48,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-7 | CFG, data flow, state/event/resource graphs | acceptance_complete |
 | PIR-8 | durable Blueprint planning and review | acceptance_complete |
 | PIR-9 | Convergence correctness and evidence policy | acceptance_complete |
-| PIR-10 | Planner and PlanPool production integration | not_started |
+| PIR-10 | Planner and PlanPool production integration | acceptance_complete |
 | PIR-11 | Proposal, Safe Apply, and refresh integration | not_started |
 | PIR-12 | Verification, recovery, checkpoint, resume | not_started |
 | PIR-13 | real Greenfield E2E | not_started |
@@ -638,5 +637,64 @@ Migration/rollout state: rollout remains off by default; no legacy consumer cuto
 Known limitations: Planner/PlanPool production integration, Proposal/Safe Apply refresh, recovery/
   resume, Greenfield E2E, platform rollout, benchmark, and legacy retirement remain in PIR-10+.
 Next package: PIR-10 — Planner and PlanPool production integration.
+Blocker: none.
+```
+
+```text
+Work package: PIR-10 — Planner and authoritative PlanPool production integration
+Status: acceptance_complete
+Changed modules/files:
+- agent/project_intelligence/plan_compiler.py — Blueprint dependency cycles and missing
+  dependencies now fail before PlanPool creation; pseudo Blueprint elements compile to
+  non-file planning/verification items; planning envelope hashes and explicit
+  Blueprint-element-to-PlanItem maps are persisted with revision refs.
+- agent/project_intelligence/planpool_adapter.py — compiled Blueprint plans translate through
+  the existing AtlasPlanPoolBuilder and AtlasPlanPoolStorage authority, preserving completed
+  items and carrying Project Intelligence metadata onto pools and items.
+- app/api/atlas_pipeline.py — production PlanPool creation invokes the registered Project
+  Intelligence planning adapter in shadow/active modes, persists manifest/revision/readiness
+  metadata on PlanPool state, and blocks active planning when PI context is stale/degraded.
+- tests/test_project_intelligence_plan_compiler.py
+- tests/test_project_intelligence_planpool_adapter.py
+- tests/test_atlas_api_pipeline.py
+- tests/test_project_intelligence_recovery_baseline.py — PIR0-C07 dependency-cycle lock now
+  passes and PIR-10 status advanced; later package locks remain strict xfail.
+Executed commands and exact results:
+- python -m py_compile app/api/atlas_pipeline.py
+  agent/project_intelligence/plan_compiler.py agent/project_intelligence/planpool_adapter.py
+  tests/test_atlas_api_pipeline.py tests/test_project_intelligence_plan_compiler.py
+  tests/test_project_intelligence_planpool_adapter.py
+  tests/test_project_intelligence_recovery_baseline.py -> compile OK
+- python -m pytest -q tests/test_project_intelligence_plan_compiler.py
+  tests/test_project_intelligence_planpool_adapter.py tests/test_project_intelligence_planner_bridge.py
+  tests/test_atlas_plan_pool_builder.py tests/test_atlas_plan_pool_storage.py
+  tests/test_atlas_api_pipeline.py tests/test_project_intelligence_recovery_baseline.py ->
+  91 passed, 2 xfailed in 24.21s
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=32 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+- $files = @(Get-ChildItem tests -Filter 'test_project_intelligence_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_project_twin_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_blueprint_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_architecture_blueprint_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_convergence_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_project_convergence_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_atlas_plan_pool_*.py' | ForEach-Object { $_.FullName }) +
+  @((Resolve-Path tests/test_atlas_api_pipeline.py).Path, (Resolve-Path tests/test_atlas_planner_bridge.py).Path);
+  python -m pytest -q @files -> 566 passed, 2 xfailed in 57.30s
+Unavailable checks: no live external Planner LLM success path or UI session was required; the
+  production API path was exercised deterministically through PlanPool creation with a registered
+  Project Intelligence service. PIR-11 owns Proposal/Safe Apply refresh and PIR-13 owns real
+  Greenfield E2E.
+Safety invariants checked: off/no-service PlanPool creation remains legacy-compatible; shadow
+  mode is non-interfering; active stale/degraded PI context records a blocking PlanPool metadata
+  reason rather than approving execution; PlanPool storage remains authoritative; Planner does
+  not access private module stores; completed items remain completed during downstream replan.
+Migration/rollout state: rollout remains off by default; no legacy consumer cutover or legacy
+  deletion was performed.
+Known limitations: coordinator active context still depends on later real module-output work;
+  Proposal, Safe Apply, refresh, recovery/resume, Greenfield E2E, platform rollout, benchmark,
+  and legacy retirement remain in PIR-11+.
+Next package: PIR-11 — Proposal, Safe Apply, and refresh integration.
 Blocker: none.
 ```

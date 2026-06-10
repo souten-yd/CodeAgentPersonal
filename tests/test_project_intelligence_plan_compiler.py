@@ -19,6 +19,7 @@ from agent.project_intelligence.plan_compiler import (
     CREATE_STRUCTURE,
     DELIVERY,
     MODIFY,
+    VERIFY_CONTRACT,
     compile_plan,
     load_plan_pool_metadata,
     requirement_element_coverage,
@@ -127,3 +128,60 @@ def test_legacy_plan_pool_loads_with_defaults() -> None:
     assert md["blueprint_revision_id"] is None
     assert md["project_mode"] == "imported_unknown"
     assert md["some_old_field"] == 1
+
+
+def test_dependency_cycle_is_rejected() -> None:
+    rev = _rev([
+        _el("e_a", "a.py", "file", req="R1", depends=["e_b"]),
+        _el("e_b", "b.py", "file", req="R2", depends=["e_a"]),
+    ], ["R1", "R2"])
+    try:
+        compile_plan(rev, project_mode="existing")
+    except ValueError as exc:
+        assert "cycle" in str(exc)
+    else:
+        raise AssertionError("dependency cycle should be rejected")
+
+
+def test_missing_dependency_is_rejected() -> None:
+    rev = _rev([_el("e_a", "a.py", "file", req="R1", depends=["missing"])], ["R1"])
+    try:
+        compile_plan(rev, project_mode="existing")
+    except ValueError as exc:
+        assert "missing blueprint dependencies" in str(exc)
+    else:
+        raise AssertionError("missing dependency should be rejected")
+
+
+def test_pseudo_elements_are_not_file_operations_and_hash_is_stable() -> None:
+    rev = _rev([
+        _el("e_file", "a.py", "file", req="R1"),
+        BlueprintElement(
+            element_id="e_test",
+            canonical_ref="bp://tests",
+            element_type="test_contract",
+            name="tests",
+            requirement_ids=["R1"],
+            expected_actual_refs=["file://tests/test_a.py"],
+            acceptance_criteria=["pytest passes"],
+        ),
+        BlueprintElement(
+            element_id="e_nfr",
+            canonical_ref="bp://nfr/latency",
+            element_type="nfr",
+            name="latency",
+            requirement_ids=["R1"],
+            acceptance_criteria=["p95 < 200ms"],
+        ),
+    ], ["R1"])
+    p1 = compile_plan(rev, project_mode="existing", actual_twin_revision_id="tw", convergence_report_id="cv", context_manifest_id="cm")
+    p2 = compile_plan(rev, project_mode="existing", actual_twin_revision_id="tw", convergence_report_id="cv", context_manifest_id="cm")
+    kinds = {item.item_id: item.kind for item in p1.items}
+    refs = {item.item_id: item.target_refs for item in p1.items}
+    assert kinds["item:e_file"] == MODIFY
+    assert kinds["item:e_test"] == VERIFY_CONTRACT
+    assert kinds["item:e_nfr"] == VERIFY_CONTRACT
+    assert refs["item:e_test"] == []
+    assert refs["item:e_nfr"] == []
+    assert p1.planning_envelope_hash == p2.planning_envelope_hash
+    assert p1.element_item_map == {"e_file": "item:e_file", "e_nfr": "item:e_nfr", "e_test": "item:e_test"}

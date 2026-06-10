@@ -13,6 +13,8 @@ PlanPool records load with defaults.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 
 from agent.architecture_blueprint.contracts import BlueprintRevision
@@ -27,9 +29,15 @@ CREATE_FILE = "create_file"
 CREATE_STRUCTURE = "create_structure"
 MODIFY = "modify"
 REPAIR_ITEM = "repair"
+VERIFY_CONTRACT = "verify_contract"
+PLAN_CONTRACT = "plan_contract"
 
 _GREENFIELD_MODES = {"empty", "greenfield_partial"}
 _STRUCTURE_TYPES = {"directory", "package", "component", "product"}
+_PSEUDO_TYPES = {
+    "entrypoint", "command", "test_contract", "runtime_scenario", "nfr",
+    "preserve_behavior", "api_route", "schema", "configuration", "dependency",
+}
 
 
 @dataclass
@@ -53,6 +61,8 @@ class CompiledPlan:
     actual_twin_revision_id: str | None = None
     convergence_report_id: str | None = None
     context_manifest_id: str | None = None
+    planning_envelope_hash: str | None = None
+    element_item_map: dict[str, str] = field(default_factory=dict)
 
     def item(self, item_id: str) -> PlanItemSpec | None:
         return next((i for i in self.items if i.item_id == item_id), None)
@@ -64,6 +74,8 @@ class CompiledPlan:
             "actual_twin_revision_id": self.actual_twin_revision_id,
             "convergence_report_id": self.convergence_report_id,
             "context_manifest_id": self.context_manifest_id,
+            "planning_envelope_hash": self.planning_envelope_hash,
+            "element_item_map": dict(self.element_item_map),
             "project_mode": self.project_mode,
         }
 
@@ -86,31 +98,81 @@ def _item_id(element_id: str) -> str:
 
 def _topological(elements) -> list[str]:
     ids = {e.element_id for e in elements}
-    deps = {e.element_id: [d for d in e.depends_on_element_ids if d in ids] for e in elements}
+    missing = sorted(
+        f"{e.element_id}->{dep}"
+        for e in elements
+        for dep in e.depends_on_element_ids
+        if dep not in ids
+    )
+    if missing:
+        raise ValueError(f"missing blueprint dependencies: {missing}")
+    deps = {e.element_id: list(e.depends_on_element_ids) for e in elements}
     order: list[str] = []
-    seen: set[str] = set()
+    state: dict[str, int] = {}
 
-    def visit(n: str, stack: set[str]):
-        if n in seen or n in stack:
+    def visit(n: str, stack: list[str]):
+        current = state.get(n)
+        if current == 2:
             return
-        stack.add(n)
+        if current == 1:
+            cycle = [*stack[stack.index(n):], n] if n in stack else [n]
+            raise ValueError(f"blueprint dependency cycle: {cycle}")
+        state[n] = 1
+        stack.append(n)
         for d in deps.get(n, []):
             visit(d, stack)
-        stack.discard(n)
-        seen.add(n)
+        stack.pop()
+        state[n] = 2
         order.append(n)
 
     for eid in sorted(ids):
-        visit(eid, set())
+        visit(eid, [])
     return order
 
 
 def _kind_for(element_type: str, project_mode: str) -> str:
+    if element_type in {"test_contract", "runtime_scenario", "nfr"}:
+        return VERIFY_CONTRACT
+    if element_type in _PSEUDO_TYPES:
+        return PLAN_CONTRACT
     if project_mode == "repair":
         return REPAIR_ITEM
     if project_mode in _GREENFIELD_MODES:
         return CREATE_STRUCTURE if element_type in _STRUCTURE_TYPES else CREATE_FILE
     return MODIFY
+
+
+def _target_refs_for(el) -> list[str]:
+    if el.element_type in _PSEUDO_TYPES:
+        return []
+    return list(el.expected_actual_refs)
+
+
+def _planning_envelope_hash(revision: BlueprintRevision, *, project_mode: str, phase: str, metadata: dict) -> str:
+    payload = {
+        "revision_id": revision.revision_id,
+        "project_id": revision.project_id,
+        "workspace_id": revision.workspace_id,
+        "project_mode": project_mode,
+        "phase": phase,
+        "source_requirement_ids": list(revision.source_requirement_ids),
+        "metadata": metadata,
+        "elements": [
+            {
+                "element_id": e.element_id,
+                "canonical_ref": e.canonical_ref,
+                "element_type": e.element_type,
+                "requirement_ids": list(e.requirement_ids),
+                "depends_on_element_ids": list(e.depends_on_element_ids),
+                "expected_actual_refs": list(e.expected_actual_refs),
+                "verification_contract_ids": list(e.verification_contract_ids),
+                "acceptance_criteria": list(e.acceptance_criteria),
+            }
+            for e in sorted(revision.elements, key=lambda item: item.element_id)
+        ],
+    }
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def compile_plan(
@@ -135,16 +197,26 @@ def compile_plan(
                       ARCHITECTURE if project_mode in _GREENFIELD_MODES else DELIVERY)
     by_id = {e.element_id: e for e in revision.elements}
     order = _topological(revision.elements)
+    metadata = {
+        "blueprint_revision_id": revision.revision_id,
+        "actual_twin_revision_id": actual_twin_revision_id,
+        "convergence_report_id": convergence_report_id,
+        "context_manifest_id": context_manifest_id,
+    }
+    envelope_hash = _planning_envelope_hash(revision, project_mode=project_mode, phase=phase, metadata=metadata)
 
     items: list[PlanItemSpec] = []
+    element_item_map: dict[str, str] = {}
     for eid in order:
         el = by_id[eid]
         iid = _item_id(eid)
+        element_item_map[eid] = iid
+        target_refs = _target_refs_for(el)
         # Preserve completed items (never recreate them).
         if iid in completed:
             items.append(PlanItemSpec(item_id=iid, kind=_kind_for(el.element_type, project_mode),
                                       blueprint_element_ids=[eid], requirement_ids=list(el.requirement_ids),
-                                      target_refs=list(el.expected_actual_refs),
+                                      target_refs=target_refs,
                                       depends_on=[_item_id(d) for d in el.depends_on_element_ids],
                                       status="completed"))
             continue
@@ -152,14 +224,14 @@ def compile_plan(
         if replan_scope is not None and eid not in replan_scope:
             items.append(PlanItemSpec(item_id=iid, kind=_kind_for(el.element_type, project_mode),
                                       blueprint_element_ids=[eid], requirement_ids=list(el.requirement_ids),
-                                      target_refs=list(el.expected_actual_refs),
+                                      target_refs=target_refs,
                                       depends_on=[_item_id(d) for d in el.depends_on_element_ids],
                                       status="preserved"))
             continue
         items.append(PlanItemSpec(
             item_id=iid, kind=_kind_for(el.element_type, project_mode),
             blueprint_element_ids=[eid], requirement_ids=list(el.requirement_ids),
-            target_refs=list(el.expected_actual_refs),
+            target_refs=target_refs,
             depends_on=[_item_id(d) for d in el.depends_on_element_ids],
             convergence_criteria=list(el.acceptance_criteria), status="pending",
         ))
@@ -168,6 +240,7 @@ def compile_plan(
         planning_phase=phase, project_mode=project_mode, items=items,
         blueprint_revision_id=revision.revision_id, actual_twin_revision_id=actual_twin_revision_id,
         convergence_report_id=convergence_report_id, context_manifest_id=context_manifest_id,
+        planning_envelope_hash=envelope_hash, element_item_map=element_item_map,
     )
 
 

@@ -61,7 +61,7 @@ def test_recovery_status_selects_next_active_package() -> None:
     status = (REPO_ROOT / "docs" / "atlas_project_intelligence_recovery_current_status.md").read_text(
         encoding="utf-8"
     )
-    assert "Current package: `PIR-10`" in status
+    assert "Current package: `PIR-11`" in status
     assert "| PIR-0 | baseline, inventory, regression locks | acceptance_complete |" in status
     assert "| PIR-1 | durable concrete modules | acceptance_complete |" in status
     assert "| PIR-2 | production composition and rollout preflight | acceptance_complete |" in status
@@ -72,6 +72,7 @@ def test_recovery_status_selects_next_active_package() -> None:
     assert "| PIR-7 | CFG, data flow, state/event/resource graphs | acceptance_complete |" in status
     assert "| PIR-8 | durable Blueprint planning and review | acceptance_complete |" in status
     assert "| PIR-9 | Convergence correctness and evidence policy | acceptance_complete |" in status
+    assert "| PIR-10 | Planner and PlanPool production integration | acceptance_complete |" in status
 
 
 def test_legacy_status_treats_pi_as_foundation_not_completion() -> None:
@@ -136,7 +137,6 @@ def test_pir0_c06_no_memory_database_defaults_remain() -> None:
     assert memory_defaults == []
 
 
-@pytest.mark.xfail(strict=True, reason="PIR0-C07: Plan Compiler must reject dependency cycles")
 def test_pir0_c07_plan_compiler_rejects_dependency_cycles() -> None:
     from agent.architecture_blueprint.contracts import BlueprintElement, BlueprintRevision
     from agent.architecture_blueprint.lifecycle import planner_decision
