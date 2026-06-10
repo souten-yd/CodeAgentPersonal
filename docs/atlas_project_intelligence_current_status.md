@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-24` (PI-0..PI-23 completed)
-- Next action: cross-platform, scale, storage, and rollout hardening (PI-24)
+- Current work package: `PI-25` (PI-0..PI-24 completed)
+- Next action: final comparative benchmark and legacy retirement (PI-25)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -63,7 +63,7 @@ Current gaps include:
 | PI-21 | Coherent multi-file generation | Completed | coherence checks(imports/assets/api/manifest/placeholder/deps)+typed gaps+separate recovery; `tests/test_project_intelligence_coherence.py` → 9 passed; PI+baseline 272 passed |
 | PI-22 | Greenfield build/run/test and real E2E | Completed | ProjectRuntimeAdapter+E2E harness (6 profiles, allowlist, unavailable≠passed, persistence-across-restart); `tests/test_project_intelligence_greenfield_e2e.py` → 7 passed; PI+baseline 279 passed |
 | PI-23 | Capability consolidation and consumer cutover | Completed | consolidation (compat adapter, shadow compare, consumer registry+cutover order, retirement gate, rollback); `tests/test_project_intelligence_consolidation.py` → 10 passed; PI+baseline 289 passed |
-| PI-24 | Cross-platform, scale, storage, rollout hardening | Not Started | |
+| PI-24 | Cross-platform, scale, storage, rollout hardening | Completed | hardening (platform detect, regression budget, bounded growth, retention/compaction, export/import+integrity, job coalescing, rollout gate+rollback, no-leakage); `tests/test_project_intelligence_hardening.py` → 10 passed; PI+baseline 299 passed |
 | PI-25 | Final benchmark and legacy retirement | Not Started | |
 
 ## Per-package update template
@@ -85,6 +85,41 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-24 — Cross-platform, scale, storage, and rollout hardening
+Status: Completed
+Commit/PR: local branch pi-24-hardening (not pushed/merged yet)
+Changed modules/files:
+- agent/project_intelligence/hardening.py (new) — detect_platform/platform_evidence;
+  RegressionBudget; assert_bounded; compaction_plan; export/import_artifacts; coalesce_refresh;
+  RolloutGate (advance/rollback); no_data_leakage.
+- tests/test_project_intelligence_hardening.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Platform detection (windows/linux/docker/runpod) with explicit unavailable evidence
+  (never assumed passed). RegressionBudget enforces a default 20% baseline budget (higher- or
+  lower-is-better metrics). assert_bounded guards against unbounded context/prompt growth.
+- Non-destructive compaction_plan (retain head + last N, list prunable — no data deleted).
+  export/import_artifacts round-trip + integrity check. coalesce_refresh deduplicates refresh
+  jobs (idempotency) and restart recovery requeues running jobs. RolloutGate advances only on
+  passing telemetry and supports phase rollback. no_data_leakage verifies project isolation.
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/hardening.py + test -> compile OK
+- python -m pytest -q tests/test_project_intelligence_hardening.py -> 10 passed in 0.59s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 299 passed in 11.42s
+Unavailable checks: real Windows/Linux/Docker/Runpod runs are environment-specific; the adapter
+  reports unavailable platform evidence explicitly rather than fabricating a pass.
+Safety invariants checked: regression budget enforced; no project data leakage; bounded growth;
+  phase rollback works; unavailable platform evidence explicit; compaction is non-destructive.
+Migration/rollout state: hardening primitives ready; the phased rollout gate governs stage
+  advancement with telemetry + rollback.
+Known limitations: cross-platform results are produced by the live environment at deployment;
+  here the unavailable path and the budget/gate logic are tested deterministically.
+Next package: PI-25 — Final comparative benchmark and legacy retirement.
+Blocker: none.
+```
 
 ```text
 Work package: PI-23 — Existing capability consolidation and consumer cutover (Milestone G begins)
