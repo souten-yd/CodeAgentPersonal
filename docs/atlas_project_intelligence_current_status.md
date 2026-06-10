@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-12` (PI-0..PI-11 completed)
-- Next action: Blueprint-to-Actual mapping hints (PI-12)
+- Current work package: `PI-13` (PI-0..PI-12 completed; Milestone C done)
+- Next action: Convergence deterministic matcher and evaluator (PI-13)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -51,8 +51,8 @@ Current gaps include:
 | PI-9 | Context, path, impact, test selection v2 | Completed | impact/path/test-select+bounded context package; `tests/test_project_intelligence_query_context.py` → 10 passed; PI+analysis+context_broker+baseline 194 passed |
 | PI-10 | Blueprint model, store, lifecycle | Completed | lifecycle+module(state machine/scopes/diff/authority/planned-ref guard)+store set_head; `tests/test_project_intelligence_blueprint_lifecycle.py` → 9 passed; PI+baseline 192 passed |
 | PI-11 | Blueprint generation, review, validation | Completed | validator+generator (coverage/manifest/cycle/exec-contract/vague); `tests/test_project_intelligence_blueprint_generation.py` → 8 passed; PI+baseline 200 passed |
-| PI-12 | Blueprint-to-Actual mapping hints | In Progress | current package |
-| PI-13 | Convergence matcher and evaluator | Not Started | |
+| PI-12 | Blueprint-to-Actual mapping hints | Completed | mapping.py (materialized/realized/blocked, evidence-gated verify, public snapshot, decoupled); `tests/test_project_intelligence_blueprint_mapping.py` → 5 passed; PI+baseline 205 passed |
+| PI-13 | Convergence matcher and evaluator | In Progress | current package |
 | PI-14 | Convergence decision and incremental evaluation | Not Started | |
 | PI-15 | Completion and requirement-evidence integration | Not Started | |
 | PI-16 | Planning envelope and Plan Compiler | Not Started | |
@@ -85,6 +85,41 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-12 — Blueprint-to-Actual mapping hints (Milestone C complete)
+Status: Completed
+Commit/PR: local branch pi-12-blueprint-mapping (not pushed/merged yet)
+Changed modules/files:
+- agent/architecture_blueprint/mapping.py (new) — ActualEntry/snapshot_from_public,
+  suggest_mappings (materialized_as/realized_by/blocked_by), confirm_mapping (evidence-gated
+  verified_by), MappingSet/build_mapping_set.
+- tests/test_project_intelligence_blueprint_mapping.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Mapping uses a PUBLIC Actual snapshot (list of {ref,name,kind}); the module does not import
+  agent.project_twin, so Blueprint stays valid when the Twin store implementation changes
+  (AST-asserted decoupling).
+- Deterministic relations: exact expected_actual_ref -> materialized_as; name heuristic ->
+  realized_by; mandatory unmatched -> blocked_by. All hints status=inferred.
+- Heuristic mapping is never silently verified: confirm_mapping requires non-empty evidence
+  and only then yields verified_by/verified.
+- Every hint carries blueprint_revision_id + twin_revision_id, so mapping history follows both.
+Executed commands and exact results:
+- python -m py_compile agent/architecture_blueprint/mapping.py + test -> compile OK
+- python -m pytest -q tests/test_project_intelligence_blueprint_mapping.py -> 5 passed in 0.58s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 205 passed in 7.55s
+Unavailable checks: none required.
+Safety invariants checked: no Twin-internal coupling; heuristic != verified; evidence required
+  for verification; planned/actual separation preserved.
+Migration/rollout state: Blueprint Module (PI-10..PI-12) complete behind its facade; no cutover.
+Known limitations: name heuristic is exact-name only; diverges_from/satisfies are recorded by
+  Convergence (PI-13+) with evidence, not by suggestion.
+Milestone: Milestone C (Architecture Blueprint Module, PI-10..PI-12) COMPLETE.
+Next package: PI-13 — Convergence deterministic matcher and multidimensional evaluator (Milestone D).
+Blocker: none.
+```
 
 ```text
 Work package: PI-11 — Blueprint generation, review, and validation
