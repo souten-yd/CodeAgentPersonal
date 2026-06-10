@@ -15,7 +15,9 @@ stores (architecture §3, ADR-PI-015). It is never an execution authority (ADR-P
 
 from __future__ import annotations
 
+from agent.architecture_blueprint.contracts import ArchitectureBlueprintModule
 from agent.architecture_blueprint.facade import DisabledArchitectureBlueprintModule
+from agent.project_convergence.contracts import ConvergenceModule
 from agent.project_convergence.facade import DisabledConvergenceModule
 from agent.project_intelligence.contracts import (
     ApplyResultRequest,
@@ -39,6 +41,7 @@ from agent.project_intelligence.contracts import (
 from agent.project_intelligence.rollout import RolloutConfig
 from agent.project_intelligence.telemetry import TelemetrySink
 from agent.project_twin.facade import (
+    DigitalTwinModule,
     DisabledDigitalTwinModule,
     TwinContextRequest,
 )
@@ -54,9 +57,9 @@ class ProjectIntelligenceCoordinator:
     def __init__(
         self,
         *,
-        digital_twin: DisabledDigitalTwinModule | None = None,
-        blueprint: DisabledArchitectureBlueprintModule | None = None,
-        convergence: DisabledConvergenceModule | None = None,
+        digital_twin: DigitalTwinModule | None = None,
+        blueprint: ArchitectureBlueprintModule | None = None,
+        convergence: ConvergenceModule | None = None,
         rollout: RolloutConfig | None = None,
         telemetry: TelemetrySink | None = None,
     ) -> None:

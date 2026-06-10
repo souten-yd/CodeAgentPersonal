@@ -61,10 +61,11 @@ def test_recovery_status_selects_next_active_package() -> None:
     status = (REPO_ROOT / "docs" / "atlas_project_intelligence_recovery_current_status.md").read_text(
         encoding="utf-8"
     )
-    assert "Current package: `PIR-2`" in status
+    assert "Current package: `PIR-3`" in status
     assert "| PIR-0 | baseline, inventory, regression locks | acceptance_complete |" in status
     assert "| PIR-1 | durable concrete modules | acceptance_complete |" in status
-    assert "| PIR-2 | production composition and rollout preflight | not_started |" in status
+    assert "| PIR-2 | production composition and rollout preflight | acceptance_complete |" in status
+    assert "| PIR-3 | source snapshots and Twin refresh | not_started |" in status
 
 
 def test_legacy_status_treats_pi_as_foundation_not_completion() -> None:
@@ -75,15 +76,19 @@ def test_legacy_status_treats_pi_as_foundation_not_completion() -> None:
     )[0]
 
 
-@pytest.mark.xfail(strict=True, reason="PIR0-C01: production composition still defaults to disabled modules")
-def test_pir0_c01_production_factory_no_longer_constructs_disabled_modules() -> None:
-    inv = _inventory()
-    factory_disabled_sites = [
-        row
-        for row in inv["construction_sites"]
-        if row["path"] == "agent/project_intelligence/factory.py" and row["class_name"].startswith("Disabled")
-    ]
-    assert factory_disabled_sites == []
+def test_pir0_c01_production_factory_no_longer_constructs_disabled_modules(tmp_path: Path) -> None:
+    from agent.project_intelligence.production_factory import build_production_project_intelligence
+    from agent.project_intelligence.rollout import ENV_ENABLED, RolloutConfig
+
+    service = build_production_project_intelligence(
+        ca_data_dir=tmp_path,
+        rollout=RolloutConfig.from_env({ENV_ENABLED: "1"}),
+    )
+    try:
+        classes = service.preflight()["implementation_classes"]
+        assert not any(name.startswith("Disabled") for name in classes.values())
+    finally:
+        service.close()
 
 
 @pytest.mark.xfail(strict=True, reason="PIR0-C02: active coordinator still returns baseline package output")
