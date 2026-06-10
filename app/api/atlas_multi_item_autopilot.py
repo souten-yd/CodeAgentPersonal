@@ -26,7 +26,7 @@ from agent.atlas_failure_diagnosis_service import AtlasFailureDiagnosisService
 from agent.atlas_test_harness_provisioner import AtlasTestHarnessProvisioner
 from agent.atlas_workspace_root import resolve_atlas_workspace_root
 from agent.test_command_runner import TestCommandRunner
-from app.api.atlas_autopilot_factory import build_safe_apply_execution_service, build_self_correction_service
+from app.api.atlas_autopilot_factory import build_safe_apply_execution_service, build_self_correction_service, _project_intelligence_coordinator
 
 router = APIRouter(prefix="/api/atlas/multi-item-autopilot", tags=["atlas-multi-item-autopilot"])
 
@@ -75,7 +75,12 @@ def _service(request: Request | None = None, workspace_id: str = "default", pool
     )
     correction_router_service = None
     if llm_json_fn is not None and self_correction_service is not None:
-        patch_proposal_service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_json_fn)
+        patch_proposal_service = AtlasPatchProposalService(
+            journal=journal,
+            storage=storage,
+            llm_json_fn=llm_json_fn,
+            project_intelligence=_project_intelligence_coordinator(request),
+        )
         # Routes a test failure caused by a code bug back to regenerating the implementation item.
         correction_router_service = AtlasCorrectionRouterService(
             storage=storage,

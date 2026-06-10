@@ -28,6 +28,8 @@ from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_plan_target_contract import materialize_structural_targets, validate_plan_target_contract
 from agent.atlas_plan_trace import PlanTrace
 from agent.atlas_workspace_root import resolve_atlas_workspace_root
+from agent.project_intelligence.adapters.atlas_generation import AtlasGeneratorBridge
+from agent.project_intelligence.contracts import GenerationContextRequest, ProjectIdentity
 
 
 class AtlasPatchProposalService:
@@ -71,10 +73,18 @@ class AtlasPatchProposalService:
         ),
     }
 
-    def __init__(self, *, journal: AtlasJournal, storage: AtlasPlanPoolStorage, llm_json_fn: Callable[[str, str], dict | None] | None = None):
+    def __init__(
+        self,
+        *,
+        journal: AtlasJournal,
+        storage: AtlasPlanPoolStorage,
+        llm_json_fn: Callable[[str, str], dict | None] | None = None,
+        project_intelligence: Any | None = None,
+    ):
         self.journal = journal
         self.storage = storage
         self.llm_json_fn = llm_json_fn
+        self.project_intelligence = project_intelligence
 
     def propose_for_item(self, request: AtlasPatchProposalRequest) -> AtlasPatchProposalResult:
         run_id = request.run_id or f"patchgen_{uuid4().hex[:10]}"
@@ -119,10 +129,28 @@ class AtlasPatchProposalService:
         try:
             self.persist_patch_generation_transition(pool, item, run_id=run_id, event_type="patch_generation_started", state="running", outcome="active", reason_code="patch_generation_started", retryable=True)
             payload = self.build_proposal_input(pool, item, request)
+            payload, pi_generation = self._attach_project_intelligence_generation_context(pool, item, request, payload)
+            if pi_generation.get("blocked"):
+                warnings = ["project_intelligence_generation_blocked", *list(pi_generation.get("diagnostics") or [])]
+                self.persist_patch_generation_transition(
+                    pool,
+                    item,
+                    run_id=run_id,
+                    event_type="patch_generation_blocked",
+                    state="blocked",
+                    outcome="blocked",
+                    reason_code=str(pi_generation.get("blocking_reason") or "project_intelligence_generation_blocked"),
+                    warnings=warnings,
+                    retryable=True,
+                )
+                self._record_trace(pool.pool_id, request.run_id, "blocked", "project_intelligence_generation_blocked", {"llm_called": False, "project_intelligence_generation": pi_generation})
+                return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump(), metadata={"project_intelligence_generation": pi_generation, "patch_generation": (item.metadata or {}).get("patch_generation") or {}})
             proposal = self.generate_proposal_with_llm(payload) if self.llm_json_fn else self.generate_fallback_proposal(payload)
             proposal.pool_id = pool.pool_id
             proposal.item_id = item.item_id
             proposal.run_id = run_id
+            if pi_generation:
+                proposal.metadata["project_intelligence_generation"] = pi_generation
             # Honest signal: a proposal can be "proposed" yet carry NO applicable content (weak/absent
             # LLM, or fallback). Surface that explicitly so the UI does not report fake success and the
             # autopilot does not silently skip with "missing_patch_or_content".
@@ -153,7 +181,7 @@ class AtlasPatchProposalService:
                 run_id,
                 "generated",
                 "patch_proposal_generated",
-                {"llm_called": bool(self.llm_json_fn), "has_content": has_content, "patch_generation": patch_generation},
+                {"llm_called": bool(self.llm_json_fn), "has_content": has_content, "patch_generation": patch_generation, "project_intelligence_generation": pi_generation},
             )
             source_type = str((proposal.metadata or {}).get("source_type") or request.source_type or "")
             result_status = "proposed" if generation_success or source_type == "debug_review" else str(patch_generation.get("state") or "failed")
@@ -181,6 +209,79 @@ class AtlasPatchProposalService:
             self.persist_patch_generation_transition(pool, item, run_id=run_id, event_type="patch_generation_failed", state="failed", outcome="failure", reason_code="patch_proposal_exception", errors=errors, retryable=True)
             self._record_trace(pool.pool_id, run_id, "failed", "patch_proposal_exception", {"llm_called": bool(self.llm_json_fn), "errors": errors})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=run_id, status="failed", errors=errors, plan_pool=pool.model_dump(), metadata={"patch_generation": (item.metadata or {}).get("patch_generation") or {}})
+
+    def _attach_project_intelligence_generation_context(
+        self,
+        pool: AtlasPlanPool,
+        item: AtlasPlanItem,
+        request: AtlasPatchProposalRequest,
+        payload: dict,
+    ) -> tuple[dict, dict]:
+        if self.project_intelligence is None:
+            return payload, {}
+        target_files = [str(path) for path in payload.get("item", {}).get("target_files") or item.target_files or []]
+        target_refs = [path if "://" in path else f"file://{path}" for path in target_files if path]
+        base_revision = (
+            str(request.metadata.get("base_revision") or "")
+            or str((item.metadata or {}).get("actual_twin_revision_id") or "")
+            or str((pool.metadata or {}).get("actual_twin_revision_id") or "")
+            or None
+        )
+        current_actual_revision = (
+            str(request.metadata.get("current_actual_revision") or "")
+            or str(request.metadata.get("actual_twin_revision_id") or "")
+            or str((pool.metadata or {}).get("current_actual_twin_revision_id") or "")
+            or str((pool.metadata or {}).get("actual_twin_revision_id") or "")
+            or None
+        )
+        current_target_content = {
+            path: str((entry or {}).get("content") or "")
+            for path, entry in dict(payload.get("current_target_contents") or {}).items()
+        }
+        try:
+            result = AtlasGeneratorBridge(self.project_intelligence).build_generation_context(
+                request=GenerationContextRequest(
+                    project=ProjectIdentity(
+                        project_id=str(pool.project_name or (pool.metadata or {}).get("project_id") or "atlas"),
+                        workspace_id=str(request.workspace_id or (pool.metadata or {}).get("workspace_id") or "default"),
+                        project_path=str(pool.project_path or ""),
+                    ),
+                    plan_pool_id=pool.pool_id,
+                    plan_item_id=item.item_id,
+                    target_refs=target_refs,
+                    correlation_id=request.run_id or "",
+                ),
+                legacy_context=dict(payload),
+                base_revision=base_revision,
+                current_actual_revision=current_actual_revision,
+                current_target_content=current_target_content,
+            )
+        except Exception as exc:  # noqa: BLE001 - do not break legacy generation on PI failure.
+            metadata = {
+                "status": "failed",
+                "mode": "unknown",
+                "used_intelligence": False,
+                "blocked": False,
+                "refresh_requested": False,
+                "diagnostics": [str(exc)[:300]],
+                "error_kind": exc.__class__.__name__,
+            }
+            payload["project_intelligence_generation"] = metadata
+            return payload, metadata
+        metadata = {
+            "status": "available",
+            "mode": result.mode,
+            "used_intelligence": result.used_intelligence,
+            "blocked": result.blocked,
+            "refresh_requested": result.refresh_requested,
+            "context_manifest_id": result.manifest_id,
+            "base_revision": result.base_revision,
+            "diagnostics": list(result.diagnostics),
+            "blocking_reason": "stale_actual_revision" if result.blocked else "",
+        }
+        payload = dict(result.context or payload)
+        payload["project_intelligence_generation"] = metadata
+        return payload, metadata
 
     def validate_item_for_patch_proposal(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> tuple[bool, list[str]]:
         warnings = []

@@ -73,6 +73,7 @@ def test_recovery_status_selects_next_active_package() -> None:
     assert "| PIR-8 | durable Blueprint planning and review | acceptance_complete |" in status
     assert "| PIR-9 | Convergence correctness and evidence policy | acceptance_complete |" in status
     assert "| PIR-10 | Planner and PlanPool production integration | acceptance_complete |" in status
+    assert "| PIR-11 | Proposal, Safe Apply, and refresh integration | production_connected |" in status
 
 
 def test_legacy_status_treats_pi_as_foundation_not_completion() -> None:

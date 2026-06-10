@@ -12,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from app.api.atlas_multi_item_autopilot import _service as _build_multi_item_service, _validate_id
+from app.api.atlas_autopilot_factory import _project_intelligence_coordinator
 from agent.atlas_clarification_execution_blocker import clarification_execution_block_reasons
 from agent.atlas_autonomous_codegen_orchestrator_schema import AtlasAutonomousCodegenRequest
 from agent.atlas_autonomous_codegen_orchestrator_service import AtlasAutonomousCodegenOrchestratorService
@@ -32,7 +33,12 @@ def _orchestrator_service(request: Request | None, workspace_id: str, pool_id: s
     llm_json_fn = getattr(getattr(getattr(request, "app", None), "state", None), "atlas_llm_json_fn", None)
     if callable(llm_json_fn) and orchestrator_run_id:
         llm_json_fn = _timeout_llm_json_fn(llm_json_fn, data_root=root, pool_id=pool_id, orchestrator_run_id=orchestrator_run_id)
-    patch_proposal_service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=llm_json_fn)
+    patch_proposal_service = AtlasPatchProposalService(
+        journal=journal,
+        storage=storage,
+        llm_json_fn=llm_json_fn,
+        project_intelligence=_project_intelligence_coordinator(request),
+    )
     # Reuse the multi-item autopilot wiring verbatim so the apply phase inherits the same executor,
     # gates and full_auto relaxation (single source of truth).
     multi_item_service = _build_multi_item_service(request, workspace_id, pool_id=pool_id)
