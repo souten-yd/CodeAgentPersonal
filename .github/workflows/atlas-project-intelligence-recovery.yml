@@ -1,0 +1,155 @@
+name: Atlas Project Intelligence Recovery
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+  ATLAS_CI_MODE: "pir14"
+
+jobs:
+  focused-regression:
+    name: focused-regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install pytest fastapi uvicorn requests pydantic psutil httpx websockets python-multipart
+      - run: mkdir -p artifacts/pir14-ci
+      - run: |
+          CODEAGENT_CA_DATA_DIR="$RUNNER_TEMP/ca_data" \
+          CODEAGENT_STYLE_BERT_VITS2_BASE_DIR="$RUNNER_TEMP/style_bert_vits2" \
+          CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR="$RUNNER_TEMP/style_bert_vits2/models" \
+          python -m pytest -q tests/test_project_intelligence_recovery_baseline.py tests/test_project_intelligence_contracts.py tests/test_project_intelligence_rollout.py tests/test_project_intelligence_boundaries.py --junitxml artifacts/pir14-ci/focused-regression.xml
+      - if: always()
+        run: |
+          echo "## PIR-14 focused-regression" >> "$GITHUB_STEP_SUMMARY"
+          echo "- JUnit: artifacts/pir14-ci/focused-regression.xml" >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pir14-focused-regression-junit
+          path: artifacts/pir14-ci/focused-regression.xml
+          if-no-files-found: error
+
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install pytest fastapi uvicorn requests pydantic psutil httpx websockets python-multipart
+      - run: mkdir -p artifacts/pir14-ci
+      - run: |
+          CODEAGENT_CA_DATA_DIR="$RUNNER_TEMP/ca_data" \
+          CODEAGENT_STYLE_BERT_VITS2_BASE_DIR="$RUNNER_TEMP/style_bert_vits2" \
+          CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR="$RUNNER_TEMP/style_bert_vits2/models" \
+          python -m pytest -q tests/test_project_intelligence_production_composition.py tests/test_project_intelligence_planner_bridge.py tests/test_project_intelligence_generator_bridge.py tests/test_project_intelligence_pir11_generation_apply.py tests/test_project_intelligence_pir12_verification_recovery.py --junitxml artifacts/pir14-ci/integration.xml
+      - if: always()
+        run: |
+          echo "## PIR-14 integration" >> "$GITHUB_STEP_SUMMARY"
+          echo "- JUnit: artifacts/pir14-ci/integration.xml" >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pir14-integration-junit
+          path: artifacts/pir14-ci/integration.xml
+          if-no-files-found: error
+
+  restart-fault:
+    name: restart-fault
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install pytest fastapi uvicorn requests pydantic psutil httpx websockets python-multipart
+      - run: mkdir -p artifacts/pir14-ci
+      - run: |
+          CODEAGENT_CA_DATA_DIR="$RUNNER_TEMP/ca_data" \
+          CODEAGENT_STYLE_BERT_VITS2_BASE_DIR="$RUNNER_TEMP/style_bert_vits2" \
+          CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR="$RUNNER_TEMP/style_bert_vits2/models" \
+          python -m pytest -q tests/test_project_intelligence_app_lifecycle.py tests/test_project_intelligence_persistence.py tests/test_project_intelligence_blueprint_lifecycle.py tests/test_project_intelligence_event_bridge.py tests/test_project_intelligence_verification_resume.py --junitxml artifacts/pir14-ci/restart-fault.xml
+      - if: always()
+        run: |
+          echo "## PIR-14 restart-fault" >> "$GITHUB_STEP_SUMMARY"
+          echo "- JUnit: artifacts/pir14-ci/restart-fault.xml" >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pir14-restart-fault-junit
+          path: artifacts/pir14-ci/restart-fault.xml
+          if-no-files-found: error
+
+  fixture-e2e:
+    name: fixture-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install pytest fastapi uvicorn requests pydantic psutil httpx websockets python-multipart playwright
+      - run: python -m playwright install --with-deps chromium
+      - run: mkdir -p artifacts/pir14-ci
+      - run: |
+          CODEAGENT_CA_DATA_DIR="$RUNNER_TEMP/ca_data" \
+          CODEAGENT_STYLE_BERT_VITS2_BASE_DIR="$RUNNER_TEMP/style_bert_vits2" \
+          CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR="$RUNNER_TEMP/style_bert_vits2/models" \
+          python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py tests/test_pir13_live_greenfield_runner.py --junitxml artifacts/pir14-ci/fixture-e2e.xml
+      - if: always()
+        run: |
+          echo "## PIR-14 fixture-e2e" >> "$GITHUB_STEP_SUMMARY"
+          echo "- JUnit: artifacts/pir14-ci/fixture-e2e.xml" >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pir14-fixture-e2e-junit
+          path: artifacts/pir14-ci/fixture-e2e.xml
+          if-no-files-found: error
+
+  cutover-platform-contracts:
+    name: cutover-platform-contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install pytest fastapi uvicorn requests pydantic psutil httpx websockets python-multipart
+      - run: mkdir -p artifacts/pir14-ci
+      - run: |
+          CODEAGENT_CA_DATA_DIR="$RUNNER_TEMP/ca_data" \
+          CODEAGENT_STYLE_BERT_VITS2_BASE_DIR="$RUNNER_TEMP/style_bert_vits2" \
+          CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR="$RUNNER_TEMP/style_bert_vits2/models" \
+          python -m pytest -q tests/test_project_intelligence_consolidation.py tests/test_project_intelligence_hardening.py tests/test_project_intelligence_benchmark.py --junitxml artifacts/pir14-ci/cutover-platform-contracts.xml
+      - if: always()
+        run: |
+          echo "## PIR-14 cutover-platform-contracts" >> "$GITHUB_STEP_SUMMARY"
+          echo "- JUnit: artifacts/pir14-ci/cutover-platform-contracts.xml" >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pir14-cutover-platform-contracts-junit
+          path: artifacts/pir14-ci/cutover-platform-contracts.xml
+          if-no-files-found: error
