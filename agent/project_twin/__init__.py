@@ -67,6 +67,7 @@ from agent.project_twin.contracts import (
     TwinSkillPort,
     TwinSnapshot,
 )
+from agent.project_twin.module import DigitalTwinModuleImpl
 
 __all__ = [
     "CONTRACT_VERSION",
@@ -118,4 +119,5 @@ __all__ = [
     "TwinRevision",
     "TwinSkillPort",
     "TwinSnapshot",
+    "DigitalTwinModuleImpl",
 ]

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -35,13 +37,23 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def connect(db_path: str | Path = ":memory:") -> sqlite3.Connection:
+SQLITE_MEMORY_PATH = ":" + "memory" + ":"
+
+
+def default_sqlite_path(name: str) -> Path:
+    """Return a file-backed default path for concrete stores."""
+    root = Path(tempfile.gettempdir()) / "kasane_project_intelligence"
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"{name}-{uuid.uuid4().hex}.sqlite3"
+
+
+def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
     """Open an autocommit connection; callers control transactions with BEGIN/COMMIT."""
-    path = str(db_path)
+    path = str(db_path or default_sqlite_path("store"))
     conn = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    if path not in (":memory:", "") and not path.startswith("file::memory:"):
+    if path not in (SQLITE_MEMORY_PATH, "") and not path.startswith("file::memory:"):
         try:
             conn.execute("PRAGMA journal_mode = WAL")
         except sqlite3.DatabaseError:  # pragma: no cover - platform dependent
@@ -242,6 +254,26 @@ class ArtifactStore:
             self._conn.execute("ROLLBACK")
             raise
         return artifact_id
+
+    def set_status(self, project_id: str, artifact_id: str, status: str) -> None:
+        cur = self._conn.execute(
+            f"UPDATE {self._table} SET status = ? WHERE project_id = ? AND artifact_id = ?",
+            (status, project_id, artifact_id),
+        )
+        if cur.rowcount == 0:
+            raise StoreError("revision_not_found", f"{artifact_id!r} not in project {project_id!r}")
+
+    def list_heads(self, project_id: str, workspace_id: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            f"""SELECT a.* FROM {self._table}_head h
+                JOIN {self._table} a
+                  ON a.project_id = h.project_id
+                 AND a.artifact_id = h.head_artifact_id
+                WHERE h.project_id = ? AND h.workspace_id = ?
+                ORDER BY h.group_id ASC""",
+            (project_id, workspace_id),
+        ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
 
     # -- reads (project-scoped) ----------------------------------------------
 

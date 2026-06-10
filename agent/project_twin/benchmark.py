@@ -76,7 +76,7 @@ def _reachable(edges, start_ref, goal_ref) -> bool:
 
 
 def run_benchmark(project_path: str, *, skills_dir: str | None = None, project_id: str = "bench") -> BenchmarkReport:
-    store = SqliteProjectTwinStore(":memory:")
+    store = SqliteProjectTwinStore()
     report = BenchmarkReport()
 
     # --- assemble the twin ---------------------------------------------------

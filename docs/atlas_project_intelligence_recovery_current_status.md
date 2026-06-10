@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-1`
-- Next action: implement durable concrete module foundations behind the public facades
+- Current package: `PIR-2`
+- Next action: wire the concrete Project Intelligence service into production composition and rollout preflight
 - Blocker: none
 - Rollout: off by default
 
@@ -41,7 +41,7 @@ This file selects the active package. The old PI package table does not prove fi
 | Package | Goal | Status |
 |---|---|---|
 | PIR-0 | baseline, inventory, regression locks | acceptance_complete |
-| PIR-1 | durable concrete modules | not_started |
+| PIR-1 | durable concrete modules | acceptance_complete |
 | PIR-2 | production composition and rollout preflight | not_started |
 | PIR-3 | source snapshots and Twin refresh | not_started |
 | PIR-4 | durable event and delivery integration | not_started |
@@ -109,5 +109,64 @@ Safety invariants checked: read-only source inspection only; no production runti
 Migration/rollout state: off by default; no consumer cutover and no legacy deletion.
 Known limitations: regression locks intentionally xfail until PIR-1+ fixes the underlying defects.
 Next package: PIR-1 — durable concrete modules.
+Blocker: none.
+```
+
+```text
+Work package: PIR-1 — Durable concrete module foundations
+Status: acceptance_complete
+Changed modules/files:
+- agent/project_twin/module.py — concrete DigitalTwinModuleImpl over the durable Twin store,
+  workspace-isolated by internal project key, with open/refresh/rebuild/event/runtime/query/
+  context/health facade methods.
+- agent/project_convergence/module.py — concrete ConvergenceModuleImpl over ConvergenceStore,
+  with injectable Blueprint/Actual/verification loaders, persisted reports, and persisted
+  bounded decisions.
+- agent/architecture_blueprint/module.py and store.py — durable lifecycle status updates
+  and deterministic get_active per project/workspace after reopen.
+- agent/project_intelligence/_persistence.py, project_twin/store.py, project_intelligence/store.py,
+  project_intelligence/checkpoint.py, project_convergence/store.py — file-backed defaults for
+  concrete persistence; explicit test-supplied SQLite memory remains available.
+- tests/test_project_intelligence_facade_conformance.py
+- tests/test_project_twin_module_durability.py
+- tests/test_blueprint_durable_lifecycle.py
+- tests/test_convergence_module_durability.py
+- tests/test_project_workspace_isolation.py
+- tests/test_project_intelligence_recovery_baseline.py — PIR0-C04/C05/C06 locks now pass;
+  remaining later-package locks stay strict xfail.
+Executed commands and exact results:
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=31 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+- python -m py_compile agent/project_intelligence/_persistence.py agent/project_twin/store.py
+  agent/project_twin/module.py agent/architecture_blueprint/module.py
+  agent/project_convergence/module.py agent/architecture_blueprint/store.py
+  agent/project_convergence/store.py agent/project_intelligence/store.py
+  agent/project_intelligence/checkpoint.py tests/test_project_intelligence_facade_conformance.py
+  tests/test_project_twin_module_durability.py tests/test_blueprint_durable_lifecycle.py
+  tests/test_convergence_module_durability.py tests/test_project_workspace_isolation.py
+  tests/test_project_intelligence_recovery_baseline.py -> compile OK
+- python -m pytest -q tests/test_project_intelligence_facade_conformance.py
+  tests/test_project_twin_module_durability.py tests/test_blueprint_durable_lifecycle.py
+  tests/test_convergence_module_durability.py tests/test_project_workspace_isolation.py
+  tests/test_project_intelligence_recovery_baseline.py -> 16 passed, 4 xfailed in 18.47s
+- python -m pytest -q tests/test_project_intelligence_contracts.py
+  tests/test_project_intelligence_persistence.py tests/test_project_intelligence_blueprint_lifecycle.py
+  tests/test_project_intelligence_convergence_eval.py tests/test_project_intelligence_convergence_decision.py
+  tests/test_project_twin_store.py tests/test_project_intelligence_facade_conformance.py
+  tests/test_project_twin_module_durability.py tests/test_blueprint_durable_lifecycle.py
+  tests/test_convergence_module_durability.py tests/test_project_workspace_isolation.py
+  tests/test_project_intelligence_recovery_baseline.py -> 81 passed, 4 xfailed in 20.32s
+- PowerShell-expanded project_intelligence + project_twin suites plus PIR-1 durability/isolation
+  tests -> 427 passed, 4 xfailed in 38.53s
+Unavailable checks: none required for PIR-1; production app composition begins in PIR-2.
+Safety invariants checked: concrete modules remain behind public facades; no FastAPI/UI/app API/
+  PlanPool imports in portable concrete modules; no production rollout/cutover/legacy deletion;
+  explicit SQLite memory remains test-only when supplied by tests.
+Migration/rollout state: rollout remains off by default; no consumer cutover.
+Known limitations: Digital Twin source snapshots/analyzers and production construction are not
+  wired until PIR-2/PIR-3; Convergence uses injected loaders until production composition supplies
+  real Blueprint/Actual sources.
+Next package: PIR-2 — production composition and rollout preflight.
 Blocker: none.
 ```
