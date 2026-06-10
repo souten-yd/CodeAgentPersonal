@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-14` (PI-0..PI-13 completed)
-- Next action: Convergence decision policy and incremental reevaluation (PI-14)
+- Current work package: `PI-15` (PI-0..PI-14 completed)
+- Next action: final completion and requirement-evidence integration (PI-15)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -53,8 +53,8 @@ Current gaps include:
 | PI-11 | Blueprint generation, review, validation | Completed | validator+generator (coverage/manifest/cycle/exec-contract/vague); `tests/test_project_intelligence_blueprint_generation.py` → 8 passed; PI+baseline 200 passed |
 | PI-12 | Blueprint-to-Actual mapping hints | Completed | mapping.py (materialized/realized/blocked, evidence-gated verify, public snapshot, decoupled); `tests/test_project_intelligence_blueprint_mapping.py` → 5 passed; PI+baseline 205 passed |
 | PI-13 | Convergence matcher and evaluator | Completed | matcher+evaluator (8 distinct states, file≠verified, stale guard); `tests/test_project_intelligence_convergence_eval.py` → 7 passed; PI+baseline 212 passed |
-| PI-14 | Convergence decision and incremental evaluation | In Progress | current package |
-| PI-15 | Completion and requirement-evidence integration | Not Started | |
+| PI-14 | Convergence decision and incremental evaluation | Completed | policy(7 actions)+incremental_evaluate; `tests/test_project_intelligence_convergence_decision.py` → 10 passed; PI+baseline 222 passed |
+| PI-15 | Completion and requirement-evidence integration | In Progress | current package |
 | PI-16 | Planning envelope and Plan Compiler | Not Started | |
 | PI-17 | Planner production integration | Not Started | |
 | PI-18 | Generator and repair integration | Not Started | |
@@ -85,6 +85,41 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-14 — Convergence decision policy and incremental reevaluation
+Status: Completed
+Commit/PR: local branch pi-14-convergence-decision (not pushed/merged yet)
+Changed modules/files:
+- agent/project_convergence/policy.py (new) — deterministic decide() over all seven actions.
+- agent/project_convergence/evaluator.py — affected_elements + incremental_evaluate.
+- tests/test_project_intelligence_convergence_decision.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- decide(): unsafe_required -> halt_unsafe; unresolved blueprint decision ->
+  request_critical_decision; target_invalid -> revise_blueprint; interface divergence ->
+  replan_downstream (only the divergent element + its downstream dependents); runtime
+  divergence -> repair_current_item; mandatory gaps -> continue; all mandatory verified ->
+  complete. A local mismatch never triggers a whole-project redesign. Policy mutates nothing.
+- incremental_evaluate(): re-evaluates only elements whose refs changed plus their downstream
+  dependents, reuses prior results otherwise, and agrees with a full re-evaluation for the
+  affected subset.
+Executed commands and exact results:
+- python -m py_compile (2 files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_convergence_decision.py -> 10 passed in 0.61s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 222 passed in 8.19s
+Unavailable checks: none required.
+Safety invariants checked: deterministic rules before any LLM advice; unsafe never auto-executes
+  (halt_unsafe); mandatory gap prevents complete; policy does not mutate Blueprint/PlanPool/
+  workspace (asserted by re-serialisation equality); incremental == full for affected.
+Migration/rollout state: Convergence decision policy complete; final rollup integration is PI-15.
+Known limitations: target_invalid is an explicit signal (the heuristic for "design is wrong"
+  vs "implementation is wrong" is left to PI-15/PI-19 callers); LLM advice layer is a future
+  optional addition after the deterministic rule.
+Next package: PI-15 — Final completion and requirement-evidence integration.
+Blocker: none.
+```
 
 ```text
 Work package: PI-13 — Deterministic matcher and multidimensional evaluator (Milestone D begins)

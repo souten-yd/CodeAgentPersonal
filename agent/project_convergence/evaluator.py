@@ -177,3 +177,86 @@ def evaluate_convergence(
         stale_evidence=sorted(set(stale_evidence)), requirement_coverage=coverage,
         diagnostics=[], generated_at=now,
     )
+
+
+def affected_elements(revision: BlueprintRevision, changed_refs: set[str]) -> set[str]:
+    """Elements directly touched by changed refs plus their downstream dependents.
+
+    An interface change ripples to dependents; an unrelated change does not reach them, so
+    incremental reevaluation stays bounded and a local change never re-evaluates everything.
+    """
+    direct = {
+        el.element_id for el in revision.elements
+        if (set(el.expected_actual_refs) & changed_refs) or (el.canonical_ref in changed_refs)
+    }
+    dependents: dict[str, set[str]] = {}
+    for el in revision.elements:
+        for dep in el.depends_on_element_ids:
+            dependents.setdefault(dep, set()).add(el.element_id)
+    out = set(direct)
+    frontier = list(direct)
+    while frontier:
+        cur = frontier.pop()
+        for d in dependents.get(cur, set()):
+            if d not in out:
+                out.add(d)
+                frontier.append(d)
+    return out
+
+
+def incremental_evaluate(
+    revision: BlueprintRevision,
+    snapshot: list[ActualEntry],
+    *,
+    changed_refs: set[str],
+    prior_report: ConvergenceReport,
+    project_id: str,
+    workspace_id: str,
+    twin_revision_id: str,
+    verification: dict[str, VerificationEvidence] | None = None,
+    hints: list[MappingHint] | None = None,
+    now: datetime | None = None,
+) -> ConvergenceReport:
+    """Re-evaluate only the affected elements; reuse prior results for the rest.
+
+    The affected subset is guaranteed to agree with a full re-evaluation (same inputs),
+    so the bounded report is consistent with the full report for affected elements.
+    """
+    now = now or datetime.now(timezone.utc)
+    verification = verification or {}
+    snapshot_by_ref = {e.ref: e for e in snapshot}
+    affected = affected_elements(revision, changed_refs)
+    matches = match_elements(revision, snapshot, twin_revision_id=twin_revision_id, hints=hints)
+    by_id = {e.element_id: e for e in revision.elements}
+    prior = {r.blueprint_element_id: r for r in prior_report.element_results}
+
+    results: list[ElementConvergenceResult] = []
+    mandatory_gaps: list[GapSummary] = []
+    optional_gaps: list[GapSummary] = []
+    stale_evidence: list[str] = []
+    for eid in sorted(by_id):
+        el = by_id[eid]
+        if eid in affected or eid not in prior:
+            res = evaluate_element(el, matches[eid], current_twin_revision_id=twin_revision_id,
+                                   snapshot_by_ref=snapshot_by_ref, verification=verification)
+        else:
+            res = prior[eid]
+        results.append(res)
+        if res.state == STALE:
+            stale_evidence.extend(res.evidence_refs or [eid])
+        if res.state in (ABSENT, PARTIAL, BLOCKED, DIVERGENT, STALE):
+            gap = GapSummary(gap_id=f"gap:{eid}", blueprint_element_id=eid,
+                             description=f"{el.name or eid}: {res.state}", mandatory=el.mandatory,
+                             missing_refs=res.missing_actual_refs)
+            (mandatory_gaps if el.mandatory else optional_gaps).append(gap)
+
+    coverage = {"total_elements": len(results),
+                "verified": sum(1 for r in results if r.state == VERIFIED),
+                "mandatory_gaps": len(mandatory_gaps), "reevaluated": sorted(affected)}
+    return ConvergenceReport(
+        report_id=f"conv:{uuid.uuid4().hex[:10]}", project_id=project_id, workspace_id=workspace_id,
+        blueprint_revision_id=revision.revision_id, actual_twin_revision_id=twin_revision_id,
+        element_results=results, mandatory_gaps=mandatory_gaps, optional_gaps=optional_gaps,
+        stale_evidence=sorted(set(stale_evidence)), requirement_coverage=coverage,
+        diagnostics=[], generated_at=now,
+    )
