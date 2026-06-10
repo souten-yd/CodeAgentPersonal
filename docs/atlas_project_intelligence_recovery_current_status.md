@@ -6,8 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-13`
-- Next action: add PIR-13 restart, fault repair/resume, additional Greenfield scenarios, and a live
-  configured-model run through the normal Atlas entrypoint
+- Next action: add PIR-13 fault repair/resume, additional Greenfield scenarios, artifact-retention
+  audit, and a live configured-model run through the normal Atlas entrypoint
 - Blocker: none
 - Rollout: off by default
 
@@ -973,5 +973,40 @@ Migration/rollout state: no legacy Greenfield helper deletion and no consumer cu
 Known limitations: PIR-13 remains production_connected, not acceptance_complete, until restart,
   fault repair/resume, scenario breadth, artifact-retention, and live-model gates pass.
 Next package: PIR-13 — add restart/reopen persistence and fault repair/resume evidence.
+Blocker: none.
+```
+
+```text
+Work package: PIR-13 — Restart/reopen persistence for the single HTML scenario
+Status: production_connected
+Changed modules/files:
+- tests/test_project_intelligence_pir13_entrypoint_scenarios.py — after real Safe Apply and
+  visual verification, the scenario now creates a fresh FastAPI app via app.server.create_app,
+  points it at the same Atlas data root, reloads the persisted PlanPool, and reads recovery and
+  continuation APIs from disk-backed state.
+Executed commands and exact results:
+- python -m py_compile tests/test_project_intelligence_pir13_entrypoint_scenarios.py -> compile OK
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py ->
+  1 passed in 8.79s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py
+  tests/test_atlas_recovery_service.py tests/test_project_intelligence_pir12_verification_recovery.py
+  tests/test_project_intelligence_recovery_baseline.py -> 26 passed, 2 xfailed in 25.44s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py
+  tests/test_atlas_recovery_service.py tests/test_atlas_continuation_service.py
+  tests/test_project_intelligence_pir12_verification_recovery.py
+  tests/test_project_intelligence_recovery_baseline.py -> 28 passed, 2 xfailed, 10 failed in 26.19s
+  because tests/test_atlas_continuation_service.py still uses a stale fallback-pool fixture that
+  indexes pool.items[0] after build_fallback_pool now returns no items.
+Unavailable checks: injected intermediate failure with repair/resume, Python CLI/FastAPI/
+  FastAPI+SQLite/frontend-backend scenario breadth, artifact-retention audit, and a live
+  configured-model Greenfield run are not proven by this slice.
+Safety invariants checked: restart proof reads persisted PlanPool, Safe Apply, auto verification,
+  recovery, and continuation state from disk through a fresh app; no mutation or verification is
+  replayed during restart; unavailable continuation fixture failures are not counted as passed.
+Migration/rollout state: no legacy Greenfield helper deletion and no consumer cutover were
+  performed.
+Known limitations: PIR-13 remains production_connected, not acceptance_complete, until fault
+  repair/resume, scenario breadth, artifact-retention, and live-model gates pass.
+Next package: PIR-13 — add fault repair/resume and scenario breadth evidence.
 Blocker: none.
 ```

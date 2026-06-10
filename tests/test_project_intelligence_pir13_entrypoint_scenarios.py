@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 import main
 from agent.atlas_file_safe_apply_executor import AtlasFileSafeApplyExecutor
+from app.server import create_app
 from tests.test_atlas_safe_apply_execution_api import _clear_safe_apply_state
 
 
@@ -178,3 +179,28 @@ def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: P
         / "events.ndjson"
     )
     assert '"event_type": "auto_verification_passed"' in events_path.read_text(encoding="utf-8")
+
+    restarted_app = create_app()
+    restarted_app.state.atlas_ca_data_dir = main.app.state.atlas_ca_data_dir
+    restarted_client = TestClient(restarted_app)
+    reloaded = restarted_client.get(f"/api/atlas/plan-pools/{pool_id}").json()["plan_pool"]
+    reloaded_draft = next(item for item in reloaded["items"] if item["item_id"] == draft_item_id)
+    assert reloaded_draft["metadata"]["safe_apply"]["status"] == "applied"
+    assert reloaded_draft["metadata"]["auto_verification"]["status"] == "passed"
+    assert reloaded_draft["metadata"]["auto_verification"]["browser_smoke_status"] in {
+        "browser_smoke_passed",
+        "browser_smoke_skipped",
+    }
+
+    recovery = restarted_client.get(
+        f"/api/atlas/recovery/pools/{pool_id}", params={"workspace_id": "pir13"}
+    ).json()
+    assert recovery["recovery_summary"]["pool_id"] == pool_id
+    assert recovery["recovery_summary"]["total_items"] == 2
+    assert recovery["recovery_summary"]["completed_count"] >= 1
+
+    continuation = restarted_client.get(
+        f"/api/atlas/continuation/pools/{pool_id}", params={"workspace_id": "pir13"}
+    ).json()
+    assert continuation["pool_id"] == pool_id
+    assert draft_item_id in continuation["continuation_prompt"]
