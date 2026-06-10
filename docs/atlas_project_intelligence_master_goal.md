@@ -1,8 +1,12 @@
-# Atlas Project Intelligence — Master Goal
+# Atlas Project Intelligence — Foundation Master Goal
 
-Status: canonical active goal.
+Status: historical Foundation Track reference.
 
-PDT-0 through PDT-14 remain the completed Project Digital Twin Core v1. The active program completes production integration, deep graph intelligence, Architecture Blueprint, Convergence, Greenfield generation, and legacy consolidation.
+The active corrective goal is `docs/atlas_project_intelligence_recovery_master_goal.md`, and the active package is selected by `docs/atlas_project_intelligence_recovery_current_status.md`.
+
+PI-0 through PI-25 implemented contracts, helpers, component logic, and focused tests toward this goal. They do not by themselves prove production wiring, real-environment completion, rollout, comparative superiority, or legacy retirement.
+
+PDT-0 through PDT-14 remain the completed Project Digital Twin Core v1.
 
 ## Mission
 
@@ -59,7 +63,7 @@ The Digital Twin Module must contain real implementations for:
 - requirement, delivery, and evidence trace;
 - path, impact, and test-selection analysis.
 
-The current name-based calls and heuristic side-effect classification are compatibility behavior, not the final capability.
+Name-based calls and heuristic side-effect classification are compatibility behavior, not the final capability.
 
 ## Existing-project goal
 
@@ -80,3 +84,5 @@ Requirement remains authoritative for intent; Blueprint for approved target desi
 ## Final Definition of Done
 
 The program is complete only when the four facades are used by production Atlas paths, deep graph capabilities pass real-repository benchmarks, Blueprint and Actual facts cannot be confused, Convergence drives bounded recovery decisions, empty-project E2E scenarios build and run, duplicate legacy paths are consolidated, cross-platform results are recorded truthfully, and safety boundaries remain unchanged.
+
+The recovery track provides the current implementation and evidence plan for satisfying these conditions.
