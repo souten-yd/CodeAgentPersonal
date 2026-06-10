@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-21` (PI-0..PI-20 completed)
-- Next action: coherent multi-file generation and consistency validation (PI-21)
+- Current work package: `PI-22` (PI-0..PI-21 completed)
+- Next action: Greenfield build/run/test and real E2E (PI-22)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -60,8 +60,8 @@ Current gaps include:
 | PI-18 | Generator and repair integration | Completed | AtlasGeneratorBridge (stale block/refresh, planned≠real, manifest in proposal, bounded repair); `tests/test_project_intelligence_generator_bridge.py` → 7 passed; PI+baseline 249 passed |
 | PI-19 | Verification, checkpoint, resume | Completed | checkpoint+AtlasVerificationBridge (auto-ingest, post-verif convergence, exact-revision resume, external-change detect, idempotent replay, rollback); `tests/test_project_intelligence_verification_resume.py` → 7 passed; PI+baseline 256 passed |
 | PI-20 | Greenfield bootstrap orchestrator | Completed | GreenfieldOrchestrator (mode gate, active-blueprint gate, dep-ordered slices, refresh/convergence per apply, no-bypass Safe Apply, resumable); `tests/test_project_intelligence_greenfield.py` → 7 passed; PI+baseline 263 passed |
-| PI-21 | Coherent multi-file generation | In Progress | current package |
-| PI-22 | Greenfield build/run/test and real E2E | Not Started | |
+| PI-21 | Coherent multi-file generation | Completed | coherence checks(imports/assets/api/manifest/placeholder/deps)+typed gaps+separate recovery; `tests/test_project_intelligence_coherence.py` → 9 passed; PI+baseline 272 passed |
+| PI-22 | Greenfield build/run/test and real E2E | In Progress | current package |
 | PI-23 | Capability consolidation and consumer cutover | Not Started | |
 | PI-24 | Cross-platform, scale, storage, rollout hardening | Not Started | |
 | PI-25 | Final benchmark and legacy retirement | Not Started | |
@@ -85,6 +85,38 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-21 — Coherent multi-file generation and consistency validation
+Status: Completed
+Commit/PR: local branch pi-21-coherent-generation (not pushed/merged yet)
+Changed modules/files:
+- agent/project_intelligence/coherence.py (new) — check_coherence + to_convergence_gaps.
+- tests/test_project_intelligence_coherence.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Consistency checks over a generated multi-file slice: python imports resolve (local vs
+  third-party), HTML/Vue referenced assets exist, frontend fetch/axios routes agree with
+  backend FastAPI routes, generated paths belong to the Blueprint manifest (unexpected files
+  classified), entrypoint + build/start/test commands exist, and placeholder files are flagged.
+- Each mismatch becomes a typed gap with a recovery policy; missing dependency (add_dependency)
+  and missing file (create_missing_file) have distinct policies; recommended_first_action
+  prefers local repair before a Blueprint revision. to_convergence_gaps maps to typed
+  Convergence gaps. A placeholder file never counts as completion (empty __init__.py excepted).
+Executed commands and exact results:
+- python -m py_compile agent/project_intelligence/coherence.py + test -> compile OK
+- python -m pytest -q tests/test_project_intelligence_coherence.py -> 9 passed in 0.60s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 272 passed in 10.44s
+Unavailable checks: none required.
+Safety invariants checked: placeholder != completion; mismatches surface as typed gaps; local
+  repair before blueprint revision; missing dependency/file distinct recovery; pure stdlib.
+Migration/rollout state: coherence validation ready for the greenfield slice loop (PI-20/PI-22).
+Known limitations: schema agreement is coarse (route-level, not body schema); test-interface
+  checks are minimal; JS import resolution is heuristic.
+Next package: PI-22 — Greenfield build/run/test and real E2E.
+Blocker: none.
+```
 
 ```text
 Work package: PI-20 — Greenfield bootstrap orchestrator (Milestone F begins)
