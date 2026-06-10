@@ -226,6 +226,59 @@ def _fastapi_sqlite_main() -> str:
     )
 
 
+def _frontend_backend_llm(_system_prompt: str, _user_prompt: str) -> dict:
+    return {
+        "summary": "Create a FastAPI backend with a browser frontend.",
+        "proposed_fix": "Write app/main.py serving HTML that fetches /api/message.",
+        "target_files": ["app/main.py"],
+        "risk_level": "low",
+        "proposed_content": _frontend_backend_main(),
+        "suggested_changes": [{"path": "app/main.py", "action": "create"}],
+        "verification_plan": [
+            "Browser frontend fetches backend API and displays atlas browser api ok."
+        ],
+        "rollback_plan": ["Delete app/main.py."],
+    }
+
+
+def _frontend_backend_main() -> str:
+    return (
+        "from fastapi import FastAPI\n"
+        "from fastapi.responses import HTMLResponse\n"
+        "\n"
+        "app = FastAPI(title=\"Atlas Frontend Backend Scenario\")\n"
+        "\n"
+        "\n"
+        "@app.get(\"/api/message\")\n"
+        "def api_message() -> dict[str, str]:\n"
+        "    \"\"\"Backend API returns atlas browser api ok for the frontend.\"\"\"\n"
+        "    return {\"message\": \"atlas browser api ok\"}\n"
+        "\n"
+        "\n"
+        "@app.get(\"/\", response_class=HTMLResponse)\n"
+        "def index() -> str:\n"
+        "    \"\"\"Browser frontend fetches backend API and displays atlas browser api ok.\"\"\"\n"
+        "    return \"\"\"<!doctype html>\n"
+        "<html lang=\\\"en\\\">\n"
+        "<head><meta charset=\\\"utf-8\\\"><title>Atlas Browser API</title></head>\n"
+        "<body>\n"
+        "  <main>\n"
+        "    <h1>Atlas Browser API</h1>\n"
+        "    <button id=\\\"load\\\" type=\\\"button\\\">Load message</button>\n"
+        "    <p id=\\\"message\\\" aria-live=\\\"polite\\\">waiting</p>\n"
+        "  </main>\n"
+        "  <script>\n"
+        "    document.getElementById('load').addEventListener('click', async () => {\n"
+        "      const response = await fetch('/api/message');\n"
+        "      const payload = await response.json();\n"
+        "      document.getElementById('message').textContent = payload.message;\n"
+        "    });\n"
+        "  </script>\n"
+        "</body>\n"
+        "</html>\"\"\"\n"
+    )
+
+
 def test_pir13_normal_entrypoint_single_html_reaches_real_safe_apply(tmp_path: Path) -> None:
     repo = tmp_path / "workspace"
     repo.mkdir()
@@ -831,6 +884,189 @@ def test_pir13_fastapi_api_scenario_reaches_real_pytest_probe(tmp_path: Path) ->
         / pool_id
         / "pipeline_runs"
         / "pir13_fastapi_verify"
+        / "events.ndjson"
+    )
+    events_text = events_path.read_text(encoding="utf-8")
+    assert '"event_type": "auto_safe_apply_completed"' in events_text
+    assert '"event_type": "auto_verification_passed"' in events_text
+
+
+def test_pir13_frontend_backend_browser_to_api_flow(tmp_path: Path) -> None:
+    repo = tmp_path / "workspace"
+    tests_dir = repo / "tests"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "test_browser_api.py").write_text(
+        "import socket\n"
+        "import threading\n"
+        "import time\n"
+        "\n"
+        "import httpx\n"
+        "import uvicorn\n"
+        "from playwright.sync_api import expect, sync_playwright\n"
+        "\n"
+        "from app.main import app\n"
+        "\n"
+        "\n"
+        "def _free_port() -> int:\n"
+        "    with socket.socket() as sock:\n"
+        "        sock.bind((\"127.0.0.1\", 0))\n"
+        "        return int(sock.getsockname()[1])\n"
+        "\n"
+        "\n"
+        "def _wait_ready(base_url: str) -> None:\n"
+        "    deadline = time.time() + 10\n"
+        "    last_error = None\n"
+        "    while time.time() < deadline:\n"
+        "        try:\n"
+        "            response = httpx.get(f\"{base_url}/api/message\", timeout=1.0)\n"
+        "            if response.status_code == 200:\n"
+        "                return\n"
+        "        except Exception as exc:\n"
+        "            last_error = exc\n"
+        "        time.sleep(0.1)\n"
+        "    raise AssertionError(f\"server did not become ready: {last_error}\")\n"
+        "\n"
+        "\n"
+        "def test_browser_fetches_backend_api():\n"
+        "    port = _free_port()\n"
+        "    base_url = f\"http://127.0.0.1:{port}\"\n"
+        "    server = uvicorn.Server(uvicorn.Config(app, host=\"127.0.0.1\", port=port, log_level=\"warning\"))\n"
+        "    thread = threading.Thread(target=server.run, daemon=True)\n"
+        "    thread.start()\n"
+        "    try:\n"
+        "        _wait_ready(base_url)\n"
+        "        with sync_playwright() as playwright:\n"
+        "            browser = playwright.chromium.launch(headless=True)\n"
+        "            try:\n"
+        "                page = browser.new_page()\n"
+        "                page.goto(base_url, wait_until=\"networkidle\")\n"
+        "                page.click(\"#load\")\n"
+        "                expect(page.locator(\"#message\")).to_have_text(\"atlas browser api ok\")\n"
+        "            finally:\n"
+        "                browser.close()\n"
+        "    finally:\n"
+        "        server.should_exit = True\n"
+        "        thread.join(timeout=5)\n",
+        encoding="utf-8",
+    )
+    client = _client(tmp_path, repo, llm_json_fn=_frontend_backend_llm)
+
+    plan_payload = {
+        "root_goal": "Create a Greenfield frontend and backend browser-to-API app.",
+        "requirements": [
+            {
+                "id": "REQ-BROWSER-API",
+                "text": "Browser frontend fetches backend API and displays atlas browser api ok.",
+            }
+        ],
+        "implementation_steps": [
+            {
+                "step_id": "browser_api",
+                "title": "Create frontend/backend FastAPI app",
+                "description": "Create app/main.py serving a browser frontend and backend API.",
+                "action_type": "create",
+                "risk_level": "low",
+                "target_files": ["app/main.py"],
+                "acceptance_criteria": [
+                    "Browser frontend fetches backend API and displays atlas browser api ok."
+                ],
+            }
+        ],
+    }
+
+    created = client.post(
+        "/api/atlas/plan-pools?sync=1",
+        json={
+            "input": "Create a Greenfield frontend and backend browser-to-API app.",
+            "project_path": str(repo),
+            "project_name": "pir13-frontend-backend",
+            "workspace_id": "pir13",
+            "plan_payload": plan_payload,
+        },
+    ).json()
+    assert created["status"] == "ready"
+    pool_id = created["pool_id"]
+    source_item_id = created["plan_pool"]["items"][0]["item_id"]
+
+    proposed = client.post(
+        "/api/atlas/patch-proposals/generate",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "run_id": "pir13_browser_api_patchgen",
+            "source_type": "plan_item",
+        },
+    ).json()
+    assert proposed["status"] == "proposed", proposed
+    assert proposed["proposal"]["metadata"]["proposed_content"] == _frontend_backend_main()
+
+    approved_proposal = client.post(
+        "/api/atlas/patch-proposals/decide",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "proposal_id": proposed["proposal"]["proposal_id"],
+            "decision": "approved",
+            "reason": "PIR-13 frontend/backend scenario approval.",
+        },
+    ).json()
+    assert approved_proposal["status"] == "approved", approved_proposal
+
+    draft = client.post(
+        "/api/atlas/patch-proposals/planitem-draft",
+        json={
+            "pool_id": pool_id,
+            "item_id": source_item_id,
+            "workspace_id": "pir13",
+            "proposal_id": proposed["proposal"]["proposal_id"],
+            "run_id": "pir13_browser_api_draft",
+        },
+    ).json()
+    assert draft["status"] == "created", draft
+    draft_item_id = draft["draft_item"]["draft_item_id"]
+
+    approved_item = client.post(
+        "/api/atlas/approvals/decide",
+        json={
+            "pool_id": pool_id,
+            "item_id": draft_item_id,
+            "workspace_id": "pir13",
+            "decision": "approved",
+            "reason": "Approve the frontend/backend PlanItem for Safe Apply.",
+        },
+    ).json()
+    assert approved_item["decision"] == "approved", approved_item
+
+    verified = client.post(
+        "/api/atlas/automation/safe-apply-one-and-verify",
+        json={
+            "pool_id": pool_id,
+            "item_id": draft_item_id,
+            "workspace_id": "pir13",
+            "run_id": "pir13_browser_api_verify",
+            "command_id": "pytest_selected",
+            "metadata": {"test_path": "tests/test_browser_api.py"},
+        },
+    ).json()
+    assert verified["status"] == "applied_and_verified", verified
+    assert verified["auto_safe_apply_result"]["status"] == "applied"
+    verification = verified["auto_verification_result"]
+    assert verification["status"] == "passed", verification
+    assert verification["command_id"] == "pytest_selected"
+    assert "tests/test_browser_api.py" in verification["command"]
+    assert (repo / "app" / "main.py").read_text(encoding="utf-8") == _frontend_backend_main()
+
+    events_path = (
+        Path(main.app.state.atlas_ca_data_dir)
+        / "atlas"
+        / "workspaces"
+        / "pir13"
+        / "plan_pools"
+        / pool_id
+        / "pipeline_runs"
+        / "pir13_browser_api_verify"
         / "events.ndjson"
     )
     events_text = events_path.read_text(encoding="utf-8")

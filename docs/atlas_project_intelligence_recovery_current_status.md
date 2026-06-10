@@ -6,8 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-13`
-- Next action: add PIR-13 frontend/backend scenario evidence, artifact-retention audit, and a
-  live configured-model run through the normal Atlas entrypoint
+- Next action: add PIR-13 artifact-retention audit and a live configured-model run through the
+  normal Atlas entrypoint
 - Blocker: none
 - Rollout: off by default
 
@@ -1166,5 +1166,41 @@ Migration/rollout state: no legacy Greenfield helper deletion and no consumer cu
 Known limitations: PIR-13 remains production_connected, not acceptance_complete, until frontend/
   backend scenario, artifact-retention, and live-model gates pass.
 Next package: PIR-13 — add frontend/backend browser-to-API scenario evidence.
+Blocker: none.
+```
+
+```text
+Work package: PIR-13 — Frontend/backend browser-to-API scenario
+Status: production_connected
+Changed modules/files:
+- tests/test_project_intelligence_pir13_entrypoint_scenarios.py — added a normal API
+  frontend/backend Greenfield scenario from /api/atlas/plan-pools?sync=1 through proposal
+  generation, proposal approval, PlanItem draft, PlanItem approval,
+  /api/atlas/automation/safe-apply-one-and-verify, real Safe Apply of app/main.py, and real
+  pytest_selected verification that starts uvicorn, opens Chromium with Playwright, clicks the
+  frontend button, and proves browser JavaScript fetched /api/message from the backend.
+Executed commands and exact results:
+- python -m py_compile tests\test_project_intelligence_pir13_entrypoint_scenarios.py ->
+  compile OK
+- python -m pytest -q
+  tests/test_project_intelligence_pir13_entrypoint_scenarios.py::test_pir13_frontend_backend_browser_to_api_flow ->
+  1 passed in 11.14s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py ->
+  6 passed in 38.64s
+- python -m pytest -q tests/test_project_intelligence_pir13_entrypoint_scenarios.py
+  tests/test_atlas_auto_verification_service.py tests/test_visual_contract_matrix.py
+  tests/test_project_intelligence_pir13_greenfield_state_machine.py
+  tests/test_project_intelligence_recovery_baseline.py -> 79 passed, 2 xfailed in 60.31s
+Unavailable checks: artifact-retention audit and a live configured-model Greenfield run are not
+  proven by this slice.
+Safety invariants checked: frontend/backend code is generated through Proposal and applied only
+  through Safe Apply after manual proposal and PlanItem approvals; browser-to-API readiness is
+  proven by an allowlisted pytest_selected command that starts uvicorn and runs Chromium/Playwright;
+  no unavailable check is counted as passed.
+Migration/rollout state: no legacy Greenfield helper deletion and no consumer cutover were
+  performed.
+Known limitations: PIR-13 remains production_connected, not acceptance_complete, until
+  artifact-retention and live-model gates pass.
+Next package: PIR-13 — add artifact-retention audit evidence.
 Blocker: none.
 ```
