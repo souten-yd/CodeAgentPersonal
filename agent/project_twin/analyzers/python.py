@@ -159,7 +159,11 @@ class _ModuleBuilder:
             kind = "method" if parent_class else "function"
             ref = _sym_ref(self.module, qual)
             self.nodes.append(SemanticNode(ref=ref, kind=kind, name=node.name, module=self.module,
-                                           qualname=qual, file=self.file))
+                                           qualname=qual, file=self.file,
+                                           properties={
+                                               "start_line": getattr(node, "lineno", 1),
+                                               "end_line": getattr(node, "end_lineno", getattr(node, "lineno", 1)),
+                                           }))
             self.edges.append(SemanticEdge(mref, ref, "defines", file=self.file))
             self._emit_decorators(node, ref)
             # override detection
@@ -174,7 +178,11 @@ class _ModuleBuilder:
             qual = f"{parent_qual}.{node.name}" if parent_qual else node.name
             ref = _sym_ref(self.module, qual)
             self.nodes.append(SemanticNode(ref=ref, kind="class", name=node.name, module=self.module,
-                                           qualname=qual, file=self.file))
+                                           qualname=qual, file=self.file,
+                                           properties={
+                                               "start_line": getattr(node, "lineno", 1),
+                                               "end_line": getattr(node, "end_lineno", getattr(node, "lineno", 1)),
+                                           }))
             self.edges.append(SemanticEdge(mref, ref, "defines", file=self.file))
             self._emit_decorators(node, ref)
             for base in node.bases:
@@ -185,7 +193,7 @@ class _ModuleBuilder:
                 self.edges.append(SemanticEdge(ref, target, "inherits", resolved=resolved,
                                                confidence=1.0 if resolved else 0.5, file=self.file))
                 # Protocol/ABC heuristic -> implements
-                if bname in ("Protocol", "ABC"):
+                if bname in ("Protocol", "ABC") or bname.endswith("Protocol") or bname.endswith("ABC"):
                     self.edges.append(SemanticEdge(ref, target, "implements", resolved=resolved,
                                                    confidence=1.0 if resolved else 0.5, file=self.file))
             for b in node.body:
@@ -208,6 +216,7 @@ class _ModuleBuilder:
                                            confidence=1.0 if resolved else 0.5, file=self.file))
 
     def _emit_calls(self, func_node, owner_ref: str, parent_class: str | None) -> None:
+        receiver_types = self._receiver_types(func_node)
         for sub in ast.walk(func_node):
             if not isinstance(sub, ast.Call):
                 continue
@@ -217,9 +226,15 @@ class _ModuleBuilder:
                 self.edges.append(SemanticEdge(owner_ref, target, "calls", resolved=resolved,
                                                confidence=1.0 if resolved else 0.4, file=self.file))
             elif isinstance(callee, ast.Attribute):
-                self._emit_attr_call(callee, owner_ref, parent_class)
+                self._emit_attr_call(callee, owner_ref, parent_class, receiver_types)
 
-    def _emit_attr_call(self, attr: ast.Attribute, owner_ref: str, parent_class: str | None) -> None:
+    def _emit_attr_call(
+        self,
+        attr: ast.Attribute,
+        owner_ref: str,
+        parent_class: str | None,
+        receiver_types: dict[str, str],
+    ) -> None:
         method = attr.attr
         base = attr.value
         if isinstance(base, ast.Name):
@@ -234,9 +249,37 @@ class _ModuleBuilder:
                 self.edges.append(SemanticEdge(owner_ref, _sym_ref(self.module, f"{parent_class}.{method}"),
                                                "calls", resolved=True, confidence=0.95, file=self.file))
                 return
+            if base.id in receiver_types:
+                type_name = receiver_types[base.id]
+                if method in self.class_methods.get(type_name, set()):
+                    self.edges.append(SemanticEdge(owner_ref, _sym_ref(self.module, f"{type_name}.{method}"),
+                                                   "calls", resolved=True, confidence=0.9, file=self.file,
+                                                   properties={"receiver_type": type_name}))
+                    return
         # Unknown receiver: a may-call candidate (not collapsed, low confidence).
         self.edges.append(SemanticEdge(owner_ref, f"pyname://{method}", "calls",
                                        resolved=False, confidence=0.3, file=self.file))
+
+    def _receiver_types(self, func_node) -> dict[str, str]:
+        out: dict[str, str] = {}
+        args = getattr(func_node, "args", None)
+        for arg in (args.args if args is not None else []):
+            if arg.annotation:
+                name = self._name_of(arg.annotation)
+                if name:
+                    out[arg.arg] = name
+        for sub in ast.walk(func_node):
+            if isinstance(sub, ast.AnnAssign) and isinstance(sub.target, ast.Name) and sub.annotation:
+                name = self._name_of(sub.annotation)
+                if name:
+                    out[sub.target.id] = name
+            elif isinstance(sub, ast.Assign) and isinstance(sub.value, ast.Call):
+                callee = self._name_of(sub.value.func)
+                if callee in self.class_methods:
+                    for target in sub.targets:
+                        if isinstance(target, ast.Name):
+                            out[target.id] = callee
+        return out
 
     # -- resolution helpers ---------------------------------------------------
 
