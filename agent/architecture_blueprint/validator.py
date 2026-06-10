@@ -18,6 +18,8 @@ REQUIREMENT_UNCOVERED = "requirement_uncovered"
 VAGUE_PLAN = "vague_plan"
 DEPENDENCY_CYCLE = "dependency_cycle"
 MISSING_EXECUTION_CONTRACT = "missing_execution_contract"
+MISSING_VERIFICATION_CONTRACT = "missing_verification_contract"
+INVALID_COMMAND_CONTRACT = "invalid_command_contract"
 UNRESOLVED_DECISION = "unresolved_decision"
 PLANNED_USES_ACTUAL_REF = "planned_uses_actual_ref"
 MISSING_FILE_MANIFEST = "missing_file_manifest"
@@ -25,6 +27,10 @@ MISSING_FILE_MANIFEST = "missing_file_manifest"
 _FILE_TYPES = {"file"}
 _ENTRYPOINT_TYPES = {"entrypoint", "startup_contract"}
 _TEST_TYPES = {"test_contract", "runtime_scenario"}
+_MANDATORY_VERIFICATION_TYPES = {
+    "api_route", "schema", "configuration", "dependency", "runtime_scenario",
+    "nfr", "preserve_behavior", "file", "entrypoint", "command", "test_contract",
+}
 
 
 @dataclass
@@ -96,6 +102,49 @@ def validate_blueprint(revision: BlueprintRevision) -> ValidationReport:
     uncovered = [rid for rid in revision.source_requirement_ids if not coverage.get(rid)]
     if uncovered:
         diags.append(Diagnostic(REQUIREMENT_UNCOVERED, "requirements without a blueprint element", uncovered))
+    unverified_requirements = [
+        rid
+        for rid in revision.source_requirement_ids
+        if not any(rid in e.requirement_ids and e.verification_contract_ids for e in elements)
+    ]
+    if unverified_requirements:
+        diags.append(Diagnostic(
+            MISSING_VERIFICATION_CONTRACT,
+            "requirements without verification contracts",
+            unverified_requirements,
+        ))
+
+    missing_verification = [
+        e.element_id
+        for e in elements
+        if e.mandatory and e.element_type in _MANDATORY_VERIFICATION_TYPES and not e.verification_contract_ids
+    ]
+    if missing_verification:
+        diags.append(Diagnostic(
+            MISSING_VERIFICATION_CONTRACT,
+            "mandatory target elements require verification contracts",
+            missing_verification,
+        ))
+
+    invalid_commands = [
+        e.element_id
+        for e in elements
+        if e.element_type in {"command", "entrypoint", "test_contract"}
+        and "command" in e.properties
+        and not str(e.properties.get("command") or "").strip()
+    ]
+    invalid_commands.extend(
+        e.element_id
+        for e in elements
+        if e.element_type == "entrypoint"
+        and ("start_command" in e.properties or "build_command" in e.properties)
+        and not (
+            str(e.properties.get("start_command") or "").strip()
+            or str(e.properties.get("build_command") or "").strip()
+        )
+    )
+    if invalid_commands:
+        diags.append(Diagnostic(INVALID_COMMAND_CONTRACT, "execution commands must be non-empty", sorted(set(invalid_commands))))
 
     # full_project needs an exact file manifest + execution contracts
     if revision.scope == "full_project":

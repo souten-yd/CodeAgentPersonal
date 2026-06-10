@@ -5,8 +5,8 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-8`
-- Next action: implement durable Blueprint planning, review, and critical-decision integration
+- Current package: `PIR-9`
+- Next action: implement Convergence correctness, evidence policy, and durable decisions
 - Blocker: none
 - Rollout: off by default
 
@@ -30,7 +30,7 @@ This file selects the active package. The old PI package table does not prove fi
 - concrete Twin and Convergence facades are missing;
 - new Planner, Generator, and Verification adapters are not connected to real Atlas consumers;
 - durability defects remain in Blueprint, event projection, and checkpoints;
-- Blueprint target-state authority, review, and activation remain incomplete;
+- Convergence revision policy and evidence-backed gap decisions remain incomplete;
 - Convergence revision and completion logic require correction;
 - Plan Compiler is not authoritative PlanPool integration;
 - Greenfield E2E and final benchmark are synthetic;
@@ -48,7 +48,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-5 | verification ingest, context, impact, test selection | acceptance_complete |
 | PIR-6 | whole-project semantic graph | acceptance_complete |
 | PIR-7 | CFG, data flow, state/event/resource graphs | acceptance_complete |
-| PIR-8 | durable Blueprint planning and review | not_started |
+| PIR-8 | durable Blueprint planning and review | acceptance_complete |
 | PIR-9 | Convergence correctness and evidence policy | not_started |
 | PIR-10 | Planner and PlanPool production integration | not_started |
 | PIR-11 | Proposal, Safe Apply, and refresh integration | not_started |
@@ -502,5 +502,74 @@ Migration/rollout state: rollout remains off by default; no legacy consumer cuto
 Known limitations: Blueprint target authority, Convergence gap policy, Planner/PlanPool integration,
   and final benchmark/retirement remain in PIR-8+.
 Next package: PIR-8 — durable Blueprint planning, review, and critical-decision integration.
+Blocker: none.
+```
+
+```text
+Work package: PIR-8 — Durable Blueprint planning, review, and critical-decision integration
+Status: acceptance_complete
+Changed modules/files:
+- agent/architecture_blueprint/contracts.py — BlueprintCreateRequest now carries structured
+  requirement/actual context for target files, API/schema/config/dependency/runtime/NFR,
+  preserve-behavior, command, approval, and critical-decision inputs.
+- agent/architecture_blueprint/planner_adapter.py — new public-context planner adapter maps
+  Requirement + Actual inputs into deterministic BlueprintSpec and adds an unresolved critical
+  decision when an existing project requests full redesign without approval.
+- agent/architecture_blueprint/generator.py — deterministic Blueprint generation now emits
+  concrete file, API, schema, configuration, dependency, runtime, NFR, preserve-behavior,
+  entrypoint, command, and test-contract target elements with planned bp:// identities and
+  verification contracts.
+- agent/architecture_blueprint/validator.py — validates command values, mandatory verification
+  contracts, requirement verification coverage, unresolved decisions, planned-vs-Actual refs,
+  dependency cycles, and full-project manifest/execution contracts.
+- agent/architecture_blueprint/module.py and store.py — create uses the planner adapter,
+  review persists durable diagnostics/decisions/topology/coverage artifacts, and activation
+  revalidates the persisted revision before moving the active index.
+- tests/test_architecture_blueprint_pir8.py and existing Blueprint tests — PIR-8 acceptance
+  corpus for existing Change Blueprint, Greenfield full Blueprint, durable review/activation
+  restart, critical-decision blocking, and target identity/verification contracts.
+- tests/test_project_intelligence_recovery_baseline.py — PIR-8 status lock advanced; later
+  package locks stay strict xfail.
+Executed commands and exact results:
+- python -m py_compile agent/architecture_blueprint/contracts.py
+  agent/architecture_blueprint/generator.py agent/architecture_blueprint/planner_adapter.py
+  agent/architecture_blueprint/validator.py agent/architecture_blueprint/module.py
+  agent/architecture_blueprint/store.py tests/test_architecture_blueprint_pir8.py
+  tests/test_project_intelligence_blueprint_lifecycle.py
+  tests/test_project_intelligence_recovery_baseline.py -> compile OK
+- python -m pytest -q tests/test_architecture_blueprint_pir8.py
+  tests/test_blueprint_durable_lifecycle.py tests/test_project_intelligence_blueprint_generation.py
+  tests/test_project_intelligence_blueprint_lifecycle.py
+  tests/test_project_intelligence_blueprint_mapping.py -> 26 passed in 2.24s
+- python -m pytest -q tests/test_architecture_blueprint_pir8.py
+  tests/test_blueprint_durable_lifecycle.py tests/test_project_intelligence_blueprint_generation.py
+  tests/test_project_intelligence_blueprint_lifecycle.py tests/test_project_intelligence_blueprint_mapping.py
+  tests/test_project_intelligence_recovery_baseline.py -> 34 passed, 3 xfailed in 15.21s
+- python tools/generate_project_intelligence_consumer_inventory.py -> wrote
+  docs/generated/atlas_project_intelligence_consumer_inventory.json
+  production_entrypoints=32 legacy_consumers=43 facades=6 adapters=3 critical_findings=6
+- python -m pytest -q tests/test_architecture_blueprint_pir8.py
+  tests/test_blueprint_durable_lifecycle.py tests/test_project_intelligence_blueprint_generation.py
+  tests/test_project_intelligence_blueprint_lifecycle.py tests/test_project_intelligence_blueprint_mapping.py
+  tests/test_project_intelligence_greenfield.py tests/test_project_intelligence_plan_compiler.py
+  tests/test_project_intelligence_production_composition.py
+  tests/test_project_intelligence_recovery_baseline.py -> 50 passed, 3 xfailed in 16.18s
+- $files = @(Get-ChildItem tests -Filter 'test_project_intelligence_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_project_twin_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_blueprint_*.py' | ForEach-Object { $_.FullName }) +
+  @(Get-ChildItem tests -Filter 'test_architecture_blueprint_*.py' | ForEach-Object { $_.FullName });
+  python -m pytest -q @files -> 461 passed, 3 xfailed in 44.97s
+Unavailable checks: no live Atlas UI critical-decision prompt was exercised in this package;
+  unresolved Blueprint decisions surface through the existing Blueprint review/activation gate.
+Safety invariants checked: target design uses bp:// planned identities; Actual refs remain only
+  as expected materialization refs; existing-project full redesign requires explicit approval;
+  review artifacts and active revision state persist; Blueprint does not mutate PlanPool, Twin,
+  workspace, Proposal, Safe Apply, or Verification state.
+Migration/rollout state: rollout remains off by default; no legacy consumer cutover or legacy
+  deletion was performed.
+Known limitations: Convergence gap policy, Planner/PlanPool production integration, Proposal/
+  Safe Apply refresh, recovery/resume, Greenfield E2E, platform rollout, benchmark, and legacy
+  retirement remain in PIR-9+.
+Next package: PIR-9 — Convergence correctness, evidence policy, and durable decisions.
 Blocker: none.
 ```

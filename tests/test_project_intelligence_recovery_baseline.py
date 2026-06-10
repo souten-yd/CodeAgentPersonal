@@ -61,7 +61,7 @@ def test_recovery_status_selects_next_active_package() -> None:
     status = (REPO_ROOT / "docs" / "atlas_project_intelligence_recovery_current_status.md").read_text(
         encoding="utf-8"
     )
-    assert "Current package: `PIR-8`" in status
+    assert "Current package: `PIR-9`" in status
     assert "| PIR-0 | baseline, inventory, regression locks | acceptance_complete |" in status
     assert "| PIR-1 | durable concrete modules | acceptance_complete |" in status
     assert "| PIR-2 | production composition and rollout preflight | acceptance_complete |" in status
@@ -70,6 +70,7 @@ def test_recovery_status_selects_next_active_package() -> None:
     assert "| PIR-5 | verification ingest, context, impact, test selection | acceptance_complete |" in status
     assert "| PIR-6 | whole-project semantic graph | acceptance_complete |" in status
     assert "| PIR-7 | CFG, data flow, state/event/resource graphs | acceptance_complete |" in status
+    assert "| PIR-8 | durable Blueprint planning and review | acceptance_complete |" in status
 
 
 def test_legacy_status_treats_pi_as_foundation_not_completion() -> None:

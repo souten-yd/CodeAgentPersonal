@@ -76,6 +76,29 @@ class BlueprintStore:
     def set_revision_status(self, *, project_id: str, revision_id: str, status: str) -> None:
         self._artifacts.set_status(project_id, revision_id, status)
 
+    def save_review(
+        self,
+        *,
+        project_id: str,
+        workspace_id: str,
+        blueprint_id: str,
+        revision_id: str,
+        payload: dict[str, Any],
+    ) -> str:
+        review_id = f"review:{revision_id}"
+        return self._artifacts.put(
+            project_id=project_id,
+            workspace_id=workspace_id,
+            group_id=f"reviews:{blueprint_id}",
+            artifact_id=review_id,
+            artifact_type="blueprint_review",
+            payload=payload,
+            status="reviewed",
+            parent_artifact_id=revision_id,
+            idempotency_key=review_id,
+            advance_head=False,
+        )
+
     def get_revision(self, project_id: str, revision_id: str) -> dict[str, Any] | None:
         return self._artifacts.get(project_id, revision_id)
 
@@ -88,6 +111,9 @@ class BlueprintStore:
 
     def list_revisions(self, project_id: str, blueprint_id: str) -> list[dict[str, Any]]:
         return self._artifacts.list_history(project_id, blueprint_id)
+
+    def list_reviews(self, project_id: str, blueprint_id: str) -> list[dict[str, Any]]:
+        return self._artifacts.list_history(project_id, f"reviews:{blueprint_id}")
 
     def revision_as_of(self, project_id: str, blueprint_id: str, as_of_iso: str) -> dict[str, Any] | None:
         return self._artifacts.point_in_time(project_id, blueprint_id, as_of_iso)
