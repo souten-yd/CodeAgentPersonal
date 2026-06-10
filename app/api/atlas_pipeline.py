@@ -104,6 +104,9 @@ from agent.atlas_verification_recommendation_schema import AtlasVerificationReco
 from agent.atlas_verification_recommendation_service import AtlasVerificationRecommendationService
 from agent.atlas_verification_recommendation_handoff_service import AtlasVerificationRecommendationHandoffService
 from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
+from agent.project_intelligence.adapters.atlas_planning import AtlasPlannerBridge as ProjectIntelligencePlannerBridge
+from agent.project_intelligence.contracts import PlanningContextRequest, ProjectIdentity
+from agent.project_intelligence.service_registry import get_project_intelligence_service
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_autopilot_factory import build_self_correction_service
 from app.api.atlas_root import resolve_atlas_ca_data_root
@@ -488,6 +491,83 @@ def _planner_metadata_with_repair(req: CreatePlanPoolRequest, changed_files_for_
     if repair.get("is_repair") and repair.get("primary_target_files"):
         md["primary_implementation_targets"] = list(repair["primary_target_files"])
     return md
+
+
+def _file_refs(paths: list[str]) -> list[str]:
+    refs: list[str] = []
+    for path in paths:
+        text = str(path or "").strip()
+        if not text:
+            continue
+        refs.append(text if "://" in text else f"file://{text}")
+    return refs
+
+
+def _project_intelligence_planning_metadata(
+    app: Any,
+    req: CreatePlanPoolRequest,
+    *,
+    root_goal: str,
+    target_files_for_context: list[str],
+    changed_files_for_context: list[str],
+) -> dict:
+    service = get_project_intelligence_service(app)
+    if service is None:
+        return {}
+    project_path = str(req.project_path or "").strip()
+    project = ProjectIdentity(
+        project_id=str(req.project_name or req.workspace_id or "atlas"),
+        workspace_id=str(req.workspace_id or "default"),
+        project_path=project_path,
+    )
+    request = PlanningContextRequest(
+        project=project,
+        objective=root_goal,
+        plan_pool_id=str(req.pool_id or "") or None,
+        target_refs=_file_refs([*target_files_for_context, *changed_files_for_context]),
+        rollout_mode=service.rollout.mode_for_phase("planning"),
+        correlation_id=str(req.pool_id or "plan_create"),
+    )
+    try:
+        result = ProjectIntelligencePlannerBridge(service.coordinator).build_planner_context(
+            legacy_context={
+                "source": "atlas_plan_pool_create",
+                "project_path": project_path,
+                "target_files": list(target_files_for_context),
+                "changed_files": list(changed_files_for_context),
+            },
+            request=request,
+        )
+    except Exception as exc:  # noqa: BLE001 - metadata must not make legacy planning fail.
+        return {
+            "status": "failed",
+            "used_intelligence": False,
+            "mode": service.rollout.mode_for_phase("planning"),
+            "advisory_only": True,
+            "error_kind": exc.__class__.__name__,
+            "diagnostics": [str(exc)[:300]],
+        }
+    context = dict(result.context or {})
+    refs = {
+        "context_manifest_id": result.manifest_id or context.get("manifest_id"),
+        "actual_twin_revision_id": context.get("actual_twin_revision_id"),
+        "blueprint_revision_id": context.get("blueprint_revision_id"),
+        "convergence_report_id": context.get("convergence_report_id"),
+    }
+    blocked_reason = "project_intelligence_stale_context" if result.mode == "active" and result.stale else ""
+    return {
+        "status": "available",
+        "mode": result.mode,
+        "used_intelligence": result.used_intelligence,
+        "readiness": result.readiness,
+        "stale": result.stale,
+        "blocking": bool(blocked_reason),
+        "blocking_reason": blocked_reason,
+        "manifest_id": refs["context_manifest_id"],
+        "refs": refs,
+        "shadow_artifact": result.shadow_artifact or {},
+        "diagnostics": list(result.diagnostics),
+    }
 
 
 def _build_strategic_plan_summary(
@@ -987,6 +1067,13 @@ def _create_plan_pool_core(
         changed_files_for_context = list(req.metadata.get("changed_files") or [])
     if not target_files_for_context and isinstance(req.metadata, dict):
         target_files_for_context = list(req.metadata.get("target_files") or [])
+    project_intelligence_planning_metadata = _project_intelligence_planning_metadata(
+        request.app,
+        req,
+        root_goal=root_goal,
+        target_files_for_context=target_files_for_context,
+        changed_files_for_context=changed_files_for_context,
+    )
 
     if req.plan_payload:
         payload = dict(req.plan_payload)
@@ -1123,6 +1210,18 @@ def _create_plan_pool_core(
             )
 
     pool.status = "ready"
+    if project_intelligence_planning_metadata:
+        pool.metadata["project_intelligence_planning"] = project_intelligence_planning_metadata
+        for key, value in (project_intelligence_planning_metadata.get("refs") or {}).items():
+            if value:
+                pool.metadata.setdefault(key, value)
+        if project_intelligence_planning_metadata.get("blocking"):
+            pool.metadata["plan_revision_required"] = True
+            pool.metadata["project_intelligence_block_reason"] = project_intelligence_planning_metadata.get("blocking_reason")
+            pool.status = "approval_required"
+            warning = "project_intelligence_stale_context_blocks_active_planning"
+            if warning not in pool.warnings:
+                pool.warnings.append(warning)
     if req.enable_repo_context and (req.project_path or "").strip():
         try:
             repo_context = AtlasRepoContextService(data_root=ca_data_root).build_plan_scope_summary(
@@ -1481,6 +1580,11 @@ def _create_plan_pool_core(
             **dict(req.metadata),
         }
     )
+    if project_intelligence_planning_metadata:
+        pool.metadata["project_intelligence_planning"] = project_intelligence_planning_metadata
+        for key, value in (project_intelligence_planning_metadata.get("refs") or {}).items():
+            if value:
+                pool.metadata.setdefault(key, value)
 
     storage.save_pool(pool)
     journal.save_plan_pool(pool)

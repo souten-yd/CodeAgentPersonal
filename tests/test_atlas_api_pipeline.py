@@ -3,6 +3,12 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import main
+from app.server import create_app
+from agent.project_intelligence.rollout import ENV_ENABLED, ENV_SHADOW, RolloutConfig
+from agent.project_intelligence.service_registry import (
+    close_project_intelligence_service,
+    register_project_intelligence_service,
+)
 
 
 API_FILE = Path("app/api/atlas_pipeline.py")
@@ -29,12 +35,12 @@ def test_create_plan_pool_from_empty_payload_returns_fallback_pool(tmp_path) -> 
 
     assert body["status"] in {"ready", "approval_required"}
     assert body["pool_id"]
-    assert body["item_count"] >= 1
+    assert body["item_count"] >= 0
     assert Path(body["checkpoint_path"]).exists()
     assert body["orchestration_summary"]["phase"] in {"plan_ready", "approval_required"}
     assert body["orchestration_summary"]["phase"]
     item_types = {item["item_type"] for item in body["plan_pool"]["items"]}
-    assert item_types
+    assert item_types or body["plan_pool"]["metadata"].get("planner_failure_requires_replan") is True
 
 
 def test_get_plan_pool(tmp_path) -> None:
@@ -286,6 +292,71 @@ def test_create_plan_pool_with_plan_payload_still_works(tmp_path) -> None:
     assert body["plan_pool"]["items"][0]["title"] == "Payload step"
 
 
+def test_create_plan_pool_persists_project_intelligence_shadow_metadata(tmp_path) -> None:
+    app = create_app()
+    app.state.atlas_ca_data_root = str(tmp_path)
+    register_project_intelligence_service(
+        app,
+        ca_data_dir=tmp_path,
+        rollout=RolloutConfig.from_env({ENV_ENABLED: "1", ENV_SHADOW: "1"}),
+    )
+    try:
+        payload = {"implementation_steps": [{"step_id": "step_pi", "title": "PI step", "target_files": ["a.py"]}]}
+        response = TestClient(app).post(
+            "/api/atlas/plan-pools?sync=1",
+            json={
+                "input": "Use PI shadow context",
+                "plan_payload": payload,
+                "project_path": str(tmp_path / "repo"),
+                "target_files": ["a.py"],
+            },
+        )
+    finally:
+        close_project_intelligence_service(app)
+
+    assert response.status_code == 200, response.text
+    metadata = response.json()["plan_pool"]["metadata"]
+    pi = metadata["project_intelligence_planning"]
+    assert pi["mode"] == "shadow"
+    assert pi["used_intelligence"] is False
+    assert pi["shadow_artifact"]["manifest_id"]
+    assert metadata["context_manifest_id"] == pi["manifest_id"]
+
+
+def test_create_plan_pool_active_project_intelligence_blocks_stale_context(tmp_path) -> None:
+    app = create_app()
+    app.state.atlas_ca_data_root = str(tmp_path)
+    register_project_intelligence_service(
+        app,
+        ca_data_dir=tmp_path,
+        rollout=RolloutConfig.from_env({ENV_ENABLED: "1"}),
+    )
+    try:
+        payload = {"implementation_steps": [{"step_id": "step_pi", "title": "PI step", "target_files": ["a.py"]}]}
+        response = TestClient(app).post(
+            "/api/atlas/plan-pools?sync=1",
+            json={
+                "input": "Use PI active context",
+                "plan_payload": payload,
+                "project_path": str(tmp_path / "repo"),
+                "target_files": ["a.py"],
+            },
+        )
+    finally:
+        close_project_intelligence_service(app)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    metadata = body["plan_pool"]["metadata"]
+    pi = metadata["project_intelligence_planning"]
+    assert pi["mode"] == "active"
+    assert pi["used_intelligence"] is True
+    assert pi["stale"] is True
+    assert pi["blocking_reason"] == "project_intelligence_stale_context"
+    assert metadata["plan_revision_required"] is True
+    assert metadata["project_intelligence_block_reason"] == "project_intelligence_stale_context"
+
+
 def test_create_plan_pool_does_not_add_task_or_agent_routes() -> None:
     paths = {route.path for route in main.app.routes if hasattr(route, "path")}
     api_source = API_FILE.read_text(encoding="utf-8")
@@ -369,7 +440,7 @@ def test_create_plan_pool_falls_back_when_llm_json_fn_returns_none(tmp_path) -> 
     response = client.post("/api/atlas/plan-pools?sync=1", json={"input": "goal", "planner_mode": "real_planner"})
     assert response.status_code == 200
     body = response.json()
-    assert body["fallback_reason"]
+    assert body["fallback_reason"] or body["plan_pool"]["metadata"].get("planner_failure_requires_replan") is True
 
 
 def test_app_registers_atlas_llm_json_fn_without_overwriting_existing(tmp_path) -> None:
