@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-3` (PI-0, PI-1, PI-2 completed)
-- Next action: composition root and rollout model (PI-3)
+- Current work package: `PI-4` (PI-0..PI-3 completed)
+- Next action: project identity, mode detection, and lifecycle (PI-4)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -42,8 +42,8 @@ Current gaps include:
 | PI-0 | Production baseline and consumer map | Completed | maps + `tests/test_project_intelligence_baseline.py` → 46 passed; twin baseline 21 passed; full twin+PI suites 171 passed |
 | PI-1 | Module facade contracts and boundary tests | Completed | 4 module facades + contracts; `tests/test_project_intelligence_contracts.py`+`_boundaries.py` → 28 passed; affected suite 199 passed |
 | PI-2 | Persistence and migration foundation | Completed | isolated SQLite stores (blueprint/convergence/PI) + migrations; `tests/test_project_intelligence_persistence.py` → 12 passed; affected 107 passed |
-| PI-3 | Composition root and rollout model | In Progress | current package |
-| PI-4 | Project identity, mode detection, lifecycle | Not Started | |
+| PI-3 | Composition root and rollout model | Completed | factory/coordinator/rollout/telemetry; `tests/test_project_intelligence_rollout.py` → 27 passed (with boundaries); full PI suite 120 passed |
+| PI-4 | Project identity, mode detection, lifecycle | In Progress | current package |
 | PI-5 | Canonical event bridge and trace expansion | Not Started | |
 | PI-6 | Static and semantic graph v2 | Not Started | |
 | PI-7 | Behavioral graph v2 | Not Started | |
@@ -85,6 +85,51 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-3 — Composition root and rollout model
+Status: Completed
+Commit/PR: local branch pi-0-production-baseline (not pushed/merged)
+Changed modules/files:
+- agent/project_intelligence/rollout.py (new) — RolloutConfig (off/shadow/active, per-phase
+  gating, deterministic parsing, legacy CODEAGENT_PROJECT_TWIN_* compatibility mapping).
+- agent/project_intelligence/telemetry.py (new) — side-effect-free TelemetrySink + shadow
+  comparison artifacts.
+- agent/project_intelligence/coordinator.py (new) — ProjectIntelligenceCoordinator: rollout
+  -aware facade; off==baseline (no persistence), shadow computes+records only, active wired
+  through module facades.
+- agent/project_intelligence/factory.py (new) — build_project_intelligence composition root
+  with dependency injection.
+- tests/test_project_intelligence_rollout.py (new); tests/test_project_intelligence_boundaries.py
+  (scan the 4 new portable cores for forbidden imports).
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Off mode behaviourally equivalent to baseline: returns baseline packages, no telemetry,
+  no persistence touched.
+- Shadow mode returns the baseline package (Planner/Generator inputs unchanged) and records
+  exactly one shadow_comparison telemetry artifact per call (ADR-PI-017).
+- Active mode tags the manifest active and wires through the twin facade; apply requests a
+  refresh; never an execution authority; unavailable never becomes passed.
+- Deterministic config parsing; unknown phases dropped; legacy twin env vars map in when the
+  new vars are unset; new vars take precedence.
+- Coordinator depends only on facades + telemetry (no store/connection) — tested.
+Executed commands and exact results:
+- python -m py_compile (4 new files + test) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_rollout.py
+  tests/test_project_intelligence_boundaries.py -> 27 passed in 1.13s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_baseline.py
+  -> 120 passed in 2.84s
+Unavailable checks: none required.
+Safety invariants checked: off path unchanged; rollback to legacy immediate (flag off);
+  no PlanPool/approval/Safe Apply/rollback/retry/command/isolation/verification behavior
+  touched; coordinator holds no private store; boundary test rejects forbidden imports.
+Migration/rollout state: composition root + rollout model in place, disabled by default.
+Known limitations: active mode still yields disabled twin content until PI-4+ wires the real
+  Digital Twin lifecycle/graph. Coordinator not yet wired into real Atlas Planner/Generator
+  call sites (PI-17/PI-18).
+Next package: PI-4 — Project identity, mode detection, and lifecycle.
+Blocker: none.
+```
 
 ```text
 Work package: PI-2 — Persistence and migration foundation
