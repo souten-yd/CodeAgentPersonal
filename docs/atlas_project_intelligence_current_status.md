@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-5` (PI-0..PI-4 completed)
-- Next action: canonical event bridge and delivery trace expansion (PI-5)
+- Current work package: `PI-6` (PI-0..PI-5 completed)
+- Next action: static and semantic graph v2 (PI-6)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -44,8 +44,8 @@ Current gaps include:
 | PI-2 | Persistence and migration foundation | Completed | isolated SQLite stores (blueprint/convergence/PI) + migrations; `tests/test_project_intelligence_persistence.py` → 12 passed; affected 107 passed |
 | PI-3 | Composition root and rollout model | Completed | factory/coordinator/rollout/telemetry; `tests/test_project_intelligence_rollout.py` → 27 passed (with boundaries); full PI suite 120 passed |
 | PI-4 | Project identity, mode detection, lifecycle | Completed | identity/mode/lifecycle/jobs; `tests/test_project_intelligence_lifecycle.py` → 14 passed; full PI suite 134 passed |
-| PI-5 | Canonical event bridge and trace expansion | In Progress | current package |
-| PI-6 | Static and semantic graph v2 | Not Started | |
+| PI-5 | Canonical event bridge and trace expansion | Completed | event_bridge delivery trace; `tests/test_project_intelligence_event_bridge.py` → 8 passed; PI+intent_trace+baseline 147 passed |
+| PI-6 | Static and semantic graph v2 | In Progress | current package |
 | PI-7 | Behavioral graph v2 | Not Started | |
 | PI-8 | Runtime intelligence and reconciliation v2 | Not Started | |
 | PI-9 | Context, path, impact, test selection v2 | Not Started | |
@@ -85,6 +85,45 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-5 — Canonical event bridge and delivery trace expansion
+Status: Completed
+Commit/PR: local branch pi-5-event-bridge (not pushed/merged yet)
+Changed modules/files:
+- agent/project_twin/event_bridge.py (new) — CanonicalEventBridge + DeliveryTraceProjector
+  (v2 expansion). Core v1 intent_trace.py and events.py kept unchanged (KEEP).
+- tests/test_project_intelligence_event_bridge.py (new)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Consumes already-committed ProjectEventEnvelope events (full catalog) and projects a
+  delivery-trace model: message -> requirement -> plan -> plan_item -> proposal ->
+  applied refs -> verification -> evidence, preserving correlation/run/pool/item ids and
+  apply revision on applied refs.
+- At-least-once + idempotent: replaying the whole flow adds zero new nodes/edges (dedup by
+  idempotency key and by ref/edge key).
+- Missing links emit diagnostics and create no fabricated edge (e.g. proposal with no plan
+  item -> node only + diagnostic). Unknown event types are rejected with a diagnostic.
+- Projection failure marks the project degraded and enqueues an idempotent retry job; it has
+  no canonical-write path, so a successful Safe Apply is never rolled back (ADR-PI-011).
+- Project isolation: one project's trace never returns another project's facts.
+Executed commands and exact results:
+- python -m py_compile agent/project_twin/event_bridge.py + test -> compile OK
+- python -m pytest -q tests/test_project_intelligence_event_bridge.py -> 8 passed in 0.71s
+- python -m pytest -q tests/test_project_intelligence_*.py tests/test_project_twin_intent_trace.py
+  tests/test_project_twin_baseline.py -> 147 passed in 5.70s (Core v1 intent_trace unbroken)
+Unavailable checks: none required.
+Safety invariants checked: bridge holds no canonical store; projection never mutates
+  canonical PlanPool/Conversation/verification; unavailable/failed never become passed;
+  degraded+retry instead of data loss.
+Migration/rollout state: delivery-trace expansion is additive; not yet wired to live Atlas
+  event producers (the "selected producer adapters" land with PI-17 integration).
+Known limitations: projector is in-memory (per-process); durable backing + reconciliation
+  with the static graph is later (PI-8). memory/skill/nexus events are still projected by
+  the Core v1 adapters, not this bridge.
+Next package: PI-6 — Static and semantic graph v2.
+Blocker: none.
+```
 
 ```text
 Work package: PI-4 — Project identity, mode detection, and lifecycle
