@@ -51,6 +51,7 @@ class DeliveryEdge(_Frozen):
 
 class DeliveryIngestResult(_Frozen):
     project_id: str
+    workspace_id: str = ""
     event_id: str
     accepted: bool
     duplicate: bool = False
@@ -62,6 +63,7 @@ class DeliveryIngestResult(_Frozen):
 
 class DeliveryTrace(_Frozen):
     project_id: str
+    workspace_id: str = ""
     root_ref: str
     nodes: list[DeliveryNode] = Field(default_factory=list)
     edges: list[DeliveryEdge] = Field(default_factory=list)
@@ -174,7 +176,7 @@ def _facts_for_event(
 
 
 class DeliveryTraceProjector:
-    """Idempotent, project-isolated in-memory delivery-trace projection.
+    """Idempotent, workspace-isolated in-memory delivery-trace projection.
 
     Holds no canonical store. Re-ingesting an event with the same idempotency key adds no
     new facts (at-least-once delivery is safe). Facts are keyed by ref so duplicate replay
@@ -182,26 +184,26 @@ class DeliveryTraceProjector:
     """
 
     def __init__(self) -> None:
-        # project_id -> {"nodes": {ref: DeliveryNode}, "edges": {key: DeliveryEdge},
-        #                "seen": set(idempotency_key), "diags": [..]}
-        self._p: dict[str, dict[str, Any]] = {}
+        # (project_id, workspace_id) -> {"nodes": {ref: DeliveryNode},
+        # "edges": {key: DeliveryEdge}, "seen": set(idempotency_key), "diags": [..]}
+        self._p: dict[tuple[str, str], dict[str, Any]] = {}
 
-    def _proj(self, project_id: str) -> dict[str, Any]:
+    def _proj(self, project_id: str, workspace_id: str) -> dict[str, Any]:
         return self._p.setdefault(
-            project_id, {"nodes": {}, "edges": {}, "seen": set(), "diags": []}
+            (project_id, workspace_id), {"nodes": {}, "edges": {}, "seen": set(), "diags": []}
         )
 
     def ingest(self, env: ProjectEventEnvelope) -> DeliveryIngestResult:
-        proj = self._proj(env.project_id)
+        proj = self._proj(env.project_id, env.workspace_id)
         if env.event_type not in PROJECT_EVENT_TYPES:
             return DeliveryIngestResult(
-                project_id=env.project_id, event_id=env.event_id, accepted=False,
+                project_id=env.project_id, workspace_id=env.workspace_id, event_id=env.event_id, accepted=False,
                 diagnostics=[_diag(IntelligenceErrorCode.INVALID_CONTRACT_VERSION,
                                    f"unknown event type {env.event_type!r}")],
             )
         key = env.idempotency_key or env.event_id
         if key in proj["seen"]:
-            return DeliveryIngestResult(project_id=env.project_id, event_id=env.event_id,
+            return DeliveryIngestResult(project_id=env.project_id, workspace_id=env.workspace_id, event_id=env.event_id,
                                         accepted=True, duplicate=True)
 
         nodes, edge_tuples, diags = _facts_for_event(env)
@@ -222,14 +224,27 @@ class DeliveryTraceProjector:
         proj["seen"].add(key)
         proj["diags"].extend(diags)
         return DeliveryIngestResult(
-            project_id=env.project_id, event_id=env.event_id, accepted=True,
+            project_id=env.project_id, workspace_id=env.workspace_id, event_id=env.event_id, accepted=True,
             added_nodes=added_nodes, added_edges=added_edges, diagnostics=diags,
         )
 
-    def get_trace(self, project_id: str, root_ref: str, *, max_depth: int = 6) -> DeliveryTrace:
-        proj = self._p.get(project_id)
+    def get_trace(
+        self,
+        project_id: str,
+        root_ref: str,
+        *,
+        workspace_id: str | None = None,
+        max_depth: int = 6,
+    ) -> DeliveryTrace:
+        if workspace_id is None:
+            matches = [(ws, data) for (pid, ws), data in self._p.items() if pid == project_id]
+            if len(matches) != 1:
+                return DeliveryTrace(project_id=project_id, root_ref=root_ref)
+            workspace_id, proj = matches[0]
+        else:
+            proj = self._p.get((project_id, workspace_id))
         if not proj:
-            return DeliveryTrace(project_id=project_id, root_ref=root_ref)
+            return DeliveryTrace(project_id=project_id, workspace_id=workspace_id or "", root_ref=root_ref)
         edges_by_src: dict[str, list[DeliveryEdge]] = {}
         edges_by_tgt: dict[str, list[DeliveryEdge]] = {}
         for e in proj["edges"].values():
@@ -258,12 +273,18 @@ class DeliveryTraceProjector:
             if k not in seen_e:
                 seen_e.add(k)
                 uniq_edges.append(e)
-        return DeliveryTrace(project_id=project_id, root_ref=root_ref, nodes=nodes,
+        return DeliveryTrace(project_id=project_id, workspace_id=workspace_id or "", root_ref=root_ref, nodes=nodes,
                              edges=uniq_edges, diagnostics=list(proj["diags"]))
 
-    def diagnostics(self, project_id: str) -> list[IntelligenceDiagnostic]:
-        proj = self._p.get(project_id)
-        return list(proj["diags"]) if proj else []
+    def diagnostics(self, project_id: str, workspace_id: str | None = None) -> list[IntelligenceDiagnostic]:
+        if workspace_id is not None:
+            proj = self._p.get((project_id, workspace_id))
+            return list(proj["diags"]) if proj else []
+        diagnostics: list[IntelligenceDiagnostic] = []
+        for (pid, _), proj in self._p.items():
+            if pid == project_id:
+                diagnostics.extend(proj["diags"])
+        return diagnostics
 
 
 class CanonicalEventBridge:
@@ -273,7 +294,7 @@ class CanonicalEventBridge:
     enqueues a retry job — it never undoes a successful canonical operation.
     """
 
-    def __init__(self, projector: DeliveryTraceProjector | None = None, *, job_store: JobStore | None = None) -> None:
+    def __init__(self, projector: Any | None = None, *, job_store: JobStore | None = None) -> None:
         self._projector = projector or DeliveryTraceProjector()
         self._jobs = job_store
         self._degraded: set[str] = set()
@@ -281,6 +302,11 @@ class CanonicalEventBridge:
     @property
     def projector(self) -> DeliveryTraceProjector:
         return self._projector
+
+    def close(self) -> None:
+        close = getattr(self._projector, "close", None)
+        if callable(close):
+            close()
 
     def is_degraded(self, project_id: str) -> bool:
         return project_id in self._degraded
@@ -294,11 +320,15 @@ class CanonicalEventBridge:
                 self._jobs.enqueue_job(
                     project_id=env.project_id, workspace_id=env.workspace_id,
                     job_id=f"reproject:{env.event_id}", job_type="twin_event_reproject",
-                    payload={"event_id": env.event_id, "event_type": env.event_type},
+                    payload={
+                        "event_id": env.event_id,
+                        "event_type": env.event_type,
+                        "event_payload": env.model_dump(mode="json"),
+                    },
                     idempotency_key=f"reproject:{env.idempotency_key or env.event_id}",
                 )
             return DeliveryIngestResult(
-                project_id=env.project_id, event_id=env.event_id, accepted=False, degraded=True,
+                project_id=env.project_id, workspace_id=env.workspace_id, event_id=env.event_id, accepted=False, degraded=True,
                 diagnostics=[_diag(IntelligenceErrorCode.STORE_UNAVAILABLE,
                                    f"projection failed, retry queued: {exc}")],
             )

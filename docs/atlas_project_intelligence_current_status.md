@@ -23,8 +23,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: recovery track `PIR-4` after the PIR-3 source snapshot and Twin refresh slice
-- Next action: implement durable canonical event and delivery projection integration through the recovery plan;
+- Current work package: recovery track `PIR-5` after the PIR-4 durable event projection slice
+- Next action: implement real verification ingestion, reconciliation, context, impact, and test selection through the recovery plan;
   do not claim production completion from the old Foundation Track package table
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged

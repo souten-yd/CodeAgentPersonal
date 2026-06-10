@@ -400,6 +400,12 @@
     {
       "imports_sqlite3": true,
       "memory_default_count": 0,
+      "module": "agent.project_twin.event_projection_store",
+      "path": "agent/project_twin/event_projection_store.py"
+    },
+    {
+      "imports_sqlite3": true,
+      "memory_default_count": 0,
       "module": "agent.project_twin.migrations",
       "path": "agent/project_twin/migrations.py"
     },
@@ -428,7 +434,7 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-10T13:58:33+00:00",
+  "generated_at": "2026-06-10T14:18:31+00:00",
   "legacy_consumers": [
     {
       "capability": "legacy_code_explorer",
