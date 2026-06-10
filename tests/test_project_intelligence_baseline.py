@@ -175,7 +175,7 @@ def test_project_twin_core_v1_contracts_present() -> None:
 
 # --- The four Project Intelligence module packages are introduced at PI-1 -----
 
-ABSENT_PI_MODULE_TARGETS = [
+PI_MODULE_TARGETS = [
     "agent.project_intelligence",
     "agent.architecture_blueprint",
     "agent.project_convergence",
@@ -183,12 +183,12 @@ ABSENT_PI_MODULE_TARGETS = [
 ]
 
 
-@pytest.mark.parametrize("module_name", ABSENT_PI_MODULE_TARGETS)
-def test_pi_module_packages_absent_at_baseline(module_name: str) -> None:
-    # PI-0 pins the absence of the module facades so PI-1 introduction is an explicit,
-    # reviewed step rather than an accidental import. Remove these pins in PI-1.
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module(module_name)
+@pytest.mark.parametrize("module_name", PI_MODULE_TARGETS)
+def test_pi_module_packages_present_after_pi1(module_name: str) -> None:
+    # PI-0 pinned the ABSENCE of these packages so PI-1 introduction was an explicit,
+    # reviewed step. PI-1 introduced the four module facades; the pin now asserts their
+    # presence so they cannot silently disappear in later packages.
+    assert importlib.import_module(module_name) is not None
 
 
 # --- Program status is recorded truthfully (Core v1 complete, program active) -

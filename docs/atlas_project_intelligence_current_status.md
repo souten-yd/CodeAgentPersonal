@@ -16,8 +16,8 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: `PI-1` (PI-0 completed)
-- Next action: implement module facade contracts and boundary tests (PI-1)
+- Current work package: `PI-2` (PI-0, PI-1 completed)
+- Next action: persistence and migration foundation (PI-2)
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 
@@ -40,8 +40,8 @@ Current gaps include:
 | WP | Title | Status | Evidence / Notes |
 |---|---|---|---|
 | PI-0 | Production baseline and consumer map | Completed | maps + `tests/test_project_intelligence_baseline.py` → 46 passed; twin baseline 21 passed; full twin+PI suites 171 passed |
-| PI-1 | Module facade contracts and boundary tests | In Progress | current package |
-| PI-2 | Persistence and migration foundation | Not Started | |
+| PI-1 | Module facade contracts and boundary tests | Completed | 4 module facades + contracts; `tests/test_project_intelligence_contracts.py`+`_boundaries.py` → 28 passed; affected suite 199 passed |
+| PI-2 | Persistence and migration foundation | In Progress | current package |
 | PI-3 | Composition root and rollout model | Not Started | |
 | PI-4 | Project identity, mode detection, lifecycle | Not Started | |
 | PI-5 | Canonical event bridge and trace expansion | Not Started | |
@@ -85,6 +85,54 @@ Blocker, if any:
 ```
 
 ## Executed package log
+
+```text
+Work package: PI-1 — Module facade contracts and boundary tests
+Status: Completed
+Commit/PR: local branch pi-0-production-baseline (not pushed/merged)
+Changed modules/files:
+- agent/project_intelligence/__init__.py, contracts.py, facade.py (new)
+- agent/project_twin/facade.py (new; atlas.digital_twin.v2 facade over Core v1)
+- agent/architecture_blueprint/__init__.py, contracts.py, facade.py (new)
+- agent/project_convergence/__init__.py, contracts.py, facade.py (new)
+- tests/test_project_intelligence_contracts.py, tests/test_project_intelligence_boundaries.py (new)
+- tests/test_project_intelligence_baseline.py (PI-0 absence pin flipped to presence pin)
+- docs/atlas_project_intelligence_current_status.md (this file)
+Behavior implemented:
+- Versioned public contracts for four families: atlas.project_intelligence.v1,
+  atlas.digital_twin.v2, atlas.architecture_blueprint.v1, atlas.project_convergence.v1.
+- Four coarse-grained facade Protocols (DigitalTwinModule, ArchitectureBlueprintModule,
+  ConvergenceModule, ProjectIntelligenceModule) + shared contract kernel (ProjectIdentity,
+  ContextManifest, ContextItem, SourceExcerpt, RuntimeObservationRecord, ProjectMode,
+  typed IntelligenceErrorCode/IntelligenceError).
+- Disabled-by-default concrete stubs for all four facades: explicit DISABLED/unavailable
+  results; never fabricate twin revisions, blueprints, convergence completion, or passed
+  observations; unavailable observations stay unavailable (ADR-PI-013); blueprint
+  activate/get_revision raise typed errors instead of fabricating a revision.
+- v1 compatibility readers: accepts_twin_contract_version (reads atlas.project_twin.v1
+  and v2); context_item_from_v1_slice_item adapts a Core v1 context item without upgrading
+  status/confidence.
+- Dependency direction enforced: PI facade -> twin/blueprint/convergence facades; twin and
+  blueprint independent; portable cores import only stdlib/typing/pydantic + shared kernel.
+  PI package __init__ exports the coordinator lazily (PEP 562) to keep the kernel import
+  cycle-free.
+Executed commands and exact results:
+- python -m py_compile (10 new module files + 2 new tests) -> compile OK
+- python -m pytest -q tests/test_project_intelligence_contracts.py
+  tests/test_project_intelligence_boundaries.py -> 28 passed in 1.06s
+- python -m pytest -q tests/test_project_intelligence_baseline.py + contracts + boundaries
+  + tests/test_project_twin_*.py -> 199 passed in 7.30s
+Unavailable checks: none required (no runtime/browser instrumentation in PI-1).
+Safety invariants checked: facades are advisory/disabled; no PlanPool/approval/Safe Apply/
+  rollback/retry/command/isolation/verification behavior touched; no facade exposes a private
+  store; no portable core imports FastAPI/app.api/PlanPool/SQLite (AST boundary test).
+Migration/rollout state: facades introduced disabled; no consumer cutover; no legacy deletion.
+Known limitations: facades are stubs — open/refresh/query/build_context/create/evaluate
+  return disabled results. Real persistence (PI-2), composition/rollout (PI-3) and Digital
+  Twin production wiring (PI-4+) are later packages.
+Next package: PI-2 — Persistence and migration foundation.
+Blocker: none.
+```
 
 ```text
 Work package: PI-0 — Production baseline and consumer map
