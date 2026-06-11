@@ -28,7 +28,8 @@ This file selects the active package. The old PI package table does not prove fi
 ## Confirmed gaps
 
 - production composition uses disabled modules;
-- coordinator active paths do not return real module output;
+- coordinator active planning now returns concrete Twin context; remaining active paths must
+  continue to prove concrete module output before cutover;
 - concrete Twin, Blueprint, and Convergence facades exist, and PIR-14 consumer cutover evidence
   passed for planning, generation, verification, and recovery;
 - Verification adapter is connected to canonical manual and auto Atlas verification consumers;
@@ -77,6 +78,64 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Active planning concrete Twin context prerequisite
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/coordinator.py — active planning now opens the project through the
+  DigitalTwinModule facade, builds a concrete Twin context package, and returns a
+  PlanningContextPackage with ready state, actual twin revision, project mode, impacted refs,
+  relevant tests, uncertainties, and the Twin context manifest instead of the disabled baseline.
+- tests/test_project_intelligence_production_composition.py — added production-service coverage
+  proving active planning returns concrete Twin-backed context for an existing project.
+- tests/test_atlas_api_pipeline.py — updated active PlanPool Project Intelligence regressions to
+  require ready existing and greenfield metadata through the real service, while preserving the
+  stale-context hard-block policy for truly stale source-backed contexts.
+- docs/atlas_project_intelligence_recovery_current_status.md — recorded the production-planning
+  prerequisite before existing-project benchmark execution.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\coordinator.py
+  tests\test_project_intelligence_production_composition.py tests\test_atlas_api_pipeline.py ->
+  compile OK.
+- python -m pytest -q
+  tests\test_project_intelligence_production_composition.py::test_active_planning_returns_concrete_twin_context
+  tests\test_atlas_api_pipeline.py::test_create_plan_pool_active_project_intelligence_uses_ready_existing_context
+  tests\test_atlas_api_pipeline.py::test_create_plan_pool_active_project_intelligence_uses_ready_greenfield_context
+  tests\test_atlas_api_pipeline.py::test_project_intelligence_stale_context_blocking_policy_preserves_greenfield_escape ->
+  4 passed in 5.94s.
+- python -m pytest -q tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_contracts.py tests\test_project_intelligence_rollout.py
+  tests\test_project_intelligence_boundaries.py -> 50 passed, 2 xfailed in 14.80s.
+- python -m pytest -q
+  tests\test_project_intelligence_production_composition.py::test_active_planning_returns_concrete_twin_context
+  tests\test_atlas_api_pipeline.py::test_create_plan_pool_active_project_intelligence_uses_ready_existing_context
+  tests\test_atlas_api_pipeline.py::test_create_plan_pool_active_project_intelligence_uses_ready_greenfield_context
+  tests\test_atlas_api_pipeline.py::test_project_intelligence_stale_context_blocking_policy_preserves_greenfield_escape
+  tests\test_project_intelligence_recovery_baseline.py::test_recovery_status_selects_next_active_package ->
+  5 passed in 5.97s.
+Evidence details:
+- Active production service preflight still composes concrete DigitalTwinModuleImpl,
+  ArchitectureBlueprintModuleImpl, and ConvergenceModuleImpl.
+- Existing-project active planning now reports readiness=ready, a non-empty
+  actual_twin_revision_id, context manifest actual_twin_revision_id, project_mode=existing, and
+  context capability from the concrete Twin facade.
+- Atlas PlanPool creation with active Project Intelligence no longer marks existing or empty
+  projects stale when the concrete Twin opens successfully.
+Unavailable checks: live existing-project comparative benchmark, repeated/statistical benchmark
+  summary, active rollout decision, consumer-zero, rollback-before-removal, data migration, and
+  legacy retirement remain unclaimed.
+Safety invariants checked: the stale-context blocking policy is unchanged for active existing
+  contexts that are genuinely stale; coordinator uses only public module facades and does not read
+  private stores or mutate PlanPool state.
+Migration/rollout state: rollout remains off by default; active planning is used only when the
+  existing rollout configuration activates the planning phase.
+Known limitations: this is the production-planning prerequisite for the existing benchmark; the
+  PIR-15 benchmark runner still needs existing-project task/repetition execution.
+Next package: PIR-15 — add existing-project benchmark coverage and repeated/statistical summary
+  evidence.
+Blocker: none.
+```
 
 ```text
 Work package: PIR-15 — Active greenfield stale-context unblock and live benchmark pass

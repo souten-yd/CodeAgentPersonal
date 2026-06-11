@@ -323,7 +323,7 @@ def test_create_plan_pool_persists_project_intelligence_shadow_metadata(tmp_path
     assert metadata["context_manifest_id"] == pi["manifest_id"]
 
 
-def test_create_plan_pool_active_project_intelligence_blocks_stale_context(tmp_path) -> None:
+def test_create_plan_pool_active_project_intelligence_uses_ready_existing_context(tmp_path) -> None:
     app = create_app()
     app.state.atlas_ca_data_root = str(tmp_path)
     repo = tmp_path / "repo"
@@ -368,15 +368,18 @@ def test_create_plan_pool_active_project_intelligence_blocks_stale_context(tmp_p
     pi = metadata["project_intelligence_planning"]
     assert pi["mode"] == "active"
     assert pi["used_intelligence"] is True
-    assert pi["stale"] is True
+    assert pi["readiness"] == "ready"
+    assert pi["stale"] is False
     assert pi["project_mode"] == "existing"
-    assert pi["blocking_reason"] == "project_intelligence_stale_context"
-    assert metadata["plan_revision_required"] is True
-    assert metadata["project_intelligence_block_reason"] == "project_intelligence_stale_context"
-    assert "project_intelligence_stale_context_blocks_active_planning" in body["plan_pool"]["warnings"]
+    assert pi["refs"]["actual_twin_revision_id"]
+    assert pi["blocking"] is False
+    assert pi["blocking_reason"] == ""
+    assert "plan_revision_required" not in metadata
+    assert "project_intelligence_block_reason" not in metadata
+    assert "project_intelligence_stale_context_blocks_active_planning" not in body["plan_pool"]["warnings"]
 
 
-def test_create_plan_pool_active_project_intelligence_records_greenfield_stale_without_blocking(tmp_path) -> None:
+def test_create_plan_pool_active_project_intelligence_uses_ready_greenfield_context(tmp_path) -> None:
     app = create_app()
     app.state.atlas_ca_data_root = str(tmp_path)
     repo = tmp_path / "repo"
@@ -417,17 +420,46 @@ def test_create_plan_pool_active_project_intelligence_records_greenfield_stale_w
     pi = metadata["project_intelligence_planning"]
     assert pi["mode"] == "active"
     assert pi["used_intelligence"] is True
-    assert pi["stale"] is True
+    assert pi["readiness"] == "ready"
+    assert pi["stale"] is False
     assert pi["project_mode"] == "empty"
-    assert pi["stale_reason"] == "project_intelligence_stale_context"
     assert pi["blocking"] is False
     assert pi["blocking_reason"] == ""
-    assert pi["degraded_reason"] == "project_intelligence_stale_context"
+    assert pi["degraded_reason"] == ""
     assert "plan_revision_required" not in metadata
     assert "project_intelligence_block_reason" not in metadata
     assert body["plan_pool"]["status"] == "ready"
     assert "project_intelligence_stale_context_blocks_active_planning" not in body["plan_pool"]["warnings"]
-    assert "project_intelligence_stale_context_recorded_non_blocking_greenfield" in body["plan_pool"]["warnings"]
+    assert "project_intelligence_stale_context_recorded_non_blocking_greenfield" not in body["plan_pool"]["warnings"]
+
+
+def test_project_intelligence_stale_context_blocking_policy_preserves_greenfield_escape() -> None:
+    import app.api.atlas_pipeline as atlas_pipeline
+
+    assert (
+        atlas_pipeline._stale_project_intelligence_blocks_planning(
+            mode="active",
+            stale=True,
+            project_mode="existing",
+        )
+        is True
+    )
+    assert (
+        atlas_pipeline._stale_project_intelligence_blocks_planning(
+            mode="active",
+            stale=True,
+            project_mode="empty",
+        )
+        is False
+    )
+    assert (
+        atlas_pipeline._stale_project_intelligence_blocks_planning(
+            mode="active",
+            stale=True,
+            project_mode="greenfield_partial",
+        )
+        is False
+    )
 
 
 def test_create_plan_pool_does_not_add_task_or_agent_routes() -> None:
