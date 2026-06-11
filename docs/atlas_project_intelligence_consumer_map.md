@@ -38,15 +38,15 @@ None of these target facades exist yet (PI-1). This map records the **current** 
 | `agent/atlas_code_explorer.py:extract_symbols / find_related_tests / search_code_excerpts / build_research_evidence` | research/evidence + explorer callers (heuristic path) | helper functions |
 | `agent/atlas_test_impl_linker.py:find_implementation_item` | verification recommendation / handoff path | helper function |
 | `ProjectIntelligencePlanItemImpactMapAdapter` | `agent/project_intelligence/adapters/context_refresh_v2.py:ProjectIntelligenceContextRefreshV2Adapter`; `agent/project_intelligence/adapters/planner_packaging_v2.py:ProjectIntelligencePlannerPackagingV2Adapter`; `agent/project_intelligence/adapters/atlas_repo_context.py:AtlasRepoContextAdapter` | Project Intelligence adapter helper |
-| `AtlasRepoContextService` | `agent/atlas_context_refresh_service.py:AtlasContextRefreshService`; `agent/project_intelligence/adapters/atlas_repo_context.py:AtlasRepoContextAdapter`; `agent/project_intelligence/adapters/repo_context_packaging.py:ProjectIntelligenceRepoContextPackager` | agent service + Project Intelligence adapters |
+| `AtlasRepoContextService` | `agent/project_intelligence/adapters/context_refresh_v1.py:ProjectIntelligenceContextRefreshAdapter`; `agent/project_intelligence/adapters/atlas_repo_context.py:AtlasRepoContextAdapter`; `agent/project_intelligence/adapters/repo_context_packaging.py:ProjectIntelligenceRepoContextPackager` | Project Intelligence adapters |
 | `ProjectIntelligenceRepoContextPackager` | `agent/project_intelligence/adapters/atlas_repo_context.py`; `agent/project_intelligence/adapters/planner_packaging_v2.py`; `agent/project_intelligence/adapters/plan_item_impact_map.py` | Project Intelligence adapter helper |
-| `AtlasContextRefreshService` | `agent/atlas_supervised_handoff_retry_service.py`; `agent/atlas_supervised_handoff_verification_service.py`; `app/api/atlas_bounded_retry.py`; `app/api/atlas_context_refresh.py`; `app/api/atlas_multi_item_autopilot.py`; `app/api/atlas_supervised_handoff_retry.py` | agent services + APIs |
+| `ProjectIntelligenceContextRefreshAdapter` | `agent/project_intelligence/adapters/atlas_context_refresh.py`; `app/api/atlas_context_refresh.py`; supervised retry/handoff factories via the Project Intelligence adapter | Project Intelligence adapter helper + APIs |
 | `ProjectIntelligenceContextRefreshV2Adapter` | `agent/project_intelligence/adapters/atlas_context_refresh.py`; `agent/project_intelligence/adapters/planner_packaging_v2.py`; `app/api/atlas_context_refresh.py` | Project Intelligence adapter helper + API |
 | `ProjectIntelligencePlannerPackagingV2Adapter` | `agent/atlas_verification_recommendation_service.py:AtlasVerificationRecommendationService`; `app/api/atlas_pipeline.py`; `app/api/atlas_repo_context.py` | Project Intelligence adapter + API |
 | `AtlasVerificationRecommendationService` | `agent/atlas_verification_recommendation_handoff_service.py:AtlasVerificationRecommendationHandoffService`; `app/api/atlas_pipeline.py`; `app/api/atlas_repo_context.py` | agent service + API |
 | `AtlasVerificationRecommendationHandoffService` | `app/api/atlas_pipeline.py`; `app/api/atlas_repo_context.py` | API |
 | `AtlasVerificationGateService` | `app/api/atlas_pipeline.py` | API |
-| `agent/atlas_context_local_collectors.py` | `agent/atlas_context_refresh_service.py:AtlasContextRefreshService` | agent service |
+| `agent/atlas_context_local_collectors.py` | `agent/project_intelligence/adapters/context_refresh_v1.py:ProjectIntelligenceContextRefreshAdapter` | Project Intelligence adapter helper |
 | `agent/context_builder.py:ContextBuilder / TaskV2ContextBuilder` | `agent/loop.py` (agent execution loop) | agent loop |
 | `agent/project_twin/` (Core v1 store + contracts) | `app/api/project_twin.py` (read-only inspection); `app/server.py` (router registration) | API only |
 
@@ -58,8 +58,8 @@ None of these target facades exist yet (PI-1). This map records the **current** 
    targets for the future `ProjectIntelligenceModule.prepare_planning_context` /
    `prepare_generation_context` (PI-16..PI-18).
 
-2. **`agent/atlas_context_refresh_service.py` is a hub**: it consumes RepoContext
-   and the local collectors, and is itself consumed by the
+2. **`agent/project_intelligence/adapters/context_refresh_v1.py` is a hub**: it consumes
+   RepoContext and the local collectors, and is itself consumed through the
    supervised-handoff/retry/autopilot APIs. Refresh is therefore on the critical context
    path and must be migrated with shadow comparison (PI-9 / PI-17).
 
