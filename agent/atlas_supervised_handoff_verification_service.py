@@ -7,13 +7,13 @@ from uuid import uuid4
 from agent.atlas_auto_verification_schema import AtlasAutoVerificationRequest
 from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_context_refresh_schema import AtlasContextRefreshRequest
-from agent.atlas_context_refresh_service import AtlasContextRefreshService
 from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_failure_stop_service import AtlasFailureStopService
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_llm_evaluator_schema import AtlasEvaluatorRequest
 from agent.atlas_llm_evaluator_service import AtlasLLMEvaluatorService
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.project_intelligence.adapters.atlas_context_refresh import AtlasContextRefreshAdapter
 from agent.atlas_supervised_handoff_verification_policies import get_supervised_handoff_verification_policy
 from agent.atlas_supervised_handoff_verification_schema import AtlasSupervisedHandoffVerificationRequest, AtlasSupervisedHandoffVerificationResult
 from agent.test_command_runner import TestCommandRunner
@@ -24,7 +24,9 @@ class AtlasSupervisedHandoffVerificationService:
         self.storage = storage or AtlasPlanPoolStorage(Path("ca_data"))
         self.journal = journal or AtlasJournal(Path("ca_data"))
         self.verification_service = verification_service or AtlasAutoVerificationService(journal=self.journal, storage=self.storage, command_runner=TestCommandRunner())
-        self.context_refresh_service = context_refresh_service or AtlasContextRefreshService()
+        self.context_refresh_service = context_refresh_service or AtlasContextRefreshAdapter(
+            data_root=self.storage.root_dir
+        ).build_service(journal=self.journal)
         self.evaluator_service = evaluator_service or AtlasLLMEvaluatorService()
         self.failure_stop_service = failure_stop_service or AtlasFailureStopService(journal=self.journal)
 

@@ -409,7 +409,7 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-11T07:10:24+00:00",
+  "generated_at": "2026-06-11T07:18:35+00:00",
   "legacy_consumers": [
     {
       "adapter_consumer_count": 0,
@@ -465,17 +465,8 @@
       "legacy_internal_consumer_count": 0,
       "legacy_internal_consumers": [],
       "legacy_module": "agent.atlas_context_refresh_service",
-      "production_consumer_count": 2,
-      "production_consumers": [
-        {
-          "module": "agent.atlas_supervised_handoff_retry_service",
-          "path": "agent/atlas_supervised_handoff_retry_service.py"
-        },
-        {
-          "module": "agent.atlas_supervised_handoff_verification_service",
-          "path": "agent/atlas_supervised_handoff_verification_service.py"
-        }
-      ]
+      "production_consumer_count": 0,
+      "production_consumers": []
     },
     {
       "adapter_consumer_count": 1,
@@ -1073,7 +1064,7 @@
     "critical_finding_count": 6,
     "disabled_facade_count": 4,
     "facade_module_count": 6,
-    "legacy_production_consumer_count": 10,
+    "legacy_production_consumer_count": 8,
     "production_entrypoint_count": 32
   }
 }

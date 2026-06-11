@@ -33,13 +33,8 @@ def test_legacy_owner_internals_are_not_counted_as_direct_production_consumers()
 
     context_refresh = rows["agent.atlas_context_refresh_service"]
     context_refresh_v2 = rows["agent.atlas_context_refresh_v2_service"]
-    assert context_refresh["production_consumer_count"] == 2
-    assert {
-        consumer["path"] for consumer in context_refresh["production_consumers"]
-    } == {
-        "agent/atlas_supervised_handoff_retry_service.py",
-        "agent/atlas_supervised_handoff_verification_service.py",
-    }
+    assert context_refresh["production_consumer_count"] == 0
+    assert context_refresh["production_consumers"] == []
     assert context_refresh["adapter_consumer_count"] == 1
     assert context_refresh_v2["production_consumer_count"] == 0
     assert context_refresh_v2["adapter_consumer_count"] == 1
