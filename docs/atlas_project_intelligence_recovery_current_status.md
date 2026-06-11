@@ -6,9 +6,9 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-15`
-- Next action: fix the PIR-15 final/active benchmark blocker where active Project Intelligence
-  planning marks the PlanPool stale and blocks patch proposal generation with
-  `project_intelligence_stale_context_blocks_active_planning`.
+- Next action: add and execute PIR-15 existing-project comparative benchmark coverage and
+  repeated/statistical summary evidence, then proceed to active rollout and legacy retirement
+  gates only where consumer-zero and rollback evidence pass.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -35,8 +35,8 @@ This file selects the active package. The old PI package table does not prove fi
 - durability defects remain in Blueprint, event projection, and checkpoints;
 - Verification, bounded recovery, checkpoint, and resume acceptance is complete for existing-project
   production paths;
-- final benchmark is synthetic;
-- final active rollout, real comparative benchmark, and legacy retirement remain incomplete.
+- PIR-15 Greenfield comparative benchmark has passed through the live Atlas entrypoint;
+- final active rollout, broader real comparative benchmark, and legacy retirement remain incomplete.
 
 ## Package table
 
@@ -77,6 +77,63 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Active greenfield stale-context unblock and live benchmark pass
+Status: in_progress
+Changed modules/files:
+- app/api/atlas_pipeline.py — detects Project Intelligence project mode during PlanPool
+  planning metadata, keeps active stale context recorded truthfully, and only converts stale
+  Project Intelligence context into a hard `plan_revision_required` block for existing or
+  source-backed projects. Empty and greenfield-partial workspaces now get an explicit
+  non-blocking degraded warning instead of blocking Proposal generation.
+- tests/test_atlas_api_pipeline.py — preserves the existing/source-backed stale-context hard
+  block regression and adds the empty-greenfield non-blocking degraded-state regression.
+- docs/atlas_project_intelligence_recovery_current_status.md — records the live benchmark
+  rerun and next PIR-15 gates.
+Executed commands and exact results:
+- python -m py_compile app\api\atlas_pipeline.py tests\test_atlas_api_pipeline.py -> compile OK.
+- python -m pytest -q
+  tests\test_atlas_api_pipeline.py::test_create_plan_pool_active_project_intelligence_blocks_stale_context
+  tests\test_atlas_api_pipeline.py::test_create_plan_pool_active_project_intelligence_records_greenfield_stale_without_blocking
+  tests\test_project_intelligence_pir15_live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark_cli.py -> 9 passed in 5.58s.
+- python tools\run_pir15_live_benchmark.py --workspace-root
+  ca_data\atlas\pir15_live_workspaces_r3 --data-root ca_data\atlas\pir15_live_data_r3
+  --output-json ca_data\atlas\pir15_live_benchmark_report.r3.json -> exit 0;
+  status=passed, arm_statuses={legacy: passed, final: passed}, verdict=improved.
+Evidence details:
+- PIR-15 report acceptance: status=passed, blocked_reasons=[].
+- Corpus/task: corpus_version=pir15-corpus-v1, task=greenfield_single_html_ready.
+- Artifact-derived metrics: legacy verified_autonomous_completion=1.0,
+  requirement_coverage=1.0, autonomous_recovery=1.0, resume_fidelity=1.0,
+  false_success=0.0, regression_escape=0.0, human_intervention=2.0,
+  latency_ms=64024.569; final verified_autonomous_completion=1.0,
+  requirement_coverage=1.0, autonomous_recovery=1.0, resume_fidelity=1.0,
+  false_success=0.0, regression_escape=0.0, human_intervention=2.0,
+  latency_ms=54089.848000000005.
+- Comparison: improved_metrics=[latency_ms], regressed_metrics=[],
+  delta_latency_ms=-9934.720999999998.
+- Per-arm reports:
+  ca_data\atlas\pir15_live_benchmark_reports\legacy_greenfield_single_html_ready.json
+  and ca_data\atlas\pir15_live_benchmark_reports\final_greenfield_single_html_ready.json.
+- Safety flags in report: manual_metrics_accepted=False, rollout_transition=False,
+  legacy_retirement=False, normal_atlas_entrypoint_reports_required=True.
+Unavailable checks: existing-project comparative benchmark coverage, repeated/statistical
+  summary evidence, active rollout decision, consumer-zero, rollback-before-removal, data
+  migration, and legacy retirement remain unclaimed.
+Safety invariants checked: stale Project Intelligence context remains explicit in metadata;
+  existing/source-backed stale contexts still set `plan_revision_required`; empty/greenfield
+  workspaces record degraded stale context without undoing canonical planning or bypassing
+  Proposal/Safe Apply authority.
+Migration/rollout state: rollout remains off by default; benchmark arms set rollout only inside
+  isolated benchmark execution.
+Known limitations: this slice proves the greenfield benchmark task only; PIR-15 acceptance still
+  requires existing-project loop evidence, active rollout gates, and legacy retirement gates.
+Next package: PIR-15 — add existing-project benchmark coverage and repeated/statistical summary
+  evidence.
+Blocker: none.
+```
 
 ```text
 Work package: PIR-15 — Live benchmark CLI and blocked active-arm evidence
