@@ -5,9 +5,10 @@
 - Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-14`
-- Next action: record the final PIR-14 rollout/cutover acceptance decision; Runpod evidence
-  remains unavailable unless the existing self-hosted Runpod workflow is enabled.
+- Current package: `PIR-15`
+- Next action: execute PIR-15 real comparative benchmark, final active rollout decision, and
+  legacy retirement only after consumer-zero, parity/superiority, data migration, rollback, and
+  real E2E gates pass.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -28,13 +29,14 @@ This file selects the active package. The old PI package table does not prove fi
 
 - production composition uses disabled modules;
 - coordinator active paths do not return real module output;
-- concrete Twin, Blueprint, and Convergence facades exist, but later consumer cutover remains incomplete;
+- concrete Twin, Blueprint, and Convergence facades exist, and PIR-14 consumer cutover evidence
+  passed for planning, generation, verification, and recovery;
 - Verification adapter is connected to canonical manual and auto Atlas verification consumers;
 - durability defects remain in Blueprint, event projection, and checkpoints;
 - Verification, bounded recovery, checkpoint, and resume acceptance is complete for existing-project
   production paths;
 - final benchmark is synthetic;
-- live rollout, CI/platform/scale evidence, consumer cutover, and retirement are incomplete.
+- final active rollout, real comparative benchmark, and legacy retirement remain incomplete.
 
 ## Package table
 
@@ -54,7 +56,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-11 | Proposal, Safe Apply, and refresh integration | acceptance_complete |
 | PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |
 | PIR-13 | real Greenfield E2E | acceptance_complete |
-| PIR-14 | CI, platform, scale, and consumer cutover | in_progress |
+| PIR-14 | CI, platform, scale, and consumer cutover | acceptance_complete |
 | PIR-15 | real benchmark and retirement | not_started |
 
 ## Status values
@@ -75,6 +77,50 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-14 — Final acceptance and PIR-15 handoff
+Status: acceptance_complete
+Changed modules/files:
+- docs/atlas_project_intelligence_recovery_current_status.md — marked PIR-14 acceptance_complete,
+  advanced the active package to PIR-15, and narrowed remaining gaps to PIR-15 benchmark,
+  final active rollout, and legacy retirement.
+- tests/test_project_intelligence_recovery_baseline.py — updated the active-package regression
+  lock to require PIR-15 selection and PIR-14 acceptance_complete.
+Executed commands and exact results:
+- python - <<script regenerating PIR-14 lint, rollout, cutover gate, operational, and
+  scale/concurrency artifacts>> ->
+  lint_passed=True violations=0 observed=43 allowed=43;
+  rollout_phases=4 parity=4 rollback=4;
+  cutover_gate_passed=True production_connected=4 cutover_ready=4 blocked=[];
+  operational_platform=windows observed=1 unavailable=3 scale_passed=1 threshold_rollback=True;
+  scale_files=1200 concurrency=4 result=passed inventory_seconds=8.4184
+  concurrent_seconds=1.2091 parse_errors=0 concurrent_parse_errors=0.
+- gh pr checks 1710 --watch --interval 20 -> exit 0; GitHub Actions workflow
+  "Atlas Project Intelligence Recovery" passed on pull_request run 27320825954 and branch push
+  run 27320816848. Both runs completed docker-platform-evidence successfully
+  (18s on pull_request, 22s on branch push), plus focused-regression, integration,
+  restart-fault, fixture-e2e, cutover-platform-contracts, and windows-platform-evidence.
+- python -m py_compile tests\test_project_intelligence_recovery_baseline.py -> compile OK.
+- python -m pytest -q
+  tests\test_project_intelligence_recovery_baseline.py::test_recovery_status_selects_next_active_package
+  tests\test_project_intelligence_pir14_consumer_cutover_gate.py
+  tests\test_project_intelligence_pir14_ci_workflow.py
+  tests\test_project_intelligence_pir14_scale_concurrency_evidence.py -> 8 passed in 2.15s.
+Unavailable checks: Runpod platform execution remains unavailable unless RUNPOD_SMOKE_ENABLED
+  and a self-hosted [self-hosted, linux, x64, nvidia, runpod] runner are configured. This is
+  explicit unavailable evidence, not a passed Runpod result.
+Safety invariants checked: final PIR-14 decision is advisory/status-only; it does not transition
+  rollout to active, run the PIR-15 live benchmark, mutate source through Proposal/Safe Apply,
+  delete legacy paths, or claim Runpod as passed.
+Migration/rollout state: rollout remains off by default; PIR-14 cutover evidence for planning,
+  generation, verification, and recovery passed with shadow parity and rollback proof. Legacy
+  retirement and final active rollout are deferred to PIR-15 gates.
+Known limitations: the program remains ACTIVE because PIR-15 real benchmark, final active
+  rollout, data migration/consumer-zero proof, and legacy retirement are not complete.
+Next package: PIR-15 — real comparative benchmark, final active rollout, and legacy retirement.
+Blocker: none.
+```
 
 ```text
 Work package: PIR-14 — Docker platform evidence job
