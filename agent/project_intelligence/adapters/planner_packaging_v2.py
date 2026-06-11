@@ -18,8 +18,8 @@ from agent.atlas_planner_packaging_v2_schema import (
     AtlasPlannerPackagingV2Package,
     AtlasPlannerPackagingV2Request,
 )
-from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
+from agent.project_intelligence.adapters.repo_context_packaging import ProjectIntelligenceRepoContextPackager
 
 
 def _impact_entry_files(item: dict[str, Any]) -> list[str]:
@@ -59,7 +59,7 @@ class ProjectIntelligencePlannerPackagingV2Adapter:
 
         if not repo and req.include_repo_context and req.project_path:
             try:
-                repo = AtlasRepoContextPlannerPackager(data_root=self.data_root).build_package(
+                repo = ProjectIntelligenceRepoContextPackager(data_root=self.data_root).build_package(
                     AtlasRepoContextRequest(
                         workspace_id=req.workspace_id,
                         project_path=req.project_path,

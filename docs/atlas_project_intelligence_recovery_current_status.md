@@ -65,6 +65,8 @@ This file selects the active package. The old PI package table does not prove fi
   data migration evidence.
 - planner packaging v2 legacy owner was retired in a separate low-risk PIR-15 slice after
   consumer-zero, data migration, behavior preservation, and reverse-patch rollback checks.
+- repo-context planner packager legacy owner was retired in a separate low-risk PIR-15 slice;
+  its advisory package behavior is now retained by a Project Intelligence adapter helper.
 - final broader legacy retirement remains incomplete until remaining proven-zero legacy paths are
   removed in separate low-risk changes with rollback proof for each removal.
 
@@ -107,6 +109,80 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Repo-context planner packager legacy owner removal
+Status: in_progress
+Changed modules/files:
+- agent/atlas_repo_context_planner_packager.py — removed the retired legacy owner after
+  consumer-zero, data migration, and rollback gates remained passed.
+- agent/project_intelligence/adapters/repo_context_packaging.py — added the retained Project
+  Intelligence helper that preserves repo-context planner package and impacted-test
+  recommendation schema contracts without command execution.
+- agent/project_intelligence/adapters/atlas_repo_context.py,
+  agent/project_intelligence/adapters/planner_packaging_v2.py, and
+  agent/atlas_plan_item_impact_map_service.py — now call ProjectIntelligenceRepoContextPackager
+  instead of the retired legacy owner.
+- agent/project_intelligence/inspection/consumer_inventory.py,
+  agent/project_intelligence/consumer_registry.py, generated inventory/allowlist docs, migration
+  docs, and focused tests — updated current owner inventory and retirement evidence.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\adapters\repo_context_packaging.py
+  agent\project_intelligence\adapters\atlas_repo_context.py
+  agent\project_intelligence\adapters\planner_packaging_v2.py
+  agent\atlas_plan_item_impact_map_service.py agent\atlas_context_refresh_service.py
+  agent\project_intelligence\inspection\consumer_inventory.py
+  agent\project_intelligence\consumer_registry.py -> compile OK.
+- python -m pytest -q tests\test_atlas_repo_context_planner_packaging.py
+  tests\test_atlas_repo_context_planpool_integration.py
+  tests\test_project_intelligence_pir15_planner_packaging_retirement.py
+  tests\test_atlas_verification_recommendation_service.py
+  tests\test_atlas_planner_packaging_v2_api.py
+  tests\test_atlas_planner_packaging_v2_safety_contract.py
+  tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_project_intelligence_pir15_inspection_adapter.py
+  tests\test_project_intelligence_pir15_legacy_internal_inventory.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_project_intelligence_pir14_consumer_registry.py
+  tests\test_project_intelligence_pir15_data_migration_evidence.py
+  tests\test_project_intelligence_pir15_retirement_gate.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_baseline.py -> 97 passed, 2 xfailed in 54.33s.
+- python tools\generate_project_intelligence_consumer_inventory.py --root . --output
+  docs\generated\atlas_project_intelligence_consumer_inventory.json; python <<regenerate
+  current allowlist, lint, registry, and cutover artifacts>>
+  -> adapter_count=8, legacy_modules=12, legacy_production_consumers=7,
+  allowed_dependency_count=7, lint_passed=true, registry_legacy_sum=0, cutover_passed=true.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --data-migration-evidence
+  ca_data\atlas\pir15_data_migration_evidence.current.json --docs-updated
+  -> exit 0; status=passed, active_rollout=true, legacy_consumer_count=0,
+  data_migration_evidence=passed, blocked_reasons=[].
+- git diff | git apply --check -R -> exit 0; reverse patch applies cleanly as rollback proof.
+Evidence details:
+- docs/generated/atlas_project_intelligence_consumer_inventory.json no longer lists
+  agent.atlas_repo_context_planner_packager as a legacy owner and records
+  agent.project_intelligence.adapters.repo_context_packaging as a present adapter.
+- PIR-15 retirement gate remains passed after deletion with legacy_consumer_count=0,
+  data_migration_verified=true, and blocked_reasons=[].
+Unavailable checks: removal of remaining proven-zero legacy owners remains unclaimed.
+Safety invariants checked: repo-context planner packaging remains advisory-only, no-execution,
+  no-auto-build, and manual-command-suggestion-only; no Requirement, PlanPool, Proposal/Safe
+  Apply, Verification, or rollout authority was moved.
+Migration/rollout state: default rollout remains off; exactly one additional legacy source owner
+  was deleted in this slice.
+Known limitations: PIR-15 acceptance is not complete until the remaining removable legacy owners
+  are retired or documented as retained compatibility/authority paths.
+Next package: PIR-15 — continue separate low-risk legacy retirement slices for remaining
+  proven-zero ADAPT -> REPLACE owners.
+Blocker: none; remaining work is the next PIR-15 retirement slice.
+```
 
 ```text
 Work package: PIR-15 — Planner packaging v2 legacy owner removal
