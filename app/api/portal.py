@@ -230,6 +230,16 @@ def _safe_is_dir(path: Path) -> bool:
         return False
 
 
+@router.post("/packages/{package_id}/{version}/{content_hash}/repair-manifest")
+def repair_package_manifest(package_id: str, version: str, content_hash: str, request: Request) -> dict:
+    """Read-only manifest sidecar repair for legacy package records. Re-projects the
+    manifest from the immutable archive; never mutates the package ZIP."""
+    try:
+        return _catalog(request).repair_manifest_sidecar(package_id, version, content_hash)
+    except PortalCatalogError as exc:
+        _raise_catalog_error(exc)
+
+
 @router.get("/packages/{package_id}/{version}/{content_hash}/export")
 def export_package(package_id: str, version: str, content_hash: str, request: Request):
     try:
