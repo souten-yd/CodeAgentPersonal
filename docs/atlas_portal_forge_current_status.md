@@ -7,13 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-7`
-- Current package goal: Legacy Atlas Executor adapter.
-- Next action: wrap the existing legacy Atlas model execution path as a Forge
-  provider (Legacy Executor) behind the PFG-6 provider interface; keep legacy as
-  primary, no behavior change.
-- Last completed: `PFG-6` (provider base and registry) — acceptance_complete; see
-  PFG-6 evidence below. PFG-1..PFG-5 also complete.
+- Current package: `PFG-8`
+- Current package goal: local OpenAI-compatible provider adapter.
+- Next action: add a local OpenAI-compatible provider (e.g. llama.cpp / LM Studio /
+  vLLM server) behind the PFG-6 provider interface; local source class, no external
+  credential, still shadow-only (no cutover).
+- Last completed: `PFG-7` (Legacy Atlas Executor adapter) — acceptance_complete; see
+  PFG-7 evidence below. PFG-1..PFG-6 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -63,7 +63,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-4 | legacy package manifest sidecar repair | acceptance_complete |
 | PFG-5 | Forge core schemas and taxonomies | acceptance_complete |
 | PFG-6 | provider base and registry | acceptance_complete |
-| PFG-7 | Legacy Atlas Executor adapter | not_started |
+| PFG-7 | Legacy Atlas Executor adapter | acceptance_complete |
 | PFG-8 | local OpenAI-compatible provider adapter | not_started |
 | PFG-9 | OpenRouter configuration and secret policy | not_started |
 | PFG-10 | OpenRouter mock chat client | not_started |
@@ -461,6 +461,56 @@ Remaining gaps:
 - PFG-7 Legacy Atlas Executor adapter (wrap existing path as a Forge provider).
 Next package:
 - PFG-7 — Legacy Atlas Executor adapter.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-7 — Legacy Atlas Executor adapter
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/providers/__init__.py (new)
+- agent/model_forge/providers/legacy_atlas.py (LegacyAtlasProvider)
+- agent/model_forge/__init__.py (re-exports)
+- tests/test_model_forge_legacy_atlas.py (new)
+Inventory of legacy model-execution callers (task 1):
+- agent/atlas_llm_json_adapter.py :: AtlasLLMJsonAdapter (backend_fn(system,user)->str,
+  call_openai_compatible / _post_chat / _post_chat_stream) is the structured-output
+  execution path Atlas planning, patch generation, verification interpretation, and
+  repair use via app.state.atlas_llm_json_fn. This is the path the adapter wraps.
+Public contracts added or changed:
+- New LegacyAtlasProvider inside the isolated model_forge package. NOT wired into any
+  production path; legacy AtlasLLMJsonAdapter remains primary and unchanged.
+Behavior implemented:
+- LegacyAtlasProvider wraps a backend_fn(system,user)->str|dict|None behind the Forge
+  provider interface. legacy_atlas_descriptor() is local, enabled, no credential.
+  run_and_capture() returns both the ForgeExecutionResult and the raw text for shadow
+  comparison; execute_chat_completion() returns the result. Backend exceptions become
+  contract_valid=False + an error (no crash); empty output is an invalid contract; an
+  unwired backend reports UNAVAILABLE and fails closed through the registry; an optional
+  output_sink records the raw output reference.
+- Forge only observes/shadows: no stage cutover, no production routing change.
+Focused tests:
+- python -m pytest tests/test_model_forge_legacy_atlas.py -> 7 passed
+  (descriptor local/enabled/no-cred; wraps backend + contract result + usage + raw;
+   unwired -> UNAVAILABLE + registry fail-closed; backend exception -> error not crash;
+   empty -> invalid; output_sink ref; registry executes when ready).
+- Full model_forge suite -> 27 passed.
+Affected existing tests:
+- python -m pytest tests/test_atlas_patch_generation_incident.py -> 11 passed
+  (exercises the legacy AtlasLLMJsonAdapter path this adapter wraps; unchanged).
+No production routing behavior change:
+- Confirmed; grep shows no app/ or main.py import of model_forge; legacy path primary.
+Real model / Portal / OpenRouter evidence:
+- None; adapter contract only (backend injected via stub in tests).
+Safety invariants verified:
+- No cutover; legacy primary; provider fails closed when unwired; no external call.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-8 local OpenAI-compatible provider adapter.
+Next package:
+- PFG-8 — local OpenAI-compatible provider adapter.
 Blocker:
 - None.
 ```

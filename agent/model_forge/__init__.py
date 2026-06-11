@@ -16,6 +16,11 @@ from agent.model_forge.provider_base import (
     redact_for_log,
 )
 from agent.model_forge.provider_registry import ProviderRegistry
+from agent.model_forge.providers.legacy_atlas import (
+    LEGACY_ATLAS_PROVIDER_ID,
+    LegacyAtlasProvider,
+    legacy_atlas_descriptor,
+)
 from agent.model_forge.route_taxonomy import ForgeRoute, all_routes, is_valid_route
 from agent.model_forge.schema import (
     FORGE_SCHEMA_VERSION,
@@ -92,4 +97,7 @@ __all__ = [
     "ProviderUnavailableError",
     "redact_for_log",
     "ProviderRegistry",
+    "LegacyAtlasProvider",
+    "legacy_atlas_descriptor",
+    "LEGACY_ATLAS_PROVIDER_ID",
 ]
