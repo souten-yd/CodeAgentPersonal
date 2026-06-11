@@ -402,30 +402,22 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-11T09:35:38+00:00",
+  "generated_at": "2026-06-11T09:43:00+00:00",
   "legacy_consumers": [
     {
-      "adapter_consumer_count": 0,
-      "adapter_consumers": [],
+      "adapter_consumer_count": 1,
+      "adapter_consumers": [
+        {
+          "module": "agent.project_intelligence.adapters.code_explorer",
+          "path": "agent/project_intelligence/adapters/code_explorer.py"
+        }
+      ],
       "capability": "legacy_code_explorer",
       "legacy_internal_consumer_count": 0,
       "legacy_internal_consumers": [],
       "legacy_module": "agent.atlas_code_explorer",
-      "production_consumer_count": 3,
-      "production_consumers": [
-        {
-          "module": "agent.atlas_patch_proposal_service",
-          "path": "agent/atlas_patch_proposal_service.py"
-        },
-        {
-          "module": "agent.atlas_verification_resolver",
-          "path": "agent/atlas_verification_resolver.py"
-        },
-        {
-          "module": "agent.research_conductor",
-          "path": "agent/research_conductor.py"
-        }
-      ]
+      "production_consumer_count": 0,
+      "production_consumers": []
     },
     {
       "adapter_consumer_count": 1,
@@ -819,6 +811,13 @@
       },
       {
         "imports_app_api": false,
+        "module": "agent.project_intelligence.adapters.code_explorer",
+        "path": "agent/project_intelligence/adapters/code_explorer.py",
+        "phase": "code_explorer",
+        "present": true
+      },
+      {
+        "imports_app_api": false,
         "module": "agent.project_intelligence.adapters.atlas_repo_context",
         "path": "agent/project_intelligence/adapters/atlas_repo_context.py",
         "phase": "repo_context_api",
@@ -961,12 +960,12 @@
   "schema_version": 1,
   "source": "python_ast_current_checkout",
   "summary": {
-    "adapter_module_count": 14,
+    "adapter_module_count": 15,
     "concrete_facade_count": 3,
     "critical_finding_count": 6,
     "disabled_facade_count": 4,
     "facade_module_count": 6,
-    "legacy_production_consumer_count": 3,
+    "legacy_production_consumer_count": 0,
     "production_entrypoint_count": 32
   }
 }

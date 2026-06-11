@@ -12,8 +12,8 @@ import re
 from typing import Callable
 
 from agent.agent_prompts import RESEARCH_FIRST_PROMPT
-from agent.atlas_code_explorer import build_research_evidence
 from agent.atlas_llm_json_adapter import call_llm_json
+from agent.project_intelligence.adapters.code_explorer import ProjectIntelligenceCodeExplorerAdapter
 from agent.research_findings_schema import ResearchFindings
 
 _RESEARCH_SCHEMA = {
@@ -53,7 +53,11 @@ class ResearchConductor:
         try:
             goal = interpreted_goal or user_input
             terms = [w for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", f"{goal} {user_input}")][:8]
-            evidence = build_research_evidence(project_path, query_terms=terms, goal=goal)
+            evidence = ProjectIntelligenceCodeExplorerAdapter().build_research_evidence(
+                project_path,
+                query_terms=terms,
+                goal=goal,
+            )
             if evidence.get("available"):
                 code_evidence_text = evidence.get("text", "")
             else:
