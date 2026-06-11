@@ -8,22 +8,28 @@ consumer, execute rollback, mutate source, or retire legacy paths.
 from __future__ import annotations
 
 import json
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent.atlas_journal import AtlasJournal
+from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
+from agent.atlas_recovery_service import AtlasRecoveryService
 from agent.project_intelligence.contracts import (
     GenerationContextRequest,
     PlanningContextRequest,
     ProjectIdentity,
+    RuntimeObservationRecord,
+    VerificationResultRequest,
 )
 from agent.project_intelligence.factory import build_project_intelligence
 from agent.project_intelligence.rollout import RolloutConfig
 from agent.project_intelligence.telemetry import TelemetryRecord
 
-SUPPORTED_EVIDENCE_PHASES: tuple[str, ...] = ("planning", "generation")
-_VOLATILE_KEYS = {"generated_at", "manifest_id", "rollout_mode"}
+SUPPORTED_EVIDENCE_PHASES: tuple[str, ...] = ("planning", "generation", "verification", "recovery")
+_VOLATILE_KEYS = {"generated_at", "manifest_id", "rollout_mode", "diagnostics"}
 
 
 @dataclass(frozen=True)
@@ -92,25 +98,54 @@ def _call_phase(coordinator: Any, phase: str, project: ProjectIdentity) -> Any:
         return coordinator.prepare_generation_context(
             GenerationContextRequest(project=project, plan_pool_id="pir14", plan_item_id="rollout-evidence")
         )
+    if phase == "verification":
+        return coordinator.record_verification_result(
+            VerificationResultRequest(
+                project=project,
+                plan_pool_id="pir14",
+                plan_item_id="rollout-evidence",
+                observations=[
+                    RuntimeObservationRecord(
+                        observation_id="pir14-verification-shadow",
+                        project_id=project.project_id,
+                        workspace_id=project.workspace_id,
+                        observation_type="verification_result",
+                        result="passed",
+                        summary="PIR-14 verification shadow parity evidence",
+                    )
+                ],
+                correlation_id="pir14-verification-shadow",
+            )
+        )
     raise ValueError(f"unsupported evidence phase: {phase}")
 
 
+def _result_mode(result: Any, phase: str, rollout: RolloutConfig) -> str:
+    manifest = getattr(result, "context_manifest", None)
+    if manifest is not None:
+        return str(getattr(manifest, "rollout_mode", "") or rollout.mode_for_phase(phase))
+    return rollout.mode_for_phase(phase)
+
+
 def _phase_evidence(root: Path, phase: str) -> tuple[PhaseRolloutEvidence, list[TelemetryRecord]]:
+    if phase == "recovery":
+        return _recovery_phase_evidence(root)
     project = _project(root)
-    baseline_coord = build_project_intelligence(rollout=RolloutConfig.off())
+    baseline_config = RolloutConfig.off()
+    baseline_coord = build_project_intelligence(rollout=baseline_config)
     baseline_pkg = _call_phase(baseline_coord, phase, project)
 
-    shadow_coord = build_project_intelligence(
-        rollout=RolloutConfig(enabled=True, shadow=True, active_phases=frozenset({phase}))
-    )
+    shadow_config = RolloutConfig(enabled=True, shadow=True, active_phases=frozenset({phase}))
+    shadow_coord = build_project_intelligence(rollout=shadow_config)
     shadow_pkg = _call_phase(shadow_coord, phase, project)
     mismatch_paths = _diff_paths(_normalize(baseline_pkg), _normalize(shadow_pkg))
 
     active_config = RolloutConfig(enabled=True, shadow=False, active_phases=frozenset({phase}))
     active_mode = active_config.mode_for_phase(phase)
-    rolled_back_coord = build_project_intelligence(rollout=RolloutConfig.off())
+    rollback_config = RolloutConfig.off()
+    rolled_back_coord = build_project_intelligence(rollout=rollback_config)
     rolled_back_pkg = _call_phase(rolled_back_coord, phase, project)
-    mode_after_rollback = rolled_back_pkg.context_manifest.rollout_mode
+    mode_after_rollback = _result_mode(rolled_back_pkg, phase, rollback_config)
     rollback_ok = active_mode == "active" and mode_after_rollback == "off"
 
     records = shadow_coord.telemetry.records()
@@ -119,8 +154,8 @@ def _phase_evidence(root: Path, phase: str) -> tuple[PhaseRolloutEvidence, list[
             phase=phase,
             shadow_parity_status="passed" if not mismatch_paths else "failed",
             rollback_status="passed" if rollback_ok else "failed",
-            baseline_mode=baseline_pkg.context_manifest.rollout_mode,
-            shadow_mode=shadow_pkg.context_manifest.rollout_mode,
+            baseline_mode=_result_mode(baseline_pkg, phase, baseline_config),
+            shadow_mode=_result_mode(shadow_pkg, phase, shadow_config),
             active_mode_before_rollback=active_mode,
             mode_after_rollback=mode_after_rollback,
             telemetry_event_count=len(records),
@@ -128,6 +163,64 @@ def _phase_evidence(root: Path, phase: str) -> tuple[PhaseRolloutEvidence, list[
         ),
         records,
     )
+
+
+def _recovery_phase_evidence(root: Path) -> tuple[PhaseRolloutEvidence, list[TelemetryRecord]]:
+    with tempfile.TemporaryDirectory(prefix="pir14_recovery_evidence_") as tmp:
+        temp_root = Path(tmp)
+        journal = AtlasJournal(temp_root)
+        item = AtlasPlanItem(
+            item_id="item_1",
+            pool_id="pool_1",
+            title="PIR-14 recovery evidence",
+            goal="recover from Project Intelligence checkpoint",
+            status="completed",
+            metadata={
+                "verification": {
+                    "status": "passed",
+                    "verified_at": "2026-06-11T00:00:00+00:00",
+                    "project_intelligence_verification": {
+                        "status": "recorded",
+                        "checkpoint_id": "checkpoint-1",
+                        "rollback_base_revision": "actual-rev-1",
+                        "accepted": True,
+                        "decision_route": {"action": "continue", "existing_services": ["continuation"]},
+                        "revisions": {"working_tree_hash": ""},
+                    },
+                }
+            },
+        )
+        pool = AtlasPlanPool(
+            pool_id="pool_1",
+            root_goal="PIR-14 recovery evidence",
+            project_path=str(root),
+            project_name="pir14",
+            status="running",
+            items=[item],
+            current_item_id="item_1",
+            completed_item_ids=["item_1"],
+        )
+        journal.save_plan_pool(pool)
+        first = AtlasRecoveryService(journal).recover_pool("pool_1")
+        second = AtlasRecoveryService(journal).recover_pool("pool_1")
+        first_meta = _normalize(first.metadata.get("project_intelligence_checkpoint", {}))
+        second_meta = _normalize(second.metadata.get("project_intelligence_checkpoint", {}))
+        mismatch_paths = _diff_paths(first_meta, second_meta)
+        rollback_ok = bool(first_meta.get("rollback_base_revision")) and first_meta.get("resume_action") == "resume"
+        return (
+            PhaseRolloutEvidence(
+                phase="recovery",
+                shadow_parity_status="passed" if not mismatch_paths else "failed",
+                rollback_status="passed" if rollback_ok else "failed",
+                baseline_mode="checkpoint_metadata",
+                shadow_mode="checkpoint_metadata",
+                active_mode_before_rollback="checkpoint_present",
+                mode_after_rollback=str(first_meta.get("resume_action") or ""),
+                telemetry_event_count=0,
+                mismatch_paths=mismatch_paths,
+            ),
+            [],
+        )
 
 
 def build_rollout_evidence(

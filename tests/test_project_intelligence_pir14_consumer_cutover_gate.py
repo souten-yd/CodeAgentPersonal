@@ -35,6 +35,20 @@ def _rollout(path: Path) -> Path:
     )
 
 
+def _full_rollout(path: Path) -> Path:
+    return _write_json(
+        path,
+        {
+            "entries": [
+                {"phase": "planning", "shadow_parity_status": "passed", "rollback_status": "passed"},
+                {"phase": "generation", "shadow_parity_status": "passed", "rollback_status": "passed"},
+                {"phase": "verification", "shadow_parity_status": "passed", "rollback_status": "passed"},
+                {"phase": "recovery", "shadow_parity_status": "passed", "rollback_status": "passed"},
+            ]
+        },
+    )
+
+
 def test_cutover_gate_reports_connected_consumers_and_remaining_phase_blocks(tmp_path: Path) -> None:
     gate = build_consumer_cutover_gate(
         REPO_ROOT,
@@ -86,3 +100,18 @@ def test_cutover_gate_blocks_all_consumers_when_lint_fails(tmp_path: Path) -> No
     assert gate["summary"]["cutover_ready_count"] == 0
     for entry in gate["entries"]:
         assert "legacy_dependency_lint_not_passed" in entry["blocked_reasons"]
+
+
+def test_cutover_gate_passes_when_all_phase_evidence_is_present(tmp_path: Path) -> None:
+    gate = build_consumer_cutover_gate(
+        REPO_ROOT,
+        legacy_lint_report_path=_lint(tmp_path / "lint.json"),
+        rollout_evidence_path=_full_rollout(tmp_path / "rollout.json"),
+        generated_at="2026-06-11T00:00:00+00:00",
+    )
+
+    assert gate["summary"]["production_connected_count"] == 4
+    assert gate["summary"]["cutover_ready_count"] == 4
+    assert gate["summary"]["gate_passed"] is True
+    assert gate["summary"]["blocked_reasons"] == []
+    assert all(entry["cutover_ready"] for entry in gate["entries"])
