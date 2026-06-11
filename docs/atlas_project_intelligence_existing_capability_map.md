@@ -160,8 +160,9 @@ Core v1 reference.
   refresh.
 - **Authoritative owner**: `agent/atlas_context_refresh_service.py:AtlasContextRefreshService`
   (schema/policies `atlas_context_refresh_schema.py`, `atlas_context_refresh_policies.py`),
-  `agent/atlas_context_refresh_v2_service.py:AtlasContextRefreshV2Service`
-  (schema `atlas_context_refresh_v2_schema.py`).
+  `agent/project_intelligence/adapters/context_refresh_v2.py:ProjectIntelligenceContextRefreshV2Adapter`
+  (legacy `agent/atlas_context_refresh_v2_service.py:AtlasContextRefreshV2Service` retired in
+  PIR-15; schema `atlas_context_refresh_v2_schema.py`).
 - **Known duplication**: two refresh generations (v1, v2) coexist.
 - **Missing behavior**: not revision-aware against a twin; no stale-context detection
   via Actual Twin revision.

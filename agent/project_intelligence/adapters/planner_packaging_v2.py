@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from agent.atlas_context_refresh_v2_schema import AtlasContextRefreshV2Request
-from agent.atlas_context_refresh_v2_service import AtlasContextRefreshV2Service
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
 from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
 from agent.atlas_planner_packaging_v2_schema import (
@@ -19,6 +18,7 @@ from agent.atlas_planner_packaging_v2_schema import (
     AtlasPlannerPackagingV2Request,
 )
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
+from agent.project_intelligence.adapters.context_refresh_v2 import ProjectIntelligenceContextRefreshV2Adapter
 from agent.project_intelligence.adapters.repo_context_packaging import ProjectIntelligenceRepoContextPackager
 
 
@@ -92,7 +92,7 @@ class ProjectIntelligencePlannerPackagingV2Adapter:
 
         if not refresh and req.include_context_refresh_v2 and req.plan_pool:
             try:
-                refresh = AtlasContextRefreshV2Service(data_root=self.data_root).refresh(
+                refresh = ProjectIntelligenceContextRefreshV2Adapter(data_root=self.data_root).refresh(
                     AtlasContextRefreshV2Request(
                         workspace_id=req.workspace_id,
                         project_path=req.project_path,

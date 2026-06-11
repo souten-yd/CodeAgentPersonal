@@ -49,7 +49,6 @@ REUSED_OWNER_MODULES = [
     "agent.atlas_context_local_collectors",
     # context refresh (v1 + v2)
     "agent.atlas_context_refresh_service",
-    "agent.atlas_context_refresh_v2_service",
     # impact
     "agent.atlas_plan_item_impact_map_service",
     # verification support (recommendation/handoff) and the canonical gate
@@ -77,7 +76,6 @@ OWNER_SYMBOLS = [
     ("agent.atlas_plan_item_impact_map_service", "AtlasPlanItemImpactMapService"),
     ("agent.atlas_repo_context_service", "AtlasRepoContextService"),
     ("agent.atlas_context_refresh_service", "AtlasContextRefreshService"),
-    ("agent.atlas_context_refresh_v2_service", "AtlasContextRefreshV2Service"),
     ("agent.atlas_verification_recommendation_service", "AtlasVerificationRecommendationService"),
     ("agent.atlas_verification_recommendation_handoff_service", "AtlasVerificationRecommendationHandoffService"),
     ("agent.atlas_verification_gate_service", "AtlasVerificationGateService"),

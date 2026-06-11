@@ -11,14 +11,15 @@ def test_context_refresh_v2_api_ok_and_data_root_injected(tmp_path: Path, monkey
     app.state.atlas_ca_data_root = custom_root
     captured = {}
 
-    from agent import atlas_context_refresh_v2_service as svc_mod
-    orig_refresh = svc_mod.AtlasContextRefreshV2Service.refresh
+    from agent.project_intelligence.adapters import context_refresh_v2 as svc_mod
+
+    orig_refresh = svc_mod.ProjectIntelligenceContextRefreshV2Adapter.refresh
 
     def wrapped(self, req):
         captured['data_root'] = str(self.data_root)
         return orig_refresh(self, req)
 
-    monkeypatch.setattr(svc_mod.AtlasContextRefreshV2Service, 'refresh', wrapped)
+    monkeypatch.setattr(svc_mod.ProjectIntelligenceContextRefreshV2Adapter, 'refresh', wrapped)
     c = TestClient(app)
     res = c.post('/api/atlas/context-refresh/v2', json={'project_path': str(tmp_path), 'plan_pool': {'items': []}})
     assert res.status_code == 200

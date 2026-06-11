@@ -27,7 +27,6 @@ LEGACY_CAPABILITY_MODULES: dict[str, str] = {
     "agent.atlas_verification_recommendation_handoff_service": "legacy_verification_recommendation",
     "agent.atlas_verification_gate_service": "legacy_verification_gate",
     "agent.atlas_context_refresh_service": "legacy_context_refresh",
-    "agent.atlas_context_refresh_v2_service": "legacy_context_refresh",
 }
 
 FACADE_MODULES: dict[str, str] = {
@@ -42,6 +41,7 @@ FACADE_MODULES: dict[str, str] = {
 ADAPTER_MODULES: dict[str, str] = {
     "agent.project_intelligence.adapters.atlas_inspection": "inspection",
     "agent.project_intelligence.adapters.atlas_context_refresh": "context_refresh_api",
+    "agent.project_intelligence.adapters.context_refresh_v2": "context_refresh_v2",
     "agent.project_intelligence.adapters.atlas_repo_context": "repo_context_api",
     "agent.project_intelligence.adapters.planner_packaging_v2": "planner_packaging_v2",
     "agent.project_intelligence.adapters.repo_context_packaging": "repo_context_packaging",
