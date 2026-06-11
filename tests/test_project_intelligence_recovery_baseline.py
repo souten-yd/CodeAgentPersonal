@@ -22,7 +22,7 @@ def test_consumer_inventory_generator_finds_current_production_surface() -> None
     assert inv["source"] == "python_ast_current_checkout"
     assert inv["summary"]["production_entrypoint_count"] >= 2
     assert inv["summary"]["facade_module_count"] >= 4
-    assert inv["summary"]["adapter_module_count"] == 6
+    assert inv["summary"]["adapter_module_count"] == 7
     assert inv["summary"]["legacy_production_consumer_count"] > 0
     assert not inv["parse_errors"]
 

@@ -25,7 +25,7 @@ def test_build_when_missing(tmp_path, monkeypatch):
             class R:
                 def model_dump(self): return {"status":"available","related_tests":["t"]}
             return R()
-    monkeypatch.setattr(mod, 'AtlasPlannerPackagingV2Service', Fake)
+    monkeypatch.setattr(mod, 'ProjectIntelligencePlannerPackagingV2Adapter', Fake)
     out = AtlasVerificationRecommendationService(tmp_path).recommend(AtlasVerificationRecommendationRequest(project_path=str(tmp_path)))
     assert out.related_tests == ["t"]
 
@@ -34,7 +34,7 @@ def test_build_failure_non_blocking(tmp_path, monkeypatch):
     class Fake:
         def __init__(self, data_root): pass
         def build_package(self, req): raise RuntimeError('boom')
-    monkeypatch.setattr(mod, 'AtlasPlannerPackagingV2Service', Fake)
+    monkeypatch.setattr(mod, 'ProjectIntelligencePlannerPackagingV2Adapter', Fake)
     out = AtlasVerificationRecommendationService(tmp_path).recommend(AtlasVerificationRecommendationRequest(project_path=str(tmp_path)))
     assert out.status == 'missing'
     assert 'planner_packaging_v2_build_failed' in out.warnings

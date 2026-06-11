@@ -47,7 +47,6 @@ REUSED_OWNER_MODULES = [
     "agent.context_builder",
     "agent.atlas_repo_context_service",
     "agent.atlas_repo_context_planner_packager",
-    "agent.atlas_planner_packaging_v2_service",
     "agent.atlas_context_local_collectors",
     # context refresh (v1 + v2)
     "agent.atlas_context_refresh_service",
@@ -81,7 +80,6 @@ OWNER_SYMBOLS = [
     ("agent.atlas_repo_context_planner_packager", "AtlasRepoContextPlannerPackager"),
     ("agent.atlas_context_refresh_service", "AtlasContextRefreshService"),
     ("agent.atlas_context_refresh_v2_service", "AtlasContextRefreshV2Service"),
-    ("agent.atlas_planner_packaging_v2_service", "AtlasPlannerPackagingV2Service"),
     ("agent.atlas_verification_recommendation_service", "AtlasVerificationRecommendationService"),
     ("agent.atlas_verification_recommendation_handoff_service", "AtlasVerificationRecommendationHandoffService"),
     ("agent.atlas_verification_gate_service", "AtlasVerificationGateService"),

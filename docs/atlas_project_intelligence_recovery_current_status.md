@@ -63,8 +63,10 @@ This file selects the active package. The old PI package table does not prove fi
 - PIR-15 data migration verification now derives from current benchmark, registry, rollout,
   cutover, and active-rollout artifacts; the retirement gate now passes with consumer-zero and
   data migration evidence.
-- final broader legacy retirement remains incomplete until proven-zero legacy paths are removed
-  in separate low-risk changes with rollback proof for each removal.
+- planner packaging v2 legacy owner was retired in a separate low-risk PIR-15 slice after
+  consumer-zero, data migration, behavior preservation, and reverse-patch rollback checks.
+- final broader legacy retirement remains incomplete until remaining proven-zero legacy paths are
+  removed in separate low-risk changes with rollback proof for each removal.
 
 ## Package table
 
@@ -105,6 +107,78 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Planner packaging v2 legacy owner removal
+Status: in_progress
+Changed modules/files:
+- agent/atlas_planner_packaging_v2_service.py — removed the retired legacy owner after the
+  PIR-15 retirement gate reported consumer-zero and data migration evidence passed.
+- agent/project_intelligence/adapters/planner_packaging_v2.py — added the replacement Project
+  Intelligence adapter implementation that preserves the planner-packaging v2 schema/API
+  contract without restoring the deleted legacy owner path.
+- agent/project_intelligence/adapters/atlas_repo_context.py and
+  agent/atlas_verification_recommendation_service.py — now call
+  ProjectIntelligencePlannerPackagingV2Adapter for planner-packaging fallback behavior.
+- agent/project_intelligence/inspection/consumer_inventory.py,
+  docs/generated/atlas_project_intelligence_consumer_inventory.json, migration/consumer docs,
+  and focused tests — updated the current owner inventory and retirement documentation.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\adapters\planner_packaging_v2.py
+  agent\project_intelligence\adapters\atlas_repo_context.py
+  agent\atlas_verification_recommendation_service.py
+  agent\project_intelligence\inspection\consumer_inventory.py
+  agent\project_intelligence\consumer_registry.py
+  tests\test_project_intelligence_pir15_planner_packaging_retirement.py
+  tests\test_atlas_verification_recommendation_service.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir15_planner_packaging_retirement.py
+  tests\test_atlas_verification_recommendation_service.py
+  tests\test_atlas_planner_packaging_v2_api.py
+  tests\test_atlas_planner_packaging_v2_safety_contract.py
+  tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_project_intelligence_pir15_inspection_adapter.py
+  tests\test_project_intelligence_pir15_legacy_internal_inventory.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_project_intelligence_pir14_consumer_registry.py
+  tests\test_project_intelligence_pir15_data_migration_evidence.py
+  tests\test_project_intelligence_pir15_retirement_gate.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_baseline.py -> 87 passed, 2 xfailed in 52.38s.
+- python <<regenerate current inventory, allowlist, lint, registry, and cutover artifacts>>
+  -> adapter_count=7, legacy_modules=13, legacy_production_consumers=7,
+  allowed_dependency_count=7, lint_passed=true, registry_legacy_sum=0, cutover_passed=true.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --data-migration-evidence
+  ca_data\atlas\pir15_data_migration_evidence.current.json --docs-updated
+  -> exit 0; status=passed, active_rollout=true, legacy_consumer_count=0,
+  data_migration_evidence=passed, blocked_reasons=[].
+- git diff | git apply --check -R -> exit 0; reverse patch applies cleanly as rollback proof.
+Evidence details:
+- The deleted legacy owner was ADAPT -> REPLACE row 10; schema/API request/response contracts
+  remain in agent/atlas_planner_packaging_v2_schema.py and API callers remain behind
+  AtlasRepoContextAdapter.
+- docs/generated/atlas_project_intelligence_consumer_inventory.json no longer lists
+  agent.atlas_planner_packaging_v2_service as a legacy owner and records
+  ProjectIntelligencePlannerPackagingV2Adapter as a present adapter.
+- PIR-15 retirement gate remains passed after deletion with legacy_consumer_count=0,
+  data_migration_verified=true, and blocked_reasons=[].
+Unavailable checks: removal of remaining proven-zero legacy owners remains unclaimed.
+Safety invariants checked: the replacement adapter preserves advisory-only/no-execution planner
+  packaging semantics; no Requirement, PlanPool, Proposal/Safe Apply, Verification, or rollout
+  authority was moved.
+Migration/rollout state: default rollout remains off; exactly one legacy source owner was deleted.
+Known limitations: PIR-15 acceptance is not complete until the remaining removable legacy owners
+  are retired or documented as retained compatibility/authority paths.
+Next package: PIR-15 — continue separate low-risk legacy retirement slices for remaining
+  proven-zero ADAPT -> REPLACE owners.
+Blocker: none; remaining work is the next PIR-15 retirement slice.
+```
 
 ```text
 Work package: PIR-15 — Data migration verification evidence
