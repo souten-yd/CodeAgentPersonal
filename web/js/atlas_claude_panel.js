@@ -1767,23 +1767,47 @@
     const summary = panel.querySelector('.atlas-claude-summary-block');
     if (summary) {
       summary.innerHTML = '';
-      const rows = [
-        `current phase: ${phase}`,
-        `status: ${status}`,
-        `pool_id: ${view.pool_id || '-'}`,
-        `run_id: ${view.autopilot_run_id || view.run_id || '-'}`,
-        `items: ${started}/${total}, completed ${completed}`,
-        view.current_item_title ? `current item: ${view.current_item_index || 0}. ${view.current_item_title}` : '',
-        `message: ${view.message || (phase === 'patch_generation' && started === 0 ? 'Patchを生成・検証しています' : '-')}`,
-        incomingPatch.strategy ? `repair strategy: ${incomingPatch.strategy}` : '',
-        incomingPatch.attempt ? `attempt: ${incomingPatch.attempt}` : '',
-        view.block_reason ? `block reason: ${view.block_reason}` : '',
-        view.error ? `error: ${view.error}` : '',
-        `user action required: ${view.requires_user_action ? 'yes' : 'no'}`,
-        `next action: ${(view.next_actions || ['wait']).join(', ') || 'wait'}`,
-        `source: ${view.authoritative_source || 'PlanPool'}`,
-      ].filter(Boolean);
-      rows.forEach((text) => {
+      // Minimal, user-facing progress by default; the verbose diagnostics (status,
+      // ids, source, repair strategy, message…) are only added when something went
+      // wrong, so the normal view stays readable and the stage row above carries the
+      // high-level pipeline state.
+      const PHASE_LABELS = {
+        patch_generation: 'パッチ生成',
+        approving: '承認',
+        applying: '適用',
+        verifying: '検証',
+        completed: '完了',
+        failed: '失敗',
+        blocked_safety_review: '安全ゲートでブロック',
+      };
+      const lc = (value) => String(value || '').toLowerCase();
+      const phaseLabel = PHASE_LABELS[phase] || phase;
+      const hasProblem = !!(
+        view.error || view.block_reason || view.requires_user_action
+        || ['failed', 'blocked'].includes(lc(status))
+        || phase === 'failed' || phase === 'blocked_safety_review'
+      );
+      const rows = [];
+      if (incomingPatch.state === 'repairing') {
+        rows.push(`🛠 ${phaseLabel}（自動修正中）— ${completed}/${total || '-'}`);
+      } else if (phase === 'completed' && !hasProblem) {
+        rows.push(`✅ 完了 — ${completed}/${total || '-'} タスク`);
+      } else {
+        rows.push(`${phaseLabel}中 — ${completed}/${total || '-'} 完了${started > completed ? `（処理中 ${started}）` : ''}`);
+      }
+      if (view.current_item_title) {
+        rows.push(`現在: ${view.current_item_index || 0}. ${view.current_item_title}`);
+      }
+      if (hasProblem) {
+        if (view.block_reason) rows.push(`ブロック理由: ${view.block_reason}`);
+        if (view.error) rows.push(`エラー: ${view.error}`);
+        if (view.message) rows.push(`詳細: ${view.message}`);
+        if (incomingPatch.strategy) rows.push(`repair strategy: ${incomingPatch.strategy}`);
+        if (incomingPatch.attempt) rows.push(`attempt: ${incomingPatch.attempt}`);
+        rows.push(`必要な操作: ${(view.next_actions || ['wait']).join(', ') || 'wait'}`);
+        rows.push(`pool_id: ${view.pool_id || '-'} / run_id: ${view.autopilot_run_id || view.run_id || '-'} / source: ${view.authoritative_source || 'PlanPool'}`);
+      }
+      rows.filter(Boolean).forEach((text) => {
         const div = document.createElement('div');
         div.className = 'atlas-claude-stage-detail';
         div.textContent = text;
