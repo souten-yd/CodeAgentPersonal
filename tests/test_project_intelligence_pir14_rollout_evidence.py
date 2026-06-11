@@ -21,9 +21,9 @@ def test_rollout_evidence_records_shadow_parity_and_flag_rollback(tmp_path: Path
 
     assert evidence["source"] == "project_intelligence_public_facade_off_shadow_active_modes"
     assert evidence["summary"] == {
-        "phase_count": 4,
-        "shadow_parity_passed_count": 4,
-        "rollback_passed_count": 4,
+        "phase_count": 6,
+        "shadow_parity_passed_count": 6,
+        "rollback_passed_count": 6,
         "telemetry_event_count": 2,
     }
     assert evidence["safety"] == {
@@ -47,6 +47,10 @@ def test_rollout_evidence_records_shadow_parity_and_flag_rollback(tmp_path: Path
     assert entries["recovery"]["shadow_parity_status"] == "passed"
     assert entries["recovery"]["rollback_status"] == "passed"
     assert entries["recovery"]["mode_after_rollback"] == "resume"
+    assert entries["repair"]["shadow_mode"] == "shadow"
+    assert entries["repair"]["mode_after_rollback"] == "off"
+    assert entries["greenfield"]["shadow_mode"] == "shadow"
+    assert entries["greenfield"]["mode_after_rollback"] == "off"
 
     output = tmp_path / "rollout_evidence.json"
     written = write_rollout_evidence(
