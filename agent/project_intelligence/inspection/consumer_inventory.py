@@ -43,6 +43,7 @@ FACADE_MODULES: dict[str, str] = {
 
 ADAPTER_MODULES: dict[str, str] = {
     "agent.project_intelligence.adapters.atlas_inspection": "inspection",
+    "agent.project_intelligence.adapters.atlas_repo_context": "repo_context_api",
     "agent.project_intelligence.adapters.atlas_planning": "planning",
     "agent.project_intelligence.adapters.atlas_generation": "generation",
     "agent.project_intelligence.adapters.atlas_verification": "verification",

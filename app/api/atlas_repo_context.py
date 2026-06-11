@@ -5,18 +5,12 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
-from agent.atlas_repo_context_service import AtlasRepoContextService
-from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
-from agent.atlas_verification_planning_service import AtlasVerificationPlanningService
 from agent.atlas_verification_planning_schema import AtlasVerificationPlanningRequest
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
-from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
 from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Request
-from agent.atlas_planner_packaging_v2_service import AtlasPlannerPackagingV2Service
 from agent.atlas_verification_recommendation_schema import AtlasVerificationRecommendationRequest
-from agent.atlas_verification_recommendation_service import AtlasVerificationRecommendationService
 from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
-from agent.atlas_verification_recommendation_handoff_service import AtlasVerificationRecommendationHandoffService
+from agent.project_intelligence.adapters.atlas_repo_context import AtlasRepoContextAdapter
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/atlas/repo-context", tags=["atlas-repo-context"])
@@ -38,37 +32,37 @@ def get_policies():
 @router.post("/snapshot")
 def get_snapshot(payload: AtlasRepoContextRequest, request: Request):
     _validate_project_path(payload.project_path)
-    svc = AtlasRepoContextService(data_root=resolve_atlas_ca_data_root(request))
-    return svc.build_snapshot(payload).model_dump()
+    adapter = AtlasRepoContextAdapter(data_root=resolve_atlas_ca_data_root(request))
+    return adapter.build_snapshot(payload).model_dump()
 
 
 @router.post("/scope-summary")
 def get_scope_summary(payload: AtlasRepoContextRequest, request: Request):
     _validate_project_path(payload.project_path)
-    svc = AtlasRepoContextService(data_root=resolve_atlas_ca_data_root(request))
-    return svc.build_plan_scope_summary(payload).model_dump()
+    adapter = AtlasRepoContextAdapter(data_root=resolve_atlas_ca_data_root(request))
+    return adapter.build_plan_scope_summary(payload).model_dump()
 
 
 @router.post("/impacted-tests")
 def impacted_tests(req: AtlasRepoContextRequest, request: Request):
     _validate_project_path(req.project_path)
     data_root = resolve_atlas_ca_data_root(request)
-    return AtlasRepoContextPlannerPackager(data_root=data_root).build_impacted_test_recommendation(req).model_dump()
+    return AtlasRepoContextAdapter(data_root=data_root).build_impacted_test_recommendation(req).model_dump()
 
 
 @router.post("/verification-plan")
 def verification_plan(req: AtlasVerificationPlanningRequest, request: Request):
     _validate_project_path(req.project_path)
-    svc = AtlasVerificationPlanningService(data_root=resolve_atlas_ca_data_root(request))
-    return svc.build_plan(req).model_dump()
+    adapter = AtlasRepoContextAdapter(data_root=resolve_atlas_ca_data_root(request))
+    return adapter.build_verification_plan(req).model_dump()
 
 
 
 @router.post("/plan-item-impact-map")
 def plan_item_impact_map(req: AtlasPlanItemImpactMapRequest, request: Request):
     _validate_project_path(req.project_path)
-    svc = AtlasPlanItemImpactMapService(data_root=resolve_atlas_ca_data_root(request))
-    return svc.build_map(req).model_dump()
+    adapter = AtlasRepoContextAdapter(data_root=resolve_atlas_ca_data_root(request))
+    return adapter.build_plan_item_impact_map(req).model_dump()
 
 
 @router.post("/planner-packaging-v2")
@@ -79,7 +73,7 @@ def planner_packaging_v2(req: AtlasPlannerPackagingV2Request, request: Request):
         if p.exists() and p.is_file():
             raise HTTPException(status_code=400, detail="project_path must be directory")
     data_root = resolve_atlas_ca_data_root(request)
-    pkg = AtlasPlannerPackagingV2Service(data_root=data_root).build_package(req)
+    pkg = AtlasRepoContextAdapter(data_root=data_root).build_planner_packaging_v2(req)
     return pkg.model_dump()
 
 
@@ -87,7 +81,7 @@ def planner_packaging_v2(req: AtlasPlannerPackagingV2Request, request: Request):
 def verification_recommendation(req: AtlasVerificationRecommendationRequest, request: Request):
     _validate_project_path(req.project_path)
     data_root = resolve_atlas_ca_data_root(request)
-    result = AtlasVerificationRecommendationService(data_root=data_root).recommend(req)
+    result = AtlasRepoContextAdapter(data_root=data_root).build_verification_recommendation(req)
     return result.model_dump()
 
 
@@ -95,5 +89,5 @@ def verification_recommendation(req: AtlasVerificationRecommendationRequest, req
 def verification_recommendation_handoff(req: AtlasVerificationRecommendationHandoffRequest, request: Request):
     _validate_project_path(req.project_path)
     data_root = resolve_atlas_ca_data_root(request)
-    result = AtlasVerificationRecommendationHandoffService(data_root=data_root).build_handoff(req)
+    result = AtlasRepoContextAdapter(data_root=data_root).build_verification_recommendation_handoff(req)
     return result.model_dump()

@@ -81,11 +81,6 @@
       "legacy_module": "agent.atlas_plan_item_impact_map_service"
     },
     {
-      "capability": "legacy_impact_map",
-      "consumer_path": "app/api/atlas_repo_context.py",
-      "legacy_module": "agent.atlas_plan_item_impact_map_service"
-    },
-    {
       "capability": "legacy_planner_context",
       "consumer_path": "agent/atlas_verification_recommendation_service.py",
       "legacy_module": "agent.atlas_planner_packaging_v2_service"
@@ -93,11 +88,6 @@
     {
       "capability": "legacy_planner_context",
       "consumer_path": "app/api/atlas_pipeline.py",
-      "legacy_module": "agent.atlas_planner_packaging_v2_service"
-    },
-    {
-      "capability": "legacy_planner_context",
-      "consumer_path": "app/api/atlas_repo_context.py",
       "legacy_module": "agent.atlas_planner_packaging_v2_service"
     },
     {
@@ -126,11 +116,6 @@
       "legacy_module": "agent.atlas_repo_context_planner_packager"
     },
     {
-      "capability": "legacy_planner_context",
-      "consumer_path": "app/api/atlas_repo_context.py",
-      "legacy_module": "agent.atlas_repo_context_planner_packager"
-    },
-    {
       "capability": "legacy_repo_context",
       "consumer_path": "agent/atlas_context_refresh_service.py",
       "legacy_module": "agent.atlas_repo_context_service"
@@ -143,11 +128,6 @@
     {
       "capability": "legacy_repo_context",
       "consumer_path": "app/api/atlas_pipeline.py",
-      "legacy_module": "agent.atlas_repo_context_service"
-    },
-    {
-      "capability": "legacy_repo_context",
-      "consumer_path": "app/api/atlas_repo_context.py",
       "legacy_module": "agent.atlas_repo_context_service"
     },
     {
@@ -177,22 +157,12 @@
     },
     {
       "capability": "legacy_verification_recommendation",
-      "consumer_path": "app/api/atlas_repo_context.py",
-      "legacy_module": "agent.atlas_verification_recommendation_handoff_service"
-    },
-    {
-      "capability": "legacy_verification_recommendation",
       "consumer_path": "agent/atlas_verification_recommendation_handoff_service.py",
       "legacy_module": "agent.atlas_verification_recommendation_service"
     },
     {
       "capability": "legacy_verification_recommendation",
       "consumer_path": "app/api/atlas_pipeline.py",
-      "legacy_module": "agent.atlas_verification_recommendation_service"
-    },
-    {
-      "capability": "legacy_verification_recommendation",
-      "consumer_path": "app/api/atlas_repo_context.py",
       "legacy_module": "agent.atlas_verification_recommendation_service"
     }
   ],
@@ -206,8 +176,8 @@
   "schema_version": 1,
   "source": "python_ast_current_checkout_legacy_dependency_allowlist",
   "summary": {
-    "allowed_dependency_count": 39,
-    "consumer_path_count": 23,
+    "allowed_dependency_count": 33,
+    "consumer_path_count": 22,
     "legacy_module_count": 12
   }
 }

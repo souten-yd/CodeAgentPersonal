@@ -18,13 +18,13 @@ def test_endpoint_200_shape_and_metadata_flags(tmp_path):
 
 def test_endpoint_injects_request_data_root(tmp_path, monkeypatch):
     captured = {}
-    original = api_mod.AtlasPlannerPackagingV2Service.build_package
+    original = api_mod.AtlasRepoContextAdapter.build_planner_packaging_v2
 
     def wrapped(self, req):
         captured['data_root'] = str(self.data_root)
         return original(self, req)
 
-    monkeypatch.setattr(api_mod.AtlasPlannerPackagingV2Service, 'build_package', wrapped)
+    monkeypatch.setattr(api_mod.AtlasRepoContextAdapter, 'build_planner_packaging_v2', wrapped)
     app = create_app(); app.state.atlas_ca_data_root = str(tmp_path / 'custom_root')
     c = TestClient(app)
     r = c.post('/api/atlas/repo-context/planner-packaging-v2', json={'project_path': str(tmp_path)})
