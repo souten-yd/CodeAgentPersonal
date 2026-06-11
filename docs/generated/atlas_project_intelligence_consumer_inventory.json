@@ -155,10 +155,8 @@
           "path": "app/api/atlas_autopilot_factory.py"
         },
         {
-          "imports_legacy_capability": [
-            "legacy_context_refresh"
-          ],
-          "imports_project_intelligence": false,
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": true,
           "module": "app.api.atlas_bounded_retry",
           "path": "app/api/atlas_bounded_retry.py"
         },
@@ -178,11 +176,8 @@
           "path": "app/api/atlas_code_intel.py"
         },
         {
-          "imports_legacy_capability": [
-            "legacy_context_refresh",
-            "legacy_context_refresh"
-          ],
-          "imports_project_intelligence": false,
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": true,
           "module": "app.api.atlas_context_refresh",
           "path": "app/api/atlas_context_refresh.py"
         },
@@ -211,10 +206,8 @@
           "path": "app/api/atlas_manual_next_action_executor.py"
         },
         {
-          "imports_legacy_capability": [
-            "legacy_context_refresh"
-          ],
-          "imports_project_intelligence": false,
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": true,
           "module": "app.api.atlas_multi_item_autopilot",
           "path": "app/api/atlas_multi_item_autopilot.py"
         },
@@ -295,10 +288,8 @@
           "path": "app/api/atlas_root.py"
         },
         {
-          "imports_legacy_capability": [
-            "legacy_context_refresh"
-          ],
-          "imports_project_intelligence": false,
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": true,
           "module": "app.api.atlas_supervised_handoff_retry",
           "path": "app/api/atlas_supervised_handoff_retry.py"
         },
@@ -418,7 +409,7 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-11T07:01:08+00:00",
+  "generated_at": "2026-06-11T07:10:24+00:00",
   "legacy_consumers": [
     {
       "adapter_consumer_count": 0,
@@ -463,13 +454,18 @@
       ]
     },
     {
-      "adapter_consumer_count": 0,
-      "adapter_consumers": [],
+      "adapter_consumer_count": 1,
+      "adapter_consumers": [
+        {
+          "module": "agent.project_intelligence.adapters.atlas_context_refresh",
+          "path": "agent/project_intelligence/adapters/atlas_context_refresh.py"
+        }
+      ],
       "capability": "legacy_context_refresh",
       "legacy_internal_consumer_count": 0,
       "legacy_internal_consumers": [],
       "legacy_module": "agent.atlas_context_refresh_service",
-      "production_consumer_count": 6,
+      "production_consumer_count": 2,
       "production_consumers": [
         {
           "module": "agent.atlas_supervised_handoff_retry_service",
@@ -478,28 +474,17 @@
         {
           "module": "agent.atlas_supervised_handoff_verification_service",
           "path": "agent/atlas_supervised_handoff_verification_service.py"
-        },
-        {
-          "module": "app.api.atlas_bounded_retry",
-          "path": "app/api/atlas_bounded_retry.py"
-        },
-        {
-          "module": "app.api.atlas_context_refresh",
-          "path": "app/api/atlas_context_refresh.py"
-        },
-        {
-          "module": "app.api.atlas_multi_item_autopilot",
-          "path": "app/api/atlas_multi_item_autopilot.py"
-        },
-        {
-          "module": "app.api.atlas_supervised_handoff_retry",
-          "path": "app/api/atlas_supervised_handoff_retry.py"
         }
       ]
     },
     {
-      "adapter_consumer_count": 0,
-      "adapter_consumers": [],
+      "adapter_consumer_count": 1,
+      "adapter_consumers": [
+        {
+          "module": "agent.project_intelligence.adapters.atlas_context_refresh",
+          "path": "agent/project_intelligence/adapters/atlas_context_refresh.py"
+        }
+      ],
       "capability": "legacy_context_refresh",
       "legacy_internal_consumer_count": 1,
       "legacy_internal_consumers": [
@@ -509,13 +494,8 @@
         }
       ],
       "legacy_module": "agent.atlas_context_refresh_v2_service",
-      "production_consumer_count": 1,
-      "production_consumers": [
-        {
-          "module": "app.api.atlas_context_refresh",
-          "path": "app/api/atlas_context_refresh.py"
-        }
-      ]
+      "production_consumer_count": 0,
+      "production_consumers": []
     },
     {
       "adapter_consumer_count": 1,
@@ -788,10 +768,8 @@
       "path": "app/api/atlas_autopilot_factory.py"
     },
     {
-      "imports_legacy_capability": [
-        "legacy_context_refresh"
-      ],
-      "imports_project_intelligence": false,
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": true,
       "module": "app.api.atlas_bounded_retry",
       "path": "app/api/atlas_bounded_retry.py"
     },
@@ -811,11 +789,8 @@
       "path": "app/api/atlas_code_intel.py"
     },
     {
-      "imports_legacy_capability": [
-        "legacy_context_refresh",
-        "legacy_context_refresh"
-      ],
-      "imports_project_intelligence": false,
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": true,
       "module": "app.api.atlas_context_refresh",
       "path": "app/api/atlas_context_refresh.py"
     },
@@ -844,10 +819,8 @@
       "path": "app/api/atlas_manual_next_action_executor.py"
     },
     {
-      "imports_legacy_capability": [
-        "legacy_context_refresh"
-      ],
-      "imports_project_intelligence": false,
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": true,
       "module": "app.api.atlas_multi_item_autopilot",
       "path": "app/api/atlas_multi_item_autopilot.py"
     },
@@ -928,10 +901,8 @@
       "path": "app/api/atlas_root.py"
     },
     {
-      "imports_legacy_capability": [
-        "legacy_context_refresh"
-      ],
-      "imports_project_intelligence": false,
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": true,
       "module": "app.api.atlas_supervised_handoff_retry",
       "path": "app/api/atlas_supervised_handoff_retry.py"
     },
@@ -979,6 +950,13 @@
         "module": "agent.project_intelligence.adapters.atlas_inspection",
         "path": "agent/project_intelligence/adapters/atlas_inspection.py",
         "phase": "inspection",
+        "present": true
+      },
+      {
+        "imports_app_api": false,
+        "module": "agent.project_intelligence.adapters.atlas_context_refresh",
+        "path": "agent/project_intelligence/adapters/atlas_context_refresh.py",
+        "phase": "context_refresh_api",
         "present": true
       },
       {
@@ -1090,12 +1068,12 @@
   "schema_version": 1,
   "source": "python_ast_current_checkout",
   "summary": {
-    "adapter_module_count": 5,
+    "adapter_module_count": 6,
     "concrete_facade_count": 3,
     "critical_finding_count": 6,
     "disabled_facade_count": 4,
     "facade_module_count": 6,
-    "legacy_production_consumer_count": 15,
+    "legacy_production_consumer_count": 10,
     "production_entrypoint_count": 32
   }
 }

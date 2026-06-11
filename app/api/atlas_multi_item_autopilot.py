@@ -10,7 +10,6 @@ from app.api.atlas_root import resolve_atlas_ca_data_root
 from agent.atlas_auto_safe_apply_service import AtlasAutoSafeApplyService
 from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_automation_gate_service import AtlasAutomationGateService
-from agent.atlas_context_refresh_service import AtlasContextRefreshService
 from agent.atlas_bounded_retry_service import AtlasBoundedRetryService
 from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_file_safe_apply_executor import AtlasFileSafeApplyExecutor
@@ -25,6 +24,7 @@ from agent.atlas_correction_router_service import AtlasCorrectionRouterService
 from agent.atlas_failure_diagnosis_service import AtlasFailureDiagnosisService
 from agent.atlas_test_harness_provisioner import AtlasTestHarnessProvisioner
 from agent.atlas_workspace_root import resolve_atlas_workspace_root
+from agent.project_intelligence.adapters.atlas_context_refresh import AtlasContextRefreshAdapter
 from agent.test_command_runner import TestCommandRunner
 from app.api.atlas_autopilot_factory import build_safe_apply_execution_service, build_self_correction_service, _project_intelligence_coordinator
 
@@ -96,13 +96,14 @@ def _service(request: Request | None = None, workspace_id: str = "default", pool
             self_correction_service=self_correction_service,
             diagnosis_service=AtlasFailureDiagnosisService(llm_json_fn=llm_json_fn),
         )
+    context_refresh = AtlasContextRefreshAdapter(data_root=root).build_service(journal=journal)
     return AtlasMultiItemAutopilotService(
         storage=storage,
         journal=journal,
         automation_gate=AtlasAutomationGateService(),
         auto_safe_apply_service=auto_safe_apply_service,
         auto_verification_service=auto_verification_service,
-        context_refresh_service=AtlasContextRefreshService(journal=journal),
+        context_refresh_service=context_refresh,
         evaluator_service=AtlasLLMEvaluatorService(journal=journal),
         bounded_retry_service=AtlasBoundedRetryService(
             storage=storage,
@@ -113,7 +114,7 @@ def _service(request: Request | None = None, workspace_id: str = "default", pool
                 command_runner=TestCommandRunner(),
                 project_intelligence=_project_intelligence_coordinator(request),
             ),
-            context_refresh_service=AtlasContextRefreshService(journal=journal),
+            context_refresh_service=context_refresh,
             evaluator_service=AtlasLLMEvaluatorService(journal=journal),
         ),
         self_correction_service=self_correction_service,
