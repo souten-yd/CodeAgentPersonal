@@ -163,6 +163,54 @@ class PortalCatalogService:
         self._record_path(record).write_text(json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8")
         return {"schema_version": PORTAL_CATALOG_SCHEMA_VERSION, "status": "imported", "record": record.model_dump(mode="json")}
 
+    def repair_manifest_sidecar(self, package_id: str, version: str, content_hash: str) -> dict:
+        """Repair a legacy package whose manifest sidecar is missing/stale by
+        re-projecting the manifest from the immutable package archive. Launch
+        profiles are inferred only from the package's own metadata/manifest.json;
+        the package ZIP is never mutated. Unrecoverable packages are reported with
+        a clear status instead of being silently dropped."""
+        record = next(
+            (
+                item
+                for item in self._records()
+                if item.package_id == package_id and item.version == version and item.content_hash == content_hash
+            ),
+            None,
+        )
+        if record is None:
+            raise PortalCatalogError("package_not_found")
+        zip_path = Path(record.storage_path)
+        if not zip_path.exists():
+            return {
+                "schema_version": PORTAL_CATALOG_SCHEMA_VERSION,
+                "status": "unrecoverable",
+                "reason": "package_archive_missing",
+                "record": record.model_dump(mode="json"),
+            }
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                manifest = CapsuleManifest.model_validate_json(zf.read("metadata/manifest.json").decode("utf-8"))
+        except (KeyError, zipfile.BadZipFile, ValueError, OSError):
+            return {
+                "schema_version": PORTAL_CATALOG_SCHEMA_VERSION,
+                "status": "unrecoverable",
+                "reason": "manifest_unrecoverable",
+                "record": record.model_dump(mode="json"),
+            }
+        sidecar = zip_path.parent / f"{content_hash}.manifest.json"
+        sidecar.write_text(json.dumps(manifest.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8")
+        if record.manifest_path != str(sidecar):
+            record = record.model_copy(update={"manifest_path": str(sidecar)})
+            self._record_path(record).write_text(
+                json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        return {
+            "schema_version": PORTAL_CATALOG_SCHEMA_VERSION,
+            "status": "repaired",
+            "record": record.model_dump(mode="json"),
+            "manifest": self._manifest_summary(record),
+        }
+
     def export_package_path(self, package_id: str, version: str, content_hash: str) -> Path:
         for record in self._records():
             if record.package_id == package_id and record.version == version and record.content_hash == content_hash:

@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-4`
-- Current package goal: Legacy package manifest sidecar repair.
-- Next action: implement PFG-4 legacy manifest sidecar repair for packages whose
-  manifest projection is missing/stale.
-- Last completed: `PFG-3` (Portal snapshot listing and start-from-snapshot UI) —
-  acceptance_complete; see PFG-3 evidence below. PFG-1/PFG-2 also complete.
+- Current package: `PFG-5`
+- Current package goal: Forge core schemas and taxonomies.
+- Next action: begin Model Forge core — define Forge schemas/taxonomies (off by
+  default; no provider execution yet). Portal polish track PFG-1..PFG-4 complete.
+- Last completed: `PFG-4` (Legacy package manifest sidecar repair) —
+  acceptance_complete; see PFG-4 evidence below. PFG-1/PFG-2/PFG-3 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -59,7 +59,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-1 | Portal polish audit and compatibility gates | acceptance_complete |
 | PFG-2 | Portal import upload endpoint and UI | acceptance_complete |
 | PFG-3 | Portal snapshot listing and start-from-snapshot UI | acceptance_complete |
-| PFG-4 | legacy package manifest sidecar repair | not_started |
+| PFG-4 | legacy package manifest sidecar repair | acceptance_complete |
 | PFG-5 | Forge core schemas and taxonomies | not_started |
 | PFG-6 | provider base and registry | not_started |
 | PFG-7 | Legacy Atlas Executor adapter | not_started |
@@ -314,6 +314,53 @@ Remaining gaps:
 - PFG-4 legacy package manifest sidecar repair.
 Next package:
 - PFG-4 — Legacy package manifest sidecar repair.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-4 — Legacy package manifest sidecar repair
+Status: acceptance_complete
+Changed modules/files:
+- app/portal/catalog.py (repair_manifest_sidecar)
+- app/api/portal.py (POST /packages/{id}/{ver}/{hash}/repair-manifest)
+- web/js/atlas_pipeline_api.js (repairPortalManifest)
+- web/js/portal.js (Repair manifest button on profile-less cards + handler)
+- tests/test_portal_manifest_repair.py (new)
+Public contracts added or changed:
+- New endpoint POST /api/portal/packages/{package_id}/{version}/{content_hash}/repair-manifest
+  returning {status: repaired|unrecoverable, reason?, record, manifest?}.
+Behavior implemented:
+- Re-projects a missing/stale manifest sidecar from the immutable package archive's
+  own metadata/manifest.json; launch profiles are inferred only from package
+  content + the record. The package ZIP is never mutated (only the
+  {hash}.manifest.json sidecar + the record JSON's manifest_path are written).
+- Recoverable legacy records regain launch profiles in the catalog after repair.
+- Unrecoverable records (archive missing -> package_archive_missing; no/invalid
+  manifest in archive -> manifest_unrecoverable) return a clear status and the UI
+  shows a safe unavailable state ("再ビルドが必要") instead of pretending to run.
+- Catalog cards with no manifest projection now show a "マニフェスト修復" button.
+Focused tests:
+- python -m pytest tests/test_portal_manifest_repair.py -> 3 passed
+  (repair recreates sidecar + restores profiles + ZIP bytes unchanged;
+   archive-missing -> unrecoverable/package_archive_missing; unknown -> 404).
+Syntax checks:
+- node --check web/js/portal.js (NUL-free), web/js/atlas_pipeline_api.js -> ok
+- python -m py_compile app/api/portal.py app/portal/catalog.py -> ok
+Affected tests:
+- Portal suite (9 files) -> 42 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-4 is a Portal catalog repair package.
+Safety invariants verified:
+- No package archive mutation (asserted by byte-for-byte ZIP comparison);
+  unrecoverable state is explicit; PFG-1 data-free / no-command / quarantine locks
+  still pass.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- Portal polish track (PFG-1..PFG-4) complete. Forge core begins at PFG-5.
+Next package:
+- PFG-5 — Forge core schemas and taxonomies.
 Blocker:
 - None.
 ```

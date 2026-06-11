@@ -686,6 +686,12 @@
     listPortalSnapshots(installationId) {
       return atlasFetch(`/api/portal/installations/${encodeURIComponent(installationId)}/snapshots`, { timeoutMs: 15000 });
     },
+    repairPortalManifest(packageId, version, contentHash) {
+      return atlasFetch(
+        `/api/portal/packages/${encodeURIComponent(packageId)}/${encodeURIComponent(version)}/${encodeURIComponent(contentHash)}/repair-manifest`,
+        { method: 'POST', timeoutMs: 30000 },
+      );
+    },
     preflightPortalImport(archivePath) {
       return atlasFetch('/api/portal/import/preflight', { method: 'POST', body: JSON.stringify({ archive_path: archivePath }) });
     },

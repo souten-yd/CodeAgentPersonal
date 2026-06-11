@@ -98,7 +98,7 @@
       : '';
     const profileSelect = profiles.length
       ? `<select data-portal-profile="${idx}" aria-label="Launch profile">${profileOptions}</select>`
-      : '<span class="portal-card-warning">起動プロファイル情報なし（パッケージ再ビルドが必要）</span>';
+      : `<span class="portal-card-warning">起動プロファイル情報なし</span> <button type="button" class="portal-btn" data-portal-act="repair" data-idx="${idx}">マニフェスト修復</button>`;
     const untrusted = trust === 'untrusted_imported_package';
     return `
       <div class="portal-card" data-portal-card="${idx}">
@@ -579,6 +579,26 @@
       case 'fork': forkToAtlas(idx); break;
       case 'uninstall': uninstallPackage(idx); break;
       case 'delete-data': deleteData(idx); break;
+      case 'repair': repairManifest(idx); break;
+    }
+  }
+
+  async function repairManifest(idx) {
+    const pkg = state.packages[idx];
+    if (!pkg || !api()?.repairPortalManifest) return;
+    cardInfo(idx, 'マニフェストを修復中…');
+    const resp = await api().repairPortalManifest(pkg.package_id, pkg.version, pkg.content_hash);
+    if (!resp || !resp.ok || !resp.data) {
+      cardInfo(idx, `修復に失敗しました: ${resp?.data?.error || resp?.code || 'error'}`, 'error');
+      return;
+    }
+    if (resp.data.status === 'repaired') {
+      cardInfo(idx, 'マニフェストを修復しました', 'ok');
+      await refreshCatalog();
+    } else {
+      // Unrecoverable: show a safe unavailable state instead of pretending it can run.
+      const reason = resp.data.reason || 'unrecoverable';
+      cardInfo(idx, `このパッケージは復元できません（${escapeHtml(reason)}）。再ビルドが必要です。`, 'error');
     }
   }
 
