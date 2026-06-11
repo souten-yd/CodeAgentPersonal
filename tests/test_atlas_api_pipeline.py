@@ -326,19 +326,36 @@ def test_create_plan_pool_persists_project_intelligence_shadow_metadata(tmp_path
 def test_create_plan_pool_active_project_intelligence_blocks_stale_context(tmp_path) -> None:
     app = create_app()
     app.state.atlas_ca_data_root = str(tmp_path)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.py").write_text("print('existing')\n", encoding="utf-8")
+    tests_dir = repo / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_a.py").write_text("def test_existing():\n    assert True\n", encoding="utf-8")
     register_project_intelligence_service(
         app,
         ca_data_dir=tmp_path,
         rollout=RolloutConfig.from_env({ENV_ENABLED: "1"}),
     )
     try:
-        payload = {"implementation_steps": [{"step_id": "step_pi", "title": "PI step", "target_files": ["a.py"]}]}
+        payload = {
+            "implementation_steps": [
+                {
+                    "step_id": "step_pi",
+                    "title": "Update existing implementation file",
+                    "description": "Update the existing implementation file with the requested behavior while preserving tests.",
+                    "action_type": "update",
+                    "target_files": ["a.py"],
+                    "acceptance_criteria": ["Existing tests remain runnable after the update."],
+                }
+            ]
+        }
         response = TestClient(app).post(
             "/api/atlas/plan-pools?sync=1",
             json={
                 "input": "Use PI active context",
                 "plan_payload": payload,
-                "project_path": str(tmp_path / "repo"),
+                "project_path": str(repo),
                 "target_files": ["a.py"],
             },
         )
@@ -352,9 +369,65 @@ def test_create_plan_pool_active_project_intelligence_blocks_stale_context(tmp_p
     assert pi["mode"] == "active"
     assert pi["used_intelligence"] is True
     assert pi["stale"] is True
+    assert pi["project_mode"] == "existing"
     assert pi["blocking_reason"] == "project_intelligence_stale_context"
     assert metadata["plan_revision_required"] is True
     assert metadata["project_intelligence_block_reason"] == "project_intelligence_stale_context"
+    assert "project_intelligence_stale_context_blocks_active_planning" in body["plan_pool"]["warnings"]
+
+
+def test_create_plan_pool_active_project_intelligence_records_greenfield_stale_without_blocking(tmp_path) -> None:
+    app = create_app()
+    app.state.atlas_ca_data_root = str(tmp_path)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    register_project_intelligence_service(
+        app,
+        ca_data_dir=tmp_path,
+        rollout=RolloutConfig.from_env({ENV_ENABLED: "1"}),
+    )
+    try:
+        payload = {
+            "implementation_steps": [
+                {
+                    "step_id": "step_pi",
+                    "title": "Create greenfield implementation file",
+                    "description": "Create the initial implementation file for the greenfield workspace.",
+                    "action_type": "create",
+                    "target_files": ["a.py"],
+                    "acceptance_criteria": ["The new implementation file exists with the requested behavior."],
+                }
+            ]
+        }
+        response = TestClient(app).post(
+            "/api/atlas/plan-pools?sync=1",
+            json={
+                "input": "Use PI active context for greenfield",
+                "plan_payload": payload,
+                "project_path": str(repo),
+                "target_files": ["a.py"],
+            },
+        )
+    finally:
+        close_project_intelligence_service(app)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    metadata = body["plan_pool"]["metadata"]
+    pi = metadata["project_intelligence_planning"]
+    assert pi["mode"] == "active"
+    assert pi["used_intelligence"] is True
+    assert pi["stale"] is True
+    assert pi["project_mode"] == "empty"
+    assert pi["stale_reason"] == "project_intelligence_stale_context"
+    assert pi["blocking"] is False
+    assert pi["blocking_reason"] == ""
+    assert pi["degraded_reason"] == "project_intelligence_stale_context"
+    assert "plan_revision_required" not in metadata
+    assert "project_intelligence_block_reason" not in metadata
+    assert body["plan_pool"]["status"] == "ready"
+    assert "project_intelligence_stale_context_blocks_active_planning" not in body["plan_pool"]["warnings"]
+    assert "project_intelligence_stale_context_recorded_non_blocking_greenfield" in body["plan_pool"]["warnings"]
 
 
 def test_create_plan_pool_does_not_add_task_or_agent_routes() -> None:

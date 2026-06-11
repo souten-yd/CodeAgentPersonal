@@ -107,7 +107,8 @@ from agent.atlas_verification_recommendation_handoff_schema import AtlasVerifica
 from agent.project_intelligence.adapters.atlas_planning import AtlasPlannerBridge as ProjectIntelligencePlannerBridge
 from agent.project_intelligence.adapters.atlas_verification import AtlasVerificationBridge
 from agent.project_intelligence.checkpoint import CheckpointController
-from agent.project_intelligence.contracts import PlanningContextRequest, ProjectIdentity
+from agent.project_intelligence.contracts import PlanningContextRequest, ProjectIdentity, ProjectMode
+from agent.project_intelligence.project_mode import detect_project_mode
 from agent.project_intelligence.service_registry import get_project_intelligence_service
 import agent.debug_loop_runner as atlas_debug_loop_runner_module
 from app.api.atlas_autopilot_factory import build_self_correction_service
@@ -505,6 +506,21 @@ def _file_refs(paths: list[str]) -> list[str]:
     return refs
 
 
+def _detect_project_mode_value(project_path: str) -> str:
+    if not project_path:
+        return ProjectMode.IMPORTED_UNKNOWN.value
+    try:
+        return detect_project_mode(project_path).value
+    except Exception:  # noqa: BLE001 - project mode is advisory planning metadata.
+        return ProjectMode.IMPORTED_UNKNOWN.value
+
+
+def _stale_project_intelligence_blocks_planning(*, mode: str, stale: bool, project_mode: str) -> bool:
+    if mode != "active" or not stale:
+        return False
+    return project_mode not in {ProjectMode.EMPTY.value, ProjectMode.GREENFIELD_PARTIAL.value}
+
+
 def _project_intelligence_planning_metadata(
     app: Any,
     req: CreatePlanPoolRequest,
@@ -550,21 +566,30 @@ def _project_intelligence_planning_metadata(
             "diagnostics": [str(exc)[:300]],
         }
     context = dict(result.context or {})
+    project_mode = _detect_project_mode_value(project_path)
     refs = {
         "context_manifest_id": result.manifest_id or context.get("manifest_id"),
         "actual_twin_revision_id": context.get("actual_twin_revision_id"),
         "blueprint_revision_id": context.get("blueprint_revision_id"),
         "convergence_report_id": context.get("convergence_report_id"),
     }
-    blocked_reason = "project_intelligence_stale_context" if result.mode == "active" and result.stale else ""
+    stale_reason = "project_intelligence_stale_context" if result.mode == "active" and result.stale else ""
+    blocking = _stale_project_intelligence_blocks_planning(
+        mode=result.mode,
+        stale=result.stale,
+        project_mode=project_mode,
+    )
     return {
         "status": "available",
         "mode": result.mode,
         "used_intelligence": result.used_intelligence,
         "readiness": result.readiness,
         "stale": result.stale,
-        "blocking": bool(blocked_reason),
-        "blocking_reason": blocked_reason,
+        "project_mode": project_mode,
+        "blocking": blocking,
+        "blocking_reason": stale_reason if blocking else "",
+        "stale_reason": stale_reason,
+        "degraded_reason": stale_reason if stale_reason and not blocking else "",
         "manifest_id": refs["context_manifest_id"],
         "refs": refs,
         "shadow_artifact": result.shadow_artifact or {},
@@ -1229,6 +1254,10 @@ def _create_plan_pool_core(
             pool.metadata["project_intelligence_block_reason"] = project_intelligence_planning_metadata.get("blocking_reason")
             pool.status = "approval_required"
             warning = "project_intelligence_stale_context_blocks_active_planning"
+            if warning not in pool.warnings:
+                pool.warnings.append(warning)
+        elif project_intelligence_planning_metadata.get("degraded_reason") == "project_intelligence_stale_context":
+            warning = "project_intelligence_stale_context_recorded_non_blocking_greenfield"
             if warning not in pool.warnings:
                 pool.warnings.append(warning)
     if req.enable_repo_context and (req.project_path or "").strip():
