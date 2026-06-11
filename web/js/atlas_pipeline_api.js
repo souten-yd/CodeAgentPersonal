@@ -63,9 +63,14 @@
     const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     try {
+      // FormData bodies must let the browser set multipart Content-Type (with the
+      // boundary); forcing application/json would corrupt the upload.
+      const isFormBody = (typeof FormData !== 'undefined') && opts.body instanceof FormData;
       const response = await fetch(API_BASE + path, {
-        headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
         ...opts,
+        headers: isFormBody
+          ? (opts.headers || undefined)
+          : { 'Content-Type': 'application/json', ...(opts.headers || {}) },
         signal: controller ? controller.signal : undefined,
       });
       return await parseResponse(response);
@@ -672,6 +677,11 @@
     },
     browsePortalImport(path) {
       return atlasFetch('/api/portal/import/browse', { method: 'POST', body: JSON.stringify({ path: path || '' }), timeoutMs: 15000 });
+    },
+    uploadPortalImport(file) {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      return atlasFetch('/api/portal/import/upload', { method: 'POST', body: form, timeoutMs: 180000 });
     },
     preflightPortalImport(archivePath) {
       return atlasFetch('/api/portal/import/preflight', { method: 'POST', body: JSON.stringify({ archive_path: archivePath }) });

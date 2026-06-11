@@ -154,7 +154,7 @@
     } else {
       archivePath = root.prompt('取り込む .portal.zip のサーバー上のパスを入力してください') || '';
     }
-    if (!archivePath) return;
+    if (!archivePath || archivePath === UPLOAD_HANDLED) return;
     archivePath = archivePath.trim();
     setStatus('Preflighting archive…');
     const pre = await api()?.preflightPortalImport?.(archivePath);
@@ -176,7 +176,14 @@
     directory_not_found: 'フォルダが見つかりません',
     permission_denied: 'アクセス権がありません',
     directory_unreadable: 'フォルダを読み取れません',
+    unsupported_archive_extension: '.zip / .portal.zip を選択してください',
+    upload_too_large: 'ファイルが大きすぎます（上限 100MB）',
+    empty_upload: 'ファイルが空です',
   };
+
+  // Sentinel: the modal already handled an upload import, so importPackage must not
+  // re-import a server path.
+  const UPLOAD_HANDLED = ' portal-upload-handled';
 
   // Modal server-side folder browser. Resolves to the selected .portal.zip path, or
   // '' if the user cancels.
@@ -211,6 +218,24 @@
       listEl.className = 'portal-browse-list';
       const footer = document.createElement('div');
       footer.className = 'portal-browse-foot';
+
+      // Mobile-friendly: upload an archive straight from the device. The file input
+      // is hidden; the button proxies clicks to it.
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.zip,.portal.zip,application/zip';
+      fileInput.style.display = 'none';
+      fileInput.addEventListener('change', () => {
+        const f = fileInput.files && fileInput.files[0];
+        fileInput.value = '';
+        if (f) doUpload(f);
+      });
+      const uploadBtn = document.createElement('button');
+      uploadBtn.type = 'button';
+      uploadBtn.className = 'portal-browse-upload';
+      uploadBtn.textContent = '端末からアップロード';
+      uploadBtn.addEventListener('click', () => fileInput.click());
+
       const manualBtn = document.createElement('button');
       manualBtn.type = 'button';
       manualBtn.className = 'portal-browse-manual';
@@ -219,7 +244,25 @@
         const manual = root.prompt('取り込む .portal.zip のサーバー上のパスを入力してください') || '';
         if (manual.trim()) close(manual.trim());
       });
-      footer.appendChild(manualBtn);
+      footer.append(fileInput, uploadBtn, manualBtn);
+
+      async function doUpload(file) {
+        if (!api()?.uploadPortalImport) return;
+        const warn = '取り込むパッケージは未検証 (untrusted) として登録されます。実行には OS 分離がなく、明示的な同意が必要です。続行しますか？';
+        if (root.confirm && !root.confirm(warn)) return;
+        listEl.innerHTML = '<div class="portal-browse-loading">アップロード中…</div>';
+        setStatus('アップロード中…');
+        const resp = await api().uploadPortalImport(file);
+        if (!resp || !resp.ok) {
+          const code = resp?.data?.error || resp?.code || 'error';
+          listEl.innerHTML = `<div class="portal-browse-error">アップロード失敗: ${escapeHtml(BROWSE_ERROR_LABELS[code] || code)}</div>`;
+          setStatus(`Import failed: ${code}`, 'error');
+          return;
+        }
+        setStatus('Imported (untrusted)', 'ok');
+        await refreshCatalog();
+        close(UPLOAD_HANDLED);
+      }
 
       modal.append(header, rootsBar, pathBar, listEl, footer);
       document.body.appendChild(overlay);

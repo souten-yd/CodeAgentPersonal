@@ -7,13 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-2`
-- Current package goal: Portal import upload endpoint and UI.
-- Next action: implement PFG-2 browser/server upload import on top of the PFG-1
-  audited baseline and the environment-aware folder picker already landed for
-  Portal import.
-- Last completed: `PFG-1` (Portal polish audit and compatibility gates) —
-  acceptance_complete; see PFG-1 evidence below.
+- Current package: `PFG-3`
+- Current package goal: Portal snapshot listing and start-from-snapshot UI.
+- Next action: implement PFG-3 snapshot listing + start-from-snapshot run selector
+  on top of the existing snapshot data lifecycle.
+- Last completed: `PFG-2` (Portal import upload endpoint and UI) —
+  acceptance_complete; see PFG-2 evidence below. `PFG-1` audit/locks also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -58,7 +57,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 |---|---|---|
 | PFG-0 | baseline and design acceptance | acceptance_complete |
 | PFG-1 | Portal polish audit and compatibility gates | acceptance_complete |
-| PFG-2 | Portal import upload endpoint and UI | not_started |
+| PFG-2 | Portal import upload endpoint and UI | acceptance_complete |
 | PFG-3 | Portal snapshot listing and start-from-snapshot UI | not_started |
 | PFG-4 | legacy package manifest sidecar repair | not_started |
 | PFG-5 | Forge core schemas and taxonomies | not_started |
@@ -202,6 +201,68 @@ Remaining gaps:
 - PFG-2 browser/server upload import endpoint and UI.
 Next package:
 - PFG-2 — Portal import upload endpoint and UI.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-2 — Portal import upload endpoint and UI
+Status: acceptance_complete
+Changed modules/files:
+- app/api/portal.py (POST /api/portal/import/upload)
+- app/portal/catalog.py (quarantine staging helpers; BadZipFile -> PortalCatalogError)
+- web/js/atlas_pipeline_api.js (uploadPortalImport; FormData-aware atlasFetch)
+- web/js/portal.js (modal upload control + trust warning; server-path picker kept)
+- web/css/app.css (upload button)
+- tests/test_portal_import_upload.py (new)
+Public contracts added or changed:
+- New endpoint POST /api/portal/import/upload (multipart). Existing path import,
+  preflight, export, run contracts unchanged.
+Behavior implemented:
+- Browser/server upload of a Capsule .zip/.portal.zip. The upload is streamed into
+  a per-import quarantine directory under a sanitized filename, capped at 100 MB
+  (compressed) before open, then run through the same preflight (traversal-safe
+  entry names, file-count/size/compression-ratio limits, manifest + checksum
+  verification) as path import. Quarantine staging is always cleaned up.
+- Unsafe paths/archives fail closed: non-archive extension -> 400
+  unsupported_archive_extension; empty -> 400 empty_upload; non-zip / invalid
+  capsule -> 400 (archive_not_a_zip / manifest_*); oversized -> 413.
+- Imported package stays untrusted_imported_package (quarantine preserved); Run is
+  still blocked until explicit acknowledgement.
+- UI: mobile-friendly upload control (hidden file input + accent button) inside the
+  import folder picker, with an explicit untrusted trust warning. Server-path
+  developer workflow (folder picker / manual path) preserved.
+Focused tests:
+- python -m pytest tests/test_portal_import_upload.py -> 4 passed
+  (valid upload classified untrusted + cataloged + quarantine cleaned;
+   non-archive extension 400; empty 400; invalid archive fails closed + not
+   cataloged + no quarantine residue).
+Syntax checks:
+- node --check web/js/portal.js, web/js/atlas_pipeline_api.js -> ok
+- python -m py_compile app/api/portal.py app/portal/catalog.py -> ok
+Affected tests:
+- python -m pytest tests/test_portal_catalog.py tests/test_portal_data_lifecycle.py
+  tests/test_portal_runtime.py tests/test_portal_recovery_lifecycle.py
+  tests/test_portal_import_browse.py tests/test_portal_import_upload.py
+  tests/test_portal_pfg1_regression_locks.py -> 37 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-2 is a Portal import-path package, no model execution.
+Unavailable checks:
+- Live mobile-browser upload not executed in CI; UI control uses a standard file
+  input (accept=.zip,.portal.zip) which opens the native mobile picker.
+- Repo-wide `pytest -k portal` collection surfaces pre-existing, unrelated
+  collection errors (missing web/atlas-next fixtures, cp932 decode) in atlas vue/
+  scale contract tests; not introduced by PFG-2.
+Safety invariants verified:
+- Quarantine staging + sanitized filename; fail-closed on unsafe archives;
+  untrusted classification preserved; data-free export and no-free-form-command
+  locks (PFG-1) still pass.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-3 snapshot listing and start-from-snapshot UI.
+Next package:
+- PFG-3 — Portal snapshot listing and start-from-snapshot UI.
 Blocker:
 - None.
 ```
