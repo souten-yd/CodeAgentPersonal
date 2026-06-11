@@ -1301,6 +1301,25 @@
         const it = items[i];
         const itemId = it.item_id || it.id;
         if (!itemId) continue;
+        // Show that THIS item is now being generated BEFORE the (potentially long /
+        // slow LLM) call returns. Without this, the panel stays frozen on the previous
+        // item's "N/total" until generation completes, so a slow item looks like a hang.
+        updateStage(stages, 'patch', 'running', `${i}/${items.length} → 生成中 ${i + 1}`);
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: 'patch_generation',
+          status: 'running',
+          items_total: items.length,
+          items_started: i,
+          items_completed: generated,
+          current_item_index: i + 1,
+          current_item_title: it.title || itemId,
+          message: `Patchを生成中 ${i + 1}/${items.length}`,
+          next_actions: ['wait', 'cancel'],
+          authoritative_source: '/api/atlas/patch-proposals/generate',
+          // Carry an explicit running state so renderRuntimeStatusPanel does not skip this
+          // update after a previous item reached the terminal "succeeded" state.
+          patch_generation: { state: 'running', run_id: '' },
+        }), stages);
         const r = await root.AtlasPipelineAPI.generatePatchProposal({
           pool_id: poolId,
           item_id: itemId,
