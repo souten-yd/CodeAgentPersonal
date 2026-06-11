@@ -58,7 +58,7 @@ def test_lint_flags_new_direct_legacy_consumer(tmp_path: Path) -> None:
     app_api.mkdir(parents=True)
     (root / "agent").mkdir()
     (app_api / "new_consumer.py").write_text(
-        "from agent.atlas_repo_index_service import AtlasRepoIndexService\n",
+        "from agent.atlas_verification_gate_service import AtlasVerificationGateService\n",
         encoding="utf-8",
     )
 
@@ -73,8 +73,8 @@ def test_lint_flags_new_direct_legacy_consumer(tmp_path: Path) -> None:
     assert report["summary"]["violation_count"] == 1
     assert report["violations"] == [
         {
-            "legacy_module": "agent.atlas_repo_index_service",
-            "capability": "legacy_repository_index",
+            "legacy_module": "agent.atlas_verification_gate_service",
+            "capability": "legacy_verification_gate",
             "consumer_path": "app/api/new_consumer.py",
         }
     ]

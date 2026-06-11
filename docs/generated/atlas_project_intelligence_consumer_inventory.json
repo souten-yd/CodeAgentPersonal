@@ -402,7 +402,7 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-11T09:58:23+00:00",
+  "generated_at": "2026-06-11T10:09:41+00:00",
   "legacy_consumers": [
     {
       "adapter_consumer_count": 1,
@@ -431,25 +431,6 @@
       "legacy_internal_consumer_count": 0,
       "legacy_internal_consumers": [],
       "legacy_module": "agent.atlas_project_inspection_service",
-      "production_consumer_count": 0,
-      "production_consumers": []
-    },
-    {
-      "adapter_consumer_count": 2,
-      "adapter_consumers": [
-        {
-          "module": "agent.project_intelligence.adapters.repo_context_service",
-          "path": "agent/project_intelligence/adapters/repo_context_service.py"
-        },
-        {
-          "module": "agent.project_intelligence.adapters.repo_index",
-          "path": "agent/project_intelligence/adapters/repo_index.py"
-        }
-      ],
-      "capability": "legacy_repository_index",
-      "legacy_internal_consumer_count": 0,
-      "legacy_internal_consumers": [],
-      "legacy_module": "agent.atlas_repo_index_service",
       "production_consumer_count": 0,
       "production_consumers": []
     },

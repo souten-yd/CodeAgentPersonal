@@ -1,8 +1,8 @@
 from pathlib import Path
-from agent.atlas_repo_index_service import AtlasRepoIndexService
 from agent.atlas_repo_index_schema import AtlasRepoIndexRequest
+from agent.project_intelligence.adapters.repo_index import ProjectIntelligenceRepoIndexService
 
-def _svc(tmp_path): return AtlasRepoIndexService(tmp_path/'data')
+def _svc(tmp_path): return ProjectIntelligenceRepoIndexService(tmp_path/'data')
 
 def test_build_python_symbol_index_extracts_routes_imports_methods(tmp_path: Path):
     (tmp_path/'app').mkdir(); (tmp_path/'app'/'main.py').write_text('import app.foo\nclass A: pass\ndef f():\n return 1\n')
@@ -23,7 +23,7 @@ def test_incremental_update_records_reused_reparsed_deleted(tmp_path: Path):
     assert 'metadata' in res.model_dump()
 
 def test_no_shell_or_remote_git(tmp_path: Path):
-    assert 'shell=True' not in Path('agent/atlas_repo_index_service.py').read_text()
+    assert 'shell=True' not in Path('agent/project_intelligence/adapters/repo_index.py').read_text(encoding='utf-8')
 
 def test_no_path_ca_data_literals(tmp_path: Path):
-    assert 'Path("ca_data")' not in Path('agent/atlas_repo_index_service.py').read_text()
+    assert 'Path("ca_data")' not in Path('agent/project_intelligence/adapters/repo_index.py').read_text(encoding='utf-8')

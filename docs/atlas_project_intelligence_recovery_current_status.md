@@ -88,6 +88,9 @@ This file selects the active package. The old PI package table does not prove fi
   read-only code exploration behavior is now owned by the Project Intelligence adapter.
 - code-intelligence legacy owner was retired in a separate low-risk PIR-15 slice; read-only
   symbol, dependency, and related-test behavior is now owned by the Project Intelligence adapter.
+- repo-index legacy owner was retired in a separate low-risk PIR-15 slice; repository indexing,
+  impact, related-test, latest, and result lookup behavior is now owned by the Project Intelligence
+  adapter.
 - final broader legacy retirement remains incomplete until remaining proven-zero legacy paths are
   removed in separate low-risk changes with rollback proof for each removal.
 
@@ -132,6 +135,66 @@ The program remains incomplete until PIR-15 and every live Definition of Done ga
 ## Executed package log
 
 ```text
+Work package: PIR-15 — Repo index legacy owner removal
+Status: in_progress
+Changed modules/files:
+- agent/atlas_repo_index_service.py — removed the retired repository-index legacy owner after
+  source-derived consumer-zero and rollback gates remained passed.
+- agent/project_intelligence/adapters/repo_index.py — now owns retained repository indexing,
+  impact, related-test, latest-result, and result lookup behavior through
+  ProjectIntelligenceRepoIndexService and ProjectIntelligenceRepoIndexAdapter.
+- agent/project_intelligence/adapters/repo_context_service.py — now constructs the retained
+  Project Intelligence repo-index service instead of the retired legacy owner.
+- agent/project_intelligence/inspection/consumer_inventory.py, generated inventory, consumer
+  registry, and cutover artifacts — removed the retired legacy module from the legacy capability
+  list while keeping source-derived direct legacy consumers at 0.
+- tests and docs — updated repo-index imports, baseline locks, and capability maps for the
+  retained adapter owner.
+Evidence:
+- python tools\generate_project_intelligence_consumer_inventory.py --root . --output
+  docs\generated\atlas_project_intelligence_consumer_inventory.json -> production_entrypoints=32,
+  legacy_consumers=0, facades=6, adapters=15, critical_findings=6.
+- python - <<script invoking write_allowlist(...), write_lint_report(...),
+  write_consumer_registry(...), write_consumer_cutover_gate(...)>> -> adapter_count=15,
+  legacy_modules=5, legacy_production_consumers=0, allowed_dependency_count=0,
+  lint_passed=true, registry_legacy_sum=0, cutover_passed=true.
+- python -m py_compile agent\project_intelligence\adapters\repo_index.py
+  agent\project_intelligence\adapters\repo_context_service.py app\api\atlas_repo_index.py
+  app\api\atlas_code_intel.py agent\project_intelligence\inspection\consumer_inventory.py
+  tests\test_atlas_repo_index_service.py tests\test_atlas_repo_index_api.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py -> compile OK.
+- python -m pytest -q tests\test_atlas_repo_index_service.py
+  tests\test_atlas_repo_index_api.py tests\test_atlas_code_intel_api.py
+  tests\test_atlas_context_refresh_repo_context_root_persistence.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_project_intelligence_pir15_inspection_adapter.py
+  tests\test_project_intelligence_baseline.py tests\test_project_twin_baseline.py ->
+  83 passed, 1 xfailed in 41.59s.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --data-migration-evidence
+  ca_data\atlas\pir15_data_migration_evidence.current.json --docs-updated ->
+  status=passed, active_rollout=true, legacy_consumer_count=0,
+  data_migration_evidence=passed, blocked_reasons=[].
+- git diff | git apply --check -R -> reverse patch applies.
+Safety invariants checked: no active Atlas production consumer imports the retired repo-index
+legacy owner; repository indexing remains read-only and behind the Project Intelligence adapter;
+retirement gate still requires benchmark, active rollout, consumer-zero, cutover, and data
+migration evidence.
+Known limitations: PIR-15 acceptance is not complete until the remaining removable legacy owners
+are classified or retired according to their documented gates.
+Next package: PIR-15 — continue separate low-risk legacy retirement/classification slices for
+remaining legacy owners.
+Blocker: none; remaining work is the next PIR-15 retirement slice.
+
 Work package: PIR-15 — Code intelligence legacy owner removal
 Status: in_progress
 Changed modules/files:
