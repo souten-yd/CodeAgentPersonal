@@ -6,8 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-14`
-- Next action: add Docker/Runpod platform evidence where available, then record the final
-  PIR-14 rollout/cutover acceptance decision.
+- Next action: record the final PIR-14 rollout/cutover acceptance decision; Runpod evidence
+  remains unavailable unless the existing self-hosted Runpod workflow is enabled.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -75,6 +75,52 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-14 — Docker platform evidence job
+Status: in_progress
+Changed modules/files:
+- .github/docker/pir14-evidence.Dockerfile — added a lightweight PIR-14 evidence image that
+  runs Docker-specific operational detection, consumer cutover gate, and scale/concurrency
+  evidence tests from inside a container.
+- .github/workflows/atlas-project-intelligence-recovery.yml — added docker-platform-evidence,
+  which builds the evidence image, runs it with ATLAS_IN_DOCKER=1, writes JUnit XML, and
+  uploads the Docker platform artifact.
+- tests/test_project_intelligence_pir14_operational_evidence.py — added a Docker detection
+  evidence test and isolated non-Docker platform fixtures from ambient Docker environment
+  detection.
+- tests/test_project_intelligence_pir14_ci_workflow.py — extended the PIR-14 workflow contract
+  to require the Docker job, Dockerfile, container environment flag, and uploaded artifact.
+- docs/atlas_project_intelligence_recovery_current_status.md — recorded Docker evidence while
+  keeping Runpod unavailable unless the configured self-hosted workflow is enabled.
+Executed commands and exact results:
+- python -m py_compile tests\test_project_intelligence_pir14_ci_workflow.py
+  tests\test_project_intelligence_pir14_operational_evidence.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir14_ci_workflow.py
+  tests\test_project_intelligence_pir14_operational_evidence.py
+  tests\test_project_intelligence_pir14_scale_concurrency_evidence.py -> 8 passed in 1.55s.
+- docker --version -> Docker version 29.4.1, build 055a478.
+- docker build -f .github/docker/pir14-evidence.Dockerfile -t atlas-pir14-evidence:local .
+  -> image build succeeded.
+- docker run --rm -e ATLAS_IN_DOCKER=1 -e CODEAGENT_CA_DATA_DIR=/tmp/ca_data
+  -e CODEAGENT_STYLE_BERT_VITS2_BASE_DIR=/tmp/style_bert_vits2
+  -e CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR=/tmp/style_bert_vits2/models
+  -v "${PWD}/artifacts/pir14-ci:/app/artifacts/pir14-ci" atlas-pir14-evidence:local ->
+  5 passed in 0.61s and wrote artifacts/pir14-ci/docker-platform-evidence.xml.
+Unavailable checks: Runpod platform evidence is not claimed in this slice; the existing
+  .github/workflows/runpod-test.yml runpod-smoke job remains gated by RUNPOD_SMOKE_ENABLED and
+  a self-hosted [self-hosted, linux, x64, nvidia, runpod] runner.
+Safety invariants checked: Docker evidence runs tests in a container only; it does not mutate
+  source, transition rollout, run live models, retire legacy paths, or mark Runpod unavailable
+  as passed.
+Migration/rollout state: rollout remains off by default; Docker evidence is attached through
+  the PIR-14 CI workflow and local container proof.
+Known limitations: PIR-14 remains in_progress until the final rollout/cutover acceptance
+  decision is recorded and Runpod is either executed in its configured environment or remains
+  explicitly unavailable.
+Next package: PIR-14 — record final rollout/cutover acceptance decision.
+Blocker: none.
+```
 
 ```text
 Work package: PIR-14 — Large workspace and concurrency evidence

@@ -14,6 +14,7 @@ def test_operational_evidence_records_current_platform_and_unavailable_rows(tmp_
 
     evidence = build_operational_evidence(
         tmp_path,
+        env={},
         platform_name="linux",
         generated_at="2026-06-11T00:00:00+00:00",
         file_budget=10,
@@ -40,6 +41,7 @@ def test_operational_evidence_records_current_platform_and_unavailable_rows(tmp_
     written = write_operational_evidence(
         tmp_path,
         output,
+        env={},
         platform_name="linux",
         generated_at="2026-06-11T00:00:00+00:00",
         file_budget=10,
@@ -47,9 +49,24 @@ def test_operational_evidence_records_current_platform_and_unavailable_rows(tmp_
     assert written == json.loads(output.read_text(encoding="utf-8"))
 
 
+def test_operational_evidence_detects_docker_environment_when_env_set(tmp_path: Path) -> None:
+    evidence = build_operational_evidence(
+        tmp_path,
+        env={"ATLAS_IN_DOCKER": "1"},
+        generated_at="2026-06-11T00:00:00+00:00",
+        file_budget=10,
+    )
+
+    rows = {row["platform"]: row for row in evidence["platform_evidence"]}
+    assert evidence["current_platform"] == "docker"
+    assert rows["docker"]["result"] == "observed"
+    assert rows["runpod"]["result"] == "unavailable"
+
+
 def test_operational_evidence_records_threshold_rollback(tmp_path: Path) -> None:
     evidence = build_operational_evidence(
         tmp_path,
+        env={},
         platform_name="linux",
         generated_at="2026-06-11T00:00:00+00:00",
         threshold_metrics={"latency_ms": 130.0},
@@ -66,6 +83,7 @@ def test_operational_evidence_records_threshold_rollback(tmp_path: Path) -> None
 def test_operational_evidence_does_not_rollback_when_thresholds_pass(tmp_path: Path) -> None:
     evidence = build_operational_evidence(
         tmp_path,
+        env={},
         platform_name="linux",
         generated_at="2026-06-11T00:00:00+00:00",
         threshold_metrics={"latency_ms": 100.0},

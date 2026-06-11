@@ -3,10 +3,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "atlas-project-intelligence-recovery.yml"
+DOCKERFILE = REPO_ROOT / ".github" / "docker" / "pir14-evidence.Dockerfile"
 
 
 def test_pir14_recovery_ci_workflow_exists_with_required_suites() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     for suite in (
         "focused-regression",
         "integration",
@@ -14,6 +16,7 @@ def test_pir14_recovery_ci_workflow_exists_with_required_suites() -> None:
         "fixture-e2e",
         "cutover-platform-contracts",
         "windows-platform-evidence",
+        "docker-platform-evidence",
     ):
         assert suite in text
     assert "python -m pytest -q tests/test_project_intelligence_recovery_baseline.py" in text
@@ -31,6 +34,11 @@ def test_pir14_recovery_ci_workflow_exists_with_required_suites() -> None:
     assert "$env:CODEAGENT_CA_DATA_DIR = Join-Path $env:RUNNER_TEMP \"ca_data\"" in text
     assert "--junitxml artifacts/pir14-ci/windows-platform-evidence.xml" in text
     assert "pir14-windows-platform-evidence-junit" in text
+    assert ".github/docker/pir14-evidence.Dockerfile" in text
+    assert "docker run --rm" in text
+    assert "-e ATLAS_IN_DOCKER=1" in text
+    assert "--junitxml\", \"artifacts/pir14-ci/docker-platform-evidence.xml" in dockerfile
+    assert "pir14-docker-platform-evidence-junit" in text
 
 
 def test_pir14_recovery_ci_does_not_claim_live_model_or_cutover() -> None:
@@ -43,6 +51,7 @@ def test_pir14_recovery_ci_does_not_claim_live_model_or_cutover() -> None:
 
 def test_pir14_recovery_ci_covers_current_recovery_entrypoints() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
     for test_path in (
         "tests/test_project_intelligence_recovery_baseline.py",
         "tests/test_project_intelligence_pir11_generation_apply.py",
@@ -54,5 +63,6 @@ def test_pir14_recovery_ci_covers_current_recovery_entrypoints() -> None:
         "tests/test_project_intelligence_benchmark.py",
         "tests/test_project_intelligence_pir14_operational_evidence.py",
         "tests/test_project_intelligence_pir14_consumer_cutover_gate.py",
+        "tests/test_project_intelligence_pir14_scale_concurrency_evidence.py",
     ):
-        assert test_path in text
+        assert test_path in text or test_path in dockerfile
