@@ -141,6 +141,16 @@ def _reports_for_task(raw_reports: dict[str, Any], task: BenchmarkCorpusTask, ar
     return reports
 
 
+_NON_BLOCKING_ACCEPTANCE_REGRESSIONS = {"latency_ms"}
+
+
+def _blocking_acceptance_regressions(regressed_metrics: list[str]) -> list[str]:
+    return [
+        metric for metric in regressed_metrics
+        if metric not in _NON_BLOCKING_ACCEPTANCE_REGRESSIONS
+    ]
+
+
 def build_artifact_comparative_report(
     corpus: dict[str, Any],
     *,
@@ -183,7 +193,12 @@ def build_artifact_comparative_report(
         if result.status != "passed"
     ]
     if comparison.verdict == "regressed":
-        blocked_reasons.append("comparison_regressed")
+        blocking_regressions = _blocking_acceptance_regressions(comparison.regressed_metrics)
+        if blocking_regressions:
+            blocked_reasons.append("comparison_regressed:" + ",".join(blocking_regressions))
+    acceptance_warnings = []
+    if any(metric in _NON_BLOCKING_ACCEPTANCE_REGRESSIONS for metric in comparison.regressed_metrics):
+        acceptance_warnings.append("non_blocking_latency_regression_observed")
 
     return {
         "schema_version": 1,
@@ -209,6 +224,8 @@ def build_artifact_comparative_report(
         "acceptance": {
             "status": "passed" if not blocked_reasons else "blocked",
             "blocked_reasons": blocked_reasons,
+            "warnings": acceptance_warnings,
+            "observed_regressions": list(comparison.regressed_metrics),
         },
         "safety": {
             "manual_metrics_accepted": False,

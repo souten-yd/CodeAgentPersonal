@@ -175,6 +175,24 @@ def test_structure_gate_block_mode_still_blocks():
     assert out["critique_gate"]["gate_status"] == "blocked"
 
 
+def test_structure_gate_ignores_stale_fallback_metadata_when_steps_exist():
+    out = apply_plan_quality_gate(
+        _plan(
+            implementation_steps=[
+                {
+                    "description": "Create the requested HTML page.",
+                    "acceptance_criteria": ["index.html contains the requested heading."],
+                }
+            ],
+            metadata={"planner_fallback": {"reason": "previous_invalid_action_type"}},
+        ),
+        automation_level="full_autopilot",
+        quality_gate_enforcement="block",
+    )
+    assert out["plan_revision_required"] is False
+    assert out["critique_gate"]["gate_status"] == "passed"
+
+
 def test_structure_gate_defaults_to_block_when_enforcement_unset():
     # Backward-compatible default: omitting the knob keeps the strict (blocking) behaviour.
     out = apply_plan_quality_gate(_plan(test_plan=_FALLBACK_TEST_PLAN), preset_id="autonomous_bounded_dev")

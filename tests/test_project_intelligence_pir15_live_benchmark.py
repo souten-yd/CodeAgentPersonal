@@ -48,6 +48,12 @@ def _report(*, status: str, accepted: bool, started: str = "2026-06-11T00:00:00+
     }
 
 
+def _slow_report(*, status: str, accepted: bool) -> dict:
+    report = _report(status=status, accepted=accepted, started="2026-06-11T00:00:00+00:00")
+    report["finished_at"] = "2026-06-11T00:00:05+00:00"
+    return report
+
+
 def _reports_for_corpus(corpus: dict, *, status: str, accepted: bool) -> dict[str, list[dict]]:
     return {
         str(task["task_id"]): [
@@ -140,7 +146,32 @@ def test_artifact_comparative_report_acceptance_passes_only_when_both_arms_pass(
         generated_at="2026-06-11T00:00:00+00:00",
     )
 
-    assert report["acceptance"] == {"status": "passed", "blocked_reasons": []}
+    assert report["acceptance"]["status"] == "passed"
+    assert report["acceptance"]["blocked_reasons"] == []
+
+
+def test_artifact_comparative_report_does_not_block_on_latency_only_regression() -> None:
+    corpus = load_benchmark_corpus(CORPUS)
+    slow_final = {
+        str(task["task_id"]): [
+            _slow_report(status="passed", accepted=True)
+            for _index in range(int(task.get("repetitions", 1)))
+        ]
+        for task in corpus["tasks"]
+    }
+
+    report = build_artifact_comparative_report(
+        corpus,
+        legacy_reports=_reports_for_corpus(corpus, status="passed", accepted=True),
+        final_reports=slow_final,
+        generated_at="2026-06-11T00:00:00+00:00",
+    )
+
+    assert report["comparison"]["verdict"] == "regressed"
+    assert report["comparison"]["regressed_metrics"] == ["latency_ms"]
+    assert report["acceptance"]["status"] == "passed"
+    assert report["acceptance"]["blocked_reasons"] == []
+    assert report["acceptance"]["warnings"] == ["non_blocking_latency_regression_observed"]
 
 
 def test_artifact_comparative_report_enforces_repetition_count() -> None:

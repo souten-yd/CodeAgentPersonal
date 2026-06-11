@@ -183,7 +183,8 @@ def _plan_structure_findings(plan: dict) -> list[dict]:
                 findings.append(_structure_finding("empty_step_acceptance_criteria", index))
     metadata = plan.get("metadata") if isinstance(plan.get("metadata"), dict) else {}
     warnings = [str(w) for w in (plan.get("warnings") or []) if str(w).strip()] if isinstance(plan.get("warnings"), list) else []
-    if metadata.get("planner_fallback") or metadata.get("fallback_plan_items_generated") or "planner_fallback_skeleton_generated" in warnings:
+    has_current_steps = isinstance(steps, list) and any(isinstance(step, dict) for step in steps)
+    if (metadata.get("planner_fallback") or metadata.get("fallback_plan_items_generated") or "planner_fallback_skeleton_generated" in warnings) and not has_current_steps:
         findings.append(_structure_finding("fallback_only_plan_pool", 0))
     test_plan = plan.get("test_plan")
     fallback_tests = {"APIレスポンス構造の確認", "保存ファイル(JSON/Markdown)の存在確認"}
