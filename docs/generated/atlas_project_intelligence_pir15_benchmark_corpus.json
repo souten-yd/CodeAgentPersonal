@@ -1,0 +1,21 @@
+{
+  "constraints": {
+    "model": "configured_atlas_model",
+    "repository": "KasaneCore@current-checkout",
+    "requirement": "versioned PIR-15 corpus task requirement",
+    "retry_limit": 3,
+    "token_budget": 8000,
+    "tool_authority": "atlas_allowlisted_normal_entrypoint"
+  },
+  "corpus_version": "pir15-corpus-v1",
+  "schema_version": 1,
+  "tasks": [
+    {
+      "acceptance_text": "Atlas Live Greenfield Ready",
+      "repetitions": 1,
+      "requirement": "Create a Greenfield single HTML app in index.html. The page must render the exact heading Atlas Live Greenfield Ready and a visible ready status.",
+      "task_id": "greenfield_single_html_ready",
+      "workspace_seed": "empty"
+    }
+  ]
+}
