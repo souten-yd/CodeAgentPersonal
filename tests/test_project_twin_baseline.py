@@ -19,7 +19,6 @@ import pytest
 REUSED_MODULES = [
     "agent.atlas_repo_index_service",
     "agent.atlas_repo_index_storage",
-    "agent.atlas_code_intel_service",
     "agent.atlas_code_intel_schema",
     "agent.context_builder",
     "agent.atlas_project_inspection_service",
@@ -43,7 +42,7 @@ def test_reused_owner_modules_import(module_name: str) -> None:
 
 def test_code_intel_symbol_index_is_deterministic(tmp_path: Path) -> None:
     from agent.atlas_code_intel_schema import AtlasSymbolIndexRequest
-    from agent.atlas_code_intel_service import AtlasCodeIntelService
+    from agent.project_intelligence.adapters.code_intel import ProjectIntelligenceCodeIntelAdapter
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -58,7 +57,7 @@ def test_code_intel_symbol_index_is_deterministic(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
     out1 = svc.build_symbol_index(AtlasSymbolIndexRequest(project_path=str(repo), relative_path="app.py"))
     out2 = svc.build_symbol_index(AtlasSymbolIndexRequest(project_path=str(repo), relative_path="app.py"))
 
@@ -74,14 +73,14 @@ def test_code_intel_symbol_index_is_deterministic(tmp_path: Path) -> None:
 
 def test_code_intel_dependency_edges_are_scoped(tmp_path: Path) -> None:
     from agent.atlas_code_intel_schema import AtlasDependencyGraphRequest
-    from agent.atlas_code_intel_service import AtlasCodeIntelService
+    from agent.project_intelligence.adapters.code_intel import ProjectIntelligenceCodeIntelAdapter
 
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "src").mkdir()
     (repo / "src" / "foo.py").write_text("import os\n", encoding="utf-8")
 
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
     dep = svc.build_dependency_graph(AtlasDependencyGraphRequest(project_path=str(repo), relative_path="src"))
     assert all(e.source.startswith("src/") for e in dep.edges)
 

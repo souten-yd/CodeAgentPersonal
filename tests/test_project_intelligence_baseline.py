@@ -35,7 +35,6 @@ REUSED_OWNER_MODULES = [
     # repository enumeration / symbol & dependency extraction
     "agent.atlas_repo_index_service",
     "agent.atlas_repo_index_storage",
-    "agent.atlas_code_intel_service",
     "agent.atlas_code_intel_schema",
     # project / git inspection
     "agent.atlas_project_inspection_service",
@@ -64,7 +63,6 @@ def test_reused_owner_modules_import(module_name: str) -> None:
 
 OWNER_SYMBOLS = [
     ("agent.atlas_repo_index_service", "AtlasRepoIndexService"),
-    ("agent.atlas_code_intel_service", "AtlasCodeIntelService"),
     ("agent.atlas_project_inspection_service", "AtlasProjectInspectionService"),
     ("agent.atlas_git_inspection_service", "AtlasGitInspectionService"),
     ("agent.atlas_verification_recommendation_service", "AtlasVerificationRecommendationService"),
@@ -83,7 +81,7 @@ def test_owner_symbol_present(module_name: str, symbol: str) -> None:
 
 def test_code_intel_symbol_index_is_deterministic(tmp_path: Path) -> None:
     from agent.atlas_code_intel_schema import AtlasSymbolIndexRequest
-    from agent.atlas_code_intel_service import AtlasCodeIntelService
+    from agent.project_intelligence.adapters.code_intel import ProjectIntelligenceCodeIntelAdapter
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -98,7 +96,7 @@ def test_code_intel_symbol_index_is_deterministic(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
     out1 = svc.build_symbol_index(AtlasSymbolIndexRequest(project_path=str(repo), relative_path="app.py"))
     out2 = svc.build_symbol_index(AtlasSymbolIndexRequest(project_path=str(repo), relative_path="app.py"))
 
@@ -114,14 +112,14 @@ def test_code_intel_symbol_index_is_deterministic(tmp_path: Path) -> None:
 
 def test_code_intel_dependency_edges_are_scoped(tmp_path: Path) -> None:
     from agent.atlas_code_intel_schema import AtlasDependencyGraphRequest
-    from agent.atlas_code_intel_service import AtlasCodeIntelService
+    from agent.project_intelligence.adapters.code_intel import ProjectIntelligenceCodeIntelAdapter
 
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "src").mkdir()
     (repo / "src" / "foo.py").write_text("import os\n", encoding="utf-8")
 
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
     dep = svc.build_dependency_graph(AtlasDependencyGraphRequest(project_path=str(repo), relative_path="src"))
     assert all(e.source.startswith("src/") for e in dep.edges)
 

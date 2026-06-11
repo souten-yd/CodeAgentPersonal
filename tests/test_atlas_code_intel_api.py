@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 import main
 from agent.atlas_code_intel_schema import AtlasRelatedTestsRequest
-from agent.atlas_code_intel_service import AtlasCodeIntelService
+from agent.project_intelligence.adapters.code_intel import ProjectIntelligenceCodeIntelAdapter
 
 
 def test_code_intel_endpoints_read_only_and_project_path_required(tmp_path):
@@ -28,7 +28,7 @@ def test_code_intel_endpoints_read_only_and_project_path_required(tmp_path):
 
 
 def test_static_contract_no_shell_run_command_or_remote_git():
-    text = open('agent/atlas_code_intel_service.py', 'r', encoding='utf-8').read()
+    text = open('agent/project_intelligence/adapters/code_intel.py', 'r', encoding='utf-8').read()
     assert 'shell=True' not in text
     assert 'run_command' not in text
     assert 'git push' not in text and 'git fetch' not in text and 'git pull' not in text
@@ -43,7 +43,7 @@ def test_related_tests_metadata_ranks_dependency_related_files(tmp_path):
     (repo / 'src' / 'neighbor.js').write_text("export const n = 1;\n", encoding='utf-8')
     (repo / 'tests' / 'main.test.js').write_text("import '../src/main.js';\n", encoding='utf-8')
 
-    out = AtlasCodeIntelService().find_related_tests(
+    out = ProjectIntelligenceCodeIntelAdapter().find_related_tests(
         AtlasRelatedTestsRequest(project_path=str(repo), changed_files=['src/main.js'])
     )
 

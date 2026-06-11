@@ -1,14 +1,14 @@
 from pathlib import Path
 
 from agent.atlas_code_intel_schema import AtlasDependencyGraphRequest, AtlasRelatedTestsRequest, AtlasSymbolIndexRequest
-from agent.atlas_code_intel_service import AtlasCodeIntelService
+from agent.project_intelligence.adapters.code_intel import ProjectIntelligenceCodeIntelAdapter
 
 
 def test_symbol_index_single_file_and_python_visitor(tmp_path: Path):
     repo = tmp_path / 'repo'; repo.mkdir()
     (repo / 'app.py').write_text('import os\nfrom x import y\nclass A:\n    def m(self):\n        return 1\nasync def af():\n    return 1\ndef f(x):\n    return x\n', encoding='utf-8')
     (repo / 'other.py').write_text('def g():\n    return 0\n', encoding='utf-8')
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
     out = svc.build_symbol_index(AtlasSymbolIndexRequest(project_path=str(repo), relative_path='app.py'))
     assert {s.file_path for s in out.symbols} == {'app.py'}
     method = next(s for s in out.symbols if s.name == 'm')
@@ -21,7 +21,7 @@ def test_symbol_index_single_file_and_python_visitor(tmp_path: Path):
 def test_relative_path_directory_and_missing_error(tmp_path: Path):
     repo = tmp_path / 'repo'; repo.mkdir()
     (repo / 'src').mkdir(); (repo / 'src' / 'foo.py').write_text('import os\n', encoding='utf-8')
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
     dep = svc.build_dependency_graph(AtlasDependencyGraphRequest(project_path=str(repo), relative_path='src'))
     assert all(e.source.startswith('src/') for e in dep.edges)
     try:
@@ -35,7 +35,7 @@ def test_relative_path_directory_and_missing_error(tmp_path: Path):
 def test_read_error_skips_file(tmp_path: Path, monkeypatch):
     repo = tmp_path / 'repo'; repo.mkdir()
     (repo / 'a.py').write_text('import os\n', encoding='utf-8')
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
 
     orig = Path.read_bytes
     def flaky(self: Path):
@@ -58,7 +58,7 @@ def test_dependency_resolution_metadata(tmp_path: Path):
     (repo / 'base.css').write_text('body{}\n', encoding='utf-8')
     (repo / 'i.html').write_text('<script src="app.js"></script>', encoding='utf-8')
     (repo / 's.css').write_text('@import "./base.css";\n', encoding='utf-8')
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
     out = svc.build_dependency_graph(AtlasDependencyGraphRequest(project_path=str(repo)))
     js_edge = next(e for e in out.edges if e.kind == 'js_import' and e.target == './util')
     assert js_edge.metadata['resolved_target_path'] == 'src/util.js'
@@ -78,7 +78,7 @@ def test_related_tests_verification_hint_and_no_command_hint(tmp_path: Path):
     (repo / 'src' / 'bar.ts').write_text('export const bar=1\n', encoding='utf-8')
     (repo / 'tests' / 'test_foo.py').write_text('from src.foo import foo\n', encoding='utf-8')
     (repo / 'src' / 'bar.test.ts').write_text('import { bar } from "./bar"\n', encoding='utf-8')
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
     out = svc.find_related_tests(AtlasRelatedTestsRequest(project_path=str(repo), changed_files=['src/foo.py', 'src/bar.ts']))
     py_item = next(x for x in out.related_tests if x['path'].endswith('.py'))
     js_item = next(x for x in out.related_tests if x['path'].endswith('.ts'))
@@ -92,7 +92,7 @@ def test_truncation_metadata(tmp_path: Path):
     repo = tmp_path / 'repo'; repo.mkdir()
     (repo / 'a.py').write_text('def a():\n    pass\n', encoding='utf-8')
     (repo / 'b.py').write_text('def b():\n    pass\n', encoding='utf-8')
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
     s = svc.build_symbol_index(AtlasSymbolIndexRequest(project_path=str(repo), max_symbols=1, max_files=1))
     assert s.metadata['truncated'] is True
     assert 'max_files limit reached' in s.warnings
@@ -101,7 +101,7 @@ def test_truncation_metadata(tmp_path: Path):
 
 
 def test_unsafe_path_rejected(tmp_path: Path):
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
     try:
         svc.build_symbol_index(AtlasSymbolIndexRequest(project_path=str(tmp_path), relative_path='../x'))
     except ValueError:

@@ -55,12 +55,7 @@ def test_inventory_records_exact_facade_call_counts() -> None:
     assert repo_index["production_consumer_count"] == 0
     assert repo_index["adapter_consumer_count"] == 2
     assert adapters["agent.project_intelligence.adapters.repo_index"]["present"] is True
-    code_intel = next(
-        row for row in inv["legacy_consumers"]
-        if row["legacy_module"] == "agent.atlas_code_intel_service"
-    )
-    assert code_intel["production_consumer_count"] == 0
-    assert code_intel["adapter_consumer_count"] == 1
+    assert not any(row["legacy_module"] == "agent.atlas_code_intel_service" for row in inv["legacy_consumers"])
     assert adapters["agent.project_intelligence.adapters.code_intel"]["present"] is True
     assert not any(row["legacy_module"] == "agent.atlas_code_explorer" for row in inv["legacy_consumers"])
     assert adapters["agent.project_intelligence.adapters.code_explorer"]["present"] is True
