@@ -21,9 +21,9 @@ def test_rollout_evidence_records_shadow_parity_and_flag_rollback(tmp_path: Path
 
     assert evidence["source"] == "project_intelligence_public_facade_off_shadow_active_modes"
     assert evidence["summary"] == {
-        "phase_count": 2,
-        "shadow_parity_passed_count": 2,
-        "rollback_passed_count": 2,
+        "phase_count": 4,
+        "shadow_parity_passed_count": 4,
+        "rollback_passed_count": 4,
         "telemetry_event_count": 2,
     }
     assert evidence["safety"] == {
@@ -40,6 +40,13 @@ def test_rollout_evidence_records_shadow_parity_and_flag_rollback(tmp_path: Path
     assert entries["planning"]["mode_after_rollback"] == "off"
     assert entries["planning"]["mismatch_paths"] == []
     assert entries["generation"]["mismatch_paths"] == []
+    assert entries["verification"]["baseline_mode"] == "off"
+    assert entries["verification"]["shadow_mode"] == "shadow"
+    assert entries["verification"]["mode_after_rollback"] == "off"
+    assert entries["verification"]["mismatch_paths"] == []
+    assert entries["recovery"]["shadow_parity_status"] == "passed"
+    assert entries["recovery"]["rollback_status"] == "passed"
+    assert entries["recovery"]["mode_after_rollback"] == "resume"
 
     output = tmp_path / "rollout_evidence.json"
     written = write_rollout_evidence(
@@ -52,4 +59,4 @@ def test_rollout_evidence_records_shadow_parity_and_flag_rollback(tmp_path: Path
 
 def test_rollout_evidence_rejects_unsupported_phase(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="unsupported evidence phase"):
-        build_rollout_evidence(tmp_path, phases=("verification",))
+        build_rollout_evidence(tmp_path, phases=("benchmark",))

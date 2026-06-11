@@ -6,8 +6,7 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-14`
-- Next action: add PIR-14 verification/recovery shadow parity and rollback drills, then add
-  Linux/Docker/Runpod platform and large-scale evidence.
+- Next action: add PIR-14 Linux/Docker/Runpod platform, large-scale, and concurrency evidence.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -109,6 +108,45 @@ Safety invariants checked: read-only source inspection only; no production runti
 Migration/rollout state: off by default; no consumer cutover and no legacy deletion.
 Known limitations: regression locks intentionally xfail until PIR-1+ fixes the underlying defects.
 Next package: PIR-1 — durable concrete modules.
+Blocker: none.
+```
+
+```text
+Work package: PIR-14 — Verification/recovery parity and cutover gate pass
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/rollout_evidence.py — extended PIR-14 rollout evidence beyond
+  planning/generation to include verification facade off-vs-shadow parity and recovery
+  checkpoint metadata parity/rollback availability through AtlasRecoveryService.
+- tests/test_project_intelligence_pir14_rollout_evidence.py — updated expectations for four
+  evidence phases and verification/recovery rollback status.
+- tests/test_project_intelligence_pir14_consumer_cutover_gate.py — added coverage proving the
+  cutover gate passes when planning, generation, verification, and recovery parity/rollback
+  evidence are all present.
+- docs/atlas_project_intelligence_recovery_current_status.md — recorded that production
+  consumer cutover gate evidence now passes while PIR-14 still waits on Linux/Docker/Runpod,
+  large-scale, and concurrency evidence.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\rollout_evidence.py
+  tests\test_project_intelligence_pir14_rollout_evidence.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir14_rollout_evidence.py ->
+  2 passed in 0.92s.
+- python - <<script invoking write_rollout_evidence(...), write_lint_report(...),
+  write_consumer_cutover_gate(...)>> ->
+  rollout=C:\Users\kkens\code\KasaneCore\ca_data\atlas\pir14_rollout_evidence.current.json
+  phases=4 parity=4 rollback=4; gate=C:\Users\kkens\code\KasaneCore\ca_data\atlas\pir14_consumer_cutover_gate.current.json
+  production_connected=4 cutover_ready=4 gate_passed=True blocked=[].
+Unavailable checks: Linux/Docker/Runpod platform runs, large-repository scale evidence, and
+  concurrency/load evidence remain unclaimed by this slice.
+Safety invariants checked: verification evidence uses public ProjectIntelligence facade calls,
+  recovery evidence uses AtlasRecoveryService over a temporary PlanPool, and the slice performs
+  no source mutation, rollout transition, automatic rollback, or legacy retirement.
+Migration/rollout state: rollout remains off by default; planning, generation, verification,
+  and recovery now have cutover gate evidence, but active rollout remains pending platform and
+  scale gates.
+Known limitations: PIR-14 remains in_progress until Linux/Docker/Runpod platform artifacts,
+  large-repository/concurrency evidence, and final active rollout/cutover evidence pass.
+Next package: PIR-14 — add Linux/Docker/Runpod platform, large-scale, and concurrency evidence.
 Blocker: none.
 ```
 
