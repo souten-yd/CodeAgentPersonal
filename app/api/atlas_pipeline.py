@@ -1009,6 +1009,21 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
     return _create_plan_pool_core(req, request.app)
 
 
+def _current_llm_max_ctx(request: Request) -> int:
+    """Effective LLM context window, used as the denominator for the live token
+    progress display (current tokens / max ctx). Reads the runtime props provider
+    registered by the app; returns 0 when unavailable so the UI can hide it."""
+    provider = getattr(getattr(request, "app", None), "state", None)
+    provider = getattr(provider, "runtime_llm_props_provider", None)
+    if not callable(provider):
+        return 0
+    try:
+        props = provider() or {}
+        return int(props.get("n_ctx_runtime") or props.get("n_ctx") or 0)
+    except Exception:
+        return 0
+
+
 @router.get("/plan-pools/{pool_id}/status")
 def get_plan_pool_status(pool_id: str, request: Request, workspace_id: str = Query("default")) -> dict[str, Any]:
     ca_data_root, _storage, _journal = _atlas_components(request, workspace_id=workspace_id)
@@ -1032,6 +1047,7 @@ def get_plan_pool_status(pool_id: str, request: Request, workspace_id: str = Que
     data["is_stalled"] = False if status in {"ready", "failed", "queued"} else is_stalled
     data["current_phase"] = current_phase
     data["absolute_max_seconds"] = _plan_absolute_max_sec()
+    data["max_ctx"] = _current_llm_max_ctx(request)
     if data["is_stalled"]:
         data["stalled_reason"] = f"LLM生成のheartbeatが{int(seconds_since or 0)}秒更新されていません（フェーズ: {current_phase}）。"
         data["suggested_action"] = "モデルが応答停止の可能性があります。少し待つか、再実行してください。"

@@ -255,16 +255,30 @@
       line.id = 'atlas-llm-progress-line';
       line.className = 'atlas-claude-msg atlas-claude-llm-progress';
       line.dataset.role = 'system';
+      // Theme-colored animated indicator (three pulsing dots) signals live
+      // generation; followed by a text node for the phase + token counter.
+      const spinner = document.createElement('span');
+      spinner.className = 'atlas-llm-spinner';
+      spinner.setAttribute('aria-hidden', 'true');
+      spinner.innerHTML = '<i></i><i></i><i></i>';
+      const text = document.createElement('span');
+      text.className = 'atlas-llm-progress-text';
+      line.appendChild(spinner);
+      line.appendChild(text);
       dom.transcript.appendChild(line);
     }
     const phase = detail.phase || '';
     const tokens = Number(detail.tokens) || 0;
+    const maxCtx = Number(detail.maxCtx) || 0;
     const sec = Number(detail.secondsSince);
-    const parts = ['[LLM生成中]'];
-    if (phase) parts.push(`フェーズ: ${phase}`);
-    if (tokens > 0) parts.push(`tokens: ${tokens}`);
-    if (Number.isFinite(sec)) parts.push(`最終: ${Math.round(sec)}秒前`);
-    line.textContent = parts.join(' / ');
+    // トークンが一定時間進まなければ生成停止とみなしアニメーションを止める。
+    const stalled = Number.isFinite(sec) && sec >= 4;
+    line.classList.toggle('stalled', stalled);
+    const parts = [];
+    if (phase) parts.push(phase);
+    if (tokens > 0) parts.push(maxCtx > 0 ? `tokens ${tokens} / ${maxCtx}` : `tokens ${tokens}`);
+    const textEl = line.querySelector('.atlas-llm-progress-text');
+    if (textEl) textEl.textContent = parts.join('  ·  ');
     dom.transcript.scrollTop = dom.transcript.scrollHeight;
   }
 
