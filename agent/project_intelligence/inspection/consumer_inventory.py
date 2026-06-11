@@ -40,6 +40,7 @@ ADAPTER_MODULES: dict[str, str] = {
     "agent.project_intelligence.adapters.atlas_context_refresh": "context_refresh_api",
     "agent.project_intelligence.adapters.context_refresh_v1": "context_refresh_v1",
     "agent.project_intelligence.adapters.context_refresh_v2": "context_refresh_v2",
+    "agent.project_intelligence.adapters.code_intel": "code_intelligence",
     "agent.project_intelligence.adapters.atlas_repo_context": "repo_context_api",
     "agent.project_intelligence.adapters.repo_index": "repo_index_api",
     "agent.project_intelligence.adapters.plan_item_impact_map": "plan_item_impact_map",
