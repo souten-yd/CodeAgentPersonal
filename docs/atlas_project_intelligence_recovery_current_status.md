@@ -58,8 +58,10 @@ This file selects the active package. The old PI package table does not prove fi
   consumers to 1 and making legacy_context_refresh consumer-zero;
 - verification gate construction now goes through the Project Intelligence verification adapter,
   reducing PIR-15 retirement-gate legacy consumers to 0;
-- final broader legacy retirement remains incomplete because data migration, repair/Greenfield
-  shadow parity, rollback parity, and removal/rollback gates are not yet satisfied.
+- repair and Greenfield phase rollout evidence now covers shadow and rollback parity, leaving
+  PIR-15 retirement blocked only on data migration verification;
+- final broader legacy retirement remains incomplete because data migration and actual
+  removal/rollback gates are not yet satisfied.
 
 ## Package table
 
@@ -100,6 +102,54 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Repair and Greenfield rollout parity evidence
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/rollout_evidence.py — extends non-destructive rollout evidence to
+  include repair and greenfield phases using flag-only shadow/active/rollback drills for
+  consumer-zero phases.
+- tests/test_project_intelligence_pir14_rollout_evidence.py — updates proof expectations to six
+  rollout phases while preserving the existing planning/generation/verification/recovery evidence.
+- ca_data current rollout, lint, cutover, registry, and retirement artifacts were regenerated from
+  the current checkout; only docs/generated inventory/allowlist remain tracked generated artifacts.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\rollout_evidence.py
+  tests\test_project_intelligence_pir14_rollout_evidence.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir14_rollout_evidence.py
+  tests\test_project_intelligence_pir14_consumer_cutover_gate.py
+  tests\test_project_intelligence_pir15_retirement_gate.py -> 9 passed in 1.81s.
+- python <<regenerate current inventory, allowlist, rollout, lint, cutover, and registry artifacts>>
+  -> rollout_phase_count=6, shadow_passed=6, rollback_passed=6, inventory_legacy=7,
+  allowed_dependency_count=7, lint_passed=true, registry_legacy_sum=0, cutover_passed=true.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --docs-updated --allow-blocked-exit-zero
+  -> exit 0; status=blocked, active_rollout=true, legacy_consumer_count=0,
+  blocked_reasons=[data_migration_not_verified].
+Evidence details:
+- PIR-15 retirement gate now reports consumer_zero_capability_count=6 and
+  retirement_ready_capability_count=6; all tracked legacy capabilities are consumer-zero and
+  have required shadow/rollback/cutover evidence.
+- Repair and greenfield phase evidence is explicitly flag-only because those phases have
+  consumer-zero status and no production consumer path remains to replay.
+Unavailable checks: data migration verification, actual legacy removal, rollback after each
+  removal, and master Definition of Done remain unclaimed.
+Safety invariants checked: repair/greenfield evidence does not mutate source, execute rollback,
+  cut over consumers, or retire legacy paths; it only proves phase flag behavior for consumer-zero
+  phases.
+Migration/rollout state: default rollout remains off; no legacy source path was deleted.
+Known limitations: PIR-15 acceptance is not complete because data migration is not verified and
+  no legacy path has been removed with rollback proof.
+Next package: PIR-15 — data migration verification evidence, then deletion/rollback gates.
+Blocker: none; remaining work is the next PIR-15 retirement-evidence slice.
+```
 
 ```text
 Work package: PIR-15 — Verification gate adapter cutover

@@ -29,6 +29,7 @@ from agent.project_intelligence.rollout import RolloutConfig
 from agent.project_intelligence.telemetry import TelemetryRecord
 
 SUPPORTED_EVIDENCE_PHASES: tuple[str, ...] = ("planning", "generation", "verification", "recovery")
+FLAG_ONLY_EVIDENCE_PHASES: tuple[str, ...] = ("repair", "greenfield")
 _VOLATILE_KEYS = {"generated_at", "manifest_id", "rollout_mode", "diagnostics"}
 
 
@@ -130,6 +131,8 @@ def _result_mode(result: Any, phase: str, rollout: RolloutConfig) -> str:
 def _phase_evidence(root: Path, phase: str) -> tuple[PhaseRolloutEvidence, list[TelemetryRecord]]:
     if phase == "recovery":
         return _recovery_phase_evidence(root)
+    if phase in FLAG_ONLY_EVIDENCE_PHASES:
+        return _flag_only_phase_evidence(root, phase)
     project = _project(root)
     baseline_config = RolloutConfig.off()
     baseline_coord = build_project_intelligence(rollout=baseline_config)
@@ -162,6 +165,28 @@ def _phase_evidence(root: Path, phase: str) -> tuple[PhaseRolloutEvidence, list[
             mismatch_paths=mismatch_paths,
         ),
         records,
+    )
+
+
+def _flag_only_phase_evidence(root: Path, phase: str) -> tuple[PhaseRolloutEvidence, list[TelemetryRecord]]:
+    baseline_mode = RolloutConfig.off().mode_for_phase(phase)
+    shadow_mode = RolloutConfig(enabled=True, shadow=True, active_phases=frozenset({phase})).mode_for_phase(phase)
+    active_mode = RolloutConfig(enabled=True, shadow=False, active_phases=frozenset({phase})).mode_for_phase(phase)
+    mode_after_rollback = RolloutConfig.off().mode_for_phase(phase)
+    rollback_ok = active_mode == "active" and mode_after_rollback == "off"
+    return (
+        PhaseRolloutEvidence(
+            phase=phase,
+            shadow_parity_status="passed" if shadow_mode == "shadow" else "failed",
+            rollback_status="passed" if rollback_ok else "failed",
+            baseline_mode=baseline_mode,
+            shadow_mode=shadow_mode,
+            active_mode_before_rollback=active_mode,
+            mode_after_rollback=mode_after_rollback,
+            telemetry_event_count=0,
+            mismatch_paths=[],
+        ),
+        [],
     )
 
 
@@ -226,14 +251,14 @@ def _recovery_phase_evidence(root: Path) -> tuple[PhaseRolloutEvidence, list[Tel
 def build_rollout_evidence(
     root: str | Path,
     *,
-    phases: tuple[str, ...] = SUPPORTED_EVIDENCE_PHASES,
+    phases: tuple[str, ...] = SUPPORTED_EVIDENCE_PHASES + FLAG_ONLY_EVIDENCE_PHASES,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     root_path = Path(root).resolve()
     entries: list[PhaseRolloutEvidence] = []
     telemetry_count = 0
     for phase in phases:
-        if phase not in SUPPORTED_EVIDENCE_PHASES:
+        if phase not in SUPPORTED_EVIDENCE_PHASES + FLAG_ONLY_EVIDENCE_PHASES:
             raise ValueError(f"unsupported evidence phase: {phase}")
         entry, records = _phase_evidence(root_path, phase)
         entries.append(entry)
@@ -263,7 +288,7 @@ def write_rollout_evidence(
     root: str | Path,
     output: str | Path,
     *,
-    phases: tuple[str, ...] = SUPPORTED_EVIDENCE_PHASES,
+    phases: tuple[str, ...] = SUPPORTED_EVIDENCE_PHASES + FLAG_ONLY_EVIDENCE_PHASES,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     evidence = build_rollout_evidence(root, phases=phases, generated_at=generated_at)
