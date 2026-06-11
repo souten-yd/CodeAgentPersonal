@@ -22,7 +22,7 @@ def test_consumer_inventory_generator_finds_current_production_surface() -> None
     assert inv["source"] == "python_ast_current_checkout"
     assert inv["summary"]["production_entrypoint_count"] >= 2
     assert inv["summary"]["facade_module_count"] >= 4
-    assert inv["summary"]["adapter_module_count"] == 10
+    assert inv["summary"]["adapter_module_count"] == 11
     assert inv["summary"]["legacy_production_consumer_count"] > 0
     assert not inv["parse_errors"]
 
@@ -48,8 +48,8 @@ def test_inventory_records_exact_facade_call_counts() -> None:
     assert any(
         row["legacy_module"] == "agent.atlas_repo_context_service"
         and row["production_consumer_count"] == 0
-        and row["adapter_consumer_count"] >= 1
-        and row["legacy_internal_consumer_count"] >= 1
+        and row["adapter_consumer_count"] >= 3
+        and row["legacy_internal_consumer_count"] == 0
         for row in inv["legacy_consumers"]
     )
     assert any(

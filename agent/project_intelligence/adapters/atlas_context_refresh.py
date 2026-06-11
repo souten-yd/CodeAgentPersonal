@@ -9,9 +9,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent.atlas_context_refresh_schema import AtlasContextRefreshRequest
-from agent.atlas_context_refresh_service import AtlasContextRefreshService
 from agent.atlas_context_refresh_v2_schema import AtlasContextRefreshV2Request
 from agent.atlas_journal import AtlasJournal
+from agent.project_intelligence.adapters.context_refresh_v1 import ProjectIntelligenceContextRefreshAdapter
 from agent.project_intelligence.adapters.context_refresh_v2 import ProjectIntelligenceContextRefreshV2Adapter
 
 
@@ -21,8 +21,8 @@ class AtlasContextRefreshAdapter:
     def __init__(self, data_root: str | Path) -> None:
         self.data_root = Path(data_root)
 
-    def build_service(self, *, journal: AtlasJournal | None = None) -> AtlasContextRefreshService:
-        return AtlasContextRefreshService(journal=journal, data_root=self.data_root)
+    def build_service(self, *, journal: AtlasJournal | None = None) -> ProjectIntelligenceContextRefreshAdapter:
+        return ProjectIntelligenceContextRefreshAdapter(journal=journal, data_root=self.data_root)
 
     def refresh(self, request: AtlasContextRefreshRequest):
         return self.build_service().refresh(request)

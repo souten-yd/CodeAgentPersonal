@@ -17,21 +17,13 @@ def test_legacy_owner_internals_are_not_counted_as_direct_production_consumers()
 
     assert repo_context["production_consumer_count"] == 0
     assert repo_context["production_consumers"] == []
-    assert repo_context["legacy_internal_consumer_count"] == 1
-    assert {
-        consumer["path"] for consumer in repo_context["legacy_internal_consumers"]
-    } == {
-        "agent/atlas_context_refresh_service.py",
-    }
-    assert repo_context["adapter_consumer_count"] == 2
+    assert repo_context["legacy_internal_consumer_count"] == 0
+    assert repo_context["legacy_internal_consumers"] == []
+    assert repo_context["adapter_consumer_count"] == 3
     assert {
         consumer["path"] for consumer in repo_context["adapter_consumers"]
     } == {
         "agent/project_intelligence/adapters/atlas_repo_context.py",
+        "agent/project_intelligence/adapters/context_refresh_v1.py",
         "agent/project_intelligence/adapters/repo_context_packaging.py",
     }
-
-    context_refresh = rows["agent.atlas_context_refresh_service"]
-    assert context_refresh["production_consumer_count"] == 0
-    assert context_refresh["production_consumers"] == []
-    assert context_refresh["adapter_consumer_count"] == 1

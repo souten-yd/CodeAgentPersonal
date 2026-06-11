@@ -47,8 +47,6 @@ REUSED_OWNER_MODULES = [
     "agent.context_builder",
     "agent.atlas_repo_context_service",
     "agent.atlas_context_local_collectors",
-    # context refresh (v1 + v2)
-    "agent.atlas_context_refresh_service",
     # verification support (recommendation/handoff) and the canonical gate
     "agent.atlas_verification_recommendation_service",
     "agent.atlas_verification_recommendation_handoff_service",
@@ -72,7 +70,6 @@ OWNER_SYMBOLS = [
     ("agent.atlas_project_inspection_service", "AtlasProjectInspectionService"),
     ("agent.atlas_git_inspection_service", "AtlasGitInspectionService"),
     ("agent.atlas_repo_context_service", "AtlasRepoContextService"),
-    ("agent.atlas_context_refresh_service", "AtlasContextRefreshService"),
     ("agent.atlas_verification_recommendation_service", "AtlasVerificationRecommendationService"),
     ("agent.atlas_verification_recommendation_handoff_service", "AtlasVerificationRecommendationHandoffService"),
     ("agent.atlas_verification_gate_service", "AtlasVerificationGateService"),

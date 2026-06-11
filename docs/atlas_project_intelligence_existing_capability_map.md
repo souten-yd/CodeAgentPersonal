@@ -158,8 +158,11 @@ Core v1 reference.
 
 - **Current capability**: refreshes/updates agent context between steps; v2 adds impact-aware
   refresh.
-- **Authoritative owner**: `agent/atlas_context_refresh_service.py:AtlasContextRefreshService`
-  (schema/policies `atlas_context_refresh_schema.py`, `atlas_context_refresh_policies.py`),
+- **Authoritative owner**:
+  `agent/project_intelligence/adapters/context_refresh_v1.py:ProjectIntelligenceContextRefreshAdapter`
+  (legacy `agent/atlas_context_refresh_service.py:AtlasContextRefreshService` retired in
+  PIR-15; schema/policies `atlas_context_refresh_schema.py`,
+  `atlas_context_refresh_policies.py`),
   `agent/project_intelligence/adapters/context_refresh_v2.py:ProjectIntelligenceContextRefreshV2Adapter`
   (legacy `agent/atlas_context_refresh_v2_service.py:AtlasContextRefreshV2Service` retired in
   PIR-15; schema `atlas_context_refresh_v2_schema.py`).

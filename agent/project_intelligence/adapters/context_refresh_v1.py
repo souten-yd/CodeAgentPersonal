@@ -15,7 +15,7 @@ from agent.atlas_repo_context_schema import AtlasRepoContextRequest
 from agent.atlas_repo_context_service import AtlasRepoContextService
 
 
-class AtlasContextRefreshService:
+class ProjectIntelligenceContextRefreshAdapter:
     def __init__(self, journal: AtlasJournal | None = None, nexus_adapter: AtlasContextNexusAdapter | None = None, data_root: Path | None = None):
         self.journal = journal
         self.nexus_adapter = nexus_adapter or AtlasContextNexusAdapter()
