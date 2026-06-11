@@ -145,22 +145,155 @@
   // ---- Import ----
 
   async function importPackage() {
-    const archivePath = root.prompt('取り込む .portal.zip のサーバー上のパスを入力してください');
+    // Environment-appropriate folder picker (Windows drives / RunPod /workspace …)
+    // instead of asking the user to type a server path. Falls back to a manual path
+    // prompt if the browse API is unavailable.
+    let archivePath = '';
+    if (api()?.browsePortalImport) {
+      archivePath = await pickImportArchive();
+    } else {
+      archivePath = root.prompt('取り込む .portal.zip のサーバー上のパスを入力してください') || '';
+    }
     if (!archivePath) return;
+    archivePath = archivePath.trim();
     setStatus('Preflighting archive…');
-    const pre = await api()?.preflightPortalImport?.(archivePath.trim());
+    const pre = await api()?.preflightPortalImport?.(archivePath);
     if (!pre || !pre.ok) {
       setStatus(`Preflight rejected: ${pre?.data?.error || pre?.code || 'invalid_archive'}`, 'error');
       return;
     }
     setStatus('Importing…');
-    const resp = await api()?.importPortalPackage?.(archivePath.trim());
+    const resp = await api()?.importPortalPackage?.(archivePath);
     if (!resp || !resp.ok) {
       setStatus(`Import failed: ${resp?.data?.error || resp?.code || 'error'}`, 'error');
       return;
     }
     setStatus('Imported (untrusted)', 'ok');
     await refreshCatalog();
+  }
+
+  const BROWSE_ERROR_LABELS = {
+    directory_not_found: 'フォルダが見つかりません',
+    permission_denied: 'アクセス権がありません',
+    directory_unreadable: 'フォルダを読み取れません',
+  };
+
+  // Modal server-side folder browser. Resolves to the selected .portal.zip path, or
+  // '' if the user cancels.
+  function pickImportArchive() {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'portal-browse-overlay';
+      const modal = document.createElement('div');
+      modal.className = 'portal-browse-modal';
+      overlay.appendChild(modal);
+
+      const close = (value) => { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(value || ''); };
+      const onKey = (ev) => { if (ev.key === 'Escape') close(''); };
+      document.addEventListener('keydown', onKey);
+      overlay.addEventListener('click', (ev) => { if (ev.target === overlay) close(''); });
+
+      const header = document.createElement('div');
+      header.className = 'portal-browse-head';
+      header.innerHTML = '<span>パッケージ (.portal.zip) を選択</span>';
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'portal-browse-close';
+      closeBtn.textContent = '✕';
+      closeBtn.addEventListener('click', () => close(''));
+      header.appendChild(closeBtn);
+
+      const rootsBar = document.createElement('div');
+      rootsBar.className = 'portal-browse-roots';
+      const pathBar = document.createElement('div');
+      pathBar.className = 'portal-browse-path';
+      const listEl = document.createElement('div');
+      listEl.className = 'portal-browse-list';
+      const footer = document.createElement('div');
+      footer.className = 'portal-browse-foot';
+      const manualBtn = document.createElement('button');
+      manualBtn.type = 'button';
+      manualBtn.className = 'portal-browse-manual';
+      manualBtn.textContent = 'パスを手入力';
+      manualBtn.addEventListener('click', () => {
+        const manual = root.prompt('取り込む .portal.zip のサーバー上のパスを入力してください') || '';
+        if (manual.trim()) close(manual.trim());
+      });
+      footer.appendChild(manualBtn);
+
+      modal.append(header, rootsBar, pathBar, listEl, footer);
+      document.body.appendChild(overlay);
+
+      let currentPath = '';
+      async function load(path) {
+        listEl.innerHTML = '<div class="portal-browse-loading">読み込み中…</div>';
+        const resp = await api().browsePortalImport(path || '');
+        const d = (resp && resp.ok && resp.data) ? resp.data : null;
+        if (!d) {
+          listEl.innerHTML = `<div class="portal-browse-error">読み込みに失敗しました: ${escapeHtml(resp?.code || 'error')}</div>`;
+          return;
+        }
+        currentPath = d.path || '';
+        renderRoots(d.roots || []);
+        pathBar.textContent = currentPath || '/';
+        renderEntries(d);
+      }
+
+      function renderRoots(roots) {
+        rootsBar.innerHTML = '';
+        roots.forEach((r) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'portal-browse-root';
+          b.textContent = r.label;
+          b.title = r.path;
+          b.addEventListener('click', () => load(r.path));
+          rootsBar.appendChild(b);
+        });
+      }
+
+      function renderEntries(d) {
+        listEl.innerHTML = '';
+        if (d.error) {
+          listEl.innerHTML = `<div class="portal-browse-error">${escapeHtml(BROWSE_ERROR_LABELS[d.error] || d.error)}</div>`;
+        }
+        if (d.parent) {
+          const up = document.createElement('div');
+          up.className = 'portal-browse-item is-dir';
+          up.innerHTML = '<span class="portal-browse-icon">↩</span><span>.. (上の階層)</span>';
+          up.addEventListener('click', () => load(d.parent));
+          listEl.appendChild(up);
+        }
+        const entries = d.entries || [];
+        if (!entries.length && !d.error) {
+          const empty = document.createElement('div');
+          empty.className = 'portal-browse-empty';
+          empty.textContent = 'フォルダまたは .zip がありません';
+          listEl.appendChild(empty);
+        }
+        entries.forEach((e) => {
+          const item = document.createElement('div');
+          item.className = 'portal-browse-item' + (e.is_dir ? ' is-dir' : ' is-zip');
+          const icon = e.is_dir ? '📁' : '📦';
+          item.innerHTML = `<span class="portal-browse-icon">${icon}</span><span class="portal-browse-name"></span>`;
+          item.querySelector('.portal-browse-name').textContent = e.name;
+          if (e.is_dir) {
+            item.addEventListener('click', () => load(e.path));
+          } else {
+            const select = document.createElement('button');
+            select.type = 'button';
+            select.className = 'portal-browse-select';
+            select.textContent = '選択';
+            select.addEventListener('click', (ev) => { ev.stopPropagation(); close(e.path); });
+            item.appendChild(select);
+            item.addEventListener('dblclick', () => close(e.path));
+          }
+          listEl.appendChild(item);
+        });
+      }
+
+      load('');
+    });
   }
 
   // ---- Run lifecycle ----
