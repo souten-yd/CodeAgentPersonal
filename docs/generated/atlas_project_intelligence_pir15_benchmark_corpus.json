@@ -11,11 +11,26 @@
   "schema_version": 1,
   "tasks": [
     {
+      "acceptance_path": "index.html",
       "acceptance_text": "Atlas Live Greenfield Ready",
+      "expected_target_files": [
+        "index.html"
+      ],
       "repetitions": 1,
       "requirement": "Create a Greenfield single HTML app in index.html. The page must render the exact heading Atlas Live Greenfield Ready and a visible ready status.",
       "task_id": "greenfield_single_html_ready",
       "workspace_seed": "empty"
+    },
+    {
+      "acceptance_path": "index.html",
+      "acceptance_text": "Atlas Existing Project Ready",
+      "expected_target_files": [
+        "index.html"
+      ],
+      "repetitions": 2,
+      "requirement": "Create or update a single HTML app in index.html. The page must render the exact heading Atlas Existing Project Ready and a visible ready status.",
+      "task_id": "existing_html_ready_update",
+      "workspace_seed": "existing_html_app"
     }
   ]
 }

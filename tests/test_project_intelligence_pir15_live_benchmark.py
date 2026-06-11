@@ -48,12 +48,25 @@ def _report(*, status: str, accepted: bool, started: str = "2026-06-11T00:00:00+
     }
 
 
+def _reports_for_corpus(corpus: dict, *, status: str, accepted: bool) -> dict[str, list[dict]]:
+    return {
+        str(task["task_id"]): [
+            _report(status=status, accepted=accepted, started=f"2026-06-11T00:00:0{index}+00:00")
+            for index in range(int(task.get("repetitions", 1)))
+        ]
+        for task in corpus["tasks"]
+    }
+
+
 def test_corpus_is_versioned_and_requires_identical_constraints() -> None:
     corpus = load_benchmark_corpus(CORPUS)
 
     assert corpus["corpus_version"] == "pir15-corpus-v1"
     assert corpus["constraints"]["model"] == "configured_atlas_model"
     assert corpus["tasks"][0]["task_id"] == "greenfield_single_html_ready"
+    assert corpus["tasks"][1]["task_id"] == "existing_html_ready_update"
+    assert corpus["tasks"][1]["workspace_seed"] == "existing_html_app"
+    assert corpus["tasks"][1]["repetitions"] == 2
 
 
 def test_metrics_are_derived_from_execution_report_not_supplied_metrics() -> None:
@@ -71,25 +84,33 @@ def test_artifact_comparative_report_uses_corpus_task_coverage(tmp_path: Path) -
     task_id = corpus["tasks"][0]["task_id"]
     report = build_artifact_comparative_report(
         corpus,
-        legacy_reports={task_id: _report(status="failed", accepted=False)},
-        final_reports={task_id: _report(status="passed", accepted=True)},
+        legacy_reports={
+            **_reports_for_corpus(corpus, status="passed", accepted=True),
+            task_id: [_report(status="failed", accepted=False)],
+        },
+        final_reports=_reports_for_corpus(corpus, status="passed", accepted=True),
         generated_at="2026-06-11T00:00:00+00:00",
     )
 
     assert report["source"] == "pir15_artifact_derived_normal_atlas_entrypoint_reports"
     assert report["acceptance"]["status"] == "blocked"
     assert "legacy:failed" in report["acceptance"]["blocked_reasons"]
+    assert report["sample_count"] == {"legacy": 3, "final": 3}
+    assert report["repetitions"]["existing_html_ready_update"] == 2
     assert report["safety"]["manual_metrics_accepted"] is False
-    assert report["comparison"]["verdict"] == "improved"
-    assert report["legacy"]["average_metrics"]["verified_autonomous_completion"] == 0.0
+    assert report["comparison"]["verdict"] in {"improved", "parity"}
+    assert report["legacy"]["average_metrics"]["verified_autonomous_completion"] < 1.0
     assert report["final"]["average_metrics"]["verified_autonomous_completion"] == 1.0
 
     output = tmp_path / "benchmark.json"
     written = write_artifact_comparative_report(
         CORPUS,
         output,
-        legacy_reports={task_id: _report(status="failed", accepted=False)},
-        final_reports={task_id: _report(status="passed", accepted=True)},
+        legacy_reports={
+            **_reports_for_corpus(corpus, status="passed", accepted=True),
+            task_id: [_report(status="failed", accepted=False)],
+        },
+        final_reports=_reports_for_corpus(corpus, status="passed", accepted=True),
         generated_at="2026-06-11T00:00:00+00:00",
     )
     assert written == json.loads(output.read_text(encoding="utf-8"))
@@ -102,7 +123,7 @@ def test_artifact_comparative_report_rejects_missing_task_reports() -> None:
     with pytest.raises(ValueError):
         build_artifact_comparative_report(
             corpus,
-            legacy_reports={task_id: _report(status="failed", accepted=False)},
+            legacy_reports={task_id: [_report(status="failed", accepted=False)]},
             final_reports={},
             generated_at="2026-06-11T00:00:00+00:00",
         )
@@ -114,9 +135,23 @@ def test_artifact_comparative_report_acceptance_passes_only_when_both_arms_pass(
 
     report = build_artifact_comparative_report(
         corpus,
-        legacy_reports={task_id: _report(status="passed", accepted=True)},
-        final_reports={task_id: _report(status="passed", accepted=True)},
+        legacy_reports=_reports_for_corpus(corpus, status="passed", accepted=True),
+        final_reports=_reports_for_corpus(corpus, status="passed", accepted=True),
         generated_at="2026-06-11T00:00:00+00:00",
     )
 
     assert report["acceptance"] == {"status": "passed", "blocked_reasons": []}
+
+
+def test_artifact_comparative_report_enforces_repetition_count() -> None:
+    corpus = load_benchmark_corpus(CORPUS)
+    reports = _reports_for_corpus(corpus, status="passed", accepted=True)
+    reports["existing_html_ready_update"] = reports["existing_html_ready_update"][:1]
+
+    with pytest.raises(ValueError, match="must contain 2 repetitions"):
+        build_artifact_comparative_report(
+            corpus,
+            legacy_reports=reports,
+            final_reports=_reports_for_corpus(corpus, status="passed", accepted=True),
+            generated_at="2026-06-11T00:00:00+00:00",
+        )

@@ -124,13 +124,13 @@ def _configure_app(workspace: Path, data_dir: Path, *, rollout_env: dict[str, st
     return TestClient(main.app)
 
 
-def _restart_evidence(data_dir: Path, pool_id: str, draft_item_id: str) -> dict[str, Any]:
+def _restart_evidence(data_dir: Path, pool_id: str, draft_item_id: str, *, workspace_id: str = WORKSPACE_ID) -> dict[str, Any]:
     restarted_app = create_app()
     restarted_app.state.atlas_ca_data_dir = str(data_dir)
     client = TestClient(restarted_app)
     reloaded = _get(client, f"/api/atlas/plan-pools/{pool_id}")
-    recovery = _get(client, f"/api/atlas/recovery/pools/{pool_id}", params={"workspace_id": WORKSPACE_ID})
-    continuation = _get(client, f"/api/atlas/continuation/pools/{pool_id}", params={"workspace_id": WORKSPACE_ID})
+    recovery = _get(client, f"/api/atlas/recovery/pools/{pool_id}", params={"workspace_id": workspace_id})
+    continuation = _get(client, f"/api/atlas/continuation/pools/{pool_id}", params={"workspace_id": workspace_id})
     evidence = {
         "status": "failed",
         "plan_pool": reloaded,
@@ -159,16 +159,27 @@ def run_live_greenfield(
     *,
     arm_name: str = "final",
     rollout_env: dict[str, str] | None = None,
+    goal: str = LIVE_GOAL,
+    required_text: str = REQUIRED_TEXT,
+    acceptance_path: str = "index.html",
+    expected_target_files: list[str] | None = None,
+    project_name: str = "pir13-live-greenfield",
+    workspace_id: str = WORKSPACE_ID,
+    automation_features: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     workspace.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
+    expected_targets = {str(path).replace("\\", "/") for path in (expected_target_files or ["index.html"])}
     report: dict[str, Any] = {
         "status": "running",
         "started_at": _now(),
         "workspace": str(workspace.resolve()),
         "data_dir": str(data_dir.resolve()),
-        "workspace_id": WORKSPACE_ID,
-        "goal": LIVE_GOAL,
+        "workspace_id": workspace_id,
+        "goal": goal,
+        "acceptance_path": acceptance_path,
+        "required_text": required_text,
+        "expected_target_files": sorted(expected_targets),
         "benchmark_arm": arm_name,
         "rollout_env": dict(rollout_env or {}),
         "steps": [],
@@ -193,12 +204,14 @@ def run_live_greenfield(
         client,
         "/api/atlas/plan-pools?sync=1",
         {
-            "input": LIVE_GOAL,
+            "input": goal,
             "project_path": str(workspace),
-            "project_name": "pir13-live-greenfield",
-            "workspace_id": WORKSPACE_ID,
+            "project_name": project_name,
+            "workspace_id": workspace_id,
+            "target_files": sorted(expected_targets),
             "planner_mode": "real_planner",
             "requirement_mode": "ask_when_needed",
+            "automation_features": dict(automation_features or {}),
         },
     )
     report["steps"].append({"name": "plan_pool", "response": created})
@@ -234,7 +247,7 @@ def run_live_greenfield(
         {
             "pool_id": pool_id,
             "item_id": source_item_id,
-            "workspace_id": WORKSPACE_ID,
+            "workspace_id": workspace_id,
             "run_id": "pir13_live_patchgen",
             "source_type": "plan_item",
         },
@@ -248,9 +261,9 @@ def run_live_greenfield(
     proposal = proposed.get("proposal") or {}
     proposal_risk = str(proposal.get("risk_level") or "").lower()
     proposal_targets = [str(path).replace("\\", "/") for path in list(proposal.get("target_files") or [])]
-    if proposal_risk != "low" or "index.html" not in proposal_targets:
+    if proposal_risk != "low" or not (expected_targets & set(proposal_targets)):
         report["status"] = "blocked"
-        report["blocked_reason"] = "live_proposal_outside_single_html_low_risk_scope"
+        report["blocked_reason"] = "live_proposal_outside_expected_low_risk_scope"
         report["finished_at"] = _now()
         return report
     proposal_id = str((proposal.get("proposal_id") or ""))
@@ -264,7 +277,7 @@ def run_live_greenfield(
         {
             "pool_id": pool_id,
             "item_id": source_item_id,
-            "workspace_id": WORKSPACE_ID,
+            "workspace_id": workspace_id,
             "proposal_id": proposal_id,
             "decision": "approved",
             "reason": "PIR-13 live configured-model Greenfield scenario approval.",
@@ -283,7 +296,7 @@ def run_live_greenfield(
         {
             "pool_id": pool_id,
             "item_id": source_item_id,
-            "workspace_id": WORKSPACE_ID,
+            "workspace_id": workspace_id,
             "proposal_id": proposal_id,
             "run_id": "pir13_live_draft",
         },
@@ -305,7 +318,7 @@ def run_live_greenfield(
         {
             "pool_id": pool_id,
             "item_id": draft_item_id,
-            "workspace_id": WORKSPACE_ID,
+            "workspace_id": workspace_id,
             "decision": "approved",
             "reason": "Approve the PIR-13 live Greenfield PlanItem for Safe Apply.",
         },
@@ -323,7 +336,7 @@ def run_live_greenfield(
         {
             "pool_id": pool_id,
             "item_id": draft_item_id,
-            "workspace_id": WORKSPACE_ID,
+            "workspace_id": workspace_id,
             "run_id": "pir13_live_verify",
         },
     )
@@ -335,22 +348,22 @@ def run_live_greenfield(
         data_dir
         / "atlas"
         / "workspaces"
-        / WORKSPACE_ID
+        / workspace_id
         / "plan_pools"
         / pool_id
         / "pipeline_runs"
         / "pir13_live_verify"
         / "events.ndjson"
     )
-    html = workspace / "index.html"
-    html_text = html.read_text(encoding="utf-8") if html.is_file() else ""
+    acceptance_file = workspace / acceptance_path
+    acceptance_text = acceptance_file.read_text(encoding="utf-8") if acceptance_file.is_file() else ""
     if (
         verified.get("status") == "applied_and_verified"
         and auto_safe.get("status") == "applied"
         and auto_verify.get("status") == "passed"
-        and REQUIRED_TEXT in html_text
+        and required_text in acceptance_text
     ):
-        restart = _restart_evidence(data_dir, pool_id, draft_item_id)
+        restart = _restart_evidence(data_dir, pool_id, draft_item_id, workspace_id=workspace_id)
         report["restart_evidence"] = restart
         if restart.get("status") == "passed":
             report["status"] = "passed"

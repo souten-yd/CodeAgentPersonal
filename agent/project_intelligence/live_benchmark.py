@@ -28,6 +28,7 @@ class BenchmarkCorpusTask:
 @dataclass(frozen=True)
 class ArtifactMetricResult:
     task_id: str
+    repetition: int
     arm: str
     status: str
     metrics: dict[str, float]
@@ -74,6 +75,8 @@ def derive_metrics_from_execution_report(
     task: BenchmarkCorpusTask,
     arm: str,
     report: dict[str, Any],
+    *,
+    repetition: int = 1,
 ) -> ArtifactMetricResult:
     warnings: list[str] = []
     if "metrics" in report:
@@ -112,6 +115,7 @@ def derive_metrics_from_execution_report(
         warnings.append(f"execution_report_warnings={len(warnings_from_report)}")
     return ArtifactMetricResult(
         task_id=task.task_id,
+        repetition=repetition,
         arm=arm,
         status=status,
         metrics=metrics,
@@ -123,6 +127,18 @@ def derive_metrics_from_execution_report(
 def _average_metrics(results: list[ArtifactMetricResult]) -> dict[str, float]:
     metrics = sorted({metric for result in results for metric in result.metrics})
     return {metric: mean(result.metrics[metric] for result in results if metric in result.metrics) for metric in metrics}
+
+
+def _reports_for_task(raw_reports: dict[str, Any], task: BenchmarkCorpusTask, arm: str) -> list[dict[str, Any]]:
+    if task.task_id not in raw_reports:
+        raise ValueError(f"{arm} reports missing task {task.task_id}")
+    raw = raw_reports[task.task_id]
+    reports = list(raw) if isinstance(raw, list) else [raw]
+    if len(reports) != task.repetitions:
+        raise ValueError(f"{arm} reports for {task.task_id} must contain {task.repetitions} repetitions")
+    if not all(isinstance(report, dict) for report in reports):
+        raise ValueError(f"{arm} reports for {task.task_id} must be execution report objects")
+    return reports
 
 
 def build_artifact_comparative_report(
@@ -147,14 +163,17 @@ def build_artifact_comparative_report(
         raise ValueError("legacy and final reports must cover exactly the versioned corpus tasks")
 
     constraints = _constraints(corpus["constraints"])
-    legacy_results = [
-        derive_metrics_from_execution_report(task, "legacy", legacy_reports[task.task_id])
-        for task in tasks
-    ]
-    final_results = [
-        derive_metrics_from_execution_report(task, "final", final_reports[task.task_id])
-        for task in tasks
-    ]
+    legacy_results = []
+    final_results = []
+    for task in tasks:
+        legacy_results.extend(
+            derive_metrics_from_execution_report(task, "legacy", report, repetition=index)
+            for index, report in enumerate(_reports_for_task(legacy_reports, task, "legacy"), start=1)
+        )
+        final_results.extend(
+            derive_metrics_from_execution_report(task, "final", report, repetition=index)
+            for index, report in enumerate(_reports_for_task(final_reports, task, "final"), start=1)
+        )
     legacy_arm = BenchmarkArm("legacy", constraints, _average_metrics(legacy_results))
     final_arm = BenchmarkArm("final", constraints, _average_metrics(final_results))
     comparison = run_comparative(legacy_arm, final_arm)
@@ -173,6 +192,11 @@ def build_artifact_comparative_report(
         "corpus_version": corpus["corpus_version"],
         "constraints": asdict(constraints),
         "task_count": len(tasks),
+        "sample_count": {
+            "legacy": len(legacy_results),
+            "final": len(final_results),
+        },
+        "repetitions": {task.task_id: task.repetitions for task in tasks},
         "legacy": {
             "results": [asdict(result) for result in legacy_results],
             "average_metrics": legacy_arm.metrics,
