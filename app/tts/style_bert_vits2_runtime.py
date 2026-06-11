@@ -830,6 +830,37 @@ from style_bert_vits2.tts_model import TTSModel
 warnings.filterwarnings("ignore", category=FutureWarning, module="torch.nn.utils.weight_norm")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pyopenjtalk")
 
+
+def _ensure_bert_safetensors() -> None:
+    """transformers>=4.56 は torch<2.6 だと .bin (torch.load) 形式のBERT重みの
+    ロードを拒否する (CVE-2025-32434)。同梱 bert/ の pytorch_model.bin を一度だけ
+    ローカル変換して model.safetensors を併置する。ネットワークアクセスは行わない。"""
+    try:
+        import style_bert_vits2
+        bert_root = Path(style_bert_vits2.__file__).resolve().parents[1] / "bert"
+        if not bert_root.is_dir():
+            return
+        for sub in sorted(p for p in bert_root.iterdir() if p.is_dir()):
+            src = sub / "pytorch_model.bin"
+            dst = sub / "model.safetensors"
+            if not src.is_file() or dst.exists():
+                continue
+            import torch
+            from safetensors.torch import save_file
+            sys.stderr.write(f"[Style-Bert-VITS2 worker] converting {src.name} -> {dst.name} in {sub.name}\n")
+            sd = torch.load(str(src), map_location="cpu", weights_only=True)
+            # safetensors はストレージ共有テンソルを拒否するため clone して確実に分離する
+            tensors = {k: v.clone().contiguous() for k, v in sd.items() if hasattr(v, "contiguous")}
+            tmp = sub / "model.safetensors.part"
+            save_file(tensors, str(tmp), metadata={"format": "pt"})
+            tmp.replace(dst)
+            sys.stderr.write(f"[Style-Bert-VITS2 worker] converted: {dst}\n")
+    except Exception as exc:
+        sys.stderr.write(f"[Style-Bert-VITS2 worker] bert safetensors conversion skipped: {exc}\n")
+
+
+_ensure_bert_safetensors()
+
 loaded_model = None
 loaded_signature = None
 loaded_session = None
