@@ -297,6 +297,32 @@ def get_installation_data(installation_id: str, request: Request) -> dict:
         _raise_runtime_error(exc)
 
 
+@router.get("/installations/{installation_id}/snapshots")
+def list_installation_snapshots(installation_id: str, request: Request) -> dict:
+    """Focused snapshot list for the run sheet's Start-from-snapshot selector.
+    Empty list is a valid, truthful state (no snapshots saved yet)."""
+    try:
+        summary = _runtime(request).data_summary(installation_id)
+    except PortalRuntimeError as exc:
+        _raise_runtime_error(exc)
+    snapshots = [
+        {
+            "snapshot_id": s.get("snapshot_id", ""),
+            "source": s.get("source", ""),
+            "last_modified": ((s.get("data") or {}).get("last_modified", "")),
+            "data_bytes": ((s.get("data") or {}).get("bytes", 0)),
+        }
+        for s in (summary.get("snapshots") or [])
+        if s.get("snapshot_id")
+    ]
+    return {
+        "schema_version": PORTAL_SCHEMA_VERSION,
+        "installation_id": installation_id,
+        "available": True,
+        "snapshots": snapshots,
+    }
+
+
 @router.get("/installations/{installation_id}/data/backup")
 def export_installation_data_backup(installation_id: str, request: Request):
     try:

@@ -683,6 +683,9 @@
       form.append('file', file, file.name);
       return atlasFetch('/api/portal/import/upload', { method: 'POST', body: form, timeoutMs: 180000 });
     },
+    listPortalSnapshots(installationId) {
+      return atlasFetch(`/api/portal/installations/${encodeURIComponent(installationId)}/snapshots`, { timeoutMs: 15000 });
+    },
     preflightPortalImport(archivePath) {
       return atlasFetch('/api/portal/import/preflight', { method: 'POST', body: JSON.stringify({ archive_path: archivePath }) });
     },

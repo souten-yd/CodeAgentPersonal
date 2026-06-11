@@ -119,8 +119,13 @@
           <select data-portal-runmode="${idx}" aria-label="Run mode">
             <option value="continue_current_data">Continue current data</option>
             <option value="start_empty">Start empty</option>
+            <option value="start_from_snapshot">Start from snapshot</option>
             <option value="ephemeral">Ephemeral</option>
           </select>
+        </div>
+        <div class="portal-card-row" data-portal-snaprow="${idx}" style="display:none">
+          <label>Snapshot</label>
+          <select data-portal-snapshot="${idx}" aria-label="Snapshot"></select>
         </div>
         ${untrusted ? `<label class="portal-card-warning"><input type="checkbox" data-portal-ack="${idx}"> 取り込みパッケージは v1 では OS 隔離されません。承知の上で実行する場合のみチェック。</label>` : ''}
         <div class="portal-card-actions">
@@ -183,7 +188,7 @@
 
   // Sentinel: the modal already handled an upload import, so importPackage must not
   // re-import a server path.
-  const UPLOAD_HANDLED = ' portal-upload-handled';
+  const UPLOAD_HANDLED = 'portal:upload-handled';
 
   // Modal server-side folder browser. Resolves to the selected .portal.zip path, or
   // '' if the user cancels.
@@ -358,9 +363,16 @@
     if (!pkg) return;
     const profileSel = document.querySelector(`[data-portal-profile="${idx}"]`);
     const modeSel = document.querySelector(`[data-portal-runmode="${idx}"]`);
+    const snapSel = document.querySelector(`[data-portal-snapshot="${idx}"]`);
     const ackBox = document.querySelector(`[data-portal-ack="${idx}"]`);
     const launchProfileId = profileSel ? profileSel.value : '';
     if (!launchProfileId) { cardInfo(idx, '起動プロファイルが選択されていません', 'error'); return; }
+    const runModeValue = modeSel ? modeSel.value : 'continue_current_data';
+    const snapshotId = (runModeValue === 'start_from_snapshot' && snapSel) ? snapSel.value : '';
+    if (runModeValue === 'start_from_snapshot' && !snapshotId) {
+      cardInfo(idx, '開始するスナップショットを選択してください', 'error');
+      return;
+    }
     const untrusted = (pkg.trust_state === 'untrusted_imported_package');
     if (untrusted && !(ackBox && ackBox.checked)) {
       cardInfo(idx, '取り込みパッケージを実行するには警告への同意が必要です', 'error');
@@ -377,7 +389,8 @@
     const resp = await api()?.runPortalPackage?.({
       installation_id: installationId,
       launch_profile_id: launchProfileId,
-      run_mode: modeSel ? modeSel.value : 'continue_current_data',
+      run_mode: runModeValue,
+      ...(snapshotId ? { snapshot_id: snapshotId } : {}),
       trust_state: pkg.trust_state,
       untrusted_override_acknowledged: !!(untrusted && ackBox && ackBox.checked),
     });
@@ -569,6 +582,43 @@
     }
   }
 
+  function onCatalogChange(ev) {
+    const modeSel = ev.target.closest('[data-portal-runmode]');
+    if (!modeSel) return;
+    const idx = Number(modeSel.dataset.portalRunmode);
+    const row = document.querySelector(`[data-portal-snaprow="${idx}"]`);
+    if (!row) return;
+    if (modeSel.value === 'start_from_snapshot') {
+      row.style.display = '';
+      loadSnapshotsForCard(idx);
+    } else {
+      row.style.display = 'none';
+    }
+  }
+
+  async function loadSnapshotsForCard(idx) {
+    const pkg = state.packages[idx];
+    const sel = document.querySelector(`[data-portal-snapshot="${idx}"]`);
+    if (!pkg || !sel || !api()?.listPortalSnapshots) return;
+    sel.innerHTML = '<option value="">読み込み中…</option>';
+    const resp = await api().listPortalSnapshots(installationIdFor(pkg));
+    if (!resp || !resp.ok || !resp.data) {
+      sel.innerHTML = '<option value="">スナップショット一覧を取得できません</option>';
+      cardInfo(idx, `スナップショット一覧の取得に失敗しました: ${resp?.code || 'error'}`, 'error');
+      return;
+    }
+    const snaps = resp.data.snapshots || [];
+    if (!snaps.length) {
+      sel.innerHTML = '<option value="">スナップショットがありません</option>';
+      return;
+    }
+    sel.innerHTML = snaps.map((s) => {
+      const when = String(s.last_modified || '').replace('T', ' ').slice(0, 16);
+      const label = `${s.snapshot_id}${when ? ` · ${when}` : ''} · ${formatBytes(s.data_bytes || 0)}`;
+      return `<option value="${escapeHtml(s.snapshot_id)}">${escapeHtml(label)}</option>`;
+    }).join('');
+  }
+
   function onRunSheetClick(ev) {
     const tab = ev.target.closest('[data-portal-tab]')?.dataset.portalTab;
     if (tab) {
@@ -588,6 +638,7 @@
     if (wired) return;
     wired = true;
     $('portal-catalog')?.addEventListener('click', onCatalogClick);
+    $('portal-catalog')?.addEventListener('change', onCatalogChange);
     $('portal-import-btn')?.addEventListener('click', importPackage);
     $('portal-refresh-btn')?.addEventListener('click', refreshCatalog);
     $('portal-run-sheet')?.addEventListener('click', onRunSheetClick);
