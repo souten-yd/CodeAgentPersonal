@@ -1,0 +1,233 @@
+{
+  "entries": [
+    {
+      "capability": "legacy_code_explorer",
+      "consumer_path": "agent/atlas_patch_proposal_service.py",
+      "legacy_module": "agent.atlas_code_explorer"
+    },
+    {
+      "capability": "legacy_code_explorer",
+      "consumer_path": "agent/atlas_verification_resolver.py",
+      "legacy_module": "agent.atlas_code_explorer"
+    },
+    {
+      "capability": "legacy_code_explorer",
+      "consumer_path": "agent/research_conductor.py",
+      "legacy_module": "agent.atlas_code_explorer"
+    },
+    {
+      "capability": "legacy_code_intelligence",
+      "consumer_path": "agent/atlas_context_local_collectors.py",
+      "legacy_module": "agent.atlas_code_intel_service"
+    },
+    {
+      "capability": "legacy_code_intelligence",
+      "consumer_path": "app/api/atlas_code_intel.py",
+      "legacy_module": "agent.atlas_code_intel_service"
+    },
+    {
+      "capability": "legacy_context_refresh",
+      "consumer_path": "agent/atlas_supervised_handoff_retry_service.py",
+      "legacy_module": "agent.atlas_context_refresh_service"
+    },
+    {
+      "capability": "legacy_context_refresh",
+      "consumer_path": "agent/atlas_supervised_handoff_verification_service.py",
+      "legacy_module": "agent.atlas_context_refresh_service"
+    },
+    {
+      "capability": "legacy_context_refresh",
+      "consumer_path": "app/api/atlas_bounded_retry.py",
+      "legacy_module": "agent.atlas_context_refresh_service"
+    },
+    {
+      "capability": "legacy_context_refresh",
+      "consumer_path": "app/api/atlas_context_refresh.py",
+      "legacy_module": "agent.atlas_context_refresh_service"
+    },
+    {
+      "capability": "legacy_context_refresh",
+      "consumer_path": "app/api/atlas_multi_item_autopilot.py",
+      "legacy_module": "agent.atlas_context_refresh_service"
+    },
+    {
+      "capability": "legacy_context_refresh",
+      "consumer_path": "app/api/atlas_supervised_handoff_retry.py",
+      "legacy_module": "agent.atlas_context_refresh_service"
+    },
+    {
+      "capability": "legacy_context_refresh",
+      "consumer_path": "agent/atlas_planner_packaging_v2_service.py",
+      "legacy_module": "agent.atlas_context_refresh_v2_service"
+    },
+    {
+      "capability": "legacy_context_refresh",
+      "consumer_path": "app/api/atlas_context_refresh.py",
+      "legacy_module": "agent.atlas_context_refresh_v2_service"
+    },
+    {
+      "capability": "legacy_git_inspection",
+      "consumer_path": "agent/atlas_context_local_collectors.py",
+      "legacy_module": "agent.atlas_git_inspection_service"
+    },
+    {
+      "capability": "legacy_git_inspection",
+      "consumer_path": "app/api/atlas_dev_tools.py",
+      "legacy_module": "agent.atlas_git_inspection_service"
+    },
+    {
+      "capability": "legacy_impact_map",
+      "consumer_path": "agent/atlas_context_refresh_v2_service.py",
+      "legacy_module": "agent.atlas_plan_item_impact_map_service"
+    },
+    {
+      "capability": "legacy_impact_map",
+      "consumer_path": "agent/atlas_planner_packaging_v2_service.py",
+      "legacy_module": "agent.atlas_plan_item_impact_map_service"
+    },
+    {
+      "capability": "legacy_impact_map",
+      "consumer_path": "app/api/atlas_pipeline.py",
+      "legacy_module": "agent.atlas_plan_item_impact_map_service"
+    },
+    {
+      "capability": "legacy_impact_map",
+      "consumer_path": "app/api/atlas_repo_context.py",
+      "legacy_module": "agent.atlas_plan_item_impact_map_service"
+    },
+    {
+      "capability": "legacy_planner_context",
+      "consumer_path": "agent/atlas_verification_recommendation_service.py",
+      "legacy_module": "agent.atlas_planner_packaging_v2_service"
+    },
+    {
+      "capability": "legacy_planner_context",
+      "consumer_path": "app/api/atlas_pipeline.py",
+      "legacy_module": "agent.atlas_planner_packaging_v2_service"
+    },
+    {
+      "capability": "legacy_planner_context",
+      "consumer_path": "app/api/atlas_repo_context.py",
+      "legacy_module": "agent.atlas_planner_packaging_v2_service"
+    },
+    {
+      "capability": "legacy_project_inspection",
+      "consumer_path": "agent/atlas_context_local_collectors.py",
+      "legacy_module": "agent.atlas_project_inspection_service"
+    },
+    {
+      "capability": "legacy_project_inspection",
+      "consumer_path": "app/api/atlas_dev_tools.py",
+      "legacy_module": "agent.atlas_project_inspection_service"
+    },
+    {
+      "capability": "legacy_planner_context",
+      "consumer_path": "agent/atlas_context_refresh_service.py",
+      "legacy_module": "agent.atlas_repo_context_planner_packager"
+    },
+    {
+      "capability": "legacy_planner_context",
+      "consumer_path": "agent/atlas_plan_item_impact_map_service.py",
+      "legacy_module": "agent.atlas_repo_context_planner_packager"
+    },
+    {
+      "capability": "legacy_planner_context",
+      "consumer_path": "agent/atlas_planner_packaging_v2_service.py",
+      "legacy_module": "agent.atlas_repo_context_planner_packager"
+    },
+    {
+      "capability": "legacy_planner_context",
+      "consumer_path": "agent/atlas_verification_planning_service.py",
+      "legacy_module": "agent.atlas_repo_context_planner_packager"
+    },
+    {
+      "capability": "legacy_planner_context",
+      "consumer_path": "app/api/atlas_pipeline.py",
+      "legacy_module": "agent.atlas_repo_context_planner_packager"
+    },
+    {
+      "capability": "legacy_planner_context",
+      "consumer_path": "app/api/atlas_repo_context.py",
+      "legacy_module": "agent.atlas_repo_context_planner_packager"
+    },
+    {
+      "capability": "legacy_repo_context",
+      "consumer_path": "agent/atlas_context_refresh_service.py",
+      "legacy_module": "agent.atlas_repo_context_service"
+    },
+    {
+      "capability": "legacy_repo_context",
+      "consumer_path": "agent/atlas_repo_context_planner_packager.py",
+      "legacy_module": "agent.atlas_repo_context_service"
+    },
+    {
+      "capability": "legacy_repo_context",
+      "consumer_path": "app/api/atlas_pipeline.py",
+      "legacy_module": "agent.atlas_repo_context_service"
+    },
+    {
+      "capability": "legacy_repo_context",
+      "consumer_path": "app/api/atlas_repo_context.py",
+      "legacy_module": "agent.atlas_repo_context_service"
+    },
+    {
+      "capability": "legacy_repository_index",
+      "consumer_path": "agent/atlas_repo_context_service.py",
+      "legacy_module": "agent.atlas_repo_index_service"
+    },
+    {
+      "capability": "legacy_repository_index",
+      "consumer_path": "app/api/atlas_code_intel.py",
+      "legacy_module": "agent.atlas_repo_index_service"
+    },
+    {
+      "capability": "legacy_repository_index",
+      "consumer_path": "app/api/atlas_repo_index.py",
+      "legacy_module": "agent.atlas_repo_index_service"
+    },
+    {
+      "capability": "legacy_verification_gate",
+      "consumer_path": "app/api/atlas_pipeline.py",
+      "legacy_module": "agent.atlas_verification_gate_service"
+    },
+    {
+      "capability": "legacy_verification_recommendation",
+      "consumer_path": "app/api/atlas_pipeline.py",
+      "legacy_module": "agent.atlas_verification_recommendation_handoff_service"
+    },
+    {
+      "capability": "legacy_verification_recommendation",
+      "consumer_path": "app/api/atlas_repo_context.py",
+      "legacy_module": "agent.atlas_verification_recommendation_handoff_service"
+    },
+    {
+      "capability": "legacy_verification_recommendation",
+      "consumer_path": "agent/atlas_verification_recommendation_handoff_service.py",
+      "legacy_module": "agent.atlas_verification_recommendation_service"
+    },
+    {
+      "capability": "legacy_verification_recommendation",
+      "consumer_path": "app/api/atlas_pipeline.py",
+      "legacy_module": "agent.atlas_verification_recommendation_service"
+    },
+    {
+      "capability": "legacy_verification_recommendation",
+      "consumer_path": "app/api/atlas_repo_context.py",
+      "legacy_module": "agent.atlas_verification_recommendation_service"
+    }
+  ],
+  "generated_at": "2026-06-11T00:00:00+00:00",
+  "repository_root": "KasaneCore",
+  "safety": {
+    "allows_new_legacy_consumers": false,
+    "consumer_cutover": false,
+    "legacy_retirement": false
+  },
+  "schema_version": 1,
+  "source": "python_ast_current_checkout_legacy_dependency_allowlist",
+  "summary": {
+    "allowed_dependency_count": 43,
+    "consumer_path_count": 24,
+    "legacy_module_count": 14
+  }
+}
