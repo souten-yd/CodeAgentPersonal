@@ -10578,11 +10578,15 @@ def _apply_asr_runtime_settings(req: dict | None = None) -> dict:
     req_fw = str(req.get("faster_whisper_device") or req.get("device") or "").strip().lower() if req.get("asr_override") else ""
     req_cpp = str(req.get("whisper_cpp_backend") or "").strip().lower() if req.get("asr_override") else ""
     req_compute = str(req.get("compute_type") or req.get("asr_compute_type") or "").strip().lower() if req.get("asr_override") else ""
-    engine = req_engine or saved_engine or _normalize_asr_engine(os.environ.get("CODEAGENT_ASR_ENGINE", "")) or "faster_whisper"
+    # 明示指定が無い場合は "auto" を維持する。ここで faster_whisper に倒すと
+    # CODEAGENT_ASR_ENGINE が汚染され、resolve_effective_asr_config() の
+    # Windows+AMD → whisper.cpp(Vulkan) 自動選択が永久に効かなくなる。
+    env_engine = str(os.environ.get("CODEAGENT_ASR_ENGINE", "")).strip()
+    engine = req_engine or saved_engine or (_normalize_asr_engine(env_engine) if env_engine else "auto")
     if cfg.get("is_runpod"):
         engine = "faster_whisper"
-    if engine not in {"faster_whisper", "whisper_cpp"}:
-        engine = "faster_whisper"
+    if engine not in {"faster_whisper", "whisper_cpp", "auto"}:
+        engine = "auto"
     fw = req_fw or saved_fw or str(cfg.get("asr_device") or os.environ.get("CODEAGENT_ASR_DEVICE", "auto")).strip().lower()
     if fw not in {"cpu", "cuda"}: fw = str(cfg.get("asr_device") or "cpu")
     compute_type = req_compute or str(cfg.get("asr_compute_type") or os.environ.get("CODEAGENT_ASR_COMPUTE_TYPE", "auto")).strip().lower()
