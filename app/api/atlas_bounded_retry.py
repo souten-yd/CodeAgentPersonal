@@ -11,11 +11,11 @@ from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_bounded_retry_policies import list_bounded_retry_policies
 from agent.atlas_bounded_retry_schema import AtlasBoundedRetryRequest
 from agent.atlas_bounded_retry_service import AtlasBoundedRetryService
-from agent.atlas_context_refresh_service import AtlasContextRefreshService
 from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_llm_evaluator_service import AtlasLLMEvaluatorService
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.project_intelligence.adapters.atlas_context_refresh import AtlasContextRefreshAdapter
 from agent.test_command_runner import TestCommandRunner
 
 router = APIRouter(prefix="/api/atlas/bounded-retry", tags=["atlas-bounded-retry"])
@@ -33,7 +33,8 @@ def _validate(v: str, field: str, prefix: str = "") -> str:
 def _svc(request: Request | None = None, workspace_id: str = "default") -> AtlasBoundedRetryService:
     root = resolve_atlas_ca_data_root(request)
     storage = AtlasPlanPoolStorage(root); journal = AtlasJournal(root, workspace_id=workspace_id or "default")
-    return AtlasBoundedRetryService(storage=storage, journal=journal, auto_verification_service=AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner()), context_refresh_service=AtlasContextRefreshService(journal=journal), evaluator_service=AtlasLLMEvaluatorService(journal=journal))
+    context_refresh = AtlasContextRefreshAdapter(data_root=root).build_service(journal=journal)
+    return AtlasBoundedRetryService(storage=storage, journal=journal, auto_verification_service=AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=TestCommandRunner()), context_refresh_service=context_refresh, evaluator_service=AtlasLLMEvaluatorService(journal=journal))
 
 @router.get('/policies')
 def policies():

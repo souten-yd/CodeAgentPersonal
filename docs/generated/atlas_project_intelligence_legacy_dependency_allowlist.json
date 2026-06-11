@@ -36,31 +36,6 @@
       "legacy_module": "agent.atlas_context_refresh_service"
     },
     {
-      "capability": "legacy_context_refresh",
-      "consumer_path": "app/api/atlas_bounded_retry.py",
-      "legacy_module": "agent.atlas_context_refresh_service"
-    },
-    {
-      "capability": "legacy_context_refresh",
-      "consumer_path": "app/api/atlas_context_refresh.py",
-      "legacy_module": "agent.atlas_context_refresh_service"
-    },
-    {
-      "capability": "legacy_context_refresh",
-      "consumer_path": "app/api/atlas_multi_item_autopilot.py",
-      "legacy_module": "agent.atlas_context_refresh_service"
-    },
-    {
-      "capability": "legacy_context_refresh",
-      "consumer_path": "app/api/atlas_supervised_handoff_retry.py",
-      "legacy_module": "agent.atlas_context_refresh_service"
-    },
-    {
-      "capability": "legacy_context_refresh",
-      "consumer_path": "app/api/atlas_context_refresh.py",
-      "legacy_module": "agent.atlas_context_refresh_v2_service"
-    },
-    {
       "capability": "legacy_repository_index",
       "consumer_path": "app/api/atlas_code_intel.py",
       "legacy_module": "agent.atlas_repo_index_service"
@@ -86,8 +61,8 @@
   "schema_version": 1,
   "source": "python_ast_current_checkout_legacy_dependency_allowlist",
   "summary": {
-    "allowed_dependency_count": 15,
-    "consumer_path_count": 13,
-    "legacy_module_count": 6
+    "allowed_dependency_count": 10,
+    "consumer_path_count": 9,
+    "legacy_module_count": 5
   }
 }
