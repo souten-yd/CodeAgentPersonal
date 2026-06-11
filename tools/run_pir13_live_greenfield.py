@@ -19,6 +19,10 @@ import main
 from agent.atlas_file_safe_apply_executor import AtlasFileSafeApplyExecutor
 from agent.test_command_runner import TestCommandRunner
 from app.server import create_app
+from agent.project_intelligence.service_registry import (
+    close_project_intelligence_service,
+    register_project_intelligence_service,
+)
 
 
 LIVE_GOAL = (
@@ -108,13 +112,15 @@ def _probe_configured_model() -> dict[str, Any]:
     return probe
 
 
-def _configure_app(workspace: Path, data_dir: Path) -> TestClient:
+def _configure_app(workspace: Path, data_dir: Path, *, rollout_env: dict[str, str] | None = None) -> TestClient:
     main.app.state.atlas_ca_data_dir = str(data_dir)
     main.app.state.atlas_implementation_executor = AtlasFileSafeApplyExecutor(workspace_root=workspace)
     main.app.state.atlas_llm_json_fn = main._phase1_llm_json
     main.app.state.atlas_test_command_runner = lambda: TestCommandRunner(
         allowed_commands=["python -m pytest -q"]
     )
+    close_project_intelligence_service(main.app)
+    register_project_intelligence_service(main.app, ca_data_dir=data_dir, env=rollout_env or {})
     return TestClient(main.app)
 
 
@@ -147,7 +153,13 @@ def _restart_evidence(data_dir: Path, pool_id: str, draft_item_id: str) -> dict[
     return evidence
 
 
-def run_live_greenfield(workspace: Path, data_dir: Path) -> dict[str, Any]:
+def run_live_greenfield(
+    workspace: Path,
+    data_dir: Path,
+    *,
+    arm_name: str = "final",
+    rollout_env: dict[str, str] | None = None,
+) -> dict[str, Any]:
     workspace.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
     report: dict[str, Any] = {
@@ -157,6 +169,8 @@ def run_live_greenfield(workspace: Path, data_dir: Path) -> dict[str, Any]:
         "data_dir": str(data_dir.resolve()),
         "workspace_id": WORKSPACE_ID,
         "goal": LIVE_GOAL,
+        "benchmark_arm": arm_name,
+        "rollout_env": dict(rollout_env or {}),
         "steps": [],
         "artifacts": {},
         "warnings": [],
@@ -171,7 +185,10 @@ def run_live_greenfield(workspace: Path, data_dir: Path) -> dict[str, Any]:
         report["finished_at"] = _now()
         return report
 
-    client = _configure_app(workspace, data_dir)
+    client = _configure_app(workspace, data_dir, rollout_env=rollout_env)
+    service = getattr(main.app.state, "project_intelligence_service", None)
+    if service is not None:
+        report["project_intelligence_health"] = service.health()
     created = _post(
         client,
         "/api/atlas/plan-pools?sync=1",

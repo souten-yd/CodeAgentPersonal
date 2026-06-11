@@ -158,6 +158,13 @@ def build_artifact_comparative_report(
     legacy_arm = BenchmarkArm("legacy", constraints, _average_metrics(legacy_results))
     final_arm = BenchmarkArm("final", constraints, _average_metrics(final_results))
     comparison = run_comparative(legacy_arm, final_arm)
+    blocked_reasons = [
+        f"{result.arm}:{result.status}"
+        for result in [*legacy_results, *final_results]
+        if result.status != "passed"
+    ]
+    if comparison.verdict == "regressed":
+        blocked_reasons.append("comparison_regressed")
 
     return {
         "schema_version": 1,
@@ -175,6 +182,10 @@ def build_artifact_comparative_report(
             "average_metrics": final_arm.metrics,
         },
         "comparison": asdict(comparison),
+        "acceptance": {
+            "status": "passed" if not blocked_reasons else "blocked",
+            "blocked_reasons": blocked_reasons,
+        },
         "safety": {
             "manual_metrics_accepted": False,
             "normal_atlas_entrypoint_reports_required": True,
