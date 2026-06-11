@@ -6,9 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-15`
-- Next action: execute PIR-15 real comparative benchmark, final active rollout decision, and
-  legacy retirement only after consumer-zero, parity/superiority, data migration, rollback, and
-  real E2E gates pass.
+- Next action: execute the PIR-15 legacy and final benchmark arms through normal Atlas
+  entrypoint reports under the versioned corpus, then decide active rollout only if gates pass.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -57,7 +56,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |
 | PIR-13 | real Greenfield E2E | acceptance_complete |
 | PIR-14 | CI, platform, scale, and consumer cutover | acceptance_complete |
-| PIR-15 | real benchmark and retirement | not_started |
+| PIR-15 | real benchmark and retirement | in_progress |
 
 ## Status values
 
@@ -77,6 +76,50 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Versioned corpus and artifact-derived benchmark runner
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/live_benchmark.py — added a PIR-15 benchmark runner that loads a
+  versioned corpus, derives metrics from normal Atlas execution report artifacts, ignores
+  caller-supplied metrics, and compares legacy/final arms under identical constraints.
+- docs/generated/atlas_project_intelligence_pir15_benchmark_corpus.json — added corpus version
+  pir15-corpus-v1 with the Greenfield single HTML readiness task and fixed constraints.
+- tests/test_project_intelligence_pir15_live_benchmark.py — added coverage for versioned corpus
+  loading, metric derivation from artifacts, ignored manual metrics, task coverage enforcement,
+  and persisted comparative reports.
+- docs/atlas_project_intelligence_recovery_current_status.md — marked PIR-15 in_progress and
+  recorded that live arm execution remains the next gate.
+- tests/test_project_intelligence_recovery_baseline.py — updated the active package regression
+  lock to require PIR-15 in_progress.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir15_live_benchmark.py ->
+  4 passed in 0.67s.
+- python - <<script invoking write_artifact_comparative_report(...) over execution-report-shaped
+  artifacts>> -> artifact=C:\Users\kkens\code\KasaneCore\ca_data\atlas\pir15_artifact_benchmark_smoke.current.json
+  corpus=pir15-corpus-v1 task_count=1 verdict=improved manual_metrics_accepted=False
+  legacy_verified=0.0 final_verified=1.0.
+- python -m py_compile agent\project_intelligence\live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark.py
+  tests\test_project_intelligence_recovery_baseline.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir15_live_benchmark.py
+  tests\test_project_intelligence_recovery_baseline.py::test_recovery_status_selects_next_active_package
+  tests\test_project_intelligence_benchmark.py -> 13 passed in 1.16s.
+Unavailable checks: the real PIR-15 legacy and final benchmark arms have not yet been executed
+  through the normal Atlas entrypoint; final active rollout and legacy retirement are unclaimed.
+Safety invariants checked: the runner does not accept supplied metrics as benchmark results,
+  does not transition rollout, does not mutate source, and does not retire legacy paths.
+Migration/rollout state: rollout remains off by default; PIR-15 is in_progress with benchmark
+  corpus/runner foundation only.
+Known limitations: artifact-derived smoke uses execution-report-shaped artifacts to verify the
+  runner contract; live LLM/Atlas execution evidence is still required before any rollout or
+  retirement decision.
+Next package: PIR-15 — execute real benchmark arms through normal Atlas entrypoint reports.
+Blocker: none.
+```
 
 ```text
 Work package: PIR-14 — Final acceptance and PIR-15 handoff
