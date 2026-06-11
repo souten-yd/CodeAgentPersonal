@@ -6,6 +6,16 @@ not perform provider execution or change production routing on import.
 """
 from __future__ import annotations
 
+from agent.model_forge.provider_base import (
+    ForgeProvider,
+    HealthState,
+    ProviderDisabledError,
+    ProviderError,
+    ProviderHealth,
+    ProviderUnavailableError,
+    redact_for_log,
+)
+from agent.model_forge.provider_registry import ProviderRegistry
 from agent.model_forge.route_taxonomy import ForgeRoute, all_routes, is_valid_route
 from agent.model_forge.schema import (
     FORGE_SCHEMA_VERSION,
@@ -74,4 +84,12 @@ __all__ = [
     "ForgeRoute",
     "all_routes",
     "is_valid_route",
+    "ForgeProvider",
+    "HealthState",
+    "ProviderHealth",
+    "ProviderError",
+    "ProviderDisabledError",
+    "ProviderUnavailableError",
+    "redact_for_log",
+    "ProviderRegistry",
 ]
