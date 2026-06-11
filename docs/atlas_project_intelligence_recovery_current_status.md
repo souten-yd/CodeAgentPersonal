@@ -6,8 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-14`
-- Next action: extend PIR-14 shadow parity and rollback drills beyond planning/generation,
-  then add Linux/Docker/Runpod platform, large-scale, and cutover evidence.
+- Next action: add PIR-14 verification/recovery shadow parity and rollback drills, then add
+  Linux/Docker/Runpod platform and large-scale evidence.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -109,6 +109,51 @@ Safety invariants checked: read-only source inspection only; no production runti
 Migration/rollout state: off by default; no consumer cutover and no legacy deletion.
 Known limitations: regression locks intentionally xfail until PIR-1+ fixes the underlying defects.
 Next package: PIR-1 — durable concrete modules.
+Blocker: none.
+```
+
+```text
+Work package: PIR-14 — Production consumer cutover gate evidence
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/consumer_cutover_gate.py — added a read-only cutover gate that
+  audits production wiring markers for planning, generation, verification, and recovery
+  consumers, combines legacy dependency lint and rollout parity/rollback evidence, and reports
+  cutover readiness per consumer without changing rollout state.
+- tests/test_project_intelligence_pir14_consumer_cutover_gate.py — added focused coverage for
+  connected production markers, planning/generation readiness, verification/recovery blocked
+  reasons, lint failure blocking, persisted JSON output, and advisory-only safety flags.
+- docs/atlas_project_intelligence_recovery_current_status.md — recorded the gate result and
+  narrowed the next action to verification/recovery parity/rollback plus remaining platform and
+  large-scale evidence.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\consumer_cutover_gate.py
+  tests\test_project_intelligence_pir14_consumer_cutover_gate.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir14_consumer_cutover_gate.py ->
+  2 passed in 0.68s.
+- python - <<script invoking write_lint_report(...) and write_consumer_cutover_gate(...)>> ->
+  artifact=C:\Users\kkens\code\KasaneCore\ca_data\atlas\pir14_consumer_cutover_gate.current.json
+  production_connected=4 cutover_ready=2 gate_passed=False
+  blocked=['recovery:rollback_drill_not_passed', 'recovery:shadow_parity_not_passed',
+  'verification:rollback_drill_not_passed', 'verification:shadow_parity_not_passed'].
+- python -m pytest -q tests\test_project_intelligence_pir14_consumer_cutover_gate.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_project_intelligence_pir14_rollout_evidence.py
+  tests\test_project_intelligence_pir11_generation_apply.py
+  tests\test_project_intelligence_pir12_verification_recovery.py -> 21 passed in 17.41s.
+Unavailable checks: cutover gate does not pass yet because verification and recovery lack
+  shadow parity and rollback drill evidence. Linux/Docker/Runpod platform runs,
+  large-repository/concurrency evidence, and actual rollout transition remain unclaimed.
+Safety invariants checked: the gate is advisory only, performs no source mutation, does not
+  transition rollout, does not automatically rollback, and does not retire legacy paths.
+Migration/rollout state: rollout remains off by default; production wiring markers exist for
+  planning, generation, verification, and recovery, but only planning/generation are currently
+  cutover-ready under the evidence gate.
+Known limitations: PIR-14 remains in_progress until verification/recovery parity and rollback
+  drills, Linux/Docker/Runpod platform artifacts, large-repository/concurrency evidence, and
+  final cutover evidence pass.
+Next package: PIR-14 — add verification/recovery shadow parity and rollback drills, then
+  Linux/Docker/Runpod and large-scale evidence.
 Blocker: none.
 ```
 
