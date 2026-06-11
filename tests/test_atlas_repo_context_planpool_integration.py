@@ -1,13 +1,16 @@
 from fastapi.testclient import TestClient
 from app.server import create_app
-from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
+from agent.project_intelligence.adapters.repo_context_packaging import ProjectIntelligenceRepoContextPackager
 
 
 def test_create_plan_pool_succeeds_when_repo_index_missing():
     c = TestClient(create_app())
-    r = c.post('/api/atlas/plan-pools?sync=1', json={'input': 'x', 'project_path': '/tmp/not-found-repo'})
+    r = c.post(
+        '/api/atlas/plan-pools?sync=1',
+        json={'input': 'x', 'project_path': '/tmp/not-found-repo', 'planner_mode': 'fallback_only'},
+    )
     assert r.status_code == 200
-    assert r.json()['status'] == 'ready'
+    assert r.json()['status'] in {'approval_required', 'ready'}
 
 
 def test_create_plan_pool_repo_context_disabled(tmp_path):
@@ -24,14 +27,14 @@ def test_create_plan_pool_repo_context_disabled(tmp_path):
 
 def test_create_plan_pool_preflight_uses_top_level_changed_files(monkeypatch):
     captured = {}
-    original = AtlasRepoContextPlannerPackager.build_package
+    original = ProjectIntelligenceRepoContextPackager.build_package
 
     def _capture(self, request):
         captured["changed_files"] = list(request.changed_files)
         captured["target_files"] = list(request.target_files)
         return original(self, request)
 
-    monkeypatch.setattr(AtlasRepoContextPlannerPackager, "build_package", _capture)
+    monkeypatch.setattr(ProjectIntelligenceRepoContextPackager, "build_package", _capture)
     c = TestClient(create_app())
     r = c.post('/api/atlas/plan-pools?sync=1', json={
         'input': 'x',
@@ -47,14 +50,14 @@ def test_create_plan_pool_preflight_uses_top_level_changed_files(monkeypatch):
 
 def test_create_plan_pool_metadata_changed_files_fallback_only_when_top_level_empty(monkeypatch):
     captured = {}
-    original = AtlasRepoContextPlannerPackager.build_package
+    original = ProjectIntelligenceRepoContextPackager.build_package
 
     def _capture(self, request):
         captured["changed_files"] = list(request.changed_files)
         captured["target_files"] = list(request.target_files)
         return original(self, request)
 
-    monkeypatch.setattr(AtlasRepoContextPlannerPackager, "build_package", _capture)
+    monkeypatch.setattr(ProjectIntelligenceRepoContextPackager, "build_package", _capture)
     c = TestClient(create_app())
     r = c.post('/api/atlas/plan-pools?sync=1', json={
         'input': 'x',

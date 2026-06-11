@@ -12,7 +12,6 @@ from pathlib import Path
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
 from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
 from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Request
-from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
 from agent.atlas_repo_context_schema import (
     AtlasPlanScopeSummary,
     AtlasRepoContextRequest,
@@ -26,6 +25,7 @@ from agent.atlas_verification_recommendation_handoff_service import AtlasVerific
 from agent.atlas_verification_recommendation_schema import AtlasVerificationRecommendationRequest
 from agent.atlas_verification_recommendation_service import AtlasVerificationRecommendationService
 from agent.project_intelligence.adapters.planner_packaging_v2 import ProjectIntelligencePlannerPackagingV2Adapter
+from agent.project_intelligence.adapters.repo_context_packaging import ProjectIntelligenceRepoContextPackager
 
 
 class AtlasRepoContextAdapter:
@@ -41,13 +41,13 @@ class AtlasRepoContextAdapter:
         return AtlasRepoContextService(data_root=self.data_root).build_plan_scope_summary(request)
 
     def build_impacted_test_recommendation(self, request: AtlasRepoContextRequest):
-        return AtlasRepoContextPlannerPackager(data_root=self.data_root).build_impacted_test_recommendation(request)
+        return ProjectIntelligenceRepoContextPackager(data_root=self.data_root).build_impacted_test_recommendation(request)
 
     def build_repo_context_package(self, request: AtlasRepoContextRequest):
-        return AtlasRepoContextPlannerPackager(data_root=self.data_root).build_package(request)
+        return ProjectIntelligenceRepoContextPackager(data_root=self.data_root).build_package(request)
 
     def build_verification_plan(self, request: AtlasVerificationPlanningRequest):
-        packager = AtlasRepoContextPlannerPackager(data_root=self.data_root)
+        packager = ProjectIntelligenceRepoContextPackager(data_root=self.data_root)
         return AtlasVerificationPlanningService(data_root=self.data_root, packager=packager).build_plan(request)
 
     def build_plan_item_impact_map(self, request: AtlasPlanItemImpactMapRequest):

@@ -135,7 +135,9 @@ Core v1 reference.
     `FileSummaryCache`, `ToolResultCache`, `_estimate_tokens`, `_truncate_to_token_budget`);
   - `agent/atlas_repo_context_service.py:AtlasRepoContextService`
     (schema `agent/atlas_repo_context_schema.py`);
-  - `agent/atlas_repo_context_planner_packager.py:AtlasRepoContextPlannerPackager`
+  - `agent/project_intelligence/adapters/repo_context_packaging.py:ProjectIntelligenceRepoContextPackager`
+    (legacy `agent/atlas_repo_context_planner_packager.py:AtlasRepoContextPlannerPackager`
+    retired in PIR-15)
     (schema `agent/atlas_repo_context_planner_schema.py`);
   - `agent/project_intelligence/adapters/planner_packaging_v2.py:ProjectIntelligencePlannerPackagingV2Adapter`
     (legacy `agent/atlas_planner_packaging_v2_service.py:AtlasPlannerPackagingV2Service`
@@ -143,7 +145,7 @@ Core v1 reference.
     (schema `agent/atlas_planner_packaging_v2_schema.py`);
   - `agent/atlas_context_local_collectors.py` (aggregates code-intel + inspection).
 - **Known duplication**: context assembly spread across ContextBuilder, RepoContext,
-  PlannerPackager, PlannerPackagingV2, and the Twin Context Broker
+  ProjectIntelligenceRepoContextPackager, PlannerPackagingV2, and the Twin Context Broker
   (`agent/project_twin/context_broker.py`).
 - **Reusable contracts**: repo-context + planner-packaging schemas; token estimation/truncation.
 - **Missing behavior**: no single phase-aware `PlanningContextPackage`/`GenerationContextPackage`
@@ -295,7 +297,7 @@ Core v1 reference.
    and `project_twin/static_graph.py`.
 2. **File iteration** duplicated across repo index, code explorer, code intel, twin analyzer.
 3. **Context assembly** duplicated across `context_builder.py`,
-   `atlas_repo_context_service.py`, `atlas_repo_context_planner_packager.py`,
+   `atlas_repo_context_service.py`, `agent/project_intelligence/adapters/repo_context_packaging.py`,
    `agent/project_intelligence/adapters/planner_packaging_v2.py`, and
    `project_twin/context_broker.py`.
 4. **Context refresh** has two generations (`v1`, `v2`).

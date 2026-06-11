@@ -14,28 +14,21 @@ def test_legacy_owner_internals_are_not_counted_as_direct_production_consumers()
     inventory = build_inventory(REPO_ROOT)
     rows = {row["legacy_module"]: row for row in inventory["legacy_consumers"]}
     repo_context = rows["agent.atlas_repo_context_service"]
-    planner_packager = rows["agent.atlas_repo_context_planner_packager"]
 
     assert repo_context["production_consumer_count"] == 0
     assert repo_context["production_consumers"] == []
-    assert repo_context["legacy_internal_consumer_count"] == 2
+    assert repo_context["legacy_internal_consumer_count"] == 1
     assert {
         consumer["path"] for consumer in repo_context["legacy_internal_consumers"]
     } == {
         "agent/atlas_context_refresh_service.py",
-        "agent/atlas_repo_context_planner_packager.py",
     }
-    assert repo_context["adapter_consumer_count"] == 1
-
-    assert planner_packager["production_consumer_count"] == 0
-    assert planner_packager["production_consumers"] == []
-    assert planner_packager["legacy_internal_consumer_count"] == 2
-    assert planner_packager["adapter_consumer_count"] == 2
+    assert repo_context["adapter_consumer_count"] == 2
     assert {
-        consumer["path"] for consumer in planner_packager["adapter_consumers"]
+        consumer["path"] for consumer in repo_context["adapter_consumers"]
     } == {
         "agent/project_intelligence/adapters/atlas_repo_context.py",
-        "agent/project_intelligence/adapters/planner_packaging_v2.py",
+        "agent/project_intelligence/adapters/repo_context_packaging.py",
     }
 
     context_refresh = rows["agent.atlas_context_refresh_service"]

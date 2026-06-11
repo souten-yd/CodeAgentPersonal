@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
 from agent.atlas_verification_planning_schema import AtlasVerificationPlanningRequest
 from agent.atlas_verification_planning_service import AtlasVerificationPlanningService
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpact, AtlasPlanItemImpactMap, AtlasPlanItemImpactMapRequest
+from agent.project_intelligence.adapters.repo_context_packaging import ProjectIntelligenceRepoContextPackager
 
 
 class AtlasPlanItemImpactMapService:
     def __init__(self, data_root: Path | str):
         self.data_root = Path(data_root).expanduser().resolve()
-        self.packager = AtlasRepoContextPlannerPackager(data_root=self.data_root)
+        self.packager = ProjectIntelligenceRepoContextPackager(data_root=self.data_root)
         self.verification = AtlasVerificationPlanningService(data_root=self.data_root, packager=self.packager)
 
     def build_map(self, req: AtlasPlanItemImpactMapRequest) -> AtlasPlanItemImpactMap:
