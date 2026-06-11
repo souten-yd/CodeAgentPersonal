@@ -47,7 +47,9 @@ def test_inventory_records_exact_facade_call_counts() -> None:
     inv = _inventory()
     assert any(
         row["legacy_module"] == "agent.atlas_repo_context_service"
-        and row["production_consumer_count"] >= 1
+        and row["production_consumer_count"] == 0
+        and row["adapter_consumer_count"] >= 1
+        and row["legacy_internal_consumer_count"] >= 1
         for row in inv["legacy_consumers"]
     )
     assert any(

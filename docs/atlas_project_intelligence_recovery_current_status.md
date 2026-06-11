@@ -46,6 +46,8 @@ This file selects the active package. The old PI package table does not prove fi
   reducing PIR-15 retirement-gate legacy consumers to 19;
 - pipeline repo-context, impact, planner-packaging, and verification-recommendation calls now use
   the repo-context adapter, reducing PIR-15 retirement-gate legacy consumers to 16;
+- legacy-owner internal dependencies are now separated from direct production consumers, reducing
+  PIR-15 retirement-gate legacy consumers to 8 while preserving internal dependency evidence;
 - final broader legacy retirement remains incomplete because consumer-zero and data-migration gates
   are not yet satisfied.
 
@@ -88,6 +90,67 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Legacy-internal consumer inventory separation
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/inspection/consumer_inventory.py — separates registered Project
+  Intelligence adapter consumers and legacy-owner internal dependencies from direct production
+  legacy consumers while keeping both evidence classes in the generated inventory.
+- docs/generated/atlas_project_intelligence_consumer_inventory.json and
+  docs/generated/atlas_project_intelligence_legacy_dependency_allowlist.json — regenerated from
+  the current checkout after internal dependency separation.
+- tests/test_project_intelligence_pir15_legacy_internal_inventory.py,
+  tests/test_project_intelligence_recovery_baseline.py, and
+  tests/test_project_intelligence_pir14_legacy_dependency_lint.py — added/updated coverage for
+  legacy-internal records, adapter/internal repo-context evidence, and reduced direct allowlist.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\inspection\consumer_inventory.py
+  tests\test_project_intelligence_pir15_legacy_internal_inventory.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir15_legacy_internal_inventory.py
+  tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_project_intelligence_pir14_consumer_registry.py
+  tests\test_project_intelligence_pir15_retirement_gate.py -> 24 passed, 2 xfailed in 45.74s.
+- python <<regenerate current inventory, allowlist, rollout, lint, cutover, and registry artifacts>>
+  -> lint_passed=true, observed_dependency_count=16, registry_legacy_sum=17,
+  planning_context.legacy_consumer_count=1, generation_context.legacy_consumer_count=1,
+  post_apply_refresh.legacy_consumer_count=7, cutover_passed=true.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --docs-updated --allow-blocked-exit-zero
+  -> exit 0; status=blocked, active_rollout=true, legacy_consumer_count=8,
+  blocked_reasons=[data_migration_not_verified, legacy_capability_retirement_not_ready].
+Evidence details:
+- Generated inventory now records legacy_internal_consumers separately; for example
+  agent.atlas_repo_context_service has production_consumer_count=0, adapter_consumer_count=1, and
+  legacy_internal_consumer_count=2.
+- Direct legacy dependency allowlist now records 16 observed production dependencies, down from 27
+  after the pipeline repo-context adapter cutover.
+- PIR-15 retirement gate now reports consumer_zero_capability_count=3 and legacy_consumer_count=8:
+  legacy_context_refresh=6, legacy_planner_context=1, and legacy_verification_gate=1 remain with
+  direct production consumers; legacy_repo_context and legacy_verification_recommendation are
+  consumer-zero but still lack repair/Greenfield shadow and rollback parity evidence.
+Unavailable checks: data migration verification, remaining consumer-zero work, repair/Greenfield
+  shadow and rollback parity, actual legacy removal, rollback after each removal, and master
+  Definition of Done remain unclaimed.
+Safety invariants checked: internal legacy dependencies are still recorded and not erased; only
+  direct production consumers feed consumer-zero/allowlist counts; registered adapters remain
+  explicit.
+Migration/rollout state: default rollout remains off; no legacy source path was deleted.
+Known limitations: PIR-15 acceptance is not complete because context refresh, planner context, and
+  verification gate still have direct production consumers, and data migration is not verified.
+Next package: PIR-15 — cut over remaining context-refresh/planner direct consumers and extend
+  repair/Greenfield shadow/rollback evidence, then re-run the retirement gate.
+Blocker: none; remaining work is the next PIR-15 cutover and retirement slice.
+```
 
 ```text
 Work package: PIR-15 — Pipeline repo-context adapter cutover
