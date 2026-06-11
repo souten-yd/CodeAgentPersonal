@@ -7,13 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-8`
-- Current package goal: local OpenAI-compatible provider adapter.
-- Next action: add a local OpenAI-compatible provider (e.g. llama.cpp / LM Studio /
-  vLLM server) behind the PFG-6 provider interface; local source class, no external
-  credential, still shadow-only (no cutover).
-- Last completed: `PFG-7` (Legacy Atlas Executor adapter) — acceptance_complete; see
-  PFG-7 evidence below. PFG-1..PFG-6 also complete.
+- Current package: `PFG-9`
+- Current package goal: OpenRouter configuration and secret policy.
+- Next action: add OpenRouter provider configuration + secret policy (env-only key,
+  never persisted/logged, disabled by default, blocked in Local Only). No live calls.
+- Last completed: `PFG-8` (local OpenAI-compatible provider adapter) —
+  acceptance_complete; see PFG-8 evidence below. PFG-1..PFG-7 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -64,7 +63,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-5 | Forge core schemas and taxonomies | acceptance_complete |
 | PFG-6 | provider base and registry | acceptance_complete |
 | PFG-7 | Legacy Atlas Executor adapter | acceptance_complete |
-| PFG-8 | local OpenAI-compatible provider adapter | not_started |
+| PFG-8 | local OpenAI-compatible provider adapter | acceptance_complete |
 | PFG-9 | OpenRouter configuration and secret policy | not_started |
 | PFG-10 | OpenRouter mock chat client | not_started |
 | PFG-11 | OpenRouter model catalog cache | not_started |
@@ -511,6 +510,50 @@ Remaining gaps:
 - PFG-8 local OpenAI-compatible provider adapter.
 Next package:
 - PFG-8 — local OpenAI-compatible provider adapter.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-8 — local OpenAI-compatible provider adapter
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/providers/local_openai_compatible.py (new)
+- agent/model_forge/providers/__init__.py, agent/model_forge/__init__.py (re-exports)
+- tests/test_model_forge_local_openai.py (new)
+Public contracts added or changed:
+- New LocalOpenAICompatibleProvider in the isolated model_forge package; not wired
+  into production. No production routing change.
+Behavior implemented:
+- Non-streaming POST {base_url}/v1/chat/completions to a local/self-hosted
+  OpenAI-compatible server. source_class=self_hosted (never external_cloud), no
+  credential. Injectable HTTP transport (default urllib) so CI runs offline; timeout
+  and error classification (timeout / connection_error / http_<code> /
+  malformed_response / empty_output). Single-model servers supported (model omitted
+  when unset; result model_id falls back to the response model / provider id).
+  Missing base_url -> UNAVAILABLE; disabled -> DISABLED; both fail closed via registry.
+Focused tests:
+- python -m pytest tests/test_model_forge_local_openai.py -> 9 passed
+  (8 mock-transport tests: success+usage, http_500, timeout/connection, malformed,
+   empty, missing-base-url unavailable+fail-closed, disabled; plus 1 real :8080 smoke).
+- Full model_forge suite -> 36 passed.
+Real local provider evidence:
+- test_real_local_server_smoke ran against a live llama.cpp server on
+  http://localhost:8080 (Mistral-Small-3.2-24B): a real non-streaming chat completion
+  returned a contract-valid result with errors == []. Skipped automatically when no
+  server is reachable (so CI makes no network call).
+No external cloud assumption:
+- Confirmed; self_hosted source class, no credential, local base URL only.
+No production routing behavior change:
+- Confirmed; no app/ or main.py import of model_forge.
+Safety invariants verified:
+- Disabled/unavailable fail closed; no external credential; offline by default in CI.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-9 OpenRouter configuration and secret policy (env-only key, disabled default).
+Next package:
+- PFG-9 — OpenRouter configuration and secret policy.
 Blocker:
 - None.
 ```

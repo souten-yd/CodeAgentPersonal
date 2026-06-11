@@ -21,6 +21,11 @@ from agent.model_forge.providers.legacy_atlas import (
     LegacyAtlasProvider,
     legacy_atlas_descriptor,
 )
+from agent.model_forge.providers.local_openai_compatible import (
+    LOCAL_OPENAI_PROVIDER_ID,
+    LocalOpenAICompatibleProvider,
+    local_openai_compatible_descriptor,
+)
 from agent.model_forge.route_taxonomy import ForgeRoute, all_routes, is_valid_route
 from agent.model_forge.schema import (
     FORGE_SCHEMA_VERSION,
@@ -100,4 +105,7 @@ __all__ = [
     "LegacyAtlasProvider",
     "legacy_atlas_descriptor",
     "LEGACY_ATLAS_PROVIDER_ID",
+    "LocalOpenAICompatibleProvider",
+    "local_openai_compatible_descriptor",
+    "LOCAL_OPENAI_PROVIDER_ID",
 ]
