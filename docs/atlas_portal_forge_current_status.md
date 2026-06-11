@@ -7,12 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-6`
-- Current package goal: provider base and registry.
-- Next action: implement Forge provider base interface + registry (config + health
-  state) on top of the PFG-5 schemas; providers disabled by default, no execution.
-- Last completed: `PFG-5` (Forge core schemas and taxonomies) —
-  acceptance_complete; see PFG-5 evidence below. PFG-1..PFG-4 also complete.
+- Current package: `PFG-7`
+- Current package goal: Legacy Atlas Executor adapter.
+- Next action: wrap the existing legacy Atlas model execution path as a Forge
+  provider (Legacy Executor) behind the PFG-6 provider interface; keep legacy as
+  primary, no behavior change.
+- Last completed: `PFG-6` (provider base and registry) — acceptance_complete; see
+  PFG-6 evidence below. PFG-1..PFG-5 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -61,7 +62,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-3 | Portal snapshot listing and start-from-snapshot UI | acceptance_complete |
 | PFG-4 | legacy package manifest sidecar repair | acceptance_complete |
 | PFG-5 | Forge core schemas and taxonomies | acceptance_complete |
-| PFG-6 | provider base and registry | not_started |
+| PFG-6 | provider base and registry | acceptance_complete |
 | PFG-7 | Legacy Atlas Executor adapter | not_started |
 | PFG-8 | local OpenAI-compatible provider adapter | not_started |
 | PFG-9 | OpenRouter configuration and secret policy | not_started |
@@ -410,6 +411,56 @@ Remaining gaps:
 - PFG-6 provider base + registry (config + health), still no execution.
 Next package:
 - PFG-6 — provider base and registry.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-6 — provider base and registry
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/provider_base.py (ForgeProvider ABC, HealthState, ProviderHealth,
+  errors, redact_for_log)
+- agent/model_forge/provider_registry.py (ProviderRegistry)
+- agent/model_forge/__init__.py (re-exports)
+- tests/test_model_forge_provider_registry.py (new)
+Public contracts added or changed:
+- New provider interface + registry inside the isolated agent/model_forge package.
+  Still not imported by any production module — no production behavior change.
+Behavior implemented:
+- ForgeProvider abstract base: execute_chat_completion (abstract), health_check,
+  guard_executable, supports_contract, list_models, estimate_cost,
+  redact_request_for_log. Fail-closed defaults: not-enabled -> DISABLED;
+  required credential missing -> UNAVAILABLE; otherwise READY.
+- ProviderRegistry: register/get/descriptors/health/health_all/ready_providers/execute.
+  execute() runs only when health is READY; DISABLED/UNAVAILABLE/ERROR fail closed
+  before execute_chat_completion is ever called. health() never propagates an
+  exception (unexpected -> ERROR, recorded separately from UNAVAILABLE).
+- redact_for_log masks credential- and source-bearing keys recursively.
+Focused tests:
+- python -m pytest tests/test_model_forge_provider_registry.py -> 7 passed:
+  enabled local provider ready+executes; disabled provider never executed
+  (executed flag stays False); missing credentials do not crash -> UNAVAILABLE,
+  then READY once set; unknown provider -> ERROR not exception; health_check
+  exception -> ERROR; redact masks secrets/source; ready_providers excludes
+  disabled+unavailable.
+- Full model_forge suite (schema + registry) -> 20 passed.
+No external calls:
+- Confirmed; base/registry perform no network. Concrete providers arrive in PFG-7+.
+No production routing behavior change:
+- Confirmed; no app/ or main.py import of model_forge.
+Real model / Portal / OpenRouter evidence:
+- None; interface + registry only.
+Safety invariants verified:
+- Disabled-by-default external providers never execute; UNAVAILABLE distinct from
+  ERROR; missing credentials fail closed without crashing; secrets/source redacted
+  from logs.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-7 Legacy Atlas Executor adapter (wrap existing path as a Forge provider).
+Next package:
+- PFG-7 — Legacy Atlas Executor adapter.
 Blocker:
 - None.
 ```
