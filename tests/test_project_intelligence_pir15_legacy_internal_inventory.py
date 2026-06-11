@@ -29,7 +29,14 @@ def test_legacy_owner_internals_are_not_counted_as_direct_production_consumers()
 
     assert planner_packager["production_consumer_count"] == 0
     assert planner_packager["production_consumers"] == []
-    assert planner_packager["legacy_internal_consumer_count"] == 3
+    assert planner_packager["legacy_internal_consumer_count"] == 2
+    assert planner_packager["adapter_consumer_count"] == 2
+    assert {
+        consumer["path"] for consumer in planner_packager["adapter_consumers"]
+    } == {
+        "agent/project_intelligence/adapters/atlas_repo_context.py",
+        "agent/project_intelligence/adapters/planner_packaging_v2.py",
+    }
 
     context_refresh = rows["agent.atlas_context_refresh_service"]
     context_refresh_v2 = rows["agent.atlas_context_refresh_v2_service"]
@@ -37,4 +44,4 @@ def test_legacy_owner_internals_are_not_counted_as_direct_production_consumers()
     assert context_refresh["production_consumers"] == []
     assert context_refresh["adapter_consumer_count"] == 1
     assert context_refresh_v2["production_consumer_count"] == 0
-    assert context_refresh_v2["adapter_consumer_count"] == 1
+    assert context_refresh_v2["adapter_consumer_count"] == 2

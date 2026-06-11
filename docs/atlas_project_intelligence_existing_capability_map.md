@@ -137,7 +137,9 @@ Core v1 reference.
     (schema `agent/atlas_repo_context_schema.py`);
   - `agent/atlas_repo_context_planner_packager.py:AtlasRepoContextPlannerPackager`
     (schema `agent/atlas_repo_context_planner_schema.py`);
-  - `agent/atlas_planner_packaging_v2_service.py:AtlasPlannerPackagingV2Service`
+  - `agent/project_intelligence/adapters/planner_packaging_v2.py:ProjectIntelligencePlannerPackagingV2Adapter`
+    (legacy `agent/atlas_planner_packaging_v2_service.py:AtlasPlannerPackagingV2Service`
+    retired in PIR-15)
     (schema `agent/atlas_planner_packaging_v2_schema.py`);
   - `agent/atlas_context_local_collectors.py` (aggregates code-intel + inspection).
 - **Known duplication**: context assembly spread across ContextBuilder, RepoContext,
@@ -294,7 +296,8 @@ Core v1 reference.
 2. **File iteration** duplicated across repo index, code explorer, code intel, twin analyzer.
 3. **Context assembly** duplicated across `context_builder.py`,
    `atlas_repo_context_service.py`, `atlas_repo_context_planner_packager.py`,
-   `atlas_planner_packaging_v2_service.py`, and `project_twin/context_broker.py`.
+   `agent/project_intelligence/adapters/planner_packaging_v2.py`, and
+   `project_twin/context_broker.py`.
 4. **Context refresh** has two generations (`v1`, `v2`).
 5. **Impact** has a heuristic map (`atlas_plan_item_impact_map_service.py`) and a graph
    analyzer (`project_twin/analysis.py`).

@@ -3,11 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Request
-from agent.atlas_planner_packaging_v2_service import AtlasPlannerPackagingV2Service
 from agent.atlas_verification_recommendation_schema import (
     AtlasVerificationRecommendation,
     AtlasVerificationRecommendationRequest,
 )
+from agent.project_intelligence.adapters.planner_packaging_v2 import ProjectIntelligencePlannerPackagingV2Adapter
 
 
 def _dedup_str(items: list) -> list[str]:
@@ -46,7 +46,7 @@ class AtlasVerificationRecommendationService:
             warnings.append("planner_packaging_v2_not_included")
             return {}
         try:
-            built = AtlasPlannerPackagingV2Service(data_root=self.data_root).build_package(
+            built = ProjectIntelligencePlannerPackagingV2Adapter(data_root=self.data_root).build_package(
                 AtlasPlannerPackagingV2Request(
                     workspace_id=req.workspace_id,
                     project_path=req.project_path,

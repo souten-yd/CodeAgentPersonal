@@ -35,7 +35,7 @@ allowed).
 | 7 | Project inspection | `AtlasProjectInspectionService` | ADAPT | DigitalTwin lifecycle/context | PI-4 | n/a (ADAPT, no delete planned) |
 | 8 | Git inspection | `AtlasGitInspectionService` | ADAPT | DigitalTwin lifecycle/context | PI-4 | n/a |
 | 9 | Repository context | `AtlasRepoContextService`; `ContextBuilder`/`TaskV2ContextBuilder`; `AtlasRepoContextPlannerPackager` | ADAPT → REPLACE | ProjectIntelligence context packages | PI-9, PI-16, PI-23 | shadow parity + consumer-zero on pipeline APIs |
-| 10 | Planner packaging | `AtlasPlannerPackagingV2Service` | ADAPT → REPLACE | `PlanningContextPackage` | PI-16, PI-23 | shadow parity |
+| 10 | Planner packaging | `ProjectIntelligencePlannerPackagingV2Adapter` (legacy `AtlasPlannerPackagingV2Service` retired in PIR-15) | REPLACE | `PlanningContextPackage` | PI-16, PI-23, PIR-15 | shadow parity + consumer-zero + rollback proof |
 | 11 | Context refresh | `AtlasContextRefreshService`; `AtlasContextRefreshV2Service`; `atlas_context_local_collectors` | ADAPT → REPLACE | ProjectIntelligence lifecycle/context | PI-9, PI-17, PI-23 | parity across handoff/retry/autopilot consumers |
 | 12 | Impact map | `AtlasPlanItemImpactMapService`; twin `analysis.GraphAnalysisService.assess_impact` | ADAPT → REPLACE | DigitalTwin impact query + Atlas adapter | PI-9, PI-23 | impact precision/recall parity |
 | 13 | Verification recommendation | `AtlasVerificationRecommendationService`; `AtlasVerificationRecommendationHandoffService`; `atlas_verification_planning_service` | ADAPT | Verification owner consuming DigitalTwin result | PI-19 | n/a (recommendation stays support) |
