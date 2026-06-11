@@ -39,13 +39,13 @@ def test_allowlist_artifact_matches_current_schema() -> None:
 
     assert allowlist["schema_version"] == 1
     assert allowlist["source"] == "python_ast_current_checkout_legacy_dependency_allowlist"
-    assert allowlist["summary"]["allowed_dependency_count"] == 8
+    assert allowlist["summary"]["allowed_dependency_count"] == 7
     assert allowlist["safety"] == {
         "allows_new_legacy_consumers": False,
         "consumer_cutover": False,
         "legacy_retirement": False,
     }
-    assert any(
+    assert not any(
         entry["legacy_module"] == "agent.atlas_verification_gate_service"
         and entry["consumer_path"] == "app/api/atlas_pipeline.py"
         for entry in allowlist["entries"]

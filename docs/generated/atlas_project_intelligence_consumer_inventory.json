@@ -236,9 +236,7 @@
           "path": "app/api/atlas_patch_regen_recommendation.py"
         },
         {
-          "imports_legacy_capability": [
-            "legacy_verification_gate"
-          ],
+          "imports_legacy_capability": [],
           "imports_project_intelligence": true,
           "module": "app.api.atlas_pipeline",
           "path": "app/api/atlas_pipeline.py"
@@ -409,7 +407,7 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-11T07:18:35+00:00",
+  "generated_at": "2026-06-11T07:28:18+00:00",
   "legacy_consumers": [
     {
       "adapter_consumer_count": 0,
@@ -639,19 +637,19 @@
       ]
     },
     {
-      "adapter_consumer_count": 0,
-      "adapter_consumers": [],
+      "adapter_consumer_count": 1,
+      "adapter_consumers": [
+        {
+          "module": "agent.project_intelligence.adapters.atlas_verification",
+          "path": "agent/project_intelligence/adapters/atlas_verification.py"
+        }
+      ],
       "capability": "legacy_verification_gate",
       "legacy_internal_consumer_count": 0,
       "legacy_internal_consumers": [],
       "legacy_module": "agent.atlas_verification_gate_service",
-      "production_consumer_count": 1,
-      "production_consumers": [
-        {
-          "module": "app.api.atlas_pipeline",
-          "path": "app/api/atlas_pipeline.py"
-        }
-      ]
+      "production_consumer_count": 0,
+      "production_consumers": []
     },
     {
       "adapter_consumer_count": 1,
@@ -840,9 +838,7 @@
       "path": "app/api/atlas_patch_regen_recommendation.py"
     },
     {
-      "imports_legacy_capability": [
-        "legacy_verification_gate"
-      ],
+      "imports_legacy_capability": [],
       "imports_project_intelligence": true,
       "module": "app.api.atlas_pipeline",
       "path": "app/api/atlas_pipeline.py"
@@ -1064,7 +1060,7 @@
     "critical_finding_count": 6,
     "disabled_facade_count": 4,
     "facade_module_count": 6,
-    "legacy_production_consumer_count": 8,
+    "legacy_production_consumer_count": 7,
     "production_entrypoint_count": 32
   }
 }

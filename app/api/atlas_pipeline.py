@@ -67,7 +67,6 @@ from agent.atlas_safe_apply_adapter import AtlasSafeApplyAdapter
 from agent.atlas_safe_apply_execution_schema import AtlasSafeApplyExecutionRequest, AtlasSafeApplyExecutionResult
 from agent.atlas_safe_apply_execution_service import AtlasSafeApplyExecutionService
 from agent.atlas_verification_gate_schema import AtlasVerificationRequest, AtlasVerificationResult
-from agent.atlas_verification_gate_service import AtlasVerificationGateService
 from agent.atlas_debug_review_schema import AtlasDebugReviewRequest, AtlasDebugReviewResult
 from agent.atlas_debug_review_service import AtlasDebugReviewService
 from agent.atlas_patch_generation_state import is_patch_generation_success, is_patch_generation_terminal
@@ -99,7 +98,7 @@ from agent.atlas_verification_recommendation_schema import AtlasVerificationReco
 from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
 from agent.project_intelligence.adapters.atlas_repo_context import AtlasRepoContextAdapter
 from agent.project_intelligence.adapters.atlas_planning import AtlasPlannerBridge as ProjectIntelligencePlannerBridge
-from agent.project_intelligence.adapters.atlas_verification import AtlasVerificationBridge
+from agent.project_intelligence.adapters.atlas_verification import AtlasVerificationBridge, AtlasVerificationGateAdapter
 from agent.project_intelligence.checkpoint import CheckpointController
 from agent.project_intelligence.contracts import PlanningContextRequest, ProjectIdentity, ProjectMode
 from agent.project_intelligence.project_mode import detect_project_mode
@@ -2302,7 +2301,7 @@ def _do_verification(pool_id: str, req: "AtlasVerificationRequest", app: Any, *,
     _sync_pool_from_workspace_snapshot(storage, journal, pool_id)
     runner = _resolve_atlas_test_command_runner(_AppOnlyRequest(app))
     pi_service = get_project_intelligence_service(app)
-    service = AtlasVerificationGateService(
+    service = AtlasVerificationGateAdapter(
         journal=journal,
         storage=storage,
         test_runner=runner,

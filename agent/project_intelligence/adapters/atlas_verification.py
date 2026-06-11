@@ -10,10 +10,15 @@ verification authority — it records evidence and drives bounded next steps.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
+from agent.atlas_journal import AtlasJournal
+from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_verification_gate_schema import AtlasVerificationRequest, AtlasVerificationResult
 from agent.project_intelligence.checkpoint import Checkpoint, CheckpointController, ResumeDecision
 from agent.project_intelligence.contracts import RuntimeObservationRecord
 from agent.project_twin.runtime.reconciliation import RollupResult, summarize_rollup
+from agent.test_command_runner import TestCommandRunner
 
 
 @dataclass
@@ -84,3 +89,34 @@ class AtlasVerificationBridge:
             cp, current_actual_revision=current_actual_revision,
             current_working_tree_hash=current_working_tree_hash,
         )
+
+
+class AtlasVerificationGateAdapter:
+    """Adapter for canonical Atlas verification gate construction."""
+
+    def __init__(
+        self,
+        *,
+        journal: AtlasJournal,
+        storage: AtlasPlanPoolStorage,
+        test_runner: TestCommandRunner | None = None,
+        project_intelligence: Any = None,
+        verification_bridge: AtlasVerificationBridge | None = None,
+    ) -> None:
+        self.journal = journal
+        self.storage = storage
+        self.test_runner = test_runner
+        self.project_intelligence = project_intelligence
+        self.verification_bridge = verification_bridge
+
+    def verify_item(self, request: AtlasVerificationRequest) -> AtlasVerificationResult:
+        from agent.atlas_verification_gate_service import AtlasVerificationGateService
+
+        service = AtlasVerificationGateService(
+            journal=self.journal,
+            storage=self.storage,
+            test_runner=self.test_runner,
+            project_intelligence=self.project_intelligence,
+            verification_bridge=self.verification_bridge,
+        )
+        return service.verify_item(request)
