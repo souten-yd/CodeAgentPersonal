@@ -42,6 +42,7 @@ FACADE_MODULES: dict[str, str] = {
 }
 
 ADAPTER_MODULES: dict[str, str] = {
+    "agent.project_intelligence.adapters.atlas_inspection": "inspection",
     "agent.project_intelligence.adapters.atlas_planning": "planning",
     "agent.project_intelligence.adapters.atlas_generation": "generation",
     "agent.project_intelligence.adapters.atlas_verification": "verification",
@@ -204,21 +205,29 @@ def _production_entrypoints(root: Path, modules: list[ParsedModule]) -> list[dic
 
 def _legacy_consumers(root: Path, modules: list[ParsedModule]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    adapter_modules = set(ADAPTER_MODULES)
     for legacy_module, capability in LEGACY_CAPABILITY_MODULES.items():
-        consumers = [
-            {
+        consumers = []
+        adapter_consumers = []
+        for parsed in modules:
+            if not _matches_import(parsed.imports, legacy_module):
+                continue
+            row = {
                 "module": parsed.module,
                 "path": _rel(root, parsed.path),
             }
-            for parsed in modules
-            if _matches_import(parsed.imports, legacy_module)
-        ]
+            if parsed.module in adapter_modules:
+                adapter_consumers.append(row)
+            else:
+                consumers.append(row)
         rows.append(
             {
                 "legacy_module": legacy_module,
                 "capability": capability,
                 "production_consumer_count": len(consumers),
                 "production_consumers": sorted(consumers, key=lambda row: row["path"]),
+                "adapter_consumer_count": len(adapter_consumers),
+                "adapter_consumers": sorted(adapter_consumers, key=lambda row: row["path"]),
             }
         )
     return sorted(rows, key=lambda row: (row["capability"], row["legacy_module"]))

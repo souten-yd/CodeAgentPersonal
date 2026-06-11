@@ -2,13 +2,11 @@ from __future__ import annotations
 
 from agent.atlas_code_intel_schema import AtlasDependencyGraphRequest, AtlasRelatedTestsRequest, AtlasSymbolIndexRequest
 from agent.atlas_code_intel_service import AtlasCodeIntelService
-from agent.atlas_git_inspection_service import AtlasGitInspectionService
-from agent.atlas_project_inspection_service import AtlasProjectInspectionService
+from agent.project_intelligence.adapters.atlas_inspection import AtlasInspectionAdapter
 
 
 def collect_git_context(project_path: str, changed_files: list[str], limits: dict) -> dict:
-    g = AtlasGitInspectionService()
-    p = AtlasProjectInspectionService()
+    inspection = AtlasInspectionAdapter()
     warnings: list[str] = []
     status = None
     diffs = []
@@ -16,24 +14,32 @@ def collect_git_context(project_path: str, changed_files: list[str], limits: dic
     outlines = []
 
     try:
-        status = g.git_status(project_path)
+        status = inspection.git_status(project_path)
     except Exception:
         warnings.append("git_status_unavailable")
 
     for path in changed_files[: int(limits.get("max_changed_files", 20))]:
         try:
-            diffs.append(g.git_diff(project_path, relative_path=path, max_bytes=int(limits.get("max_bytes", 100000))))
+            diffs.append(
+                inspection.git_diff(project_path, relative_path=path, max_bytes=int(limits.get("max_bytes", 100000)))
+            )
         except Exception:
             warnings.append(f"git_diff_unavailable:{path}")
 
     try:
-        tree = p.project_tree(project_path, max_files=int(limits.get("max_files", 200)))
+        tree = inspection.project_tree(project_path, max_files=int(limits.get("max_files", 200)))
     except Exception:
         warnings.append("project_tree_unavailable")
 
     for path in changed_files[: int(limits.get("max_changed_files", 20))]:
         try:
-            outlines.append(p.file_outline(project_path, relative_path=path, max_bytes=int(limits.get("max_bytes", 100000))))
+            outlines.append(
+                inspection.file_outline(
+                    project_path,
+                    relative_path=path,
+                    max_bytes=int(limits.get("max_bytes", 100000)),
+                )
+            )
         except Exception:
             warnings.append(f"file_outline_unavailable:{path}")
 
