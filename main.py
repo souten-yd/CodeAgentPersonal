@@ -156,6 +156,7 @@ from app.services.audio_runtime import (
     run_sbv2_prepare_service_body,
     run_tts_synthesize_batch_service_body,
     run_tts_synthesize_service_body,
+    run_tts_synthesize_stream_service_body,
     run_voice_transcribe_service_body,
 )
 
@@ -14331,6 +14332,39 @@ def tts_synthesize_batch_api(req: dict):
             },
         )
     return result
+
+
+# SSEストリーミング版バッチTTS: 文単位で合成が終わったセグメントから順に送出し、
+# ブラウザは最初のセグメント受信時点で再生を開始できる（LLM回答後の待ち時間を短縮）。
+@app.post("/tts/synthesize-stream")
+def tts_synthesize_stream_api(req: dict):
+    try:
+        generator = run_tts_synthesize_stream_service_body(
+            req,
+            TtsSynthesizeBatchServiceDependencies(
+                engine_registry=_tts_engine_registry,
+                logger=_style_bert_vits2_logger,
+                ensure_model_exists=ensure_model_exists,
+                style_bert_vits2_models_dir=_STYLE_BERT_VITS2_MODELS_DIR,
+                request_id_factory=lambda: uuid.uuid4().hex[:8],
+                job_create=job_create,
+                job_update_status=job_update_status,
+                job_append_step=job_append_step,
+                sample_rate_from_wav_bytes=_sample_rate_from_wav_bytes,
+                merge_wav_bytes=_merge_wav_bytes,
+                perf_counter=time.perf_counter,
+            ),
+        )
+    except AudioRuntimeHttpError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+        },
+    )
 
 
 # =========================

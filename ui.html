@@ -3158,6 +3158,10 @@ function ttsSpeak(text, opts = {}) {
 }
 
 function ttsStop() {
+  if (_ttsStreamAbortController) {
+    try { _ttsStreamAbortController.abort(); } catch (_e) {}
+    _ttsStreamAbortController = null;
+  }
   tts._queue = [];
   ttsAudioQueue = [];
   isTtsPlaying = false;
@@ -3504,6 +3508,18 @@ async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
       ..._pickStyleBertBatchItemProps(payload),
     };
   });
+  // まずSSEストリーミング合成を試す: 文単位で合成完了したセグメントから順に受信し、
+  // 受信即キュー投入→自動連続再生されるため、最初の音声までの待ち時間が大幅に減る。
+  const streamBody = {
+    ...common,
+    text: translatedSentences.join(' '),
+    route: '/tts/synthesize-stream',
+    items,
+  };
+  const streamResult = await _ttsStreamBatchAudio(streamBody, {context, translatedSentences});
+  if (streamResult?.ok) return;
+  console.warn(`[TTS][stream_fallback_to_batch] reason=${streamResult?.reason || 'unknown'}`);
+
   const body = {
     ...common,
     text: translatedSentences.join(' '),
@@ -3521,6 +3537,107 @@ async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
     textPreview: String(translatedSentences[0] || '').slice(0, 60),
   });
   if (result?.reason === 'blocked') return;
+}
+
+// SSEストリーミング版バッチTTS受信: /tts/synthesize-stream からセグメント単位の
+// 音声(base64)を受信し、届いた順に再生キューへ投入する。再生は ttsAudioQueue が
+// 逐次処理するため、後続セグメントの合成中でも先頭から連続再生される。
+// 失敗時は {ok:false, reason} を返し、呼び出し元が従来のバッチ合成へフォールバックする。
+let _ttsStreamAbortController = null;
+
+async function _ttsStreamBatchAudio(body = {}, opts = {}) {
+  const context = opts.context || 'main';
+  if (_ttsStreamAbortController) {
+    try { _ttsStreamAbortController.abort(); } catch (_e) {}
+  }
+  const abortController = new AbortController();
+  _ttsStreamAbortController = abortController;
+  let resp = null;
+  try {
+    resp = await fetch(API + '/tts/synthesize-stream', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+      signal: abortController.signal,
+    });
+  } catch (e) {
+    if (_ttsStreamAbortController === abortController) _ttsStreamAbortController = null;
+    return {ok: false, reason: `network_error:${e?.message || e}`};
+  }
+  const ct = String(resp.headers.get('Content-Type') || '').toLowerCase();
+  if (!resp.ok || !ct.startsWith('text/event-stream') || !resp.body) {
+    return {ok: false, reason: `http_${resp.status}_ct_${ct || 'none'}`};
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let enqueued = 0;
+  let failed = 0;
+  let serverError = '';
+  const startedAt = Date.now();
+  try {
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      let sep;
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const rawEvent = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        const dataLine = rawEvent.split('\n').find((l) => l.startsWith('data: '));
+        if (!dataLine) continue;
+        let ev = null;
+        try { ev = JSON.parse(dataLine.slice(6)); } catch (_e) { continue; }
+        if (ev.type === 'segment' && ev.audio_base64) {
+          let blob = null;
+          try {
+            const bin = atob(ev.audio_base64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+            blob = new Blob([bytes], {type: ev.media_type || 'audio/wav'});
+          } catch (_e) {
+            blob = null;
+          }
+          if (!blob || blob.size <= 0) {
+            failed += 1;
+            console.warn(`[TTS][stream_segment_decode_error] id=${ev.id || ''}`);
+            continue;
+          }
+          enqueued += 1;
+          if (enqueued === 1) {
+            console.info(`[TTS][stream_first_segment] id=${ev.id || ''} latency_ms=${Date.now() - startedAt}`);
+          }
+          // await しない: 再生完了を待つとストリーム読み出しが止まるため、
+          // キュー（ttsAudioQueue）の逐次再生に委ねる。
+          enqueueTtsAudioBlob(blob, `tts-stream-${ev.id || enqueued}-${Date.now()}`, {
+            context,
+            source: context === 'echo' ? 'echo' : (context === 'agent' ? 'agent' : 'chat'),
+            engine: 'style_bert_vits2',
+            engine_key: 'style_bert_vits2',
+            kind: 'stream',
+            textPreview: String((opts.translatedSentences || [])[(ev.index || 1) - 1] || '').slice(0, 60),
+          });
+        } else if (ev.type === 'segment_error') {
+          failed += 1;
+          console.warn(`[TTS][stream_segment_error] id=${ev.id || ''} error=${ev.error || ''}`);
+        } else if (ev.type === 'error') {
+          serverError = String(ev.error || 'stream error');
+          console.warn(`[TTS][stream_error] error=${serverError}`);
+        } else if (ev.type === 'done') {
+          console.info(`[TTS][stream_done] total=${ev.total} succeeded=${ev.succeeded} failed=${ev.failed} elapsed_ms=${ev.elapsed_ms}`);
+        }
+      }
+    }
+  } catch (e) {
+    // 受信途中の中断（ttsStop含む）: 既に受信済みのセグメントの扱いは呼び出し元に委ねる
+    console.warn(`[TTS][stream_read_error] err=${e?.message || e}`);
+    if (enqueued > 0) return {ok: true, enqueued, failed, partial: true};
+    return {ok: false, reason: `read_error:${e?.message || e}`};
+  } finally {
+    if (_ttsStreamAbortController === abortController) _ttsStreamAbortController = null;
+  }
+  if (enqueued > 0) return {ok: true, enqueued, failed};
+  return {ok: false, reason: serverError || (failed > 0 ? 'all_segments_failed' : 'no_segments')};
 }
 
 async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts = {}) {

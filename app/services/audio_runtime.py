@@ -82,6 +82,12 @@ AUDIO_RUNTIME_ENDPOINT_OWNERSHIP: dict[str, dict[str, str]] = {
         "risk": "high-risk execution",
         "next_step": "PR4.58 extracted the batch service body; keep route owner in main.py",
     },
+    "POST /tts/synthesize-stream": {
+        "owner": "main.py",
+        "domain": "TTS/SBV2 streaming batch execution",
+        "risk": "high-risk execution",
+        "next_step": "SSE per-segment streaming so the browser starts playback before the batch completes",
+    },
 }
 
 
@@ -1867,6 +1873,148 @@ def run_tts_synthesize_batch_service_body(
             zip_file.close()
         if zip_tempdir_ctx is not None:
             zip_tempdir_ctx.cleanup()
+
+
+def run_tts_synthesize_stream_service_body(
+    req: Mapping[str, Any] | None,
+    deps: TtsSynthesizeBatchServiceDependencies,
+):
+    """POST /tts/synthesize-stream: 文単位で逐次合成し、完成したセグメントから
+    SSE (data: {...}\n\n) で送出するジェネレータを返す。バッチ版と同じ依存・検証を
+    使い、ブラウザは最初のセグメント受信時点で再生を開始できる。
+
+    バリデーションエラーはジェネレータ開始前に AudioRuntimeHttpError を送出する。
+    個々のセグメント失敗は segment_error イベントとして送出し、残りの合成は続行する。
+    """
+
+    route_req = dict(req or {})
+    engine = "style_bert_vits2"
+    route_req["engine"] = engine
+    route_req["engine_key"] = engine
+    model = str(route_req.get("model", "")).strip()
+    device = str(route_req.get("device", "")).strip()
+    items = route_req.get("items")
+    request_id = str(route_req.get("request_id") or deps.request_id_factory())
+
+    if not isinstance(items, list) or not items:
+        raise AudioRuntimeHttpError(status_code=400, detail="items must be a non-empty list")
+    for index, raw_item in enumerate(items):
+        if not isinstance(raw_item, dict):
+            raise AudioRuntimeHttpError(status_code=400, detail=f"items[{index}] must be object")
+        if not str(raw_item.get("text", "")).strip():
+            raise AudioRuntimeHttpError(status_code=400, detail=f"items[{index}].text required")
+
+    normalized_key = deps.engine_registry.resolve_engine_key(engine, route_req.get("engine_key"))
+    if normalized_key == "style_bert_vits2" and not model:
+        model = "koharune-ami"
+    if normalized_key == "style_bert_vits2":
+        deps.ensure_model_exists(model, deps.style_bert_vits2_models_dir)
+
+    try:
+        runtime = deps.engine_registry.get(raw_engine=engine, raw_engine_key=route_req.get("engine_key"))
+    except KeyError:
+        raise AudioRuntimeHttpError(status_code=400, detail=f"不明なエンジン: {engine}")
+
+    common_payload = dict(route_req)
+    common_payload["engine"] = engine
+    common_payload["request_id"] = request_id
+    common_payload["model"] = model
+    common_payload["device"] = device
+
+    project = str(route_req.get("project", "default") or "default")
+
+    def _sse(payload: Mapping[str, Any]) -> str:
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    def stream():
+        job_id = deps.job_create(
+            project=project,
+            message=f"tts_synthesize_stream request_id={request_id}",
+            mode="tts_stream",
+        )
+        deps.job_update_status(project, job_id, "running")
+        seq = 0
+
+        def _append_step(event_type: str, data: Mapping[str, Any]) -> None:
+            nonlocal seq
+            deps.job_append_step(project, job_id, seq, event_type, data)
+            seq += 1
+
+        total = len(items)
+        succeeded = 0
+        failed = 0
+        started_at = deps.perf_counter()
+        yield _sse({"type": "start", "request_id": request_id, "total": total, "engine": normalized_key, "model": model})
+        _append_step("tts_stream_started", {"total": total})
+        try:
+            # prepare はワーカー起動・モデルロードを含むため、startイベント送出後に行い
+            # クライアントが接続成立をすぐ確認できるようにする。
+            if normalized_key == "style_bert_vits2" and hasattr(runtime, "prepare"):
+                try:
+                    runtime.prepare({"model": model, "device": device})
+                except Exception as e:
+                    _append_step("tts_stream_failed", {"error": f"prepare failed: {e}"})
+                    deps.job_update_status(project, job_id, "error")
+                    yield _sse({"type": "error", "request_id": request_id, "error": f"prepare failed: {e}"})
+                    return
+            for index, raw_item in enumerate(items):
+                item_id = str(raw_item.get("id") or f"item-{index+1:03d}")
+                text = str(raw_item.get("text", "")).strip()
+                item_payload = dict(common_payload)
+                item_payload.update(raw_item)
+                item_payload["text"] = text
+                item_payload["model"] = model
+                item_payload["device"] = device
+                item_payload["request_id"] = f"{request_id}-{index+1:03d}"
+                started = deps.perf_counter()
+                try:
+                    audio_bytes, media_type = runtime.synthesize(item_payload)
+                    if not audio_bytes:
+                        raise RuntimeError("empty audio")
+                except Exception as e:
+                    failed += 1
+                    deps.logger.warning(
+                        "[TTS][stream_item:%s] idx=%d id=%s failed: %s",
+                        request_id, index + 1, item_id, e,
+                    )
+                    _append_step("tts_stream_item_failed", {"index": index + 1, "id": item_id, "error": str(e)})
+                    yield _sse({"type": "segment_error", "request_id": request_id, "index": index + 1, "id": item_id, "total": total, "error": str(e)})
+                    continue
+                elapsed_ms = int((deps.perf_counter() - started) * 1000)
+                succeeded += 1
+                deps.logger.info(
+                    "[TTS][stream_item:%s] idx=%d id=%s elapsed_ms=%d bytes=%d",
+                    request_id, index + 1, item_id, elapsed_ms, len(audio_bytes),
+                )
+                _append_step("tts_stream_item_done", {"index": index + 1, "id": item_id, "elapsed_ms": elapsed_ms, "output_bytes": len(audio_bytes)})
+                yield _sse({
+                    "type": "segment",
+                    "request_id": request_id,
+                    "index": index + 1,
+                    "id": item_id,
+                    "total": total,
+                    "media_type": str(media_type or "audio/wav"),
+                    "sample_rate": deps.sample_rate_from_wav_bytes(audio_bytes),
+                    "elapsed_ms": elapsed_ms,
+                    "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+                })
+            total_elapsed_ms = int((deps.perf_counter() - started_at) * 1000)
+            _append_step("tts_stream_done", {"total": total, "succeeded": succeeded, "failed": failed, "elapsed_ms": total_elapsed_ms})
+            deps.job_update_status(project, job_id, "done" if succeeded else "error")
+            yield _sse({"type": "done", "request_id": request_id, "total": total, "succeeded": succeeded, "failed": failed, "elapsed_ms": total_elapsed_ms})
+        except GeneratorExit:
+            # クライアント切断（ttsStop / ページ遷移）: 残りの合成を打ち切る
+            _append_step("tts_stream_cancelled", {"total": total, "succeeded": succeeded, "failed": failed})
+            deps.job_update_status(project, job_id, "cancelled")
+            raise
+        except Exception as e:
+            deps.logger.warning("[TTS][stream:%s] failed: %s", request_id, e)
+            _append_step("tts_stream_failed", {"error": str(e)})
+            deps.job_update_status(project, job_id, "error")
+            yield _sse({"type": "error", "request_id": request_id, "error": str(e)})
+
+    return stream()
+
 
 def classify_audio_endpoint_risk(method_and_path: str) -> str:
     """Return the inventory risk label for a route-neutral method/path key."""
