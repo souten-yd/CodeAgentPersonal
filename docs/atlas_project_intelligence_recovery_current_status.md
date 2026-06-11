@@ -6,11 +6,11 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-15`
-- Next action: execute PIR-15 final rollout and retirement gates: prove active rollout transition,
-  generate/verify consumer-zero evidence for each removable legacy path, test rollback before any
-  removal, verify data migration/docs, and only then retire legacy paths.
+- Next action: drive PIR-15 legacy consumers to consumer-zero in the approved cutover order,
+  extend missing shadow/rollback evidence for repair and Greenfield phases, verify data migration,
+  and only then retire proven-zero legacy paths in separate low-risk changes.
 - Blocker: none for the current package.
-- Rollout: off by default
+- Rollout: off by default; isolated PIR-15 active production preflight transition evidence passed
 
 This file selects the active package. The old PI package table does not prove final completion.
 
@@ -39,7 +39,9 @@ This file selects the active package. The old PI package table does not prove fi
 - PIR-15 Greenfield comparative benchmark has passed through the live Atlas entrypoint;
 - PIR-15 expanded Greenfield/existing-project comparative benchmark now passes on verified outcomes
   without safety regression; latency-only regression is recorded as non-blocking benchmark evidence;
-- final active rollout, broader real comparative benchmark, and legacy retirement remain incomplete.
+- PIR-15 active production preflight transition evidence now passes in an isolated data root;
+- final broader legacy retirement remains incomplete because consumer-zero and data-migration gates
+  are not yet satisfied.
 
 ## Package table
 
@@ -80,6 +82,70 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Active rollout and retirement gate evidence
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/retirement_gate.py — added a PIR-15 gate that combines benchmark,
+  consumer registry, rollout evidence, consumer cutover, isolated active rollout transition,
+  data migration, and docs signals before authorizing any legacy deletion.
+- tools/run_pir15_retirement_gate.py — added a CLI that writes isolated active production rollout
+  preflight evidence and a retirement gate report; blocked status remains blocked unless
+  --allow-blocked-exit-zero is used for evidence capture.
+- tests/test_project_intelligence_pir15_retirement_gate.py — added regressions for active rollout
+  transition evidence, consumer-zero blocking, all-gate pass semantics, and CLI blocked reporting.
+- docs/atlas_project_intelligence_recovery_current_status.md — recorded the current PIR-15 gate
+  result and next cutover/retirement work.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\retirement_gate.py
+  tools\run_pir15_retirement_gate.py tests\test_project_intelligence_pir15_retirement_gate.py ->
+  compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir15_retirement_gate.py -> 4 passed
+  in 1.01s.
+- python <<generate current PIR-14 registry/lint/rollout/cutover artifacts>> -> lint_passed=true;
+  artifacts written under ca_data\atlas.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --docs-updated --allow-blocked-exit-zero
+  -> exit 0; status=blocked, active_rollout=true, legacy_consumer_count=24,
+  blocked_reasons=[data_migration_not_verified, legacy_capability_retirement_not_ready].
+- python -m pytest -q tests\test_project_intelligence_pir15_retirement_gate.py
+  tests\test_project_intelligence_pir15_live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark_cli.py
+  tests\test_project_intelligence_pir14_consumer_registry.py
+  tests\test_project_intelligence_pir14_rollout_evidence.py
+  tests\test_project_intelligence_pir14_consumer_cutover_gate.py
+  tests\test_project_intelligence_recovery_baseline.py -> 29 passed, 2 xfailed in 29.07s.
+Evidence details:
+- ca_data\atlas\pir15_active_rollout_transition.current.json reports status=passed, active
+  rollout mode=active, concrete production preflight ok, and no disabled required modules.
+- ca_data\atlas\pir15_retirement_gate.current.json reports benchmark_passed=true,
+  manual_metrics_rejected=true, active_rollout_passed=true, consumer_cutover_gate_passed=true,
+  docs_updated=true, data_migration_verified=false, capability_count=6,
+  consumer_zero_capability_count=0, retirement_ready_capability_count=0, and
+  legacy_consumer_count=24.
+- Capability blocks remain: legacy_context_refresh=7, legacy_planner_context=7,
+  legacy_project_inspection=2, legacy_repo_context=4, legacy_verification_gate=1, and
+  legacy_verification_recommendation=3 legacy consumers.
+Unavailable checks: data migration verification, consumer-zero, repair/Greenfield shadow and
+  rollback parity for affected capabilities, actual legacy removal, rollback after each removal,
+  and master Definition of Done remain unclaimed.
+Safety invariants checked: the PIR-15 gate is source-read-only; deletion_authorized remains false
+  while consumer-zero/data-migration gates fail; unavailable does not count as passed.
+Migration/rollout state: default rollout remains off; active transition was exercised in an
+  isolated PIR-15 production preflight data root only.
+Known limitations: PIR-15 acceptance is not complete because no legacy capability is retirement
+  ready yet.
+Next package: PIR-15 — remove or adapt direct legacy consumers in cutover order, extend repair and
+  Greenfield shadow/rollback evidence, verify data migration, and retire only proven-zero paths.
+Blocker: none; remaining work is the next PIR-15 cutover and retirement slice.
+```
 
 ```text
 Work package: PIR-15 — Expanded benchmark stability and acceptance semantics
