@@ -12,13 +12,13 @@ from typing import Any
 
 from agent.atlas_context_refresh_v2_schema import AtlasContextRefreshV2Request
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
-from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
 from agent.atlas_planner_packaging_v2_schema import (
     AtlasPlannerPackagingV2Package,
     AtlasPlannerPackagingV2Request,
 )
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
 from agent.project_intelligence.adapters.context_refresh_v2 import ProjectIntelligenceContextRefreshV2Adapter
+from agent.project_intelligence.adapters.plan_item_impact_map import ProjectIntelligencePlanItemImpactMapAdapter
 from agent.project_intelligence.adapters.repo_context_packaging import ProjectIntelligenceRepoContextPackager
 
 
@@ -75,7 +75,7 @@ class ProjectIntelligencePlannerPackagingV2Adapter:
 
         if not impact and req.include_plan_item_impact_map and req.plan_pool:
             try:
-                impact = AtlasPlanItemImpactMapService(data_root=self.data_root).build_map(
+                impact = ProjectIntelligencePlanItemImpactMapAdapter(data_root=self.data_root).build_map(
                     AtlasPlanItemImpactMapRequest(
                         workspace_id=req.workspace_id,
                         project_path=req.project_path,

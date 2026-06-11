@@ -55,7 +55,7 @@ def test_adapter_builder_failures_non_blocking(tmp_path, monkeypatch):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(adapter_mod.ProjectIntelligenceRepoContextPackager, "build_package", boom)
-    monkeypatch.setattr(adapter_mod.AtlasPlanItemImpactMapService, "build_map", boom)
+    monkeypatch.setattr(adapter_mod.ProjectIntelligencePlanItemImpactMapAdapter, "build_map", boom)
     monkeypatch.setattr(adapter_mod.ProjectIntelligenceContextRefreshV2Adapter, "refresh", boom)
 
     req = AtlasPlannerPackagingV2Request(

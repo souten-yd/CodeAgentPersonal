@@ -171,8 +171,11 @@ Core v1 reference.
 ### 4.8 Impact map
 
 - **Current capability**: maps a PlanItem to impacted files/tests.
-- **Authoritative owner**: `agent/atlas_plan_item_impact_map_service.py:AtlasPlanItemImpactMapService`;
-  Twin impact in `agent/project_twin/analysis.py:GraphAnalysisService.assess_impact`.
+- **Authoritative owner**:
+  `agent/project_intelligence/adapters/plan_item_impact_map.py:ProjectIntelligencePlanItemImpactMapAdapter`
+  (legacy `agent/atlas_plan_item_impact_map_service.py:AtlasPlanItemImpactMapService`
+  retired in PIR-15); Twin impact in
+  `agent/project_twin/analysis.py:GraphAnalysisService.assess_impact`.
 - **Known duplication**: heuristic impact map vs. Twin graph impact.
 - **Reusable contracts**: impact-map result shape; `ImpactRequest`/`ImpactResult` (twin).
 - **Missing behavior**: heuristic map lacks resolved reverse-dependency/transitive analysis,
@@ -302,8 +305,9 @@ Core v1 reference.
    `agent/project_intelligence/adapters/planner_packaging_v2.py`, and
    `project_twin/context_broker.py`.
 4. **Context refresh** has two generations (`v1`, `v2`).
-5. **Impact** has a heuristic map (`atlas_plan_item_impact_map_service.py`) and a graph
-   analyzer (`project_twin/analysis.py`).
+5. **Impact** has a Project Intelligence heuristic map
+   (`agent/project_intelligence/adapters/plan_item_impact_map.py`) and a graph analyzer
+   (`project_twin/analysis.py`).
 
 Per ADR-PI-010 / migration plan §11–§18, none of these are deleted until consumer-zero +
 parity + rollback + boundary-test gates pass.

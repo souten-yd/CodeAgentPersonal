@@ -34,7 +34,10 @@ def test_data_root_injected_and_missing_index_non_blocking(tmp_path, monkeypatch
         from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMap
         return AtlasPlanItemImpactMap(status='missing')
 
-    monkeypatch.setattr('agent.atlas_plan_item_impact_map_service.AtlasPlanItemImpactMapService.build_map', fake_build_map)
+    monkeypatch.setattr(
+        'agent.project_intelligence.adapters.plan_item_impact_map.ProjectIntelligencePlanItemImpactMapAdapter.build_map',
+        fake_build_map,
+    )
     c = TestClient(app)
     r = c.post('/api/atlas/repo-context/plan-item-impact-map', json={"project_path": str(tmp_path), "plan_pool": {"items": [{"item_id": "1"}]}})
     assert r.status_code == 200

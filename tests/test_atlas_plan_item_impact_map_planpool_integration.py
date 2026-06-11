@@ -41,7 +41,10 @@ def test_planpool_changed_target_top_level_priority(tmp_path, monkeypatch):
 
         return AtlasPlanItemImpactMap(status="missing")
 
-    monkeypatch.setattr('agent.atlas_plan_item_impact_map_service.AtlasPlanItemImpactMapService.build_map', fake_build_map)
+    monkeypatch.setattr(
+        'agent.project_intelligence.adapters.plan_item_impact_map.ProjectIntelligencePlanItemImpactMapAdapter.build_map',
+        fake_build_map,
+    )
     r = c.post('/api/atlas/plan-pools?sync=1', json={
         "input": "do x",
         "project_path": str(tmp_path),
@@ -66,7 +69,10 @@ def test_planpool_changed_target_metadata_fallback(tmp_path, monkeypatch):
 
         return AtlasPlanItemImpactMap(status="missing")
 
-    monkeypatch.setattr('agent.atlas_plan_item_impact_map_service.AtlasPlanItemImpactMapService.build_map', fake_build_map)
+    monkeypatch.setattr(
+        'agent.project_intelligence.adapters.plan_item_impact_map.ProjectIntelligencePlanItemImpactMapAdapter.build_map',
+        fake_build_map,
+    )
     r = c.post('/api/atlas/plan-pools?sync=1', json={
         "input": "do x",
         "project_path": str(tmp_path),

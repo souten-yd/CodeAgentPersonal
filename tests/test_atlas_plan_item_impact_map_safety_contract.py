@@ -4,7 +4,7 @@ from pathlib import Path
 def test_no_forbidden_tokens():
     files = [
         'agent/atlas_plan_item_impact_map_schema.py',
-        'agent/atlas_plan_item_impact_map_service.py',
+        'agent/project_intelligence/adapters/plan_item_impact_map.py',
         'app/api/atlas_repo_context.py',
         'tests/test_atlas_plan_item_impact_map_service.py',
         'tests/test_atlas_plan_item_impact_map_api.py',
