@@ -32,7 +32,6 @@ REUSED_MODULES = [
     "agent.memory",
     "agent.atlas_test_impl_linker",
     "agent.atlas_playwright_smoke_verifier",
-    "agent.atlas_repo_context_service",
 ]
 
 

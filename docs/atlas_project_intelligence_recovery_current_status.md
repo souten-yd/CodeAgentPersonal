@@ -73,6 +73,8 @@ This file selects the active package. The old PI package table does not prove fi
   advisory impact-map behavior is now retained by a Project Intelligence adapter helper.
 - context-refresh v1 legacy owner was retired in a separate low-risk PIR-15 slice; its
   advisory bundle/event persistence behavior is now retained by a Project Intelligence adapter.
+- repo-context legacy owner was retired in a separate low-risk PIR-15 slice; its bounded
+  snapshot and plan-scope behavior is now retained by a Project Intelligence adapter.
 - final broader legacy retirement remains incomplete until remaining proven-zero legacy paths are
   removed in separate low-risk changes with rollback proof for each removal.
 
@@ -117,6 +119,78 @@ The program remains incomplete until PIR-15 and every live Definition of Done ga
 ## Executed package log
 
 ```text
+Work package: PIR-15 — Repo context legacy owner removal
+Status: in_progress
+Changed modules/files:
+- agent/atlas_repo_context_service.py — removed the retired repo-context legacy owner after
+  consumer-zero, data migration, and rollback gates remained passed.
+- agent/project_intelligence/adapters/repo_context_service.py — added the retained Project
+  Intelligence adapter that preserves repo-index-backed snapshot and plan-scope behavior.
+- agent/project_intelligence/adapters/atlas_repo_context.py,
+  agent/project_intelligence/adapters/context_refresh_v1.py, and
+  agent/project_intelligence/adapters/repo_context_packaging.py — now construct the retained
+  ProjectIntelligenceRepoContextService instead of the retired legacy owner.
+- agent/project_intelligence/inspection/consumer_inventory.py, generated inventory/allowlist,
+  consumer registry, and cutover artifacts — removed the retired legacy module from the
+  legacy capability list and recorded the retained adapter module.
+- tests — updated repo-context, context-refresh, legacy-dependency, baseline, and PIR-15
+  inventory assertions for the retained Project Intelligence owner.
+Evidence:
+- python -m py_compile agent\project_intelligence\adapters\repo_context_service.py
+  agent\project_intelligence\adapters\atlas_repo_context.py
+  agent\project_intelligence\adapters\context_refresh_v1.py
+  agent\project_intelligence\adapters\repo_context_packaging.py
+  agent\project_intelligence\inspection\consumer_inventory.py
+  tests\test_atlas_repo_context_service.py -> compile OK.
+- python -m pytest -q tests\test_atlas_repo_context_service.py
+  tests\test_atlas_repo_context_planner_packaging.py
+  tests\test_atlas_repo_context_planpool_integration.py
+  tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_project_intelligence_pir15_legacy_internal_inventory.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_baseline.py tests\test_project_twin_baseline.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_atlas_context_refresh_repo_context_root_persistence.py -> 91 passed,
+  2 xfailed in 41.09s.
+- python -m pytest -q tests\test_atlas_repo_context_service.py
+  tests\test_atlas_repo_context_planner_packaging.py
+  tests\test_atlas_repo_context_planpool_integration.py
+  tests\test_atlas_context_refresh_service.py
+  tests\test_atlas_context_refresh_repo_context_root_persistence.py
+  tests\test_atlas_context_refresh_v2_api.py tests\test_atlas_context_refresh_v2_service.py
+  tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_project_intelligence_pir15_legacy_internal_inventory.py
+  tests\test_project_intelligence_pir15_inspection_adapter.py
+  tests\test_project_intelligence_pir15_data_migration_evidence.py
+  tests\test_project_intelligence_pir15_retirement_gate.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_project_intelligence_pir14_consumer_registry.py
+  tests\test_project_intelligence_pir14_consumer_cutover_gate.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_baseline.py tests\test_project_twin_baseline.py ->
+  122 passed, 2 xfailed in 56.39s.
+- python tools\generate_project_intelligence_consumer_inventory.py --root . --output
+  docs\generated\atlas_project_intelligence_consumer_inventory.json -> production_entrypoints=32,
+  legacy_consumers=7, facades=6, adapters=12, critical_findings=6.
+- python - <<script invoking write_allowlist(...), write_lint_report(...),
+  write_consumer_registry(...), write_consumer_cutover_gate(...)>> -> adapter_count=12,
+  legacy_modules=8, legacy_production_consumers=7, allowed_dependency_count=7,
+  lint_passed=true, registry_legacy_sum=0, cutover_passed=true.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --data-migration-evidence
+  ca_data\atlas\pir15_data_migration_evidence.current.json --docs-updated ->
+  status=passed, active_rollout=true, legacy_consumer_count=0,
+  data_migration_evidence=passed, blocked_reasons=[].
+Proof level: component_complete. Production-connected retirement gate remains passed for the
+overall PIR-15 package; this slice only removes one proven-zero legacy owner and keeps the
+package in_progress for remaining retirement candidates.
+
 Work package: PIR-15 — Context refresh v1 legacy owner removal
 Status: in_progress
 Changed modules/files:

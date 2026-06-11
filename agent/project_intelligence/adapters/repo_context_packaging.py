@@ -14,7 +14,7 @@ from agent.atlas_repo_context_planner_schema import (
     AtlasRepoContextPlannerPackage,
 )
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
-from agent.atlas_repo_context_service import AtlasRepoContextService
+from agent.project_intelligence.adapters.repo_context_service import ProjectIntelligenceRepoContextService
 
 
 class ProjectIntelligenceRepoContextPackager:
@@ -22,7 +22,7 @@ class ProjectIntelligenceRepoContextPackager:
 
     def __init__(self, *, data_root, repo_context_service=None, journal=None):
         self.data_root = Path(data_root)
-        self.repo_context_service = repo_context_service or AtlasRepoContextService(data_root=self.data_root)
+        self.repo_context_service = repo_context_service or ProjectIntelligenceRepoContextService(data_root=self.data_root)
         self.journal = journal
 
     def _safe_summary(self, request: AtlasRepoContextRequest):

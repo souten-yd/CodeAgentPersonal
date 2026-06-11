@@ -12,7 +12,7 @@ from agent.atlas_context_refresh_schema import AtlasContextBundle, AtlasContextR
 from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
-from agent.atlas_repo_context_service import AtlasRepoContextService
+from agent.project_intelligence.adapters.repo_context_service import ProjectIntelligenceRepoContextService
 
 
 class ProjectIntelligenceContextRefreshAdapter:
@@ -137,7 +137,7 @@ class ProjectIntelligenceContextRefreshAdapter:
             created_at=datetime.now(timezone.utc).isoformat(),
         )
         try:
-            snapshot = AtlasRepoContextService(data_root=self.data_root).build_snapshot(
+            snapshot = ProjectIntelligenceRepoContextService(data_root=self.data_root).build_snapshot(
                 AtlasRepoContextRequest(
                     workspace_id=request.workspace_id,
                     project_path=request.project_path,

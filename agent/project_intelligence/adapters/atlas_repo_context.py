@@ -16,7 +16,6 @@ from agent.atlas_repo_context_schema import (
     AtlasRepoContextRequest,
     AtlasRepoContextSnapshot,
 )
-from agent.atlas_repo_context_service import AtlasRepoContextService
 from agent.atlas_verification_planning_schema import AtlasVerificationPlanningRequest
 from agent.atlas_verification_planning_service import AtlasVerificationPlanningService
 from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
@@ -26,6 +25,7 @@ from agent.atlas_verification_recommendation_service import AtlasVerificationRec
 from agent.project_intelligence.adapters.plan_item_impact_map import ProjectIntelligencePlanItemImpactMapAdapter
 from agent.project_intelligence.adapters.planner_packaging_v2 import ProjectIntelligencePlannerPackagingV2Adapter
 from agent.project_intelligence.adapters.repo_context_packaging import ProjectIntelligenceRepoContextPackager
+from agent.project_intelligence.adapters.repo_context_service import ProjectIntelligenceRepoContextService
 
 
 class AtlasRepoContextAdapter:
@@ -35,10 +35,10 @@ class AtlasRepoContextAdapter:
         self.data_root = Path(data_root)
 
     def build_snapshot(self, request: AtlasRepoContextRequest) -> AtlasRepoContextSnapshot:
-        return AtlasRepoContextService(data_root=self.data_root).build_snapshot(request)
+        return ProjectIntelligenceRepoContextService(data_root=self.data_root).build_snapshot(request)
 
     def build_plan_scope_summary(self, request: AtlasRepoContextRequest) -> AtlasPlanScopeSummary:
-        return AtlasRepoContextService(data_root=self.data_root).build_plan_scope_summary(request)
+        return ProjectIntelligenceRepoContextService(data_root=self.data_root).build_plan_scope_summary(request)
 
     def build_impacted_test_recommendation(self, request: AtlasRepoContextRequest):
         return ProjectIntelligenceRepoContextPackager(data_root=self.data_root).build_impacted_test_recommendation(request)

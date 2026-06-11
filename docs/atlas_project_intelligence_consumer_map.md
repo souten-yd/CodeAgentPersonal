@@ -31,14 +31,14 @@ None of these target facades exist yet (PI-1). This map records the **current** 
 
 | Owner symbol | Direct consumers (symbol / file) | Consumer kind |
 |---|---|---|
-| `AtlasRepoIndexService` | `agent/atlas_repo_context_service.py:AtlasRepoContextService`; `app/api/atlas_code_intel.py`; `app/api/atlas_repo_index.py` | agent service + API |
+| `AtlasRepoIndexService` | `agent/project_intelligence/adapters/repo_context_service.py:ProjectIntelligenceRepoContextService`; `app/api/atlas_code_intel.py`; `app/api/atlas_repo_index.py` | Project Intelligence adapter + API |
 | `AtlasCodeIntelService` | `agent/atlas_context_local_collectors.py`; `app/api/atlas_code_intel.py` | agent collector + API |
 | `AtlasProjectInspectionService` | `agent/atlas_context_local_collectors.py`; `app/api/atlas_dev_tools.py` | agent collector + API |
 | `AtlasGitInspectionService` | `agent/atlas_context_local_collectors.py`; `app/api/atlas_dev_tools.py` | agent collector + API |
 | `agent/atlas_code_explorer.py:extract_symbols / find_related_tests / search_code_excerpts / build_research_evidence` | research/evidence + explorer callers (heuristic path) | helper functions |
 | `agent/atlas_test_impl_linker.py:find_implementation_item` | verification recommendation / handoff path | helper function |
 | `ProjectIntelligencePlanItemImpactMapAdapter` | `agent/project_intelligence/adapters/context_refresh_v2.py:ProjectIntelligenceContextRefreshV2Adapter`; `agent/project_intelligence/adapters/planner_packaging_v2.py:ProjectIntelligencePlannerPackagingV2Adapter`; `agent/project_intelligence/adapters/atlas_repo_context.py:AtlasRepoContextAdapter` | Project Intelligence adapter helper |
-| `AtlasRepoContextService` | `agent/project_intelligence/adapters/context_refresh_v1.py:ProjectIntelligenceContextRefreshAdapter`; `agent/project_intelligence/adapters/atlas_repo_context.py:AtlasRepoContextAdapter`; `agent/project_intelligence/adapters/repo_context_packaging.py:ProjectIntelligenceRepoContextPackager` | Project Intelligence adapters |
+| `ProjectIntelligenceRepoContextService` | `agent/project_intelligence/adapters/context_refresh_v1.py:ProjectIntelligenceContextRefreshAdapter`; `agent/project_intelligence/adapters/atlas_repo_context.py:AtlasRepoContextAdapter`; `agent/project_intelligence/adapters/repo_context_packaging.py:ProjectIntelligenceRepoContextPackager` | Project Intelligence adapters |
 | `ProjectIntelligenceRepoContextPackager` | `agent/project_intelligence/adapters/atlas_repo_context.py`; `agent/project_intelligence/adapters/planner_packaging_v2.py`; `agent/project_intelligence/adapters/plan_item_impact_map.py` | Project Intelligence adapter helper |
 | `ProjectIntelligenceContextRefreshAdapter` | `agent/project_intelligence/adapters/atlas_context_refresh.py`; `app/api/atlas_context_refresh.py`; supervised retry/handoff factories via the Project Intelligence adapter | Project Intelligence adapter helper + APIs |
 | `ProjectIntelligenceContextRefreshV2Adapter` | `agent/project_intelligence/adapters/atlas_context_refresh.py`; `agent/project_intelligence/adapters/planner_packaging_v2.py`; `app/api/atlas_context_refresh.py` | Project Intelligence adapter helper + API |
