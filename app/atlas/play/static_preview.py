@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import mimetypes
 import os
@@ -64,16 +65,65 @@ def _host_name(value: str) -> str:
     return text.split(":", 1)[0].lower()
 
 
+def _is_private_ip_host(host: str) -> bool:
+    """Loopback / private (RFC1918) / link-local IP literals reachable on the
+    user's own LAN. iPhone access uses the host's LAN IP, e.g. 192.168.x.x."""
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(ip.is_loopback or ip.is_private or ip.is_link_local)
+
+
+def _configured_preview_hosts() -> set[str]:
+    """Explicit allow-list extensions from the environment (comma separated).
+
+    Lets a deployment pin its public hostname, e.g. a custom domain or tunnel."""
+    raw = os.environ.get("ATLAS_PREVIEW_ALLOWED_HOSTS", "")
+    hosts: set[str] = set()
+    for part in raw.replace(";", ",").split(","):
+        name = _host_name(part)
+        if name:
+            hosts.add(name)
+    return hosts
+
+
+def _is_allowed_preview_host(host: str) -> bool:
+    """Decide whether a request Host / Origin host may reach a Play preview.
+
+    The whole app is intentionally exposed on LAN and on the RunPod proxy
+    (CORS allow_origins=["*"]), so the preview must be reachable from a phone
+    on the same network or through the RunPod proxy. We still reject arbitrary
+    public hostnames (DNS-rebinding protection) by only allowing localhost,
+    the user's own private LAN IPs, the RunPod proxy domain, and any host
+    pinned via ATLAS_PREVIEW_ALLOWED_HOSTS."""
+    if not host:
+        return True
+    if host in _ALLOWED_HOSTS or host in _configured_preview_hosts():
+        return True
+    if _is_private_ip_host(host):
+        return True
+    # RunPod exposes ports as "{pod_id}-{port}.proxy.runpod.net".
+    if host == "proxy.runpod.net" or host.endswith(".proxy.runpod.net"):
+        return True
+    return False
+
+
 def validate_preview_request_headers(headers: dict[str, str]) -> None:
     host = _host_name(headers.get("host", ""))
-    if host and host not in _ALLOWED_HOSTS:
+    if host and not _is_allowed_preview_host(host):
         raise StaticPreviewError("host_not_allowed")
     for header_name in ("origin", "referer"):
         value = headers.get(header_name, "")
         if not value:
             continue
         parsed = urlparse(value)
-        if parsed.scheme not in {"http", "https"} or _host_name(parsed.netloc) not in _ALLOWED_HOSTS:
+        origin_host = _host_name(parsed.netloc)
+        # Legitimate preview requests are same-origin with the page the user
+        # navigated to, so the Origin/Referer host matches the request Host.
+        # Anything else must independently satisfy the host policy.
+        same_origin = bool(host) and origin_host == host
+        if parsed.scheme not in {"http", "https"} or not (same_origin or _is_allowed_preview_host(origin_host)):
             raise StaticPreviewError(f"{header_name}_not_allowed")
 
 
