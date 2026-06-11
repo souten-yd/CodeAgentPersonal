@@ -806,6 +806,84 @@
     appendPlanActionPrompt(poolId, context);
   }
 
+  // Reuse prompt for a plan restored from Plan History that is no longer in an
+  // interactive approval state (ready / completed / failed / running …). Offers the
+  // same three actions as a fresh plan: re-run (re-execute), request revision, cancel.
+  function appendPlanReusePrompt(poolId, context = {}, poolStatus = '') {
+    if (!dom.transcript) return;
+    clearAtlasApprovalActions({ removeAll: true });
+    const node = document.createElement('div');
+    node.className = 'atlas-claude-msg';
+    node.dataset.role = 'system';
+    node.dataset.atlasApprovalActions = 'true';
+    node.dataset.atlasReuseActions = 'true';
+    node.dataset.poolId = String(poolId || '');
+    node.style.flexDirection = 'column';
+    node.style.gap = '6px';
+
+    const text = document.createElement('div');
+    const statusLabel = poolStatus ? `（現在の状態: ${poolStatus}）` : '';
+    text.textContent = `この既存 Plan を再利用しますか？${statusLabel} 再実行すると実行状態をリセットしてからパッチ生成を最初からやり直します。`;
+
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '6px';
+
+    const rerun = document.createElement('button');
+    rerun.type = 'button';
+    rerun.className = 'atlas-claude-primary-btn';
+    rerun.textContent = '承認して実行（再実行）';
+
+    const revise = document.createElement('button');
+    revise.type = 'button';
+    revise.className = 'atlas-claude-secondary-btn';
+    revise.textContent = '改訂を依頼';
+
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'atlas-claude-secondary-btn';
+    cancel.textContent = 'キャンセル';
+
+    const disableAll = () => Array.from(actions.querySelectorAll('button')).forEach((b) => { b.disabled = true; });
+
+    rerun.addEventListener('click', () => {
+      disableAll();
+      node.remove();
+      reuseAndRunPipeline(poolId);
+    });
+    revise.addEventListener('click', () => {
+      const note = (root.prompt && root.prompt('改訂依頼の内容（任意）')) || '';
+      node.remove();
+      requestPlanRevision(poolId, note);
+    });
+    cancel.addEventListener('click', () => {
+      node.remove();
+      cancelPlan(poolId);
+    });
+    actions.append(rerun, revise, cancel);
+    node.append(text, actions);
+    insertApprovalActionsNode(node, poolId, context && context.revisionId);
+  }
+
+  // Re-run an existing plan. Clearing prior execution first is essential: an already
+  // applied/approved item sets patch_proposal.status to applied/accepted, which blocks
+  // regeneration ("patch_proposal_blocked") even with force_regenerate. reset-execution
+  // returns the pool to approval_required with item flags cleared so generation runs.
+  async function reuseAndRunPipeline(poolId) {
+    try {
+      if (root.AtlasPipelineAPI && root.AtlasPipelineAPI.resetPoolExecution) {
+        const reset = await root.AtlasPipelineAPI.resetPoolExecution(poolId, { workspace_id: workspaceId() });
+        if (reset && reset.ok === false) {
+          pushSystemMessage('実行状態のリセットに失敗しました（続行します）: ' + formatError(reset));
+        }
+      }
+    } catch (e) {
+      pushSystemMessage('実行状態のリセットに失敗しました（続行します）: ' + (e && e.message ? e.message : e));
+    }
+    state.dismissedApprovalPlanKeys.delete(poolId);
+    await approveAndRunPipeline(poolId);
+  }
+
   function showRevisionIndicator(poolId) {
     if (!dom.transcript) return null;
     const el = document.createElement('div');
@@ -979,7 +1057,7 @@
       });
     }
     try {
-      await renderPlanPoolMarkdown(poolId);
+      await renderPlanPoolMarkdown(poolId, { allowReuse: true });
       await restoreLatestRun(poolId);
       // Make the restored pool the project's active pool so a browser reload comes back to it.
       persistMeta({ active_pool_id: poolId });
@@ -2257,7 +2335,7 @@
     return box;
   }
 
-  async function renderPlanPoolMarkdown(poolId) {
+  async function renderPlanPoolMarkdown(poolId, opts = {}) {
     if (!root.AtlasPipelineAPI) return;
     // Primary view: a concise structured list of the plan items. The verbose raw markdown
     // (Status / Planning Depth / Items table / Warnings / Errors) is tucked into a collapsible
@@ -2348,6 +2426,12 @@
       pushSystemMessage(`確認回答と plan revision / gate rerun が完了するまで承認できません: ${clarificationBlocks.join(', ')}`);
     } else if (poolStatus === 'approval_required') {
       appendPlanActionPrompt(poolId, approvalContext);
+    } else if (opts.allowReuse) {
+      // Reusing an existing plan from Plan History: the pool is past approval_required
+      // (ready / completed / failed / running …) so no interactive prompt fires above and
+      // the plan would render with no controls. Offer reuse actions so the user can
+      // re-run it (re-execute), request a revision, or cancel.
+      appendPlanReusePrompt(poolId, approvalContext, poolStatus);
     }
   }
 
