@@ -30,6 +30,10 @@ def test_merge_plan_pool_job_preserves_status_and_adds_progress(tmp_path) -> Non
     assert body["status"] == "running"
     assert body["current_phase"] == "plan_generation"
     assert body["is_stalled"] is False
+    # Live token progress UI needs the context window as its denominator.
+    assert "max_ctx" in body
+    assert isinstance(body["max_ctx"], int)
+    assert body["max_ctx"] >= 0
 
 
 def test_status_marks_running_job_stalled_after_progress_threshold(tmp_path, monkeypatch) -> None:
