@@ -6,8 +6,9 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-15`
-- Next action: execute the PIR-15 legacy and final benchmark arms through normal Atlas
-  entrypoint reports under the versioned corpus, then decide active rollout only if gates pass.
+- Next action: fix the PIR-15 final/active benchmark blocker where active Project Intelligence
+  planning marks the PlanPool stale and blocks patch proposal generation with
+  `project_intelligence_stale_context_blocks_active_planning`.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -76,6 +77,65 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Live benchmark CLI and blocked active-arm evidence
+Status: in_progress
+Changed modules/files:
+- tools/run_pir13_live_greenfield.py — added benchmark arm labels and explicit Project
+  Intelligence rollout registration so live runs can execute legacy/off and final/active arms
+  in the same process.
+- tools/run_pir15_live_benchmark.py — added a PIR-15 live benchmark CLI that runs both arms
+  against the versioned corpus, annotates independent acceptance from the real workspace, and
+  writes per-arm reports plus the artifact-derived comparison.
+- agent/project_intelligence/live_benchmark.py — added top-level benchmark acceptance that
+  blocks when any arm fails or the comparison regresses, even if individual metrics appear
+  improved.
+- tests/test_project_intelligence_pir15_live_benchmark_cli.py — added coverage for legacy/off
+  versus final/active rollout execution and blocked-arm reporting.
+- tests/test_project_intelligence_pir15_live_benchmark.py — added coverage that comparative
+  acceptance only passes when both arms pass.
+- docs/atlas_project_intelligence_recovery_current_status.md — recorded the first live
+  benchmark attempt and the active-arm blocker.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\live_benchmark.py
+  tools\run_pir13_live_greenfield.py tools\run_pir15_live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark_cli.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir15_live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark_cli.py
+  tests\test_pir13_live_greenfield_runner.py
+  tests\test_project_intelligence_recovery_baseline.py::test_recovery_status_selects_next_active_package ->
+  9 passed in 7.75s.
+- python tools\run_pir15_live_benchmark.py --workspace-root
+  ca_data\atlas\pir15_live_workspaces_r2 --data-root ca_data\atlas\pir15_live_data_r2
+  --output-json ca_data\atlas\pir15_live_benchmark_report.r2.json -> exit 1;
+  status=blocked, arm_statuses={legacy: passed, final: failed}, verdict=regressed.
+  The configured model probe was ready at http://localhost:8080/v1/chat/completions.
+Evidence details:
+- PIR-15 report acceptance: status=blocked, blocked_reasons=[final:failed,
+  comparison_regressed].
+- Final/active arm: rollout mode active, concrete DigitalTwinModuleImpl,
+  ArchitectureBlueprintModuleImpl, and ConvergenceModuleImpl preflight ok; failed with
+  live_patch_proposal_not_proposed because patch_proposal_status=blocked and
+  warnings=[plan_revision_required_blocks_patch].
+- Final/active orchestration warnings included
+  project_intelligence_stale_context_blocks_active_planning and pipeline_state_not_found;
+  orchestration phase=stale_recovery, next_action="Start a new dry-run from the recovered
+  PlanPool."
+- Legacy/off arm: rollout mode off, disabled modules expected, status=passed.
+Unavailable checks: PIR-15 final active benchmark pass, active rollout decision, consumer-zero,
+  data migration, rollback-before-removal, and legacy retirement remain unclaimed.
+Safety invariants checked: the CLI records blocked evidence truthfully; it does not treat the
+  failed final arm as passed, does not transition rollout, does not mutate source outside the
+  benchmark workspaces, and does not retire legacy paths.
+Migration/rollout state: rollout remains off by default outside the benchmark arm setup; PIR-15
+  remains in_progress.
+Known limitations: active Project Intelligence planning currently blocks patch proposal
+  generation from the live benchmark PlanPool as stale.
+Next package: PIR-15 — fix active planning stale-context blocker, then rerun the live benchmark.
+Blocker: none; this is a reproducible implementation defect, not an approval-required stop.
+```
 
 ```text
 Work package: PIR-15 — Versioned corpus and artifact-derived benchmark runner

@@ -77,6 +77,8 @@ def test_artifact_comparative_report_uses_corpus_task_coverage(tmp_path: Path) -
     )
 
     assert report["source"] == "pir15_artifact_derived_normal_atlas_entrypoint_reports"
+    assert report["acceptance"]["status"] == "blocked"
+    assert "legacy:failed" in report["acceptance"]["blocked_reasons"]
     assert report["safety"]["manual_metrics_accepted"] is False
     assert report["comparison"]["verdict"] == "improved"
     assert report["legacy"]["average_metrics"]["verified_autonomous_completion"] == 0.0
@@ -104,3 +106,17 @@ def test_artifact_comparative_report_rejects_missing_task_reports() -> None:
             final_reports={},
             generated_at="2026-06-11T00:00:00+00:00",
         )
+
+
+def test_artifact_comparative_report_acceptance_passes_only_when_both_arms_pass() -> None:
+    corpus = load_benchmark_corpus(CORPUS)
+    task_id = corpus["tasks"][0]["task_id"]
+
+    report = build_artifact_comparative_report(
+        corpus,
+        legacy_reports={task_id: _report(status="passed", accepted=True)},
+        final_reports={task_id: _report(status="passed", accepted=True)},
+        generated_at="2026-06-11T00:00:00+00:00",
+    )
+
+    assert report["acceptance"] == {"status": "passed", "blocked_reasons": []}
