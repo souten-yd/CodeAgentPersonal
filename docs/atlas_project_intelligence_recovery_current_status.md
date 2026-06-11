@@ -56,8 +56,10 @@ This file selects the active package. The old PI package table does not prove fi
 - supervised handoff retry and verification services now construct context-refresh dependencies
   through the Project Intelligence context-refresh adapter, reducing PIR-15 retirement-gate legacy
   consumers to 1 and making legacy_context_refresh consumer-zero;
-- final broader legacy retirement remains incomplete because consumer-zero and data-migration gates
-  are not yet satisfied.
+- verification gate construction now goes through the Project Intelligence verification adapter,
+  reducing PIR-15 retirement-gate legacy consumers to 0;
+- final broader legacy retirement remains incomplete because data migration, repair/Greenfield
+  shadow parity, rollback parity, and removal/rollback gates are not yet satisfied.
 
 ## Package table
 
@@ -98,6 +100,76 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Verification gate adapter cutover
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/adapters/atlas_verification.py — added AtlasVerificationGateAdapter,
+  a lazy wrapper around the canonical AtlasVerificationGateService that preserves verification
+  authority while moving service construction behind the Project Intelligence verification adapter.
+- app/api/atlas_pipeline.py — routes manual verification through AtlasVerificationGateAdapter
+  instead of importing AtlasVerificationGateService directly.
+- docs/generated/atlas_project_intelligence_consumer_inventory.json and
+  docs/generated/atlas_project_intelligence_legacy_dependency_allowlist.json — regenerated from
+  the current checkout after verification gate cutover.
+- tests/test_project_intelligence_pir15_repo_context_adapter.py and
+  tests/test_project_intelligence_pir14_legacy_dependency_lint.py — updated coverage for
+  pipeline direct legacy imports and reduced direct allowlist.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\adapters\atlas_verification.py
+  app\api\atlas_pipeline.py tests\test_project_intelligence_pir15_repo_context_adapter.py
+  -> compile OK.
+- python -m pytest -q tests\test_atlas_verification_gate_api.py
+  tests\test_project_intelligence_pir12_verification_recovery.py
+  tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_project_intelligence_pir15_retirement_gate.py -> local run could not prove the
+  verification API path because the active LLM made /api/atlas/plan-pools return an async queued
+  response without plan_pool; non-API service/adapter tests are rerun below.
+- python -m pytest -q tests\test_project_intelligence_pir12_verification_recovery.py
+  tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_project_intelligence_pir15_legacy_internal_inventory.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_project_intelligence_pir14_consumer_registry.py
+  tests\test_project_intelligence_pir15_retirement_gate.py -> 33 passed, 2 xfailed in 48.26s.
+- python <<regenerate current inventory, allowlist, rollout, lint, cutover, and registry artifacts>>
+  -> inventory_legacy=7, allowed_dependency_count=7, lint_passed=true,
+  registry_legacy_sum=0, verification_ingest.legacy_consumer_count=0, cutover_passed=true.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --docs-updated --allow-blocked-exit-zero
+  -> exit 0; status=blocked, active_rollout=true, legacy_consumer_count=0,
+  blocked_reasons=[data_migration_not_verified, legacy_capability_retirement_not_ready].
+Evidence details:
+- Generated inventory now records agent.atlas_verification_gate_service with
+  production_consumer_count=0 and adapter_consumer_count=1.
+- app/api/atlas_pipeline.py still imports Project Intelligence and no longer imports direct legacy
+  capabilities in the source-derived production-entrypoint inventory.
+- Direct legacy dependency allowlist now records 7 observed production dependencies, down from 8
+  after the context-refresh agent-service adapter cutover.
+- PIR-15 retirement gate now reports legacy_consumer_count=0,
+  consumer_zero_capability_count=6, and retirement_ready_capability_count=4.
+Unavailable checks: data migration verification, repair/Greenfield shadow and rollback parity,
+  actual legacy removal, rollback after each removal, and master Definition of Done remain
+  unclaimed.
+Safety invariants checked: AtlasVerificationGateService remains the canonical verification
+  authority; the adapter only moves construction/import ownership and does not execute additional
+  commands, approve verification, bypass PlanPool, or weaken validation.
+Migration/rollout state: default rollout remains off; no legacy source path was deleted.
+Known limitations: PIR-15 acceptance is not complete because data migration is not verified and
+  legacy_repo_context plus legacy_verification_recommendation still lack required shadow/rollback
+  parity evidence even with consumer-zero.
+Next package: PIR-15 — add/verify repair and Greenfield shadow/rollback parity plus data-migration
+  evidence before any legacy deletion.
+Blocker: none; remaining work is the next PIR-15 retirement-evidence slice.
+```
 
 ```text
 Work package: PIR-15 — Context-refresh agent-service adapter cutover
