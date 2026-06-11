@@ -7,11 +7,11 @@ from uuid import uuid4
 from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_bounded_retry_schema import AtlasBoundedRetryRequest
 from agent.atlas_bounded_retry_service import AtlasBoundedRetryService
-from agent.atlas_context_refresh_service import AtlasContextRefreshService
 from agent.atlas_dev_tool_path import validate_relative_path
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_llm_evaluator_service import AtlasLLMEvaluatorService
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.project_intelligence.adapters.atlas_context_refresh import AtlasContextRefreshAdapter
 from agent.atlas_supervised_handoff_retry_policies import get_supervised_handoff_retry_policy
 from agent.atlas_supervised_handoff_retry_schema import AtlasSupervisedHandoffRetryRequest, AtlasSupervisedHandoffRetryResult
 from agent.test_command_runner import TestCommandRunner
@@ -21,11 +21,14 @@ class AtlasSupervisedHandoffRetryService:
     def __init__(self, *, storage=None, journal=None, bounded_retry_service=None):
         self.storage = storage or AtlasPlanPoolStorage(Path("ca_data"))
         self.journal = journal or AtlasJournal(Path("ca_data"))
+        context_refresh = AtlasContextRefreshAdapter(data_root=self.storage.root_dir).build_service(
+            journal=self.journal
+        )
         self.bounded_retry_service = bounded_retry_service or AtlasBoundedRetryService(
             storage=self.storage,
             journal=self.journal,
             auto_verification_service=AtlasAutoVerificationService(journal=self.journal, storage=self.storage, command_runner=TestCommandRunner()),
-            context_refresh_service=AtlasContextRefreshService(journal=self.journal),
+            context_refresh_service=context_refresh,
             evaluator_service=AtlasLLMEvaluatorService(journal=self.journal),
         )
 

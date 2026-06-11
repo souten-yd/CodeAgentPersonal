@@ -53,6 +53,9 @@ This file selects the active package. The old PI package table does not prove fi
   consumer-zero;
 - context-refresh API routes and API service factories now use a Project Intelligence
   context-refresh adapter, reducing PIR-15 retirement-gate legacy consumers to 3;
+- supervised handoff retry and verification services now construct context-refresh dependencies
+  through the Project Intelligence context-refresh adapter, reducing PIR-15 retirement-gate legacy
+  consumers to 1 and making legacy_context_refresh consumer-zero;
 - final broader legacy retirement remains incomplete because consumer-zero and data-migration gates
   are not yet satisfied.
 
@@ -95,6 +98,69 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Context-refresh agent-service adapter cutover
+Status: in_progress
+Changed modules/files:
+- agent/atlas_supervised_handoff_retry_service.py — constructs its default bounded-retry
+  context-refresh dependency through the Project Intelligence context-refresh adapter.
+- agent/atlas_supervised_handoff_verification_service.py — constructs its default
+  context-refresh dependency through the same adapter, using the service storage root and journal.
+- docs/generated/atlas_project_intelligence_consumer_inventory.json and
+  docs/generated/atlas_project_intelligence_legacy_dependency_allowlist.json — regenerated from
+  the current checkout after agent-service cutover.
+- tests/test_project_intelligence_pir15_legacy_internal_inventory.py and
+  tests/test_project_intelligence_pir14_legacy_dependency_lint.py — updated coverage for
+  legacy_context_refresh consumer-zero and reduced direct allowlist.
+Executed commands and exact results:
+- python -m py_compile agent\atlas_supervised_handoff_retry_service.py
+  agent\atlas_supervised_handoff_verification_service.py
+  agent\project_intelligence\adapters\atlas_context_refresh.py -> compile OK.
+- python -m pytest -q tests\test_atlas_supervised_handoff_retry_service.py
+  tests\test_atlas_supervised_handoff_verification_service.py
+  tests\test_project_intelligence_pir15_legacy_internal_inventory.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_project_intelligence_pir14_consumer_registry.py
+  tests\test_project_intelligence_pir15_retirement_gate.py -> 28 passed, 2 xfailed in 37.25s.
+- python <<regenerate current inventory, allowlist, rollout, lint, cutover, and registry artifacts>>
+  -> inventory_legacy=8, allowed_dependency_count=8, lint_passed=true,
+  registry_legacy_sum=1, post_apply_refresh.legacy_consumer_count=0,
+  verification_ingest.legacy_consumer_count=1, cutover_passed=true.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --docs-updated --allow-blocked-exit-zero
+  -> exit 0; status=blocked, active_rollout=true, legacy_consumer_count=1,
+  blocked_reasons=[data_migration_not_verified, legacy_capability_retirement_not_ready].
+Evidence details:
+- Generated inventory now records agent.atlas_context_refresh_service and
+  agent.atlas_context_refresh_v2_service with production_consumer_count=0 and
+  adapter_consumer_count=1.
+- Direct legacy dependency allowlist now records 8 observed production dependencies, down from 10
+  after the context-refresh API adapter cutover.
+- PIR-15 retirement gate now reports legacy_context_refresh=0 and legacy_verification_gate=1; the
+  only remaining direct retirement-gate consumer is the verification gate authority in
+  app/api/atlas_pipeline.py.
+Unavailable checks: data migration verification, verification-gate consumer-zero/retained-role
+  decision, repair/Greenfield shadow and rollback parity, actual legacy removal, rollback after
+  each removal, and master Definition of Done remain unclaimed.
+Safety invariants checked: supervised handoff retry and verification still receive a
+  context-refresh dependency with no execution approval, Safe Apply, rollback, or rollout
+  transition behavior added.
+Migration/rollout state: default rollout remains off; no legacy source path was deleted.
+Known limitations: PIR-15 acceptance is not complete because verification gate remains a direct
+  production consumer, data migration is not verified, and repair/Greenfield shadow/rollback
+  parity is still incomplete for consumer-zero capabilities.
+Next package: PIR-15 — resolve the verification-gate retirement classification without weakening
+  canonical verification authority, then re-run retirement/data-migration gates.
+Blocker: none; remaining work is the next PIR-15 gate/retirement slice.
+```
 
 ```text
 Work package: PIR-15 — Context-refresh API adapter cutover
