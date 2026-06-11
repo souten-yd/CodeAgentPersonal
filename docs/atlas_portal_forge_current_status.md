@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-3`
-- Current package goal: Portal snapshot listing and start-from-snapshot UI.
-- Next action: implement PFG-3 snapshot listing + start-from-snapshot run selector
-  on top of the existing snapshot data lifecycle.
-- Last completed: `PFG-2` (Portal import upload endpoint and UI) —
-  acceptance_complete; see PFG-2 evidence below. `PFG-1` audit/locks also complete.
+- Current package: `PFG-4`
+- Current package goal: Legacy package manifest sidecar repair.
+- Next action: implement PFG-4 legacy manifest sidecar repair for packages whose
+  manifest projection is missing/stale.
+- Last completed: `PFG-3` (Portal snapshot listing and start-from-snapshot UI) —
+  acceptance_complete; see PFG-3 evidence below. PFG-1/PFG-2 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -58,7 +58,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-0 | baseline and design acceptance | acceptance_complete |
 | PFG-1 | Portal polish audit and compatibility gates | acceptance_complete |
 | PFG-2 | Portal import upload endpoint and UI | acceptance_complete |
-| PFG-3 | Portal snapshot listing and start-from-snapshot UI | not_started |
+| PFG-3 | Portal snapshot listing and start-from-snapshot UI | acceptance_complete |
 | PFG-4 | legacy package manifest sidecar repair | not_started |
 | PFG-5 | Forge core schemas and taxonomies | not_started |
 | PFG-6 | provider base and registry | not_started |
@@ -263,6 +263,57 @@ Remaining gaps:
 - PFG-3 snapshot listing and start-from-snapshot UI.
 Next package:
 - PFG-3 — Portal snapshot listing and start-from-snapshot UI.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-3 — Portal snapshot listing and start-from-snapshot UI
+Status: acceptance_complete
+Changed modules/files:
+- app/api/portal.py (GET /api/portal/installations/{id}/snapshots)
+- web/js/atlas_pipeline_api.js (listPortalSnapshots)
+- web/js/portal.js (run-sheet Start-from-snapshot mode + snapshot selector;
+  also fixed a stray NUL byte that had crept into the PFG-2 UPLOAD_HANDLED sentinel)
+- tests/test_portal_snapshot_listing.py (new)
+Public contracts added or changed:
+- New endpoint GET /api/portal/installations/{installation_id}/snapshots
+  returning {available, snapshots:[{snapshot_id, source, last_modified, data_bytes}]}.
+  Existing run/data/snapshot-save contracts unchanged.
+Behavior implemented:
+- Run sheet now offers "Start from snapshot"; selecting it lazily lists the
+  installation's snapshots and runs with run_mode=start_from_snapshot + snapshot_id.
+- Empty-state ("スナップショットがありません") and unavailable-state ("一覧を取得
+  できません") are shown truthfully; Run is blocked until a snapshot is chosen.
+- Save-as-snapshot during run and discard semantics are unchanged (existing data
+  lifecycle services); start-from-snapshot restore and discard remain covered by
+  test_portal_data_lifecycle.
+Focused tests:
+- python -m pytest tests/test_portal_snapshot_listing.py -> 2 passed
+  (empty list available+truthful; saved snapshots listed, isolated per installation,
+   correct data_bytes).
+Syntax checks:
+- node --check web/js/portal.js (NUL-free), web/js/atlas_pipeline_api.js -> ok
+- python -m py_compile app/api/portal.py -> ok
+Affected tests:
+- python -m pytest tests/test_portal_catalog.py tests/test_portal_data_lifecycle.py
+  tests/test_portal_runtime.py tests/test_portal_recovery_lifecycle.py
+  tests/test_portal_import_browse.py tests/test_portal_import_upload.py
+  tests/test_portal_pfg1_regression_locks.py tests/test_portal_snapshot_listing.py
+  -> 39 passed. START_FROM_SNAPSHOT restore + discard covered by
+  test_save_as_snapshot_does_not_mutate_current_or_source_snapshot and
+  test_discard_rolls_back_session_writes_and_ephemeral_defaults_to_discard.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-3 is a Portal data-lifecycle UI package.
+Safety invariants verified:
+- Snapshot list isolated per installation; no free-form command / data-free / quarantine
+  locks (PFG-1) still pass.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-4 legacy package manifest sidecar repair.
+Next package:
+- PFG-4 — Legacy package manifest sidecar repair.
 Blocker:
 - None.
 ```
