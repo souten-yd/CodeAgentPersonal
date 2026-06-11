@@ -4,7 +4,9 @@ import os
 import string
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from uuid import uuid4
+
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -104,6 +106,43 @@ def import_package(payload: PortalArchivePathRequest, request: Request) -> dict:
         return _catalog(request).import_archive(payload.archive_path)
     except PortalCatalogError as exc:
         _raise_catalog_error(exc)
+
+
+# Cap the uploaded (compressed) archive before it is opened. The catalog preflight
+# additionally enforces uncompressed size, file count, and compression-ratio limits.
+MAX_IMPORT_UPLOAD_BYTES = 100 * 1024 * 1024
+
+
+@router.post("/import/upload")
+async def import_upload(request: Request, file: UploadFile = File(...)) -> dict:
+    """Browser/server upload import: stage the uploaded archive into a quarantine
+    directory under a sanitized name, then run the same preflight + manifest +
+    checksum checks as path import. The package is never trusted until those pass;
+    classification stays untrusted_imported_package."""
+    catalog = _catalog(request)
+    import_id = uuid4().hex
+    try:
+        staged = catalog.begin_quarantine_import(import_id, file.filename or "")
+    except PortalCatalogError as exc:
+        _raise_catalog_error(exc)
+    try:
+        size = 0
+        with open(staged, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_IMPORT_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail={"error": "upload_too_large"})
+                out.write(chunk)
+        if size == 0:
+            raise HTTPException(status_code=400, detail={"error": "empty_upload"})
+        return catalog.import_archive(str(staged))
+    except PortalCatalogError as exc:
+        _raise_catalog_error(exc)
+    finally:
+        catalog.discard_quarantine_import(import_id)
 
 
 def _import_browse_platform() -> str:

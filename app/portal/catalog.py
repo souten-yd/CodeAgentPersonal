@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import zipfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -60,11 +61,42 @@ class PortalCatalogService:
             ],
         }
 
+    @staticmethod
+    def safe_upload_filename(filename: str) -> str:
+        """Sanitize a browser-supplied upload name to a safe, extension-checked file
+        name. Strips any directory component and rejects non-archive extensions so an
+        upload can never be staged outside the quarantine dir or under a tricky name."""
+        base = Path(str(filename or "")).name
+        low = base.lower()
+        if not (low.endswith(".portal.zip") or low.endswith(".zip")):
+            raise PortalCatalogError("unsupported_archive_extension")
+        cleaned = re.sub(r"[^A-Za-z0-9._-]", "_", base).lstrip(".") or "upload"
+        if not cleaned.lower().endswith(".zip"):
+            cleaned = f"{cleaned}.zip"
+        return cleaned
+
+    def begin_quarantine_import(self, import_id: str, filename: str) -> Path:
+        """Return a quarantined staging path for an uploaded archive. The archive is
+        untrusted until preflight + manifest checks pass in import_archive."""
+        staged_name = self.safe_upload_filename(filename)
+        quarantine_dir = self.paths.quarantine_root(import_id)
+        quarantine_dir.mkdir(parents=True, exist_ok=True)
+        return quarantine_dir / staged_name
+
+    def discard_quarantine_import(self, import_id: str) -> None:
+        quarantine_dir = self.paths.quarantine_root(import_id)
+        if quarantine_dir.exists():
+            shutil.rmtree(quarantine_dir, ignore_errors=True)
+
     def preflight_archive(self, archive_path: str | Path) -> dict:
         path = Path(archive_path).expanduser().resolve()
         if not path.exists() or not path.is_file():
             raise PortalCatalogError("archive_missing")
-        with zipfile.ZipFile(path) as zf:
+        try:
+            archive = zipfile.ZipFile(path)
+        except zipfile.BadZipFile as exc:
+            raise PortalCatalogError("archive_not_a_zip") from exc
+        with archive as zf:
             infos = [info for info in zf.infolist() if not info.is_dir()]
             if len(infos) > MAX_IMPORT_FILES:
                 raise PortalCatalogError("archive_file_count_exceeded")
