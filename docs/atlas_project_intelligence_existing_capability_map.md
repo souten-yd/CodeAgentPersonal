@@ -66,7 +66,8 @@ Core v1 reference.
 
 - **Current capability**: enumerates project files into JSON index runs; route/path
   discovery heuristics.
-- **Authoritative owner**: `agent/atlas_repo_index_service.py:AtlasRepoIndexService`
+- **Authoritative owner**: `agent/project_intelligence/adapters/repo_index.py:ProjectIntelligenceRepoIndexService`
+  (legacy `agent/atlas_repo_index_service.py:AtlasRepoIndexService` retired in PIR-15)
   (storage `agent/atlas_repo_index_storage.py:AtlasRepoIndexStorage`, schema
   `agent/atlas_repo_index_schema.py`, policies `agent/atlas_repo_index_policies.py`).
 - **Known duplication**: file iteration also exists in
@@ -118,7 +119,7 @@ Core v1 reference.
 
 - **Current capability**: route/path heuristics in repo index service/policies; FastAPI
   registration via `app/server.py:include_routers()` and `main.py`.
-- **Authoritative owner**: `agent/atlas_repo_index_service.py` +
+- **Authoritative owner**: `agent/project_intelligence/adapters/repo_index.py` +
   `agent/atlas_repo_index_policies.py`; Twin route projection in
   `agent/project_twin/static_graph.py`.
 - **Missing behavior**: no FastAPI route → handler → service → side-effect graph beyond
@@ -293,7 +294,7 @@ Core v1 reference.
 
 | Domain source | Authoritative owner | PI relation |
 |---|---|---|
-| Code / workspace | Git + workspace; `AtlasRepoIndexService`, `ProjectIntelligenceCodeIntelAdapter` | projected into Digital Twin |
+| Code / workspace | Git + workspace; `ProjectIntelligenceRepoIndexService`, `ProjectIntelligenceCodeIntelAdapter` | projected into Digital Twin |
 | Messages | `AtlasConversationStore` | referenced (delivery trace) |
 | Requirements | `AtlasRequirementTracer` / requirement schema | KEEP canonical + ADAPT projection |
 | Planning / execution | PlanPool/workflow stores | KEEP; referenced, never mutated |

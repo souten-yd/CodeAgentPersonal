@@ -1,7 +1,7 @@
 """Code exploration utilities: give the planner/patch-generator REAL code, not just file names.
 
 Pillar C of the autonomous-agent roadmap. This is a small, dependency-free, read-only explorer over a
-project directory. It reuses the AST/keyword patterns already proven in agent/atlas_repo_index_service.py
+project directory. It reuses the AST/keyword patterns already proven in the repo-index adapter
 but works directly on disk (no pre-built index required), so research-first and patch generation can
 ground on actual source excerpts and symbols.
 

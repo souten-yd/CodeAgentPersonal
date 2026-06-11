@@ -33,7 +33,6 @@ DOCS = REPO_ROOT / "docs"
 
 REUSED_OWNER_MODULES = [
     # repository enumeration / symbol & dependency extraction
-    "agent.atlas_repo_index_service",
     "agent.atlas_repo_index_storage",
     "agent.atlas_code_intel_schema",
     # project / git inspection
@@ -62,7 +61,6 @@ def test_reused_owner_modules_import(module_name: str) -> None:
 # --- Authoritative owner symbols are present on their modules ----------------
 
 OWNER_SYMBOLS = [
-    ("agent.atlas_repo_index_service", "AtlasRepoIndexService"),
     ("agent.atlas_project_inspection_service", "AtlasProjectInspectionService"),
     ("agent.atlas_git_inspection_service", "AtlasGitInspectionService"),
     ("agent.atlas_verification_recommendation_service", "AtlasVerificationRecommendationService"),

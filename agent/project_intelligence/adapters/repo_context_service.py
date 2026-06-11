@@ -3,14 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent.atlas_repo_context_schema import AtlasPlanScopeSummary, AtlasRepoContextRequest, AtlasRepoContextSnapshot
-from agent.atlas_repo_index_service import AtlasRepoIndexService
 from agent.atlas_repo_index_storage import AtlasRepoIndexStorage
+from agent.project_intelligence.adapters.repo_index import ProjectIntelligenceRepoIndexService
 
 
 class ProjectIntelligenceRepoContextService:
     def __init__(self, *, data_root, repo_index_service=None, repo_index_storage=None, journal=None):
         self.data_root = Path(data_root)
-        self.repo_index_service = repo_index_service or AtlasRepoIndexService(self.data_root)
+        self.repo_index_service = repo_index_service or ProjectIntelligenceRepoIndexService(self.data_root)
         self.repo_index_storage = repo_index_storage or AtlasRepoIndexStorage(self.data_root)
         self.journal = journal
 

@@ -17,7 +17,6 @@ import pytest
 # --- Authoritative owners must remain importable -----------------------------
 
 REUSED_MODULES = [
-    "agent.atlas_repo_index_service",
     "agent.atlas_repo_index_storage",
     "agent.atlas_code_intel_schema",
     "agent.context_builder",
