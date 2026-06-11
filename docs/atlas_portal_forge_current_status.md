@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-5`
-- Current package goal: Forge core schemas and taxonomies.
-- Next action: begin Model Forge core — define Forge schemas/taxonomies (off by
-  default; no provider execution yet). Portal polish track PFG-1..PFG-4 complete.
-- Last completed: `PFG-4` (Legacy package manifest sidecar repair) —
-  acceptance_complete; see PFG-4 evidence below. PFG-1/PFG-2/PFG-3 also complete.
+- Current package: `PFG-6`
+- Current package goal: provider base and registry.
+- Next action: implement Forge provider base interface + registry (config + health
+  state) on top of the PFG-5 schemas; providers disabled by default, no execution.
+- Last completed: `PFG-5` (Forge core schemas and taxonomies) —
+  acceptance_complete; see PFG-5 evidence below. PFG-1..PFG-4 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -60,7 +60,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-2 | Portal import upload endpoint and UI | acceptance_complete |
 | PFG-3 | Portal snapshot listing and start-from-snapshot UI | acceptance_complete |
 | PFG-4 | legacy package manifest sidecar repair | acceptance_complete |
-| PFG-5 | Forge core schemas and taxonomies | not_started |
+| PFG-5 | Forge core schemas and taxonomies | acceptance_complete |
 | PFG-6 | provider base and registry | not_started |
 | PFG-7 | Legacy Atlas Executor adapter | not_started |
 | PFG-8 | local OpenAI-compatible provider adapter | not_started |
@@ -361,6 +361,55 @@ Remaining gaps:
 - Portal polish track (PFG-1..PFG-4) complete. Forge core begins at PFG-5.
 Next package:
 - PFG-5 — Forge core schemas and taxonomies.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-5 — Forge core schemas and taxonomies
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/__init__.py (new package; re-exports)
+- agent/model_forge/schema.py (ProviderDescriptor, ModelDescriptor, ModelProfile,
+  BenchmarkPreset, ArenaCandidate + AdoptionState, CandidateScore,
+  ForgeExecutionRequest, ForgeExecutionResult, ProviderSupport, ForgeUsage,
+  SourceClass)
+- agent/model_forge/stage_taxonomy.py (ForgeStage, StageMode, default rollout)
+- agent/model_forge/route_taxonomy.py (ForgeRoute)
+- agent/model_forge/source_policy.py (SourceMode, PrivacyMode, default privacy matrix)
+- tests/test_model_forge_schema.py (new)
+Public contracts added or changed:
+- New, isolated agent/model_forge package. No existing production module imports it,
+  so there is no production behavior change.
+Behavior implemented:
+- Pure pydantic contracts (extra="forbid") + taxonomy/enum helpers. No provider
+  execution, no network, no router wiring.
+- Safety defaults baked into the taxonomy: providers disabled by default; default
+  stage modes are only shadow_select/disabled (changes_production_routing == False
+  for every stage default); Local Only blocks external providers; unlisted stages
+  default to the most restrictive privacy mode (no_external_code).
+Focused tests:
+- python -m pytest tests/test_model_forge_schema.py -> 13 passed
+  (roundtrip for all 8 schemas; rejects unknown fields + bad enums + empty ids;
+   taxonomy membership; default rollout keeps Forge off for production routing;
+   source/privacy defaults safe; provider disabled by default).
+Syntax checks:
+- python -c "import agent.model_forge" -> imports with no side effects (31 exports).
+No external calls:
+- Confirmed; module set is schema/taxonomy only.
+No production routing behavior change:
+- Confirmed; grep shows no app/ or main.py or other agent/ module imports model_forge.
+Real model / Portal / OpenRouter evidence:
+- None; schemas only.
+Safety invariants verified:
+- Forge off by default (provider.enabled False, stage defaults non-production);
+  Local Only blocks external; restrictive privacy default.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-6 provider base + registry (config + health), still no execution.
+Next package:
+- PFG-6 — provider base and registry.
 Blocker:
 - None.
 ```
