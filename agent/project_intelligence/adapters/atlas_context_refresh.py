@@ -11,8 +11,8 @@ from pathlib import Path
 from agent.atlas_context_refresh_schema import AtlasContextRefreshRequest
 from agent.atlas_context_refresh_service import AtlasContextRefreshService
 from agent.atlas_context_refresh_v2_schema import AtlasContextRefreshV2Request
-from agent.atlas_context_refresh_v2_service import AtlasContextRefreshV2Service
 from agent.atlas_journal import AtlasJournal
+from agent.project_intelligence.adapters.context_refresh_v2 import ProjectIntelligenceContextRefreshV2Adapter
 
 
 class AtlasContextRefreshAdapter:
@@ -28,4 +28,4 @@ class AtlasContextRefreshAdapter:
         return self.build_service().refresh(request)
 
     def refresh_v2(self, request: AtlasContextRefreshV2Request):
-        return AtlasContextRefreshV2Service(data_root=self.data_root).refresh(request)
+        return ProjectIntelligenceContextRefreshV2Adapter(data_root=self.data_root).refresh(request)

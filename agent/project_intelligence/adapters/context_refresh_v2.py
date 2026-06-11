@@ -1,3 +1,10 @@
+"""Project Intelligence context-refresh v2 adapter.
+
+This retained implementation replaces the retired legacy
+``AtlasContextRefreshV2Service`` owner while preserving the same advisory,
+non-executing bundle contract.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,7 +14,9 @@ from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapReques
 from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
 
 
-class AtlasContextRefreshV2Service:
+class ProjectIntelligenceContextRefreshV2Adapter:
+    """Build an advisory context-refresh v2 bundle without executing commands."""
+
     def __init__(self, data_root: Path | str):
         self.data_root = Path(data_root).expanduser().resolve()
         self.impact_service = AtlasPlanItemImpactMapService(data_root=self.data_root)
@@ -24,16 +33,18 @@ class AtlasContextRefreshV2Service:
         impact = dict(req.impact_map or {})
         if not impact and req.include_plan_item_impact_map:
             try:
-                built = self.impact_service.build_map(AtlasPlanItemImpactMapRequest(
-                    workspace_id=req.workspace_id,
-                    project_path=req.project_path,
-                    pool_id=req.pool_id,
-                    goal=req.goal,
-                    changed_files=list(req.changed_files or []),
-                    target_files=list(req.target_files or []),
-                    plan_pool=plan_pool,
-                    allow_build_if_missing=False,
-                )).model_dump()
+                built = self.impact_service.build_map(
+                    AtlasPlanItemImpactMapRequest(
+                        workspace_id=req.workspace_id,
+                        project_path=req.project_path,
+                        pool_id=req.pool_id,
+                        goal=req.goal,
+                        changed_files=list(req.changed_files or []),
+                        target_files=list(req.target_files or []),
+                        plan_pool=plan_pool,
+                        allow_build_if_missing=False,
+                    )
+                ).model_dump()
                 impact = built
                 warnings.append("impact_map_built_advisory")
             except Exception as err:
@@ -42,9 +53,8 @@ class AtlasContextRefreshV2Service:
                 warnings.append(f"impact_map_build_error:{type(err).__name__}")
 
         impacts = list(impact.get("impacts") or [])
-        selected = []
         if req.item_id:
-            selected = [i for i in impacts if str(i.get("item_id") or "") == req.item_id]
+            selected = [item for item in impacts if str(item.get("item_id") or "") == req.item_id]
             if not selected:
                 warnings.append("item_id_not_found_in_impact_map")
         else:
@@ -57,17 +67,28 @@ class AtlasContextRefreshV2Service:
         ci: list[dict] = []
         evidence: list[dict] = []
         confidence = "unknown"
-        for it in selected:
-            confidence = it.get("confidence") or confidence
-            impacted_files.extend(list(it.get("impacted_files") or []))
-            related_tests.extend(list(it.get("related_tests") or []))
-            commands.extend(list(it.get("recommended_commands") or []))
-            manual.extend(list(it.get("manual_verification_steps") or []))
-            ci.extend(list(it.get("ci_selection_hints") or []))
-            for p in list(it.get("impacted_files") or []):
-                evidence.append({"type": "impact", "source": "plan_item_impact_map", "item_id": it.get("item_id", ""), "path": p, "reason": ",".join(list(it.get("reasons") or [])), "confidence": it.get("confidence", "unknown")})
+        for item in selected:
+            confidence = item.get("confidence") or confidence
+            impacted_files.extend(list(item.get("impacted_files") or []))
+            related_tests.extend(list(item.get("related_tests") or []))
+            commands.extend(list(item.get("recommended_commands") or []))
+            manual.extend(list(item.get("manual_verification_steps") or []))
+            ci.extend(list(item.get("ci_selection_hints") or []))
+            for path in list(item.get("impacted_files") or []):
+                evidence.append(
+                    {
+                        "type": "impact",
+                        "source": "plan_item_impact_map",
+                        "item_id": item.get("item_id", ""),
+                        "path": path,
+                        "reason": ",".join(list(item.get("reasons") or [])),
+                        "confidence": item.get("confidence", "unknown"),
+                    }
+                )
 
-        dedup = lambda xs: list(dict.fromkeys(xs))
+        def dedup(values: list) -> list:
+            return list(dict.fromkeys(values))
+
         return AtlasContextRefreshV2Bundle(
             status=status if selected or status != "available" else "missing",
             workspace_id=req.workspace_id,

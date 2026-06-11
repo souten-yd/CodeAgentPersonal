@@ -407,7 +407,7 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-11T08:29:34+00:00",
+  "generated_at": "2026-06-11T08:42:23+00:00",
   "legacy_consumers": [
     {
       "adapter_consumer_count": 0,
@@ -467,25 +467,6 @@
       "production_consumers": []
     },
     {
-      "adapter_consumer_count": 2,
-      "adapter_consumers": [
-        {
-          "module": "agent.project_intelligence.adapters.atlas_context_refresh",
-          "path": "agent/project_intelligence/adapters/atlas_context_refresh.py"
-        },
-        {
-          "module": "agent.project_intelligence.adapters.planner_packaging_v2",
-          "path": "agent/project_intelligence/adapters/planner_packaging_v2.py"
-        }
-      ],
-      "capability": "legacy_context_refresh",
-      "legacy_internal_consumer_count": 0,
-      "legacy_internal_consumers": [],
-      "legacy_module": "agent.atlas_context_refresh_v2_service",
-      "production_consumer_count": 0,
-      "production_consumers": []
-    },
-    {
       "adapter_consumer_count": 1,
       "adapter_consumers": [
         {
@@ -501,11 +482,15 @@
       "production_consumers": []
     },
     {
-      "adapter_consumer_count": 2,
+      "adapter_consumer_count": 3,
       "adapter_consumers": [
         {
           "module": "agent.project_intelligence.adapters.atlas_repo_context",
           "path": "agent/project_intelligence/adapters/atlas_repo_context.py"
+        },
+        {
+          "module": "agent.project_intelligence.adapters.context_refresh_v2",
+          "path": "agent/project_intelligence/adapters/context_refresh_v2.py"
         },
         {
           "module": "agent.project_intelligence.adapters.planner_packaging_v2",
@@ -513,13 +498,8 @@
         }
       ],
       "capability": "legacy_impact_map",
-      "legacy_internal_consumer_count": 1,
-      "legacy_internal_consumers": [
-        {
-          "module": "agent.atlas_context_refresh_v2_service",
-          "path": "agent/atlas_context_refresh_v2_service.py"
-        }
-      ],
+      "legacy_internal_consumer_count": 0,
+      "legacy_internal_consumers": [],
       "legacy_module": "agent.atlas_plan_item_impact_map_service",
       "production_consumer_count": 0,
       "production_consumers": []
@@ -899,6 +879,13 @@
       },
       {
         "imports_app_api": false,
+        "module": "agent.project_intelligence.adapters.context_refresh_v2",
+        "path": "agent/project_intelligence/adapters/context_refresh_v2.py",
+        "phase": "context_refresh_v2",
+        "present": true
+      },
+      {
+        "imports_app_api": false,
         "module": "agent.project_intelligence.adapters.atlas_repo_context",
         "path": "agent/project_intelligence/adapters/atlas_repo_context.py",
         "phase": "repo_context_api",
@@ -1020,7 +1007,7 @@
   "schema_version": 1,
   "source": "python_ast_current_checkout",
   "summary": {
-    "adapter_module_count": 8,
+    "adapter_module_count": 9,
     "concrete_facade_count": 3,
     "critical_finding_count": 6,
     "disabled_facade_count": 4,

@@ -56,7 +56,7 @@ def test_adapter_builder_failures_non_blocking(tmp_path, monkeypatch):
 
     monkeypatch.setattr(adapter_mod.ProjectIntelligenceRepoContextPackager, "build_package", boom)
     monkeypatch.setattr(adapter_mod.AtlasPlanItemImpactMapService, "build_map", boom)
-    monkeypatch.setattr(adapter_mod.AtlasContextRefreshV2Service, "refresh", boom)
+    monkeypatch.setattr(adapter_mod.ProjectIntelligenceContextRefreshV2Adapter, "refresh", boom)
 
     req = AtlasPlannerPackagingV2Request(
         project_path=str(tmp_path),
