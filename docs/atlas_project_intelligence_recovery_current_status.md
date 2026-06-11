@@ -84,6 +84,8 @@ This file selects the active package. The old PI package table does not prove fi
 - code-explorer production consumers now call through a Project Intelligence adapter, reducing
   source-derived direct legacy production consumers from 3 to 0 while preserving best-effort
   read-only proposal, resolver, and research grounding behavior.
+- code-explorer legacy owner was retired in a separate low-risk PIR-15 slice; best-effort
+  read-only code exploration behavior is now owned by the Project Intelligence adapter.
 - final broader legacy retirement remains incomplete until remaining proven-zero legacy paths are
   removed in separate low-risk changes with rollback proof for each removal.
 
@@ -128,6 +130,53 @@ The program remains incomplete until PIR-15 and every live Definition of Done ga
 ## Executed package log
 
 ```text
+Work package: PIR-15 — Code explorer legacy owner removal
+Status: in_progress
+Changed modules/files:
+- agent/atlas_code_explorer.py — removed the retired code-explorer legacy owner after
+  source-derived consumer-zero, migration evidence, and rollback gates remained passed.
+- agent/project_intelligence/adapters/code_explorer.py — now owns the retained best-effort
+  read-only code excerpts, symbol extraction, related-test lookup, and research evidence behavior.
+- agent/project_intelligence/inspection/consumer_inventory.py, generated inventory/allowlist,
+  consumer registry, and cutover artifacts — removed the retired legacy module from the legacy
+  capability list while keeping source-derived direct legacy consumers at 0.
+- tests and docs — updated code-explorer imports and baseline locks for the retained adapter owner.
+Evidence:
+- python tools\generate_project_intelligence_consumer_inventory.py --root . --output
+  docs\generated\atlas_project_intelligence_consumer_inventory.json -> production_entrypoints=32,
+  legacy_consumers=0, facades=6, adapters=15, critical_findings=6.
+- python - <<script invoking write_allowlist(...), write_lint_report(...),
+  write_consumer_registry(...), write_consumer_cutover_gate(...)>> -> adapter_count=15,
+  legacy_modules=7, legacy_production_consumers=0, allowed_dependency_count=0,
+  lint_passed=true, registry_legacy_sum=0, cutover_passed=true.
+- python -m py_compile agent\project_intelligence\adapters\code_explorer.py
+  agent\atlas_patch_proposal_service.py agent\atlas_verification_resolver.py
+  agent\research_conductor.py agent\project_intelligence\inspection\consumer_inventory.py
+  tests\test_atlas_code_explorer.py tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_baseline.py tests\test_project_twin_baseline.py -> compile OK.
+- python -m pytest -q tests\test_atlas_code_explorer.py
+  tests\test_atlas_verification_resolver.py tests\test_atlas_research_and_critique.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_project_intelligence_pir15_inspection_adapter.py
+  tests\test_project_intelligence_baseline.py tests\test_project_twin_baseline.py ->
+  91 passed, 1 xfailed in 38.23s.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --data-migration-evidence
+  ca_data\atlas\pir15_data_migration_evidence.current.json --docs-updated ->
+  status=passed, active_rollout=true, legacy_consumer_count=0,
+  data_migration_evidence=passed, blocked_reasons=[].
+- git diff | git apply --check -R -> exit 0.
+Proof level: component_complete. This slice only removes one proven-zero legacy owner; PIR-15
+continues for remaining retirement candidates and final package closure.
+
 Work package: PIR-15 — Code explorer adapter cutover
 Status: in_progress
 Changed modules/files:
