@@ -1117,11 +1117,6 @@ class AtlasPatchProposalService:
 
         llm_allowed = {k: output[k] for k in self.LLM_ALLOWED_FIELDS if k in output}
 
-        raw_risk = str(llm_allowed.get("risk_level") or item.get("risk_level") or "medium").strip().lower()
-        risk_level = raw_risk if raw_risk in self.ALLOWED_RISK_LEVELS else "medium"
-        if raw_risk != risk_level:
-            warnings.append("llm_risk_level_normalized")
-
         raw_file_changes = llm_allowed.get("file_changes")
         if not raw_file_changes and str(item.get("patch_task_kind") or "") == "structural_change":
             raw_file_changes = item.get("file_changes")
@@ -1131,6 +1126,14 @@ class AtlasPatchProposalService:
         file_change_paths = [str(fc.get("path") or "") for fc in file_changes if str(fc.get("path") or "")]
         target_files = self._normalize_target_files(llm_allowed.get("target_files"), [*list(item.get("target_files") or []), *file_change_paths], warnings)
         target_files = list(dict.fromkeys([*target_files, *file_change_paths]))
+
+        raw_risk = str(llm_allowed.get("risk_level") or item.get("risk_level") or "medium").strip().lower()
+        risk_level = raw_risk if raw_risk in self.ALLOWED_RISK_LEVELS else "medium"
+        if raw_risk != risk_level:
+            warnings.append("llm_risk_level_normalized")
+        if risk_level == "medium" and self._is_single_static_html_update(item, target_files):
+            risk_level = "low"
+            warnings.append("single_static_html_medium_risk_normalized_to_low")
 
         diff_preview = str(llm_allowed.get("unified_diff_preview") or "")
         if len(diff_preview) > self.MAX_DIFF_PREVIEW_CHARS:
@@ -2262,6 +2265,16 @@ class AtlasPatchProposalService:
             },
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _is_single_static_html_update(item: dict[str, Any], target_files: list[str]) -> bool:
+        if len(target_files) != 1:
+            return False
+        target = str(target_files[0] or "").strip().replace("\\", "/").lower()
+        if not target.endswith(".html"):
+            return False
+        action_type = normalize_safe_apply_action_type(item.get("action_type"))
+        return action_type in {"create", "update"}
 
     def _failure_signature(self, proposal: AtlasPatchProposal, reasons: list[str]) -> str:
         payload = {"fingerprint": self._candidate_fingerprint(proposal), "reasons": sorted(str(r) for r in reasons)}

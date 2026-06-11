@@ -55,6 +55,28 @@ def test_patch_proposal_build_output_carries_file_changes(tmp_path):
     assert proposal.target_files == ['index.html', 'style.css']
 
 
+def test_single_static_html_medium_risk_normalizes_to_low(tmp_path):
+    svc = AtlasPatchProposalService(journal=AtlasJournal(tmp_path), storage=AtlasPlanPoolStorage(tmp_path))
+    proposal, has_content = svc._build_proposal_from_output(
+        {
+            'summary': 'update heading',
+            'target_files': ['index.html'],
+            'edits': [{'old_string': '<h1>Old</h1>', 'new_string': '<h1>Ready</h1>'}],
+            'risk_level': 'medium',
+        },
+        {
+            'pool_id': 'p1',
+            'item_id': 'i1',
+            'item': {'target_files': ['index.html'], 'risk_level': 'medium', 'action_type': 'update'},
+            'source_type': 'plan_item',
+        },
+    )
+
+    assert has_content is True
+    assert proposal.risk_level == 'low'
+    assert 'single_static_html_medium_risk_normalized_to_low' in proposal.warnings
+
+
 def test_patch_proposal_result_metadata_detects_file_changes_content(tmp_path):
     storage = AtlasPlanPoolStorage(tmp_path)
     journal = AtlasJournal(tmp_path)
