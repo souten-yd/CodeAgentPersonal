@@ -1,21 +1,5 @@
 {
-  "entries": [
-    {
-      "capability": "legacy_code_explorer",
-      "consumer_path": "agent/atlas_patch_proposal_service.py",
-      "legacy_module": "agent.atlas_code_explorer"
-    },
-    {
-      "capability": "legacy_code_explorer",
-      "consumer_path": "agent/atlas_verification_resolver.py",
-      "legacy_module": "agent.atlas_code_explorer"
-    },
-    {
-      "capability": "legacy_code_explorer",
-      "consumer_path": "agent/research_conductor.py",
-      "legacy_module": "agent.atlas_code_explorer"
-    }
-  ],
+  "entries": [],
   "generated_at": "",
   "repository_root": "KasaneCore",
   "safety": {
@@ -26,8 +10,8 @@
   "schema_version": 1,
   "source": "python_ast_current_checkout_legacy_dependency_allowlist",
   "summary": {
-    "allowed_dependency_count": 3,
-    "consumer_path_count": 3,
-    "legacy_module_count": 1
+    "allowed_dependency_count": 0,
+    "consumer_path_count": 0,
+    "legacy_module_count": 0
   }
 }

@@ -22,8 +22,8 @@ def test_consumer_inventory_generator_finds_current_production_surface() -> None
     assert inv["source"] == "python_ast_current_checkout"
     assert inv["summary"]["production_entrypoint_count"] >= 2
     assert inv["summary"]["facade_module_count"] >= 4
-    assert inv["summary"]["adapter_module_count"] == 14
-    assert inv["summary"]["legacy_production_consumer_count"] > 0
+    assert inv["summary"]["adapter_module_count"] == 15
+    assert inv["summary"]["legacy_production_consumer_count"] == 0
     assert not inv["parse_errors"]
 
 
@@ -62,6 +62,13 @@ def test_inventory_records_exact_facade_call_counts() -> None:
     assert code_intel["production_consumer_count"] == 0
     assert code_intel["adapter_consumer_count"] == 1
     assert adapters["agent.project_intelligence.adapters.code_intel"]["present"] is True
+    code_explorer = next(
+        row for row in inv["legacy_consumers"]
+        if row["legacy_module"] == "agent.atlas_code_explorer"
+    )
+    assert code_explorer["production_consumer_count"] == 0
+    assert code_explorer["adapter_consumer_count"] == 1
+    assert adapters["agent.project_intelligence.adapters.code_explorer"]["present"] is True
     for path in ("app/api/atlas_repo_index.py", "app/api/atlas_code_intel.py"):
         entry = next(row for row in inv["production_entrypoints"] if row["path"] == path)
         if path == "app/api/atlas_repo_index.py":

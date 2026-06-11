@@ -45,4 +45,4 @@ def test_read_only_inspection_direct_consumers_move_behind_adapter() -> None:
 
     adapters = {row["module"]: row for row in inventory["project_intelligence"]["adapters"]}
     assert adapters["agent.project_intelligence.adapters.atlas_inspection"]["present"] is True
-    assert inventory["summary"]["adapter_module_count"] == 14
+    assert inventory["summary"]["adapter_module_count"] == 15

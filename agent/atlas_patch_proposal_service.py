@@ -414,7 +414,7 @@ class AtlasPatchProposalService:
         extend, plus tests related to the target file. Best-effort; empty when no project dir."""
         out: dict = {"symbols": [], "related_tests": []}
         try:
-            from agent.atlas_code_explorer import extract_symbols, find_related_tests
+            from agent.project_intelligence.adapters.code_explorer import ProjectIntelligenceCodeExplorerAdapter
 
             project_path = str(getattr(pool, "project_path", "") or "")
             if not project_path:
@@ -423,9 +423,10 @@ class AtlasPatchProposalService:
             target_files = [str(p).strip() for p in ((materialized.patch_target_files or item.target_files) or []) if str(p).strip()]
             # Symbols across the project so the model knows what already exists to reuse (cap small for
             # weak models); related tests for the file under change.
-            syms = extract_symbols(project_path, max_symbols=40)
+            explorer = ProjectIntelligenceCodeExplorerAdapter()
+            syms = explorer.extract_symbols(project_path, max_symbols=40)
             out["symbols"] = [f"{s['file']}:{s['line']} {s.get('signature') or s.get('name','')}" for s in syms[:40]]
-            out["related_tests"] = find_related_tests(project_path, target_files, max_tests=8)
+            out["related_tests"] = explorer.find_related_tests(project_path, target_files, max_tests=8)
         except Exception:  # noqa: BLE001
             return {"symbols": [], "related_tests": []}
         return out

@@ -39,9 +39,9 @@ def resolve_verification_for_item(*, target_files: list[str], project_path: str 
 
     if rel.endswith(".py") and project_path:
         try:
-            from agent.atlas_code_explorer import find_related_tests
+            from agent.project_intelligence.adapters.code_explorer import ProjectIntelligenceCodeExplorerAdapter
 
-            related = find_related_tests(project_path, [rel], max_tests=1)
+            related = ProjectIntelligenceCodeExplorerAdapter().find_related_tests(project_path, [rel], max_tests=1)
             if related:
                 return {"command_id": "pytest_file", "test_file": related[0]}
         except Exception:  # noqa: BLE001
