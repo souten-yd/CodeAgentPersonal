@@ -126,6 +126,12 @@ class AtlasPatchProposalPlanItemDraftService:
             metadata["patch"] = diff_preview
         if proposed_content:
             metadata["proposed_content"] = proposed_content
+        edits = patch.get("edits") if isinstance(patch.get("edits"), list) else patch_metadata.get("edits")
+        if isinstance(edits, list) and edits:
+            metadata["edits"] = [dict(edit) for edit in edits if isinstance(edit, dict)]
+        append_content = str(patch.get("append_content") or patch_metadata.get("append_content") or "")
+        if append_content:
+            metadata["append_content"] = append_content
 
         patch_proposal_metadata = {
             "proposal_id": str(patch.get("proposal_id") or ""),
@@ -143,6 +149,10 @@ class AtlasPatchProposalPlanItemDraftService:
             patch_proposal_metadata["proposed_content"] = proposed_content
         if diff_preview:
             patch_proposal_metadata["unified_diff_preview"] = diff_preview
+        if metadata.get("edits"):
+            patch_proposal_metadata["edits"] = list(metadata["edits"])
+        if append_content:
+            patch_proposal_metadata["append_content"] = append_content
         metadata["patch_proposal"] = patch_proposal_metadata
         draft = AtlasPlanItem(
             item_id=draft_item_id,

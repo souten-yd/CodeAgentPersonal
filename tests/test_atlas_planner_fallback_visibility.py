@@ -62,3 +62,16 @@ def test_planner_invalid_action_type_requires_replan() -> None:
     assert plan.status == "needs_replan"
     assert plan.metadata["planner_fallback"]["reason"] == "invalid_action_type"
     assert plan.implementation_steps == []
+
+
+def test_planner_compatible_modify_action_is_normalized() -> None:
+    plan = _build_plan(
+        {
+            "implementation_steps": [
+                {"title": "Update page", "action_type": "modify", "target_files": ["index.html"]},
+            ]
+        }
+    )
+
+    assert plan.status == "planned"
+    assert plan.implementation_steps[0].action_type == "update"

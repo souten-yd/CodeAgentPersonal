@@ -239,6 +239,43 @@ def test_planner_result_to_plan_payload_preserves_codegen_contract(tmp_path) -> 
     assert step["preserve_behaviors"] == ["Keep reset control"]
 
 
+def test_full_autopilot_payload_repairs_missing_requirement_and_verification_contracts(tmp_path) -> None:
+    bridge = AtlasPlannerBridge(ca_data_dir=str(tmp_path), llm_json_fn=_fake_llm)
+    planner_result = {
+        "status": "planned",
+        "requirements": [
+            {"requirement_id": "req_heading", "description": "index.html renders Atlas Existing Project Ready"},
+            {"requirement_id": "req_status", "description": "index.html displays a visible ready status"},
+        ],
+        "plan": {
+            "user_goal": "Update existing HTML app",
+            "implementation_steps": [
+                {
+                    "step_id": "step_1",
+                    "title": "Modify index.html",
+                    "description": "Update the existing page heading and visible status.",
+                    "action_type": "modify",
+                    "target_files": ["index.html"],
+                    "risk_level": "low",
+                    "acceptance_criteria": ["Atlas Existing Project Ready is visible"],
+                }
+            ],
+            "test_plan": ["Inspect index.html for the heading and visible ready status."],
+        },
+    }
+
+    payload = bridge.planner_result_to_plan_payload(
+        planner_result,
+        _request(automation_level="full_autopilot"),
+    )
+    step = payload["implementation_steps"][0]
+
+    assert step["action_type"] == "modify"
+    assert step["requirement_ids"] == ["req_heading", "req_status"]
+    assert step["verification_contract"]["contract_id"] == "planner_derived_verification"
+    assert step["verification_contract"]["source"] == "planner_bridge_full_autopilot_repair"
+
+
 def test_waiting_for_clarification_result_is_preserved(tmp_path) -> None:
     FakeRunner.calls = 0
     FakeRunner.result = {
