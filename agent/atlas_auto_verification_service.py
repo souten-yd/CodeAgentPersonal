@@ -221,6 +221,10 @@ class AtlasAutoVerificationService:
         ]).lower()
         return any(kw in text for kw in _VISUAL_KEYWORDS)
 
+    # Browser assets that an .html page LOADS rather than is — a change to one of these is verified
+    # through the page that references it, not on its own.
+    _BROWSER_ASSET_SUFFIXES = (".js", ".mjs", ".cjs", ".ts", ".css")
+
     def _resolve_visual_html(self, item, pool) -> str:
         """Return the relative .html artifact path for a visual task, or '' if none."""
         if not self._is_visual_task(item, pool):
@@ -233,6 +237,49 @@ class AtlasAutoVerificationService:
                 return f
         if html_candidates:
             return html_candidates[0]
+        # Incremental browser-build fallback: this step changed a browser asset (script.js / *.css)
+        # but no .html of its own. In a multi-step plan an earlier step creates index.html and later
+        # steps only edit the assets it loads, so the asset step had no .html target and would be
+        # reported as "nothing to verify" — degrading the whole run to applied_unverified and
+        # suppressing the PR. Verify the asset THROUGH the plan's index.html that already exists on
+        # disk and actually references it.
+        return self._resolve_plan_html_for_asset_change(pool, candidates)
+
+    def _resolve_plan_html_for_asset_change(self, pool, item_candidates) -> str:
+        """Find an .html the PLAN produces that exists on disk and loads one of this step's changed
+        browser assets, so an asset-only step is verified through the page that uses it. Returns ''
+        when the step changed no browser asset, or no such page exists yet (e.g. a CSS-only task
+        whose plan has no entry HTML — that must still block honestly)."""
+        asset_names = {
+            PurePosixPath(str(f).replace("\\", "/")).name.lower()
+            for f in item_candidates
+            if str(f).lower().endswith(self._BROWSER_ASSET_SUFFIXES)
+        }
+        if not asset_names:
+            return ""
+        workspace_root = str(getattr(pool, "project_path", "") or "").strip()
+        if not workspace_root:
+            return ""
+        plan_html: list[str] = []
+        for plan_item in (getattr(pool, "items", []) or []):
+            for path in (getattr(plan_item, "target_files", []) or []):
+                rel = str(path or "").strip().replace("\\", "/").lstrip("./")
+                if rel.lower().endswith(".html") and rel not in plan_html:
+                    plan_html.append(rel)
+        # index.html first, then any other plan page.
+        plan_html.sort(key=lambda r: (PurePosixPath(r).name.lower() != "index.html", r))
+        for rel in plan_html:
+            if not self._safe_rel(rel):
+                continue
+            html_file = Path(workspace_root) / rel
+            if not html_file.is_file():
+                continue
+            try:
+                text = html_file.read_text(encoding="utf-8", errors="replace").lower()
+            except Exception:
+                continue
+            if any(name in text for name in asset_names):
+                return rel
         return ""
 
     def _visual_task_description(self, item, pool) -> str:

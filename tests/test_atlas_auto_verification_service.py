@@ -247,6 +247,47 @@ def test_visual_html_resolution_prefers_index_html(tmp_path):
     assert svc._resolve_visual_html(item, pool) == 'index.html'
 
 
+def test_asset_only_step_verifies_through_plan_index_html(tmp_path):
+    # Incremental browser-build: step 1 creates index.html + script.js; a later step changes only
+    # script.js. That step has no .html target of its own but must still be verified through the
+    # plan's index.html (which loads script.js) instead of degrading the run to "nothing to verify".
+    storage, journal, pool, item = _setup(tmp_path)
+    pool.root_goal = 'Create a basic Space Invaders game with core gameplay mechanics'
+    step1 = AtlasPlanItem(item_id='step_1', pool_id=pool.pool_id, title='setup', goal='create files',
+                          target_files=['index.html', 'style.css', 'script.js'])
+    pool.items = [step1, item]
+    item.item_id = 'step_2'
+    item.goal = 'Implement player ship movement'
+    item.target_files = ['script.js']
+    item.metadata['safe_apply']['changed_files'] = ['script.js']
+    storage.save_pool(pool)
+    (Path(pool.project_path) / 'index.html').write_text(
+        '<html><body><canvas></canvas><script src="script.js"></script></body></html>', encoding='utf-8')
+
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=_runner())
+    assert svc._resolve_visual_html(item, pool) == 'index.html'
+
+
+def test_asset_step_not_referenced_by_plan_html_stays_unresolved(tmp_path):
+    # A test-file step (tests/...js) that no plan page loads must NOT be falsely verified through
+    # index.html — it stays unresolved so the missing-test-runner condition is reported honestly.
+    storage, journal, pool, item = _setup(tmp_path)
+    pool.root_goal = 'Create a basic Space Invaders game with core gameplay mechanics'
+    step1 = AtlasPlanItem(item_id='step_1', pool_id=pool.pool_id, title='setup', goal='create files',
+                          target_files=['index.html', 'script.js'])
+    pool.items = [step1, item]
+    item.item_id = 'step_7'
+    item.goal = 'write unit tests'
+    item.target_files = ['tests/test_game_mechanics.js']
+    item.metadata['safe_apply']['changed_files'] = ['tests/test_game_mechanics.js']
+    storage.save_pool(pool)
+    (Path(pool.project_path) / 'index.html').write_text(
+        '<html><body><script src="script.js"></script></body></html>', encoding='utf-8')
+
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=_runner())
+    assert svc._resolve_visual_html(item, pool) == ''
+
+
 def test_css_only_visual_task_blocks_without_entry_html(tmp_path):
     (tmp_path / 'styles.css').write_text('.hello { transition: color 1s; color: red; }\n', encoding='utf-8')
     storage, journal, pool, item = _setup(tmp_path)
