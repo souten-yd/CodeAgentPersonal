@@ -7,9 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-1`
-- Current package goal: Portal polish audit and compatibility gates.
-- Next action: audit current Portal implementation against PR-PPC-12/UI reconciliation, lock existing Portal behavior, then implement PFG-2 upload import after evidence is recorded.
+- Current package: `PFG-2`
+- Current package goal: Portal import upload endpoint and UI.
+- Next action: implement PFG-2 browser/server upload import on top of the PFG-1
+  audited baseline and the environment-aware folder picker already landed for
+  Portal import.
+- Last completed: `PFG-1` (Portal polish audit and compatibility gates) —
+  acceptance_complete; see PFG-1 evidence below.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -53,7 +57,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | Package | Goal | Status |
 |---|---|---|
 | PFG-0 | baseline and design acceptance | acceptance_complete |
-| PFG-1 | Portal polish audit and compatibility gates | in_progress |
+| PFG-1 | Portal polish audit and compatibility gates | acceptance_complete |
 | PFG-2 | Portal import upload endpoint and UI | not_started |
 | PFG-3 | Portal snapshot listing and start-from-snapshot UI | not_started |
 | PFG-4 | legacy package manifest sidecar repair | not_started |
@@ -148,6 +152,56 @@ Remaining gaps:
 - PFG-1 must verify current Portal code and lock compatibility gates before Portal polish implementation.
 Next package:
 - PFG-1 — Portal polish audit and compatibility gates.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-1 — Portal polish audit and compatibility gates
+Status: acceptance_complete
+Changed modules/files:
+- tests/test_portal_pfg1_regression_locks.py (new — behavior locks)
+- docs/atlas_portal_forge_current_status.md
+Audit (current Portal code vs PR-PPC-12 / UI reconciliation):
+- Portal nav, web/js/portal.js, AtlasPipelineAPI Portal surface, and data
+  lifecycle services verified against the live router (app/api/portal.py) and
+  contracts (app/portal/contracts.py); no behavioral drift found.
+- Confirmed remaining polish gaps (now the PFG-2..PFG-4/PFG-27 backlog):
+  - browser/server upload import (server-path picker landed; client upload
+    endpoint/UI still PFG-2);
+  - snapshot-list / start-from-snapshot run selector (PFG-3);
+  - legacy package manifest sidecar repair (PFG-4);
+  - Forge Trace panel / Portal x Forge metadata (PFG-27).
+Public contracts added or changed:
+- None; tests-only. No runtime behavior changed.
+Behavior locked (regression):
+- Export advertises and produces data-free packages (no data/ entries).
+- PortalRunRequest (StrictContractModel, extra="forbid") rejects any free-form
+  command field (command/cmd/args/shell/entrypoint_override); the /api/portal/run
+  route 422s an unknown command field — no free-form command execution surface.
+- Untrusted imported packages are quarantined: blocked by default, allowed only
+  after explicit untrusted_override_acknowledged.
+- START_FROM_SNAPSHOT run mode requires a snapshot_id.
+- Capabilities advertise data_management_enabled / run_enabled and expose no
+  command-execution capability.
+Focused tests:
+- python -m pytest tests/test_portal_pfg1_regression_locks.py -> 5 passed.
+Affected tests:
+- python -m pytest tests/test_portal_catalog.py tests/test_portal_data_lifecycle.py
+  tests/test_portal_runtime.py tests/test_portal_recovery_lifecycle.py
+  tests/test_portal_import_browse.py tests/test_portal_pfg1_regression_locks.py
+  -> 33 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-1 is an audit + behavior-lock package.
+Safety invariants verified:
+- No free-form command execution surface; quarantine of untrusted imports;
+  data-free export; strict contract rejects extra fields.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-2 browser/server upload import endpoint and UI.
+Next package:
+- PFG-2 — Portal import upload endpoint and UI.
 Blocker:
 - None.
 ```
