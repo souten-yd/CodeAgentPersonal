@@ -6,14 +6,14 @@
 
 ## Program status
 
-- Overall: **FOUNDATION TRACK COMPLETE (PI-0..PI-25) — PRODUCTION LOOP INCOMPLETE**
-  PI-0..PI-25 remain useful contracts, components, adapters, helper tests, and historical
+- Overall: **FOUNDATION TRACK COMPLETE (PI-0..PI-25) — PIR RECOVERY TRACK COMPLETE**
+  Foundation Track `PI-0..PI-25` remain useful contracts, components, adapters, helper tests, and historical
   implementation evidence. They are not proof that the production Project Intelligence loop
-  is complete. The active corrective track is `PIR-0..PIR-15`, selected by
-  `docs/atlas_project_intelligence_recovery_current_status.md`. Recovery work must prove
-  concrete facades, production wiring, durable restart behavior, real Atlas callers,
-  rollout evidence, real E2E, benchmark evidence, and legacy retirement separately.
-  Rollout remains disabled by default; off mode == legacy baseline.
+  is complete by themselves. The corrective track `PIR-0..PIR-15`, recorded by
+  `docs/atlas_project_intelligence_recovery_current_status.md`, now carries the accepted
+  production evidence for concrete facades, production wiring, durable restart behavior,
+  real Atlas callers, rollout evidence, real E2E, benchmark evidence, and legacy retirement.
+  Rollout remains disabled by default unless explicitly enabled; off mode == legacy baseline.
 - Completed foundation: Project Digital Twin Core v1, PDT-0 through PDT-14
 - Active canonical goal: `docs/atlas_project_intelligence_master_goal.md`
 - Architecture: `docs/atlas_project_intelligence_architecture.md`
@@ -23,9 +23,9 @@
 - Test plan: `docs/atlas_project_intelligence_test_plan.md`
 - Migration/reorganization plan: `docs/atlas_project_intelligence_migration_plan.md`
 - Agent entrypoint: `docs/atlas_project_intelligence_agent_entrypoint.md`
-- Current work package: recovery track `PIR-7` after the PIR-6 semantic graph slice
-- Next action: implement real CFG, data-flow, state/event/recovery, and resource graphs through the recovery plan;
-  do not claim production completion from the old Foundation Track package table
+- Current work package: recovery track `PIR-15` acceptance_complete
+- Next action: no active recovery implementation package remains; keep future changes aligned with
+  the recovery current-status evidence, migration matrix, and safety authority boundaries.
 - Blocker: none recorded
 - Safety posture: existing Atlas authority, approval, Safe Apply, rollback, retry, command, project-isolation, and truthful-verification rules remain unchanged
 

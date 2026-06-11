@@ -172,17 +172,18 @@ def test_pi_module_packages_present_after_pi1(module_name: str) -> None:
     assert importlib.import_module(module_name) is not None
 
 
-# --- Program status is recorded truthfully (Core v1 complete, program active) -
+# --- Program status is recorded truthfully (Core v1 complete, PIR recovery complete) -
 
 def test_pdt_core_v1_recorded_complete() -> None:
     status = (DOCS / "atlas_project_digital_twin_current_status.md").read_text(encoding="utf-8")
     assert "COMPLETE" in status, "PDT Core v1 status must record completion"
 
 
-def test_project_intelligence_program_is_active_at_pi0() -> None:
+def test_project_intelligence_program_records_recovery_completion() -> None:
     status = (DOCS / "atlas_project_intelligence_current_status.md").read_text(encoding="utf-8")
-    # The active program must not be inferred complete from the old PDT status.
-    assert "ACTIVE" in status
+    # Completion must come from PIR recovery evidence, not the old PDT/Foundation status.
+    assert "PIR RECOVERY TRACK COMPLETE" in status
+    assert "docs/atlas_project_intelligence_recovery_current_status.md" in status
     assert "PI-0" in status
 
 

@@ -73,6 +73,7 @@ def test_recovery_status_selects_next_active_package() -> None:
         encoding="utf-8"
     )
     assert "Current package: `PIR-15`" in status
+    assert "Overall: **COMPLETE — PIR-0..PIR-15 ACCEPTANCE COMPLETE**" in status
     assert "| PIR-0 | baseline, inventory, regression locks | acceptance_complete |" in status
     assert "| PIR-1 | durable concrete modules | acceptance_complete |" in status
     assert "| PIR-2 | production composition and rollout preflight | acceptance_complete |" in status
@@ -88,7 +89,8 @@ def test_recovery_status_selects_next_active_package() -> None:
     assert "| PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |" in status
     assert "| PIR-13 | real Greenfield E2E | acceptance_complete |" in status
     assert "| PIR-14 | CI, platform, scale, and consumer cutover | acceptance_complete |" in status
-    assert "| PIR-15 | real benchmark and retirement | in_progress |" in status
+    assert "| PIR-15 | real benchmark and retirement | acceptance_complete |" in status
+    assert "Next package: none; PIR-0..PIR-15 recovery track is acceptance_complete." in status
 
 
 def test_legacy_status_treats_pi_as_foundation_not_completion() -> None:

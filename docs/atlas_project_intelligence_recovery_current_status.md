@@ -2,17 +2,18 @@
 
 ## Program state
 
-- Overall: **ACTIVE — PRODUCTION LOOP INCOMPLETE**
+- Overall: **COMPLETE — PIR-0..PIR-15 ACCEPTANCE COMPLETE**
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
-- Current package: `PIR-15`
-- Next action: drive PIR-15 legacy consumers to consumer-zero in the approved cutover order,
-  extend missing shadow/rollback evidence for repair and Greenfield phases, verify data migration,
-  and only then retire proven-zero legacy paths in separate low-risk changes.
-- Blocker: none for the current package.
-- Rollout: off by default; isolated PIR-15 active production preflight transition evidence passed
+- Current package: `PIR-15` (acceptance_complete)
+- Next action: no active recovery implementation package remains; preserve PIR regression locks,
+  migration classifications, and truthful evidence requirements for future changes.
+- Blocker: none.
+- Rollout: off by default unless explicitly enabled; isolated PIR-15 active production preflight
+  transition evidence and retirement gate passed.
 
-This file selects the active package. The old PI package table does not prove final completion.
+This file records the completed active corrective track. The old PI package table remains
+Foundation Track history, not a substitute for the PIR evidence recorded here.
 
 ## Canonical read order
 
@@ -25,15 +26,17 @@ This file selects the active package. The old PI package table does not prove fi
 7. existing Project Intelligence decisions, contracts, and architecture
 8. target code, direct callers, dependencies, and tests
 
-## Confirmed gaps
+## Confirmed closure evidence
 
-- production composition uses disabled modules;
-- coordinator active planning now returns concrete Twin context; remaining active paths must
-  continue to prove concrete module output before cutover;
-- concrete Twin, Blueprint, and Convergence facades exist, and PIR-14 consumer cutover evidence
-  passed for planning, generation, verification, and recovery;
+- active production composition preflight constructs concrete modules without disabled required
+  modules;
+- active planning, generation, verification, recovery, and Greenfield paths are covered by
+  Project Intelligence facade evidence, benchmark artifacts, and consumer cutover gates;
+- concrete Twin, Blueprint, Convergence, and Project Intelligence facades exist, and PIR-14
+  consumer cutover evidence passed for planning, generation, verification, and recovery;
 - Verification adapter is connected to canonical manual and auto Atlas verification consumers;
-- durability defects remain in Blueprint, event projection, and checkpoints;
+- Blueprint, event projection, and checkpoint durability gates were addressed by their
+  package-level acceptance evidence;
 - Verification, bounded recovery, checkpoint, and resume acceptance is complete for existing-project
   production paths;
 - PIR-15 Greenfield comparative benchmark has passed through the live Atlas entrypoint;
@@ -91,8 +94,9 @@ This file selects the active package. The old PI package table does not prove fi
 - repo-index legacy owner was retired in a separate low-risk PIR-15 slice; repository indexing,
   impact, related-test, latest, and result lookup behavior is now owned by the Project Intelligence
   adapter.
-- final broader legacy retirement remains incomplete until remaining proven-zero legacy paths are
-  removed in separate low-risk changes with rollback proof for each removal.
+- remaining legacy modules are documented as ADAPT/no-delete, support-only, or KEEP safety
+  authority in the migration matrix; no additional removable proven-zero legacy owner remains
+  outside the recorded low-risk PIR-15 removals.
 
 ## Package table
 
@@ -113,7 +117,7 @@ This file selects the active package. The old PI package table does not prove fi
 | PIR-12 | Verification, recovery, checkpoint, resume | acceptance_complete |
 | PIR-13 | real Greenfield E2E | acceptance_complete |
 | PIR-14 | CI, platform, scale, and consumer cutover | acceptance_complete |
-| PIR-15 | real benchmark and retirement | in_progress |
+| PIR-15 | real benchmark and retirement | acceptance_complete |
 
 ## Status values
 
@@ -128,13 +132,67 @@ blocked
 
 Do not use plain `Completed` without the proof level. Focused tests alone cannot close a package requiring production or live evidence.
 
-## Completion rule
+## Completion record
 
-The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
+The program is complete because PIR-15 and the live Definition of Done gates in the recovery
+master goal passed with current artifacts. Synthetic runners, manually supplied metrics,
+adapter-only tests, and document statements remain invalid substitutes for production evidence in
+future changes.
 
 ## Executed package log
 
 ```text
+Work package: PIR-15 — Final acceptance and recovery completion
+Status: acceptance_complete
+Changed modules/files:
+- docs/atlas_project_intelligence_recovery_current_status.md — marked PIR-15
+  acceptance_complete, recorded recovery completion, retained conservative default rollout
+  semantics, and classified remaining legacy owners by migration-matrix policy.
+- docs/atlas_project_intelligence_current_status.md — synchronized the historical PI checkpoint
+  with the completed PIR recovery track while preserving PI-0..PI-25 as Foundation Track history.
+- tests/test_project_intelligence_recovery_baseline.py and
+  tests/test_project_intelligence_baseline.py — updated regression locks so future changes cannot
+  silently regress PIR-15 acceptance or re-label the old Foundation Track as the live source of
+  completion.
+Evidence:
+- python tools\generate_project_intelligence_consumer_inventory.py --root . --output
+  docs\generated\atlas_project_intelligence_consumer_inventory.json -> production_entrypoints=32,
+  legacy_consumers=0, facades=6, adapters=15, critical_findings=6.
+- python - <<script invoking write_allowlist(...), write_lint_report(...),
+  write_consumer_registry(...), write_consumer_cutover_gate(...)>> -> adapter_count=15,
+  legacy_modules=5, legacy_production_consumers=0, allowed_dependency_count=0,
+  lint_passed=true, registry_legacy_sum=0, cutover_passed=true.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --data-migration-evidence
+  ca_data\atlas\pir15_data_migration_evidence.current.json --docs-updated ->
+  status=passed, active_rollout=true, legacy_consumer_count=0,
+  data_migration_evidence=passed, blocked_reasons=[].
+- python -m py_compile tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_baseline.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_baseline.py
+  tests\test_project_intelligence_pir15_retirement_gate.py
+  tests\test_project_intelligence_pir15_data_migration_evidence.py
+  tests\test_project_intelligence_pir15_live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark_cli.py
+  tests\test_project_intelligence_pir15_inspection_adapter.py
+  tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py -> 68 passed,
+  1 xfailed in 40.64s.
+Safety invariants checked: default rollout remains conservative; remaining legacy owners are not
+deleted unless their migration-matrix policy allows it; verification gate/runtime authority remains
+KEEP; unavailable evidence is not counted as passed.
+Known limitations: none for PIR-15 acceptance. Retained KEEP/support/no-delete owners remain
+governed by the migration matrix and existing safety authority.
+Next package: none; PIR-0..PIR-15 recovery track is acceptance_complete.
+Blocker: none.
+
 Work package: PIR-15 — Repo index legacy owner removal
 Status: in_progress
 Changed modules/files:
