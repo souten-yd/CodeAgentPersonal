@@ -11,7 +11,7 @@ from pathlib import Path
 
 from agent.atlas_context_refresh_v2_schema import AtlasContextRefreshV2Bundle, AtlasContextRefreshV2Request
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
-from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
+from agent.project_intelligence.adapters.plan_item_impact_map import ProjectIntelligencePlanItemImpactMapAdapter
 
 
 class ProjectIntelligenceContextRefreshV2Adapter:
@@ -19,7 +19,7 @@ class ProjectIntelligenceContextRefreshV2Adapter:
 
     def __init__(self, data_root: Path | str):
         self.data_root = Path(data_root).expanduser().resolve()
-        self.impact_service = AtlasPlanItemImpactMapService(data_root=self.data_root)
+        self.impact_service = ProjectIntelligencePlanItemImpactMapAdapter(data_root=self.data_root)
 
     def refresh(self, req: AtlasContextRefreshV2Request) -> AtlasContextRefreshV2Bundle:
         plan_pool = dict(req.plan_pool or {})

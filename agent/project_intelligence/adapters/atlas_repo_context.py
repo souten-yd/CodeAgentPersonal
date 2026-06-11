@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
-from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
 from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Request
 from agent.atlas_repo_context_schema import (
     AtlasPlanScopeSummary,
@@ -24,6 +23,7 @@ from agent.atlas_verification_recommendation_handoff_schema import AtlasVerifica
 from agent.atlas_verification_recommendation_handoff_service import AtlasVerificationRecommendationHandoffService
 from agent.atlas_verification_recommendation_schema import AtlasVerificationRecommendationRequest
 from agent.atlas_verification_recommendation_service import AtlasVerificationRecommendationService
+from agent.project_intelligence.adapters.plan_item_impact_map import ProjectIntelligencePlanItemImpactMapAdapter
 from agent.project_intelligence.adapters.planner_packaging_v2 import ProjectIntelligencePlannerPackagingV2Adapter
 from agent.project_intelligence.adapters.repo_context_packaging import ProjectIntelligenceRepoContextPackager
 
@@ -51,7 +51,7 @@ class AtlasRepoContextAdapter:
         return AtlasVerificationPlanningService(data_root=self.data_root, packager=packager).build_plan(request)
 
     def build_plan_item_impact_map(self, request: AtlasPlanItemImpactMapRequest):
-        return AtlasPlanItemImpactMapService(data_root=self.data_root).build_map(request)
+        return ProjectIntelligencePlanItemImpactMapAdapter(data_root=self.data_root).build_map(request)
 
     def build_planner_packaging_v2(self, request: AtlasPlannerPackagingV2Request):
         return ProjectIntelligencePlannerPackagingV2Adapter(data_root=self.data_root).build_package(request)

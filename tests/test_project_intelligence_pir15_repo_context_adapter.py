@@ -58,7 +58,7 @@ def test_repo_context_api_direct_legacy_imports_move_behind_adapter() -> None:
 
     adapters = {row["module"]: row for row in inventory["project_intelligence"]["adapters"]}
     assert adapters["agent.project_intelligence.adapters.atlas_repo_context"]["present"] is True
-    assert inventory["summary"]["adapter_module_count"] == 9
+    assert inventory["summary"]["adapter_module_count"] == 10
 
 
 def test_pipeline_context_legacy_imports_move_behind_repo_context_adapter() -> None:
