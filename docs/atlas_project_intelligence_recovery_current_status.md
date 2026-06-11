@@ -6,9 +6,9 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-15`
-- Next action: add and execute PIR-15 existing-project comparative benchmark coverage and
-  repeated/statistical summary evidence, then proceed to active rollout and legacy retirement
-  gates only where consumer-zero and rollback evidence pass.
+- Next action: fix the PIR-15 existing-project benchmark execution gap where approved
+  existing-project patch proposals can draft a PlanItem that Safe Apply blocks with
+  `content_missing`, then rerun the expanded comparative benchmark.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -37,6 +37,7 @@ This file selects the active package. The old PI package table does not prove fi
 - Verification, bounded recovery, checkpoint, and resume acceptance is complete for existing-project
   production paths;
 - PIR-15 Greenfield comparative benchmark has passed through the live Atlas entrypoint;
+- PIR-15 expanded corpus/repetition runner exists, but existing-project live samples are blocked;
 - final active rollout, broader real comparative benchmark, and legacy retirement remain incomplete.
 
 ## Package table
@@ -78,6 +79,66 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Existing-project benchmark corpus and repetition runner
+Status: in_progress
+Changed modules/files:
+- docs/generated/atlas_project_intelligence_pir15_benchmark_corpus.json — added the
+  existing_html_ready_update task with an existing-project seed, exact acceptance path, expected
+  target file, and two repetitions.
+- agent/project_intelligence/live_benchmark.py — treats repetitions as first-class artifact
+  samples, enforces exact per-task repetition counts for both arms, and records sample_count and
+  repetition metadata in comparative reports.
+- tools/run_pir13_live_greenfield.py — added backward-compatible task parameters for goal,
+  expected target files, acceptance path/text, project/workspace identity, and benchmark
+  automation features.
+- tools/run_pir15_live_benchmark.py — runs all corpus tasks for all repetitions in legacy/off
+  and final/active arms, seeds existing-project workspaces, writes per-repetition reports, and
+  aggregates artifact-derived metrics.
+- tests/test_project_intelligence_pir15_live_benchmark.py and
+  tests/test_project_intelligence_pir15_live_benchmark_cli.py — added coverage for the expanded
+  corpus, exact repetition enforcement, seed handling, and per-repetition report paths.
+- docs/atlas_project_intelligence_recovery_current_status.md — records the blocked expanded live
+  benchmark evidence and next implementation target.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\live_benchmark.py
+  tools\run_pir13_live_greenfield.py tools\run_pir15_live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark_cli.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir15_live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark_cli.py
+  tests\test_pir13_live_greenfield_runner.py -> 9 passed in 7.55s.
+- python -m pytest -q tests\test_project_intelligence_pir15_live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark_cli.py -> 8 passed in 4.59s.
+- python tools\run_pir15_live_benchmark.py --workspace-root
+  ca_data\atlas\pir15_live_workspaces_r6 --data-root ca_data\atlas\pir15_live_data_r6
+  --output-json ca_data\atlas\pir15_live_benchmark_report.r6.json -> exit 1;
+  status=blocked, arm_statuses={legacy: blocked, final: blocked}, verdict=regressed.
+Evidence details:
+- Expanded live report: corpus_version=pir15-corpus-v1, repetitions={greenfield_single_html_ready:
+  1, existing_html_ready_update: 2}, sample_count={legacy: 3, final: 3}.
+- Greenfield samples passed in both arms.
+- Existing-project samples failed in both arms; blocked_reasons=[legacy:failed, legacy:failed,
+  final:failed, final:failed, comparison_regressed].
+- Final-arm existing-project failures included one `safe_apply_blocked` with Safe Apply
+  automation_decision reasons=[content_missing] after proposal approval and PlanItem draft
+  creation, and one `plan_revision_required_blocks_patch` after high-risk plan critique.
+- Safety flags in report: manual_metrics_accepted=False, rollout_transition=False,
+  legacy_retirement=False, normal_atlas_entrypoint_reports_required=True.
+Unavailable checks: expanded comparative benchmark pass, active rollout decision, consumer-zero,
+  rollback-before-removal, data migration, and legacy retirement remain unclaimed.
+Safety invariants checked: blocked live samples are recorded as blocked/failed, not passed; the
+  runner still derives metrics from normal Atlas entrypoint artifacts and does not accept supplied
+  benchmark metrics or transition rollout.
+Migration/rollout state: rollout remains off by default; final/active benchmark rollout is scoped
+  to isolated benchmark runs.
+Known limitations: existing-project benchmark execution is blocked by Proposal/PlanItem draft
+  content propagation and planner-quality gates; no PIR-15 acceptance claim is made.
+Next package: PIR-15 — fix existing-project approved proposal to executable draft/Safe Apply
+  content, then rerun the expanded benchmark.
+Blocker: none; this is a reproducible implementation defect in the active package.
+```
 
 ```text
 Work package: PIR-15 — Active planning concrete Twin context prerequisite
