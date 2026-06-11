@@ -489,16 +489,24 @@ def collect_system_usage_info(*, ports: UsageCollectorPorts, debug_mode: bool = 
             except Exception:
                 pass
 
-    def _windows_pdh_counter_max(path: str) -> float:
-        """Windows PDHをctypesで直接読み、ワイルドカード展開したカウンタの最大値を返す。失敗時-1。"""
+    def _windows_pdh_counter_values(path: str, sample_interval_s: float = 0.1) -> list[tuple[str, float]]:
+        """Windows PDHをctypesで直接読み、ワイルドカードカウンタの全インスタンス
+        (インスタンス名, 値) を返す。失敗時は空リスト。
+
+        注意: PDHのステータスコード (PDH_MORE_DATA=0x800007D2 等) は符号なし32bitで
+        比較する必要があるため、restype を c_uint32 に固定する。デフォルトの符号付き
+        c_int のままだと 0x800007D2 が負数になり比較が常に失敗する。
+        """
         if os.name != "nt":
-            return -1.0
+            return []
         try:
             import ctypes
             from ctypes import wintypes
 
             PDH_MORE_DATA = 0x800007D2
             PDH_FMT_DOUBLE = 0x00000200
+            PDH_CSTATUS_VALID_DATA = 0x00000000
+            PDH_CSTATUS_NEW_DATA = 0x00000001
 
             class _PDH_FMT_COUNTERVALUE_UNION(ctypes.Union):
                 _fields_ = [("longValue", ctypes.c_long), ("doubleValue", ctypes.c_double), ("largeValue", ctypes.c_longlong)]
@@ -506,59 +514,79 @@ def collect_system_usage_info(*, ports: UsageCollectorPorts, debug_mode: bool = 
             class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
                 _fields_ = [("CStatus", wintypes.DWORD), ("u", _PDH_FMT_COUNTERVALUE_UNION)]
 
+            class _PDH_FMT_COUNTERVALUE_ITEM_W(ctypes.Structure):
+                _fields_ = [("szName", ctypes.c_wchar_p), ("FmtValue", _PDH_FMT_COUNTERVALUE)]
+
             pdh = ctypes.WinDLL("pdh")
-            expand = pdh.PdhExpandWildCardPathW
-            open_query = pdh.PdhOpenQueryW
-            add_english = getattr(pdh, "PdhAddEnglishCounterW", None)
-            add_counter = pdh.PdhAddCounterW
-            collect = pdh.PdhCollectQueryData
-            get_value = pdh.PdhGetFormattedCounterValue
-            close_query = pdh.PdhCloseQuery
+            for fn_name in ("PdhOpenQueryW", "PdhAddEnglishCounterW", "PdhAddCounterW",
+                            "PdhCollectQueryData", "PdhGetFormattedCounterArrayW", "PdhCloseQuery"):
+                fn = getattr(pdh, fn_name, None)
+                if fn is not None:
+                    fn.restype = ctypes.c_uint32
 
-            # 1) wildcard展開
-            size = wintypes.DWORD(0)
-            rc = expand(None, path, None, ctypes.byref(size), 0)
-            if rc not in (0, PDH_MORE_DATA) or size.value <= 0:
-                return -1.0
-            buf = ctypes.create_unicode_buffer(size.value)
-            rc = expand(None, path, buf, ctypes.byref(size), 0)
-            if rc != 0:
-                return -1.0
-            expanded = [p for p in buf[:size.value].split("\x00") if p]
-            if not expanded:
-                return -1.0
-
-            # 2) 各カウンタを収集して最大値を採用
-            best = -1.0
-            for ctr_path in expanded:
-                hq = ctypes.c_void_p()
+            hq = ctypes.c_void_p()
+            if pdh.PdhOpenQueryW(None, 0, ctypes.byref(hq)) != 0 or not hq.value:
+                return []
+            try:
+                # ワイルドカードパスを1つのカウンタとして登録し、配列APIで全インスタンスを
+                # 一括取得する（インスタンスごとに個別クエリ+sleepすると数百インスタンスで
+                # 数十秒かかるため）。
                 hc = ctypes.c_void_p()
-                if open_query(None, 0, ctypes.byref(hq)) != 0 or not hq.value:
-                    continue
-                try:
-                    if add_english:
-                        add_rc = add_english(hq, ctr_path, 0, ctypes.byref(hc))
-                        # 環境によってはEnglishカウンタ登録に失敗するため通常APIへフォールバック
-                        if add_rc != 0:
-                            add_rc = add_counter(hq, ctr_path, 0, ctypes.byref(hc))
-                    else:
-                        add_rc = add_counter(hq, ctr_path, 0, ctypes.byref(hc))
-                    if add_rc != 0 or not hc.value:
-                        continue
-                    collect(hq)
-                    time.sleep(0.05)
-                    collect(hq)
-                    ctype = wintypes.DWORD(0)
-                    val = _PDH_FMT_COUNTERVALUE()
-                    if get_value(hc, PDH_FMT_DOUBLE, ctypes.byref(ctype), ctypes.byref(val)) == 0:
-                        v = float(val.u.doubleValue)
-                        if v > best:
-                            best = v
-                finally:
-                    close_query(hq)
-            return best
+                add_english = getattr(pdh, "PdhAddEnglishCounterW", None)
+                add_rc = add_english(hq, path, 0, ctypes.byref(hc)) if add_english else 1
+                if add_rc != 0 or not hc.value:
+                    # ローカライズ環境などでEnglishカウンタ登録に失敗した場合のフォールバック
+                    add_rc = pdh.PdhAddCounterW(hq, path, 0, ctypes.byref(hc))
+                if add_rc != 0 or not hc.value:
+                    return []
+                # 利用率カウンタは2サンプル必要
+                if pdh.PdhCollectQueryData(hq) != 0:
+                    return []
+                time.sleep(sample_interval_s)
+                pdh.PdhCollectQueryData(hq)
+
+                size = wintypes.DWORD(0)
+                count = wintypes.DWORD(0)
+                rc = pdh.PdhGetFormattedCounterArrayW(hc, PDH_FMT_DOUBLE, ctypes.byref(size), ctypes.byref(count), None)
+                if rc != PDH_MORE_DATA or size.value <= 0:
+                    return []
+                buf = (ctypes.c_byte * size.value)()
+                rc = pdh.PdhGetFormattedCounterArrayW(
+                    hc, PDH_FMT_DOUBLE, ctypes.byref(size), ctypes.byref(count),
+                    ctypes.cast(buf, ctypes.POINTER(_PDH_FMT_COUNTERVALUE_ITEM_W)),
+                )
+                if rc != 0:
+                    return []
+                items = ctypes.cast(buf, ctypes.POINTER(_PDH_FMT_COUNTERVALUE_ITEM_W))
+                out: list[tuple[str, float]] = []
+                for i in range(count.value):
+                    item = items[i]
+                    if item.FmtValue.CStatus in (PDH_CSTATUS_VALID_DATA, PDH_CSTATUS_NEW_DATA):
+                        out.append((str(item.szName or ""), float(item.FmtValue.u.doubleValue)))
+                return out
+            finally:
+                pdh.PdhCloseQuery(hq)
         except Exception:
+            return []
+
+    def _windows_pdh_counter_max(path: str) -> float:
+        """ワイルドカードカウンタの最大値（アダプタ単位の値向け）。失敗時-1。"""
+        values = [v for _, v in _windows_pdh_counter_values(path, sample_interval_s=0.0)]
+        return max(values) if values else -1.0
+
+    def _windows_pdh_gpu_utilization() -> float:
+        """タスクマネージャ準拠のGPU使用率: エンジン種別(engtype_*)ごとに全プロセスの
+        利用率を合算し、その最大値を採用する。失敗時-1。"""
+        values = _windows_pdh_counter_values(r"\GPU Engine(*)\Utilization Percentage", sample_interval_s=0.1)
+        if not values:
             return -1.0
+        by_engine: dict[str, float] = {}
+        for name, v in values:
+            m = re.search(r"engtype_([^_]+)$", name)
+            key = m.group(1) if m else "unknown"
+            by_engine[key] = by_engine.get(key, 0.0) + v
+        best = max(by_engine.values()) if by_engine else -1.0
+        return min(100.0, max(0.0, best)) if best >= 0 else -1.0
 
     candidates = ["nvidia-smi", "rocm-smi", "nvidia-proc", "lspci"] if os.name != "nt" else ["windows-counter", "nvidia-smi"]
     selected = (ports.settings.get_setting("gpu_usage_backend") or "auto").strip()
@@ -676,7 +704,7 @@ def collect_system_usage_info(*, ports: UsageCollectorPorts, debug_mode: bool = 
                 continue
     elif selected == "windows-counter" and os.name == "nt":
         # まずはPython(ctypes + PDH)で直接カウンタを読む
-        py_util = _windows_pdh_counter_max(r"\GPU Engine(*)\Utilization Percentage")
+        py_util = _windows_pdh_gpu_utilization()
         py_used_b = _windows_pdh_counter_max(r"\GPU Adapter Memory(*)\Dedicated Usage")
         py_ded_limit_b = _windows_pdh_counter_max(r"\GPU Adapter Memory(*)\Dedicated Limit")
         py_shr_limit_b = _windows_pdh_counter_max(r"\GPU Adapter Memory(*)\Shared Limit")

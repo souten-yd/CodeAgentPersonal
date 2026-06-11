@@ -950,8 +950,30 @@
     try { localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, poolId); } catch (_) {}
     setBusy(true);
     state.dismissedApprovalPlanKeys.delete(poolId);
-    await renderPlanPoolMarkdown(poolId);
-    setBusy(false);
+    // The plan card is upserted by pool/revision key: if this pool's card already exists
+    // higher up in the transcript (the common case — the last pool is auto-restored on
+    // load), the upsert replaces that off-screen node and the click looks like a no-op.
+    // Drop stale nodes for this pool first so the fresh card lands at the bottom, right
+    // after the「プール復元」message the user just produced.
+    if (dom.transcript) {
+      Array.from(dom.transcript.children || []).forEach((el) => {
+        const d = el.dataset || {};
+        if (d.poolId === String(poolId)
+          && (d.atlasPlanCard === 'true' || d.atlasStageBlock === 'true' || d.atlasWorkbenchBlock === 'true')) {
+          el.remove();
+        }
+      });
+    }
+    try {
+      await renderPlanPoolMarkdown(poolId);
+      await restoreLatestRun(poolId);
+      // Make the restored pool the project's active pool so a browser reload comes back to it.
+      persistMeta({ active_pool_id: poolId });
+    } catch (err) {
+      pushSystemMessage('プール復元に失敗しました: ' + (err && err.message ? err.message : err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function renderWorkbenchFlow(poolId, requirement, view) {
