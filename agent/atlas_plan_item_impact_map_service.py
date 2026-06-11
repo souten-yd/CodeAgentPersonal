@@ -13,7 +13,7 @@ class AtlasPlanItemImpactMapService:
     def __init__(self, data_root: Path | str):
         self.data_root = Path(data_root).expanduser().resolve()
         self.packager = AtlasRepoContextPlannerPackager(data_root=self.data_root)
-        self.verification = AtlasVerificationPlanningService(data_root=self.data_root)
+        self.verification = AtlasVerificationPlanningService(data_root=self.data_root, packager=self.packager)
 
     def build_map(self, req: AtlasPlanItemImpactMapRequest) -> AtlasPlanItemImpactMap:
         plan_pool = dict(req.plan_pool or {})
