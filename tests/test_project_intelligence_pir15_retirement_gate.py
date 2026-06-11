@@ -31,14 +31,20 @@ def _registry(*, legacy_count: int) -> dict:
                 "capability": "legacy_planner_context",
                 "legacy_consumer_count": legacy_count,
                 "legacy_consumer_paths": paths,
+                "facade_entrypoint": "ProjectIntelligenceModule.prepare_planning_context",
+                "owner": "agent/project_intelligence/adapters/atlas_planning.py",
             },
             {
                 "name": "generation_context",
                 "capability": "legacy_planner_context",
                 "legacy_consumer_count": legacy_count,
                 "legacy_consumer_paths": paths,
+                "facade_entrypoint": "ProjectIntelligenceModule.prepare_generation_context",
+                "owner": "agent/project_intelligence/adapters/atlas_generation.py",
             },
         ],
+        "summary": {"legacy_consumer_count": legacy_count},
+        "parse_errors": [],
     }
 
 
@@ -48,7 +54,13 @@ def _rollout() -> dict:
         "entries": [
             {"phase": "planning", "shadow_parity_status": "passed", "rollback_status": "passed"},
             {"phase": "generation", "shadow_parity_status": "passed", "rollback_status": "passed"},
+            {"phase": "verification", "shadow_parity_status": "passed", "rollback_status": "passed"},
+            {"phase": "recovery", "shadow_parity_status": "passed", "rollback_status": "passed"},
+            {"phase": "repair", "shadow_parity_status": "passed", "rollback_status": "passed"},
+            {"phase": "greenfield", "shadow_parity_status": "passed", "rollback_status": "passed"},
         ],
+        "summary": {"phase_count": 6, "shadow_parity_passed_count": 6, "rollback_passed_count": 6},
+        "safety": {"source_mutation": False, "legacy_retirement": False, "consumer_cutover": False},
     }
 
 
@@ -56,6 +68,7 @@ def _cutover() -> dict:
     return {
         "source": "project_intelligence_consumer_cutover_gate",
         "summary": {"gate_passed": True},
+        "safety": {"source_mutation": False, "legacy_retirement": False},
         "entries": [
             {"phase": "planning", "cutover_ready": True},
             {"phase": "generation", "cutover_ready": True},
@@ -67,6 +80,15 @@ def _active_rollout() -> dict:
     return {
         "source": "pir15_isolated_production_rollout_preflight_transition",
         "status": "passed",
+        "safety": {"source_mutation": False, "legacy_retirement": False},
+    }
+
+
+def _data_migration(*, passed: bool = True) -> dict:
+    return {
+        "source": "pir15_data_migration_from_current_artifacts",
+        "status": "passed" if passed else "blocked",
+        "summary": {"data_migration_verified": passed},
     }
 
 
@@ -99,6 +121,7 @@ def test_retirement_gate_blocks_legacy_consumers_even_after_benchmark_and_cutove
         consumer_cutover_gate=_cutover(),
         active_rollout_evidence=_active_rollout(),
         data_migration_verified=True,
+        data_migration_evidence=_data_migration(),
         docs_updated=True,
         generated_at="2026-06-11T00:00:00+00:00",
     )
@@ -122,6 +145,7 @@ def test_retirement_gate_passes_only_when_all_live_gates_pass(tmp_path: Path) ->
         consumer_cutover_gate_path=_write(tmp_path / "cutover.json", _cutover()),
         active_rollout_evidence_path=_write(tmp_path / "active.json", _active_rollout()),
         data_migration_verified=True,
+        data_migration_evidence_path=_write(tmp_path / "data_migration.json", _data_migration()),
         docs_updated=True,
         generated_at="2026-06-11T00:00:00+00:00",
     )
@@ -131,6 +155,26 @@ def test_retirement_gate_passes_only_when_all_live_gates_pass(tmp_path: Path) ->
     assert report["summary"]["blocked_reasons"] == []
     assert report["safety"]["legacy_retirement"] is True
     assert report["safety"]["deletion_authorized"] is True
+
+
+def test_retirement_gate_evidence_overrides_manual_data_migration_flag(tmp_path: Path) -> None:
+    report = write_pir15_retirement_gate(
+        tmp_path / "retirement_gate.json",
+        benchmark_report_path=_write(tmp_path / "benchmark.json", _benchmark()),
+        consumer_registry_path=_write(tmp_path / "registry.json", _registry(legacy_count=0)),
+        rollout_evidence_path=_write(tmp_path / "rollout.json", _rollout()),
+        consumer_cutover_gate_path=_write(tmp_path / "cutover.json", _cutover()),
+        active_rollout_evidence_path=_write(tmp_path / "active.json", _active_rollout()),
+        data_migration_verified=True,
+        data_migration_evidence_path=_write(tmp_path / "data_migration.json", _data_migration(passed=False)),
+        docs_updated=True,
+        generated_at="2026-06-11T00:00:00+00:00",
+    )
+
+    assert report["status"] == "blocked"
+    assert report["summary"]["data_migration_verified"] is False
+    assert report["summary"]["data_migration_evidence_passed"] is False
+    assert "data_migration_not_verified" in report["summary"]["blocked_reasons"]
 
 
 def test_retirement_gate_cli_reports_blocked_without_passing(tmp_path: Path, monkeypatch) -> None:
@@ -156,6 +200,8 @@ def test_retirement_gate_cli_reports_blocked_without_passing(tmp_path: Path, mon
             str(tmp_path / "active-data"),
             "--output-json",
             str(tmp_path / "retirement.json"),
+            "--data-migration-evidence",
+            str(tmp_path / "data-migration.json"),
             "--data-migration-verified",
             "--docs-updated",
             "--allow-blocked-exit-zero",
@@ -166,3 +212,42 @@ def test_retirement_gate_cli_reports_blocked_without_passing(tmp_path: Path, mon
     assert exit_code == 0
     assert report["status"] == "blocked"
     assert report["summary"]["legacy_consumer_count"] == 1
+    assert report["summary"]["data_migration_verified"] is False
+
+
+def test_retirement_gate_cli_passes_with_data_migration_evidence(tmp_path: Path, monkeypatch) -> None:
+    def fake_active(ca_data_dir: Path, output_path: Path) -> dict:
+        assert ca_data_dir == tmp_path / "active-data"
+        return _write(output_path, _active_rollout()) and _active_rollout()
+
+    monkeypatch.setattr(cli, "write_active_rollout_transition_evidence", fake_active)
+
+    exit_code = cli.main_cli(
+        [
+            "--benchmark-report",
+            str(_write(tmp_path / "benchmark.json", _benchmark())),
+            "--consumer-registry",
+            str(_write(tmp_path / "registry.json", _registry(legacy_count=0))),
+            "--rollout-evidence",
+            str(_write(tmp_path / "rollout.json", _rollout())),
+            "--consumer-cutover-gate",
+            str(_write(tmp_path / "cutover.json", _cutover())),
+            "--active-rollout-output",
+            str(tmp_path / "active.json"),
+            "--ca-data-dir",
+            str(tmp_path / "active-data"),
+            "--output-json",
+            str(tmp_path / "retirement.json"),
+            "--data-migration-evidence",
+            str(tmp_path / "data-migration.json"),
+            "--data-migration-verified",
+            "--docs-updated",
+        ]
+    )
+
+    report = json.loads((tmp_path / "retirement.json").read_text(encoding="utf-8"))
+    evidence = json.loads((tmp_path / "data-migration.json").read_text(encoding="utf-8"))
+    assert exit_code == 0
+    assert evidence["status"] == "passed"
+    assert report["status"] == "passed"
+    assert report["summary"]["blocked_reasons"] == []
