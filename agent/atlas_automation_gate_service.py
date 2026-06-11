@@ -5,7 +5,7 @@ from typing import Any
 from agent.atlas_auto_policy_schema import AtlasAutoPolicyPreset, AtlasAutomationDecision
 from agent.atlas_automation_profile_resolver import normalize_automation_profile
 from agent.atlas_critical_event_policy import normalize_critical_event
-from agent.atlas_plan_item_file_changes import has_file_change_content, normalize_plan_item_file_changes
+from agent.atlas_plan_item_file_changes import detect_executor_readable_content, normalize_plan_item_file_changes
 
 
 class AtlasAutomationGateService:
@@ -54,16 +54,7 @@ class AtlasAutomationGateService:
         if status in {"completed", "failed", "cancelled", "skipped", "blocked"}: reasons.append("terminal_status")
         if preset.require_snapshot_before_apply and not (meta.get("require_snapshot_before_apply") in (True, "true", "1") or True):
             warnings.append("snapshot_requirement_unclear")
-        content_candidates = [
-            meta.get("proposed_content"),
-            meta.get("patch"),
-            meta.get("unified_diff_preview"),
-            (meta.get("patch_proposal") or {}).get("proposed_content"),
-            (meta.get("patch_proposal") or {}).get("unified_diff_preview"),
-        ]
-        file_changes = meta.get("file_changes") if isinstance(meta.get("file_changes"), list) else []
-        file_change_content = bool(file_changes) and all(isinstance(fc, dict) and has_file_change_content(fc) for fc in file_changes)
-        if preset.require_executor_readable_patch and not (any(isinstance(v, str) and v.strip() for v in content_candidates) or file_change_content):
+        if preset.require_executor_readable_patch and not detect_executor_readable_content(item):
             reasons.append("content_missing")
 
         decision = "allow"

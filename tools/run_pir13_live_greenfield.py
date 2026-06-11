@@ -211,6 +211,8 @@ def run_live_greenfield(
             "target_files": sorted(expected_targets),
             "planner_mode": "real_planner",
             "requirement_mode": "ask_when_needed",
+            "automation_level": "full_autopilot",
+            "metadata": {"preset_id": "guarded_low_risk"},
             "automation_features": dict(automation_features or {}),
         },
     )

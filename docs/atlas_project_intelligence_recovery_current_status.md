@@ -6,9 +6,10 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-15`
-- Next action: fix the PIR-15 existing-project benchmark execution gap where approved
-  existing-project patch proposals can draft a PlanItem that Safe Apply blocks with
-  `content_missing`, then rerun the expanded comparative benchmark.
+- Next action: fix the remaining PIR-15 expanded benchmark instability: one legacy
+  existing-project repetition still produced a medium-risk proposal outside the low-risk benchmark
+  scope, and one final Greenfield repetition still hit `plan_revision_required_blocks_patch` after
+  a plan-structure quality gate.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -37,7 +38,9 @@ This file selects the active package. The old PI package table does not prove fi
 - Verification, bounded recovery, checkpoint, and resume acceptance is complete for existing-project
   production paths;
 - PIR-15 Greenfield comparative benchmark has passed through the live Atlas entrypoint;
-- PIR-15 expanded corpus/repetition runner exists, but existing-project live samples are blocked;
+- PIR-15 expanded corpus/repetition runner exists; existing-project final-arm samples now pass, but
+  the expanded comparative benchmark remains blocked by remaining stochastic plan/proposal quality
+  failures;
 - final active rollout, broader real comparative benchmark, and legacy retirement remain incomplete.
 
 ## Package table
@@ -79,6 +82,84 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Existing-project draft content and planner repair slice
+Status: in_progress
+Changed modules/files:
+- agent/atlas_patch_proposal_planitem_service.py — carries approved proposal `edits` and
+  `append_content` into Patch Proposal PlanItem draft metadata and nested patch_proposal metadata,
+  preserving the executor-readable content instead of creating content-empty drafts.
+- agent/atlas_automation_gate_service.py — uses the shared executor-readable content detector so
+  edits/append/file_changes/full content are evaluated consistently with Safe Apply.
+- agent/atlas_file_safe_apply_executor.py — keeps strict surgical edits, with a bounded HTML
+  tag-gap whitespace fallback for exactly one adjacent-tag match.
+- agent/planner_phase1.py — normalizes compatible planner action aliases such as `modify` through
+  the canonical action vocabulary instead of discarding implementation steps.
+- agent/atlas_planner_bridge.py — derives full-autopilot verification contracts and requirement
+  mappings from planner/test/acceptance context when the LLM omits explicit fields.
+- tools/run_pir13_live_greenfield.py — creates live benchmark PlanPools with the intended
+  full-autopilot automation level and guarded low-risk preset metadata.
+- tests/test_atlas_automation_gate_service.py, tests/test_atlas_edit_primitives.py,
+  tests/test_atlas_file_changes_carry_through.py, tests/test_atlas_planner_bridge.py,
+  tests/test_atlas_planner_fallback_visibility.py, and tests/test_pir13_live_greenfield_runner.py —
+  added focused regressions for edits carry-through, executor-readable gate behavior, HTML edit
+  whitespace tolerance, planner action alias normalization, derived verification/mapping repair, and
+  live runner contract fixtures.
+Executed commands and exact results:
+- python -m py_compile agent\atlas_automation_gate_service.py
+  agent\atlas_patch_proposal_planitem_service.py tests\test_atlas_automation_gate_service.py
+  tests\test_atlas_file_changes_carry_through.py -> compile OK.
+- python -m pytest -q tests\test_atlas_automation_gate_service.py
+  tests\test_atlas_file_changes_carry_through.py -> 15 passed in 1.49s.
+- python -m pytest -q tests\test_project_intelligence_pir15_live_benchmark.py
+  tests\test_project_intelligence_pir15_live_benchmark_cli.py
+  tests\test_pir13_live_greenfield_runner.py tests\test_atlas_automation_gate_service.py
+  tests\test_atlas_file_changes_carry_through.py -> 24 passed in 8.73s.
+- python -m pytest -q
+  tests\test_project_intelligence_recovery_baseline.py::test_recovery_status_selects_next_active_package
+  -> 1 passed in 0.63s.
+- python -m py_compile agent\atlas_planner_bridge.py agent\planner_phase1.py
+  tools\run_pir13_live_greenfield.py tests\test_atlas_planner_bridge.py
+  tests\test_atlas_planner_fallback_visibility.py -> compile OK.
+- python -m pytest -q tests\test_atlas_planner_bridge.py
+  tests\test_atlas_planner_fallback_visibility.py tests\test_pir13_live_greenfield_runner.py
+  tests\test_project_intelligence_pir15_live_benchmark_cli.py
+  tests\test_project_intelligence_pir15_live_benchmark.py tests\test_atlas_automation_gate_service.py
+  tests\test_atlas_file_changes_carry_through.py -> 40 passed in 9.18s.
+- python -m pytest -q tests\test_atlas_edit_primitives.py
+  tests\test_atlas_automation_gate_service.py tests\test_atlas_file_changes_carry_through.py
+  tests\test_atlas_planner_bridge.py tests\test_atlas_planner_fallback_visibility.py
+  tests\test_pir13_live_greenfield_runner.py tests\test_project_intelligence_pir15_live_benchmark_cli.py
+  tests\test_project_intelligence_pir15_live_benchmark.py -> 49 passed in 9.62s.
+- python tools\run_pir15_live_benchmark.py --workspace-root
+  ca_data\atlas\pir15_live_workspaces_r10 --data-root ca_data\atlas\pir15_live_data_r10
+  --output-json ca_data\atlas\pir15_live_benchmark_report.r10.json -> exit 1;
+  status=blocked, arm_statuses={legacy: blocked, final: blocked}, verdict=regressed.
+Evidence details:
+- r10 expanded live report: Greenfield legacy passed; final existing-project repetitions 1 and 2
+  passed; legacy existing-project repetition 1 passed.
+- The earlier `content_missing` block did not recur in r10; final existing-project repetitions
+  reached Safe Apply/verification acceptance.
+- r10 remaining failures: legacy existing-project repetition 2 blocked as
+  `live_proposal_outside_expected_low_risk_scope` because the proposal risk was medium; final
+  Greenfield repetition failed before Proposal with `plan_revision_required_blocks_patch` after a
+  plan-structure quality gate.
+- Safety flags remain: manual_metrics_accepted=False, rollout_transition=False,
+  legacy_retirement=False, normal_atlas_entrypoint_reports_required=True.
+Unavailable checks: expanded comparative benchmark pass, active rollout decision, consumer-zero,
+  rollback-before-removal, data migration, and legacy retirement remain unclaimed.
+Safety invariants checked: approval, Proposal, Safe Apply, and verification authority remain
+  separate; HTML whitespace edit fallback is bounded to one adjacent-tag match; blocked live samples
+  are recorded as blocked/failed, not passed.
+Migration/rollout state: rollout remains off by default; final/active benchmark rollout is scoped
+  to isolated benchmark runs.
+Known limitations: PIR-15 acceptance is not claimed; remaining stochastic plan/proposal quality
+  failures must be fixed before final comparative evidence.
+Next package: PIR-15 — stabilize remaining Greenfield plan-structure and legacy proposal-risk
+  failures, then rerun the expanded benchmark.
+Blocker: none; remaining failures are reproducible implementation defects in the active package.
+```
 
 ```text
 Work package: PIR-15 — Existing-project benchmark corpus and repetition runner

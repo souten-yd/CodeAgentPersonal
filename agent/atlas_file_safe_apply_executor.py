@@ -414,10 +414,28 @@ class AtlasFileSafeApplyExecutor:
             if old == "":
                 return None
             count = result.count(old)
-            if count != 1:
+            if count == 1:
+                result = result.replace(old, new, 1)
+                continue
+            flexible = self._replace_html_tag_gap_whitespace_once(result, old, new)
+            if flexible is None:
                 return None
-            result = result.replace(old, new, 1)
+            result = flexible
         return result
+
+    @staticmethod
+    def _replace_html_tag_gap_whitespace_once(text: str, old: str, new: str) -> str | None:
+        if "<" not in old or ">" not in old or "<" not in new or ">" not in new:
+            return None
+        pattern = re.escape(old)
+        # LLMs often insert or omit whitespace between adjacent HTML tags. Permit only that bounded
+        # difference; all tag/text tokens must still match exactly and the match must remain unique.
+        pattern = re.sub(r"(?<=>)\\\s+(?=<)", r"\\s*", pattern)
+        matches = list(re.finditer(pattern, text))
+        if len(matches) != 1:
+            return None
+        match = matches[0]
+        return text[:match.start()] + new + text[match.end():]
 
     def _apply_unified_diff_to_text(self, original_text: str, diff_text: str) -> str | None:
         """Hunk-aware unified-diff application that PRESERVES lines outside the hunks. Validates context

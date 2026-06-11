@@ -41,6 +41,29 @@ def test_string_edit_non_unique_is_blocked():
     assert r["status"] == "blocked" and "edit_not_applicable" in r["reasons"]
 
 
+def test_html_tag_gap_whitespace_edit_applies_once():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(
+        ws,
+        "index.html",
+        {
+            "action_type": "update",
+            "edits": [
+                {
+                    "old_string": "<h1>Atlas Existing Baseline</h1>\n<p>Status: pending</p>",
+                    "new_string": "<h1>Atlas Existing Project Ready</h1>\n<p>Status: ready</p>",
+                }
+            ],
+        },
+        seed="<!doctype html><html><body><h1>Atlas Existing Baseline</h1><p>Status: pending</p></body></html>\n",
+    )
+
+    assert r["status"] == "applied"
+    final = (ws / "index.html").read_text()
+    assert "Atlas Existing Project Ready" in final
+    assert "Status: ready" in final
+
+
 def test_edits_require_existing_file():
     ws = Path(tempfile.mkdtemp())
     r = _apply(ws, "missing.py", {"action_type": "update", "edits": [{"old_string": "a", "new_string": "b"}]})

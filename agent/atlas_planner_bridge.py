@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder, coerce_list
@@ -183,6 +184,12 @@ class AtlasPlannerBridge:
                 target_files = coerce_list(plan.get("target_files"))
                 target_directories = coerce_list(plan.get("target_directories"))
             acceptance_criteria = coerce_list(step.get("acceptance_criteria") or step.get("done_definition"))
+            requirement_ids = coerce_list(step.get("requirement_ids") or step.get("linked_requirement_ids") or step.get("requirement_id") or step.get("linked_requirement_id"))
+            if not requirement_ids and str(request.automation_level or "").lower() == "full_autopilot":
+                requirement_ids = _infer_step_requirement_ids(step, requirement_trace)
+            verification_contract = _verification_contract(step)
+            if not verification_contract and str(request.automation_level or "").lower() == "full_autopilot":
+                verification_contract = _default_verification_contract(step, plan)
             converted = {
                 "schema_version": str(step.get("schema_version") or plan.get("schema_version") or ""),
                 "step_id": item_id,
@@ -198,13 +205,13 @@ class AtlasPlannerBridge:
                 "operations": list(step.get("operations") or []),
                 "assumptions": coerce_list(step.get("assumptions") or plan.get("assumptions")),
                 "normalization_diagnostics": list(step.get("normalization_diagnostics") or []),
-                "requirement_ids": coerce_list(step.get("requirement_ids") or step.get("linked_requirement_ids") or step.get("requirement_id") or step.get("linked_requirement_id")),
+                "requirement_ids": requirement_ids,
                 "acceptance_criteria": acceptance_criteria,
                 "expected_changes": coerce_list(step.get("expected_changes") or step.get("changes")),
                 "test_commands": coerce_list(step.get("test_commands")),
                 "done_definition": coerce_list(step.get("done_definition") or acceptance_criteria or plan.get("done_definition")),
                 "verification": step.get("verification") or "",
-                "verification_contract": _verification_contract(step),
+                "verification_contract": verification_contract,
                 "rollback": coerce_list(step.get("rollback") or plan.get("rollback_plan")),
                 "preserve_behaviors": coerce_list(step.get("preserve_behaviors") or plan.get("preserve_behaviors") or requirement.get("preserve_behaviors")),
                 "depends_on": coerce_list(step.get("depends_on")) if "depends_on" in step else ([previous_item_id] if previous_item_id else []),
@@ -293,6 +300,61 @@ def _verification_contract(step: dict[str, Any]) -> dict[str, Any]:
     if str(verification or "").strip():
         return {"description": str(verification).strip()}
     return {}
+
+
+def _default_verification_contract(step: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    candidates = [
+        *coerce_list(step.get("test_commands")),
+        *coerce_list(step.get("verification")),
+        *coerce_list(plan.get("test_plan")),
+        *coerce_list(plan.get("verification_plan")),
+        *coerce_list(step.get("acceptance_criteria") or step.get("done_definition")),
+        *coerce_list(plan.get("done_definition")),
+    ]
+    text = "; ".join(str(value).strip() for value in candidates if str(value).strip())
+    if not text:
+        return {}
+    return {
+        "contract_id": "planner_derived_verification",
+        "description": text[:1000],
+        "source": "planner_bridge_full_autopilot_repair",
+    }
+
+
+def _infer_step_requirement_ids(step: dict[str, Any], requirements: list[dict[str, Any]]) -> list[str]:
+    required = [
+        req for req in requirements
+        if isinstance(req, dict)
+        and str(req.get("requirement_id") or "").strip()
+        and req.get("required", True) is not False
+    ]
+    if not required:
+        return []
+    step_text = " ".join(
+        [
+            str(step.get("title") or ""),
+            str(step.get("description") or ""),
+            str(step.get("goal") or ""),
+            " ".join(coerce_list(step.get("acceptance_criteria") or step.get("done_definition"))),
+            " ".join(coerce_list(step.get("target_files"))),
+        ]
+    ).lower()
+    matched: list[str] = []
+    for req in required:
+        req_id = str(req.get("requirement_id") or "").strip()
+        req_text = " ".join(
+            [
+                str(req.get("description") or ""),
+                str(req.get("title") or ""),
+                str(req.get("goal") or ""),
+            ]
+        ).lower()
+        tokens = {token for token in re.findall(r"[a-z0-9_]{4,}", req_text) if token not in {"must", "with", "that", "this"}}
+        if tokens and any(token in step_text for token in tokens):
+            matched.append(req_id)
+    if matched:
+        return list(dict.fromkeys(matched))
+    return [str(req.get("requirement_id") or "").strip() for req in required]
 
 
 def _requirements_from_planner_result(planner_result: dict, requirement: dict) -> list[dict[str, Any]]:

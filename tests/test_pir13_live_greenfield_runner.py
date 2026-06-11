@@ -16,6 +16,7 @@ def _synthetic_greenfield_model(_system_prompt: str, _user_prompt: str) -> dict:
             "risk_level": "low",
             "target_files": ["index.html"],
             "acceptance_criteria": ["index.html contains Atlas Live Greenfield Ready."],
+            "verification_contract": {"contract_id": "file_text", "path": "index.html"},
         }
     ]
     return {
@@ -43,6 +44,7 @@ def _synthetic_greenfield_model(_system_prompt: str, _user_prompt: str) -> dict:
             "</html>\n"
         ),
         "suggested_changes": [{"path": "index.html", "action": "create"}],
+        "test_plan": ["Inspect index.html for Atlas Live Greenfield Ready."],
         "verification_plan": ["Assert index.html contains Atlas Live Greenfield Ready."],
         "rollback_plan": ["Delete index.html."],
     }

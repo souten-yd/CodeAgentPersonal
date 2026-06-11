@@ -22,6 +22,18 @@ def test_guarded_low_risk_allows_approved_patch_draft():
     assert d.decision == 'allow'
 
 
+def test_guarded_low_risk_allows_approved_surgical_edit_draft():
+    pool, item = _pool_item(metadata={
+        'approval': {'decision': 'approved'},
+        'action_type': 'update',
+        'source_proposal_id': 'pp1',
+        'edits': [{'old_string': 'old', 'new_string': 'new'}],
+    })
+    d = AtlasAutomationGateService().decide_pre_safe_apply(pool, item, atlas_auto_policy_presets()['guarded_low_risk'])
+    assert d.decision == 'allow'
+    assert 'content_missing' not in d.reasons
+
+
 def test_guarded_low_risk_blocks_content_missing():
     pool, item = _pool_item(metadata={'approval': {'decision': 'approved'}, 'action_type': 'update', 'source_proposal_id': 'pp1'})
     d = AtlasAutomationGateService().decide_pre_safe_apply(pool, item, atlas_auto_policy_presets()['guarded_low_risk'])

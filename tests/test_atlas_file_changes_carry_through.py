@@ -59,15 +59,15 @@ def test_patch_proposal_result_metadata_detects_file_changes_content(tmp_path):
     storage = AtlasPlanPoolStorage(tmp_path)
     journal = AtlasJournal(tmp_path)
     file_changes = [
-        {'path': 'index.html', 'action_type': 'create', 'proposed_content': '<!doctype html>\n'},
+        {'path': 'index.html', 'action_type': 'create', 'proposed_content': '<!doctype html>\n<link rel="stylesheet" href="style.css">\n'},
         {'path': 'style.css', 'action_type': 'create', 'proposed_content': 'body{}\n'},
     ]
     item = AtlasPlanItem(
         item_id='i1',
         pool_id='p1',
-        title='t',
-        goal='g',
-        target_files=['index.html'],
+        title='Create HTML app with stylesheet',
+        goal='Create index.html and style.css for a styled page',
+        target_files=['index.html', 'style.css'],
         metadata={'action_type': 'create'},
     )
     pool = AtlasPlanPool(pool_id='p1', root_goal='g', items=[item])
@@ -142,6 +142,37 @@ def test_patch_proposal_planitem_draft_carries_file_changes(tmp_path):
     assert [fc['path'] for fc in draft.metadata['file_changes']] == ['index.html', 'style.css']
     assert draft.target_files == ['index.html', 'style.css']
     assert draft.metadata['change_set']['apply_strategy'] == 'preflight_all_then_apply_all'
+
+
+def test_patch_proposal_planitem_draft_carries_surgical_edits(tmp_path):
+    storage = AtlasPlanPoolStorage(tmp_path)
+    journal = AtlasJournal(tmp_path)
+    svc = AtlasPatchProposalPlanItemDraftService(journal=journal, storage=storage)
+    edits = [
+        {'old_string': '<h1>Atlas Existing Baseline</h1>', 'new_string': '<h1>Atlas Existing Project Ready</h1>'},
+    ]
+    item = AtlasPlanItem(
+        item_id='i1',
+        pool_id='p1',
+        title='t',
+        goal='g',
+        target_files=['index.html'],
+        metadata={
+            'action_type': 'update',
+            'patch_proposal': {
+                'proposal_id': 'pp1',
+                'target_files': ['index.html'],
+                'risk_level': 'low',
+                'metadata': {'edits': edits},
+            },
+        },
+    )
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g', items=[item])
+    draft = svc.build_draft_item(pool, item, SimpleNamespace(run_id='r1'))
+
+    assert draft.metadata['edits'] == edits
+    assert draft.metadata['patch_proposal']['edits'] == edits
+    assert detect_executor_readable_content(draft) is True
 
 
 def test_plan_item_file_change_helper_surfaces_planned_paths_warnings_and_content():

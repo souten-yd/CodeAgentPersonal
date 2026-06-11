@@ -4,6 +4,7 @@ import re
 import uuid
 from typing import Callable
 
+from agent.atlas_action_type import normalize_action_type
 from agent.atlas_llm_output_models import PlanGenerationOutput
 from agent.atlas_llm_schemas import plan_generation_json_schema
 from agent.atlas_structured_output import generate_structured
@@ -291,8 +292,11 @@ def _as_requirement_items(value) -> list[dict]:
 
 
 def _safe_action_type(value: str) -> str:
-    allowed = {"create", "update", "delete", "inspect", "run_command", "test"}
-    return value if value in allowed else ""
+    value = str(value or "").strip().lower()
+    allowed = {"delete", "inspect", "run_command", "test"}
+    if value in allowed:
+        return value
+    return normalize_action_type(value)
 
 
 def _safe_risk_level(value: str) -> str:
