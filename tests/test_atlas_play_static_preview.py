@@ -3,10 +3,13 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import pytest
+
 from app.api.atlas_play import router as atlas_play_router
 from app.atlas.play.contracts import LaunchKind, LaunchProfile
 from app.atlas.play.environment import build_structured_launch_adapter
 from app.atlas.play.sessions import PlaySessionManager
+from app.atlas.play.static_preview import StaticPreviewError, validate_preview_request_headers
 
 
 def _project(tmp_path: Path, project_id: str = "demo") -> Path:
@@ -111,6 +114,31 @@ def test_static_preview_validates_host_and_origin_headers(tmp_path: Path) -> Non
     assert bad_host.json()["detail"]["error"] == "host_not_allowed"
     assert bad_origin.status_code == 403
     assert bad_origin.json()["detail"]["error"] == "origin_not_allowed"
+
+
+def test_preview_headers_allow_lan_and_runpod_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATLAS_PREVIEW_ALLOWED_HOSTS", raising=False)
+    # iPhone on the same LAN reaches the host by its private IP.
+    validate_preview_request_headers({"host": "192.168.1.42:7860", "origin": "http://192.168.1.42:7860"})
+    # RunPod exposes the port through its proxy domain.
+    validate_preview_request_headers(
+        {"host": "abc123-7860.proxy.runpod.net", "origin": "https://abc123-7860.proxy.runpod.net"}
+    )
+    # Explicitly pinned custom host via env.
+    monkeypatch.setenv("ATLAS_PREVIEW_ALLOWED_HOSTS", "my-tunnel.example.com")
+    validate_preview_request_headers({"host": "my-tunnel.example.com", "origin": "https://my-tunnel.example.com"})
+
+
+def test_preview_headers_reject_public_host_and_cross_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATLAS_PREVIEW_ALLOWED_HOSTS", raising=False)
+    # DNS-rebinding style arbitrary public hostname is still rejected.
+    with pytest.raises(StaticPreviewError) as host_exc:
+        validate_preview_request_headers({"host": "evil.example"})
+    assert host_exc.value.code == "host_not_allowed"
+    # A LAN host targeted from a foreign public origin is cross-origin.
+    with pytest.raises(StaticPreviewError) as origin_exc:
+        validate_preview_request_headers({"host": "192.168.1.42", "origin": "https://evil.example"})
+    assert origin_exc.value.code == "origin_not_allowed"
 
 
 def test_static_preview_ingests_console_and_failed_request_events(tmp_path: Path) -> None:
