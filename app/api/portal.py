@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import os
+import string
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api.atlas_root import resolve_atlas_ca_data_root
+from app.env_detection import detect_runpod
 from app.portal.catalog import PortalCatalogError, PortalCatalogService
 from app.portal.contracts import PORTAL_SCHEMA_VERSION, PortalRunMode, PortalRunRequest
 from app.portal.runtime import PortalRuntimeError, PortalRuntimeService
@@ -15,6 +20,10 @@ router = APIRouter(prefix="/api/portal", tags=["portal"])
 
 class PortalArchivePathRequest(BaseModel):
     archive_path: str = Field(min_length=1)
+
+
+class PortalImportBrowseRequest(BaseModel):
+    path: str = ""
 
 
 class PortalForkRequest(BaseModel):
@@ -95,6 +104,91 @@ def import_package(payload: PortalArchivePathRequest, request: Request) -> dict:
         return _catalog(request).import_archive(payload.archive_path)
     except PortalCatalogError as exc:
         _raise_catalog_error(exc)
+
+
+def _import_browse_platform() -> str:
+    if os.name == "nt":
+        return "windows"
+    return "runpod" if detect_runpod() else "linux"
+
+
+def _import_browse_roots() -> list[dict]:
+    """Environment-appropriate quick-access roots for the import folder picker.
+
+    Windows exposes drive letters + the user home; Linux/RunPod exposes the
+    RunPod /workspace mount, the user home, and the filesystem root."""
+    roots: list[dict] = []
+    home = str(Path.home())
+    if os.name == "nt":
+        for letter in string.ascii_uppercase:
+            drive = f"{letter}:\\"
+            if os.path.exists(drive):
+                roots.append({"label": f"{letter}:", "path": drive})
+        roots.append({"label": "ホーム", "path": home})
+    else:
+        if os.path.isdir("/workspace"):
+            roots.append({"label": "Workspace", "path": "/workspace"})
+        roots.append({"label": "ホーム", "path": home})
+        roots.append({"label": "ルート", "path": "/"})
+    return roots
+
+
+def _import_browse_default() -> str:
+    if os.name != "nt" and os.path.isdir("/workspace"):
+        return "/workspace"
+    return str(Path.home())
+
+
+@router.post("/import/browse")
+def browse_import(payload: PortalImportBrowseRequest) -> dict:
+    """Read-only directory listing so the Portal import UI can show an
+    environment-appropriate folder picker instead of asking the user to type a
+    server path. Returns sub-directories and .zip/.portal.zip archives only."""
+    requested = (payload.path or "").strip()
+    target = Path(requested).expanduser() if requested else Path(_import_browse_default())
+    try:
+        target = target.resolve()
+    except Exception:
+        pass
+    parent = str(target.parent) if target.parent != target else ""
+    result = {
+        "schema_version": PORTAL_SCHEMA_VERSION,
+        "platform": _import_browse_platform(),
+        "roots": _import_browse_roots(),
+        "default_path": _import_browse_default(),
+        "path": str(target),
+        "parent": parent,
+        "entries": [],
+        "error": "",
+    }
+    if not target.exists() or not target.is_dir():
+        result["error"] = "directory_not_found"
+        return result
+    entries: list[dict] = []
+    try:
+        children = sorted(target.iterdir(), key=lambda p: (not _safe_is_dir(p), p.name.lower()))
+    except PermissionError:
+        result["error"] = "permission_denied"
+        return result
+    except OSError:
+        result["error"] = "directory_unreadable"
+        return result
+    for child in children:
+        is_dir = _safe_is_dir(child)
+        low = child.name.lower()
+        is_zip = (not is_dir) and (low.endswith(".portal.zip") or low.endswith(".zip"))
+        if not is_dir and not is_zip:
+            continue
+        entries.append({"name": child.name, "path": str(child), "is_dir": is_dir, "is_zip": is_zip})
+    result["entries"] = entries[:2000]
+    return result
+
+
+def _safe_is_dir(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
 
 
 @router.get("/packages/{package_id}/{version}/{content_hash}/export")

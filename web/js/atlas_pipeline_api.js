@@ -670,6 +670,9 @@
     listPortalCatalog() {
       return atlasFetch('/api/portal/catalog', { timeoutMs: 15000 });
     },
+    browsePortalImport(path) {
+      return atlasFetch('/api/portal/import/browse', { method: 'POST', body: JSON.stringify({ path: path || '' }), timeoutMs: 15000 });
+    },
     preflightPortalImport(archivePath) {
       return atlasFetch('/api/portal/import/preflight', { method: 'POST', body: JSON.stringify({ archive_path: archivePath }) });
     },
