@@ -44,6 +44,8 @@ This file selects the active package. The old PI package table does not prove fi
   adapter and now report consumer-zero in the PIR-15 retirement gate;
 - repo-context API direct consumers have moved behind a Project Intelligence repo-context adapter,
   reducing PIR-15 retirement-gate legacy consumers to 19;
+- pipeline repo-context, impact, planner-packaging, and verification-recommendation calls now use
+  the repo-context adapter, reducing PIR-15 retirement-gate legacy consumers to 16;
 - final broader legacy retirement remains incomplete because consumer-zero and data-migration gates
   are not yet satisfied.
 
@@ -86,6 +88,73 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Pipeline repo-context adapter cutover
+Status: in_progress
+Changed modules/files:
+- app/api/atlas_pipeline.py — moved repo-context package, plan scope summary, plan item impact map,
+  planner-packaging-v2, verification recommendation, and recommendation handoff calls behind the
+  Project Intelligence repo-context adapter; direct verification gate authority remains unchanged.
+- agent/project_intelligence/adapters/atlas_repo_context.py — added a repo-context package adapter
+  method used by the pipeline.
+- docs/generated/atlas_project_intelligence_consumer_inventory.json and
+  docs/generated/atlas_project_intelligence_legacy_dependency_allowlist.json — regenerated from
+  the current checkout after the pipeline cutover.
+- tests/test_project_intelligence_pir15_repo_context_adapter.py,
+  tests/test_atlas_planner_packaging_v2_planpool_integration.py,
+  tests/test_atlas_verification_recommendation_planpool_integration.py,
+  tests/test_atlas_verification_recommendation_handoff_planpool_integration.py, and
+  tests/test_project_intelligence_pir14_legacy_dependency_lint.py — updated coverage for pipeline
+  adapter use, sync PlanPool assertions, non-blocking adapter failures, and the reduced allowlist.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\adapters\atlas_repo_context.py
+  app\api\atlas_pipeline.py tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_atlas_planner_packaging_v2_planpool_integration.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir15_repo_context_adapter.py
+  tests\test_atlas_planner_packaging_v2_planpool_integration.py
+  tests\test_atlas_plan_item_impact_map_planpool_integration.py
+  tests\test_atlas_verification_recommendation_planpool_integration.py
+  tests\test_atlas_verification_recommendation_handoff_planpool_integration.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py -> 30 passed, 2 xfailed
+  in 39.03s.
+- python <<regenerate current inventory, allowlist, rollout, lint, cutover, and registry artifacts>>
+  -> lint_passed=true, observed_dependency_count=27, planning_context.legacy_consumer_count=5,
+  generation_context.legacy_consumer_count=5, pipeline imports_legacy_capability=[legacy_verification_gate],
+  cutover_passed=true.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --docs-updated --allow-blocked-exit-zero
+  -> exit 0; status=blocked, active_rollout=true, legacy_consumer_count=16,
+  blocked_reasons=[data_migration_not_verified, legacy_capability_retirement_not_ready].
+Evidence details:
+- app/api/atlas_pipeline.py now retains only the direct legacy_verification_gate import in the
+  generated production-entrypoint inventory; repo-context/planning/impact/recommendation imports
+  are behind the registered Project Intelligence repo-context adapter.
+- Direct legacy dependency allowlist now records 27 observed dependencies, down from 33 after the
+  repo-context API adapter cutover.
+- PIR-15 retirement gate now reports legacy_consumer_count=16:
+  legacy_context_refresh=7, legacy_planner_context=5, legacy_repo_context=2,
+  legacy_verification_gate=1, and legacy_verification_recommendation=1 remain; legacy_project_inspection
+  remains consumer-zero.
+Unavailable checks: data migration verification, remaining consumer-zero work, repair/Greenfield
+  shadow and rollback parity, actual legacy removal, rollback after each removal, and master
+  Definition of Done remain unclaimed.
+Safety invariants checked: verification gate authority remains a direct KEEP dependency; moved
+  repo-context/recommendation calls remain advisory and read-only behind a registered adapter.
+Migration/rollout state: default rollout remains off; no legacy source path was deleted.
+Known limitations: PIR-15 acceptance is not complete because five legacy capability groups still
+  have direct production consumers.
+Next package: PIR-15 — continue with agent-service planning/generation and context-refresh
+  cutover, then re-run the retirement gate.
+Blocker: none; remaining work is the next PIR-15 cutover and retirement slice.
+```
 
 ```text
 Work package: PIR-15 — Repo-context API adapter cutover

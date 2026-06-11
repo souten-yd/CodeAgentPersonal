@@ -6,7 +6,7 @@ import app.api.atlas_pipeline as pipeline_mod
 def test_planpool_repo_context_enables_packaging(tmp_path):
     app = create_app(); app.state.atlas_ca_data_root = str(tmp_path)
     c = TestClient(app)
-    r = c.post('/api/atlas/plan-pools', json={'input': 'g', 'project_path': str(tmp_path), 'enable_repo_context': True})
+    r = c.post('/api/atlas/plan-pools?sync=1', json={'input': 'g', 'project_path': str(tmp_path), 'enable_repo_context': True})
     assert r.status_code == 200
     md = r.json()['plan_pool']['metadata']
     assert 'planner_packaging_v2' in md and 'planner_context_text_v2' in md
@@ -18,7 +18,7 @@ def test_planpool_repo_context_enables_packaging(tmp_path):
 def test_planpool_repo_context_disabled_no_active_packaging(tmp_path):
     app = create_app(); app.state.atlas_ca_data_root = str(tmp_path)
     c = TestClient(app)
-    r = c.post('/api/atlas/plan-pools', json={'input': 'g', 'project_path': str(tmp_path), 'enable_repo_context': False})
+    r = c.post('/api/atlas/plan-pools?sync=1', json={'input': 'g', 'project_path': str(tmp_path), 'enable_repo_context': False})
     assert r.status_code == 200
     md = r.json()['plan_pool']['metadata']
     assert ('planner_packaging_v2' not in md) or (md.get('planner_packaging_v2', {}).get('status') in {'missing', 'inactive', None})
@@ -27,10 +27,10 @@ def test_planpool_repo_context_disabled_no_active_packaging(tmp_path):
 def test_planpool_packaging_failure_non_blocking(tmp_path, monkeypatch):
     def boom(self, req):
         raise RuntimeError('fail')
-    monkeypatch.setattr(pipeline_mod.AtlasPlannerPackagingV2Service, 'build_package', boom)
+    monkeypatch.setattr(pipeline_mod.AtlasRepoContextAdapter, 'build_planner_packaging_v2', boom)
     app = create_app(); app.state.atlas_ca_data_root = str(tmp_path)
     c = TestClient(app)
-    r = c.post('/api/atlas/plan-pools', json={'input': 'g', 'project_path': str(tmp_path), 'enable_repo_context': True})
+    r = c.post('/api/atlas/plan-pools?sync=1', json={'input': 'g', 'project_path': str(tmp_path), 'enable_repo_context': True})
     assert r.status_code == 200
     md = r.json()['plan_pool']['metadata']
     assert 'planner_packaging_v2' not in md or md.get('planner_packaging_v2', {}).get('status') in {'missing', 'failed', 'partial'}

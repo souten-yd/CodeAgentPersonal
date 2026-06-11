@@ -59,3 +59,14 @@ def test_repo_context_api_direct_legacy_imports_move_behind_adapter() -> None:
     adapters = {row["module"]: row for row in inventory["project_intelligence"]["adapters"]}
     assert adapters["agent.project_intelligence.adapters.atlas_repo_context"]["present"] is True
     assert inventory["summary"]["adapter_module_count"] == 5
+
+
+def test_pipeline_context_legacy_imports_move_behind_repo_context_adapter() -> None:
+    inventory = build_inventory(REPO_ROOT)
+    pipeline_entry = next(
+        entry for entry in inventory["production_entrypoints"]
+        if entry["path"] == "app/api/atlas_pipeline.py"
+    )
+
+    assert pipeline_entry["imports_project_intelligence"] is True
+    assert pipeline_entry["imports_legacy_capability"] == ["legacy_verification_gate"]

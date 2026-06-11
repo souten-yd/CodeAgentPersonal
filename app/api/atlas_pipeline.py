@@ -92,18 +92,12 @@ from agent.atlas_failure_stop_service import AtlasFailureStopService
 from agent.atlas_self_correction_schema import AtlasSelfCorrectionRequest
 from agent.atlas_verification_allowlist import atlas_verification_allowlist
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
-from agent.atlas_repo_context_service import AtlasRepoContextService
-from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
-from agent.atlas_verification_planning_service import AtlasVerificationPlanningService
 from agent.atlas_verification_planning_schema import AtlasVerificationPlanningRequest
-from agent.atlas_plan_item_impact_map_service import AtlasPlanItemImpactMapService
 from agent.atlas_plan_item_impact_map_schema import AtlasPlanItemImpactMapRequest
-from agent.atlas_planner_packaging_v2_service import AtlasPlannerPackagingV2Service
 from agent.atlas_planner_packaging_v2_schema import AtlasPlannerPackagingV2Request
 from agent.atlas_verification_recommendation_schema import AtlasVerificationRecommendationRequest
-from agent.atlas_verification_recommendation_service import AtlasVerificationRecommendationService
-from agent.atlas_verification_recommendation_handoff_service import AtlasVerificationRecommendationHandoffService
 from agent.atlas_verification_recommendation_handoff_schema import AtlasVerificationRecommendationHandoffRequest
+from agent.project_intelligence.adapters.atlas_repo_context import AtlasRepoContextAdapter
 from agent.project_intelligence.adapters.atlas_planning import AtlasPlannerBridge as ProjectIntelligencePlannerBridge
 from agent.project_intelligence.adapters.atlas_verification import AtlasVerificationBridge
 from agent.project_intelligence.checkpoint import CheckpointController
@@ -1140,6 +1134,7 @@ def _create_plan_pool_core(
         )
         if req.enable_repo_context and (req.project_path or "").strip():
             try:
+                repo_adapter = AtlasRepoContextAdapter(data_root=ca_data_root)
                 repo_req = AtlasRepoContextRequest(
                     workspace_id=req.workspace_id,
                     project_path=req.project_path,
@@ -1149,13 +1144,12 @@ def _create_plan_pool_core(
                     allow_build_if_missing=False,
                     mode="scope_summary",
                 )
-                packager = AtlasRepoContextPlannerPackager(data_root=ca_data_root)
-                pkg = packager.build_package(repo_req)
+                pkg = repo_adapter.build_repo_context_package(repo_req)
                 repo_context_package_payload = pkg.model_dump()
                 planner_context_text = pkg.planner_context_text
-                impacted_test_recommendation_payload = packager.build_impacted_test_recommendation(repo_req).model_dump()
-                verification_plan_payload = AtlasVerificationPlanningService(data_root=ca_data_root).build_plan(AtlasVerificationPlanningRequest(workspace_id=req.workspace_id, project_path=req.project_path, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context)).model_dump()
-                plan_item_impact_map_payload = AtlasPlanItemImpactMapService(data_root=ca_data_root).build_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=req.pool_id, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context, plan_pool={})).model_dump()
+                impacted_test_recommendation_payload = repo_adapter.build_impacted_test_recommendation(repo_req).model_dump()
+                verification_plan_payload = repo_adapter.build_verification_plan(AtlasVerificationPlanningRequest(workspace_id=req.workspace_id, project_path=req.project_path, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context)).model_dump()
+                plan_item_impact_map_payload = repo_adapter.build_plan_item_impact_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=req.pool_id, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context, plan_pool={})).model_dump()
             except Exception:
                 repo_context_package_payload = {"status": "failed_internal", "confidence": "unknown"}
                 planner_context_text = "Repo Context status: failed_internal. Advisory only."
@@ -1164,7 +1158,7 @@ def _create_plan_pool_core(
 
         
         try:
-            planner_packaging_v2_payload = AtlasPlannerPackagingV2Service(data_root=ca_data_root).build_package(AtlasPlannerPackagingV2Request(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=req.pool_id, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context, plan_pool={}, repo_context_package=repo_context_package_payload, plan_item_impact_map=plan_item_impact_map_payload, context_refresh_v2={}, include_repo_context=req.enable_repo_context, include_plan_item_impact_map=req.enable_repo_context, include_context_refresh_v2=req.enable_repo_context)).model_dump()
+            planner_packaging_v2_payload = AtlasRepoContextAdapter(data_root=ca_data_root).build_planner_packaging_v2(AtlasPlannerPackagingV2Request(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=req.pool_id, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context, plan_pool={}, repo_context_package=repo_context_package_payload, plan_item_impact_map=plan_item_impact_map_payload, context_refresh_v2={}, include_repo_context=req.enable_repo_context, include_plan_item_impact_map=req.enable_repo_context, include_context_refresh_v2=req.enable_repo_context)).model_dump()
             planner_context_text_v2 = planner_packaging_v2_payload.get("planner_context_text", "")
             if planner_context_text_v2:
                 planner_context_text = planner_context_text_v2
@@ -1262,7 +1256,7 @@ def _create_plan_pool_core(
                 pool.warnings.append(warning)
     if req.enable_repo_context and (req.project_path or "").strip():
         try:
-            repo_context = AtlasRepoContextService(data_root=ca_data_root).build_plan_scope_summary(
+            repo_context = AtlasRepoContextAdapter(data_root=ca_data_root).build_plan_scope_summary(
                 AtlasRepoContextRequest(
                     workspace_id=req.workspace_id,
                     project_path=req.project_path,
@@ -1298,13 +1292,13 @@ def _create_plan_pool_core(
         }
     if req.enable_repo_context and (req.project_path or "").strip() and pool:
         try:
-            plan_item_impact_map_payload = AtlasPlanItemImpactMapService(data_root=ca_data_root).build_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=pool.pool_id, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context, plan_pool=_model_dump(pool))).model_dump()
+            plan_item_impact_map_payload = AtlasRepoContextAdapter(data_root=ca_data_root).build_plan_item_impact_map(AtlasPlanItemImpactMapRequest(workspace_id=req.workspace_id, project_path=req.project_path, pool_id=pool.pool_id, goal=root_goal, changed_files=changed_files_for_context, target_files=target_files_for_context, plan_pool=_model_dump(pool))).model_dump()
         except Exception:
             plan_item_impact_map_payload = {"status": "missing", "metadata": {"advisory_only": True, "executed": False, "auto_verification_triggered": False, "auto_test_execution_triggered": False}}
 
     if req.enable_repo_context and (req.project_path or "").strip() and pool:
         try:
-            verification_recommendation_payload = AtlasVerificationRecommendationService(data_root=ca_data_root).recommend(
+            verification_recommendation_payload = AtlasRepoContextAdapter(data_root=ca_data_root).build_verification_recommendation(
                 AtlasVerificationRecommendationRequest(
                     workspace_id=req.workspace_id,
                     project_path=req.project_path,
@@ -1337,7 +1331,7 @@ def _create_plan_pool_core(
             "commands_are_suggestions_only": True,
         }
         try:
-            handoff = AtlasVerificationRecommendationHandoffService(data_root=ca_data_root).build_handoff(
+            handoff = AtlasRepoContextAdapter(data_root=ca_data_root).build_verification_recommendation_handoff(
                 AtlasVerificationRecommendationHandoffRequest(
                     workspace_id=req.workspace_id,
                     project_path=req.project_path,
