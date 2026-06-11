@@ -183,3 +183,30 @@ jobs:
           name: pir14-windows-platform-evidence-junit
           path: artifacts/pir14-ci/windows-platform-evidence.xml
           if-no-files-found: error
+
+  docker-platform-evidence:
+    name: docker-platform-evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p artifacts/pir14-ci
+      - run: docker build -f .github/docker/pir14-evidence.Dockerfile -t atlas-pir14-evidence:${{ github.sha }} .
+      - run: |
+          docker run --rm \
+            -e ATLAS_IN_DOCKER=1 \
+            -e CODEAGENT_CA_DATA_DIR=/tmp/ca_data \
+            -e CODEAGENT_STYLE_BERT_VITS2_BASE_DIR=/tmp/style_bert_vits2 \
+            -e CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR=/tmp/style_bert_vits2/models \
+            -v "${{ github.workspace }}/artifacts/pir14-ci:/app/artifacts/pir14-ci" \
+            atlas-pir14-evidence:${{ github.sha }}
+      - if: always()
+        run: |
+          echo "## PIR-14 docker-platform-evidence" >> "$GITHUB_STEP_SUMMARY"
+          echo "- JUnit: artifacts/pir14-ci/docker-platform-evidence.xml" >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pir14-docker-platform-evidence-junit
+          path: artifacts/pir14-ci/docker-platform-evidence.xml
+          if-no-files-found: error
