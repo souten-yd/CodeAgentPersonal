@@ -14,16 +14,6 @@
       "capability": "legacy_code_explorer",
       "consumer_path": "agent/research_conductor.py",
       "legacy_module": "agent.atlas_code_explorer"
-    },
-    {
-      "capability": "legacy_code_intelligence",
-      "consumer_path": "agent/atlas_context_local_collectors.py",
-      "legacy_module": "agent.atlas_code_intel_service"
-    },
-    {
-      "capability": "legacy_code_intelligence",
-      "consumer_path": "app/api/atlas_code_intel.py",
-      "legacy_module": "agent.atlas_code_intel_service"
     }
   ],
   "generated_at": "",
@@ -36,8 +26,8 @@
   "schema_version": 1,
   "source": "python_ast_current_checkout_legacy_dependency_allowlist",
   "summary": {
-    "allowed_dependency_count": 5,
-    "consumer_path_count": 5,
-    "legacy_module_count": 2
+    "allowed_dependency_count": 3,
+    "consumer_path_count": 3,
+    "legacy_module_count": 1
   }
 }

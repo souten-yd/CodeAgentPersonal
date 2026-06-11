@@ -22,7 +22,7 @@ def test_consumer_inventory_generator_finds_current_production_surface() -> None
     assert inv["source"] == "python_ast_current_checkout"
     assert inv["summary"]["production_entrypoint_count"] >= 2
     assert inv["summary"]["facade_module_count"] >= 4
-    assert inv["summary"]["adapter_module_count"] == 13
+    assert inv["summary"]["adapter_module_count"] == 14
     assert inv["summary"]["legacy_production_consumer_count"] > 0
     assert not inv["parse_errors"]
 
@@ -55,12 +55,20 @@ def test_inventory_records_exact_facade_call_counts() -> None:
     assert repo_index["production_consumer_count"] == 0
     assert repo_index["adapter_consumer_count"] == 2
     assert adapters["agent.project_intelligence.adapters.repo_index"]["present"] is True
+    code_intel = next(
+        row for row in inv["legacy_consumers"]
+        if row["legacy_module"] == "agent.atlas_code_intel_service"
+    )
+    assert code_intel["production_consumer_count"] == 0
+    assert code_intel["adapter_consumer_count"] == 1
+    assert adapters["agent.project_intelligence.adapters.code_intel"]["present"] is True
     for path in ("app/api/atlas_repo_index.py", "app/api/atlas_code_intel.py"):
         entry = next(row for row in inv["production_entrypoints"] if row["path"] == path)
         if path == "app/api/atlas_repo_index.py":
             assert entry["imports_legacy_capability"] == []
         else:
             assert "legacy_repository_index" not in entry["imports_legacy_capability"]
+            assert "legacy_code_intelligence" not in entry["imports_legacy_capability"]
     assert any(
         row["legacy_module"] == "agent.atlas_verification_gate_service"
         for row in inv["legacy_consumers"]
@@ -132,7 +140,6 @@ def test_pir0_c02_active_coordinator_returns_real_module_output() -> None:
     assert pkg.context_manifest.included_refs
 
 
-@pytest.mark.xfail(strict=True, reason="PIR0-C03: real Atlas APIs still import legacy consumers")
 def test_pir0_c03_atlas_api_uses_project_intelligence_adapters() -> None:
     inv = _inventory()
     legacy_api_imports = [

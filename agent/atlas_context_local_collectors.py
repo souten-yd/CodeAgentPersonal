@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from agent.atlas_code_intel_schema import AtlasDependencyGraphRequest, AtlasRelatedTestsRequest, AtlasSymbolIndexRequest
-from agent.atlas_code_intel_service import AtlasCodeIntelService
 from agent.project_intelligence.adapters.atlas_inspection import AtlasInspectionAdapter
+from agent.project_intelligence.adapters.code_intel import ProjectIntelligenceCodeIntelAdapter
 
 
 def collect_git_context(project_path: str, changed_files: list[str], limits: dict) -> dict:
@@ -47,7 +47,7 @@ def collect_git_context(project_path: str, changed_files: list[str], limits: dic
 
 
 def collect_code_intel_context(project_path: str, changed_files: list[str], limits: dict) -> dict:
-    svc = AtlasCodeIntelService()
+    svc = ProjectIntelligenceCodeIntelAdapter()
     warnings: list[str] = []
     symbol_index = None
     dep_graph = None
