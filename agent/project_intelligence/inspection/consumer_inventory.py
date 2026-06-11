@@ -17,7 +17,6 @@ from typing import Any
 
 LEGACY_CAPABILITY_MODULES: dict[str, str] = {
     "agent.atlas_repo_index_service": "legacy_repository_index",
-    "agent.atlas_code_intel_service": "legacy_code_intelligence",
     "agent.atlas_project_inspection_service": "legacy_project_inspection",
     "agent.atlas_git_inspection_service": "legacy_git_inspection",
     "agent.atlas_verification_recommendation_service": "legacy_verification_recommendation",

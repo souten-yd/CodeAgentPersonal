@@ -402,23 +402,8 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-11T09:50:09+00:00",
+  "generated_at": "2026-06-11T09:58:23+00:00",
   "legacy_consumers": [
-    {
-      "adapter_consumer_count": 1,
-      "adapter_consumers": [
-        {
-          "module": "agent.project_intelligence.adapters.code_intel",
-          "path": "agent/project_intelligence/adapters/code_intel.py"
-        }
-      ],
-      "capability": "legacy_code_intelligence",
-      "legacy_internal_consumer_count": 0,
-      "legacy_internal_consumers": [],
-      "legacy_module": "agent.atlas_code_intel_service",
-      "production_consumer_count": 0,
-      "production_consumers": []
-    },
     {
       "adapter_consumer_count": 1,
       "adapter_consumers": [
