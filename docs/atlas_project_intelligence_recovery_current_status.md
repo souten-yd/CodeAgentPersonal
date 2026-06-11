@@ -40,6 +40,8 @@ This file selects the active package. The old PI package table does not prove fi
 - PIR-15 expanded Greenfield/existing-project comparative benchmark now passes on verified outcomes
   without safety regression; latency-only regression is recorded as non-blocking benchmark evidence;
 - PIR-15 active production preflight transition evidence now passes in an isolated data root;
+- read-only inspection direct consumers have moved behind the Project Intelligence inspection
+  adapter and now report consumer-zero in the PIR-15 retirement gate;
 - final broader legacy retirement remains incomplete because consumer-zero and data-migration gates
   are not yet satisfied.
 
@@ -82,6 +84,67 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Read-only inspection adapter cutover
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/adapters/atlas_inspection.py — added the retained project/git
+  inspection compatibility adapter so production consumers no longer import those legacy services
+  directly.
+- agent/atlas_context_local_collectors.py and app/api/atlas_dev_tools.py — moved read-only
+  inspection calls behind AtlasInspectionAdapter.
+- agent/project_intelligence/inspection/consumer_inventory.py — records approved Project
+  Intelligence adapters separately from direct production legacy consumers.
+- docs/generated/atlas_project_intelligence_consumer_inventory.json and
+  docs/generated/atlas_project_intelligence_legacy_dependency_allowlist.json — regenerated from
+  the current checkout after the inspection cutover.
+- tests/test_project_intelligence_pir15_inspection_adapter.py,
+  tests/test_project_intelligence_recovery_baseline.py, and
+  tests/test_project_intelligence_pir14_legacy_dependency_lint.py — added/updated coverage for
+  inspection adapter behavior, adapter inventory count, and the reduced direct legacy allowlist.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\adapters\atlas_inspection.py
+  agent\project_intelligence\inspection\consumer_inventory.py agent\atlas_context_local_collectors.py
+  app\api\atlas_dev_tools.py tests\test_project_intelligence_pir15_inspection_adapter.py ->
+  compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir15_inspection_adapter.py
+  tests\test_project_intelligence_recovery_baseline.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py
+  tests\test_project_intelligence_pir14_consumer_registry.py -> 17 passed, 2 xfailed in 34.88s.
+- python <<regenerate current inventory, allowlist, rollout, lint, cutover, and registry artifacts>>
+  -> lint_passed=true, observed_dependency_count=39, read_only_inspection.legacy_consumer_count=0,
+  cutover_passed=true.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --docs-updated --allow-blocked-exit-zero
+  -> exit 0; status=blocked, active_rollout=true, legacy_consumer_count=22,
+  blocked_reasons=[data_migration_not_verified, legacy_capability_retirement_not_ready].
+Evidence details:
+- Read-only inspection now reports legacy_consumer_count=0 and no legacy_consumer_paths in
+  ca_data\atlas\pir14_consumer_registry.current.json.
+- PIR-15 retirement gate now reports consumer_zero_capability_count=1 and
+  retirement_ready_capability_count=1; the ready capability is legacy_project_inspection.
+- Remaining capability blocks: legacy_context_refresh=7, legacy_planner_context=7,
+  legacy_repo_context=4, legacy_verification_gate=1, and legacy_verification_recommendation=3.
+Unavailable checks: data migration verification, remaining consumer-zero work, repair/Greenfield
+  shadow and rollback parity, actual legacy removal, rollback after each removal, and master
+  Definition of Done remain unclaimed.
+Safety invariants checked: retained inspection implementation remains importable behind the adapter;
+  the adapter is read-only; direct production consumer counting excludes only registered Project
+  Intelligence adapters, not arbitrary legacy imports.
+Migration/rollout state: default rollout remains off; no legacy source path was deleted.
+Known limitations: PIR-15 acceptance is not complete because five legacy capability groups still
+  have direct production consumers.
+Next package: PIR-15 — continue with planning/generation context consumer cutover in the approved
+  order, then re-run the retirement gate.
+Blocker: none; remaining work is the next PIR-15 cutover and retirement slice.
+```
 
 ```text
 Work package: PIR-15 — Active rollout and retirement gate evidence

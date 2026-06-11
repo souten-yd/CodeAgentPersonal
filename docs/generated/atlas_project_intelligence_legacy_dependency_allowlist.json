@@ -66,16 +66,6 @@
       "legacy_module": "agent.atlas_context_refresh_v2_service"
     },
     {
-      "capability": "legacy_git_inspection",
-      "consumer_path": "agent/atlas_context_local_collectors.py",
-      "legacy_module": "agent.atlas_git_inspection_service"
-    },
-    {
-      "capability": "legacy_git_inspection",
-      "consumer_path": "app/api/atlas_dev_tools.py",
-      "legacy_module": "agent.atlas_git_inspection_service"
-    },
-    {
       "capability": "legacy_impact_map",
       "consumer_path": "agent/atlas_context_refresh_v2_service.py",
       "legacy_module": "agent.atlas_plan_item_impact_map_service"
@@ -109,16 +99,6 @@
       "capability": "legacy_planner_context",
       "consumer_path": "app/api/atlas_repo_context.py",
       "legacy_module": "agent.atlas_planner_packaging_v2_service"
-    },
-    {
-      "capability": "legacy_project_inspection",
-      "consumer_path": "agent/atlas_context_local_collectors.py",
-      "legacy_module": "agent.atlas_project_inspection_service"
-    },
-    {
-      "capability": "legacy_project_inspection",
-      "consumer_path": "app/api/atlas_dev_tools.py",
-      "legacy_module": "agent.atlas_project_inspection_service"
     },
     {
       "capability": "legacy_planner_context",
@@ -216,7 +196,7 @@
       "legacy_module": "agent.atlas_verification_recommendation_service"
     }
   ],
-  "generated_at": "2026-06-11T00:00:00+00:00",
+  "generated_at": "",
   "repository_root": "KasaneCore",
   "safety": {
     "allows_new_legacy_consumers": false,
@@ -226,8 +206,8 @@
   "schema_version": 1,
   "source": "python_ast_current_checkout_legacy_dependency_allowlist",
   "summary": {
-    "allowed_dependency_count": 43,
-    "consumer_path_count": 24,
-    "legacy_module_count": 14
+    "allowed_dependency_count": 39,
+    "consumer_path_count": 23,
+    "legacy_module_count": 12
   }
 }
