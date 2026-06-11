@@ -6,7 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-14`
-- Next action: add PIR-14 Linux/Docker/Runpod platform, large-scale, and concurrency evidence.
+- Next action: run the PIR-14 Windows platform CI job on GitHub, then add Docker/Runpod,
+  large-scale, and concurrency evidence.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -108,6 +109,38 @@ Safety invariants checked: read-only source inspection only; no production runti
 Migration/rollout state: off by default; no consumer cutover and no legacy deletion.
 Known limitations: regression locks intentionally xfail until PIR-1+ fixes the underlying defects.
 Next package: PIR-1 — durable concrete modules.
+Blocker: none.
+```
+
+```text
+Work package: PIR-14 — Windows platform CI evidence job
+Status: in_progress
+Changed modules/files:
+- .github/workflows/atlas-project-intelligence-recovery.yml — added a windows-latest
+  windows-platform-evidence job that runs PIR-14 operational evidence and consumer cutover gate
+  tests with PowerShell environment setup, JUnit XML, Step Summary, and uploaded artifact.
+- tests/test_project_intelligence_pir14_ci_workflow.py — extended the workflow contract to
+  require the Windows job, Windows JUnit artifact, PowerShell environment setup, and covered
+  PIR-14 operational/cutover tests.
+- docs/atlas_project_intelligence_recovery_current_status.md — recorded the Windows CI job
+  addition and the GitHub-hosted Windows run evidence from PR #1708.
+Executed commands and exact results:
+- python -m pytest -q tests\test_project_intelligence_pir14_ci_workflow.py
+  tests\test_project_intelligence_pir14_operational_evidence.py
+  tests\test_project_intelligence_pir14_consumer_cutover_gate.py -> 9 passed in 1.46s.
+- gh pr checks 1708 --watch --interval 20 -> exit 0; GitHub Actions workflow
+  "Atlas Project Intelligence Recovery" passed on pull_request run 27320150994 and branch push
+  run 27320143614. Both runs completed windows-platform-evidence successfully
+  (52s on pull_request, 36s on branch push), and all existing PIR-14 workflow jobs also passed.
+Unavailable checks: Docker/Runpod platform jobs, large-repository benchmark, and
+  concurrency/load evidence remain unclaimed.
+Safety invariants checked: the job only runs tests and records artifacts; it does not run live
+  model E2E, mutate production state, transition rollout, or retire legacy paths.
+Migration/rollout state: rollout remains off by default; Windows platform evidence is attached
+  through the PR workflow.
+Known limitations: PIR-14 remains in_progress until Docker/Runpod, large-scale, concurrency,
+  and final rollout evidence pass or remain explicitly unavailable where appropriate.
+Next package: PIR-14 — add Docker/Runpod, large-scale, and concurrency evidence.
 Blocker: none.
 ```
 

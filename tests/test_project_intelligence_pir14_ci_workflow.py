@@ -13,6 +13,7 @@ def test_pir14_recovery_ci_workflow_exists_with_required_suites() -> None:
         "restart-fault",
         "fixture-e2e",
         "cutover-platform-contracts",
+        "windows-platform-evidence",
     ):
         assert suite in text
     assert "python -m pytest -q tests/test_project_intelligence_recovery_baseline.py" in text
@@ -26,6 +27,10 @@ def test_pir14_recovery_ci_workflow_exists_with_required_suites() -> None:
     assert "pytest fastapi uvicorn requests pydantic psutil httpx websockets python-multipart" in text
     assert "pytest fastapi uvicorn requests pydantic psutil httpx websockets python-multipart playwright" in text
     assert "python -m playwright install --with-deps chromium" in text
+    assert "runs-on: windows-latest" in text
+    assert "$env:CODEAGENT_CA_DATA_DIR = Join-Path $env:RUNNER_TEMP \"ca_data\"" in text
+    assert "--junitxml artifacts/pir14-ci/windows-platform-evidence.xml" in text
+    assert "pir14-windows-platform-evidence-junit" in text
 
 
 def test_pir14_recovery_ci_does_not_claim_live_model_or_cutover() -> None:
@@ -47,5 +52,7 @@ def test_pir14_recovery_ci_covers_current_recovery_entrypoints() -> None:
         "tests/test_project_intelligence_consolidation.py",
         "tests/test_project_intelligence_hardening.py",
         "tests/test_project_intelligence_benchmark.py",
+        "tests/test_project_intelligence_pir14_operational_evidence.py",
+        "tests/test_project_intelligence_pir14_consumer_cutover_gate.py",
     ):
         assert test_path in text

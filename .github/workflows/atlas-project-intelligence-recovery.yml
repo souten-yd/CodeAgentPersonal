@@ -153,3 +153,33 @@ jobs:
           name: pir14-cutover-platform-contracts-junit
           path: artifacts/pir14-ci/cutover-platform-contracts.xml
           if-no-files-found: error
+
+  windows-platform-evidence:
+    name: windows-platform-evidence
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install pytest fastapi uvicorn requests pydantic psutil httpx websockets python-multipart
+      - run: New-Item -ItemType Directory -Force -Path artifacts/pir14-ci | Out-Null
+      - shell: pwsh
+        run: |
+          $env:CODEAGENT_CA_DATA_DIR = Join-Path $env:RUNNER_TEMP "ca_data"
+          $env:CODEAGENT_STYLE_BERT_VITS2_BASE_DIR = Join-Path $env:RUNNER_TEMP "style_bert_vits2"
+          $env:CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR = Join-Path $env:RUNNER_TEMP "style_bert_vits2/models"
+          python -m pytest -q tests/test_project_intelligence_pir14_operational_evidence.py tests/test_project_intelligence_pir14_consumer_cutover_gate.py --junitxml artifacts/pir14-ci/windows-platform-evidence.xml
+      - if: always()
+        shell: pwsh
+        run: |
+          "## PIR-14 windows-platform-evidence" >> $env:GITHUB_STEP_SUMMARY
+          "- JUnit: artifacts/pir14-ci/windows-platform-evidence.xml" >> $env:GITHUB_STEP_SUMMARY
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pir14-windows-platform-evidence-junit
+          path: artifacts/pir14-ci/windows-platform-evidence.xml
+          if-no-files-found: error
