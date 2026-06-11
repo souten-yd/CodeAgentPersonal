@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from agent.atlas_code_intel_schema import AtlasDependencyGraphRequest, AtlasRelatedTestsRequest, AtlasSymbolIndexRequest
 from agent.atlas_code_intel_service import AtlasCodeIntelService
 from agent.atlas_repo_index_schema import AtlasRepoIndexRequest
-from agent.atlas_repo_index_service import AtlasRepoIndexService
+from agent.project_intelligence.adapters.repo_index import ProjectIntelligenceRepoIndexAdapter
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/atlas/code-intel", tags=["atlas-code-intel"])
@@ -37,7 +37,7 @@ def related_tests(payload: AtlasRelatedTestsRequest):
 
 
 def _repo_svc(request: Request):
-    return AtlasRepoIndexService(resolve_atlas_ca_data_root(request))
+    return ProjectIntelligenceRepoIndexAdapter(resolve_atlas_ca_data_root(request))
 
 @router.post('/symbol-index-v2')
 def symbol_index_v2(payload: AtlasRepoIndexRequest, request: Request):

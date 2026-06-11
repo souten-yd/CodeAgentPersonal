@@ -24,16 +24,6 @@
       "capability": "legacy_code_intelligence",
       "consumer_path": "app/api/atlas_code_intel.py",
       "legacy_module": "agent.atlas_code_intel_service"
-    },
-    {
-      "capability": "legacy_repository_index",
-      "consumer_path": "app/api/atlas_code_intel.py",
-      "legacy_module": "agent.atlas_repo_index_service"
-    },
-    {
-      "capability": "legacy_repository_index",
-      "consumer_path": "app/api/atlas_repo_index.py",
-      "legacy_module": "agent.atlas_repo_index_service"
     }
   ],
   "generated_at": "",
@@ -46,8 +36,8 @@
   "schema_version": 1,
   "source": "python_ast_current_checkout_legacy_dependency_allowlist",
   "summary": {
-    "allowed_dependency_count": 7,
-    "consumer_path_count": 6,
-    "legacy_module_count": 3
+    "allowed_dependency_count": 5,
+    "consumer_path_count": 5,
+    "legacy_module_count": 2
   }
 }
