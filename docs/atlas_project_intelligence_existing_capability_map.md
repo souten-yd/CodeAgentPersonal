@@ -133,7 +133,8 @@ Core v1 reference.
 - **Authoritative owner**:
   - `agent/context_builder.py` (`ContextBuilder`, `TaskV2ContextBuilder`,
     `FileSummaryCache`, `ToolResultCache`, `_estimate_tokens`, `_truncate_to_token_budget`);
-  - `agent/atlas_repo_context_service.py:AtlasRepoContextService`
+  - `agent/project_intelligence/adapters/repo_context_service.py:ProjectIntelligenceRepoContextService`
+    (legacy `agent/atlas_repo_context_service.py:AtlasRepoContextService` retired in PIR-15)
     (schema `agent/atlas_repo_context_schema.py`);
   - `agent/project_intelligence/adapters/repo_context_packaging.py:ProjectIntelligenceRepoContextPackager`
     (legacy `agent/atlas_repo_context_planner_packager.py:AtlasRepoContextPlannerPackager`
@@ -304,7 +305,8 @@ Core v1 reference.
    and `project_twin/static_graph.py`.
 2. **File iteration** duplicated across repo index, code explorer, code intel, twin analyzer.
 3. **Context assembly** duplicated across `context_builder.py`,
-   `atlas_repo_context_service.py`, `agent/project_intelligence/adapters/repo_context_packaging.py`,
+   `agent/project_intelligence/adapters/repo_context_service.py`,
+   `agent/project_intelligence/adapters/repo_context_packaging.py`,
    `agent/project_intelligence/adapters/planner_packaging_v2.py`, and
    `project_twin/context_broker.py`.
 4. **Context refresh** has two generations (`v1`, `v2`).

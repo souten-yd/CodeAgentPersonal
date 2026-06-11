@@ -71,7 +71,7 @@ def test_no_path_ca_data_literals_in_context_refresh_repo_context_stack():
     targets = [
         "agent/project_intelligence/adapters/context_refresh_v1.py",
         "app/api/atlas_context_refresh.py",
-        "agent/atlas_repo_context_service.py",
+        "agent/project_intelligence/adapters/repo_context_service.py",
         "app/api/atlas_repo_context.py",
     ]
     for target in targets:

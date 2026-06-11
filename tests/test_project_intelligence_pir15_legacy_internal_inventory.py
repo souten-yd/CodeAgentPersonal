@@ -13,17 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_legacy_owner_internals_are_not_counted_as_direct_production_consumers() -> None:
     inventory = build_inventory(REPO_ROOT)
     rows = {row["legacy_module"]: row for row in inventory["legacy_consumers"]}
-    repo_context = rows["agent.atlas_repo_context_service"]
+    assert "agent.atlas_repo_context_service" not in rows
 
-    assert repo_context["production_consumer_count"] == 0
-    assert repo_context["production_consumers"] == []
-    assert repo_context["legacy_internal_consumer_count"] == 0
-    assert repo_context["legacy_internal_consumers"] == []
-    assert repo_context["adapter_consumer_count"] == 3
-    assert {
-        consumer["path"] for consumer in repo_context["adapter_consumers"]
-    } == {
-        "agent/project_intelligence/adapters/atlas_repo_context.py",
-        "agent/project_intelligence/adapters/context_refresh_v1.py",
-        "agent/project_intelligence/adapters/repo_context_packaging.py",
-    }
+    adapters = {row["module"]: row for row in inventory["project_intelligence"]["adapters"]}
+    assert adapters["agent.project_intelligence.adapters.repo_context_service"]["present"] is True

@@ -7,7 +7,7 @@ from agent.atlas_repo_index_service import AtlasRepoIndexService
 from agent.atlas_repo_index_storage import AtlasRepoIndexStorage
 
 
-class AtlasRepoContextService:
+class ProjectIntelligenceRepoContextService:
     def __init__(self, *, data_root, repo_index_service=None, repo_index_storage=None, journal=None):
         self.data_root = Path(data_root)
         self.repo_index_service = repo_index_service or AtlasRepoIndexService(self.data_root)
