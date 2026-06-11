@@ -47,7 +47,8 @@ class AtlasRepoContextAdapter:
         return AtlasRepoContextPlannerPackager(data_root=self.data_root).build_package(request)
 
     def build_verification_plan(self, request: AtlasVerificationPlanningRequest):
-        return AtlasVerificationPlanningService(data_root=self.data_root).build_plan(request)
+        packager = AtlasRepoContextPlannerPackager(data_root=self.data_root)
+        return AtlasVerificationPlanningService(data_root=self.data_root, packager=packager).build_plan(request)
 
     def build_plan_item_impact_map(self, request: AtlasPlanItemImpactMapRequest):
         return AtlasPlanItemImpactMapService(data_root=self.data_root).build_map(request)

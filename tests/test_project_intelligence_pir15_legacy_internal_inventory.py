@@ -27,10 +27,6 @@ def test_legacy_owner_internals_are_not_counted_as_direct_production_consumers()
     }
     assert repo_context["adapter_consumer_count"] == 1
 
-    assert planner_packager["production_consumers"] == [
-        {
-            "module": "agent.atlas_verification_planning_service",
-            "path": "agent/atlas_verification_planning_service.py",
-        }
-    ]
+    assert planner_packager["production_consumer_count"] == 0
+    assert planner_packager["production_consumers"] == []
     assert planner_packager["legacy_internal_consumer_count"] == 3

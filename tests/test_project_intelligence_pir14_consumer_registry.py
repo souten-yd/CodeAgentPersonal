@@ -54,9 +54,11 @@ def test_registry_is_generated_from_current_source_and_runtime_telemetry(tmp_pat
     assert entries["planning_context"]["current_mode"] == "shadow"
     assert entries["planning_context"]["call_count"] == 2
     assert entries["planning_context"]["shadow_parity_status"] == "parity_passed"
-    assert entries["planning_context"]["legacy_consumer_count"] > 0
+    assert entries["planning_context"]["legacy_consumer_count"] == 0
     assert entries["generation_context"]["current_mode"] == "shadow"
+    assert entries["generation_context"]["legacy_consumer_count"] == 0
     assert entries["generation_context"]["rollback_status"] == "rollback_drill_passed"
+    assert entries["post_apply_refresh"]["legacy_consumer_count"] > 0
     assert entries["verification_ingest"]["rollback_status"] == "flag_off_available_not_drilled"
 
     output = tmp_path / "registry.json"

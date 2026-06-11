@@ -48,6 +48,9 @@ This file selects the active package. The old PI package table does not prove fi
   the repo-context adapter, reducing PIR-15 retirement-gate legacy consumers to 16;
 - legacy-owner internal dependencies are now separated from direct production consumers, reducing
   PIR-15 retirement-gate legacy consumers to 8 while preserving internal dependency evidence;
+- verification planning now receives planner-packager context through the repo-context adapter,
+  reducing PIR-15 retirement-gate legacy consumers to 7 and making legacy_planner_context
+  consumer-zero;
 - final broader legacy retirement remains incomplete because consumer-zero and data-migration gates
   are not yet satisfied.
 
@@ -90,6 +93,73 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Verification planning repo-context adapter cutover
+Status: in_progress
+Changed modules/files:
+- agent/atlas_verification_planning_service.py — removed the direct planner-packager import and
+  accepts an injected repo-context package builder; the default remains non-executing and degrades
+  to missing context with a warning when no builder is provided.
+- agent/project_intelligence/adapters/atlas_repo_context.py — passes the existing
+  AtlasRepoContextPlannerPackager through the Project Intelligence repo-context adapter for
+  production verification planning calls.
+- agent/atlas_plan_item_impact_map_service.py — preserves legacy-internal behavior by sharing its
+  existing planner packager with verification planning.
+- docs/generated/atlas_project_intelligence_consumer_inventory.json and
+  docs/generated/atlas_project_intelligence_legacy_dependency_allowlist.json — regenerated from
+  the current checkout after verification planning cutover.
+- tests/test_project_intelligence_pir15_legacy_internal_inventory.py and
+  tests/test_project_intelligence_pir14_legacy_dependency_lint.py — updated coverage for
+  legacy_planner_context consumer-zero and reduced direct allowlist count.
+Executed commands and exact results:
+- python -m py_compile agent\atlas_verification_planning_service.py
+  agent\project_intelligence\adapters\atlas_repo_context.py
+  agent\atlas_plan_item_impact_map_service.py
+  tests\test_project_intelligence_pir15_legacy_internal_inventory.py -> compile OK.
+- python -m pytest -q tests\test_atlas_verification_planning_service.py
+  tests\test_atlas_verification_planning_safety_contract.py
+  tests\test_atlas_plan_item_impact_map_service.py
+  tests\test_project_intelligence_pir15_legacy_internal_inventory.py
+  tests\test_project_intelligence_pir15_repo_context_adapter.py -> 14 passed in 12.68s.
+- python <<regenerate current inventory, allowlist, rollout, lint, cutover, and registry artifacts>>
+  -> inventory_legacy=15, allowed_dependency_count=15, lint_passed=true,
+  registry_legacy_sum=15, planning_context.legacy_consumer_count=0,
+  post_apply_refresh.legacy_consumer_count=7, verification_ingest.legacy_consumer_count=1,
+  cutover_passed=true.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --docs-updated --allow-blocked-exit-zero
+  -> exit 0; status=blocked, active_rollout=true, legacy_consumer_count=7,
+  blocked_reasons=[data_migration_not_verified, legacy_capability_retirement_not_ready].
+Evidence details:
+- Generated inventory now records agent.atlas_repo_context_planner_packager with
+  production_consumer_count=0; remaining planner-packager users are adapter or legacy-internal
+  owners.
+- PIR-15 retirement gate now reports consumer_zero_capability_count=4 and
+  retirement_ready_capability_count=2; legacy_planner_context and legacy_project_inspection are
+  consumer-zero.
+- Remaining direct retirement-gate consumers are legacy_context_refresh=6 and
+  legacy_verification_gate=1. legacy_repo_context and legacy_verification_recommendation remain
+  consumer-zero but still lack repair/Greenfield shadow and rollback parity evidence.
+Unavailable checks: data migration verification, remaining consumer-zero work, repair/Greenfield
+  shadow and rollback parity, actual legacy removal, rollback after each removal, and master
+  Definition of Done remain unclaimed.
+Safety invariants checked: verification planning still returns advisory-only commands and never
+  executes tests, shell, git, Safe Apply, retry, or rollback; standalone missing context remains
+  non-blocking and explicit.
+Migration/rollout state: default rollout remains off; no legacy source path was deleted.
+Known limitations: PIR-15 acceptance is not complete because context refresh and verification gate
+  still have direct production consumers, and data migration is not verified.
+Next package: PIR-15 — cut over remaining context-refresh direct consumers while preserving
+  bounded retry, supervised handoff, and autopilot safety semantics.
+Blocker: none; remaining work is the next PIR-15 cutover and retirement slice.
+```
 
 ```text
 Work package: PIR-15 — Legacy-internal consumer inventory separation

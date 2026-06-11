@@ -1,15 +1,32 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Protocol
+
 from agent.atlas_repo_context_schema import AtlasRepoContextRequest
-from agent.atlas_repo_context_planner_packager import AtlasRepoContextPlannerPackager
 from agent.atlas_verification_planning_schema import AtlasVerificationPlanningRequest, AtlasVerificationPlan, AtlasCITestSelectionHint, AtlasVerificationPlanItemHint
 
 
+class _RepoContextPackageBuilder(Protocol):
+    def build_package(self, req: AtlasRepoContextRequest):
+        ...
+
+
+class _UnavailableRepoContextPackager:
+    status = "missing"
+    related_tests: list[str] = []
+    impacted_files: list[str] = []
+    warnings = ["repo_context_packager_unavailable_non_blocking"]
+    confidence = "unknown"
+
+    def build_package(self, req: AtlasRepoContextRequest):
+        return self
+
+
 class AtlasVerificationPlanningService:
-    def __init__(self, *, data_root):
+    def __init__(self, *, data_root, packager: _RepoContextPackageBuilder | None = None):
         self.data_root = Path(data_root)
-        self.packager = AtlasRepoContextPlannerPackager(data_root=self.data_root)
+        self.packager = packager or _UnavailableRepoContextPackager()
 
     def build_plan(self, req: AtlasVerificationPlanningRequest) -> AtlasVerificationPlan:
         repo_req = AtlasRepoContextRequest(
