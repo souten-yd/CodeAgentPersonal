@@ -4,7 +4,7 @@ from app.server import create_app
 
 def test_planpool_post_attaches_handoff_metadata_and_advisory_flags(tmp_path):
     app = create_app(); app.state.atlas_ca_data_root = str(tmp_path); c = TestClient(app)
-    r = c.post('/api/atlas/plan-pools', json={"workspace_id":"default","input":"x","project_path":".","enable_repo_context":True,"mode":"local"})
+    r = c.post('/api/atlas/plan-pools?sync=1', json={"workspace_id":"default","input":"x","project_path":".","enable_repo_context":True,"mode":"local"})
     assert r.status_code == 200
     data = r.json()
     pool = data["plan_pool"]
@@ -25,6 +25,6 @@ def test_planpool_post_attaches_handoff_metadata_and_advisory_flags(tmp_path):
 
 def test_enable_repo_context_false_does_not_add_active_handoff(tmp_path):
     app = create_app(); app.state.atlas_ca_data_root = str(tmp_path); c = TestClient(app)
-    r = c.post('/api/atlas/plan-pools', json={"workspace_id":"default","input":"x","project_path":".","enable_repo_context":False,"mode":"local"})
+    r = c.post('/api/atlas/plan-pools?sync=1', json={"workspace_id":"default","input":"x","project_path":".","enable_repo_context":False,"mode":"local"})
     assert r.status_code == 200
     assert "verification_recommendation_handoff" not in r.json()["plan_pool"]["metadata"]

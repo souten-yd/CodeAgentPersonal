@@ -43,6 +43,9 @@ class AtlasRepoContextAdapter:
     def build_impacted_test_recommendation(self, request: AtlasRepoContextRequest):
         return AtlasRepoContextPlannerPackager(data_root=self.data_root).build_impacted_test_recommendation(request)
 
+    def build_repo_context_package(self, request: AtlasRepoContextRequest):
+        return AtlasRepoContextPlannerPackager(data_root=self.data_root).build_package(request)
+
     def build_verification_plan(self, request: AtlasVerificationPlanningRequest):
         return AtlasVerificationPlanningService(data_root=self.data_root).build_plan(request)
 
