@@ -6,8 +6,8 @@
 - Foundation Track: `PI-0..PI-25` merged as contracts, components, and scaffolds
 - Active corrective track: `PIR-0..PIR-15`
 - Current package: `PIR-14`
-- Next action: run the PIR-14 Windows platform CI job on GitHub, then add Docker/Runpod,
-  large-scale, and concurrency evidence.
+- Next action: add Docker/Runpod platform evidence where available, then record the final
+  PIR-14 rollout/cutover acceptance decision.
 - Blocker: none for the current package.
 - Rollout: off by default
 
@@ -75,6 +75,44 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-14 — Large workspace and concurrency evidence
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/scale_concurrency_evidence.py — added a measured PIR-14 scale
+  evidence runner that builds a temporary repository-shaped workspace, runs the source-derived
+  consumer inventory, and repeats inventory scans concurrently.
+- tests/test_project_intelligence_pir14_scale_concurrency_evidence.py — added coverage that the
+  evidence is generated from actual inventory results, persists JSON, and records safety flags
+  instead of manually supplied metrics.
+- docs/atlas_project_intelligence_recovery_current_status.md — recorded the measured
+  large-workspace and concurrency artifact while leaving Docker/Runpod and final rollout gates
+  unclaimed.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\scale_concurrency_evidence.py
+  tests\test_project_intelligence_pir14_scale_concurrency_evidence.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir14_scale_concurrency_evidence.py ->
+  1 passed in 0.85s.
+- python - <<script invoking write_scale_concurrency_evidence(..., file_count=1200,
+  concurrency=4)>> -> artifact=C:\Users\kkens\code\KasaneCore\ca_data\atlas\pir14_scale_concurrency_evidence.current.json
+  files=1200 concurrency=4 result=passed inventory_seconds=18.2256
+  concurrent_seconds=1.1511 parse_errors=0 concurrent_parse_errors=0.
+- python -m pytest -q tests\test_project_intelligence_pir14_scale_concurrency_evidence.py
+  tests\test_project_intelligence_pir14_operational_evidence.py
+  tests\test_project_intelligence_recovery_baseline.py::test_recovery_status_selects_next_active_package ->
+  5 passed in 1.28s.
+Unavailable checks: Docker and Runpod platform evidence remain unclaimed by this slice.
+Safety invariants checked: evidence runs in a temporary workspace only; no source mutation,
+  rollout transition, legacy retirement, Proposal/Safe Apply mutation, or manually supplied
+  benchmark outcome is used.
+Migration/rollout state: rollout remains off by default; large-workspace and concurrency
+  evidence is recorded as a measured artifact, not as a legacy retirement or active rollout.
+Known limitations: PIR-14 remains in_progress until Docker/Runpod platform evidence is recorded
+  where available and the final rollout/cutover acceptance decision is made.
+Next package: PIR-14 — add Docker/Runpod platform evidence and final rollout/cutover decision.
+Blocker: none.
+```
 
 ```text
 Work package: PIR-0 — Truthful baseline, executable inventory, and regression locks
