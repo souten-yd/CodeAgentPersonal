@@ -207,9 +207,11 @@ def _production_entrypoints(root: Path, modules: list[ParsedModule]) -> list[dic
 def _legacy_consumers(root: Path, modules: list[ParsedModule]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     adapter_modules = set(ADAPTER_MODULES)
+    legacy_owner_modules = set(LEGACY_CAPABILITY_MODULES)
     for legacy_module, capability in LEGACY_CAPABILITY_MODULES.items():
         consumers = []
         adapter_consumers = []
+        legacy_internal_consumers = []
         for parsed in modules:
             if not _matches_import(parsed.imports, legacy_module):
                 continue
@@ -219,6 +221,8 @@ def _legacy_consumers(root: Path, modules: list[ParsedModule]) -> list[dict[str,
             }
             if parsed.module in adapter_modules:
                 adapter_consumers.append(row)
+            elif parsed.module in legacy_owner_modules:
+                legacy_internal_consumers.append(row)
             else:
                 consumers.append(row)
         rows.append(
@@ -229,6 +233,8 @@ def _legacy_consumers(root: Path, modules: list[ParsedModule]) -> list[dict[str,
                 "production_consumers": sorted(consumers, key=lambda row: row["path"]),
                 "adapter_consumer_count": len(adapter_consumers),
                 "adapter_consumers": sorted(adapter_consumers, key=lambda row: row["path"]),
+                "legacy_internal_consumer_count": len(legacy_internal_consumers),
+                "legacy_internal_consumers": sorted(legacy_internal_consumers, key=lambda row: row["path"]),
             }
         )
     return sorted(rows, key=lambda row: (row["capability"], row["legacy_module"]))
