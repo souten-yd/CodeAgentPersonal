@@ -37,7 +37,6 @@ REUSED_OWNER_MODULES = [
     "agent.atlas_repo_index_storage",
     "agent.atlas_code_intel_service",
     "agent.atlas_code_intel_schema",
-    "agent.atlas_code_explorer",
     # project / git inspection
     "agent.atlas_project_inspection_service",
     "agent.atlas_git_inspection_service",
@@ -132,7 +131,7 @@ def test_code_intel_dependency_edges_are_scoped(tmp_path: Path) -> None:
 def test_code_explorer_duplicate_extractors_exist() -> None:
     # Documented duplication (capability map §6): a second symbol/related-test path
     # exists in the code explorer. PI must reach parity before retiring either path.
-    explorer = importlib.import_module("agent.atlas_code_explorer")
+    explorer = importlib.import_module("agent.project_intelligence.adapters.code_explorer")
     assert callable(getattr(explorer, "extract_symbols", None))
     assert callable(getattr(explorer, "find_related_tests", None))
 

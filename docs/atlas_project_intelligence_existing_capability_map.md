@@ -70,7 +70,8 @@ Core v1 reference.
   (storage `agent/atlas_repo_index_storage.py:AtlasRepoIndexStorage`, schema
   `agent/atlas_repo_index_schema.py`, policies `agent/atlas_repo_index_policies.py`).
 - **Known duplication**: file iteration also exists in
-  `agent/atlas_code_explorer.py:_iter_project_files`, in `AtlasCodeIntelService`, and in
+  `agent/project_intelligence/adapters/code_explorer.py:_iter_project_files` (legacy
+  `agent/atlas_code_explorer.py` retired in PIR-15), in `AtlasCodeIntelService`, and in
   the Twin static analyzer (`agent/project_twin/static_graph.py`).
 - **Reusable contracts**: repo-index schema; index-run JSON shape.
 - **Missing behavior**: no revisioned node/edge graph identity, no provenance/confidence,
@@ -84,9 +85,11 @@ Core v1 reference.
 - **Authoritative owner**: `agent/atlas_code_intel_service.py`
   (`_PythonSymbolVisitor`, `AtlasCodeIntelService.build_symbol_index`,
   `build_dependency_graph`, `find_related_tests`; schema `agent/atlas_code_intel_schema.py`).
-  Lighter heuristic variant: `agent/atlas_code_explorer.py:extract_symbols`.
+  Lighter heuristic variant: `agent/project_intelligence/adapters/code_explorer.py:extract_symbols`
+  (legacy `agent/atlas_code_explorer.py` retired in PIR-15).
 - **Known duplication**: symbol extraction + related-test discovery exist in **three**
-  places: `atlas_code_intel_service.py`, `atlas_code_explorer.py`, and (test→impl)
+  places: `atlas_code_intel_service.py`, `agent/project_intelligence/adapters/code_explorer.py`,
+  and (test→impl)
   `atlas_test_impl_linker.py`; plus the Twin static graph.
 - **Reusable contracts**: `AtlasSymbolIndexRequest`, `AtlasDependencyGraphRequest`,
   `AtlasRelatedTestsRequest` and their result models (pinned deterministic by baseline test).
@@ -98,7 +101,8 @@ Core v1 reference.
 ### 4.3 Related-test discovery
 
 - **Current capability**: maps implementation files/symbols to candidate tests.
-- **Authoritative owner**: `agent/atlas_code_explorer.py:find_related_tests`,
+- **Authoritative owner**: `agent/project_intelligence/adapters/code_explorer.py:find_related_tests`
+  (legacy `agent/atlas_code_explorer.py` retired in PIR-15),
   `agent/atlas_code_intel_service.py` related-tests, and
   `agent/atlas_test_impl_linker.py:find_implementation_item`.
 - **Known duplication**: three related-test/impl-link mechanisms.
@@ -301,7 +305,8 @@ Core v1 reference.
 ## 6. Known duplication / legacy paths (must consolidate, not delete prematurely)
 
 1. **Symbol + related-test extraction** duplicated across
-   `atlas_code_intel_service.py`, `atlas_code_explorer.py`, `atlas_test_impl_linker.py`,
+   `atlas_code_intel_service.py`, `agent/project_intelligence/adapters/code_explorer.py`,
+   `atlas_test_impl_linker.py`,
    and `project_twin/static_graph.py`.
 2. **File iteration** duplicated across repo index, code explorer, code intel, twin analyzer.
 3. **Context assembly** duplicated across `context_builder.py`,

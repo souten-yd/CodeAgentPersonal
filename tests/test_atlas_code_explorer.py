@@ -5,7 +5,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from agent.atlas_code_explorer import (
+from agent.project_intelligence.adapters.code_explorer import (
     build_research_evidence,
     extract_symbols,
     find_related_tests,

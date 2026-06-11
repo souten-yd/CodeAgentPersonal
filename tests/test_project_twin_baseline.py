@@ -21,7 +21,6 @@ REUSED_MODULES = [
     "agent.atlas_repo_index_storage",
     "agent.atlas_code_intel_service",
     "agent.atlas_code_intel_schema",
-    "agent.atlas_code_explorer",
     "agent.context_builder",
     "agent.atlas_project_inspection_service",
     "agent.atlas_requirement_tracer",

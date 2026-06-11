@@ -27,10 +27,10 @@ allowed).
 | # | Capability | Validated owner symbol(s) | Class | Target module owner | PI destination | Retirement gate |
 |---|---|---|---|---|---|---|
 | 1 | Repository enumeration | `AtlasRepoIndexService` (+ `_iter_project_files`, twin `static_graph`) | ADAPT → REPLACE | DigitalTwinModule | PI-1 facade, PI-6 deep graph, PI-23 cutover | consumer-zero on Repo Index after PI-23 |
-| 2 | Symbol extraction | `AtlasCodeIntelService.build_symbol_index`; `atlas_code_explorer.extract_symbols`; twin `static_graph` | ADAPT → REPLACE | DigitalTwin semantic analyzer | PI-6, PI-23 | parity vs CodeIntel pinned by baseline test |
+| 2 | Symbol extraction | `AtlasCodeIntelService.build_symbol_index`; `ProjectIntelligenceCodeExplorerAdapter.extract_symbols` (legacy `atlas_code_explorer.extract_symbols` retired in PIR-15); twin `static_graph` | ADAPT → REPLACE | DigitalTwin semantic analyzer | PI-6, PI-23 | parity vs CodeIntel pinned by baseline test |
 | 3 | Dependency/import graph | `AtlasCodeIntelService.build_dependency_graph`; twin `static_graph` | ADAPT → REPLACE | DigitalTwin semantic analyzer | PI-6, PI-23 | parity on edge set + scope |
 | 4 | Resolved call / control-flow / data-flow graph | *(none — ADR-PI-006 gap)*; current `pyname://` name-based calls | REPLACE (net-new) | DigitalTwin deep graph | PI-6, PI-7 | real-repo benchmark (test plan §17) |
-| 5 | Related-test discovery | `atlas_code_explorer.find_related_tests`; `AtlasCodeIntelService` related-tests; `atlas_test_impl_linker.find_implementation_item` | ADAPT → REPLACE | DigitalTwin impact/test selection | PI-9, PI-23 | parity vs all 3 legacy mechanisms |
+| 5 | Related-test discovery | `ProjectIntelligenceCodeExplorerAdapter.find_related_tests` (legacy `atlas_code_explorer.find_related_tests` retired in PIR-15); `AtlasCodeIntelService` related-tests; `atlas_test_impl_linker.find_implementation_item` | ADAPT → REPLACE | DigitalTwin impact/test selection | PI-9, PI-23 | parity vs all 3 legacy mechanisms |
 | 6 | API route discovery | `AtlasRepoIndexService` + `atlas_repo_index_policies`; twin route projection | ADAPT → REPLACE | DigitalTwin API graph | PI-6 | route-set parity |
 | 7 | Project inspection | `AtlasProjectInspectionService` | ADAPT | DigitalTwin lifecycle/context | PI-4 | n/a (ADAPT, no delete planned) |
 | 8 | Git inspection | `AtlasGitInspectionService` | ADAPT | DigitalTwin lifecycle/context | PI-4 | n/a |
