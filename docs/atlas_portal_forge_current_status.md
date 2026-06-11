@@ -5,11 +5,11 @@
 
 ## Program state
 
-- Overall: **ACTIVE — DESIGN CHECKPOINT ONLY**
+- Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-0`
-- Current package goal: land canonical Portal + Model Forge docs and AGENTS.md entrypoint.
-- Next action after PFG-0: start `PFG-1` Portal polish audit and compatibility gates.
+- Current package: `PFG-1`
+- Current package goal: Portal polish audit and compatibility gates.
+- Next action: audit current Portal implementation against PR-PPC-12/UI reconciliation, lock existing Portal behavior, then implement PFG-2 upload import after evidence is recorded.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -52,8 +52,8 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 
 | Package | Goal | Status |
 |---|---|---|
-| PFG-0 | baseline and design acceptance | in_progress |
-| PFG-1 | Portal polish audit and compatibility gates | not_started |
+| PFG-0 | baseline and design acceptance | acceptance_complete |
+| PFG-1 | Portal polish audit and compatibility gates | in_progress |
 | PFG-2 | Portal import upload endpoint and UI | not_started |
 | PFG-3 | Portal snapshot listing and start-from-snapshot UI | not_started |
 | PFG-4 | legacy package manifest sidecar repair | not_started |
@@ -109,51 +109,43 @@ blocked
 
 Portal + Model Forge remains incomplete until PFG-38 and every required live/model/Portal/rollout gate in `docs/atlas_portal_forge_master_goal.md` pass.
 
-Do not mark the program complete from:
-
-- docs alone;
-- mock provider tests alone;
-- adapter-only tests;
-- UI rendering alone;
-- manually supplied metrics;
-- unavailable live model/OpenRouter checks.
+Do not mark the program complete from docs alone, mock provider tests alone, adapter-only tests, UI rendering alone, manually supplied metrics, or unavailable live model/OpenRouter checks.
 
 ## Executed package log
 
 ```text
 Work package: PFG-0 — Baseline and design acceptance
-Status: in_progress
+Status: acceptance_complete
 Changed modules/files:
-- docs/atlas_portal_forge_master_goal.md — added the Portal + Model Forge product and evidence goal.
-- docs/atlas_portal_forge_detailed_design.md — added architecture, schema, provider, Portal x Forge, UI, and rollout design.
-- docs/atlas_portal_forge_implementation_plan.md — added PFG-0..PFG-38 sequential package plan.
-- docs/atlas_portal_forge_test_plan.md — added PIR-style test/evidence plan.
-- docs/atlas_portal_forge_current_status.md — added this active checkpoint.
-Pending modules/files:
+- docs/atlas_portal_forge_master_goal.md
+- docs/atlas_portal_forge_detailed_design.md
+- docs/atlas_portal_forge_implementation_plan.md
+- docs/atlas_portal_forge_test_plan.md
+- docs/atlas_portal_forge_current_status.md
 - docs/atlas_portal_forge_agent_entrypoint.md
 - AGENTS.md
 Public contracts added or changed:
-- Documentation only so far; no runtime behavior change.
+- Documentation only; no runtime behavior change.
 Behavior implemented:
-- None.
+- None; this is the canonical design and Goal entrypoint checkpoint.
 Focused tests:
-- Not yet run; docs-only checkpoint.
+- Not run; docs-only checkpoint.
 Syntax checks:
-- Not yet run; docs-only checkpoint.
+- Not run; docs-only checkpoint.
 Affected tests:
-- Not yet run; docs-only checkpoint.
+- Not run; docs-only checkpoint.
 Real model / Portal / OpenRouter evidence:
 - None claimed.
 Unavailable checks:
 - No live model, Portal runtime, or OpenRouter execution claimed in PFG-0.
 Safety invariants verified:
-- Design requires no free-form command execution, no direct Arena apply, no secret persistence, no unavailable-as-passed, no legacy retirement without gates.
+- Design requires no free-form command execution, no direct Arena apply, no secret persistence, no unavailable-as-passed, no legacy retirement without gates, and no external provider calls in Local Only mode.
 Migration/rollout state:
 - Forge off by default; legacy model execution remains primary.
 Known limitations:
 - PFG implementation has not started.
 Remaining gaps:
-- Finish agent entrypoint and AGENTS.md update for PFG-0.
+- PFG-1 must verify current Portal code and lock compatibility gates before Portal polish implementation.
 Next package:
 - PFG-1 — Portal polish audit and compatibility gates.
 Blocker:
