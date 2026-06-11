@@ -25,6 +25,8 @@ from agent.project_intelligence.contracts import (
     ContextManifest,
     GenerationContextPackage,
     GenerationContextRequest,
+    GapSummary,
+    ImpactSummary,
     IntelligenceDiagnostic,
     IntelligenceErrorCode,
     PlanningContextPackage,
@@ -37,13 +39,18 @@ from agent.project_intelligence.contracts import (
     ProjectMode,
     ProjectProgressResult,
     ProjectStateSummary,
+    RequirementSummary,
+    TestSummary,
+    UncertaintySummary,
     VerificationResultRequest,
 )
+from agent.project_intelligence.project_mode import detect_project_mode
 from agent.project_intelligence.rollout import RolloutConfig
 from agent.project_intelligence.telemetry import TelemetrySink
 from agent.project_twin.facade import (
     DigitalTwinModule,
     DisabledDigitalTwinModule,
+    OpenTwinRequest,
     ProjectEventEnvelope,
     RuntimeIngestRequest,
     TwinContextRequest,
@@ -114,6 +121,81 @@ class ProjectIntelligenceCoordinator:
             context_manifest=self._manifest(pid, wid, "generation", request.token_budget, mode),
         )
 
+    def _detect_project_mode(self, request: PlanningContextRequest) -> ProjectMode:
+        try:
+            return detect_project_mode(request.project.project_path)
+        except Exception:  # noqa: BLE001 - failed mode detection is advisory, not a planning failure.
+            return ProjectMode.IMPORTED_UNKNOWN
+
+    def _active_planning(self, request: PlanningContextRequest) -> PlanningContextPackage:
+        phase = "planning"
+        state = self._twin.open_project(
+            OpenTwinRequest(
+                project=request.project,
+                requested_capabilities=["source_snapshot", "durable_revision", "query", "context"],
+                rollout_mode="active",
+                correlation_id=request.correlation_id,
+            )
+        )
+        readiness = str(getattr(state.readiness, "value", state.readiness))
+        if readiness == "disabled":
+            return self._baseline_planning(request, "active")
+        project = state.project
+        twin_pkg = self._twin.build_context(
+            TwinContextRequest(
+                project_id=project.project_id,
+                workspace_id=project.workspace_id,
+                objective=request.objective,
+                phase=phase,
+                target_refs=list(request.target_refs),
+                token_budget=request.token_budget,
+            )
+        )
+        twin_revision_id = twin_pkg.twin_revision_id or state.twin_revision_id
+        impacted = [
+            ImpactSummary(
+                ref=item.ref,
+                impacted_refs=list(item.source_refs),
+                confidence=float(item.confidence),
+            )
+            for item in [*twin_pkg.symbols, *twin_pkg.interfaces, *twin_pkg.behavior_paths, *twin_pkg.state_and_events]
+        ]
+        impacted.extend(
+            ImpactSummary(ref=excerpt.ref, impacted_refs=[f"file://{excerpt.path}"], confidence=1.0)
+            for excerpt in twin_pkg.source_material
+        )
+        return PlanningContextPackage(
+            project_state=ProjectStateSummary(
+                project_id=project.project_id,
+                workspace_id=project.workspace_id,
+                readiness=readiness,
+                twin_revision_id=twin_revision_id,
+                available_capabilities=list(state.available_capabilities),
+                stale_reasons=list(state.stale_reasons),
+            ),
+            project_mode=self._detect_project_mode(request),
+            actual_twin_revision_id=twin_revision_id,
+            requirements=[
+                RequirementSummary(requirement_id=item.ref, text=item.summary, status=item.status)
+                for item in twin_pkg.requirements
+            ],
+            impacted_areas=impacted,
+            unresolved_gaps=[
+                GapSummary(gap_id=item.ref, description=item.summary, mandatory=False, missing_refs=list(item.source_refs))
+                for item in twin_pkg.preserve_behaviors
+                if item.status in {"missing", "contradicted"}
+            ],
+            relevant_tests=[
+                TestSummary(ref=item.ref, name=item.summary or item.ref, reason=item.inclusion_reason)
+                for item in twin_pkg.tests
+            ],
+            uncertainties=[
+                UncertaintySummary(ref=item.ref, reason=item.inclusion_reason or item.summary, severity="warning")
+                for item in twin_pkg.uncertainties
+            ],
+            context_manifest=twin_pkg.manifest,
+        )
+
     def _shadow_compute_and_record(self, request: PlanningContextRequest | GenerationContextRequest, phase: str) -> None:
         """Compute twin context for comparison and record a telemetry artifact only."""
         pid = request.project.project_id
@@ -156,15 +238,7 @@ class ProjectIntelligenceCoordinator:
     def prepare_planning_context(self, request: PlanningContextRequest) -> PlanningContextPackage:
         phase = "planning"
         if self._rollout.phase_active(phase):
-            # Active: build from the twin facade (still disabled content until PI-4+),
-            # but wired through the public facade and marked active.
-            self._twin.build_context(
-                TwinContextRequest(project_id=request.project.project_id,
-                                   workspace_id=request.project.workspace_id,
-                                   phase=phase, target_refs=list(request.target_refs),
-                                   token_budget=request.token_budget)
-            )
-            return self._baseline_planning(request, "active")
+            return self._active_planning(request)
         if self._rollout.shadow_active(phase):
             self._shadow_compute_and_record(request, phase)
             return self._baseline_planning(request, "shadow")
