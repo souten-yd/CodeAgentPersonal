@@ -168,10 +168,9 @@
         },
         {
           "imports_legacy_capability": [
-            "legacy_code_intelligence",
-            "legacy_repository_index"
+            "legacy_code_intelligence"
           ],
-          "imports_project_intelligence": false,
+          "imports_project_intelligence": true,
           "module": "app.api.atlas_code_intel",
           "path": "app/api/atlas_code_intel.py"
         },
@@ -272,10 +271,8 @@
           "path": "app/api/atlas_repo_context.py"
         },
         {
-          "imports_legacy_capability": [
-            "legacy_repository_index"
-          ],
-          "imports_project_intelligence": false,
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": true,
           "module": "app.api.atlas_repo_index",
           "path": "app/api/atlas_repo_index.py"
         },
@@ -407,7 +404,7 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-11T09:17:37+00:00",
+  "generated_at": "2026-06-11T09:29:10+00:00",
   "legacy_consumers": [
     {
       "adapter_consumer_count": 0,
@@ -482,28 +479,23 @@
       "production_consumers": []
     },
     {
-      "adapter_consumer_count": 1,
+      "adapter_consumer_count": 2,
       "adapter_consumers": [
         {
           "module": "agent.project_intelligence.adapters.repo_context_service",
           "path": "agent/project_intelligence/adapters/repo_context_service.py"
+        },
+        {
+          "module": "agent.project_intelligence.adapters.repo_index",
+          "path": "agent/project_intelligence/adapters/repo_index.py"
         }
       ],
       "capability": "legacy_repository_index",
       "legacy_internal_consumer_count": 0,
       "legacy_internal_consumers": [],
       "legacy_module": "agent.atlas_repo_index_service",
-      "production_consumer_count": 2,
-      "production_consumers": [
-        {
-          "module": "app.api.atlas_code_intel",
-          "path": "app/api/atlas_code_intel.py"
-        },
-        {
-          "module": "app.api.atlas_repo_index",
-          "path": "app/api/atlas_repo_index.py"
-        }
-      ]
+      "production_consumer_count": 0,
+      "production_consumers": []
     },
     {
       "adapter_consumer_count": 1,
@@ -639,10 +631,9 @@
     },
     {
       "imports_legacy_capability": [
-        "legacy_code_intelligence",
-        "legacy_repository_index"
+        "legacy_code_intelligence"
       ],
-      "imports_project_intelligence": false,
+      "imports_project_intelligence": true,
       "module": "app.api.atlas_code_intel",
       "path": "app/api/atlas_code_intel.py"
     },
@@ -743,10 +734,8 @@
       "path": "app/api/atlas_repo_context.py"
     },
     {
-      "imports_legacy_capability": [
-        "legacy_repository_index"
-      ],
-      "imports_project_intelligence": false,
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": true,
       "module": "app.api.atlas_repo_index",
       "path": "app/api/atlas_repo_index.py"
     },
@@ -834,6 +823,13 @@
         "module": "agent.project_intelligence.adapters.atlas_repo_context",
         "path": "agent/project_intelligence/adapters/atlas_repo_context.py",
         "phase": "repo_context_api",
+        "present": true
+      },
+      {
+        "imports_app_api": false,
+        "module": "agent.project_intelligence.adapters.repo_index",
+        "path": "agent/project_intelligence/adapters/repo_index.py",
+        "phase": "repo_index_api",
         "present": true
       },
       {
@@ -966,12 +962,12 @@
   "schema_version": 1,
   "source": "python_ast_current_checkout",
   "summary": {
-    "adapter_module_count": 12,
+    "adapter_module_count": 13,
     "concrete_facade_count": 3,
     "critical_finding_count": 6,
     "disabled_facade_count": 4,
     "facade_module_count": 6,
-    "legacy_production_consumer_count": 7,
+    "legacy_production_consumer_count": 5,
     "production_entrypoint_count": 32
   }
 }

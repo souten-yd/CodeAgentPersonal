@@ -31,7 +31,7 @@ None of these target facades exist yet (PI-1). This map records the **current** 
 
 | Owner symbol | Direct consumers (symbol / file) | Consumer kind |
 |---|---|---|
-| `AtlasRepoIndexService` | `agent/project_intelligence/adapters/repo_context_service.py:ProjectIntelligenceRepoContextService`; `app/api/atlas_code_intel.py`; `app/api/atlas_repo_index.py` | Project Intelligence adapter + API |
+| `AtlasRepoIndexService` | `agent/project_intelligence/adapters/repo_context_service.py:ProjectIntelligenceRepoContextService`; `agent/project_intelligence/adapters/repo_index.py:ProjectIntelligenceRepoIndexAdapter` | Project Intelligence adapters |
 | `AtlasCodeIntelService` | `agent/atlas_context_local_collectors.py`; `app/api/atlas_code_intel.py` | agent collector + API |
 | `AtlasProjectInspectionService` | `agent/atlas_context_local_collectors.py`; `app/api/atlas_dev_tools.py` | agent collector + API |
 | `AtlasGitInspectionService` | `agent/atlas_context_local_collectors.py`; `app/api/atlas_dev_tools.py` | agent collector + API |
