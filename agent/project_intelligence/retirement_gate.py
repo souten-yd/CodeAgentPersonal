@@ -224,6 +224,7 @@ def build_pir15_retirement_gate(
     consumer_cutover_gate: dict[str, Any],
     active_rollout_evidence: dict[str, Any],
     data_migration_verified: bool,
+    data_migration_evidence: dict[str, Any] | None = None,
     docs_updated: bool,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
@@ -233,6 +234,14 @@ def build_pir15_retirement_gate(
     active_rollout_passed = active_rollout_evidence.get("status") == "passed"
     cutover_gate_passed = consumer_cutover_gate.get("summary", {}).get("gate_passed") is True
     all_capabilities_ready = all(status.retirement_ready for status in capability_statuses)
+    data_migration_evidence_passed = (
+        data_migration_evidence is not None
+        and data_migration_evidence.get("status") == "passed"
+        and data_migration_evidence.get("summary", {}).get("data_migration_verified") is True
+    )
+    effective_data_migration_verified = (
+        data_migration_evidence_passed if data_migration_evidence is not None else bool(data_migration_verified)
+    )
     blocked_reasons: list[str] = []
     if not benchmark_passed:
         blocked_reasons.append("benchmark_acceptance_not_passed")
@@ -242,7 +251,7 @@ def build_pir15_retirement_gate(
         blocked_reasons.append("active_rollout_transition_not_passed")
     if not cutover_gate_passed:
         blocked_reasons.append("consumer_cutover_gate_not_passed")
-    if not data_migration_verified:
+    if not effective_data_migration_verified:
         blocked_reasons.append("data_migration_not_verified")
     if not docs_updated:
         blocked_reasons.append("docs_not_updated")
@@ -261,13 +270,15 @@ def build_pir15_retirement_gate(
             "rollout_evidence_source": rollout_evidence.get("source"),
             "cutover_gate_source": consumer_cutover_gate.get("source"),
             "active_rollout_source": active_rollout_evidence.get("source"),
+            "data_migration_source": data_migration_evidence.get("source") if data_migration_evidence else None,
         },
         "summary": {
             "benchmark_passed": benchmark_passed,
             "manual_metrics_rejected": manual_metrics_rejected,
             "active_rollout_passed": active_rollout_passed,
             "consumer_cutover_gate_passed": cutover_gate_passed,
-            "data_migration_verified": data_migration_verified,
+            "data_migration_verified": effective_data_migration_verified,
+            "data_migration_evidence_passed": data_migration_evidence_passed,
             "docs_updated": docs_updated,
             "capability_count": len(capability_statuses),
             "consumer_zero_capability_count": sum(1 for status in capability_statuses if status.consumer_zero),
@@ -307,6 +318,7 @@ def write_pir15_retirement_gate(
     consumer_cutover_gate_path: str | Path,
     active_rollout_evidence_path: str | Path,
     data_migration_verified: bool = False,
+    data_migration_evidence_path: str | Path | None = None,
     docs_updated: bool = False,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
@@ -317,6 +329,7 @@ def write_pir15_retirement_gate(
         consumer_cutover_gate=_load_json(consumer_cutover_gate_path),
         active_rollout_evidence=_load_json(active_rollout_evidence_path),
         data_migration_verified=data_migration_verified,
+        data_migration_evidence=_load_json(data_migration_evidence_path) if data_migration_evidence_path else None,
         docs_updated=docs_updated,
         generated_at=generated_at,
     )

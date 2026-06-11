@@ -13,6 +13,7 @@ from agent.project_intelligence.retirement_gate import (
     write_active_rollout_transition_evidence,
     write_pir15_retirement_gate,
 )
+from agent.project_intelligence.data_migration_evidence import write_pir15_data_migration_evidence
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -52,6 +53,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=REPO_ROOT / "ca_data" / "atlas" / "pir15_retirement_gate.current.json",
     )
+    parser.add_argument(
+        "--data-migration-evidence",
+        type=Path,
+        default=REPO_ROOT / "ca_data" / "atlas" / "pir15_data_migration_evidence.current.json",
+    )
     parser.add_argument("--data-migration-verified", action="store_true")
     parser.add_argument("--docs-updated", action="store_true")
     parser.add_argument(
@@ -65,6 +71,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main_cli(argv: list[str]) -> int:
     args = parse_args(argv)
     write_active_rollout_transition_evidence(args.ca_data_dir, args.active_rollout_output)
+    data_migration_evidence = write_pir15_data_migration_evidence(
+        args.data_migration_evidence,
+        benchmark_report_path=args.benchmark_report,
+        consumer_registry_path=args.consumer_registry,
+        rollout_evidence_path=args.rollout_evidence,
+        consumer_cutover_gate_path=args.consumer_cutover_gate,
+        active_rollout_evidence_path=args.active_rollout_output,
+    )
     report = write_pir15_retirement_gate(
         args.output_json,
         benchmark_report_path=args.benchmark_report,
@@ -73,6 +87,7 @@ def main_cli(argv: list[str]) -> int:
         consumer_cutover_gate_path=args.consumer_cutover_gate,
         active_rollout_evidence_path=args.active_rollout_output,
         data_migration_verified=args.data_migration_verified,
+        data_migration_evidence_path=args.data_migration_evidence,
         docs_updated=args.docs_updated,
     )
     print(
@@ -82,6 +97,7 @@ def main_cli(argv: list[str]) -> int:
                 "report": str(args.output_json),
                 "active_rollout": report["summary"]["active_rollout_passed"],
                 "legacy_consumer_count": report["summary"]["legacy_consumer_count"],
+                "data_migration_evidence": data_migration_evidence["status"],
                 "blocked_reasons": report["summary"]["blocked_reasons"],
             },
             ensure_ascii=False,

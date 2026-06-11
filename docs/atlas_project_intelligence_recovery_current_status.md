@@ -60,8 +60,11 @@ This file selects the active package. The old PI package table does not prove fi
   reducing PIR-15 retirement-gate legacy consumers to 0;
 - repair and Greenfield phase rollout evidence now covers shadow and rollback parity, leaving
   PIR-15 retirement blocked only on data migration verification;
-- final broader legacy retirement remains incomplete because data migration and actual
-  removal/rollback gates are not yet satisfied.
+- PIR-15 data migration verification now derives from current benchmark, registry, rollout,
+  cutover, and active-rollout artifacts; the retirement gate now passes with consumer-zero and
+  data migration evidence.
+- final broader legacy retirement remains incomplete until proven-zero legacy paths are removed
+  in separate low-risk changes with rollback proof for each removal.
 
 ## Package table
 
@@ -102,6 +105,61 @@ Do not use plain `Completed` without the proof level. Focused tests alone cannot
 The program remains incomplete until PIR-15 and every live Definition of Done gate in the recovery master goal pass. Synthetic runners, manually supplied metrics, adapter-only tests, and document statements are not production evidence.
 
 ## Executed package log
+
+```text
+Work package: PIR-15 — Data migration verification evidence
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/data_migration_evidence.py — added a read-only PIR-15 verifier that
+  derives data migration status from the current benchmark, consumer registry, rollout evidence,
+  consumer cutover gate, and active rollout evidence artifacts.
+- agent/project_intelligence/retirement_gate.py — accepts data migration evidence and treats
+  evidence status as authoritative when provided, preventing a manual flag from overriding a
+  failed data migration artifact.
+- tools/run_pir15_retirement_gate.py — now writes
+  ca_data/atlas/pir15_data_migration_evidence.current.json before evaluating the retirement gate.
+- tests/test_project_intelligence_pir15_data_migration_evidence.py and
+  tests/test_project_intelligence_pir15_retirement_gate.py — cover passing, missing artifact,
+  legacy-consumer, manual-flag override, and CLI evidence paths.
+Executed commands and exact results:
+- python -m py_compile agent\project_intelligence\data_migration_evidence.py
+  agent\project_intelligence\retirement_gate.py tools\run_pir15_retirement_gate.py
+  tests\test_project_intelligence_pir15_data_migration_evidence.py
+  tests\test_project_intelligence_pir15_retirement_gate.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir15_data_migration_evidence.py
+  tests\test_project_intelligence_pir15_retirement_gate.py
+  tests\test_project_intelligence_pir14_rollout_evidence.py
+  tests\test_project_intelligence_pir14_consumer_cutover_gate.py -> 15 passed in 2.37s.
+- python tools\run_pir15_retirement_gate.py --benchmark-report
+  ca_data\atlas\pir15_live_benchmark_report.r12.json --consumer-registry
+  ca_data\atlas\pir14_consumer_registry.current.json --rollout-evidence
+  ca_data\atlas\pir14_rollout_evidence.current.json --consumer-cutover-gate
+  ca_data\atlas\pir14_consumer_cutover_gate.current.json --ca-data-dir
+  ca_data\atlas\pir15_active_rollout_data --active-rollout-output
+  ca_data\atlas\pir15_active_rollout_transition.current.json --output-json
+  ca_data\atlas\pir15_retirement_gate.current.json --data-migration-evidence
+  ca_data\atlas\pir15_data_migration_evidence.current.json --docs-updated
+  -> exit 0; status=passed, active_rollout=true, legacy_consumer_count=0,
+  data_migration_evidence=passed, blocked_reasons=[].
+Evidence details:
+- ca_data\atlas\pir15_data_migration_evidence.current.json reports status=passed,
+  data_migration_verified=true, consumer_registry_legacy_count=0, capability_count=6,
+  consumer_zero_capability_count=6, rollout_phase_count=6, rollout_shadow_and_rollback_passed=true,
+  consumer_cutover_gate_passed=true, active_rollout_passed=true.
+- ca_data\atlas\pir15_retirement_gate.current.json reports status=passed,
+  data_migration_evidence_passed=true, data_migration_verified=true, legacy_consumer_count=0,
+  consumer_zero_capability_count=6, retirement_ready_capability_count=6, blocked_reasons=[].
+Unavailable checks: actual legacy removal and rollback proof after each removal remain unclaimed.
+Safety invariants checked: the data migration verifier is read-only; it does not mutate source,
+  retire legacy code, authorize deletion on its own, or count unavailable evidence as passed.
+Migration/rollout state: default rollout remains off; no legacy source path was deleted in this
+  data migration slice.
+Known limitations: PIR-15 acceptance is not complete until removal/rollback gates are completed
+  for proven-zero legacy paths.
+Next package: PIR-15 — separate low-risk legacy removal slices with rollback proof before each
+  removal.
+Blocker: none; remaining work is the next PIR-15 retirement slice.
+```
 
 ```text
 Work package: PIR-15 — Repair and Greenfield rollout parity evidence
