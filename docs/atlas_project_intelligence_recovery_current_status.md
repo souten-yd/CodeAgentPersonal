@@ -113,6 +113,44 @@ Blocker: none.
 ```
 
 ```text
+Work package: PIR-14 — Legacy dependency lint for new direct consumers
+Status: in_progress
+Changed modules/files:
+- agent/project_intelligence/legacy_dependency_lint.py — added a source-derived lint that
+  compares current direct imports of legacy Project Intelligence capability modules against
+  an explicit allowlist and reports any new production consumer as a violation.
+- docs/generated/atlas_project_intelligence_legacy_dependency_allowlist.json — generated the
+  current direct legacy dependency allowlist with 43 known dependency rows. This freezes the
+  current migration baseline without authorizing new legacy imports.
+- tests/test_project_intelligence_pir14_legacy_dependency_lint.py — added focused coverage for
+  current checkout lint pass, allowlist schema/safety flags, deterministic allowlist generation,
+  JSON report persistence, and a synthetic new direct legacy consumer violation.
+- docs/atlas_project_intelligence_recovery_current_status.md — recorded the dependency lint
+  evidence while PIR-14 remains in_progress.
+Executed commands and exact results:
+- python - <<script invoking write_allowlist(...) and write_lint_report(...)>> ->
+  allowlist=C:\Users\kkens\code\KasaneCore\docs\generated\atlas_project_intelligence_legacy_dependency_allowlist.json
+  allowed=43 report=C:\Users\kkens\code\KasaneCore\ca_data\atlas\pir14_legacy_dependency_lint.current.json
+  passed=True violations=0.
+- python -m py_compile agent\project_intelligence\legacy_dependency_lint.py
+  tests\test_project_intelligence_pir14_legacy_dependency_lint.py -> compile OK.
+- python -m pytest -q tests\test_project_intelligence_pir14_legacy_dependency_lint.py ->
+  4 passed in 10.44s.
+Unavailable checks: this lint prevents newly introduced direct legacy imports but does not
+  cut over existing consumers, prove parity for those consumers, or retire legacy paths.
+Safety invariants checked: the lint is static and advisory; it performs no production
+  mutation, no rollout transition, no automatic rollback, and no legacy deletion.
+Migration/rollout state: rollout remains off by default; current direct legacy dependencies
+  remain as a frozen migration baseline, and new direct legacy consumers now fail the lint.
+Known limitations: PIR-14 remains in_progress until remaining phase parity/rollback,
+  Linux/Docker/Runpod platform artifacts, large-repository/concurrency evidence, and production
+  consumer cutover evidence pass.
+Next package: PIR-14 — add remaining phase parity/rollback, Linux/Docker/Runpod, large-scale,
+  concurrency, and cutover evidence.
+Blocker: none.
+```
+
+```text
 Work package: PIR-14 — Operational platform, scale, and threshold rollback evidence
 Status: in_progress
 Changed modules/files:
