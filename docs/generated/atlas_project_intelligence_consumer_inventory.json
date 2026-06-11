@@ -281,15 +281,8 @@
           "path": "app/api/atlas_projects.py"
         },
         {
-          "imports_legacy_capability": [
-            "legacy_impact_map",
-            "legacy_planner_context",
-            "legacy_planner_context",
-            "legacy_repo_context",
-            "legacy_verification_recommendation",
-            "legacy_verification_recommendation"
-          ],
-          "imports_project_intelligence": false,
+          "imports_legacy_capability": [],
+          "imports_project_intelligence": true,
           "module": "app.api.atlas_repo_context",
           "path": "app/api/atlas_repo_context.py"
         },
@@ -431,7 +424,7 @@
       "path": "app/nexus/jobs.py"
     }
   ],
-  "generated_at": "2026-06-11T06:21:16+00:00",
+  "generated_at": "2026-06-11T06:31:09+00:00",
   "legacy_consumers": [
     {
       "adapter_consumer_count": 0,
@@ -535,11 +528,16 @@
       "production_consumers": []
     },
     {
-      "adapter_consumer_count": 0,
-      "adapter_consumers": [],
+      "adapter_consumer_count": 1,
+      "adapter_consumers": [
+        {
+          "module": "agent.project_intelligence.adapters.atlas_repo_context",
+          "path": "agent/project_intelligence/adapters/atlas_repo_context.py"
+        }
+      ],
       "capability": "legacy_impact_map",
       "legacy_module": "agent.atlas_plan_item_impact_map_service",
-      "production_consumer_count": 4,
+      "production_consumer_count": 3,
       "production_consumers": [
         {
           "module": "agent.atlas_context_refresh_v2_service",
@@ -552,19 +550,20 @@
         {
           "module": "app.api.atlas_pipeline",
           "path": "app/api/atlas_pipeline.py"
-        },
-        {
-          "module": "app.api.atlas_repo_context",
-          "path": "app/api/atlas_repo_context.py"
         }
       ]
     },
     {
-      "adapter_consumer_count": 0,
-      "adapter_consumers": [],
+      "adapter_consumer_count": 1,
+      "adapter_consumers": [
+        {
+          "module": "agent.project_intelligence.adapters.atlas_repo_context",
+          "path": "agent/project_intelligence/adapters/atlas_repo_context.py"
+        }
+      ],
       "capability": "legacy_planner_context",
       "legacy_module": "agent.atlas_planner_packaging_v2_service",
-      "production_consumer_count": 3,
+      "production_consumer_count": 2,
       "production_consumers": [
         {
           "module": "agent.atlas_verification_recommendation_service",
@@ -573,19 +572,20 @@
         {
           "module": "app.api.atlas_pipeline",
           "path": "app/api/atlas_pipeline.py"
-        },
-        {
-          "module": "app.api.atlas_repo_context",
-          "path": "app/api/atlas_repo_context.py"
         }
       ]
     },
     {
-      "adapter_consumer_count": 0,
-      "adapter_consumers": [],
+      "adapter_consumer_count": 1,
+      "adapter_consumers": [
+        {
+          "module": "agent.project_intelligence.adapters.atlas_repo_context",
+          "path": "agent/project_intelligence/adapters/atlas_repo_context.py"
+        }
+      ],
       "capability": "legacy_planner_context",
       "legacy_module": "agent.atlas_repo_context_planner_packager",
-      "production_consumer_count": 6,
+      "production_consumer_count": 5,
       "production_consumers": [
         {
           "module": "agent.atlas_context_refresh_service",
@@ -606,10 +606,6 @@
         {
           "module": "app.api.atlas_pipeline",
           "path": "app/api/atlas_pipeline.py"
-        },
-        {
-          "module": "app.api.atlas_repo_context",
-          "path": "app/api/atlas_repo_context.py"
         }
       ]
     },
@@ -627,11 +623,16 @@
       "production_consumers": []
     },
     {
-      "adapter_consumer_count": 0,
-      "adapter_consumers": [],
+      "adapter_consumer_count": 1,
+      "adapter_consumers": [
+        {
+          "module": "agent.project_intelligence.adapters.atlas_repo_context",
+          "path": "agent/project_intelligence/adapters/atlas_repo_context.py"
+        }
+      ],
       "capability": "legacy_repo_context",
       "legacy_module": "agent.atlas_repo_context_service",
-      "production_consumer_count": 4,
+      "production_consumer_count": 3,
       "production_consumers": [
         {
           "module": "agent.atlas_context_refresh_service",
@@ -644,10 +645,6 @@
         {
           "module": "app.api.atlas_pipeline",
           "path": "app/api/atlas_pipeline.py"
-        },
-        {
-          "module": "app.api.atlas_repo_context",
-          "path": "app/api/atlas_repo_context.py"
         }
       ]
     },
@@ -686,28 +683,34 @@
       ]
     },
     {
-      "adapter_consumer_count": 0,
-      "adapter_consumers": [],
+      "adapter_consumer_count": 1,
+      "adapter_consumers": [
+        {
+          "module": "agent.project_intelligence.adapters.atlas_repo_context",
+          "path": "agent/project_intelligence/adapters/atlas_repo_context.py"
+        }
+      ],
       "capability": "legacy_verification_recommendation",
       "legacy_module": "agent.atlas_verification_recommendation_handoff_service",
-      "production_consumer_count": 2,
+      "production_consumer_count": 1,
       "production_consumers": [
         {
           "module": "app.api.atlas_pipeline",
           "path": "app/api/atlas_pipeline.py"
-        },
-        {
-          "module": "app.api.atlas_repo_context",
-          "path": "app/api/atlas_repo_context.py"
         }
       ]
     },
     {
-      "adapter_consumer_count": 0,
-      "adapter_consumers": [],
+      "adapter_consumer_count": 1,
+      "adapter_consumers": [
+        {
+          "module": "agent.project_intelligence.adapters.atlas_repo_context",
+          "path": "agent/project_intelligence/adapters/atlas_repo_context.py"
+        }
+      ],
       "capability": "legacy_verification_recommendation",
       "legacy_module": "agent.atlas_verification_recommendation_service",
-      "production_consumer_count": 3,
+      "production_consumer_count": 2,
       "production_consumers": [
         {
           "module": "agent.atlas_verification_recommendation_handoff_service",
@@ -716,10 +719,6 @@
         {
           "module": "app.api.atlas_pipeline",
           "path": "app/api/atlas_pipeline.py"
-        },
-        {
-          "module": "app.api.atlas_repo_context",
-          "path": "app/api/atlas_repo_context.py"
         }
       ]
     }
@@ -920,15 +919,8 @@
       "path": "app/api/atlas_projects.py"
     },
     {
-      "imports_legacy_capability": [
-        "legacy_impact_map",
-        "legacy_planner_context",
-        "legacy_planner_context",
-        "legacy_repo_context",
-        "legacy_verification_recommendation",
-        "legacy_verification_recommendation"
-      ],
-      "imports_project_intelligence": false,
+      "imports_legacy_capability": [],
+      "imports_project_intelligence": true,
       "module": "app.api.atlas_repo_context",
       "path": "app/api/atlas_repo_context.py"
     },
@@ -998,6 +990,13 @@
         "module": "agent.project_intelligence.adapters.atlas_inspection",
         "path": "agent/project_intelligence/adapters/atlas_inspection.py",
         "phase": "inspection",
+        "present": true
+      },
+      {
+        "imports_app_api": false,
+        "module": "agent.project_intelligence.adapters.atlas_repo_context",
+        "path": "agent/project_intelligence/adapters/atlas_repo_context.py",
+        "phase": "repo_context_api",
         "present": true
       },
       {
@@ -1102,12 +1101,12 @@
   "schema_version": 1,
   "source": "python_ast_current_checkout",
   "summary": {
-    "adapter_module_count": 4,
+    "adapter_module_count": 5,
     "concrete_facade_count": 3,
     "critical_finding_count": 6,
     "disabled_facade_count": 4,
     "facade_module_count": 6,
-    "legacy_production_consumer_count": 39,
+    "legacy_production_consumer_count": 33,
     "production_entrypoint_count": 32
   }
 }
