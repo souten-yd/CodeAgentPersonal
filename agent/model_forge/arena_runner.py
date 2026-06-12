@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
+from pydantic import Field
+
 from agent.model_forge.provider_policy import resolve_provider_policy
 from agent.model_forge.provider_registry import ProviderRegistry
 from agent.model_forge.route_taxonomy import ForgeRoute
@@ -40,6 +42,8 @@ class ArenaRunRecord(ForgeModel):
     arena_run_id: str
     stage: ForgeStage
     preset_id: str = ""
+    preset_ids: list[str] = Field(default_factory=list)
+    benchmark_depth: str = "standard"
     task_id: str = ""
     source_mode: SourceMode
     privacy_mode: PrivacyMode
@@ -67,6 +71,8 @@ class ArenaRunner:
         source_mode: SourceMode | str,
         privacy_mode: PrivacyMode | str,
         preset_id: str = "",
+        preset_ids: list[str] | None = None,
+        benchmark_depth: str = "standard",
         task_id: str = "",
         arena_run_id: str | None = None,
     ) -> ArenaRunRecord:
@@ -110,7 +116,10 @@ class ArenaRunner:
             ))
 
         record = ArenaRunRecord(
-            arena_run_id=run_id, stage=stage, preset_id=preset_id, task_id=task_id,
+            arena_run_id=run_id, stage=stage, preset_id=preset_id,
+            preset_ids=list(preset_ids or ([preset_id] if preset_id else [])),
+            benchmark_depth=benchmark_depth,
+            task_id=task_id,
             source_mode=SourceMode(source_mode), privacy_mode=PrivacyMode(privacy_mode),
             created_at=datetime.now(timezone.utc).isoformat(), candidates=candidates,
         )

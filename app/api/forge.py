@@ -32,6 +32,8 @@ class ArenaRunRequest(BaseModel):
     source_mode: str | None = None
     privacy_mode: str = "no_external_code"
     preset_id: str = ""
+    preset_ids: list[str] = Field(default_factory=list)
+    depth: str = "standard"
     task_id: str = ""
 
 
@@ -97,7 +99,8 @@ def post_arena_run(request: Request, body: ArenaRunRequest) -> dict:
         return _service(request).run_arena(
             stage=body.stage, specs=[s.model_dump() for s in body.specs],
             source_mode=body.source_mode, privacy_mode=body.privacy_mode,
-            preset_id=body.preset_id, task_id=body.task_id,
+            preset_id=body.preset_id, preset_ids=body.preset_ids,
+            benchmark_depth=body.depth, task_id=body.task_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Mapping
 
 from agent.model_forge.arena_runner import ArenaCandidateSpec, ArenaRunner
-from agent.model_forge.benchmark_presets import preset_listing
+from agent.model_forge.benchmark_presets import get_preset, preset_listing
 from agent.model_forge.loadouts import LoadoutStore
 from agent.model_forge.portal_evidence import PortalRunEvidence, ingest_portal_evidence
 from agent.model_forge.profile_store import ProfileStore
@@ -167,13 +167,28 @@ class ForgeService:
 
     def run_arena(
         self, *, stage: str, specs: list[dict], source_mode: str | None = None,
-        privacy_mode: str = "no_external_code", preset_id: str = "", task_id: str = "",
+        privacy_mode: str = "no_external_code", preset_id: str = "",
+        preset_ids: list[str] | None = None, benchmark_depth: str = "standard",
+        task_id: str = "",
     ) -> dict:
+        selected_preset_ids = [p for p in (preset_ids or []) if p]
+        if preset_id and preset_id not in selected_preset_ids:
+            selected_preset_ids.insert(0, preset_id)
+        if selected_preset_ids:
+            for pid in selected_preset_ids:
+                if get_preset(pid) is None:
+                    raise ValueError(f"unknown_preset_id:{pid}")
+            preset_id = selected_preset_ids[0]
+        depth = (benchmark_depth or "standard").strip().lower()
+        if depth != "standard":
+            raise ValueError(f"benchmark_depth_unavailable_not_supported:{depth}")
         candidate_specs = [ArenaCandidateSpec(**s) for s in specs]
         record = self.arena.run(
             stage=ForgeStage(stage), specs=candidate_specs,
             source_mode=source_mode or self.source_mode().value,
-            privacy_mode=privacy_mode, preset_id=preset_id, task_id=task_id,
+            privacy_mode=privacy_mode, preset_id=preset_id,
+            preset_ids=selected_preset_ids, benchmark_depth=depth,
+            task_id=task_id,
         )
         return record.model_dump(mode="json")
 

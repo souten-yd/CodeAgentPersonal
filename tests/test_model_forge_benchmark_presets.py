@@ -22,8 +22,16 @@ def test_every_builtin_preset_is_valid() -> None:
 
 
 def test_validation_flags_missing_fields() -> None:
-    bad = BenchmarkPreset(preset_id="x", tasks=[], required_evaluators=[], runtime_budget_seconds=0)
+    bad = BenchmarkPreset(
+        preset_id="x",
+        family_id="",
+        category="",
+        tasks=[],
+        required_evaluators=[],
+        runtime_budget_seconds=0,
+    )
     reasons = validate_preset(bad)
+    assert "missing_family_id" in reasons
     assert "no_tasks" in reasons
     assert "no_required_evaluators" in reasons
     assert "non_positive_runtime_budget" in reasons
@@ -38,6 +46,8 @@ def test_preset_listing_is_api_ready() -> None:
     listing = preset_listing()
     assert listing
     item = next(p for p in listing if p["preset_id"] == "web_app_standard")
+    assert item["family_id"] == "web_app"
+    assert item["primary_rank"] == 1
     assert item["task_count"] == 2
     assert "portal_preview" in item["required_evaluators"]
     assert "patch_dsl" in item["recommended_routes"]

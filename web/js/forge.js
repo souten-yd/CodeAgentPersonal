@@ -194,18 +194,22 @@
   // ----- Benchmark selector (PFG-23) -----
 
   const DEPTHS = ['quick', 'standard', 'deep'];
-  // Presets surfaced as primary checkboxes; others remain selectable from the full list.
-  const PRIMARY_PRESETS = ['quick', 'web_app', 'repair', 'greenfield'];
 
   function selectedProvider(data) {
     return (data.providers || []).find((p) => p.provider_id === state.bench.provider) || null;
   }
 
+  function primaryPresets(presets) {
+    return (presets || []).filter((p) => p.primary_rank !== null && p.primary_rank !== undefined)
+      .sort((a, b) => Number(a.primary_rank) - Number(b.primary_rank));
+  }
+
   function benchmarkHtml(data) {
     const presets = data.presets || [];
     const sel = state.bench;
-    const primaries = presets.filter((p) => PRIMARY_PRESETS.indexOf(p.preset_id) >= 0);
-    const others = presets.filter((p) => PRIMARY_PRESETS.indexOf(p.preset_id) < 0);
+    const primaries = primaryPresets(presets);
+    const primaryIds = primaries.map((p) => p.preset_id);
+    const others = presets.filter((p) => primaryIds.indexOf(p.preset_id) < 0);
     const checkbox = (p) => (
       '<label class="forge-check"><input type="checkbox" data-bench-preset="' + escapeHtml(p.preset_id) + '"'
       + (sel.presets.indexOf(p.preset_id) >= 0 ? ' checked' : '') + '>'
@@ -213,7 +217,8 @@
     );
     const depthBtns = DEPTHS.map((d) => (
       '<button type="button" class="forge-seg' + (sel.depth === d ? ' active' : '')
-      + '" data-bench-depth="' + d + '">' + escapeHtml(d) + '</button>'
+      + '" data-bench-depth="' + d + '"' + (d === 'standard' ? '' : ' disabled title="unavailable_not_supported"')
+      + '>' + escapeHtml(d) + '</button>'
     )).join('');
     const provOpts = ['<option value="">Select provider…</option>'].concat(
       (data.providers || []).map((p) => (
@@ -290,6 +295,8 @@
           stage,
           specs: [{ provider_id: sel.provider, model_id: sel.model, route_id: route }],
           preset_id: sel.presets[0],
+          preset_ids: sel.presets.slice(),
+          depth: sel.depth,
         }),
       });
       const cand = (record.candidates || [])[0] || {};
@@ -654,6 +661,7 @@
     _arenaHtml: arenaHtml,
     _advancedHtml: advancedHtml,
     _loadoutsHtml: loadoutsHtml,
+    _runBenchmark: runBenchmark,
     _state: state,
   };
 })();
