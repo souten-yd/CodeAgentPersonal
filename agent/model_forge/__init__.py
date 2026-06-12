@@ -48,6 +48,13 @@ from agent.model_forge.route_matrix import (
     UNSAFE_MICRO_ROUTES,
     default_routes_for_class,
 )
+from agent.model_forge.shadow import (
+    SHADOW_STAGES,
+    ShadowSide,
+    ShadowStageComparison,
+    ShadowStore,
+    compare_stage,
+)
 from agent.model_forge.stage_matrix import (
     StageCandidate,
     StageMatrix,
@@ -240,4 +247,9 @@ __all__ = [
     "PortalRunEvidence",
     "PortalEvidenceResult",
     "ingest_portal_evidence",
+    "SHADOW_STAGES",
+    "ShadowSide",
+    "ShadowStageComparison",
+    "ShadowStore",
+    "compare_stage",
 ]
