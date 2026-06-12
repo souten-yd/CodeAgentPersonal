@@ -26,6 +26,11 @@ from agent.model_forge.candidate_evaluator import (
     EvaluatorOutcome,
     EvaluatorResult,
 )
+from agent.model_forge.profile_store import (
+    ProfileObservation,
+    ProfileStore,
+    profile_key,
+)
 from agent.model_forge.provider_base import (
     ForgeProvider,
     HealthState,
@@ -186,4 +191,7 @@ __all__ = [
     "CandidateEvaluator",
     "VERDICT_ELIGIBLE",
     "VERDICT_REJECTED",
+    "ProfileStore",
+    "ProfileObservation",
+    "profile_key",
 ]

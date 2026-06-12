@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-16`
-- Current package goal: Model Profile Store and profile updater.
-- Next action: persist versioned per-model profiles under `ca_data/model_forge/profiles`,
-  store evidence references, and update profiles from candidate scores.
-- Last completed: `PFG-15` (Candidate Evaluator foundation) — acceptance_complete; see
-  PFG-15 evidence below. PFG-1..PFG-14 also complete.
+- Current package: `PFG-17`
+- Current package goal: Stage Matrix policy and selector.
+- Next action: implement stage policy storage with disabled/fixed/shadow/auto/arena/fallback
+  modes, default to disabled or shadow, and record selection reasons.
+- Last completed: `PFG-16` (Model Profile Store and profile updater) — acceptance_complete;
+  see PFG-16 evidence below. PFG-1..PFG-15 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -71,7 +71,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-13 | benchmark preset schema and initial presets | acceptance_complete |
 | PFG-14 | Arena runner foundation | acceptance_complete |
 | PFG-15 | Candidate Evaluator foundation | acceptance_complete |
-| PFG-16 | Model Profile Store and profile updater | not_started |
+| PFG-16 | Model Profile Store and profile updater | acceptance_complete |
 | PFG-17 | Stage Matrix policy and selector | not_started |
 | PFG-18 | Route Matrix policy and selector | not_started |
 | PFG-19 | Forge backend API | not_started |
@@ -792,6 +792,44 @@ Remaining gaps:
 - PFG-16 Model Profile Store and profile updater.
 Next package:
 - PFG-16 — Model Profile Store and profile updater.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-16 — Model Profile Store and profile updater
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/profile_store.py (new), __init__ re-exports
+- tests/test_model_forge_profile_store.py (new)
+Behavior implemented:
+- ProfileStore persists per-(provider,model) profiles under
+  ca_data/model_forge/profiles/{key}/ as an append-only observations.jsonl plus a new
+  profile.vN.json on every update (earlier versions never rewritten) and a latest.json
+  pointer. dimension_scores are a weighted mean recomputed purely from the observation
+  log, so scores are reproducible.
+- update_from_candidate_score maps a mechanical CandidateScore onto named dimensions
+  (rejected -> 0.0, eligible -> final_score). record_user_feedback records user
+  save/discard/Capsule decisions as weak_feedback observations that are preserved as
+  evidence but EXCLUDED from scoring by default (weak_weight=0.0), so a user decision
+  alone never moves a model's score.
+Focused tests:
+- python -m pytest tests/test_model_forge_profile_store.py -> 5 passed
+  (versioned + append-only; raw evidence preserved + recomputable scores; user
+   feedback weak and score-neutral; update_from_candidate_score eligible/rejected;
+   per-model isolation + list_profiles).
+- python -m pytest tests/test_model_forge_*.py -> 82 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-16 is a persistence/aggregation package, no model execution.
+Safety invariants verified:
+- append-only observation log; versioned profiles; raw evidence preserved; weak user
+  feedback never moves the score on its own.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-17 Stage Matrix policy and selector.
+Next package:
+- PFG-17 — Stage Matrix policy and selector.
 Blocker:
 - None.
 ```
