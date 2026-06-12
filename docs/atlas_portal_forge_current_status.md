@@ -7,12 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-31`
-- Current package goal: real Web App / Portal run preset.
-- Next action: generate/evaluate a Web App task candidate with the local model, apply only
-  through Proposal/Safe Apply if adopting, run in Portal, and record preview/log evidence.
-- Last completed: `PFG-30` (real local-model Quick preset run) — acceptance_complete with
-  REAL local model evidence (Mistral-Small-3.2-24B on :8080); see PFG-30 evidence below.
+- Current package: `PFG-32`
+- Current package goal: real Repair preset run.
+- Next action: use a reproducible failing fixture, run repair candidates with the local
+  model, and verify the fix via tests/runtime (not a model claim).
+- Last completed: `PFG-31` (real Web App / Portal run preset) — acceptance_complete with REAL
+  model + Portal runtime evidence (Mistral served through Play static runtime); see PFG-31
+  evidence below. PFG-30 also REAL-model complete; PFG-1..PFG-29 complete.
   PFG-1..PFG-29 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
@@ -87,7 +88,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-28 | Portal evidence to Candidate Evaluator | acceptance_complete |
 | PFG-29 | Capsule Forge metadata and replay | acceptance_complete |
 | PFG-30 | real local-model Quick preset run | acceptance_complete |
-| PFG-31 | real Web App / Portal run preset | not_started |
+| PFG-31 | real Web App / Portal run preset | acceptance_complete |
 | PFG-32 | real Repair preset run | not_started |
 | PFG-33 | real Greenfield Capsule replay run | not_started |
 | PFG-34 | optional OpenRouter live smoke gate | not_started |
@@ -1352,6 +1353,40 @@ Remaining gaps:
 - PFG-31 real Web App / Portal run preset.
 Next package:
 - PFG-31 — real Web App / Portal run preset.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-31 — real Web App / Portal run preset
+Status: acceptance_complete
+Changed modules/files:
+- tests/test_forge_real_webapp_portal.py (new) — gated real-model + real Portal-runtime test.
+Behavior implemented:
+- The local model GENERATES a single-file web app, the artifact is RUN through the real
+  Portal/Play static-web runtime (the same static runtime Portal Run delegates to), the
+  served preview is verified byte-for-byte (newlines normalised), and the Portal runtime
+  outcome is fed into the model profile as strong evidence. The candidate is never
+  auto-applied (no Safe Apply bypass). Skips when no model server is reachable.
+REAL model + Portal runtime evidence (actually executed):
+- python -m pytest tests/test_forge_real_webapp_portal.py -q -s -> 1 passed in 56.60s.
+- model_id=Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf; html_bytes=281; the model
+  produced a full HTML doc (<h1>Hello Forge</h1> + a Greet button with alert).
+- Portal/Play static preview served the exact artifact: preview_status=200,
+  runtime_passed=true.
+- profile update from Portal evidence: web_app score = 1.0 (strong_runtime).
+- evidence artifact: ca_data/model_forge/evidence/pfg31_webapp_portal.json.
+Unavailable checks:
+- Skips truthfully when :8080 is unreachable.
+Safety invariants verified:
+- artifact run read-only through the existing Portal/Play runtime; candidate not adopted
+  (no Safe Apply bypass); profile updated from real runtime evidence, not a model claim.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-32 real Repair preset run.
+Next package:
+- PFG-32 — real Repair preset run.
 Blocker:
 - None.
 ```
