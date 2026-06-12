@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-22`
-- Current package goal: Skill Radar and Leaderboard UI.
-- Next action: add champion cards + radar/list hybrid + model detail drawer with a useful
-  empty state and compact mobile rendering.
-- Last completed: `PFG-21` (Forge Overview and Provider cards) — acceptance_complete; see
-  PFG-21 evidence below. PFG-1..PFG-20 also complete.
+- Current package: `PFG-23`
+- Current package goal: Benchmark Preset selector UI.
+- Next action: add preset checkboxes (Quick/Web App/Repair/Greenfield), a depth control,
+  model/provider selection from the registry, and a policy warning for external providers.
+- Last completed: `PFG-22` (Skill Radar and Leaderboard UI) — acceptance_complete; see
+  PFG-22 evidence below. PFG-1..PFG-21 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -77,7 +77,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-19 | Forge backend API | acceptance_complete |
 | PFG-20 | Forge top-level nav and shell UI | acceptance_complete |
 | PFG-21 | Forge Overview and Provider cards | acceptance_complete |
-| PFG-22 | Skill Radar and Leaderboard UI | not_started |
+| PFG-22 | Skill Radar and Leaderboard UI | acceptance_complete |
 | PFG-23 | Benchmark Preset selector UI | not_started |
 | PFG-24 | Arena UI | not_started |
 | PFG-25 | Stage Matrix and Route Matrix UI | not_started |
@@ -1027,6 +1027,40 @@ Remaining gaps:
 - PFG-22 Skill Radar and Leaderboard UI.
 Next package:
 - PFG-22 — Skill Radar and Leaderboard UI.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-22 — Skill Radar and Leaderboard UI
+Status: acceptance_complete
+Changed modules/files:
+- web/js/forge.js — internal tab router (Overview | Skills), Skills view (champion cards
+  from /leaderboard, per-model score bars from /profiles), model detail drawer.
+- web/css/app.css — forge tab, champion grid, score bar, model row, and drawer styles.
+- tests/test_forge_skills_render.py (new).
+Behavior implemented:
+- Forge now has an internal tab strip. The Skills tab shows a Champions grid (best model
+  per dimension) and a compact Models list with per-model overall score bars; clicking a
+  model opens a detail drawer with all dimension scores. Empty profiles render a useful
+  empty state ("No model profiles yet…"). Score bars render compactly for mobile.
+Syntax / render checks:
+- node --check web/js/forge.js -> OK.
+Focused tests:
+- python -m pytest tests/test_forge_skills_render.py tests/test_forge_overview_render.py
+  tests/test_forge_ui_shell.py -> 12 passed (empty state; champions + models render with
+  width-scaled bars; model rows carry a data-model key for the drawer). Skills HTML is
+  built by the real web/js/forge.js under a node DOM stub.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-22 is UI rendering only and never proves model quality.
+Safety invariants verified:
+- read-only; no execution; empty/unavailable states truthful.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-23 Benchmark Preset selector UI.
+Next package:
+- PFG-23 — Benchmark Preset selector UI.
 Blocker:
 - None.
 ```
