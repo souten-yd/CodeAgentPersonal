@@ -129,6 +129,18 @@ def test_preview_headers_allow_lan_and_runpod_hosts(monkeypatch: pytest.MonkeyPa
     validate_preview_request_headers({"host": "my-tunnel.example.com", "origin": "https://my-tunnel.example.com"})
 
 
+def test_preview_headers_allow_local_network_hostnames(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATLAS_PREVIEW_ALLOWED_HOSTS", raising=False)
+    # iPhone reaching a Windows/LAN box by its bare machine name (single label).
+    validate_preview_request_headers({"host": "DESKTOP-AB12:7860", "origin": "http://DESKTOP-AB12:7860"})
+    # mDNS / Bonjour name as resolved natively on iOS.
+    validate_preview_request_headers({"host": "kkens-pc.local", "origin": "http://kkens-pc.local"})
+    # Common router-assigned local TLDs.
+    validate_preview_request_headers({"host": "kkens-pc.lan:7860", "origin": "http://kkens-pc.lan:7860"})
+    # Tailscale / CGNAT shared address space (not RFC1918 private).
+    validate_preview_request_headers({"host": "100.101.102.103", "origin": "http://100.101.102.103"})
+
+
 def test_preview_headers_reject_public_host_and_cross_origin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ATLAS_PREVIEW_ALLOWED_HOSTS", raising=False)
     # DNS-rebinding style arbitrary public hostname is still rejected.
