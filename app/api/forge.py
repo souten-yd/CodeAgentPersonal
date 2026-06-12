@@ -159,6 +159,24 @@ class ApplyLoadoutRequest(BaseModel):
     acknowledge_risky: bool = False
 
 
+class PortalEvidenceRequest(BaseModel):
+    installation_id: str = Field(min_length=1)
+    provider_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    dimension: str = "web_app"
+    runtime_passed: bool | None = None
+    user_decision: str = ""
+    evidence_refs: list[str] = Field(default_factory=list)
+
+
+@router.post("/portal-evidence")
+def post_portal_evidence(request: Request, body: PortalEvidenceRequest) -> dict:
+    try:
+        return _service(request).record_portal_evidence(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/loadouts/{loadout_id}/apply")
 def post_apply_loadout(request: Request, loadout_id: str, body: ApplyLoadoutRequest) -> dict:
     try:

@@ -7,12 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-28`
-- Current package goal: Portal evidence to Candidate Evaluator.
-- Next action: feed Portal preview/log/save/discard/snapshot outcomes into the evaluator /
-  profile updater; treat user decisions as weak feedback unless paired with runtime evidence.
-- Last completed: `PFG-27` (Portal Run Forge Trace metadata) — acceptance_complete; see
-  PFG-27 evidence below. PFG-1..PFG-26 also complete.
+- Current package: `PFG-29`
+- Current package goal: Capsule Forge metadata and replay.
+- Next action: add Forge projection to the Capsule manifest/sidecar + replay evidence
+  linking a Portal run to a model profile update, preserving data-free export and ZIP
+  immutability.
+- Last completed: `PFG-28` (Portal evidence to Candidate Evaluator) — acceptance_complete;
+  see PFG-28 evidence below. PFG-1..PFG-27 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -83,7 +84,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-25 | Stage Matrix and Route Matrix UI | acceptance_complete |
 | PFG-26 | Loadouts UI and persistence | acceptance_complete |
 | PFG-27 | Portal Run Forge Trace metadata | acceptance_complete |
-| PFG-28 | Portal evidence to Candidate Evaluator | not_started |
+| PFG-28 | Portal evidence to Candidate Evaluator | acceptance_complete |
 | PFG-29 | Capsule Forge metadata and replay | not_started |
 | PFG-30 | real local-model Quick preset run | not_started |
 | PFG-31 | real Web App / Portal run preset | not_started |
@@ -1249,6 +1250,39 @@ Remaining gaps:
 - PFG-28 Portal evidence to Candidate Evaluator.
 Next package:
 - PFG-28 — Portal evidence to Candidate Evaluator.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-28 — Portal evidence to Candidate Evaluator
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/portal_evidence.py (new) — PortalRunEvidence + ingest_portal_evidence.
+- agent/model_forge/forge_service.py — record_portal_evidence; __init__ re-exports.
+- app/api/forge.py — POST /api/forge/portal-evidence.
+- tests/test_forge_portal_evidence.py (new).
+Behavior implemented:
+- ingest_portal_evidence turns a Portal run outcome into model-profile observations. A
+  measured runtime pass/fail is STRONG evidence that moves the score (a failure lowers it);
+  a user save/discard/snapshot decision on its own is WEAK feedback recorded for context
+  but never moving the score. Evidence is attributed to the model in the run's Forge trace.
+Focused tests:
+- python -m pytest tests/test_forge_portal_evidence.py -> 4 passed (runtime failure lowers
+  score; user discard alone does not move score; runtime success raises score; endpoint
+  records strong runtime evidence).
+- python -m pytest tests/test_forge_*.py tests/test_model_forge_*.py -> 133 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-28 wires the evidence path; real Portal runs land in PFG-31/33.
+Safety invariants verified:
+- runtime failure lowers candidate result; user discard alone does not prove model failure
+  (weak, score-neutral).
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-29 Capsule Forge metadata and replay.
+Next package:
+- PFG-29 — Capsule Forge metadata and replay.
 Blocker:
 - None.
 ```

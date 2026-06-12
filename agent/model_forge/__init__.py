@@ -32,6 +32,12 @@ from agent.model_forge.profile_store import (
     profile_key,
 )
 from agent.model_forge.forge_service import ForgeService
+from agent.model_forge.portal_evidence import (
+    EvidenceStrength,
+    PortalEvidenceResult,
+    PortalRunEvidence,
+    ingest_portal_evidence,
+)
 from agent.model_forge.loadouts import Loadout, LoadoutStore, default_loadouts
 from agent.model_forge.route_matrix import (
     ChangeClass,
@@ -230,4 +236,8 @@ __all__ = [
     "Loadout",
     "LoadoutStore",
     "default_loadouts",
+    "EvidenceStrength",
+    "PortalRunEvidence",
+    "PortalEvidenceResult",
+    "ingest_portal_evidence",
 ]
