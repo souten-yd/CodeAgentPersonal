@@ -14,13 +14,16 @@ import os
 import re
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 import pytest
 
+from agent.model_forge.preset_runner import LocalForgePresetRunner, PresetRunnerTask, write_evidence
+from agent.model_forge.route_matrix import ChangeClass
+from agent.model_forge.stage_taxonomy import ForgeStage
+
 BASE_URL = os.environ.get("FORGE_LOCAL_BASE_URL", "http://localhost:8080").rstrip("/")
+MODEL_ID = os.environ.get("FORGE_LOCAL_MODEL", "").strip()
 
 # Reproducible failing fixture: subtract instead of add.
 _BUGGY = "def add(a, b):\n    return a - b\n"
@@ -41,34 +44,6 @@ _USER = (
 )
 
 
-def _server_model() -> str | None:
-    try:
-        with urllib.request.urlopen(BASE_URL + "/v1/models", timeout=3) as resp:  # noqa: S310
-            data = json.loads(resp.read().decode("utf-8", "replace"))
-    except (urllib.error.URLError, OSError, ValueError):
-        return None
-    models = data.get("data") or data.get("models") or []
-    return str((models[0].get("id") or models[0].get("name")) if models else "")
-
-
-def _chat(model: str | None) -> str | None:
-    payload = {
-        "messages": [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": _USER}],
-        "stream": False, "temperature": 0,
-    }
-    if model:
-        payload["model"] = model
-    req = urllib.request.Request(
-        BASE_URL + "/v1/chat/completions", method="POST",
-        data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=180) as resp:  # noqa: S310
-            return json.loads(resp.read().decode("utf-8", "replace"))["choices"][0]["message"]["content"]
-    except (urllib.error.URLError, OSError, ValueError, KeyError):
-        return None
-
-
 def _extract_function(text: str) -> str:
     fenced = re.search(r"```(?:python)?\s*(.*?)```", text, re.DOTALL)
     code = fenced.group(1) if fenced else text
@@ -87,9 +62,9 @@ def _run_check(work: Path) -> tuple[bool, str]:
 
 @pytest.mark.real_model
 def test_real_repair_is_verified_by_rerunning_the_check(tmp_path):
-    model = _server_model()
-    if model is None:
-        pytest.skip(f"no local model server reachable at {BASE_URL}")
+    runner = LocalForgePresetRunner(base_url=BASE_URL, model_id=MODEL_ID, timeout_seconds=180.0)
+    if not runner.probe():
+        pytest.skip(f"no local model server reachable at {BASE_URL}: {runner.unavailable_reason}")
 
     work = tmp_path / "repair_fixture"
     work.mkdir()
@@ -100,25 +75,36 @@ def test_real_repair_is_verified_by_rerunning_the_check(tmp_path):
     passed_before, _ = _run_check(work)
     assert passed_before is False, "fixture should fail before repair"
 
-    # Real model produces a repair candidate.
-    raw = _chat(model)
-    assert raw, "no model response"
-    fixed = _extract_function(raw)
+    # Real model produces a repair candidate through the Forge runner.
+    run = runner.run(PresetRunnerTask(
+        preset_id="repair_standard",
+        stage=ForgeStage.REPAIR,
+        change_class=ChangeClass.SMALL,
+        task_category="repair",
+        system_prompt=_SYSTEM,
+        user_prompt=_USER,
+        output_contract="text",
+        requirement_coverage_ratio=1.0,
+    ))
+    assert run.execution_result.contract_valid is True, run.execution_result.errors
+    fixed = _extract_function(run.raw_output)
     assert "def add" in fixed
 
     # Apply the candidate to the throwaway fixture and RE-RUN the check (runtime verdict).
     (work / "solution.py").write_text(fixed, encoding="utf-8")
     passed_after, output = _run_check(work)
 
-    evidence = {
-        "package": "PFG-32", "model_id": model,
-        "passed_before": passed_before, "passed_after": passed_after,
-        "fixed_excerpt": fixed[:200], "check_output": output.strip()[:200],
-    }
+    evidence = run.evidence_payload(package="PFG-32")
+    evidence.update(
+        passed_before=passed_before,
+        passed_after=passed_after,
+        runtime_verdict="passed" if passed_after else "failed",
+        fixed_excerpt=fixed[:200],
+        check_output=output.strip()[:200],
+        legacy_direct_http_orchestration=False,
+    )
     out_dir = Path(os.environ.get("CODEAGENT_CA_DATA_DIR", "ca_data")) / "model_forge" / "evidence"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "pfg32_repair_local.json").write_text(
-        json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_evidence(out_dir / "pfg32_repair_local.json", evidence)
     print("PFG-32 evidence:", json.dumps(evidence, ensure_ascii=False))
 
     # Repair success is decided by the re-run, not the model's claim.

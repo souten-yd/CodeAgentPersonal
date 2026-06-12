@@ -7,8 +7,8 @@
 
 - Overall: **ACTIVE — POST-PFG PRODUCTION HARDENING**
 - Active track: `PFH-1..PFH-8`
-- Current package: `PFH-6`
-- Current package goal: run real evidence through the Forge provider/preset runner path.
+- Current package: `PFH-7`
+- Current package goal: base Capsule replay evidence on actual Portal/Play runtime evidence.
 - Rollout: Forge remains off/default unless bridge-level shadow/cutover evidence proves otherwise.
 - Legacy model execution remains available as fallback until consumer-zero, benchmark, shadow, rollback, and migration gates pass.
 - OpenRouter live evidence remains unavailable unless explicitly configured.
@@ -34,8 +34,8 @@
 | PFH-3 | Provider configured state vs runtime readiness | acceptance_complete |
 | PFH-4 | ForgeModelExecutionBridge, shadow-first | acceptance_complete |
 | PFH-5 | Real cutover and rollback | acceptance_complete |
-| PFH-6 | Real evidence through Forge provider/preset runner | in_progress |
-| PFH-7 | Actual Portal runtime replay for Capsule evidence | not_started |
+| PFH-6 | Real evidence through Forge provider/preset runner | acceptance_complete |
+| PFH-7 | Actual Portal runtime replay for Capsule evidence | in_progress |
 | PFH-8 | Guarded Candidate-to-Proposal handoff | not_started |
 
 ## Known review findings to address
@@ -420,14 +420,83 @@ Remaining gaps:
 Next package: PFH-6 — Real evidence through Forge provider/preset runner.
 Blocker: none.
 
-## Current package: PFH-6 checklist
+## Completed package: PFH-6 Real evidence through Forge provider/preset runner
 
-- Add or extend a Forge provider/preset runner for real evidence.
-- Ensure evidence runs through `ProviderRegistry`, a Forge provider, route selection, and candidate evaluation.
-- Replace or complement direct urllib real-evidence paths with the Forge runner path.
-- Record unavailable live provider checks truthfully.
-- Keep OpenRouter live evidence gated by `FORGE_OPENROUTER_LIVE_SMOKE=1` and `OPENROUTER_API_KEY`.
-- Do not claim Portal runtime or Capsule replay evidence unless actual runtime/replay runs.
+Completed package: PFH-6
+Status: acceptance_complete
+Changed modules/files:
+- `agent/model_forge/provider_registry.py`
+- `agent/model_forge/preset_runner.py`
+- `agent/model_forge/__init__.py`
+- `tests/test_model_forge_preset_runner.py`
+- `tests/test_forge_real_local_quick.py`
+- `tests/test_forge_real_webapp_portal.py`
+- `tests/test_forge_real_repair.py`
+- `tests/test_forge_real_greenfield_replay.py`
+- `docs/atlas_portal_forge_hardening_current_status.md`
+
+Behavior implemented:
+- Added `ProviderRegistry.run_and_capture()` so raw output capture keeps the same fail-closed health gate as provider execution.
+- Added `LocalForgePresetRunner` and `PresetRunnerTask` for real evidence through `ProviderRegistry/LocalOpenAICompatibleProvider/RouteSelector/CandidateEvaluator`.
+- Quick, Web App, Repair, and Greenfield real evidence tests now call the runner instead of orchestrating direct urllib chat calls.
+- Runner probe uses the local provider runtime probe and skips truthfully when unavailable.
+- Evidence artifacts identify package, provider, model, preset, stage, route, route reasons, runner path, latency/usage, candidate verdict, runtime verdict, and output excerpt.
+- Regression test asserts the four real preset evidence tests do not contain direct `urllib`/`urlopen` orchestration.
+
+Focused tests:
+- `python -m pytest tests/test_model_forge_preset_runner.py tests/test_forge_real_local_quick.py tests/test_forge_real_webapp_portal.py tests/test_forge_real_repair.py tests/test_forge_real_greenfield_replay.py -q -s` -> 6 passed.
+- Real local model evidence used `Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf` on `http://localhost:8080`.
+
+Syntax checks:
+- `python -m py_compile agent/model_forge/preset_runner.py agent/model_forge/provider_registry.py tests/test_forge_real_local_quick.py tests/test_forge_real_webapp_portal.py tests/test_forge_real_repair.py tests/test_forge_real_greenfield_replay.py tests/test_model_forge_preset_runner.py` -> passed.
+- `python -m compileall -q agent/model_forge tests/test_model_forge_preset_runner.py tests/test_forge_real_local_quick.py tests/test_forge_real_webapp_portal.py tests/test_forge_real_repair.py tests/test_forge_real_greenfield_replay.py` -> passed.
+- `git diff --check` -> passed with CRLF normalization warnings only.
+
+Affected tests:
+- Expanded invocation: `$forge = Get-ChildItem tests -Filter 'test_forge*.py' | ForEach-Object { $_.FullName }; $modelForge = Get-ChildItem tests -Filter 'test_model_forge*.py' | ForEach-Object { $_.FullName }; python -m pytest @($forge + $modelForge) -q` -> 177 passed, 1 skipped.
+
+Real model evidence:
+- Quick: `quick_standard` through runner, route `micro_patch`, provider `local_openai_compatible`, contract valid, candidate eligible.
+- Web App: `web_app_standard` through runner, route `greenfield_skeleton`, Portal/Play static preview returned 200 and runtime passed, profile score `web_app=1.0`.
+- Repair: `repair_standard` through runner, route `repair_loop`, failing fixture failed before repair and passed after model repair by subprocess check.
+- Greenfield: `greenfield_standard` through runner, route `greenfield_skeleton`, Capsule built, Forge trace attached, replay immutable verified, profile score `greenfield=1.0`.
+- Required user LLM code-review verification ran through `http://127.0.0.1:8080/v1/chat/completions` -> PASS, no required fixes. This is advisory code review evidence.
+
+Portal runtime evidence:
+- Web App evidence used actual Portal/Play static preview and recorded `runtime_verdict=passed`.
+
+Capsule replay evidence:
+- Greenfield evidence built a Capsule, attached Forge metadata, recorded Capsule replay, and verified package immutability.
+- PFH-7 must harden replay so caller-supplied runtime success alone is not enough for acceptance-level replay proof.
+
+OpenRouter evidence:
+- Not applicable to PFH-6; OpenRouter live smoke was not run and not claimed.
+
+Unavailable checks:
+- Runner probe skips truthfully when the local model server is unreachable; no unavailable run is reported as passed.
+- OpenRouter live evidence remains unavailable unless `FORGE_OPENROUTER_LIVE_SMOKE=1` and `OPENROUTER_API_KEY` are configured.
+
+Safety invariants:
+- Provider execution remains fail-closed through `ProviderRegistry`.
+- External providers and default Local Only policy unchanged.
+- Runtime success is decided mechanically by Portal/Play preview, subprocess check, or Capsule replay evidence, not by model claims.
+- Arena / Proposal / Safe Apply / Verification authority boundaries unchanged.
+- Legacy model execution paths are not deleted.
+
+Remaining gaps:
+- PFH-7 must make Capsule replay profile updates depend on actual Portal/Play runtime evidence instead of caller assertion alone.
+- PFH-8 must guard Candidate-to-Proposal handoff.
+
+Next package: PFH-7 — Actual Portal runtime replay for Capsule evidence.
+Blocker: none.
+
+## Current package: PFH-7 checklist
+
+- Locate Capsule replay profile-update path and direct callers.
+- Require or obtain actual Portal/Play runtime evidence for acceptance-level Capsule replay profile updates.
+- Keep runtime success/failure/unavailable distinct.
+- Preserve Capsule ZIP immutability and data-free defaults.
+- Update tests and evidence without claiming unavailable runtime as passed.
 
 ## Stop conditions
 
