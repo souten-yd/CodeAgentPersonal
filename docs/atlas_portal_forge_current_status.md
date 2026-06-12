@@ -5,16 +5,15 @@
 
 ## Program state
 
-- Overall: **ACTIVE — IMPLEMENTATION READY**
-- Active track: `PFG-0..PFG-38`
-- Current package: `PFG-38`
-- Current package goal: final milestone benchmark and docs.
-- Next action: run the milestone Forge suite, gather the real local-model + Portal replay
-  evidence, confirm OpenRouter smoke is unavailable (no key), and update user docs.
-- Last completed: `PFG-37` (legacy retirement gates and consumer registry) —
-  acceptance_complete; registry records 4 real legacy consumers and the gate BLOCKS deletion
-  (consumer-zero unmet). See PFG-37 evidence below. PFG-30/31/32/33 REAL-model complete;
-  PFG-1..PFG-29 complete.
+- Overall: **COMPLETE — PFG-0..PFG-38 ACCEPTANCE COMPLETE**
+- Active track: `PFG-0..PFG-38` (all packages acceptance_complete)
+- Current package: none; the Portal + Model Forge track is complete.
+- Last completed: `PFG-38` (final milestone benchmark and docs) — acceptance_complete; see
+  PFG-38 evidence below. PFG-30/31/32/33 carry REAL local-model + Portal/Capsule evidence;
+  OpenRouter live smoke is UNAVAILABLE (no key) and is not claimed as passed; legacy model
+  execution remains primary and is not retired (4 real consumers).
+- Rollout: Forge off by default; legacy primary; cutover is opt-in per stage with tested
+  rollback; legacy retirement gate BLOCKED on consumer-zero.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -95,7 +94,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-35 | stage shadow evidence for patch/test/failure/repair | acceptance_complete |
 | PFG-36 | controlled Forge primary cutover for selected stage | acceptance_complete |
 | PFG-37 | legacy retirement gates and consumer registry | acceptance_complete |
-| PFG-38 | final milestone benchmark and docs | not_started |
+| PFG-38 | final milestone benchmark and docs | acceptance_complete |
 
 ## Status values
 
@@ -1595,6 +1594,52 @@ Remaining gaps:
 - PFG-38 final milestone benchmark and docs.
 Next package:
 - PFG-38 — final milestone benchmark and docs.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-38 — final milestone benchmark and docs
+Status: acceptance_complete
+Changed modules/files:
+- docs/atlas_portal_forge_user_guide.md (new) — Forge user guide.
+- docs/atlas_portal_forge_current_status.md — program marked COMPLETE.
+Behavior implemented:
+- Final milestone closure: the Forge suite passes, the real local-model and Portal/Capsule
+  evidence is gathered, OpenRouter live smoke is confirmed unavailable (no key), legacy
+  retirement stays blocked (consumer-zero unmet), and user docs are added.
+Milestone suite (actually executed):
+- python -m pytest tests/test_forge_*.py tests/test_model_forge_*.py
+  tests/test_portal_forge_trace.py -k "not real" -> 149 passed.
+- python -m pytest tests/test_forge_real_local_quick.py tests/test_forge_real_repair.py
+  tests/test_forge_stage_shadow.py::test_real_stage_shadow_four_stages -> 3 passed in 43.62s
+  (REAL Mistral-Small-3.2-24B on :8080).
+Real local provider evidence:
+- PFG-30 Quick (contract_valid, def add a+b), PFG-32 Repair (passed_before=false ->
+  passed_after=true), PFG-35 4-stage shadow (all tie, no regression) — all real.
+Portal runtime evidence:
+- PFG-31 Web App served through the real Portal/Play static runtime (preview 200, web_app
+  score 1.0).
+Capsule replay evidence:
+- PFG-33 real Capsule built + replayed; package immutable verified; greenfield score 1.0.
+OpenRouter live smoke evidence:
+- UNAVAILABLE (no key); PFG-34 gate present and skipped — explicitly NOT claimed as passed.
+Stage shadow/cutover evidence:
+- PFG-35 shadow recorded for patch/test/failure/repair; PFG-36 cutover gated + rollback
+  tested.
+Legacy retirement evidence:
+- BLOCKED: 4 real legacy consumers remain (PFG-37); legacy model path not deleted.
+Safety invariants verified:
+- Forge off by default; legacy primary and not retired; no direct apply; no automatic
+  cutover; secrets never returned; data-free export + Capsule immutability preserved;
+  unavailable distinct from passed. AGENTS.md remains accurate.
+Migration/rollout state:
+- Forge off by default; cutover opt-in per stage with tested rollback; retirement blocked.
+Remaining gaps:
+- None for the PFG track. Forge remains shadow-first; further per-stage cutover is operator
+  opt-in as more real shadow evidence accrues.
+Next package:
+- None; PFG-0..PFG-38 is acceptance_complete.
 Blocker:
 - None.
 ```
