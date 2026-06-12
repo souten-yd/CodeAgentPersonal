@@ -153,3 +153,18 @@ def post_loadout(request: Request, body: LoadoutRequest) -> dict:
         return _service(request).save_loadout(body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class ApplyLoadoutRequest(BaseModel):
+    acknowledge_risky: bool = False
+
+
+@router.post("/loadouts/{loadout_id}/apply")
+def post_apply_loadout(request: Request, loadout_id: str, body: ApplyLoadoutRequest) -> dict:
+    try:
+        return _service(request).apply_loadout(loadout_id, acknowledge_risky=body.acknowledge_risky)
+    except PermissionError as exc:
+        # Risky loadout needs explicit confirmation.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
