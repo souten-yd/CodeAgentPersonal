@@ -34,7 +34,9 @@ from agent.model_forge.providers.local_openai_compatible import (
 )
 from agent.model_forge.providers.openrouter_client import OpenRouterProvider
 from agent.model_forge.providers.openrouter_config import OpenRouterConfig
+from agent.model_forge.cutover import CutoverController
 from agent.model_forge.route_matrix import ChangeClass, RouteMatrix, RouteSelector
+from agent.model_forge.shadow import ShadowStore
 from agent.model_forge.source_policy import SourceMode
 from agent.model_forge.stage_matrix import StageMatrix
 from agent.model_forge.stage_taxonomy import ForgeStage
@@ -57,6 +59,9 @@ class ForgeService:
         self._active_loadout_path = self._root / "active_loadout.json"
         self.registry = self._build_registry()
         self.arena = ArenaRunner(self.registry, store_dir=self._root / "arena_runs")
+        self.shadow = ShadowStore(self._root / "shadow")
+        self.cutover_controller = CutoverController(
+            self.stage_matrix, self.shadow, store_dir=self._root / "cutover")
 
     # ----- composition -----
 
@@ -258,6 +263,15 @@ class ForgeService:
 
     def save_loadout(self, payload: dict) -> dict:
         return self.loadouts.upsert(payload).model_dump(mode="json")
+
+    def list_cutovers(self) -> list[dict]:
+        return [c.model_dump(mode="json") for c in self.cutover_controller.list_cutovers()]
+
+    def cutover_stage(self, stage: str, *, acknowledge: bool = False) -> dict:
+        return self.cutover_controller.cutover(stage, acknowledge=acknowledge).model_dump(mode="json")
+
+    def rollback_stage(self, stage: str) -> dict:
+        return self.cutover_controller.rollback(stage).model_dump(mode="json")
 
     def attach_capsule_forge_meta(self, payload: dict) -> dict:
         # Imported lazily to keep the model_forge package free of app/ imports.

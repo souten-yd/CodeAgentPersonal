@@ -177,6 +177,33 @@ def post_portal_evidence(request: Request, body: PortalEvidenceRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class CutoverRequest(BaseModel):
+    stage: str = Field(min_length=1)
+    acknowledge: bool = False
+
+
+@router.get("/cutover")
+def get_cutovers(request: Request) -> dict:
+    return {"cutovers": _service(request).list_cutovers()}
+
+
+@router.post("/cutover")
+def post_cutover(request: Request, body: CutoverRequest) -> dict:
+    try:
+        return _service(request).cutover_stage(body.stage, acknowledge=body.acknowledge)
+    except PermissionError as exc:
+        # No automatic cutover: acknowledgement required.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        # Missing/regressing shadow evidence blocks cutover.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/cutover/{stage}/rollback")
+def post_cutover_rollback(request: Request, stage: str) -> dict:
+    return _service(request).rollback_stage(stage)
+
+
 class CapsuleForgeMetaRequest(BaseModel):
     package_id: str = Field(min_length=1)
     version: str = Field(min_length=1)

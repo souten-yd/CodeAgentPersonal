@@ -7,13 +7,14 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-36`
-- Current package goal: controlled Forge primary cutover for selected stage.
-- Next action: promote one low-risk stage to Forge primary with legacy fallback behind an
-  explicit acknowledgement, add a rollback control, and test rollback.
-- Last completed: `PFG-35` (stage shadow evidence) — acceptance_complete; side-by-side
-  legacy-vs-Forge recorded for the 4 stages with no cutover; regression blocks promotion.
-  See PFG-35 evidence below. PFG-30/31/32/33 REAL-model complete; PFG-1..PFG-29 complete.
+- Current package: `PFG-37`
+- Current package goal: legacy retirement gates and consumer registry.
+- Next action: build a consumer registry for model execution paths, record remaining direct
+  legacy callers, and add a retirement checklist (no deletion before consumer-zero + gates).
+- Last completed: `PFG-36` (controlled Forge primary cutover for selected stage) —
+  acceptance_complete; cutover gated on shadow evidence + acknowledgement, legacy fallback
+  retained, rollback tested. See PFG-36 evidence below. PFG-30/31/32/33 REAL-model complete;
+  PFG-1..PFG-29 complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -92,7 +93,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-33 | real Greenfield Capsule replay run | acceptance_complete |
 | PFG-34 | optional OpenRouter live smoke gate | acceptance_complete |
 | PFG-35 | stage shadow evidence for patch/test/failure/repair | acceptance_complete |
-| PFG-36 | controlled Forge primary cutover for selected stage | not_started |
+| PFG-36 | controlled Forge primary cutover for selected stage | acceptance_complete |
 | PFG-37 | legacy retirement gates and consumer registry | not_started |
 | PFG-38 | final milestone benchmark and docs | not_started |
 
@@ -1519,6 +1520,43 @@ Remaining gaps:
 - PFG-36 controlled Forge primary cutover for a selected stage.
 Next package:
 - PFG-36 — controlled Forge primary cutover for selected stage.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-36 — controlled Forge primary cutover for selected stage
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/cutover.py (new) — CutoverController + CutoverRecord.
+- agent/model_forge/forge_service.py — shadow store + cutover controller; cutover/rollback/
+  list methods.
+- app/api/forge.py — GET/POST /cutover, POST /cutover/{stage}/rollback.
+- tests/test_forge_cutover.py (new).
+Behavior implemented:
+- cutover() promotes ONE stage to Forge primary (StageMode.AUTO_SELECT) with the legacy
+  executor kept as fallback, only when a shadow comparison exists, shows no regression, both
+  sides are available, Forge is at least as good (winner forge/tie), AND the operator passes
+  acknowledge=True (no automatic cutover). rollback() reverts the stage to shadow_select
+  (non-live) with no acknowledgement required; every cutover/rollback is recorded.
+Focused tests:
+- python -m pytest tests/test_forge_cutover.py -> 4 passed (cutover needs shadow evidence
+  -> 400; needs acknowledgement -> 409; regression/unavailable blocks -> 400; cutover then
+  rollback reverts auto_select -> shadow_select and records rolled_back).
+- python -m pytest tests/test_forge_*.py tests/test_model_forge_*.py -k "not real" ->
+  144 passed.
+Real model / Portal / OpenRouter evidence:
+- None additional; cutover decisions consume the PFG-35 real shadow evidence.
+Safety invariants verified:
+- no automatic cutover (acknowledgement required); regression/unavailable shadow blocks
+  cutover; legacy retained as fallback; rollback tested and reverts to non-live shadow.
+Migration/rollout state:
+- Forge cutover is opt-in per stage with legacy fallback; default remains Forge off, legacy
+  primary; rollback always available.
+Remaining gaps:
+- PFG-37 legacy retirement gates and consumer registry.
+Next package:
+- PFG-37 — legacy retirement gates and consumer registry.
 Blocker:
 - None.
 ```
