@@ -7,8 +7,8 @@
 
 - Overall: **ACTIVE — POST-PFG PRODUCTION HARDENING**
 - Active track: `PFH-1..PFH-8`
-- Current package: `PFH-7`
-- Current package goal: base Capsule replay evidence on actual Portal/Play runtime evidence.
+- Current package: `PFH-8`
+- Current package goal: guarded Candidate-to-Proposal handoff.
 - Rollout: Forge remains off/default unless bridge-level shadow/cutover evidence proves otherwise.
 - Legacy model execution remains available as fallback until consumer-zero, benchmark, shadow, rollback, and migration gates pass.
 - OpenRouter live evidence remains unavailable unless explicitly configured.
@@ -35,8 +35,8 @@
 | PFH-4 | ForgeModelExecutionBridge, shadow-first | acceptance_complete |
 | PFH-5 | Real cutover and rollback | acceptance_complete |
 | PFH-6 | Real evidence through Forge provider/preset runner | acceptance_complete |
-| PFH-7 | Actual Portal runtime replay for Capsule evidence | in_progress |
-| PFH-8 | Guarded Candidate-to-Proposal handoff | not_started |
+| PFH-7 | Actual Portal runtime replay for Capsule evidence | acceptance_complete |
+| PFH-8 | Guarded Candidate-to-Proposal handoff | in_progress |
 
 ## Known review findings to address
 
@@ -490,13 +490,78 @@ Remaining gaps:
 Next package: PFH-7 — Actual Portal runtime replay for Capsule evidence.
 Blocker: none.
 
-## Current package: PFH-7 checklist
+## Completed package: PFH-7 Actual Portal runtime replay for Capsule evidence
 
-- Locate Capsule replay profile-update path and direct callers.
-- Require or obtain actual Portal/Play runtime evidence for acceptance-level Capsule replay profile updates.
-- Keep runtime success/failure/unavailable distinct.
-- Preserve Capsule ZIP immutability and data-free defaults.
-- Update tests and evidence without claiming unavailable runtime as passed.
+Completed package: PFH-7
+Status: acceptance_complete
+Changed modules/files:
+- `app/atlas/capsule/forge_meta.py`
+- `agent/model_forge/forge_service.py`
+- `tests/test_forge_capsule_replay.py`
+- `tests/test_forge_real_greenfield_replay.py`
+- `docs/atlas_portal_forge_hardening_current_status.md`
+
+Behavior implemented:
+- Added `record_capsule_replay_via_play_runtime()` to safely extract Capsule `application/` files into a replay workspace and run `index.html` through the Play static preview runtime.
+- ForgeService Capsule replay API now uses the Play runtime replay path instead of trusting caller-supplied `runtime_passed`.
+- `record_capsule_replay()` no longer updates profiles from `runtime_passed=True` unless a concrete runtime evidence ref is provided.
+- Replay evidence records `runtime_status`, `runtime_detail`, `runtime_evidence_ref`, `preview_status`, and `play_session_id`.
+- Missing runnable `application/index.html` records runtime `unavailable` and does not update profile.
+- Package ZIP immutability remains verified by content hash and replay writes only sidecars/replay workspaces.
+
+Focused tests:
+- `python -m pytest tests/test_forge_capsule_replay.py -q` -> 6 passed.
+- `python -m pytest tests/test_forge_real_greenfield_replay.py -q -s` -> 1 passed with real local model and Play runtime replay.
+
+Syntax checks:
+- `python -m py_compile app/atlas/capsule/forge_meta.py agent/model_forge/forge_service.py tests/test_forge_capsule_replay.py tests/test_forge_real_greenfield_replay.py` -> passed.
+- `python -m compileall -q app/atlas/capsule agent/model_forge app/api/forge.py tests/test_forge_capsule_replay.py tests/test_forge_real_greenfield_replay.py` -> passed.
+- `git diff --check` -> passed with CRLF normalization warnings only.
+
+Affected tests:
+- `python -m pytest tests/test_forge_capsule_replay.py tests/test_forge_real_greenfield_replay.py tests/test_forge_real_webapp_portal.py tests/test_model_forge_preset_runner.py -q` -> 10 passed.
+
+Real model evidence:
+- Greenfield real evidence used `Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf` on `http://localhost:8080`, built a Capsule, replayed it through Play static preview, recorded `runtime_status=passed`, `preview_status=200`, and updated the greenfield profile from measured runtime evidence.
+- Required user LLM code-review verification ran through `http://127.0.0.1:8080/v1/chat/completions` -> PASS, no required fixes. This is advisory code review evidence.
+
+Portal runtime evidence:
+- Capsule replay now uses actual Play static preview runtime for runnable static-web Capsule packages.
+- Runtime success/failure/unavailable are distinct in evidence.
+
+Capsule replay evidence:
+- Caller assertion without runtime evidence ref records no profile update.
+- Runnable Capsule replay records Play runtime evidence ref and keeps package ZIP immutable.
+- Missing runnable entrypoint records unavailable and does not update profile.
+
+OpenRouter evidence:
+- Not applicable to PFH-7; OpenRouter live smoke was not run and not claimed.
+
+Unavailable checks:
+- Missing Capsule `application/index.html` is `runtime_status=unavailable`, not passed.
+- OpenRouter live evidence remains unavailable unless `FORGE_OPENROUTER_LIVE_SMOKE=1` and `OPENROUTER_API_KEY` are configured.
+
+Safety invariants:
+- Package ZIP bytes remain immutable; Forge meta and replay evidence are sidecars.
+- Safe ZIP extraction rejects absolute and parent-traversal paths.
+- Runtime profile updates require measured runtime evidence.
+- No secrets persisted, logged, or returned.
+- Proposal / Safe Apply / Verification authority boundaries unchanged.
+
+Remaining gaps:
+- PFH-8 must guard Candidate-to-Proposal handoff so eligible candidates create Proposal drafts without Safe Apply/source mutation.
+
+Next package: PFH-8 — Guarded Candidate-to-Proposal handoff.
+Blocker: none.
+
+## Current package: PFH-8 checklist
+
+- Locate candidate/adoption state and Proposal draft creation surfaces.
+- Add guarded handoff that creates a Proposal draft only for eligible candidates.
+- Block ineligible candidates with evaluator reasons.
+- Ensure no Safe Apply or source mutation happens during handoff.
+- Include candidate/evaluator/risk/privacy metadata in the Proposal draft.
+- Update tests and final hardening status.
 
 ## Stop conditions
 

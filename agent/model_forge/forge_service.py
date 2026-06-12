@@ -493,12 +493,11 @@ class ForgeService:
         return meta.model_dump(mode="json") if meta else None
 
     def record_capsule_replay(self, payload: dict) -> dict:
-        from app.atlas.capsule.forge_meta import record_capsule_replay
-        evidence = record_capsule_replay(
+        from app.atlas.capsule.forge_meta import record_capsule_replay_via_play_runtime
+        evidence = record_capsule_replay_via_play_runtime(
             self._ca_data_root, self.profiles,
             package_id=payload["package_id"], version=payload["version"],
             content_hash=payload["content_hash"],
-            runtime_passed=payload.get("runtime_passed"),
             user_decision=payload.get("user_decision", ""),
         )
         return evidence.model_dump(mode="json")
