@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-11`
-- Current package goal: OpenRouter model catalog cache.
-- Next action: implement an OpenRouter model-catalog fetcher with TTL cache and
-  offline fallback (mock transport; public model metadata only, no secrets).
-- Last completed: `PFG-10` (OpenRouter mock chat client) — acceptance_complete; see
-  PFG-10 evidence below. PFG-1..PFG-9 also complete.
+- Current package: `PFG-12`
+- Current package goal: provider health and Source Mode policy.
+- Next action: add a provider health + Source Mode/privacy policy layer that selects
+  eligible providers per request (local vs external) on top of the registry/catalog.
+- Last completed: `PFG-11` (OpenRouter model catalog cache) — acceptance_complete;
+  see PFG-11 evidence below. PFG-1..PFG-10 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -66,7 +66,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-8 | local OpenAI-compatible provider adapter | acceptance_complete |
 | PFG-9 | OpenRouter configuration and secret policy | acceptance_complete |
 | PFG-10 | OpenRouter mock chat client | acceptance_complete |
-| PFG-11 | OpenRouter model catalog cache | not_started |
+| PFG-11 | OpenRouter model catalog cache | acceptance_complete |
 | PFG-12 | provider health and Source Mode policy | not_started |
 | PFG-13 | benchmark preset schema and initial presets | not_started |
 | PFG-14 | Arena runner foundation | not_started |
@@ -549,6 +549,38 @@ Remaining gaps:
 - PFG-10 OpenRouter mock chat client (no live calls).
 Next package:
 - PFG-10 — OpenRouter mock chat client.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-11 — OpenRouter model catalog cache
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/providers/openrouter_catalog.py (new), __init__ re-exports
+- tests/test_model_forge_openrouter_catalog.py (new)
+Behavior implemented:
+- OpenRouterCatalog fetches {base_url}/models, normalizes entries into ModelDescriptors
+  (public metadata only: id, display name, context window). TTL cache (config
+  catalog_cache_ttl_seconds, injectable clock); optional disk cache under
+  ca_data/model_forge/catalog. On fetch failure it serves the last cache marked
+  stale (offline fallback); with no cache it returns status "unavailable" (never a
+  passed/fetched). HTTP transport injectable (CI offline).
+Focused tests:
+- python -m pytest tests/test_model_forge_openrouter_catalog.py -> 6 passed
+  (fetch normalizes; TTL serves cache then force_refresh refetches; offline fallback
+   serves stale cache; no-cache+failure -> unavailable; disk cache stores no secret
+   even with a key in env; disk cache provides offline fallback on a new instance).
+- Full model_forge suite -> 55 passed.
+Safety invariants verified:
+- Only public model metadata cached (no secret persisted); unavailable distinct from
+  fetched/from_cache; no live call in CI.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-12 provider health + Source Mode/privacy policy selection.
+Next package:
+- PFG-12 — provider health and Source Mode policy.
 Blocker:
 - None.
 ```

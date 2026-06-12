@@ -39,6 +39,10 @@ from agent.model_forge.providers.openrouter_config import (
     redact_openrouter_headers,
 )
 from agent.model_forge.providers.openrouter_client import OpenRouterProvider
+from agent.model_forge.providers.openrouter_catalog import (
+    OpenRouterCatalog,
+    OpenRouterCatalogResult,
+)
 from agent.model_forge.route_taxonomy import ForgeRoute, all_routes, is_valid_route
 from agent.model_forge.schema import (
     FORGE_SCHEMA_VERSION,
@@ -132,4 +136,6 @@ __all__ = [
     "build_openrouter_headers",
     "redact_openrouter_headers",
     "OpenRouterProvider",
+    "OpenRouterCatalog",
+    "OpenRouterCatalogResult",
 ]
