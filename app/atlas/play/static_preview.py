@@ -65,14 +65,39 @@ def _host_name(value: str) -> str:
     return text.split(":", 1)[0].lower()
 
 
+_LOCAL_HOST_SUFFIXES = (".local", ".lan", ".home", ".internal", ".home.arpa")
+# Carrier-grade NAT / shared address space (RFC 6598). Tailscale and similar
+# mesh VPNs hand phones an address in this range, which ipaddress does NOT
+# classify as private, yet it is never publicly routable.
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
 def _is_private_ip_host(host: str) -> bool:
-    """Loopback / private (RFC1918) / link-local IP literals reachable on the
-    user's own LAN. iPhone access uses the host's LAN IP, e.g. 192.168.x.x."""
+    """Loopback / private (RFC1918) / link-local / CGNAT IP literals reachable
+    on the user's own LAN or mesh VPN. iPhone access uses the host's LAN IP,
+    e.g. 192.168.x.x, or a Tailscale 100.x address."""
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return False
+    if ip.version == 4 and ip in _CGNAT_NETWORK:
+        return True
     return bool(ip.is_loopback or ip.is_private or ip.is_link_local)
+
+
+def _is_local_network_hostname(host: str) -> bool:
+    """Non-public hostnames that only resolve on the local network.
+
+    A phone reaching a Windows/LAN host by name uses either the bare machine
+    name (a single DNS label with no dot, e.g. "DESKTOP-AB12", never a public
+    FQDN) or an mDNS / router-local name (``host.local``, ``host.lan`` ...).
+    Such names are inherently LAN-scoped, so allowing them keeps mobile access
+    working while still rejecting arbitrary public hostnames (DNS rebinding)."""
+    if not host:
+        return False
+    if "." not in host:
+        return True
+    return any(host == suffix.lstrip(".") or host.endswith(suffix) for suffix in _LOCAL_HOST_SUFFIXES)
 
 
 def _configured_preview_hosts() -> set[str]:
@@ -95,13 +120,16 @@ def _is_allowed_preview_host(host: str) -> bool:
     (CORS allow_origins=["*"]), so the preview must be reachable from a phone
     on the same network or through the RunPod proxy. We still reject arbitrary
     public hostnames (DNS-rebinding protection) by only allowing localhost,
-    the user's own private LAN IPs, the RunPod proxy domain, and any host
-    pinned via ATLAS_PREVIEW_ALLOWED_HOSTS."""
+    the user's own private LAN IPs, local network hostnames (bare machine names
+    and mDNS/router-local names), the RunPod proxy domain, and any host pinned
+    via ATLAS_PREVIEW_ALLOWED_HOSTS."""
     if not host:
         return True
     if host in _ALLOWED_HOSTS or host in _configured_preview_hosts():
         return True
     if _is_private_ip_host(host):
+        return True
+    if _is_local_network_hostname(host):
         return True
     # RunPod exposes ports as "{pod_id}-{port}.proxy.runpod.net".
     if host == "proxy.runpod.net" or host.endswith(".proxy.runpod.net"):
