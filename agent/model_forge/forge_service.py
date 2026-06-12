@@ -47,6 +47,7 @@ def _prompt_resolver(system: str, user: str) -> tuple[str, str]:
 class ForgeService:
     def __init__(self, ca_data_root: str | Path, *, env: Mapping[str, str] | None = None) -> None:
         self._env = dict(env if env is not None else os.environ)
+        self._ca_data_root = Path(ca_data_root)
         self._root = Path(ca_data_root) / "model_forge"
         self.profiles = ProfileStore(self._root / "profiles")
         self.stage_matrix = StageMatrix(self._root / "stage_policy.json")
@@ -257,6 +258,27 @@ class ForgeService:
 
     def save_loadout(self, payload: dict) -> dict:
         return self.loadouts.upsert(payload).model_dump(mode="json")
+
+    def attach_capsule_forge_meta(self, payload: dict) -> dict:
+        # Imported lazily to keep the model_forge package free of app/ imports.
+        from app.atlas.capsule.forge_meta import write_capsule_forge_meta
+        return write_capsule_forge_meta(self._ca_data_root, payload).model_dump(mode="json")
+
+    def get_capsule_forge_meta(self, package_id: str, version: str, content_hash: str) -> dict | None:
+        from app.atlas.capsule.forge_meta import read_capsule_forge_meta
+        meta = read_capsule_forge_meta(self._ca_data_root, package_id, version, content_hash)
+        return meta.model_dump(mode="json") if meta else None
+
+    def record_capsule_replay(self, payload: dict) -> dict:
+        from app.atlas.capsule.forge_meta import record_capsule_replay
+        evidence = record_capsule_replay(
+            self._ca_data_root, self.profiles,
+            package_id=payload["package_id"], version=payload["version"],
+            content_hash=payload["content_hash"],
+            runtime_passed=payload.get("runtime_passed"),
+            user_decision=payload.get("user_decision", ""),
+        )
+        return evidence.model_dump(mode="json")
 
     def record_portal_evidence(self, payload: dict) -> dict:
         """Ingest a Portal run outcome into the model profile. Runtime pass/fail moves the

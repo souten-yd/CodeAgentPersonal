@@ -7,13 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-29`
-- Current package goal: Capsule Forge metadata and replay.
-- Next action: add Forge projection to the Capsule manifest/sidecar + replay evidence
-  linking a Portal run to a model profile update, preserving data-free export and ZIP
-  immutability.
-- Last completed: `PFG-28` (Portal evidence to Candidate Evaluator) — acceptance_complete;
-  see PFG-28 evidence below. PFG-1..PFG-27 also complete.
+- Current package: `PFG-30`
+- Current package goal: real local-model Quick preset run.
+- Next action: run the Quick preset through the local provider against the live model on
+  http://localhost:8080 and record real model evidence (unavailable if no model).
+- Last completed: `PFG-29` (Capsule Forge metadata and replay) — acceptance_complete; see
+  PFG-29 evidence below. PFG-1..PFG-28 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -85,7 +84,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-26 | Loadouts UI and persistence | acceptance_complete |
 | PFG-27 | Portal Run Forge Trace metadata | acceptance_complete |
 | PFG-28 | Portal evidence to Candidate Evaluator | acceptance_complete |
-| PFG-29 | Capsule Forge metadata and replay | not_started |
+| PFG-29 | Capsule Forge metadata and replay | acceptance_complete |
 | PFG-30 | real local-model Quick preset run | not_started |
 | PFG-31 | real Web App / Portal run preset | not_started |
 | PFG-32 | real Repair preset run | not_started |
@@ -1283,6 +1282,42 @@ Remaining gaps:
 - PFG-29 Capsule Forge metadata and replay.
 Next package:
 - PFG-29 — Capsule Forge metadata and replay.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-29 — Capsule Forge metadata and replay
+Status: acceptance_complete
+Changed modules/files:
+- app/atlas/capsule/forge_meta.py (new) — CapsuleForgeMeta + CapsuleReplayEvidence,
+  write/read sidecar, record_capsule_replay.
+- agent/model_forge/forge_service.py — attach/get capsule forge meta + record_capsule_replay.
+- app/api/forge.py — POST/GET /capsule/forge-meta, POST /capsule/replay.
+- tests/test_forge_capsule_replay.py (new).
+Behavior implemented:
+- Forge provenance for a Capsule is projected into a sidecar ({content_hash}.forge.json)
+  next to the package — never inside the ZIP, so the package bytes and content_hash are
+  unchanged. record_capsule_replay updates the model profile via the same runtime-vs-weak
+  discipline as Portal evidence and appends a replay-evidence sidecar, asserting the ZIP is
+  byte-for-byte unchanged (package_immutable_verified). Replay without meta is rejected.
+Focused tests:
+- python -m pytest tests/test_forge_capsule_replay.py -> 4 passed (meta is sidecar + ZIP
+  unchanged; unknown package 404; replay updates profile + verifies immutability; replay
+  without meta -> 400).
+- python -m pytest tests/test_forge_*.py tests/test_model_forge_*.py -> 137 passed;
+  tests/test_atlas_capsule_builder.py -> 7 passed (no Capsule build regression).
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-29 records replay metadata; real model replay lands in PFG-33.
+Safety invariants verified:
+- package ZIP immutability preserved (hash verified); replay records success/failure with
+  no source mutation; data-free export untouched.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-30 real local-model Quick preset run.
+Next package:
+- PFG-30 — real local-model Quick preset run.
 Blocker:
 - None.
 ```
