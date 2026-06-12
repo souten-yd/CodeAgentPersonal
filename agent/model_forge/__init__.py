@@ -31,6 +31,14 @@ from agent.model_forge.profile_store import (
     ProfileStore,
     profile_key,
 )
+from agent.model_forge.stage_matrix import (
+    StageCandidate,
+    StageMatrix,
+    StagePolicyEntry,
+    StageSelection,
+    StageSelector,
+    stage_dimension,
+)
 from agent.model_forge.provider_base import (
     ForgeProvider,
     HealthState,
@@ -194,4 +202,10 @@ __all__ = [
     "ProfileStore",
     "ProfileObservation",
     "profile_key",
+    "StageCandidate",
+    "StagePolicyEntry",
+    "StageSelection",
+    "StageMatrix",
+    "StageSelector",
+    "stage_dimension",
 ]

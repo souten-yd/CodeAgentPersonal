@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-17`
-- Current package goal: Stage Matrix policy and selector.
-- Next action: implement stage policy storage with disabled/fixed/shadow/auto/arena/fallback
-  modes, default to disabled or shadow, and record selection reasons.
-- Last completed: `PFG-16` (Model Profile Store and profile updater) — acceptance_complete;
-  see PFG-16 evidence below. PFG-1..PFG-15 also complete.
+- Current package: `PFG-18`
+- Current package goal: Route Matrix policy and selector.
+- Next action: implement a route matrix connecting change class/task category to route
+  candidates, keep critical_gate for unsafe tasks, and record route decisions.
+- Last completed: `PFG-17` (Stage Matrix policy and selector) — acceptance_complete;
+  see PFG-17 evidence below. PFG-1..PFG-16 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -72,7 +72,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-14 | Arena runner foundation | acceptance_complete |
 | PFG-15 | Candidate Evaluator foundation | acceptance_complete |
 | PFG-16 | Model Profile Store and profile updater | acceptance_complete |
-| PFG-17 | Stage Matrix policy and selector | not_started |
+| PFG-17 | Stage Matrix policy and selector | acceptance_complete |
 | PFG-18 | Route Matrix policy and selector | not_started |
 | PFG-19 | Forge backend API | not_started |
 | PFG-20 | Forge top-level nav and shell UI | not_started |
@@ -830,6 +830,43 @@ Remaining gaps:
 - PFG-17 Stage Matrix policy and selector.
 Next package:
 - PFG-17 — Stage Matrix policy and selector.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-17 — Stage Matrix policy and selector
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/stage_matrix.py (new), __init__ re-exports
+- tests/test_model_forge_stage_matrix.py (new)
+Behavior implemented:
+- StageMatrix stores one StagePolicyEntry per ForgeStage (disabled/fixed_model/
+  shadow_select/auto_select/arena_select/fallback_only), defaulting to the safe taxonomy
+  default (disabled or shadow_select) and optionally persisting to a JSON file.
+- StageSelector turns a policy + candidate pool into a StageSelection, ranking candidates
+  by the stage's profile dimension via ProfileStore and recording the selection reasons.
+  shadow_select/arena_select keep changes_production_routing=False and legacy primary;
+  arena_select records candidate_requires_safe_apply; auto_select/fixed_model route live.
+- No automatic cutover: set_policy to an active production-routing mode raises
+  PermissionError unless allow_production_routing=True is passed explicitly.
+Focused tests:
+- python -m pytest tests/test_model_forge_stage_matrix.py -> 6 passed
+  (defaults disabled/shadow only; active modes require ack; shadow does not change
+   routing; disabled selects nothing with reason; auto routes after ack + persists;
+   arena requires Safe Apply).
+- python -m pytest tests/test_model_forge_*.py -> 88 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-17 is a policy/selection package, no model execution.
+Safety invariants verified:
+- no automatic cutover (explicit acknowledgement required); shadow/arena keep legacy
+  primary; selection reasons always recorded and serialisable for API/UI.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-18 Route Matrix policy and selector.
+Next package:
+- PFG-18 — Route Matrix policy and selector.
 Blocker:
 - None.
 ```
