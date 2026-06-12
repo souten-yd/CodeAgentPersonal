@@ -52,6 +52,7 @@ class ForgeService:
         self.route_matrix = RouteMatrix()
         self.loadouts = LoadoutStore(self._root / "loadouts.json")
         self._route_policy_path = self._root / "route_policy.json"
+        self._active_loadout_path = self._root / "active_loadout.json"
         self.registry = self._build_registry()
         self.arena = ArenaRunner(self.registry, store_dir=self._root / "arena_runs")
 
@@ -94,6 +95,7 @@ class ForgeService:
 
     def status(self) -> dict:
         health = {h.provider_id: h.state.value for h in self.registry.health_all()}
+        active = self.active_loadout()
         return {
             "forge_enabled": self.forge_enabled(),
             "legacy_primary": True,
@@ -102,6 +104,7 @@ class ForgeService:
             "provider_count": len(health),
             "ready_providers": self.registry.ready_providers(),
             "profile_count": len(self.profiles.list_profiles()),
+            "active_loadout": active.get("loadout_id", "") if active else "",
         }
 
     def providers(self) -> list[dict]:
@@ -242,10 +245,52 @@ class ForgeService:
     # ----- loadouts -----
 
     def get_loadouts(self) -> list[dict]:
-        return [l.model_dump(mode="json") for l in self.loadouts.list_loadouts()]
+        active = self.active_loadout()
+        active_id = active.get("loadout_id", "") if active else ""
+        out = []
+        for lo in self.loadouts.list_loadouts():
+            d = lo.model_dump(mode="json")
+            d["active"] = (d["loadout_id"] == active_id)
+            out.append(d)
+        return out
 
     def save_loadout(self, payload: dict) -> dict:
         return self.loadouts.upsert(payload).model_dump(mode="json")
+
+    def active_loadout(self) -> dict | None:
+        if self._active_loadout_path.exists():
+            return json.loads(self._active_loadout_path.read_text(encoding="utf-8"))
+        return None
+
+    def apply_loadout(self, loadout_id: str, *, acknowledge_risky: bool = False) -> dict:
+        """Switch the active loadout: apply its stage overrides to the stage matrix and
+        record it as active. A risky loadout (one that would change production routing or
+        use an external provider) requires acknowledge_risky=True."""
+        loadout = self.loadouts.get(loadout_id)
+        if loadout is None:
+            raise ValueError(f"unknown_loadout:{loadout_id}")
+        if loadout.risky and not acknowledge_risky:
+            raise PermissionError(
+                f"loadout {loadout_id} is risky (external/live routing); "
+                "pass acknowledge_risky=True to confirm"
+            )
+        applied: list[dict] = []
+        for stage, mode in (loadout.stage_overrides or {}).items():
+            entry = self.stage_matrix.set_policy(
+                stage, mode, allow_production_routing=acknowledge_risky,
+                reason=f"loadout:{loadout_id}",
+            )
+            applied.append({"stage": entry.stage.value, "mode": entry.mode.value})
+        marker = {
+            "loadout_id": loadout.loadout_id,
+            "source_mode": loadout.source_mode.value,
+            "provider_preferences": loadout.provider_preferences,
+            "applied_stages": applied,
+        }
+        self._active_loadout_path.parent.mkdir(parents=True, exist_ok=True)
+        self._active_loadout_path.write_text(json.dumps(marker, ensure_ascii=False, indent=2),
+                                             encoding="utf-8")
+        return marker
 
 
 __all__ = ["ForgeService"]

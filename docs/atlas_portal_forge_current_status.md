@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-26`
-- Current package goal: Loadouts UI and persistence.
-- Next action: add a Loadouts tab listing the 7 default loadouts + custom, where switching
-  a loadout updates stage/provider policy and risky changes require explicit confirmation.
-- Last completed: `PFG-25` (Stage Matrix and Route Matrix UI) — acceptance_complete; see
-  PFG-25 evidence below. PFG-1..PFG-24 also complete.
+- Current package: `PFG-27`
+- Current package goal: Portal Run Forge Trace metadata.
+- Next action: add an optional ForgeTrace schema to Portal run records, show a compact
+  trace in the Portal run sheet, and keep legacy Portal records (no trace) loading.
+- Last completed: `PFG-26` (Loadouts UI and persistence) — acceptance_complete; see PFG-26
+  evidence below. PFG-1..PFG-25 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -81,7 +81,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-23 | Benchmark Preset selector UI | acceptance_complete |
 | PFG-24 | Arena UI | acceptance_complete |
 | PFG-25 | Stage Matrix and Route Matrix UI | acceptance_complete |
-| PFG-26 | Loadouts UI and persistence | not_started |
+| PFG-26 | Loadouts UI and persistence | acceptance_complete |
 | PFG-27 | Portal Run Forge Trace metadata | not_started |
 | PFG-28 | Portal evidence to Candidate Evaluator | not_started |
 | PFG-29 | Capsule Forge metadata and replay | not_started |
@@ -1171,6 +1171,44 @@ Remaining gaps:
 - PFG-26 Loadouts UI and persistence.
 Next package:
 - PFG-26 — Loadouts UI and persistence.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-26 — Loadouts UI and persistence
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/forge_service.py — apply_loadout (updates stage policy, records active
+  loadout; risky loadout requires acknowledge_risky), active_loadout, status.active_loadout,
+  loadouts now carry an "active" flag.
+- agent/model_forge/loadouts.py — safe stage_overrides for Local Safe + Repair Specialist.
+- app/api/forge.py — POST /loadouts/{id}/apply (409 risky, 404 unknown).
+- web/js/forge.js — Loadouts tab (cards + Apply, active marker, risky confirm); Overview
+  active-loadout uses the persisted active loadout.
+- web/css/app.css — loadout card styles.
+- tests/test_forge_loadouts.py (new).
+Behavior implemented:
+- The Loadouts tab lists the 7 builtin loadouts (+ custom). Applying a loadout writes its
+  stage overrides into the stage matrix and records it active; the Overview and status
+  reflect the active loadout. A risky loadout (external/live routing) requires a confirm()
+  and acknowledge_risky=true (backend 409 without it).
+Focused tests:
+- python -m pytest tests/test_forge_loadouts.py -> 5 passed (7 defaults; safe apply updates
+  stage policy + marks active; risky needs ack -> 409 then 200; unknown -> 404; cards render
+  active + risky).
+- python -m pytest tests/test_forge_*.py tests/test_model_forge_*.py -> 129 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-26 is loadout policy UI + persistence.
+Safety invariants verified:
+- risky loadout requires explicit confirmation; safe loadouts apply only non-live stage
+  modes; active loadout persisted and surfaced.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-27 Portal Run Forge Trace metadata.
+Next package:
+- PFG-27 — Portal Run Forge Trace metadata.
 Blocker:
 - None.
 ```

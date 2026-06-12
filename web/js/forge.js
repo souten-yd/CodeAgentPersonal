@@ -25,6 +25,7 @@
     { id: 'skills', label: 'Skills' },
     { id: 'benchmark', label: 'Benchmark' },
     { id: 'arena', label: 'Arena' },
+    { id: 'loadouts', label: 'Loadouts' },
     { id: 'advanced', label: 'Advanced' },
   ];
 
@@ -112,7 +113,8 @@
   function overviewHtml(data) {
     const status = data.status || {};
     const forgeState = status.forge_enabled ? 'On' : 'Off (legacy primary)';
-    const active = (data.loadouts || []).find((l) => l.builtin) || (data.loadouts || [])[0] || null;
+    const active = (data.loadouts || []).find((l) => l.active)
+      || (data.loadouts || []).find((l) => l.builtin) || (data.loadouts || [])[0] || null;
     const activeName = active ? active.display_name : '—';
     const cards = (data.providers || []).map(providerCard).join('');
     return (
@@ -455,9 +457,73 @@
     renderActive();
   }
 
+  // ----- Loadouts (PFG-26) -----
+
+  function loadoutCard(lo) {
+    const risky = !!lo.risky;
+    const active = !!lo.active;
+    return (
+      '<div class="forge-loadout' + (active ? ' is-active' : '') + '">'
+      + '<div class="forge-loadout-head">'
+      + '<span class="forge-loadout-name">' + escapeHtml(lo.display_name || lo.loadout_id) + '</span>'
+      + (active ? '<span class="forge-loadout-active">active</span>' : '')
+      + (risky ? '<span class="forge-warn-pill" title="Changes source/routing">risky</span>' : '')
+      + '</div>'
+      + '<div class="forge-loadout-desc">' + escapeHtml(lo.description || '') + '</div>'
+      + '<div class="forge-loadout-meta">' + escapeHtml(lo.source_mode || '')
+      + ((lo.provider_preferences || []).length ? ' · ' + escapeHtml((lo.provider_preferences || []).join(', ')) : '')
+      + '</div>'
+      + '<button type="button" class="forge-loadout-btn" data-loadout="' + escapeHtml(lo.loadout_id) + '"'
+      + ' data-risky="' + (risky ? '1' : '0') + '"' + (active ? ' disabled' : '') + '>'
+      + (active ? 'Applied' : 'Apply') + '</button>'
+      + '</div>'
+    );
+  }
+
+  function loadoutsHtml(data) {
+    const loadouts = data.loadouts || [];
+    const cards = loadouts.map(loadoutCard).join('');
+    return (
+      '<div class="forge-hint">Loadouts are simple presets. Applying one updates stage and '
+      + 'provider policy. A risky loadout (external models or live routing) asks for '
+      + 'confirmation first.</div>'
+      + '<div class="forge-loadout-grid">'
+      + (cards || '<div class="forge-empty">No loadouts.</div>')
+      + '</div>'
+    );
+  }
+
+  function wireLoadouts(content) {
+    content.querySelectorAll('[data-loadout]').forEach((btn) => {
+      btn.addEventListener('click', () => applyLoadout(btn.getAttribute('data-loadout'), btn.getAttribute('data-risky') === '1'));
+    });
+  }
+
+  async function applyLoadout(loadoutId, risky) {
+    if (risky) {
+      const ok = (typeof confirm === 'function')
+        ? confirm('Loadout "' + loadoutId + '" uses external models or live routing. Apply it?')
+        : false;
+      if (!ok) return;
+    }
+    setStatus('Applying loadout…');
+    try {
+      await api('/loadouts/' + encodeURIComponent(loadoutId) + '/apply', {
+        method: 'POST',
+        body: JSON.stringify({ acknowledge_risky: !!risky }),
+      });
+      setStatus('Loadout applied: ' + loadoutId, 'ok');
+      try { state.data.loadouts = (await api('/loadouts')).loadouts || []; } catch (_e) {}
+      try { state.data.stagePolicy = (await api('/stage-policy')).stage_policy || []; } catch (_e) {}
+    } catch (err) {
+      setStatus('Loadout apply refused: ' + (err && err.message ? err.message : 'error'), 'error');
+    }
+    renderActive();
+  }
+
   const VIEWS = {
     overview: overviewHtml, skills: skillsHtml, benchmark: benchmarkHtml,
-    arena: arenaHtml, advanced: advancedHtml,
+    arena: arenaHtml, loadouts: loadoutsHtml, advanced: advancedHtml,
   };
 
   // ----- model detail drawer (Skills) -----
@@ -528,6 +594,8 @@
       wireBenchmark(content, state.data);
     } else if (state.tab === 'advanced') {
       wireAdvanced(content);
+    } else if (state.tab === 'loadouts') {
+      wireLoadouts(content);
     }
   }
 
@@ -585,6 +653,7 @@
     _benchmarkHtml: benchmarkHtml,
     _arenaHtml: arenaHtml,
     _advancedHtml: advancedHtml,
+    _loadoutsHtml: loadoutsHtml,
     _state: state,
   };
 })();

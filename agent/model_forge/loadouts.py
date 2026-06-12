@@ -36,7 +36,9 @@ def default_loadouts() -> list[Loadout]:
     return [
         Loadout(loadout_id="local_safe", display_name="Local Safe", builtin=True,
                 description="Local models only, shadow everywhere; never routes live.",
-                source_mode=SourceMode.LOCAL_ONLY, provider_preferences=["local_openai_compatible"]),
+                source_mode=SourceMode.LOCAL_ONLY, provider_preferences=["local_openai_compatible"],
+                stage_overrides={"patch_generation": "shadow_select", "repair": "shadow_select",
+                                 "final_summary": "disabled"}),
         Loadout(loadout_id="local_fast", display_name="Local Fast", builtin=True,
                 description="Local models, lightweight routes for quick tasks.",
                 source_mode=SourceMode.LOCAL_ONLY, provider_preferences=["local_openai_compatible"]),
@@ -54,7 +56,8 @@ def default_loadouts() -> list[Loadout]:
                 source_mode=SourceMode.LOCAL_PREFERRED, provider_preferences=["local_openai_compatible"]),
         Loadout(loadout_id="repair_specialist", display_name="Repair Specialist", builtin=True,
                 description="Repair-loop and Portal replay repair routes.",
-                source_mode=SourceMode.LOCAL_PREFERRED, provider_preferences=["local_openai_compatible"]),
+                source_mode=SourceMode.LOCAL_PREFERRED, provider_preferences=["local_openai_compatible"],
+                stage_overrides={"repair": "shadow_select", "failure_classification": "shadow_select"}),
     ]
 
 
