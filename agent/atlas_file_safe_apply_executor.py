@@ -403,8 +403,14 @@ class AtlasFileSafeApplyExecutor:
         return ""
 
     def _apply_string_edits(self, text: str, edits: list) -> str | None:
-        """Apply a list of {old_string, new_string} replacements. Each old_string must match exactly
-        once (uniqueness guard, like Claude Code's Edit). Returns None if any edit is not applicable."""
+        """Apply a list of edits against `text`. Each edit is one of:
+          - a REPLACEMENT: non-empty "old_string" matched exactly once -> replaced by "new_string"
+            (uniqueness guard, like Claude Code's Edit); or
+          - an INSERTION: empty "old_string" plus an "insert_after"/"insert_before" anchor matched
+            exactly once -> "new_string" placed adjacent to that anchor; or, with no anchor at all,
+            "new_string" appended to the end of the file (equivalent to append_content).
+        Returns None if any edit is not applicable, so an atomic change blocks cleanly instead of
+        partially applying."""
         result = text
         for edit in edits:
             if not isinstance(edit, dict):
@@ -412,7 +418,11 @@ class AtlasFileSafeApplyExecutor:
             old = str(edit.get("old_string", ""))
             new = str(edit.get("new_string", ""))
             if old == "":
-                return None
+                inserted = self._apply_insertion(result, edit, new)
+                if inserted is None:
+                    return None
+                result = inserted
+                continue
             count = result.count(old)
             if count == 1:
                 result = result.replace(old, new, 1)
@@ -422,6 +432,31 @@ class AtlasFileSafeApplyExecutor:
                 return None
             result = flexible
         return result
+
+    @staticmethod
+    def _apply_insertion(text: str, edit: dict, new: str) -> str | None:
+        """Insert `new` relative to an anchor (insert_after / insert_before, each matched exactly once),
+        or append to the end of the file when no anchor is given. Returns None if not applicable so the
+        edit blocks rather than landing new code in an arbitrary (possibly out-of-scope) location."""
+        if new == "":
+            return None
+        insert_after = str(edit.get("insert_after", ""))
+        insert_before = str(edit.get("insert_before", ""))
+        if insert_after:
+            if text.count(insert_after) != 1:
+                return None
+            idx = text.index(insert_after) + len(insert_after)
+            block = new if new.startswith("\n") else "\n" + new
+            return text[:idx] + block + text[idx:]
+        if insert_before:
+            if text.count(insert_before) != 1:
+                return None
+            idx = text.index(insert_before)
+            block = new if new.endswith("\n") else new + "\n"
+            return text[:idx] + block + text[idx:]
+        # No anchor: append to the end of the file (same semantics as append_content).
+        sep = "" if text.endswith("\n") or not text else "\n"
+        return text + sep + new
 
     @staticmethod
     def _replace_html_tag_gap_whitespace_once(text: str, old: str, new: str) -> str | None:
