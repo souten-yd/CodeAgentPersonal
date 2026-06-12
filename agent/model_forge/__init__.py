@@ -17,6 +17,15 @@ from agent.model_forge.benchmark_presets import (
     preset_listing,
     validate_preset,
 )
+from agent.model_forge.candidate_evaluator import (
+    VERDICT_ELIGIBLE,
+    VERDICT_REJECTED,
+    CandidateEvaluation,
+    CandidateEvaluationInput,
+    CandidateEvaluator,
+    EvaluatorOutcome,
+    EvaluatorResult,
+)
 from agent.model_forge.provider_base import (
     ForgeProvider,
     HealthState,
@@ -170,4 +179,11 @@ __all__ = [
     "ArenaCandidateSpec",
     "ArenaRunRecord",
     "ArenaRunner",
+    "EvaluatorOutcome",
+    "EvaluatorResult",
+    "CandidateEvaluationInput",
+    "CandidateEvaluation",
+    "CandidateEvaluator",
+    "VERDICT_ELIGIBLE",
+    "VERDICT_REJECTED",
 ]

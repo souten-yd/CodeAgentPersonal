@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-15`
-- Current package goal: Candidate Evaluator foundation.
-- Next action: add a mechanical candidate evaluator (contract/schema/syntax checks,
-  scoring aggregation, explicit unavailable markers; no LLM judge required).
-- Last completed: `PFG-14` (Arena runner foundation) — acceptance_complete; see
-  PFG-14 evidence below. PFG-1..PFG-13 also complete.
+- Current package: `PFG-16`
+- Current package goal: Model Profile Store and profile updater.
+- Next action: persist versioned per-model profiles under `ca_data/model_forge/profiles`,
+  store evidence references, and update profiles from candidate scores.
+- Last completed: `PFG-15` (Candidate Evaluator foundation) — acceptance_complete; see
+  PFG-15 evidence below. PFG-1..PFG-14 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -70,7 +70,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-12 | provider health and Source Mode policy | acceptance_complete |
 | PFG-13 | benchmark preset schema and initial presets | acceptance_complete |
 | PFG-14 | Arena runner foundation | acceptance_complete |
-| PFG-15 | Candidate Evaluator foundation | not_started |
+| PFG-15 | Candidate Evaluator foundation | acceptance_complete |
 | PFG-16 | Model Profile Store and profile updater | not_started |
 | PFG-17 | Stage Matrix policy and selector | not_started |
 | PFG-18 | Route Matrix policy and selector | not_started |
@@ -752,6 +752,46 @@ Remaining gaps:
 - PFG-15 Candidate Evaluator foundation.
 Next package:
 - PFG-15 — Candidate Evaluator foundation.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-15 — Candidate Evaluator foundation
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/candidate_evaluator.py (new), __init__ re-exports
+- tests/test_model_forge_candidate_evaluator.py (new)
+Behavior implemented:
+- CandidateEvaluator runs mechanical evaluators in the detailed-design order
+  (contract parse, schema/format, syntax/static, workspace policy, focused/related
+  tests, Portal runtime, requirement coverage, risk/minimality, cost/latency/privacy)
+  and aggregates a CandidateScore with explicit blocked_reasons.
+- Hard reject conditions short-circuit the verdict: invalid contract, malformed JSON,
+  python syntax error, unrelated file edit, test deletion/weakening, public API change
+  without Blueprint approval, privacy violation, unsafe runtime path, Safe Apply bypass.
+- Optional evidence uses None => UNAVAILABLE, never counted as passed: an unavailable
+  evaluator does not raise the score and does not satisfy a required check. No LLM judge
+  is used or required; the evaluator is pure mechanics.
+Focused tests:
+- python -m pytest tests/test_model_forge_candidate_evaluator.py -> 8 passed
+  (invalid contract rejected; malformed JSON rejected; unavailable evaluators stay
+   UNAVAILABLE and only passing evaluators score; failing focused tests reject;
+   unrelated edit / test deletion / safe-apply bypass / public-API hard reject;
+   python syntax error rejected + valid code passes; unknown language static check
+   is unavailable not passed).
+- python -m pytest tests/test_model_forge_*.py -> 77 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-15 is a mechanical (non-LLM) evaluator package.
+Safety invariants verified:
+- unavailable distinct from passed; Arena/Safe Apply bypass is a hard reject; no LLM
+  judge required; evaluator never mutates source.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-16 Model Profile Store and profile updater.
+Next package:
+- PFG-16 — Model Profile Store and profile updater.
 Blocker:
 - None.
 ```
