@@ -77,6 +77,47 @@ def test_append_to_existing_file():
     assert (ws / "c.txt").read_text() == "line1\nline2\n"
 
 
+def test_insert_after_anchor_adds_new_code_in_scope():
+    ws = Path(tempfile.mkdtemp())
+    seed = "<script>\n  function shoot() {}\n</script>\n"
+    r = _apply(ws, "index.html", {"action_type": "update", "edits": [
+        {"old_string": "", "insert_after": "  function shoot() {}",
+         "new_string": "  function moveEnemies() {}"},
+    ]}, seed=seed)
+    assert r["status"] == "applied" and "(edits)" in r["summary"]
+    final = (ws / "index.html").read_text()
+    # New function landed inside <script>, right after the anchor, not after </script>.
+    assert final.index("moveEnemies") < final.index("</script>")
+    assert "function shoot() {}\n  function moveEnemies() {}" in final
+
+
+def test_insert_before_anchor():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(ws, "a.py", {"action_type": "update", "edits": [
+        {"old_string": "", "insert_before": "def bar():", "new_string": "def baz():\n    return 3\n"},
+    ]}, seed="def foo():\n    return 1\n\ndef bar():\n    return 2\n")
+    assert r["status"] == "applied"
+    final = (ws / "a.py").read_text()
+    assert final.index("def baz") < final.index("def bar")
+
+
+def test_insert_after_non_unique_anchor_blocked():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(ws, "b.py", {"action_type": "update", "edits": [
+        {"old_string": "", "insert_after": "pass", "new_string": "x = 1\n"},
+    ]}, seed="def a():\n    pass\ndef b():\n    pass\n")
+    assert r["status"] == "blocked" and "edit_not_applicable" in r["reasons"]
+
+
+def test_empty_old_string_without_anchor_appends():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(ws, "c.py", {"action_type": "update", "edits": [
+        {"old_string": "", "new_string": "# trailing note\n"},
+    ]}, seed="x = 1\n")
+    assert r["status"] == "applied"
+    assert (ws / "c.py").read_text() == "x = 1\n# trailing note\n"
+
+
 def test_hunk_aware_diff_preserves_unrelated_lines():
     ws = Path(tempfile.mkdtemp())
     diff = "@@ -2,1 +2,1 @@\n-b\n+B\n"
@@ -96,6 +137,46 @@ def test_full_content_create_still_works():
     r = _apply(ws, "new.html", {"action_type": "create", "proposed_content": "<h1>hi</h1>"})
     assert r["status"] == "applied" and "(full_content)" in r["summary"]
     assert (ws / "new.html").read_text() == "<h1>hi</h1>"
+
+
+def _make_service():
+    tmp = Path(tempfile.mkdtemp()); ca = tmp / "ca"; ca.mkdir()
+    return AtlasPatchProposalService(journal=AtlasJournal(ca, workspace_id="default"),
+                                     storage=AtlasPlanPoolStorage(ca), llm_json_fn=lambda s, u: {})
+
+
+def test_normalize_edits_accepts_insertions_and_drops_anchorless_empty():
+    svc = _make_service()
+    warnings: list[str] = []
+    out = svc._normalize_edits([
+        {"old_string": "foo", "new_string": "bar"},
+        {"old_string": "", "insert_after": "anchor", "new_string": "added"},
+        {"old_string": "", "new_string": ""},  # malformed: nothing to add, no anchor -> dropped
+    ], warnings)
+    assert out == [
+        {"old_string": "foo", "new_string": "bar"},
+        {"old_string": "", "new_string": "added", "insert_after": "anchor"},
+    ]
+    assert "some_edits_dropped" in warnings
+
+
+def test_normalize_file_changes_validates_nested_edits():
+    # Regression: nested file_changes[].edits previously bypassed edit validation, so an empty
+    # old_string with no anchor slipped through and blocked the atomic apply with edit_not_applicable.
+    svc = _make_service()
+    warnings: list[str] = []
+    out = svc._normalize_file_changes([
+        {"path": "index.html", "action_type": "update", "edits": [
+            {"old_string": "real", "new_string": "new"},
+            {"old_string": "", "new_string": "orphan"},  # would land nowhere -> appended (has new_string)
+            {"old_string": "", "new_string": ""},          # dropped
+        ]},
+    ], warnings)
+    assert len(out) == 1
+    nested = out[0]["edits"]
+    assert {"old_string": "real", "new_string": "new"} in nested
+    assert {"old_string": "", "new_string": "orphan"} in nested
+    assert all(not (e["old_string"] == "" and not e["new_string"]) for e in nested)
 
 
 def test_proposal_to_executor_edits_flow():

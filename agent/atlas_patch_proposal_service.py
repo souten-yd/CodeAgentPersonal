@@ -774,6 +774,14 @@ class AtlasPatchProposalService:
                 "old_string is an EXACT, UNIQUE snippet copied from the current content (include enough "
                 "surrounding context to be unique). This is safest for existing files. "
                 "Example: {\"target_files\":[\"app.py\"],\"edits\":[{\"old_string\":\"def foo():\\n    return 1\",\"new_string\":\"def foo():\\n    return 2\"}],\"risk_level\":\"low\"} "
+                "To ADD entirely new code (e.g. a new function or block) where there is no existing text to "
+                "replace, return an INSERTION edit with an EMPTY old_string and an anchor: "
+                "{\"old_string\":\"\",\"insert_after\":\"<exact, unique snippet the new code should FOLLOW>\","
+                "\"new_string\":\"<the new code>\"} (or use \"insert_before\"). The anchor must be copied "
+                "EXACTLY from the current content, match exactly once, and land the new code inside the "
+                "correct scope (e.g. JavaScript must be anchored INSIDE the existing <script> block, never "
+                "after </html>). NEVER return an empty old_string without an insert_after or insert_before "
+                "anchor. "
                 "ALTERNATIVELY, if a localized edit is impractical, return \"proposed_content\" with the "
                 "COMPLETE updated file text. Use input.item.project_symbols to reuse existing functions. "
                 "CRITICAL: All new_string values in edits (and proposed_content if used) must contain "
@@ -1889,8 +1897,10 @@ class AtlasPatchProposalService:
         )
 
     def _normalize_edits(self, raw_edits: object, warnings: list[str]) -> list[dict]:
-        """Validate LLM-proposed surgical edits: a list of {old_string, new_string} with non-empty
-        old_string. Caps the count; drops malformed entries. Returns [] if none usable."""
+        """Validate LLM-proposed surgical edits. Each entry is either a REPLACEMENT (non-empty
+        old_string -> new_string) or an INSERTION (empty old_string with an insert_after/insert_before
+        anchor, or a bare new_string to append). Caps the count; drops malformed entries (an empty
+        old_string with no anchor and no new_string would land code nowhere). Returns [] if none usable."""
         if not isinstance(raw_edits, list) or not raw_edits:
             return []
         out: list[dict] = []
@@ -1901,8 +1911,18 @@ class AtlasPatchProposalService:
                 continue
             old = str(e.get("old_string", ""))
             new = str(e.get("new_string", ""))
+            insert_after = str(e.get("insert_after", ""))
+            insert_before = str(e.get("insert_before", ""))
             if old == "":
-                dropped = True
+                if not (insert_after or insert_before or new):
+                    dropped = True
+                    continue
+                entry = {"old_string": "", "new_string": new}
+                if insert_after:
+                    entry["insert_after"] = insert_after
+                elif insert_before:
+                    entry["insert_before"] = insert_before
+                out.append(entry)
                 continue
             out.append({"old_string": old, "new_string": new})
         if dropped:
@@ -1954,6 +1974,10 @@ class AtlasPatchProposalService:
             change = {k: raw[k] for k in ("change_id", "path", "action_type", "content_mode", "proposed_content", "patch", "unified_diff_preview", "edits", "append_content", "metadata") if k in raw}
             change["path"] = path
             change["action_type"] = action
+            # Nested edits must pass the SAME validation as top-level edits — without this, a malformed
+            # edit (e.g. an empty old_string with no anchor) slips through and blocks the atomic apply.
+            if "edits" in change:
+                change["edits"] = self._normalize_edits(change.get("edits"), warnings)
             out.append(change)
         return out
 
