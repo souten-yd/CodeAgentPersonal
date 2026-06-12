@@ -25,7 +25,7 @@ from app.atlas.capsule.builder import CapsuleBuilder
 from app.atlas.capsule.contracts import CapsuleBuildRequest
 from app.atlas.capsule.forge_meta import (
     read_capsule_forge_meta,
-    record_capsule_replay,
+    record_capsule_replay_via_play_runtime,
     write_capsule_forge_meta,
 )
 from app.atlas.play.contracts import LaunchKind, LaunchProfile
@@ -106,14 +106,16 @@ def test_real_greenfield_capsule_replay_updates_profile(tmp_path):
     meta = read_capsule_forge_meta(tmp_path, "forge.greenfield", "1.0.0", content_hash)
     assert meta is not None and meta.model_id == run.model_id  # runnable Capsule WITH a Forge trace
 
-    # Replay the Capsule: record a successful run into the model profile.
+    # Replay the Capsule through the Play runtime: record a measured run into the model profile.
     store = ProfileStore(tmp_path / "profiles")
-    evidence = record_capsule_replay(
+    evidence = record_capsule_replay_via_play_runtime(
         tmp_path, store, package_id="forge.greenfield", version="1.0.0",
-        content_hash=content_hash, runtime_passed=True,
+        content_hash=content_hash,
     )
     assert evidence.package_immutable_verified is True
     assert evidence.profile_updated is True
+    assert evidence.runtime_status == "passed"
+    assert evidence.runtime_evidence_ref.startswith("play_session:")
     profile = store.load_profile(run.provider_id, run.model_id)
     assert profile.dimension_scores["greenfield"] == 1.0
 
@@ -124,6 +126,9 @@ def test_real_greenfield_capsule_replay_updates_profile(tmp_path):
         forge_trace_attached=True,
         replay_immutable_verified=evidence.package_immutable_verified,
         runtime_verdict="passed" if evidence.profile_updated else "failed",
+        runtime_status=evidence.runtime_status,
+        runtime_evidence_ref=evidence.runtime_evidence_ref,
+        preview_status=evidence.preview_status,
         greenfield_score=profile.dimension_scores["greenfield"],
         html_excerpt=html[:200],
         legacy_direct_http_orchestration=False,

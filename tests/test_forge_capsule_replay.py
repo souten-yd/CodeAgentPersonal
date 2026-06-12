@@ -14,6 +14,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from agent.model_forge.profile_store import ProfileStore
+from app.atlas.capsule.forge_meta import record_capsule_replay
 from app.api.forge import router as forge_router
 from app.portal.paths import PortalPathLayout
 
@@ -25,11 +27,14 @@ def _client(tmp_path):
     return TestClient(app)
 
 
-def _make_package(tmp_path: Path, package_id="demo", version="1.0.0") -> tuple[str, bytes]:
+def _make_package(tmp_path: Path, package_id="demo", version="1.0.0", *, with_index: bool = True) -> tuple[str, bytes]:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("metadata/manifest.json", '{"package_id":"demo"}')
-        zf.writestr("application/index.html", "<html></html>")
+        if with_index:
+            zf.writestr("application/index.html", "<html></html>")
+        else:
+            zf.writestr("application/readme.txt", "no runnable preview")
     zip_bytes = buf.getvalue()
     content_hash = hashlib.sha256(zip_bytes).hexdigest()
     root = PortalPathLayout(tmp_path).package_store_root() / package_id / version
@@ -82,6 +87,9 @@ def test_replay_updates_profile_and_verifies_immutability(tmp_path):
     })
     assert resp.status_code == 200
     ev = resp.json()
+    assert ev["runtime_status"] == "passed"
+    assert ev["runtime_evidence_ref"].startswith("play_session:")
+    assert ev["preview_status"] == 200
     assert ev["evidence_strength"] == "strong_runtime"
     assert ev["profile_updated"] is True
     assert ev["package_immutable_verified"] is True
@@ -92,6 +100,49 @@ def test_replay_updates_profile_and_verifies_immutability(tmp_path):
     # ZIP still byte-for-byte unchanged after replay (no source mutation).
     root = PortalPathLayout(tmp_path).package_store_root() / "demo" / "1.0.0"
     assert (root / f"{content_hash}.zip").read_bytes() == zip_bytes
+
+
+def test_replay_runtime_assertion_without_evidence_does_not_update_profile(tmp_path):
+    content_hash, zip_bytes = _make_package(tmp_path)
+    c = _client(tmp_path)
+    c.post("/api/forge/capsule/forge-meta", json={
+        "package_id": "demo", "version": "1.0.0", "content_hash": content_hash,
+        "provider_id": "local", "model_id": "mistral", "dimension": "greenfield",
+    })
+
+    evidence = record_capsule_replay(
+        tmp_path, ProfileStore(tmp_path / "profiles_direct"),
+        package_id="demo", version="1.0.0", content_hash=content_hash,
+        runtime_passed=True,
+    )
+
+    assert evidence.runtime_status == "passed"
+    assert evidence.runtime_evidence_ref == ""
+    assert evidence.evidence_strength == "none"
+    assert evidence.profile_updated is False
+    root = PortalPathLayout(tmp_path).package_store_root() / "demo" / "1.0.0"
+    assert (root / f"{content_hash}.zip").read_bytes() == zip_bytes
+
+
+def test_replay_without_runnable_application_is_unavailable(tmp_path):
+    c = _client(tmp_path)
+    content_hash, _ = _make_package(tmp_path, with_index=False)
+    c.post("/api/forge/capsule/forge-meta", json={
+        "package_id": "demo", "version": "1.0.0", "content_hash": content_hash,
+        "provider_id": "local", "model_id": "mistral", "dimension": "greenfield",
+    })
+
+    resp = c.post("/api/forge/capsule/replay", json={
+        "package_id": "demo", "version": "1.0.0", "content_hash": content_hash,
+        "runtime_passed": True,
+    })
+
+    assert resp.status_code == 200
+    ev = resp.json()
+    assert ev["runtime_status"] == "unavailable"
+    assert ev["runtime_detail"] == "application_index_missing"
+    assert ev["evidence_strength"] == "none"
+    assert ev["profile_updated"] is False
 
 
 def test_replay_without_meta_is_rejected(tmp_path):
