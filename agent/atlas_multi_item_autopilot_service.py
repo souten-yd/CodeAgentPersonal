@@ -252,6 +252,11 @@ class AtlasMultiItemAutopilotService:
                                 recovered_vr = {"status": "passed", "recovered_by_self_correction": True, "final_verification_status": sc.final_verification_status, "attempt_count": sc.attempts}
                                 result.verification_result = recovered_vr
                                 vr = type("V", (), {"status": "passed", "model_dump": lambda self: recovered_vr})()
+                        elif request.include_self_correction and vr.status == "failed" and not self.self_correction_service:
+                            reason = "self_correction_unavailable"
+                            result.metadata["self_correction_result"] = {"status": "not_attempted", "reason": reason}
+                            if reason not in result.warnings:
+                                result.warnings.append(reason)
                         if request.include_evaluator and vr.status in {"passed", "failed"}:
                             ev = self.evaluator_service.evaluate(AtlasEvaluatorRequest(pool_id=pool.pool_id, item_id=item_id, run_id=run_id, trigger="verification_failure" if vr.status == "failed" else "post_verification", context_bundle_id=result.context_bundle_id, use_latest_context_bundle=False, project_path=self.resolve_project_path(request, pool, item), changed_files=actual_changed_files, verification_result=vr.model_dump(), safe_apply_result=result.safe_apply_result, failure_stop_suggestion=result.failure_stop_suggestion, policy_id=request.evaluator_policy_id, metadata={"autopilot_run_id": autopilot_run_id, "item_index": idx}))
                             result.evaluator_result_id = str((ev.metadata or {}).get("eval_id") or "")

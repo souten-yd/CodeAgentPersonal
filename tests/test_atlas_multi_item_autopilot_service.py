@@ -363,6 +363,57 @@ def test_skipped_self_correction_risk_reason_surfaced_as_warning(tmp_path):
     assert 'risk_level_not_auto_reapplyable:high' in out.item_results[0].warnings
 
 
+def test_missing_self_correction_service_is_surfaced_as_warning(tmp_path):
+    pool = AtlasPlanPool(
+        pool_id='p1', root_goal='g', project_path=str(tmp_path),
+        items=[AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g',
+                             item_type='implementation', risk_level='medium', status='ready',
+                             target_files=['a.txt'],
+                             metadata={'action_type': 'create', 'proposed_content': 'a\n'})],
+    )
+
+    class Storage:
+        def load_pool(self, pool_id):
+            return pool
+        def save_pool(self, p):
+            pass
+
+    class Journal:
+        def append_event(self, *args, **kwargs):
+            pass
+
+    class AutoSafe:
+        def execute_one(self, request):
+            return SimpleNamespace(status='applied', changed_files=['a.txt'],
+                                   model_dump=lambda: {'status': 'applied', 'changed_files': ['a.txt'], 'actual_file_changed': True})
+
+    class Verification:
+        def run_after_auto_safe_apply(self, request):
+            return SimpleNamespace(status='failed', warnings=['visual_contract_failed'],
+                                   model_dump=lambda: {'status': 'failed', 'warnings': ['visual_contract_failed']})
+
+    svc = AtlasMultiItemAutopilotService(
+        storage=Storage(), journal=Journal(), automation_gate=AtlasAutomationGateService(),
+        auto_safe_apply_service=AutoSafe(), auto_verification_service=Verification(),
+        context_refresh_service=SimpleNamespace(refresh=lambda request: SimpleNamespace(status='available', bundle_id='ctx1')),
+        evaluator_service=SimpleNamespace(evaluate=lambda request: SimpleNamespace(metadata={'eval_id': 'ev1'}, decision=SimpleNamespace(model_dump=lambda: {'decision': 'continue'}))),
+        self_correction_service=None,
+    )
+
+    out = svc.run(AtlasMultiItemAutopilotRequest(
+        pool_id='p1', project_path=str(tmp_path), policy_id='full_auto_multi_item_v1',
+        require_approval=False, include_context_refresh=False, include_evaluator=False,
+        include_harness_provisioning=False, include_self_correction=True,
+    ))
+
+    item_result = out.item_results[0]
+    assert item_result.metadata['self_correction_result'] == {
+        'status': 'not_attempted',
+        'reason': 'self_correction_unavailable',
+    }
+    assert 'self_correction_unavailable' in item_result.warnings
+
+
 def _manual_required_autopilot(tmp_path):
     """Build an autopilot whose evaluator returns ``manual_required`` after an applied,
     unverifiable change (mirrors a static file whose verification cannot auto-run)."""

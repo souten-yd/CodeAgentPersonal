@@ -121,9 +121,16 @@ class AtlasAutoVerificationService:
         # hard visual failure degrade an otherwise-passing command result.
         html_rel = self._resolve_visual_html(item, pool)
         if html_rel and self._safe_rel(html_rel):
-            ev = self._evaluate_visual(Path(workspace_root) / html_rel, self._visual_task_description(item, pool), planned_paths=self._pool_planned_paths(pool))
+            ev = self._evaluate_visual(
+                Path(workspace_root) / html_rel,
+                self._visual_task_description(item, pool),
+                planned_paths=self._pool_planned_paths(pool),
+                classification_desc=self._visual_classification_description(item, pool),
+            )
             metadata["visual_contract"] = ev["static"]
             metadata["browser_smoke"] = ev["smoke"]
+            metadata["visual_classification"] = ev.get("classification", {})
+            metadata["visual_classification_context"] = ev.get("classification_context", "")
             # Keep pool-level pipeline metadata current so the UI never shows a stale repair_profile
             # from a prior _run_visual_verification call (e.g. canvas_game_repair for a non-game task).
             pool.metadata.setdefault("visual_pipeline", {})
@@ -283,12 +290,45 @@ class AtlasAutoVerificationService:
         return ""
 
     def _visual_task_description(self, item, pool) -> str:
+        changed_files = self._changed_files_for_requirement_check(item)
         requirements = self._item_requirement_texts(
             pool,
             item,
-            changed_files=self._changed_files_for_requirement_check(item),
+            changed_files=changed_files,
         )
         return " ".join(requirements).strip()
+
+    def _visual_classification_description(self, item, pool) -> str:
+        changed_files = self._changed_files_for_requirement_check(item)
+        requirements = [self._visual_task_description(item, pool)]
+        if self._is_asset_only_visual_step(item, changed_files):
+            requirements.extend(self._project_intent_texts(pool))
+        return " ".join(dict.fromkeys(v for v in requirements if v)).strip()
+
+    @staticmethod
+    def _project_intent_texts(pool) -> list[str]:
+        texts = [
+            str(getattr(pool, "root_goal", "") or "").strip(),
+            str(getattr(pool, "original_user_request", "") or "").strip(),
+            str((getattr(pool, "metadata", {}) or {}).get("original_user_request") or "").strip(),
+        ]
+        for req in list((getattr(pool, "metadata", {}) or {}).get("requirement_trace") or []):
+            if not isinstance(req, dict):
+                continue
+            description = str(req.get("description") or "").strip()
+            if description:
+                texts.append(description)
+        return list(dict.fromkeys(v for v in texts if v))
+
+    def _is_asset_only_visual_step(self, item, changed_files: list[str]) -> bool:
+        files = [
+            str(f).replace("\\", "/").lower()
+            for f in [*(getattr(item, "target_files", []) or []), *(changed_files or [])]
+            if str(f).strip()
+        ]
+        if not files or any(path.endswith(".html") for path in files):
+            return False
+        return any(path.endswith(self._BROWSER_ASSET_SUFFIXES) for path in files)
 
     @staticmethod
     def _pool_planned_paths(pool) -> set[str]:
@@ -304,7 +344,7 @@ class AtlasAutoVerificationService:
                     planned.add(rel.rsplit("/", 1)[-1])  # basename
         return planned
 
-    def _evaluate_visual(self, html_path: Path, task_desc: str, planned_paths: set[str] | None = None) -> dict:
+    def _evaluate_visual(self, html_path: Path, task_desc: str, planned_paths: set[str] | None = None, classification_desc: str | None = None) -> dict:
         """Run static visual contract + optional Playwright smoke; classify hard/soft outcomes.
 
         Now contract-aware: normaliser → classifier → contract registry determines which
@@ -320,8 +360,9 @@ class AtlasAutoVerificationService:
         html_file_missing) is a real defect. A soft reason (style-sampling / playwright_error)
         only warns when the static contract already passes.
         """
-        normalized = _normalizer.normalize(task_desc)
-        classification = _classifier.classify(normalized, task_desc)
+        classification_context = (classification_desc or task_desc or "").strip()
+        normalized = _normalizer.normalize(classification_context)
+        classification = _classifier.classify(normalized, classification_context)
         contract: VisualContract = _registry.select(classification)
 
         static_res = self.visual_verifier.verify_static(
@@ -392,13 +433,19 @@ class AtlasAutoVerificationService:
             "contract_repair_profile": contract.repair_profile,
             "structured_failures": [f.to_dict() for f in structured_failures],
             "normalized_requirement": asdict(normalized),
+            "classification_context": classification_context,
         }
 
     def _run_visual_verification(self, pool, item, request, workspace_root: str, html_rel: str):
         """Run the static visual contract (+ optional Playwright smoke) for a visual HTML task
         that has no allowlisted test command."""
         html_path = Path(workspace_root) / html_rel
-        ev = self._evaluate_visual(html_path, self._visual_task_description(item, pool), planned_paths=self._pool_planned_paths(pool))
+        ev = self._evaluate_visual(
+            html_path,
+            self._visual_task_description(item, pool),
+            planned_paths=self._pool_planned_paths(pool),
+            classification_desc=self._visual_classification_description(item, pool),
+        )
         task_contract = select_task_verification_contract(item, pool)
         warnings = list(ev["warnings"])
         metadata: dict = {
@@ -432,6 +479,7 @@ class AtlasAutoVerificationService:
         metadata["visual_contract_id"] = ev.get("contract_id", "")
         metadata["visual_contract_repair_profile"] = ev.get("contract_repair_profile", "")
         metadata["visual_classification"] = ev.get("classification", {})
+        metadata["visual_classification_context"] = ev.get("classification_context", "")
         metadata["visual_structured_failures"] = ev.get("structured_failures", [])
         metadata["normalized_requirement"] = ev.get("normalized_requirement", {})
 
