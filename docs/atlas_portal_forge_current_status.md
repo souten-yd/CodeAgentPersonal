@@ -7,13 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-33`
-- Current package goal: real Greenfield Capsule replay run.
-- Next action: generate a Greenfield artifact with the local model, run it through Portal,
-  build a Capsule, replay it, and feed replay evidence into the Forge profile.
-- Last completed: `PFG-32` (real Repair preset run) — acceptance_complete with REAL model
-  evidence verified by re-running the check (Mistral fixed a buggy add); see PFG-32
-  evidence below. PFG-30/31 also REAL-model complete; PFG-1..PFG-29 complete.
+- Current package: `PFG-34`
+- Current package goal: optional OpenRouter live smoke gate.
+- Next action: add an opt-in live smoke test requiring FORGE_OPENROUTER_LIVE_SMOKE=1 + an
+  API key; record model id/latency/usage without secrets; CI passes without a key.
+- Last completed: `PFG-33` (real Greenfield Capsule replay run) — acceptance_complete with
+  REAL model + real Capsule build/replay evidence (greenfield score 1.0); see PFG-33
+  evidence below. PFG-30/31/32 also REAL-model complete; PFG-1..PFG-29 complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -89,7 +89,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-30 | real local-model Quick preset run | acceptance_complete |
 | PFG-31 | real Web App / Portal run preset | acceptance_complete |
 | PFG-32 | real Repair preset run | acceptance_complete |
-| PFG-33 | real Greenfield Capsule replay run | not_started |
+| PFG-33 | real Greenfield Capsule replay run | acceptance_complete |
 | PFG-34 | optional OpenRouter live smoke gate | not_started |
 | PFG-35 | stage shadow evidence for patch/test/failure/repair | not_started |
 | PFG-36 | controlled Forge primary cutover for selected stage | not_started |
@@ -1418,6 +1418,39 @@ Remaining gaps:
 - PFG-33 real Greenfield Capsule replay run.
 Next package:
 - PFG-33 — real Greenfield Capsule replay run.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-33 — real Greenfield Capsule replay run
+Status: acceptance_complete
+Changed modules/files:
+- tests/test_forge_real_greenfield_replay.py (new) — gated real-model + real Capsule
+  build/replay test.
+Behavior implemented:
+- The local model generates a Greenfield single-file web app; a REAL Capsule is built from
+  it via CapsuleBuilder; a Forge trace is attached to the Capsule (sidecar); and a replay
+  records a successful run into the model profile while verifying the package ZIP is
+  immutable. Result: a runnable Capsule WITH a Forge trace whose replay updated the model
+  profile. Skips when no model server is reachable.
+REAL model + Capsule replay evidence (actually executed):
+- python -m pytest tests/test_forge_real_greenfield_replay.py -q -s -> 1 passed in 144.90s.
+- model_id=Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf; capsule status=built;
+  content_hash=92d9e3c9514abfbf5511a3048af2dba7f57e12873afe661f0b950f11f16acdd5;
+  forge_trace_attached=true; replay_immutable_verified=true; greenfield profile score=1.0.
+- evidence artifact: ca_data/model_forge/evidence/pfg33_greenfield_replay.json.
+Unavailable checks:
+- Skips truthfully when :8080 is unreachable.
+Safety invariants verified:
+- package ZIP immutability verified on replay; Forge trace is a sidecar (not in ZIP);
+  replay updates profile from a real run outcome without source mutation.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-34 optional OpenRouter live smoke gate.
+Next package:
+- PFG-34 — optional OpenRouter live smoke gate.
 Blocker:
 - None.
 ```
