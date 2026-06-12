@@ -55,8 +55,12 @@ def test_arena_runs_candidates_and_defaults_to_not_applied(tmp_path: Path) -> No
         stage=ForgeStage.PATCH_GENERATION, specs=_specs(),
         source_mode=SourceMode.HYBRID, privacy_mode=PrivacyMode.FULL_SOURCE_ALLOWED,
         preset_id="web_app_standard",
+        preset_ids=["web_app_standard", "repair_standard"],
+        benchmark_depth="standard",
     )
     assert record.arena_run_id == "arena_run1"
+    assert record.preset_ids == ["web_app_standard", "repair_standard"]
+    assert record.benchmark_depth == "standard"
     assert len(record.candidates) == 2
     # Every candidate is not_applied — Arena never applies.
     assert all(c.adoption_state == AdoptionState.NOT_APPLIED for c in record.candidates)

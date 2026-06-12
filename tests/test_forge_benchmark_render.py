@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from agent.model_forge.benchmark_presets import preset_listing
+
 ROOT = Path(__file__).resolve().parent.parent
 FORGE_JS = ROOT / "web" / "js" / "forge.js"
 
@@ -47,18 +49,12 @@ def _render(tmp_path, payload: dict) -> str:
     return proc.stdout
 
 
-_PRESETS = [
-    {"preset_id": "quick", "display_name": "Quick", "recommended_routes": ["micro_patch"]},
-    {"preset_id": "web_app", "display_name": "Web App", "recommended_routes": ["patch_dsl"]},
-    {"preset_id": "repair", "display_name": "Repair", "recommended_routes": ["repair_loop"]},
-    {"preset_id": "greenfield", "display_name": "Greenfield", "recommended_routes": ["greenfield_skeleton"]},
-    {"preset_id": "db_persistence", "display_name": "DB", "recommended_routes": ["patch_dsl"]},
-]
+_PRESETS = preset_listing()
 
 
 def test_primary_presets_render_as_checkboxes(tmp_path):
     html = _render(tmp_path, {"data": {"presets": _PRESETS, "providers": []}, "bench": {}})
-    for pid in ("quick", "web_app", "repair", "greenfield"):
+    for pid in ("quick_standard", "web_app_standard", "repair_standard", "greenfield_standard"):
         assert 'data-bench-preset="' + pid + '"' in html
     # Non-primary preset is tucked under a "More presets" disclosure, not a top checkbox grid.
     assert "More presets" in html
@@ -88,6 +84,6 @@ def test_run_disabled_until_preset_provider_model_chosen(tmp_path):
     html0 = _render(tmp_path, {"data": data, "bench": {}})
     assert "data-bench-run disabled" in html0
     # Preset + provider + model -> Run enabled.
-    html1 = _render(tmp_path, {"data": data, "bench": {"presets": ["quick"], "provider": "local_openai_compatible", "model": "m1"}})
+    html1 = _render(tmp_path, {"data": data, "bench": {"presets": ["quick_standard"], "provider": "local_openai_compatible", "model": "m1"}})
     assert "data-bench-run disabled" not in html1
     assert "data-bench-run" in html1

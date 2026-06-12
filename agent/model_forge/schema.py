@@ -93,6 +93,7 @@ class ModelProfile(ForgeModel):
 class BenchmarkPreset(ForgeModel):
     schema_version: str = FORGE_SCHEMA_VERSION
     preset_id: str = Field(min_length=1)
+    family_id: str = ""
     display_name: str = ""
     category: str = ""
     depth: str = "standard"

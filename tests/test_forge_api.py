@@ -111,3 +111,32 @@ def test_arena_run_blocks_external_under_local_only(tmp_path):
     got = c.get(f"/api/forge/arena/runs/{record['arena_run_id']}")
     assert got.status_code == 200
     assert c.get("/api/forge/arena/runs/does_not_exist").status_code == 404
+
+
+def test_arena_run_records_multi_preset_payload_and_standard_depth(tmp_path):
+    c = _client(tmp_path)
+    resp = c.post("/api/forge/arena/run", json={
+        "stage": "patch_generation",
+        "specs": [{"provider_id": "openrouter", "model_id": "x/y", "route_id": "direct_patch"}],
+        "source_mode": "local_only",
+        "preset_ids": ["quick_standard", "repair_standard"],
+        "depth": "standard",
+    })
+    assert resp.status_code == 200
+    record = resp.json()
+    assert record["preset_id"] == "quick_standard"
+    assert record["preset_ids"] == ["quick_standard", "repair_standard"]
+    assert record["benchmark_depth"] == "standard"
+
+
+def test_arena_run_reports_unsupported_depth_truthfully(tmp_path):
+    c = _client(tmp_path)
+    resp = c.post("/api/forge/arena/run", json={
+        "stage": "patch_generation",
+        "specs": [{"provider_id": "openrouter", "model_id": "x/y", "route_id": "direct_patch"}],
+        "source_mode": "local_only",
+        "preset_ids": ["quick_standard"],
+        "depth": "deep",
+    })
+    assert resp.status_code == 400
+    assert "benchmark_depth_unavailable_not_supported:deep" in resp.json()["detail"]
