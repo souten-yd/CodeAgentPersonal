@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-21`
-- Current package goal: Forge Overview and Provider cards.
-- Next action: render Active Loadout, Source Mode, provider health (OpenRouter/local/legacy)
-  cards that work with no configured external provider and show missing key as disabled.
-- Last completed: `PFG-20` (Forge top-level nav and shell UI) — acceptance_complete; see
-  PFG-20 evidence below. PFG-1..PFG-19 also complete.
+- Current package: `PFG-22`
+- Current package goal: Skill Radar and Leaderboard UI.
+- Next action: add champion cards + radar/list hybrid + model detail drawer with a useful
+  empty state and compact mobile rendering.
+- Last completed: `PFG-21` (Forge Overview and Provider cards) — acceptance_complete; see
+  PFG-21 evidence below. PFG-1..PFG-20 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -76,7 +76,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-18 | Route Matrix policy and selector | acceptance_complete |
 | PFG-19 | Forge backend API | acceptance_complete |
 | PFG-20 | Forge top-level nav and shell UI | acceptance_complete |
-| PFG-21 | Forge Overview and Provider cards | not_started |
+| PFG-21 | Forge Overview and Provider cards | acceptance_complete |
 | PFG-22 | Skill Radar and Leaderboard UI | not_started |
 | PFG-23 | Benchmark Preset selector UI | not_started |
 | PFG-24 | Arena UI | not_started |
@@ -989,6 +989,44 @@ Remaining gaps:
 - PFG-21 Forge Overview and Provider cards (richer overview).
 Next package:
 - PFG-21 — Forge Overview and Provider cards.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-21 — Forge Overview and Provider cards
+Status: acceptance_complete
+Changed modules/files:
+- web/js/forge.js — Overview card (Forge state, Active loadout, Source mode, profiles) +
+  per-provider cards (legacy/local/OpenRouter) with health badge and a plain note.
+- web/css/app.css — provider card / note styles.
+- tests/test_forge_overview_render.py (new) — node-driven render test.
+Behavior implemented:
+- The default Forge view shows an Overview (with the active loadout name from /loadouts)
+  and a Provider card per registered provider. A non-ready external provider renders a
+  human note instead of error noise: OpenRouter shows "Disabled by default…" / "No API key
+  configured…"; local shows "No local server configured…"; legacy shows it runs in the
+  Atlas pipeline. The UI works with no configured external provider.
+Syntax / render checks:
+- node --check web/js/forge.js -> OK.
+Focused tests:
+- python -m pytest tests/test_forge_overview_render.py tests/test_forge_ui_shell.py ->
+  10 passed (Overview renders with no external provider; all three providers labelled;
+  missing OpenRouter key is disabled + plain note, NOT an error badge; local-without-server
+  config hint). Render is driven through the real web/js/forge.js under a node DOM stub.
+Unavailable checks:
+- Live browser render not executed; node DOM-stub render exercises the real render path.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-21 is UI rendering only.
+Safety invariants verified:
+- read-only; missing external key shown as disabled/unavailable, never error spam; legacy
+  primary.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-22 Skill Radar and Leaderboard UI.
+Next package:
+- PFG-22 — Skill Radar and Leaderboard UI.
 Blocker:
 - None.
 ```
