@@ -7,13 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-35`
-- Current package goal: stage shadow evidence for patch/test/failure/repair.
-- Next action: compare legacy vs Forge (local model) side by side for patch_generation,
-  test_generation, failure_classification, repair; record outputs/scores; no cutover.
-- Last completed: `PFG-34` (optional OpenRouter live smoke gate) — acceptance_complete; gate
-  present and CI-green; live smoke is UNAVAILABLE here (no key) and is NOT claimed as passed.
-  See PFG-34 evidence below. PFG-30/31/32/33 REAL-model complete; PFG-1..PFG-29 complete.
+- Current package: `PFG-36`
+- Current package goal: controlled Forge primary cutover for selected stage.
+- Next action: promote one low-risk stage to Forge primary with legacy fallback behind an
+  explicit acknowledgement, add a rollback control, and test rollback.
+- Last completed: `PFG-35` (stage shadow evidence) — acceptance_complete; side-by-side
+  legacy-vs-Forge recorded for the 4 stages with no cutover; regression blocks promotion.
+  See PFG-35 evidence below. PFG-30/31/32/33 REAL-model complete; PFG-1..PFG-29 complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -91,7 +91,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-32 | real Repair preset run | acceptance_complete |
 | PFG-33 | real Greenfield Capsule replay run | acceptance_complete |
 | PFG-34 | optional OpenRouter live smoke gate | acceptance_complete |
-| PFG-35 | stage shadow evidence for patch/test/failure/repair | not_started |
+| PFG-35 | stage shadow evidence for patch/test/failure/repair | acceptance_complete |
 | PFG-36 | controlled Forge primary cutover for selected stage | not_started |
 | PFG-37 | legacy retirement gates and consumer registry | not_started |
 | PFG-38 | final milestone benchmark and docs | not_started |
@@ -1481,6 +1481,44 @@ Remaining gaps:
 - PFG-35 stage shadow evidence for patch/test/failure/repair.
 Next package:
 - PFG-35 — stage shadow evidence.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-35 — stage shadow evidence
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/shadow.py (new) — compare_stage + ShadowStageComparison + ShadowStore;
+  __init__ re-exports.
+- tests/test_forge_stage_shadow.py (new) — comparator unit tests + real 4-stage shadow.
+Behavior implemented:
+- compare_stage scores the legacy and Forge sides mechanically (CandidateEvaluator) and
+  records a side-by-side ShadowStageComparison: both scores, winner, regression flag, and
+  promotable. A Forge regression (lower score) or an unavailable side blocks promotion;
+  changes_production_routing is always False (shadow never cuts over).
+Focused tests:
+- python -m pytest tests/test_forge_stage_shadow.py -k "not real" -> 4 passed (both sides
+  recorded + no cutover; regression blocks promotion; unavailable side not promoted; store
+  round-trip).
+REAL shadow evidence (actually executed, 4 stages side by side):
+- python -m pytest tests/test_forge_stage_shadow.py -k real -q -s -> 1 passed in 33.31s.
+- model=Mistral-Small-3.2-24B; legacy side = local model wrapped behind the legacy executor
+  adapter, Forge side = the Forge local provider. Per stage (winner / legacy_score /
+  forge_score / legacy_ms / forge_ms):
+  patch_generation tie 1.0/1.0 4078/2203; test_generation tie 1.0/1.0 2890/2875;
+  failure_classification tie 1.0/1.0 2328/2187; repair tie 1.0/1.0 2344/2187.
+- No cutover for any stage; no regression observed; results recorded under
+  ca_data/model_forge/shadow/.
+Safety invariants verified:
+- shadow records both outputs/scores; no cutover (changes_production_routing False);
+  regression/unavailable blocks promotion.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary; shadow only.
+Remaining gaps:
+- PFG-36 controlled Forge primary cutover for a selected stage.
+Next package:
+- PFG-36 — controlled Forge primary cutover for selected stage.
 Blocker:
 - None.
 ```
