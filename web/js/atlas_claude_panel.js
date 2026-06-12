@@ -1527,6 +1527,13 @@
             const processed = peek.data.processed_count || 0;
             const completed = peek.data.completed_count || 0;
             const failed = peek.data.failed_count || 0;
+            // Keep the theme-colored generation indicator current through apply/verify (no token
+            // generation here, so phase-only) so it stays visible across the whole dev phase.
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('atlas:llm-progress', {
+                detail: { phase: (completed + failed > 0 ? 'verifying' : 'applying'), tokens: 0, secondsSince: 0, poolId },
+              }));
+            }
             updateStage(stages, 'apply', processed >= applyTotal ? 'done' : 'running', `${processed}/${applyTotal}`);
             if (completed + failed > 0) {
               updateStage(stages, 'verify', processed >= applyTotal ? 'done' : 'running', `pass ${completed} / fail ${failed}`);

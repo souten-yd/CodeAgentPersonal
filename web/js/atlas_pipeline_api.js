@@ -332,6 +332,20 @@
             const st = await self.getPatchGenStatus(poolId, itemId);
             if (!st.ok || !st.data) continue;
             const d = st.data;
+            // Surface live patch-generation progress on the SAME theme-colored indicator used
+            // during plan generation, so the post-approval development phase shows phase + tokens
+            // (mirrors pollPlanPoolUntilReady's atlas:llm-progress dispatch).
+            if (typeof window !== 'undefined' && d.status === 'running') {
+              window.dispatchEvent(new CustomEvent('atlas:llm-progress', {
+                detail: {
+                  phase: d.phase || 'patch_generation',
+                  tokens: Number(d.tokens_generated) || 0,
+                  maxCtx: Number(d.max_ctx) || 0,
+                  secondsSince: Number(d.seconds_since_progress),
+                  poolId,
+                },
+              }));
+            }
             if (d.status === 'done') break;
             if (d.is_stalled) {
               const sec = Math.round(d.seconds_since_progress || 0);
