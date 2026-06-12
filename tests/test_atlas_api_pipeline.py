@@ -558,6 +558,108 @@ def test_create_plan_pool_records_forge_bridge_decision_at_llm_boundary(tmp_path
     assert event["changes_production_routing"] is False
 
 
+def test_create_plan_pool_cutover_returns_forge_output_at_llm_boundary(tmp_path, monkeypatch) -> None:
+    import app.api.atlas_pipeline as atlas_pipeline
+    from agent.model_forge.profile_store import ProfileStore
+    from agent.model_forge.provider_base import ForgeProvider, HealthState, ProviderHealth
+    from agent.model_forge.provider_registry import ProviderRegistry
+    from agent.model_forge.schema import ForgeExecutionResult, ProviderDescriptor, ProviderSupport, SourceClass
+    from agent.model_forge.shadow import ShadowStore
+    from agent.model_forge.source_policy import SourceMode
+    from agent.model_forge.stage_matrix import StageMatrix
+    from agent.model_forge.stage_taxonomy import ForgeStage, StageMode
+
+    class _Provider(ForgeProvider):
+        def __init__(self) -> None:
+            super().__init__(
+                ProviderDescriptor(
+                    provider_id="fake_local",
+                    provider_type="fake",
+                    source_class=SourceClass.SELF_HOSTED,
+                    enabled=True,
+                    supports=ProviderSupport(chat_completions=True),
+                )
+            )
+
+        def _probe_health(self) -> ProviderHealth:
+            return ProviderHealth(provider_id=self.provider_id, state=HealthState.READY)
+
+        def run_and_capture(self, request):
+            output = json.dumps({"implementation_steps": [{"title": "forge"}], "status": "planned"})
+            return (
+                ForgeExecutionResult(
+                    request_id=request.request_id,
+                    provider_id=self.provider_id,
+                    model_id="fake-model",
+                    route_id=request.route_id,
+                    stage=request.stage,
+                    contract_valid=True,
+                ),
+                output,
+            )
+
+        def execute_chat_completion(self, request):
+            result, _output = self.run_and_capture(request)
+            return result
+
+    class _Cutover:
+        def load(self, stage):
+            return {
+                "stage": str(stage),
+                "status": "active",
+                "mode": "auto_select",
+                "forge_primary": True,
+                "legacy_fallback": True,
+            }
+
+    class _Service:
+        def __init__(self, ca_data_root, *, prompt_resolver=None, env=None) -> None:
+            self.root = Path(ca_data_root)
+            self.registry = ProviderRegistry()
+            self.registry.register(_Provider())
+            self.stage_matrix = StageMatrix(self.root / "model_forge" / "stage_policy.json")
+            self.stage_matrix.set_policy(
+                ForgeStage.PLANNING,
+                StageMode.AUTO_SELECT,
+                allow_production_routing=True,
+                reason="test_cutover",
+            )
+            self.profiles = ProfileStore(self.root / "model_forge" / "profiles")
+            self.shadow = ShadowStore(self.root / "model_forge" / "shadow")
+            self.cutover_controller = _Cutover()
+
+        def forge_enabled(self) -> bool:
+            return True
+
+        def source_mode(self):
+            return SourceMode.LOCAL_ONLY
+
+        def models(self) -> list[dict]:
+            return [{"provider_id": "fake_local", "model_id": "fake-model", "source": "test"}]
+
+        def record_execution_bridge_event(self, payload: dict) -> str:
+            path = self.root / "model_forge" / "execution_bridge" / f"{payload['stage']}.{payload['request_id']}.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            return str(path)
+
+    monkeypatch.setattr(atlas_pipeline, "ForgeService", _Service)
+    client = _client(tmp_path)
+    main.app.state.atlas_llm_json_fn = lambda _s, _u: {"plan": {"implementation_steps": [{"title": "legacy"}]}, "status": "planned"}
+
+    response = client.post("/api/atlas/plan-pools?sync=1", json={"input": "goal", "planner_mode": "real_planner"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["plan_pool"]["items"][0]["title"] == "forge"
+    event_files = list((tmp_path / "model_forge" / "execution_bridge").glob("planning.*.json"))
+    assert event_files
+    event = json.loads(event_files[-1].read_text(encoding="utf-8"))
+    assert event["decision"] == "forge_primary_returned"
+    assert event["legacy_primary"] is False
+    assert event["changes_production_routing"] is True
+
+
 def test_create_plan_pool_falls_back_when_llm_json_fn_returns_none(tmp_path) -> None:
     client = _client(tmp_path)
     main.app.state.atlas_llm_json_fn = lambda _s, _u: (_ for _ in ()).throw(RuntimeError("llm unavailable"))

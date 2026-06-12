@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from agent.atlas_llm_json_adapter_schema import AtlasLLMJsonRequest
+from agent.model_forge.cutover import CutoverController
 from agent.model_forge.execution_bridge import ForgeModelExecutionBridge
 from agent.model_forge.profile_store import ProfileStore
 from agent.model_forge.provider_base import ForgeProvider, HealthState, ProviderHealth
@@ -31,12 +32,27 @@ class _FakeProvider(ForgeProvider):
             )
         )
         self.calls: list[ForgeExecutionRequest] = []
+        self.fail_next = False
 
     def _probe_health(self) -> ProviderHealth:
         return ProviderHealth(provider_id=self.provider_id, state=HealthState.READY)
 
     def run_and_capture(self, request: ForgeExecutionRequest) -> tuple[ForgeExecutionResult, str]:
         self.calls.append(request)
+        if self.fail_next:
+            self.fail_next = False
+            return (
+                ForgeExecutionResult(
+                    request_id=request.request_id,
+                    provider_id=self.provider_id,
+                    model_id="fake-model",
+                    route_id=request.route_id,
+                    stage=request.stage,
+                    contract_valid=False,
+                    errors=["fake_failure"],
+                ),
+                "",
+            )
         output = json.dumps({"plan": {"implementation_steps": [{"title": "forge"}]}})
         return (
             ForgeExecutionResult(
@@ -71,6 +87,11 @@ class _FakeService:
         )
         self.profiles = ProfileStore(root / "profiles")
         self.shadow = ShadowStore(root / "shadow")
+        self.cutover_controller = CutoverController(
+            self.stage_matrix,
+            self.shadow,
+            store_dir=root / "cutover",
+        )
         self.events: list[dict] = []
 
     def forge_enabled(self) -> bool:
@@ -120,4 +141,67 @@ def test_bridge_shadow_select_records_comparison_but_returns_legacy(tmp_path) ->
     assert service.events[-1]["selection"]["selected_provider_id"] == "fake_local"
     assert service.events[-1]["shadow"]["comparison_ref"]
     assert Path(service.events[-1]["shadow"]["comparison_ref"]).exists()
+    assert service.events[-1]["changes_production_routing"] is False
+
+
+def test_bridge_cutover_returns_forge_output_with_legacy_fallback_available(tmp_path) -> None:
+    service = _FakeService(tmp_path, enabled=True)
+    bridge = ForgeModelExecutionBridge(
+        legacy_fn=lambda _s, _u: {"plan": {"implementation_steps": [{"title": "legacy"}]}},
+        service_factory=lambda _s, _u: service,
+        stage=ForgeStage.PLANNING,
+    )
+    bridge.generate_json(AtlasLLMJsonRequest(system_prompt="system", user_prompt="user"))
+    service.cutover_controller.cutover(ForgeStage.PLANNING, acknowledge=True)
+
+    result = bridge.generate_json(AtlasLLMJsonRequest(system_prompt="system", user_prompt="user"))
+
+    assert result.ok is True
+    assert result.data["plan"]["implementation_steps"][0]["title"] == "forge"
+    assert service.events[-1]["decision"] == "forge_primary_returned"
+    assert service.events[-1]["legacy_primary"] is False
+    assert service.events[-1]["changes_production_routing"] is True
+    assert service.events[-1]["fallback"]["used"] is False
+    assert "_routed_data" not in service.events[-1]
+
+
+def test_bridge_cutover_falls_back_to_legacy_when_forge_fails(tmp_path) -> None:
+    service = _FakeService(tmp_path, enabled=True)
+    bridge = ForgeModelExecutionBridge(
+        legacy_fn=lambda _s, _u: {"plan": {"implementation_steps": [{"title": "legacy"}]}},
+        service_factory=lambda _s, _u: service,
+        stage=ForgeStage.PLANNING,
+    )
+    bridge.generate_json(AtlasLLMJsonRequest(system_prompt="system", user_prompt="user"))
+    service.cutover_controller.cutover(ForgeStage.PLANNING, acknowledge=True)
+    service.provider.fail_next = True
+
+    result = bridge.generate_json(AtlasLLMJsonRequest(system_prompt="system", user_prompt="user"))
+
+    assert result.ok is True
+    assert result.data["plan"]["implementation_steps"][0]["title"] == "legacy"
+    assert service.events[-1]["decision"] == "forge_primary_failed_legacy_fallback"
+    assert service.events[-1]["legacy_primary"] is True
+    assert service.events[-1]["changes_production_routing"] is False
+    assert service.events[-1]["fallback"]["used"] is True
+
+
+def test_bridge_rollback_returns_to_legacy_primary(tmp_path) -> None:
+    service = _FakeService(tmp_path, enabled=True)
+    bridge = ForgeModelExecutionBridge(
+        legacy_fn=lambda _s, _u: {"plan": {"implementation_steps": [{"title": "legacy"}]}},
+        service_factory=lambda _s, _u: service,
+        stage=ForgeStage.PLANNING,
+    )
+    bridge.generate_json(AtlasLLMJsonRequest(system_prompt="system", user_prompt="user"))
+    service.cutover_controller.cutover(ForgeStage.PLANNING, acknowledge=True)
+    service.cutover_controller.rollback(ForgeStage.PLANNING)
+
+    result = bridge.generate_json(AtlasLLMJsonRequest(system_prompt="system", user_prompt="user"))
+
+    assert result.ok is True
+    assert result.data["plan"]["implementation_steps"][0]["title"] == "legacy"
+    assert service.events[-1]["decision"] == "shadow_recorded_legacy_primary"
+    assert service.events[-1]["cutover"]["status"] == "rolled_back"
+    assert service.events[-1]["legacy_primary"] is True
     assert service.events[-1]["changes_production_routing"] is False
