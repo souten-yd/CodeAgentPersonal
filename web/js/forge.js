@@ -26,6 +26,7 @@
     { id: 'benchmark', label: 'Benchmark' },
     { id: 'arena', label: 'Arena' },
     { id: 'loadouts', label: 'Loadouts' },
+    { id: 'settings', label: 'Settings' },
     { id: 'advanced', label: 'Advanced' },
   ];
 
@@ -37,7 +38,7 @@
     activated: false,
     loading: false,
     tab: 'overview',
-    data: { status: {}, providers: [], loadouts: [], profiles: [], leaderboard: [], presets: [] },
+    data: { status: {}, providers: [], loadouts: [], profiles: [], leaderboard: [], presets: [], settings: {}, openrouterCatalog: null },
     // Benchmark selector state. Depth defaults to 'standard' — full/deep is never forced.
     bench: { presets: [], depth: 'standard', provider: '', model: '', result: null },
   };
@@ -227,6 +228,15 @@
       ))
     ).join('');
     const prov = selectedProvider(data);
+    const catalogModels = prov && prov.provider_id === 'openrouter' && data.openrouterCatalog
+      ? (data.openrouterCatalog.models || []) : [];
+    const modelSelect = catalogModels.length
+      ? '<select class="forge-select" data-bench-model-select><option value="">Catalog model...</option>'
+        + catalogModels.map((m) => (
+          '<option value="' + escapeHtml(m.model_id) + '"' + (sel.model === m.model_id ? ' selected' : '') + '>'
+          + escapeHtml(m.display_name || m.model_id) + '</option>'
+        )).join('') + '</select>'
+      : '';
     const externalWarning = prov && prov.source_class === 'external_cloud'
       ? '<div class="forge-warn">External provider selected. Source/privacy policy applies; '
         + 'this is blocked under Local Only and may send context to a cloud model.</div>'
@@ -250,7 +260,8 @@
       + '<div class="forge-card">'
       + '<div class="forge-card-title">Model</div>'
       + '<select class="forge-select" data-bench-provider>' + provOpts + '</select>'
-      + '<input class="forge-input" data-bench-model placeholder="model id" value="' + escapeHtml(sel.model) + '">'
+      + modelSelect
+      + '<input class="forge-input" data-bench-model placeholder="provider model id" value="' + escapeHtml(sel.model) + '">'
       + externalWarning
       + '<button type="button" class="forge-run-btn" data-bench-run' + (canRun ? '' : ' disabled') + '>Run benchmark</button>'
       + result
@@ -273,6 +284,9 @@
     });
     content.querySelector('[data-bench-provider]')?.addEventListener('change', (e) => {
       state.bench.provider = e.target.value; renderActive();
+    });
+    content.querySelector('[data-bench-model-select]')?.addEventListener('change', (e) => {
+      state.bench.model = e.target.value; renderActive();
     });
     content.querySelector('[data-bench-model]')?.addEventListener('input', (e) => {
       state.bench.model = e.target.value;
@@ -528,9 +542,62 @@
     renderActive();
   }
 
+  // ----- Settings (PFH-2) -----
+
+  function settingsHtml(data) {
+    const settings = data.settings || {};
+    const local = settings.local_provider || {};
+    const openrouter = settings.openrouter || {};
+    const catalog = data.openrouterCatalog || {};
+    return (
+      '<div class="forge-card">'
+      + '<div class="forge-card-title">Local Provider</div>'
+      + '<label class="forge-label">Base URL<input class="forge-input" data-setting-local-base value="' + escapeHtml(local.base_url || '') + '"></label>'
+      + '<label class="forge-label">Model ID<input class="forge-input" data-setting-local-model value="' + escapeHtml(local.model_id || '') + '"></label>'
+      + '<label class="forge-label">LLM folder<input class="forge-input" data-setting-local-dir value="' + escapeHtml(local.model_storage_dir || '') + '"></label>'
+      + '</div>'
+      + '<div class="forge-card">'
+      + '<div class="forge-card-title">OpenRouter</div>'
+      + '<label class="forge-check"><input type="checkbox" data-setting-openrouter-enabled' + (openrouter.enabled ? ' checked' : '') + '><span>Enabled</span></label>'
+      + '<label class="forge-label">API key env<input class="forge-input" data-setting-openrouter-env value="' + escapeHtml(openrouter.api_key_env || 'OPENROUTER_API_KEY') + '"></label>'
+      + '<label class="forge-label">Base URL<input class="forge-input" data-setting-openrouter-base value="' + escapeHtml(openrouter.base_url || 'https://openrouter.ai/api/v1') + '"></label>'
+      + '<div class="forge-kv"><span>Credential</span><b>' + escapeHtml(openrouter.credential_configured ? 'configured' : 'missing') + '</b></div>'
+      + '<div class="forge-kv"><span>Catalog</span><b>' + escapeHtml(catalog.status || 'disabled') + '</b></div>'
+      + '<button type="button" class="forge-run-btn" data-settings-save>Save settings</button>'
+      + '</div>'
+    );
+  }
+
+  function wireSettings(content) {
+    content.querySelector('[data-settings-save]')?.addEventListener('click', () => saveSettings(content));
+  }
+
+  async function saveSettings(content) {
+    const payload = {
+      local_provider: {
+        base_url: content.querySelector('[data-setting-local-base]')?.value || '',
+        model_id: content.querySelector('[data-setting-local-model]')?.value || '',
+        model_storage_dir: content.querySelector('[data-setting-local-dir]')?.value || '',
+      },
+      openrouter: {
+        enabled: !!content.querySelector('[data-setting-openrouter-enabled]')?.checked,
+        api_key_env: content.querySelector('[data-setting-openrouter-env]')?.value || 'OPENROUTER_API_KEY',
+        base_url: content.querySelector('[data-setting-openrouter-base]')?.value || 'https://openrouter.ai/api/v1',
+      },
+    };
+    try {
+      state.data.settings = (await api('/settings', { method: 'POST', body: JSON.stringify(payload) })).settings || {};
+      setStatus('Forge settings saved', 'ok');
+      try { state.data.openrouterCatalog = await api('/providers/openrouter/catalog'); } catch (_e) {}
+    } catch (err) {
+      setStatus('Settings save refused: ' + (err && err.message ? err.message : 'error'), 'error');
+    }
+    renderActive();
+  }
+
   const VIEWS = {
     overview: overviewHtml, skills: skillsHtml, benchmark: benchmarkHtml,
-    arena: arenaHtml, loadouts: loadoutsHtml, advanced: advancedHtml,
+    arena: arenaHtml, loadouts: loadoutsHtml, settings: settingsHtml, advanced: advancedHtml,
   };
 
   // ----- model detail drawer (Skills) -----
@@ -603,6 +670,8 @@
       wireAdvanced(content);
     } else if (state.tab === 'loadouts') {
       wireLoadouts(content);
+    } else if (state.tab === 'settings') {
+      wireSettings(content);
     }
   }
 
@@ -617,8 +686,10 @@
     setStatus('Loading…');
     try {
       const status = await api('/status');
-      const data = { status, providers: [], loadouts: [], profiles: [], leaderboard: [] };
+      const data = { status, providers: [], loadouts: [], profiles: [], leaderboard: [], settings: {}, openrouterCatalog: null };
       try { data.providers = (await api('/providers')).providers || []; } catch (_e) {}
+      try { data.settings = (await api('/settings')).settings || {}; } catch (_e) {}
+      try { data.openrouterCatalog = await api('/providers/openrouter/catalog'); } catch (_e) {}
       try { data.loadouts = (await api('/loadouts')).loadouts || []; } catch (_e) {}
       try { data.profiles = (await api('/profiles')).profiles || []; } catch (_e) {}
       try { data.leaderboard = (await api('/leaderboard')).leaderboard || []; } catch (_e) {}
@@ -661,6 +732,7 @@
     _arenaHtml: arenaHtml,
     _advancedHtml: advancedHtml,
     _loadoutsHtml: loadoutsHtml,
+    _settingsHtml: settingsHtml,
     _runBenchmark: runBenchmark,
     _state: state,
   };

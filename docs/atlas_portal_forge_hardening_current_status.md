@@ -7,8 +7,8 @@
 
 - Overall: **ACTIVE — POST-PFG PRODUCTION HARDENING**
 - Active track: `PFH-1..PFH-8`
-- Current package: `PFH-2`
-- Current package goal: OpenRouter catalog product integration and Forge Settings entry for provider configuration, without persisting or returning secrets.
+- Current package: `PFH-3`
+- Current package goal: split provider configured state from runtime readiness.
 - Rollout: Forge remains off/default unless bridge-level shadow/cutover evidence proves otherwise.
 - Legacy model execution remains primary until PFH-4/PFH-5 evidence passes.
 - OpenRouter live evidence remains unavailable unless explicitly configured.
@@ -30,8 +30,8 @@
 | Package | Goal | Status |
 |---|---|---|
 | PFH-1 | Benchmark preset identity and execution semantics | acceptance_complete |
-| PFH-2 | OpenRouter catalog product integration | in_progress |
-| PFH-3 | Provider configured state vs runtime readiness | not_started |
+| PFH-2 | OpenRouter catalog product integration | acceptance_complete |
+| PFH-3 | Provider configured state vs runtime readiness | in_progress |
 | PFH-4 | ForgeModelExecutionBridge, shadow-first | not_started |
 | PFH-5 | Real cutover and rollback | not_started |
 | PFH-6 | Real evidence through Forge provider/preset runner | not_started |
@@ -43,7 +43,7 @@
 ```text
 1. Forge cutover updates StageMatrix policy but does not yet prove the actual Atlas model execution data path is switched.
 2. LegacyAtlasProvider is not wired as a live ForgeService execution backend for current Atlas calls.
-3. OpenRouterCatalog exists but is not fully product-connected to ForgeService/API/UI model selection.
+3. OpenRouterCatalog exists but is not fully product-connected to ForgeService/API/UI model selection. [PFH-2 addressed]
 4. Benchmark UI primary preset IDs can diverge from real backend preset IDs. [PFH-1 addressed]
 5. Benchmark run can submit only the first selected preset. [PFH-1 addressed]
 6. Some real evidence tests use direct urllib model calls rather than Forge provider/preset runner path.
@@ -142,15 +142,83 @@ Remaining gaps:
 Next package: PFH-2 — OpenRouter catalog product integration plus Forge Settings provider configuration UX.
 Blocker: none.
 
-## Current package: PFH-2 checklist
+## Completed package: PFH-2 OpenRouter catalog product integration and Forge Settings
 
-- Inspect existing OpenRouter config/client/catalog modules and Forge API/service wiring.
-- Add Forge Settings tab/menu for non-secret provider settings and secret-safe configured-state display.
-- Do not persist OpenRouter access token values; only show configured/missing state and credential env name or one-shot probe behavior.
-- Connect `OpenRouterCatalog` to ForgeService/API/UI model selection.
-- Store public catalog cache under `ca_data/model_forge/catalog/openrouter_models.json`.
-- Keep Local Only mode blocking external calls.
-- Make benchmark model/provider UX distinguish provider model ID from local model storage folder configuration.
+Completed package: PFH-2
+Status: acceptance_complete
+Changed modules/files:
+- `agent/model_forge/forge_service.py`
+- `app/api/forge.py`
+- `web/js/forge.js`
+- `web/css/app.css`
+- `tests/test_forge_api.py`
+- `tests/test_forge_benchmark_render.py`
+- `tests/test_forge_settings_render.py`
+- `docs/atlas_portal_forge_hardening_current_status.md`
+
+Behavior implemented:
+- Added Forge Settings API: `GET /api/forge/settings` and `POST /api/forge/settings`.
+- Added Forge Settings UI tab/menu for Local provider and OpenRouter provider configuration.
+- Persisted only non-secret provider settings under Forge settings: local base URL, provider model ID, local LLM storage folder, OpenRouter enabled flag, OpenRouter API key env name, OpenRouter base URL, and OpenRouter app metadata.
+- Rejected secret-bearing settings payload keys such as `api_key`, `access_token`, `token`, `openrouter_api_key`, and `authorization`.
+- Settings API reports OpenRouter credential configured/missing state without returning the secret value.
+- Added `GET /api/forge/providers/openrouter/catalog`.
+- Connected `OpenRouterCatalog` to `ForgeService` with public cache path `ca_data/model_forge/catalog/openrouter_models.json`.
+- OpenRouter catalog endpoint serves cached public model metadata without an API key and without making live calls under Local Only.
+- `/api/forge/models` includes cached OpenRouter catalog models with source `openrouter_catalog_cache`.
+- Forge Benchmark model selector can show OpenRouter catalog models and still keeps a manual provider model ID input fallback.
+- Benchmark Settings now distinguishes provider model ID from the legacy/local LLM storage folder.
+
+Focused tests:
+- `python -m pytest -q tests/test_forge_api.py tests/test_forge_benchmark_render.py tests/test_forge_settings_render.py tests/test_model_forge_openrouter_catalog.py tests/test_model_forge_openrouter_config.py` -> 32 passed.
+
+Syntax checks:
+- `node --check web/js/forge.js` -> passed.
+- `python -m compileall -q agent/model_forge app/api tests/test_forge_settings_render.py` -> passed.
+- `git diff --check` -> passed with CRLF normalization warnings only.
+
+Affected tests:
+- Expanded invocation: `$files = @(Get-ChildItem tests -Filter 'test_forge_*.py' | ForEach-Object { $_.FullName }) + @(Get-ChildItem tests -Filter 'test_model_forge_openrouter_*.py' | ForEach-Object { $_.FullName }); python -m pytest -q @files` -> 86 passed, 1 skipped.
+
+Real model evidence:
+- PFH-2 does not require model execution.
+- Required user LLM code-review verification ran through `http://127.0.0.1:8080/v1/chat/completions` using `Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf` -> PASS, no blocking issues. This is advisory code review evidence, not runtime/model acceptance evidence.
+
+Portal runtime evidence:
+- Not applicable to PFH-2; no Portal runtime claim made.
+
+Capsule replay evidence:
+- Not applicable to PFH-2; no Capsule replay claim made.
+
+OpenRouter evidence:
+- Cached/offline OpenRouter catalog behavior is covered by tests and uses public model metadata only.
+- Live OpenRouter smoke was not run because PFH-2 does not enable `FORGE_OPENROUTER_LIVE_SMOKE=1` or provide `OPENROUTER_API_KEY`; no live evidence claimed.
+
+Unavailable checks:
+- OpenRouter live evidence remains unavailable unless `FORGE_OPENROUTER_LIVE_SMOKE=1` and `OPENROUTER_API_KEY` are configured.
+- OpenRouter catalog without cache and under Local Only reports `disabled` with a blocking reason instead of making a live call.
+
+Safety invariants:
+- Secret values are not persisted, logged, or returned by API.
+- Local Only still blocks live OpenRouter calls.
+- Forge remains off by default; legacy model execution remains primary.
+- External providers remain disabled by default unless explicitly configured.
+- Arena / Proposal / Safe Apply / Verification authority boundaries unchanged.
+
+Remaining gaps:
+- PFH-3 must split provider configured state from runtime readiness so configured local base URL does not imply live readiness.
+- OpenRouter catalog refresh UI is basic; live fetch still requires policy/key configuration and is not claimed here.
+
+Next package: PFH-3 — Provider configured state vs runtime readiness.
+Blocker: none.
+
+## Current package: PFH-3 checklist
+
+- Inspect provider health contracts and LocalOpenAICompatibleProvider health behavior.
+- Add provider status fields for configured state and runtime health.
+- Add explicit provider probe API that is offline-safe by default.
+- Ensure local base URL means configured, not runtime-ready, unless a probe succeeds.
+- Update Forge UI to show Configured/Ready/Unavailable/Disabled distinctly.
 - Update tests and this status with exact evidence.
 
 ## Stop conditions

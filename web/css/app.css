@@ -1777,6 +1777,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .forge-seg.active{background:var(--accent-bg,rgba(120,180,255,.12));color:var(--accent)}
 .forge-hint{margin-top:6px;font-size:11px;color:var(--text3)}
 .forge-select,.forge-input{width:100%;margin-top:8px;background:var(--bg1);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;padding:7px 10px;box-sizing:border-box}
+.forge-label{display:block;margin-top:8px;font-size:11.5px;color:var(--text2)}
 .forge-warn{margin-top:8px;font-size:11.5px;color:var(--amber,#d6a23e);background:rgba(214,162,62,.1);border:1px solid rgba(214,162,62,.3);border-radius:8px;padding:7px 10px;line-height:1.4}
 .forge-run-btn{margin-top:10px;width:100%;background:var(--accent);border:none;border-radius:8px;color:#05140a;font-size:13px;font-weight:700;padding:9px 12px;cursor:pointer}
 .forge-run-btn:disabled{opacity:.45;cursor:not-allowed}
