@@ -13,7 +13,13 @@ from pydantic import BaseModel, Field
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from app.env_detection import detect_runpod
 from app.portal.catalog import PortalCatalogError, PortalCatalogService
-from app.portal.contracts import PORTAL_SCHEMA_VERSION, PortalRunMode, PortalRunRequest
+from app.portal.contracts import (
+    PORTAL_SCHEMA_VERSION,
+    PortalForgeTrace,
+    PortalRunMode,
+    PortalRunRequest,
+)
+from app.portal.forge_trace import read_forge_trace, write_forge_trace
 from app.portal.runtime import PortalRuntimeError, PortalRuntimeService
 
 
@@ -330,6 +336,44 @@ def list_installation_snapshots(installation_id: str, request: Request) -> dict:
         "installation_id": installation_id,
         "available": True,
         "snapshots": snapshots,
+    }
+
+
+class PortalForgeTraceRequest(BaseModel):
+    provider_id: str = ""
+    model_id: str = ""
+    route_id: str = ""
+    stage: str = ""
+    source_mode: str = ""
+    arena_run_id: str = ""
+    candidate_id: str = ""
+    loadout_id: str = ""
+
+
+@router.get("/installations/{installation_id}/forge-trace")
+def get_installation_forge_trace(installation_id: str, request: Request) -> dict:
+    """Optional Forge provenance for a run. A legacy run with no trace returns
+    available=false (and still loads normally)."""
+    trace = read_forge_trace(resolve_atlas_ca_data_root(request), installation_id)
+    return {
+        "schema_version": PORTAL_SCHEMA_VERSION,
+        "installation_id": installation_id,
+        "available": trace is not None,
+        "trace": trace.model_dump(mode="json") if trace is not None else None,
+    }
+
+
+@router.post("/installations/{installation_id}/forge-trace")
+def put_installation_forge_trace(
+    installation_id: str, body: PortalForgeTraceRequest, request: Request
+) -> dict:
+    trace = PortalForgeTrace(installation_id=installation_id, **body.model_dump())
+    saved = write_forge_trace(resolve_atlas_ca_data_root(request), trace)
+    return {
+        "schema_version": PORTAL_SCHEMA_VERSION,
+        "installation_id": installation_id,
+        "available": True,
+        "trace": saved.model_dump(mode="json"),
     }
 
 
