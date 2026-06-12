@@ -420,6 +420,31 @@
     if (sheet) { sheet.classList.add('open'); sheet.setAttribute('aria-hidden', 'false'); }
     const title = $('portal-run-title');
     if (title) title.textContent = state.run?.packageName || 'Run';
+    loadForgeTrace(state.run?.installationId);
+  }
+
+  // PFG-27: show the optional Forge provenance for this run. Absent for legacy runs.
+  async function loadForgeTrace(installationId) {
+    const el = $('portal-run-trace');
+    if (!el) return;
+    el.textContent = '';
+    el.style.display = 'none';
+    if (!installationId) return;
+    try {
+      const resp = await fetch('/api/portal/installations/' + encodeURIComponent(installationId) + '/forge-trace');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (!data.available || !data.trace) return;  // legacy run: no trace, render nothing
+      const t = data.trace;
+      const parts = [];
+      if (t.model_id) parts.push(t.model_id);
+      if (t.route_id) parts.push(t.route_id);
+      if (t.source_mode) parts.push(t.source_mode);
+      if (t.loadout_id) parts.push('loadout:' + t.loadout_id);
+      if (!parts.length) return;
+      el.textContent = 'Forge: ' + parts.join(' · ');
+      el.style.display = '';
+    } catch (_e) { /* trace is best-effort and optional */ }
   }
 
   function closeRunSheet() {

@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-27`
-- Current package goal: Portal Run Forge Trace metadata.
-- Next action: add an optional ForgeTrace schema to Portal run records, show a compact
-  trace in the Portal run sheet, and keep legacy Portal records (no trace) loading.
-- Last completed: `PFG-26` (Loadouts UI and persistence) — acceptance_complete; see PFG-26
-  evidence below. PFG-1..PFG-25 also complete.
+- Current package: `PFG-28`
+- Current package goal: Portal evidence to Candidate Evaluator.
+- Next action: feed Portal preview/log/save/discard/snapshot outcomes into the evaluator /
+  profile updater; treat user decisions as weak feedback unless paired with runtime evidence.
+- Last completed: `PFG-27` (Portal Run Forge Trace metadata) — acceptance_complete; see
+  PFG-27 evidence below. PFG-1..PFG-26 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -82,7 +82,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-24 | Arena UI | acceptance_complete |
 | PFG-25 | Stage Matrix and Route Matrix UI | acceptance_complete |
 | PFG-26 | Loadouts UI and persistence | acceptance_complete |
-| PFG-27 | Portal Run Forge Trace metadata | not_started |
+| PFG-27 | Portal Run Forge Trace metadata | acceptance_complete |
 | PFG-28 | Portal evidence to Candidate Evaluator | not_started |
 | PFG-29 | Capsule Forge metadata and replay | not_started |
 | PFG-30 | real local-model Quick preset run | not_started |
@@ -1209,6 +1209,46 @@ Remaining gaps:
 - PFG-27 Portal Run Forge Trace metadata.
 Next package:
 - PFG-27 — Portal Run Forge Trace metadata.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-27 — Portal Run Forge Trace metadata
+Status: acceptance_complete
+Changed modules/files:
+- app/portal/contracts.py — PortalForgeTrace (optional, sidecar; all fields but
+  installation_id optional).
+- app/portal/forge_trace.py (new) — write/read the sidecar at installation_root/
+  forge_trace.json (outside package + data trees).
+- app/api/portal.py — GET/POST /installations/{id}/forge-trace.
+- web/js/portal.js — loadForgeTrace shows a compact trace line in the run sheet.
+- ui.html — #portal-run-trace element; web/css/app.css — trace line style.
+- tests/test_portal_forge_trace.py (new).
+Behavior implemented:
+- A Portal run can carry optional Forge provenance (provider/model/route/stage/source
+  mode/arena/candidate/loadout) stored as a sidecar next to the installation. The run sheet
+  shows a compact "Forge: model · route · source · loadout" line when a trace exists and
+  renders nothing for legacy runs. The trace is never in the immutable package or exported
+  data.
+Syntax checks:
+- node --check web/js/portal.js -> OK; inline ui.html script -> node --check OK.
+Focused tests:
+- python -m pytest tests/test_portal_forge_trace.py -> 3 passed (legacy run -> available
+  false + still loads; round-trips + sidecar-safe location; per-installation isolation).
+- python -m pytest tests/test_portal_forge_trace.py tests/test_portal_pfg1_regression_locks.py
+  tests/test_portal_snapshot_listing.py -> 10 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-27 adds optional metadata; no model executed.
+Safety invariants verified:
+- trace optional + sidecar-safe (not in package/data); legacy records still load;
+  data-free export unchanged.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-28 Portal evidence to Candidate Evaluator.
+Next package:
+- PFG-28 — Portal evidence to Candidate Evaluator.
 Blocker:
 - None.
 ```

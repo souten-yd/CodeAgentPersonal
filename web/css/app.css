@@ -1708,6 +1708,7 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .portal-head-actions{display:flex;gap:8px}
 .portal-action-btn{background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;padding:6px 12px;cursor:pointer;white-space:nowrap}
 .portal-action-btn:hover{background:var(--bg3)}
+.portal-run-trace{padding:4px 14px;font-size:11px;color:var(--text3);font-family:var(--font-mono);border-bottom:1px solid var(--border);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Forge (PFG-20+) — mirrors the Portal shell for visual consistency */
 .forge-col{background:var(--bg1);overflow:hidden;min-height:0;flex:1 1 auto;min-width:0}
 .forge-shell{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden}

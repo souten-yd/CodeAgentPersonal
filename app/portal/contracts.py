@@ -99,3 +99,24 @@ class PortalSnapshot(StrictContractModel):
     source: str = Field(min_length=1)
     immutable: bool = True
     data_hash: str = Field(min_length=1)
+
+
+class PortalForgeTrace(StrictContractModel):
+    """Optional Forge provenance for a Portal run (PFG-27).
+
+    Stored as a sidecar next to the installation, never inside the immutable package and
+    never in exported data. Every field except installation_id is optional so a run with
+    no Forge provenance simply has no trace, and legacy Portal records keep loading.
+    """
+
+    schema_version: Literal[PORTAL_SCHEMA_VERSION] = PORTAL_SCHEMA_VERSION
+    installation_id: str = Field(min_length=1)
+    provider_id: str = ""
+    model_id: str = ""
+    route_id: str = ""
+    stage: str = ""
+    source_mode: str = ""
+    arena_run_id: str = ""
+    candidate_id: str = ""
+    loadout_id: str = ""
+    recorded_at: str = ""
