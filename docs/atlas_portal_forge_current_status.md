@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-10`
-- Current package goal: OpenRouter mock chat client.
-- Next action: implement an OpenRouter chat client driven by a mock transport
-  (no live calls); live smoke gated behind FORGE_OPENROUTER_LIVE_SMOKE + key.
-- Last completed: `PFG-9` (OpenRouter configuration and secret policy) —
-  acceptance_complete; see PFG-9 evidence below. PFG-1..PFG-8 also complete.
+- Current package: `PFG-11`
+- Current package goal: OpenRouter model catalog cache.
+- Next action: implement an OpenRouter model-catalog fetcher with TTL cache and
+  offline fallback (mock transport; public model metadata only, no secrets).
+- Last completed: `PFG-10` (OpenRouter mock chat client) — acceptance_complete; see
+  PFG-10 evidence below. PFG-1..PFG-9 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -65,7 +65,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-7 | Legacy Atlas Executor adapter | acceptance_complete |
 | PFG-8 | local OpenAI-compatible provider adapter | acceptance_complete |
 | PFG-9 | OpenRouter configuration and secret policy | acceptance_complete |
-| PFG-10 | OpenRouter mock chat client | not_started |
+| PFG-10 | OpenRouter mock chat client | acceptance_complete |
 | PFG-11 | OpenRouter model catalog cache | not_started |
 | PFG-12 | provider health and Source Mode policy | not_started |
 | PFG-13 | benchmark preset schema and initial presets | not_started |
@@ -593,6 +593,41 @@ Remaining gaps:
 - PFG-9 OpenRouter configuration and secret policy (env-only key, disabled default).
 Next package:
 - PFG-9 — OpenRouter configuration and secret policy.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-10 — OpenRouter mock chat client
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/providers/openrouter_client.py (new), __init__ re-exports
+- tests/test_model_forge_openrouter_client.py (new)
+Behavior implemented:
+- OpenRouterProvider implements non-streaming chat completions behind the provider
+  interface with a bounded timeout, request/response normalization, and usage/latency/
+  error capture. Endpoint is {base_url}/chat/completions; auth/referer/title headers
+  come from env via build_openrouter_headers. Per-request Local Only gate blocks
+  before any HTTP. Disabled config -> DISABLED, missing key -> UNAVAILABLE.
+- All errors become structured results: local_only_blocks_external / timeout /
+  connection_error / http_<code> / malformed_response / empty_output.
+Focused tests:
+- python -m pytest tests/test_model_forge_openrouter_client.py -> 6 passed
+  (disabled-by-default DISABLED; enabled-no-key UNAVAILABLE; mock success normalizes
+   + Bearer header + stream False + usage; Local Only blocks before any HTTP;
+   timeout/http_429/malformed structured; mock-only execution).
+CI / live policy:
+- All tests inject a mock HTTP transport; no live API call. Live smoke remains gated
+  behind FORGE_OPENROUTER_LIVE_SMOKE=1 + OPENROUTER_API_KEY (PFG-34).
+Safety invariants verified:
+- No live call in CI; secrets only in headers (redactable), never persisted; Local
+  Only blocks OpenRouter before request; errors structured not raised.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-11 OpenRouter model catalog cache (mock + offline fallback).
+Next package:
+- PFG-11 — OpenRouter model catalog cache.
 Blocker:
 - None.
 ```

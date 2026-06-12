@@ -38,6 +38,7 @@ from agent.model_forge.providers.openrouter_config import (
     openrouter_descriptor,
     redact_openrouter_headers,
 )
+from agent.model_forge.providers.openrouter_client import OpenRouterProvider
 from agent.model_forge.route_taxonomy import ForgeRoute, all_routes, is_valid_route
 from agent.model_forge.schema import (
     FORGE_SCHEMA_VERSION,
@@ -130,4 +131,5 @@ __all__ = [
     "live_smoke_enabled",
     "build_openrouter_headers",
     "redact_openrouter_headers",
+    "OpenRouterProvider",
 ]
