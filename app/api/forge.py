@@ -177,6 +177,55 @@ def post_portal_evidence(request: Request, body: PortalEvidenceRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class CapsuleForgeMetaRequest(BaseModel):
+    package_id: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    content_hash: str = Field(min_length=1)
+    provider_id: str = ""
+    model_id: str = ""
+    route_id: str = ""
+    stage: str = ""
+    source_mode: str = ""
+    arena_run_id: str = ""
+    candidate_id: str = ""
+    loadout_id: str = ""
+    dimension: str = "greenfield"
+
+
+class CapsuleReplayRequest(BaseModel):
+    package_id: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    content_hash: str = Field(min_length=1)
+    runtime_passed: bool | None = None
+    user_decision: str = ""
+
+
+@router.post("/capsule/forge-meta")
+def post_capsule_forge_meta(request: Request, body: CapsuleForgeMetaRequest) -> dict:
+    try:
+        return _service(request).attach_capsule_forge_meta(body.model_dump())
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/capsule/forge-meta")
+def get_capsule_forge_meta(request: Request, package_id: str, version: str, content_hash: str) -> dict:
+    meta = _service(request).get_capsule_forge_meta(package_id, version, content_hash)
+    return {"available": meta is not None, "forge_meta": meta}
+
+
+@router.post("/capsule/replay")
+def post_capsule_replay(request: Request, body: CapsuleReplayRequest) -> dict:
+    try:
+        return _service(request).record_capsule_replay(body.model_dump())
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/loadouts/{loadout_id}/apply")
 def post_apply_loadout(request: Request, loadout_id: str, body: ApplyLoadoutRequest) -> dict:
     try:
