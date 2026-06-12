@@ -7,12 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-30`
-- Current package goal: real local-model Quick preset run.
-- Next action: run the Quick preset through the local provider against the live model on
-  http://localhost:8080 and record real model evidence (unavailable if no model).
-- Last completed: `PFG-29` (Capsule Forge metadata and replay) — acceptance_complete; see
-  PFG-29 evidence below. PFG-1..PFG-28 also complete.
+- Current package: `PFG-31`
+- Current package goal: real Web App / Portal run preset.
+- Next action: generate/evaluate a Web App task candidate with the local model, apply only
+  through Proposal/Safe Apply if adopting, run in Portal, and record preview/log evidence.
+- Last completed: `PFG-30` (real local-model Quick preset run) — acceptance_complete with
+  REAL local model evidence (Mistral-Small-3.2-24B on :8080); see PFG-30 evidence below.
+  PFG-1..PFG-29 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -85,7 +86,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-27 | Portal Run Forge Trace metadata | acceptance_complete |
 | PFG-28 | Portal evidence to Candidate Evaluator | acceptance_complete |
 | PFG-29 | Capsule Forge metadata and replay | acceptance_complete |
-| PFG-30 | real local-model Quick preset run | not_started |
+| PFG-30 | real local-model Quick preset run | acceptance_complete |
 | PFG-31 | real Web App / Portal run preset | not_started |
 | PFG-32 | real Repair preset run | not_started |
 | PFG-33 | real Greenfield Capsule replay run | not_started |
@@ -1318,6 +1319,39 @@ Remaining gaps:
 - PFG-30 real local-model Quick preset run.
 Next package:
 - PFG-30 — real local-model Quick preset run.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-30 — real local-model Quick preset run
+Status: acceptance_complete
+Changed modules/files:
+- tests/test_forge_real_local_quick.py (new) — gated real-model evidence test.
+- tests/conftest.py (new) — registers the real_model marker.
+Behavior implemented:
+- A Quick-preset task ("Write a Python function add(a,b)…") is run through the real
+  LocalOpenAICompatibleProvider against a live OpenAI-compatible server
+  (FORGE_LOCAL_BASE_URL, default http://localhost:8080). The test skips (not fails) when no
+  server is reachable, so CI without a model stays green; when present it requires a
+  genuine contract-valid response with measured latency and token usage.
+REAL local provider evidence (actually executed):
+- python -m pytest tests/test_forge_real_local_quick.py -q -s -> 1 passed in 28.59s.
+- model_id=Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf, base_url=http://localhost:8080,
+  latency_ms=14343, input_tokens=45, output_tokens=17, contract_valid=true.
+- real model output (excerpt): ```python\ndef add(a, b):\n    return a + b\n```
+- evidence artifact: ca_data/model_forge/evidence/pfg30_quick_local.json.
+Unavailable checks:
+- Skips truthfully when :8080 is unreachable (no model => no false pass).
+Safety invariants verified:
+- real model executed read-only (no workspace mutation, no Safe Apply bypass); output not
+  adopted.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-31 real Web App / Portal run preset.
+Next package:
+- PFG-31 — real Web App / Portal run preset.
 Blocker:
 - None.
 ```
