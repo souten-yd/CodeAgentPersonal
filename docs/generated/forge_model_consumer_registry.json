@@ -1,0 +1,32 @@
+{
+  "registry": {
+    "schema_version": "forge.v1",
+    "legacy_owner": "agent/atlas_llm_json_adapter.py",
+    "markers": [
+      "AtlasLLMJsonAdapter",
+      "atlas_llm_json_fn"
+    ],
+    "consumers": [
+      "app/api/atlas_autonomous_codegen.py",
+      "app/api/atlas_autopilot_factory.py",
+      "app/api/atlas_multi_item_autopilot.py",
+      "app/api/atlas_pipeline.py"
+    ],
+    "legacy_consumer_count": 4,
+    "generated_at": "2026-06-12T10:03:16.999687+00:00"
+  },
+  "retirement_gate": {
+    "schema_version": "forge.v1",
+    "allowed": false,
+    "legacy_consumer_count": 4,
+    "checklist": {
+      "consumer_zero": false,
+      "benchmark_passed": true,
+      "shadow_passed": true,
+      "rollback_available": true
+    },
+    "blocked_reasons": [
+      "gate_failed:consumer_zero"
+    ]
+  }
+}

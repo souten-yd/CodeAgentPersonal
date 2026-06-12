@@ -7,13 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-37`
-- Current package goal: legacy retirement gates and consumer registry.
-- Next action: build a consumer registry for model execution paths, record remaining direct
-  legacy callers, and add a retirement checklist (no deletion before consumer-zero + gates).
-- Last completed: `PFG-36` (controlled Forge primary cutover for selected stage) —
-  acceptance_complete; cutover gated on shadow evidence + acknowledgement, legacy fallback
-  retained, rollback tested. See PFG-36 evidence below. PFG-30/31/32/33 REAL-model complete;
+- Current package: `PFG-38`
+- Current package goal: final milestone benchmark and docs.
+- Next action: run the milestone Forge suite, gather the real local-model + Portal replay
+  evidence, confirm OpenRouter smoke is unavailable (no key), and update user docs.
+- Last completed: `PFG-37` (legacy retirement gates and consumer registry) —
+  acceptance_complete; registry records 4 real legacy consumers and the gate BLOCKS deletion
+  (consumer-zero unmet). See PFG-37 evidence below. PFG-30/31/32/33 REAL-model complete;
   PFG-1..PFG-29 complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
@@ -94,7 +94,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-34 | optional OpenRouter live smoke gate | acceptance_complete |
 | PFG-35 | stage shadow evidence for patch/test/failure/repair | acceptance_complete |
 | PFG-36 | controlled Forge primary cutover for selected stage | acceptance_complete |
-| PFG-37 | legacy retirement gates and consumer registry | not_started |
+| PFG-37 | legacy retirement gates and consumer registry | acceptance_complete |
 | PFG-38 | final milestone benchmark and docs | not_started |
 
 ## Status values
@@ -1557,6 +1557,44 @@ Remaining gaps:
 - PFG-37 legacy retirement gates and consumer registry.
 Next package:
 - PFG-37 — legacy retirement gates and consumer registry.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-37 — legacy retirement gates and consumer registry
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/retirement.py (new) — scan + registry + retirement gate; __init__
+  re-exports.
+- tools/generate_forge_model_consumer_registry.py (new) — registry/gate artifact generator.
+- docs/generated/forge_model_consumer_registry.json (new) — generated registry + gate.
+- tests/test_forge_retirement.py (new).
+Behavior implemented:
+- scan_legacy_model_consumers records production modules under agent/ or app/ that directly
+  reference the legacy model-execution path (AtlasLLMJsonAdapter / atlas_llm_json_fn),
+  excluding the legacy owner and the Forge wrapper. evaluate_model_retirement_gate refuses
+  retirement unless consumer_zero AND benchmark_passed AND shadow_passed AND
+  rollback_available. No legacy path is deleted.
+Evidence (actually executed):
+- python tools/generate_forge_model_consumer_registry.py --root . --benchmark-passed
+  --shadow-passed --rollback-available ->
+  legacy_consumer_count=4 retirement_allowed=False blocked=['gate_failed:consumer_zero'].
+- recorded legacy consumers: app/api/atlas_autonomous_codegen.py,
+  app/api/atlas_autopilot_factory.py, app/api/atlas_multi_item_autopilot.py,
+  app/api/atlas_pipeline.py.
+- python -m pytest tests/test_forge_retirement.py -> 3 passed (registry records real
+  consumers; gate blocks while consumers remain; allowed only when consumer-zero + all
+  gates pass).
+Safety invariants verified:
+- legacy model path NOT deleted (4 real consumers remain); retirement gate refuses deletion
+  before consumer-zero + benchmark/shadow/rollback gates.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary; retirement blocked.
+Remaining gaps:
+- PFG-38 final milestone benchmark and docs.
+Next package:
+- PFG-38 — final milestone benchmark and docs.
 Blocker:
 - None.
 ```
