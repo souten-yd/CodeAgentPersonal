@@ -44,6 +44,47 @@ def test_providers_show_states_and_never_leak_secrets(tmp_path):
     for forbidden in ("authorization", "bearer ", "sk-", "api_key\":"):
         assert forbidden not in blob, forbidden
     assert "credential_env" in openrouter
+    for provider in providers:
+        assert provider["configured_state"] in ("disabled", "missing_config", "configured")
+        assert provider["runtime_health"] in ("not_probed", "ready", "unavailable", "error")
+
+
+def test_local_provider_configured_state_is_not_runtime_ready_until_probe(tmp_path):
+    c = _client(tmp_path)
+    c.post("/api/forge/settings", json={
+        "local_provider": {"base_url": "http://127.0.0.1:1", "model_id": "m-local"},
+    })
+    local = next(
+        p for p in c.get("/api/forge/providers").json()["providers"]
+        if p["provider_id"] == "local_openai_compatible"
+    )
+    assert local["configured_state"] == "configured"
+    assert local["runtime_health"] == "not_probed"
+    assert local["health"] == "unavailable"
+    assert local["health_detail"] == "runtime_not_probed"
+
+
+def test_provider_probe_endpoint_is_explicit_and_records_failure(tmp_path):
+    c = _client(tmp_path)
+    c.post("/api/forge/settings", json={
+        "local_provider": {"base_url": "http://127.0.0.1:1", "model_id": "m-local"},
+    })
+    probed = c.post("/api/forge/providers/local_openai_compatible/probe").json()["provider"]
+    assert probed["runtime_health"] in ("unavailable", "error")
+    local = next(
+        p for p in c.get("/api/forge/providers").json()["providers"]
+        if p["provider_id"] == "local_openai_compatible"
+    )
+    assert local["runtime_health"] in ("unavailable", "error")
+    assert local["last_probe_error"]
+
+
+def test_provider_probe_without_local_base_url_is_offline_safe(tmp_path):
+    c = _client(tmp_path)
+    probed = c.post("/api/forge/providers/local_openai_compatible/probe").json()["provider"]
+    assert probed["configured_state"] == "missing_config"
+    assert probed["runtime_health"] == "unavailable"
+    assert probed["last_probe_error"] == "missing_base_url"
 
 
 def test_presets_and_models_and_profiles_and_leaderboard(tmp_path):

@@ -12,7 +12,13 @@ import json
 import time
 from typing import Callable
 
-from agent.model_forge.provider_base import ForgeProvider, HealthState, ProviderHealth
+from agent.model_forge.provider_base import (
+    ConfiguredState,
+    ForgeProvider,
+    HealthState,
+    ProviderHealth,
+    RuntimeHealth,
+)
 from agent.model_forge.schema import (
     ForgeExecutionRequest,
     ForgeExecutionResult,
@@ -27,6 +33,7 @@ PromptResolver = Callable[[ForgeExecutionRequest], "tuple[str, str]"]
 # (url, json_payload, timeout_seconds) -> (status_code, body_text). Must raise
 # TimeoutError on timeout and ConnectionError on an unreachable backend.
 HttpPost = Callable[[str, dict, float], "tuple[int, str]"]
+HttpGet = Callable[[str, float], "tuple[int, str]"]
 
 LOCAL_OPENAI_PROVIDER_ID = "local_openai_compatible"
 
@@ -65,6 +72,24 @@ def _default_http_post(url: str, payload: dict, timeout: float) -> "tuple[int, s
         raise ConnectionError(str(reason)) from exc
 
 
+def _default_http_get(url: str, timeout: float) -> "tuple[int, str]":
+    import socket
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+            return int(response.status), response.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        return int(exc.code), exc.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, socket.timeout, TimeoutError) as exc:
+        reason = getattr(exc, "reason", exc)
+        if isinstance(reason, (socket.timeout, TimeoutError)) or "timed out" in str(reason).lower():
+            raise TimeoutError(str(reason)) from exc
+        raise ConnectionError(str(reason)) from exc
+
+
 class LocalOpenAICompatibleProvider(ForgeProvider):
     def __init__(
         self,
@@ -75,7 +100,11 @@ class LocalOpenAICompatibleProvider(ForgeProvider):
         descriptor: ProviderDescriptor | None = None,
         timeout_seconds: float = 120.0,
         http_post: HttpPost | None = None,
+        http_get: HttpGet | None = None,
         enabled: bool = True,
+        runtime_health: str = "",
+        last_probe_at: str = "",
+        last_probe_error: str = "",
     ) -> None:
         super().__init__(descriptor or local_openai_compatible_descriptor(base_url, enabled=enabled))
         self._base_url = str(base_url or "").rstrip("/")
@@ -83,13 +112,95 @@ class LocalOpenAICompatibleProvider(ForgeProvider):
         self._prompt_resolver = prompt_resolver
         self._timeout = float(timeout_seconds)
         self._http_post = http_post or _default_http_post
+        self._http_get = http_get or _default_http_get
+        self._runtime_health = runtime_health
+        self._last_probe_at = last_probe_at
+        self._last_probe_error = last_probe_error
 
     def _probe_health(self) -> ProviderHealth:
-        # No network probe by default (keeps CI offline): READY once a base URL is set,
-        # UNAVAILABLE (not error) when it is missing.
         if not self._base_url:
-            return ProviderHealth(provider_id=self.provider_id, state=HealthState.UNAVAILABLE, detail="missing_base_url")
-        return ProviderHealth(provider_id=self.provider_id, state=HealthState.READY)
+            return ProviderHealth(
+                provider_id=self.provider_id, state=HealthState.UNAVAILABLE,
+                detail="missing_base_url",
+                configured_state=ConfiguredState.MISSING_CONFIG,
+                runtime_health=RuntimeHealth.UNAVAILABLE,
+                last_probe_error="missing_base_url",
+            )
+        if self._runtime_health == RuntimeHealth.READY.value:
+            return ProviderHealth(
+                provider_id=self.provider_id, state=HealthState.READY,
+                detail="runtime_probe_ready",
+                configured_state=ConfiguredState.CONFIGURED,
+                runtime_health=RuntimeHealth.READY,
+                last_probe_at=self._last_probe_at,
+            )
+        if self._runtime_health == RuntimeHealth.ERROR.value:
+            return ProviderHealth(
+                provider_id=self.provider_id, state=HealthState.ERROR,
+                detail=self._last_probe_error or "runtime_probe_error",
+                configured_state=ConfiguredState.CONFIGURED,
+                runtime_health=RuntimeHealth.ERROR,
+                last_probe_at=self._last_probe_at,
+                last_probe_error=self._last_probe_error or "runtime_probe_error",
+            )
+        if self._runtime_health == RuntimeHealth.UNAVAILABLE.value:
+            return ProviderHealth(
+                provider_id=self.provider_id, state=HealthState.UNAVAILABLE,
+                detail=self._last_probe_error or "runtime_unavailable",
+                configured_state=ConfiguredState.CONFIGURED,
+                runtime_health=RuntimeHealth.UNAVAILABLE,
+                last_probe_at=self._last_probe_at,
+                last_probe_error=self._last_probe_error or "runtime_unavailable",
+            )
+        return ProviderHealth(
+            provider_id=self.provider_id, state=HealthState.UNAVAILABLE,
+            detail="runtime_not_probed",
+            configured_state=ConfiguredState.CONFIGURED,
+            runtime_health=RuntimeHealth.NOT_PROBED,
+        )
+
+    def probe_runtime(self) -> ProviderHealth:
+        if not self.enabled or not self._base_url:
+            return self.health_check()
+        try:
+            status, _body = self._http_get(f"{self._base_url}/v1/models", min(self._timeout, 10.0))
+        except TimeoutError:
+            return ProviderHealth(
+                provider_id=self.provider_id, state=HealthState.UNAVAILABLE,
+                detail="timeout", configured_state=ConfiguredState.CONFIGURED,
+                runtime_health=RuntimeHealth.UNAVAILABLE,
+                last_probe_error="timeout",
+            )
+        except ConnectionError:
+            return ProviderHealth(
+                provider_id=self.provider_id, state=HealthState.UNAVAILABLE,
+                detail="connection_error", configured_state=ConfiguredState.CONFIGURED,
+                runtime_health=RuntimeHealth.UNAVAILABLE,
+                last_probe_error="connection_error",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return ProviderHealth(
+                provider_id=self.provider_id, state=HealthState.ERROR,
+                detail=f"probe_error:{type(exc).__name__}",
+                configured_state=ConfiguredState.CONFIGURED,
+                runtime_health=RuntimeHealth.ERROR,
+                last_probe_error=f"probe_error:{type(exc).__name__}",
+            )
+        if status == 200:
+            checked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            return ProviderHealth(
+                provider_id=self.provider_id, state=HealthState.READY,
+                detail="runtime_probe_ready", checked_at=checked_at,
+                configured_state=ConfiguredState.CONFIGURED,
+                runtime_health=RuntimeHealth.READY,
+                last_probe_at=checked_at,
+            )
+        return ProviderHealth(
+            provider_id=self.provider_id, state=HealthState.UNAVAILABLE,
+            detail=f"http_{status}", configured_state=ConfiguredState.CONFIGURED,
+            runtime_health=RuntimeHealth.UNAVAILABLE,
+            last_probe_error=f"http_{status}",
+        )
 
     def execute_chat_completion(self, request: ForgeExecutionRequest) -> ForgeExecutionResult:
         start = time.monotonic()

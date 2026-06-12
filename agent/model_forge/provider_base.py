@@ -29,6 +29,19 @@ class HealthState(StrEnum):
     ERROR = "error"
 
 
+class ConfiguredState(StrEnum):
+    DISABLED = "disabled"
+    MISSING_CONFIG = "missing_config"
+    CONFIGURED = "configured"
+
+
+class RuntimeHealth(StrEnum):
+    NOT_PROBED = "not_probed"
+    READY = "ready"
+    UNAVAILABLE = "unavailable"
+    ERROR = "error"
+
+
 # States that must never run a request. UNAVAILABLE (e.g. missing credential, offline)
 # is deliberately distinct from ERROR (an actual failure) so callers can record them
 # separately.
@@ -43,6 +56,10 @@ class ProviderHealth(ForgeModel):
     state: HealthState
     detail: str = ""
     checked_at: str = ""
+    configured_state: ConfiguredState = ConfiguredState.CONFIGURED
+    runtime_health: RuntimeHealth = RuntimeHealth.NOT_PROBED
+    last_probe_at: str = ""
+    last_probe_error: str = ""
 
 
 class ProviderError(RuntimeError):
@@ -119,16 +136,36 @@ class ForgeProvider(ABC):
         """Default health: disabled if not enabled, unavailable if a required
         credential is missing, otherwise delegate to a (overridable) live probe."""
         if not self.enabled:
-            return ProviderHealth(provider_id=self.provider_id, state=HealthState.DISABLED, detail="provider_disabled", checked_at=_now_iso())
+            return ProviderHealth(
+                provider_id=self.provider_id, state=HealthState.DISABLED,
+                detail="provider_disabled", checked_at=_now_iso(),
+                configured_state=ConfiguredState.DISABLED,
+                runtime_health=RuntimeHealth.NOT_PROBED,
+            )
         if self.descriptor.credential_env and not self.credential_available():
-            return ProviderHealth(provider_id=self.provider_id, state=HealthState.UNAVAILABLE, detail="missing_credential", checked_at=_now_iso())
+            return ProviderHealth(
+                provider_id=self.provider_id, state=HealthState.UNAVAILABLE,
+                detail="missing_credential", checked_at=_now_iso(),
+                configured_state=ConfiguredState.MISSING_CONFIG,
+                runtime_health=RuntimeHealth.UNAVAILABLE,
+                last_probe_error="missing_credential",
+            )
         return self._probe_health()
 
     def _probe_health(self) -> ProviderHealth:
         """Overridable live readiness probe. Default assumes ready once enabled and
         credentialed; real providers may perform a network probe and return
         UNAVAILABLE/ERROR. Must not raise on a normal unreachable backend."""
-        return ProviderHealth(provider_id=self.provider_id, state=HealthState.READY, checked_at=_now_iso())
+        checked_at = _now_iso()
+        return ProviderHealth(
+            provider_id=self.provider_id, state=HealthState.READY, checked_at=checked_at,
+            configured_state=ConfiguredState.CONFIGURED,
+            runtime_health=RuntimeHealth.READY,
+            last_probe_at=checked_at,
+        )
+
+    def probe_runtime(self) -> ProviderHealth:
+        return self.health_check()
 
     def guard_executable(self) -> None:
         health = self.health_check()

@@ -88,6 +88,9 @@
       return h === 'disabled' ? 'Disabled by default — enable in policy to use.'
         : 'No API key configured (set OPENROUTER_API_KEY to enable).';
     }
+    if (p.provider_id === 'local_openai_compatible' && p.runtime_health === 'not_probed') {
+      return 'Configured, not runtime-ready until an explicit probe succeeds.';
+    }
     if (p.provider_id === 'local_openai_compatible' && detail.indexOf('base_url') >= 0) {
       return 'No local server configured (set FORGE_LOCAL_BASE_URL).';
     }
@@ -104,7 +107,13 @@
       + '<span class="forge-prov-class">' + escapeHtml(p.source_class || '') + '</span>'
       + healthBadge(p.health)
       + '</div>'
+      + '<div class="forge-prov-note">Configured: ' + escapeHtml(p.configured_state || 'missing_config')
+      + ' · Runtime: ' + escapeHtml(p.runtime_health || 'not_probed')
+      + (p.last_probe_at ? ' · Probe: ' + escapeHtml(p.last_probe_at) : '') + '</div>'
       + (note ? '<div class="forge-prov-note">' + escapeHtml(note) + '</div>' : '')
+      + (p.provider_id !== 'legacy_atlas'
+        ? '<button type="button" class="forge-probe-btn" data-provider-probe="' + escapeHtml(p.provider_id) + '">Probe</button>'
+        : '')
       + '</div>'
     );
   }
@@ -664,6 +673,10 @@
       content.querySelectorAll('[data-model]').forEach((row) => {
         row.addEventListener('click', () => openModelDrawer(row.getAttribute('data-model')));
       });
+    } else if (state.tab === 'overview') {
+      content.querySelectorAll('[data-provider-probe]').forEach((btn) => {
+        btn.addEventListener('click', () => probeProvider(btn.getAttribute('data-provider-probe')));
+      });
     } else if (state.tab === 'benchmark') {
       wireBenchmark(content, state.data);
     } else if (state.tab === 'advanced') {
@@ -678,6 +691,19 @@
   function setTab(tab) {
     state.tab = tab;
     renderShell();
+  }
+
+  async function probeProvider(providerId) {
+    if (!providerId) return;
+    setStatus('Probing provider...');
+    try {
+      await api('/providers/' + encodeURIComponent(providerId) + '/probe', { method: 'POST', body: '{}' });
+      state.data.providers = (await api('/providers')).providers || [];
+      setStatus('Provider probe recorded: ' + providerId, 'ok');
+    } catch (err) {
+      setStatus('Provider probe failed: ' + (err && err.message ? err.message : 'error'), 'error');
+    }
+    renderActive();
   }
 
   async function refresh() {
