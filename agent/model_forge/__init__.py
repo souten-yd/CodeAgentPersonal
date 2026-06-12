@@ -33,6 +33,12 @@ from agent.model_forge.profile_store import (
 )
 from agent.model_forge.forge_service import ForgeService
 from agent.model_forge.execution_bridge import ForgeModelExecutionBridge
+from agent.model_forge.preset_runner import (
+    LocalForgePresetRunner,
+    PresetRunnerResult,
+    PresetRunnerTask,
+    write_evidence,
+)
 from agent.model_forge.portal_evidence import (
     EvidenceStrength,
     PortalEvidenceResult,
@@ -255,6 +261,10 @@ __all__ = [
     "default_routes_for_class",
     "ForgeService",
     "ForgeModelExecutionBridge",
+    "LocalForgePresetRunner",
+    "PresetRunnerResult",
+    "PresetRunnerTask",
+    "write_evidence",
     "Loadout",
     "LoadoutStore",
     "default_loadouts",

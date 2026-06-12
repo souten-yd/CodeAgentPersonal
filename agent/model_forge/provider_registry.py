@@ -63,6 +63,18 @@ class ProviderRegistry:
     def execute(self, provider_id: str, request: ForgeExecutionRequest) -> ForgeExecutionResult:
         """Execute through a provider only when its health is READY. Disabled and
         unavailable providers fail closed before any execute_chat_completion call."""
+        provider = self._guarded_provider(provider_id)
+        return provider.execute_chat_completion(request)
+
+    def run_and_capture(self, provider_id: str, request: ForgeExecutionRequest) -> "tuple[ForgeExecutionResult, str]":
+        """Execute and return raw output when the provider supports capture, while
+        preserving the same fail-closed health gate as execute()."""
+        provider = self._guarded_provider(provider_id)
+        if hasattr(provider, "run_and_capture"):
+            return provider.run_and_capture(request)  # type: ignore[attr-defined]
+        return provider.execute_chat_completion(request), ""
+
+    def _guarded_provider(self, provider_id: str) -> ForgeProvider:
         provider = self._providers.get(provider_id)
         if provider is None:
             raise ProviderError("provider_not_registered", provider_id)
@@ -73,4 +85,4 @@ class ProviderRegistry:
             raise ProviderUnavailableError("provider_unavailable", health.detail)
         if health.state != HealthState.READY:
             raise ProviderError("provider_not_ready", health.detail)
-        return provider.execute_chat_completion(request)
+        return provider

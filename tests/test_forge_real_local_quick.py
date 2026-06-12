@@ -11,18 +11,17 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 import pytest
 
-from agent.model_forge.providers.local_openai_compatible import LocalOpenAICompatibleProvider
+from agent.model_forge.preset_runner import LocalForgePresetRunner, PresetRunnerTask, write_evidence
+from agent.model_forge.route_matrix import ChangeClass
 from agent.model_forge.route_taxonomy import ForgeRoute
-from agent.model_forge.schema import ForgeExecutionRequest
 from agent.model_forge.stage_taxonomy import ForgeStage
 
 BASE_URL = os.environ.get("FORGE_LOCAL_BASE_URL", "http://localhost:8080").rstrip("/")
+MODEL_ID = os.environ.get("FORGE_LOCAL_MODEL", "").strip()
 
 _QUICK_SYSTEM = "You are a precise coding assistant. Output only what is asked, no prose."
 _QUICK_USER = (
@@ -31,76 +30,37 @@ _QUICK_USER = (
 )
 
 
-def _server_model() -> str | None:
-    try:
-        with urllib.request.urlopen(BASE_URL + "/v1/models", timeout=3) as resp:  # noqa: S310
-            data = json.loads(resp.read().decode("utf-8", "replace"))
-    except (urllib.error.URLError, OSError, ValueError):
-        return None
-    models = data.get("data") or data.get("models") or []
-    if not models:
-        return ""
-    first = models[0]
-    return str(first.get("id") or first.get("name") or "")
-
-
-def _quick_resolver(_request: ForgeExecutionRequest) -> tuple[str, str]:
-    return _QUICK_SYSTEM, _QUICK_USER
-
-
 @pytest.mark.real_model
 def test_real_local_quick_preset_run():
-    model = _server_model()
-    if model is None:
-        pytest.skip(f"no local model server reachable at {BASE_URL}")
+    runner = LocalForgePresetRunner(base_url=BASE_URL, model_id=MODEL_ID, timeout_seconds=120.0)
+    if not runner.probe():
+        pytest.skip(f"no local model server reachable at {BASE_URL}: {runner.unavailable_reason}")
 
-    provider = LocalOpenAICompatibleProvider(
-        base_url=BASE_URL, model_id=model or "", prompt_resolver=_quick_resolver, timeout_seconds=120.0,
+    run = runner.run(PresetRunnerTask(
+        preset_id="quick_standard",
+        stage=ForgeStage.PATCH_GENERATION,
+        change_class=ChangeClass.MICRO,
+        task_category="quick",
+        system_prompt=_QUICK_SYSTEM,
+        user_prompt=_QUICK_USER,
+        output_contract="text",
+        requested_route=ForgeRoute.MICRO_PATCH,
+        requirement_coverage_ratio=1.0,
+    ))
+
+    # Real model evidence: a genuine, contract-valid response through the Forge runner.
+    assert run.execution_result.contract_valid is True, run.execution_result.errors
+    assert run.execution_result.errors == []
+    assert run.execution_result.latency_ms > 0
+    assert run.execution_result.usage.output_tokens > 0
+    assert "def add" in run.raw_output
+    assert run.evaluation.verdict == "eligible"
+
+    evidence = run.evidence_payload(package="PFG-30")
+    evidence.update(
+        base_url=BASE_URL,
+        legacy_direct_http_orchestration=False,
     )
-    request = ForgeExecutionRequest(
-        request_id="pfg30_quick", stage=ForgeStage.PATCH_GENERATION,
-        route_id=ForgeRoute.MICRO_PATCH, task_category="quick", output_contract="text",
-    )
-    result = provider.execute_chat_completion(request)
-
-    # Real model evidence: a genuine, contract-valid response with measured latency/usage.
-    assert result.contract_valid is True, result.errors
-    assert result.errors == []
-    assert result.latency_ms > 0
-    assert result.usage.output_tokens > 0
-
-    # Capture the actual model output once for the recorded evidence artifact.
-    payload = {
-        "messages": [
-            {"role": "system", "content": _QUICK_SYSTEM},
-            {"role": "user", "content": _QUICK_USER},
-        ],
-        "stream": False, "temperature": 0,
-    }
-    if model:
-        payload["model"] = model
-    req = urllib.request.Request(
-        BASE_URL + "/v1/chat/completions", method="POST",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310
-        body = json.loads(resp.read().decode("utf-8", "replace"))
-    output_text = body["choices"][0]["message"]["content"]
-    assert "def add" in output_text
-
-    evidence = {
-        "package": "PFG-30",
-        "base_url": BASE_URL,
-        "model_id": result.model_id,
-        "latency_ms": result.latency_ms,
-        "input_tokens": result.usage.input_tokens,
-        "output_tokens": result.usage.output_tokens,
-        "contract_valid": result.contract_valid,
-        "output_excerpt": output_text[:400],
-    }
     out_dir = Path(os.environ.get("CODEAGENT_CA_DATA_DIR", "ca_data")) / "model_forge" / "evidence"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "pfg30_quick_local.json").write_text(
-        json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_evidence(out_dir / "pfg30_quick_local.json", evidence)
     print("PFG-30 evidence:", json.dumps(evidence, ensure_ascii=False))

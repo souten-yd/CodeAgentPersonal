@@ -12,8 +12,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 import pytest
@@ -21,48 +19,22 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agent.model_forge import PortalRunEvidence, ProfileStore, ingest_portal_evidence
+from agent.model_forge.preset_runner import LocalForgePresetRunner, PresetRunnerTask, write_evidence
+from agent.model_forge.route_matrix import ChangeClass
+from agent.model_forge.stage_taxonomy import ForgeStage
 from app.api.atlas_play import router as atlas_play_router
 from app.atlas.play.contracts import LaunchKind, LaunchProfile
 from app.atlas.play.environment import build_structured_launch_adapter
 from app.atlas.play.sessions import PlaySessionManager
 
 BASE_URL = os.environ.get("FORGE_LOCAL_BASE_URL", "http://localhost:8080").rstrip("/")
+MODEL_ID = os.environ.get("FORGE_LOCAL_MODEL", "").strip()
 
 _SYSTEM = "You are a web developer. Output only raw HTML, no explanation, no code fences."
 _USER = (
     "Create a complete single-file HTML document for a page with an <h1> that says "
     "'Hello Forge' and a button labelled 'Greet' that shows an alert. Output only the HTML."
 )
-
-
-def _chat(model: str | None) -> str | None:
-    payload = {
-        "messages": [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": _USER}],
-        "stream": False, "temperature": 0,
-    }
-    if model:
-        payload["model"] = model
-    req = urllib.request.Request(
-        BASE_URL + "/v1/chat/completions", method="POST",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=180) as resp:  # noqa: S310
-            body = json.loads(resp.read().decode("utf-8", "replace"))
-        return body["choices"][0]["message"]["content"]
-    except (urllib.error.URLError, OSError, ValueError, KeyError):
-        return None
-
-
-def _server_model() -> str | None:
-    try:
-        with urllib.request.urlopen(BASE_URL + "/v1/models", timeout=3) as resp:  # noqa: S310
-            data = json.loads(resp.read().decode("utf-8", "replace"))
-    except (urllib.error.URLError, OSError, ValueError):
-        return None
-    models = data.get("data") or data.get("models") or []
-    return str((models[0].get("id") or models[0].get("name")) if models else "")
 
 
 def _extract_html(text: str) -> str:
@@ -74,13 +46,22 @@ def _extract_html(text: str) -> str:
 
 @pytest.mark.real_model
 def test_real_webapp_reaches_portal_runtime_and_updates_profile(tmp_path):
-    model = _server_model()
-    if model is None:
-        pytest.skip(f"no local model server reachable at {BASE_URL}")
+    runner = LocalForgePresetRunner(base_url=BASE_URL, model_id=MODEL_ID, timeout_seconds=180.0)
+    if not runner.probe():
+        pytest.skip(f"no local model server reachable at {BASE_URL}: {runner.unavailable_reason}")
 
-    raw = _chat(model)
-    assert raw, "no model response"
-    html = _extract_html(raw)
+    run = runner.run(PresetRunnerTask(
+        preset_id="web_app_standard",
+        stage=ForgeStage.PLANNING,
+        change_class=ChangeClass.GREENFIELD,
+        task_category="web_app",
+        system_prompt=_SYSTEM,
+        user_prompt=_USER,
+        output_contract="text",
+        requirement_coverage_ratio=1.0,
+    ))
+    assert run.execution_result.contract_valid is True, run.execution_result.errors
+    html = _extract_html(run.raw_output)
     assert "<" in html and "html" in html.lower(), f"model did not produce HTML: {html[:200]}"
 
     # Write the model-generated artifact into a project work dir.
@@ -112,23 +93,25 @@ def test_real_webapp_reaches_portal_runtime_and_updates_profile(tmp_path):
     # Feed the Portal runtime outcome into the model profile (Portal evidence is strong).
     store = ProfileStore(tmp_path / "profiles")
     result = ingest_portal_evidence(store, PortalRunEvidence(
-        installation_id="forge_web", provider_id="local_openai_compatible", model_id=model,
+        installation_id="forge_web", provider_id=run.provider_id, model_id=run.model_id,
         dimension="web_app", runtime_passed=runtime_passed,
         evidence_refs=[f"play_session:{session.session_id}"],
     ))
     assert runtime_passed is True, "Portal static preview did not serve the artifact"
     assert result.strength == "strong_runtime" and result.moved_score is True
-    profile = store.load_profile("local_openai_compatible", model)
+    profile = store.load_profile(run.provider_id, run.model_id)
     assert profile.dimension_scores["web_app"] == 1.0
 
-    evidence = {
-        "package": "PFG-31", "model_id": model, "html_bytes": len(html),
-        "preview_status": preview.status_code, "runtime_passed": runtime_passed,
-        "web_app_score": profile.dimension_scores["web_app"],
-        "html_excerpt": html[:300],
-    }
+    evidence = run.evidence_payload(package="PFG-31")
+    evidence.update(
+        html_bytes=len(html),
+        preview_status=preview.status_code,
+        runtime_passed=runtime_passed,
+        runtime_verdict="passed" if runtime_passed else "failed",
+        web_app_score=profile.dimension_scores["web_app"],
+        html_excerpt=html[:300],
+        legacy_direct_http_orchestration=False,
+    )
     out_dir = Path(os.environ.get("CODEAGENT_CA_DATA_DIR", "ca_data")) / "model_forge" / "evidence"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "pfg31_webapp_portal.json").write_text(
-        json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_evidence(out_dir / "pfg31_webapp_portal.json", evidence)
     print("PFG-31 evidence:", json.dumps(evidence, ensure_ascii=False))
