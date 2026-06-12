@@ -32,8 +32,13 @@ from agent.model_forge.providers.local_openai_compatible import (
     LOCAL_OPENAI_PROVIDER_ID,
     LocalOpenAICompatibleProvider,
 )
+from agent.model_forge.providers.openrouter_catalog import OpenRouterCatalog
 from agent.model_forge.providers.openrouter_client import OpenRouterProvider
-from agent.model_forge.providers.openrouter_config import OpenRouterConfig
+from agent.model_forge.providers.openrouter_config import (
+    OpenRouterConfig,
+    check_openrouter_allowed,
+    openrouter_credentials_available,
+)
 from agent.model_forge.cutover import CutoverController
 from agent.model_forge.route_matrix import ChangeClass, RouteMatrix, RouteSelector
 from agent.model_forge.shadow import ShadowStore
@@ -55,6 +60,8 @@ class ForgeService:
         self.stage_matrix = StageMatrix(self._root / "stage_policy.json")
         self.route_matrix = RouteMatrix()
         self.loadouts = LoadoutStore(self._root / "loadouts.json")
+        self._settings_path = self._root / "settings.json"
+        self._catalog_path = self._root / "catalog" / "openrouter_models.json"
         self._route_policy_path = self._root / "route_policy.json"
         self._active_loadout_path = self._root / "active_loadout.json"
         self.registry = self._build_registry()
@@ -71,22 +78,46 @@ class ForgeService:
         # which is truthful — the live legacy path runs in the Atlas pipeline, not here.
         registry.register(LegacyAtlasProvider(backend_fn=None, prompt_resolver=_prompt_resolver))
 
-        local_base = self._env.get("FORGE_LOCAL_BASE_URL", "").strip()
-        local_model = self._env.get("FORGE_LOCAL_MODEL", "").strip()
+        settings = self._settings()
+        local_settings = settings.get("local_provider", {})
+        local_base = self._env.get("FORGE_LOCAL_BASE_URL", "").strip() or str(local_settings.get("base_url") or "").strip()
+        local_model = self._env.get("FORGE_LOCAL_MODEL", "").strip() or str(local_settings.get("model_id") or "").strip()
         registry.register(LocalOpenAICompatibleProvider(
             base_url=local_base, model_id=local_model, prompt_resolver=_prompt_resolver,
             enabled=bool(local_base),
         ))
 
+        openrouter_config = self._openrouter_config(settings)
         registry.register(OpenRouterProvider(
-            config=OpenRouterConfig(enabled=self._forge_external_enabled()),
+            config=openrouter_config,
             model_id=self._env.get("FORGE_OPENROUTER_MODEL", "").strip(),
             prompt_resolver=_prompt_resolver,
         ))
         return registry
 
-    def _forge_external_enabled(self) -> bool:
-        return self._env.get("FORGE_OPENROUTER_ENABLED", "").strip() in ("1", "true", "True")
+    def _settings(self) -> dict:
+        if not self._settings_path.exists():
+            return {}
+        try:
+            data = json.loads(self._settings_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _openrouter_config(self, settings: Mapping[str, object] | None = None) -> OpenRouterConfig:
+        raw = dict((settings or self._settings()).get("openrouter", {}) or {})
+        env_enabled = self._env.get("FORGE_OPENROUTER_ENABLED", "").strip()
+        enabled = bool(raw.get("enabled", False))
+        if env_enabled:
+            enabled = env_enabled in ("1", "true", "True")
+        return OpenRouterConfig(
+            enabled=enabled,
+            api_key_env=str(raw.get("api_key_env") or "OPENROUTER_API_KEY"),
+            http_referer_env=str(raw.get("http_referer_env") or "OPENROUTER_HTTP_REFERER"),
+            app_title=str(raw.get("app_title") or "KasaneCore Atlas Forge"),
+            base_url=str(raw.get("base_url") or "https://openrouter.ai/api/v1"),
+            catalog_cache_ttl_seconds=int(raw.get("catalog_cache_ttl_seconds") or 3600),
+        )
 
     def forge_enabled(self) -> bool:
         return self._env.get("FORGE_ENABLED", "").strip() in ("1", "true", "True")
@@ -141,9 +172,16 @@ class ForgeService:
                             "source": "profile"})
         # Configured local model, if any.
         local_model = self._env.get("FORGE_LOCAL_MODEL", "").strip()
+        if not local_model:
+            local_model = str(self._settings().get("local_provider", {}).get("model_id") or "").strip()
         if local_model and (LOCAL_OPENAI_PROVIDER_ID, local_model) not in seen:
             out.append({"provider_id": LOCAL_OPENAI_PROVIDER_ID, "model_id": local_model,
                         "source": "configured"})
+        for model in self._cached_openrouter_models():
+            key = (model["provider_id"], model["model_id"])
+            if key not in seen:
+                seen.add(key)
+                out.append(model)
         return out
 
     def profiles_list(self) -> list[dict]:
@@ -162,6 +200,107 @@ class ForgeService:
 
     def presets(self) -> list[dict]:
         return preset_listing()
+
+    def settings(self) -> dict:
+        settings = self._settings()
+        openrouter_config = self._openrouter_config(settings)
+        local_settings = settings.get("local_provider", {}) if isinstance(settings.get("local_provider"), dict) else {}
+        return {
+            "local_provider": {
+                "base_url": self._env.get("FORGE_LOCAL_BASE_URL", "").strip() or str(local_settings.get("base_url") or ""),
+                "model_id": self._env.get("FORGE_LOCAL_MODEL", "").strip() or str(local_settings.get("model_id") or ""),
+                "model_storage_dir": str(local_settings.get("model_storage_dir") or ""),
+                "base_url_source": "env" if self._env.get("FORGE_LOCAL_BASE_URL", "").strip() else "settings",
+                "model_id_source": "env" if self._env.get("FORGE_LOCAL_MODEL", "").strip() else "settings",
+            },
+            "openrouter": {
+                "enabled": openrouter_config.enabled,
+                "api_key_env": openrouter_config.api_key_env,
+                "credential_configured": openrouter_credentials_available(openrouter_config),
+                "http_referer_env": openrouter_config.http_referer_env,
+                "app_title": openrouter_config.app_title,
+                "base_url": openrouter_config.base_url,
+                "catalog_cache_path": str(self._catalog_path),
+            },
+        }
+
+    def save_settings(self, payload: dict) -> dict:
+        forbidden = {"api_key", "access_token", "token", "openrouter_api_key", "authorization"}
+        if self._contains_forbidden_secret_key(payload, forbidden):
+            raise ValueError("secret_values_must_not_be_persisted")
+        openrouter = dict(payload.get("openrouter") or {})
+        local_provider = dict(payload.get("local_provider") or {})
+        safe = {
+            "openrouter": {
+                "enabled": bool(openrouter.get("enabled", False)),
+                "api_key_env": str(openrouter.get("api_key_env") or "OPENROUTER_API_KEY"),
+                "http_referer_env": str(openrouter.get("http_referer_env") or "OPENROUTER_HTTP_REFERER"),
+                "app_title": str(openrouter.get("app_title") or "KasaneCore Atlas Forge"),
+                "base_url": str(openrouter.get("base_url") or "https://openrouter.ai/api/v1"),
+                "catalog_cache_ttl_seconds": int(openrouter.get("catalog_cache_ttl_seconds") or 3600),
+            },
+            "local_provider": {
+                "base_url": str(local_provider.get("base_url") or ""),
+                "model_id": str(local_provider.get("model_id") or ""),
+                "model_storage_dir": str(local_provider.get("model_storage_dir") or ""),
+            },
+        }
+        self._settings_path.parent.mkdir(parents=True, exist_ok=True)
+        self._settings_path.write_text(json.dumps(safe, ensure_ascii=False, indent=2), encoding="utf-8")
+        return self.settings()
+
+    def _contains_forbidden_secret_key(self, value, forbidden: set[str]) -> bool:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if str(key).lower() in forbidden:
+                    return True
+                if self._contains_forbidden_secret_key(child, forbidden):
+                    return True
+        if isinstance(value, list):
+            return any(self._contains_forbidden_secret_key(child, forbidden) for child in value)
+        return False
+
+    def openrouter_catalog(self, *, force_refresh: bool = False) -> dict:
+        config = self._openrouter_config()
+        catalog = OpenRouterCatalog(config, cache_path=self._catalog_path)
+        if self._catalog_path.exists() and not force_refresh:
+            result = catalog.get_models(force_refresh=False)
+            return self._catalog_payload("from_cache", result, config, reason=result.error)
+        gate = check_openrouter_allowed(config, self.source_mode())
+        if not gate.allowed:
+            status = "disabled" if gate.reason in ("local_only_blocks_external", "openrouter_disabled") else "unavailable"
+            return self._catalog_payload(status, None, config, reason=gate.reason)
+        result = catalog.get_models(force_refresh=force_refresh)
+        status = "live" if result.status == "fetched" else result.status
+        return self._catalog_payload(status, result, config, reason=result.error)
+
+    def _catalog_payload(self, status: str, result, config: OpenRouterConfig, *, reason: str = "") -> dict:
+        models = [m.model_dump(mode="json") for m in (result.models if result else [])]
+        return {
+            "provider_id": "openrouter",
+            "status": status,
+            "enabled": config.enabled,
+            "credential_configured": openrouter_credentials_available(config),
+            "from_cache": status == "from_cache",
+            "stale": bool(getattr(result, "stale", False)) if result else False,
+            "reason": reason,
+            "fetched_at": getattr(result, "fetched_at", "") if result else "",
+            "models": models,
+        }
+
+    def _cached_openrouter_models(self) -> list[dict]:
+        if not self._catalog_path.exists():
+            return []
+        result = OpenRouterCatalog(OpenRouterConfig(enabled=False), cache_path=self._catalog_path).get_models()
+        return [
+            {
+                "provider_id": m.provider_id,
+                "model_id": m.model_id,
+                "display_name": m.display_name,
+                "source": "openrouter_catalog_cache",
+            }
+            for m in result.models
+        ]
 
     # ----- arena -----
 

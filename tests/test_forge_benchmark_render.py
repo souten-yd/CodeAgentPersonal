@@ -78,6 +78,20 @@ def test_external_provider_shows_policy_warning(tmp_path):
     assert "External provider selected" in html
 
 
+def test_openrouter_catalog_models_render_as_model_selector(tmp_path):
+    data = {
+        "presets": _PRESETS,
+        "providers": [{"provider_id": "openrouter", "source_class": "external_cloud", "health": "ready"}],
+        "openrouterCatalog": {
+            "status": "from_cache",
+            "models": [{"model_id": "anthropic/claude", "display_name": "Claude"}],
+        },
+    }
+    html = _render(tmp_path, {"data": data, "bench": {"provider": "openrouter"}})
+    assert "data-bench-model-select" in html
+    assert "anthropic/claude" in html
+
+
 def test_run_disabled_until_preset_provider_model_chosen(tmp_path):
     data = {"presets": _PRESETS, "providers": [{"provider_id": "local_openai_compatible", "source_class": "self_hosted", "health": "ready"}]}
     # Nothing selected -> Run disabled.

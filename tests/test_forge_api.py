@@ -11,6 +11,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from agent.model_forge.providers.openrouter_catalog import OpenRouterCatalogResult
+from agent.model_forge.schema import ModelDescriptor, SourceClass
 from app.api.forge import router as forge_router
 
 
@@ -51,6 +53,82 @@ def test_presets_and_models_and_profiles_and_leaderboard(tmp_path):
     assert c.get("/api/forge/models").json()["models"] == []
     assert c.get("/api/forge/profiles").json()["profiles"] == []
     assert c.get("/api/forge/leaderboard").json()["leaderboard"] == []
+
+
+def test_settings_persist_safe_provider_config_and_reject_secret_values(tmp_path):
+    c = _client(tmp_path)
+    saved = c.post("/api/forge/settings", json={
+        "local_provider": {
+            "base_url": "http://127.0.0.1:8080/v1",
+            "model_id": "local-model",
+            "model_storage_dir": "D:/models",
+        },
+        "openrouter": {
+            "enabled": True,
+            "api_key_env": "OPENROUTER_API_KEY",
+            "base_url": "https://openrouter.ai/api/v1",
+        },
+    })
+    assert saved.status_code == 200
+    settings = c.get("/api/forge/settings").json()["settings"]
+    assert settings["local_provider"]["model_storage_dir"] == "D:/models"
+    assert settings["openrouter"]["enabled"] is True
+    blob = str(settings).lower()
+    assert "sk-" not in blob and "authorization" not in blob
+
+    rejected = c.post("/api/forge/settings", json={
+        "openrouter": {"api_key": "sk-do-not-store"},
+    })
+    assert rejected.status_code == 400
+    assert rejected.json()["detail"] == "secret_values_must_not_be_persisted"
+
+
+def test_settings_reports_credential_state_without_returning_secret(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-secret-value")
+    settings = _client(tmp_path).get("/api/forge/settings").json()["settings"]
+    assert settings["openrouter"]["credential_configured"] is True
+    assert "sk-secret-value" not in str(settings)
+
+
+def test_openrouter_catalog_endpoint_serves_cache_without_key_and_models_include_cache(tmp_path):
+    cache = tmp_path / "model_forge" / "catalog" / "openrouter_models.json"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cached = OpenRouterCatalogResult(
+        status="fetched",
+        models=[
+            ModelDescriptor(
+                provider_id="openrouter",
+                model_id="anthropic/claude",
+                display_name="Claude",
+                source_class=SourceClass.EXTERNAL_CLOUD,
+            )
+        ],
+        fetched_at="2026-06-12T00:00:00+00:00",
+    )
+    cache.write_text(cached.model_dump_json(), encoding="utf-8")
+
+    c = _client(tmp_path)
+    catalog = c.get("/api/forge/providers/openrouter/catalog").json()
+    assert catalog["status"] == "from_cache"
+    assert catalog["from_cache"] is True
+    assert catalog["credential_configured"] is False
+    assert catalog["models"][0]["model_id"] == "anthropic/claude"
+    assert "sk-" not in str(catalog).lower()
+
+    models = c.get("/api/forge/models").json()["models"]
+    assert {
+        "provider_id": "openrouter",
+        "model_id": "anthropic/claude",
+        "display_name": "Claude",
+        "source": "openrouter_catalog_cache",
+    } in models
+
+
+def test_openrouter_catalog_endpoint_reports_disabled_without_cache_or_live_call(tmp_path):
+    body = _client(tmp_path).get("/api/forge/providers/openrouter/catalog").json()
+    assert body["status"] == "disabled"
+    assert body["reason"] in ("local_only_blocks_external", "openrouter_disabled")
+    assert body["models"] == []
 
 
 def test_stage_policy_get_defaults_and_cutover_requires_ack(tmp_path):

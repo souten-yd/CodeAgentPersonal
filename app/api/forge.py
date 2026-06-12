@@ -63,6 +63,11 @@ class LoadoutRequest(BaseModel):
     risky: bool = False
 
 
+class ForgeSettingsRequest(BaseModel):
+    openrouter: dict = Field(default_factory=dict)
+    local_provider: dict = Field(default_factory=dict)
+
+
 @router.get("/status")
 def get_status(request: Request) -> dict:
     return _service(request).status()
@@ -76,6 +81,24 @@ def get_providers(request: Request) -> dict:
 @router.get("/models")
 def get_models(request: Request) -> dict:
     return {"models": _service(request).models()}
+
+
+@router.get("/settings")
+def get_settings(request: Request) -> dict:
+    return {"settings": _service(request).settings()}
+
+
+@router.post("/settings")
+def post_settings(request: Request, body: ForgeSettingsRequest) -> dict:
+    try:
+        return {"settings": _service(request).save_settings(body.model_dump())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/providers/openrouter/catalog")
+def get_openrouter_catalog(request: Request, force_refresh: bool = False) -> dict:
+    return _service(request).openrouter_catalog(force_refresh=force_refresh)
 
 
 @router.get("/profiles")
