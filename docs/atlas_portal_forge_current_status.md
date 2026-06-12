@@ -7,13 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-19`
-- Current package goal: Forge backend API.
-- Next action: expose read-only Forge status/providers/models/profiles/leaderboard/presets
-  plus arena/stage-policy/route-policy/loadout endpoints; never return secrets; show
-  disabled/unavailable states.
-- Last completed: `PFG-18` (Route Matrix policy and selector) — acceptance_complete;
-  see PFG-18 evidence below. PFG-1..PFG-17 also complete.
+- Current package: `PFG-20`
+- Current package goal: Forge top-level nav and shell UI.
+- Next action: add a Forge top-level nav entry (desktop + mobile) wired to the Forge API,
+  keep the default view simple, and preserve Portal nav.
+- Last completed: `PFG-19` (Forge backend API) — acceptance_complete; see PFG-19 evidence
+  below. PFG-1..PFG-18 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -75,7 +74,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-16 | Model Profile Store and profile updater | acceptance_complete |
 | PFG-17 | Stage Matrix policy and selector | acceptance_complete |
 | PFG-18 | Route Matrix policy and selector | acceptance_complete |
-| PFG-19 | Forge backend API | not_started |
+| PFG-19 | Forge backend API | acceptance_complete |
 | PFG-20 | Forge top-level nav and shell UI | not_started |
 | PFG-21 | Forge Overview and Provider cards | not_started |
 | PFG-22 | Skill Radar and Leaderboard UI | not_started |
@@ -902,6 +901,51 @@ Remaining gaps:
 - PFG-19 Forge backend API.
 Next package:
 - PFG-19 — Forge backend API.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-19 — Forge backend API
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/forge_service.py (new) — ForgeService composition facade
+- agent/model_forge/loadouts.py (new) — Loadout schema + 7 default loadouts + JSON store
+- app/api/forge.py (new) — /api/forge router (14 endpoints)
+- app/server.py — register forge_router
+- agent/model_forge/__init__.py — re-exports
+- tests/test_forge_api.py (new)
+Public contracts added or changed:
+- New /api/forge surface: GET status/providers/models/profiles/leaderboard/presets,
+  POST arena/run + GET arena/runs/{id}, GET/POST stage-policy, GET/POST route-policy,
+  GET/POST loadouts. Existing routes unchanged; router is additive.
+Behavior implemented:
+- ForgeService composes the registry (legacy/local/openrouter providers), profile store,
+  stage matrix, route matrix, arena runner, presets, and loadouts against the Atlas
+  ca_data root. status() reports forge_enabled (off by default) + legacy_primary + per
+  provider health. providers() serialises descriptors (credential ENV NAME only, never a
+  secret value). stage-policy POST returns 409 without allow_production_routing (no auto
+  cutover); route-policy POST returns 400 for an unsafe micro override; arena/run records
+  external candidates as not_applied and does not execute them under Local Only.
+Focused tests:
+- python -m pytest tests/test_forge_api.py -> 7 passed
+  (status off + legacy primary; provider states visible + no secret leak; presets/models/
+   profiles/leaderboard; stage cutover needs ack -> 409; unsafe route override -> 400;
+   loadout defaults + custom persistence; arena Local Only blocks external).
+- python -m pytest tests/test_model_forge_*.py tests/test_forge_api.py -> 102 passed.
+- python -c create_app() -> 14 /api/forge routes registered; server imports cleanly.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-19 exposes the API surface, no live model execution.
+Safety invariants verified:
+- secrets never returned; disabled/unavailable states visible; no automatic cutover
+  (409); unsafe route override refused (400); arena never auto-applies; Local Only blocks
+  external.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-20 Forge top-level nav and shell UI.
+Next package:
+- PFG-20 — Forge top-level nav and shell UI.
 Blocker:
 - None.
 ```
