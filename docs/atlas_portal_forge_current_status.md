@@ -7,13 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-25`
-- Current package goal: Stage Matrix and Route Matrix UI.
-- Next action: add collapsible Advanced controls — stage rows (mode/model/reason) and
-  route rows (change class/route/default model hints) with unsafe-change warnings, hidden
-  by default.
-- Last completed: `PFG-24` (Arena UI) — acceptance_complete; see PFG-24 evidence below.
-  PFG-1..PFG-23 also complete.
+- Current package: `PFG-26`
+- Current package goal: Loadouts UI and persistence.
+- Next action: add a Loadouts tab listing the 7 default loadouts + custom, where switching
+  a loadout updates stage/provider policy and risky changes require explicit confirmation.
+- Last completed: `PFG-25` (Stage Matrix and Route Matrix UI) — acceptance_complete; see
+  PFG-25 evidence below. PFG-1..PFG-24 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -81,7 +80,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-22 | Skill Radar and Leaderboard UI | acceptance_complete |
 | PFG-23 | Benchmark Preset selector UI | acceptance_complete |
 | PFG-24 | Arena UI | acceptance_complete |
-| PFG-25 | Stage Matrix and Route Matrix UI | not_started |
+| PFG-25 | Stage Matrix and Route Matrix UI | acceptance_complete |
 | PFG-26 | Loadouts UI and persistence | not_started |
 | PFG-27 | Portal Run Forge Trace metadata | not_started |
 | PFG-28 | Portal evidence to Candidate Evaluator | not_started |
@@ -1136,6 +1135,42 @@ Remaining gaps:
 - PFG-25 Stage Matrix and Route Matrix UI.
 Next package:
 - PFG-25 — Stage Matrix and Route Matrix UI.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-25 — Stage Matrix and Route Matrix UI
+Status: acceptance_complete
+Changed modules/files:
+- web/js/forge.js — Advanced tab with collapsible Stage Matrix (stage / mode select /
+  model / reason) and Route Matrix (change class / candidate routes / critical gate),
+  both hidden by default; stage mode change confirms + acknowledges live-routing modes.
+- web/css/app.css — matrix row + warning pill + Advanced disclosure styles.
+- tests/test_forge_matrix_ui.py (new).
+Behavior implemented:
+- The Advanced tab keeps both matrices inside closed <details> so they do not clutter
+  normal use. Each stage row shows its current mode (preselected) and reason; a live-
+  routing mode (fixed/auto/arena) shows a "routes live" warning pill. Each route row shows
+  candidate routes; a critical change class shows a "critical gate" pill. Changing a stage
+  to a live-routing mode requires a confirm() and posts allow_production_routing=true.
+Syntax / render checks:
+- node --check web/js/forge.js -> OK.
+Focused tests:
+- python -m pytest tests/test_forge_matrix_ui.py -> 3 passed (matrices collapsible + closed
+  by default; current mode shown + live-routing warned; route matrix marks critical_gate).
+- python -m pytest tests/test_forge_*.py -> 29 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-25 is advanced policy UI.
+Safety invariants verified:
+- advanced controls hidden by default; live-routing change confirmed + acknowledged;
+  unsafe change classes flagged; current mode understandable at a glance.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-26 Loadouts UI and persistence.
+Next package:
+- PFG-26 — Loadouts UI and persistence.
 Blocker:
 - None.
 ```
