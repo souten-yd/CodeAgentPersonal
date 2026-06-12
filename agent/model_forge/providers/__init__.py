@@ -26,8 +26,10 @@ from agent.model_forge.providers.openrouter_config import (
     openrouter_descriptor,
     redact_openrouter_headers,
 )
+from agent.model_forge.providers.openrouter_client import OpenRouterProvider
 
 __all__ = [
+    "OpenRouterProvider",
     "LegacyAtlasProvider",
     "legacy_atlas_descriptor",
     "LocalOpenAICompatibleProvider",
