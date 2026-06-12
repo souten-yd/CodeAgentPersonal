@@ -7,13 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-34`
-- Current package goal: optional OpenRouter live smoke gate.
-- Next action: add an opt-in live smoke test requiring FORGE_OPENROUTER_LIVE_SMOKE=1 + an
-  API key; record model id/latency/usage without secrets; CI passes without a key.
-- Last completed: `PFG-33` (real Greenfield Capsule replay run) — acceptance_complete with
-  REAL model + real Capsule build/replay evidence (greenfield score 1.0); see PFG-33
-  evidence below. PFG-30/31/32 also REAL-model complete; PFG-1..PFG-29 complete.
+- Current package: `PFG-35`
+- Current package goal: stage shadow evidence for patch/test/failure/repair.
+- Next action: compare legacy vs Forge (local model) side by side for patch_generation,
+  test_generation, failure_classification, repair; record outputs/scores; no cutover.
+- Last completed: `PFG-34` (optional OpenRouter live smoke gate) — acceptance_complete; gate
+  present and CI-green; live smoke is UNAVAILABLE here (no key) and is NOT claimed as passed.
+  See PFG-34 evidence below. PFG-30/31/32/33 REAL-model complete; PFG-1..PFG-29 complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -90,7 +90,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-31 | real Web App / Portal run preset | acceptance_complete |
 | PFG-32 | real Repair preset run | acceptance_complete |
 | PFG-33 | real Greenfield Capsule replay run | acceptance_complete |
-| PFG-34 | optional OpenRouter live smoke gate | not_started |
+| PFG-34 | optional OpenRouter live smoke gate | acceptance_complete |
 | PFG-35 | stage shadow evidence for patch/test/failure/repair | not_started |
 | PFG-36 | controlled Forge primary cutover for selected stage | not_started |
 | PFG-37 | legacy retirement gates and consumer registry | not_started |
@@ -1451,6 +1451,36 @@ Remaining gaps:
 - PFG-34 optional OpenRouter live smoke gate.
 Next package:
 - PFG-34 — optional OpenRouter live smoke gate.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-34 — optional OpenRouter live smoke gate
+Status: acceptance_complete
+Changed modules/files:
+- tests/test_forge_openrouter_live_smoke.py (new) — opt-in live smoke, gated + secret-free.
+Behavior implemented:
+- A live OpenRouter call runs only when FORGE_OPENROUTER_LIVE_SMOKE=1 AND an OPENROUTER_API_KEY
+  exists (live_smoke_enabled). Otherwise the test skips — it is never reported as a passed
+  live check. When it runs it asserts a genuine response and records exact evidence (model
+  id, latency, usage) and verifies NO secret appears in the result or redacted headers.
+Evidence (actually executed):
+- python -m pytest tests/test_forge_openrouter_live_smoke.py -q -rs -> 1 skipped
+  ("OpenRouter live smoke not enabled (need FORGE_OPENROUTER_LIVE_SMOKE=1 + OPENROUTER_API_KEY)").
+- OpenRouter live smoke evidence: UNAVAILABLE in this environment (no key) — explicitly NOT
+  claimed as passed.
+Unavailable checks:
+- Live OpenRouter unavailable -> skipped, not passed (CI stays green without a key).
+Safety invariants verified:
+- live external call is opt-in only; no secret persisted/logged (result + redacted headers
+  checked); unavailable distinct from passed.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary; external disabled by default.
+Remaining gaps:
+- PFG-35 stage shadow evidence for patch/test/failure/repair.
+Next package:
+- PFG-35 — stage shadow evidence.
 Blocker:
 - None.
 ```
