@@ -1,268 +1,542 @@
 <p align="center">
-  <img src="assets/kasane-core-logo.svg" width="130" alt="KasaneCore logo" />
+  <img src="assets/kasane-core-logo.svg" width="132" alt="KasaneCore logo" />
 </p>
 
 <h1 align="center">KasaneCore</h1>
 
 <p align="center">
-  <strong>あなたのGPUの中で、計画し・コードを書き・検証し・直す。</strong><br>
-  クラウドにもAPIキーにも依存しない、完全ローカルの自律コーディングエージェント。
+  <strong>あなたのGPUの中に、考える・作る・試す・封じ込める・配る AI工房を。</strong><br>
+  Atlas / Lumen / Echo / Nexus / Play / Portal / Forge / Digital Twin を重ね合わせた、ローカルファーストのAIワークベンチ。
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/100%25-Local-success" />
-  <img src="https://img.shields.io/badge/No_API_Key-required-success" />
+  <img src="https://img.shields.io/badge/Local_First-100%25-success" />
+  <img src="https://img.shields.io/badge/API_Key-Optional-success" />
   <img src="https://img.shields.io/badge/Python-3.11-blue" />
-  <img src="https://img.shields.io/badge/FastAPI-0.110+-009688" />
-  <img src="https://img.shields.io/badge/llama.cpp-CUDA_12.8_/_Vulkan-orange" />
-  <img src="https://img.shields.io/badge/endpoints-300+-blueviolet" />
+  <img src="https://img.shields.io/badge/FastAPI-300%2B_endpoints-009688" />
+  <img src="https://img.shields.io/badge/llama.cpp-CUDA_/_Vulkan-orange" />
+  <img src="https://img.shields.io/badge/Atlas_Play-Preview_&_Run-blueviolet" />
+  <img src="https://img.shields.io/badge/Portal-Package_Catalog-ff69b4" />
+  <img src="https://img.shields.io/badge/Forge-Model_Arena-black" />
 </p>
 
 <p align="center">
-  <em>「インベーダーゲームを作って」と打つ。あとは眺めているだけでいい。</em>
+  <em>作るだけで終わらない。動かして、観察して、パッケージ化して、再利用して、モデルまで鍛えていく。</em>
 </p>
 
 ---
 
 ## ✨ 30秒でわかるKasaneCore
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│  あなた:  「インベーダーゲームを作って」                          │
-│                                                                  │
-│  Atlas:   要件を分解 → 8ステップの計画を立案 → リスク評価         │
-│           → step1: index.html を生成・適用・検証 ✓               │
-│           → step2: styles.css …          ✓                      │
-│           → step3〜7: script.js にゲームロジックを実装 ✓         │
-│           → step8: テストを生成 ✓                               │
-│                                                                  │
-│  成果物:  動くSpace Invaders (HTML+CSS+JS) — 全部ローカルLLMで    │
-└────────────────────────────────────────────────────────────────┘
+KasaneCoreは、単なるチャットUIでも、単なるコード生成ツールでもありません。
+
+自然言語の要件から、ローカルLLMが計画を立て、コードを書き、安全に適用し、Playで起動・プレビューし、結果をCapsuleとしてパッケージ化し、Portalで再実行・保存・破棄し、Forgeでモデル/ルートの実力を比べ、Digital Twinでプロジェクトの構造や影響範囲を見える化します。
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│ あなた: 「小さなHTMLゲームを作って。動作確認までして。」              │
+│                                                                     │
+│ Atlas        要件整理 → 計画 → 実装 → Safe Apply → 検証              │
+│ Play         生成物を起動 → Preview / Logs / Proxy / Console観察     │
+│ Capsule      成功した成果物を決定論的ZIPにパッケージ化               │
+│ Portal       パッケージをImport / Install / Run / Save / Discard     │
+│ Forge        どのモデル・ルートが良かったかArenaと証拠で評価          │
+│ DigitalTwin  影響範囲・依存・文脈スライスを読み取り専用で投影          │
+│                                                                     │
+│ 成果物: 作って終わりではなく、遊べる・配れる・学べるプロジェクトへ     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-OpenAIもAnthropicも要りません。RTX 3070 と GGUF モデルがあれば、**要件定義からコード生成・適用・検証・自己修復まで**、すべてオフラインで完結します。
+OpenAIやAnthropicのAPIキーがなくても、GGUFモデルと `llama.cpp` があれば、ローカルGPU上でかなりの範囲を完結できます。外部モデルを使いたい場合も、Forgeのポリシーでルートを分け、ローカル優先・外部禁止・評価用だけ許可といった運用にできます。
 
-そしてKasaneCoreは、コーディングだけのツールではありません。**チャット・音声・Web調査・文書RAG** を一つのFastAPIバックエンドに重ね合わせた（=Kasane）、個人のためのAIワークベンチです。
+> **現在地:** KasaneCoreは急速に成長中のローカルAIワークベンチです。Lumenなど安定している面もあれば、Atlas/Play/Portal/Forge/Digital Twinのように強力だがExperimentalな面もあります。READMEでは夢を隠さず、同時に状態も正直に示します。
 
 ---
 
-## ⚔️ 何が違うのか
+## 🧩 いまのKasaneCoreを構成する9つの面
 
-| | **KasaneCore** | Claude Code | Copilot Agent | Cursor | Devin |
-|---|:---:|:---:|:---:|:---:|:---:|
-| 🔒 **完全ローカル動作** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| 🧠 **ローカルGGUF / llama.cpp** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| 🔁 **計画→生成→適用→検証→自己修復ループ** | ✅ | ✅ | △ | △ | ✅ |
-| 🚦 **段階的権限モデル (Level 0〜4)** | ✅ | △ | △ | △ | △ |
-| 🛡️ **承認ゲート17項目 + スナップショット/ロールバック** | ✅ | △ | △ | ❌ | △ |
-| 🤖 **LLMによる自動評価 (Evaluator)** | ✅ | ❌ | ❌ | ❌ | ✅ |
-| 🧬 **自己改善 (Self-Improvement / Level 4)** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| 🔍 **文書RAG + Deep Research (Nexus)** | ✅ | ❌ | ❌ | △ | ❌ |
-| 🎙️ **音声I/O・翻訳 (Echo)** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| 💴 **月額** | **¥0** | 従量 | $10〜 | $20 | $500〜 |
-
----
-
-## 🧩 4つのサーフェス
-
-KasaneCoreは、役割の異なる4つのサーフェスを単一バックエンドに「重ねて」います。
-
-```
-        🧠 Atlas              💬 Lumen            🎙️ Echo            🔍 Nexus
-   ─────────────────    ─────────────────   ───────────────   ─────────────────
-   自律コーディング        インテリジェント       音声I/O・翻訳        知識調査・RAG
-   計画→実装→検証         チャット             ASR / TTS         Deep Research
-   →適用→自己修復         天気・ニュース・検索    リアルタイム配信     レポート生成
+```text
+        🧠 Atlas             ▶ つくる
+        🎮 Atlas Play        ▶ 動かす・見る
+        📦 Capsule           ▶ 封じ込める
+        🌀 Portal            ▶ 配る・再実行する
+        🔥 Forge             ▶ モデルを比べる・鍛える
+        🧬 Digital Twin      ▶ プロジェクトを写し取る
+        💬 Lumen             ▶ 話す・調べる
+        🎙️ Echo              ▶ 聞く・話す・訳す
+        🔍 Nexus             ▶ 深く調査する
 ```
 
-| | サーフェス | ひとことで |
+| Surface | 役割 | ひとことで |
 |---|---|---|
-| 🧠 | **Atlas** | 自然言語の要件から、安全ゲート付きでコードを自律生成・適用・検証する**心臓部** |
-| 💬 | **Lumen** | 会話・天気・ニュース・Web検索をさばく軽量チャット |
-| 🎙️ | **Echo** | faster-whisper / whisper.cpp + Style-Bert-VITS2 による音声ワークベンチ |
-| 🔍 | **Nexus** | PDF/Webの取り込みから証拠収集・Deep Research・レポート生成まで |
+| 🧠 **Atlas** | 自律コーディング | 要件整理、計画、実装、Safe Apply、検証、自己修復の心臓部 |
+| 🎮 **Atlas Play** | 実行・プレビュー | 生成したWeb/HTML/Python等を起動し、Preview・Logs・Proxyで観察 |
+| 📦 **Capsule** | パッケージ化 | Playで確認した成果物を、決定論的なZIPパッケージへ封じ込める |
+| 🌀 **Portal** | 配布・再実行 | パッケージをImport / Install / Runし、データ保存・破棄・Snapshotを管理 |
+| 🔥 **Forge** | モデル工房 | モデル/プロバイダ/ルートをArenaで比較し、LoadoutやStage Policyで制御 |
+| 🧬 **Project Digital Twin** | 構造投影 | プロジェクトのノード、依存、影響範囲、文脈スライスを読み取り専用で可視化 |
+| 💬 **Lumen** | 軽量チャット | 会話、天気、ニュース、Web検索を担当する日常エージェント |
+| 🎙️ **Echo** | 音声I/O | ASR、TTS、翻訳、議事録、リアルタイム音声処理 |
+| 🔍 **Nexus** | Deep Research | Web/PDF/文書RAG、証拠収集、引用付きレポート生成 |
 
 ---
 
-# 🧠 Atlas — 自律コーディングエンジン
+# 🧠 Atlas — ローカル自律コーディングエンジン
 
-Atlasは「ただのチャット」ではありません。**要件定義 → 計画 → コード生成 → 安全適用 → 検証 → 自己修復**を、段階的な安全ゲートで制御しながら自律実行します。
+AtlasはKasaneCoreの中核です。チャットでコードを吐くだけではなく、要件を構造化し、計画を作り、変更を安全に適用し、テストやプレビューで確認し、失敗時には原因を見て修正ループへ戻します。
 
-## 🎬 Atlasが頭の中でやっていること
-
-```
-  あなたの一文 ──▶  ① RequirementAnalyzer    要件を構造化、曖昧点を検出
-                          │ (不明なら質問)
-                          ▼
-                    ② DeepPlanner            アーキ案A/B/Cを生成→最適案を選択
-                          │                   リポジトリ構造とNexus文脈を考慮
-                          ▼
-                    ③ PlanPoolBuilder         Program / Epic / Task の三層計画
-                          │                   各ステップにリスクと検証条件を付与
-                          │                   要件 ↔ ステップを内容ベースで自動紐付け
-                          ▼
-                    ④ 承認ゲート              （Level/プリセットに応じて）
-                          ▼
-       ┌──────────────  ⑤ 実行ループ（ステップごと）  ──────────────┐
-       │  Snapshot ─▶ Generate ─▶ SafeApply ─▶ Verify ─▶ Evaluate   │
-       │   (SHA256)     (LLM)      (安全適用)   (テスト/    (LLM判定)  │
-       │                                       ブラウザ)              │
-       │                              失敗 ▼                          │
-       │                       BoundedRetry / 自己修正（上限付き）      │
-       └──────────────────────────────┬────────────────────────────┘
-                                       ▼
-                    ⑥ Journal             全イベント永続化・中断から再開
-                                          Draft PR 準備（自動マージはしない）
+```text
+要求
+  ↓
+Requirement Analyzer
+  ↓
+Planner / Deep Planner
+  ↓
+PlanPool / Item mapping / Risk classification
+  ↓
+Approval Gate
+  ↓
+Generate Patch
+  ↓
+Safe Apply
+  ↓
+Verify / Evaluate
+  ↓
+Retry / Repair / Draft PR artifact
 ```
 
-各ステップは**生成して終わり**ではありません。生成 → 適用 → 検証（JSなら構文・ブラウザsmoke、Pythonならpytest）→ LLM評価 → 失敗なら根本原因をフィードバックして再生成、という**ループ**で品質を担保します。
+## Atlasのうれしいところ
 
-## 🚦 実行安全モデル（Level 0〜4）
+- **計画してから書く** — いきなりファイルを書かず、要件・制約・リスク・検証条件を先に整理。
+- **Safe Apply前提** — 危険な変更、削除、設定変更、外部公開、認証まわりは強く止める。
+- **PlanPool** — Program / Epic / Task の階層で複数ステップを扱う。
+- **Requirement mapping** — 要件と計画項目を紐付け、漏れを検出しやすくする。
+- **自己修復ループ** — 生成 → 適用 → 検証 → 失敗原因 → 再生成を上限付きで回す。
+- **Draft PR志向** — 自動マージではなく、確認可能な成果物へ寄せる。
+- **ローカルモデル対応** — GGUF / llama.cpp / OpenAI互換ローカルエンドポイントを利用可能。
 
-Atlasは**段階的な権限昇格**で動きます。いきなり何でも実行するのではなく、証拠と承認が揃って初めて一段上がります。
+## 実行安全モデル
 
 | Level | 名称 | できること |
 |:---:|---|---|
-| **0** | Manual Only | 計画・プレビューのみ。ファイルは一切触らない |
-| **1** | Guarded Single Step | dry-run証明 + 明示承認で、1アクションだけ実行 |
-| **2** | Guarded Bounded Loop | 上限付きループ。各ステップに承認ゲート |
-| **3** | Autonomous Loop | 自律実行 → **Draft PRまで**。自動マージは禁止 |
-| **4** | Self-Improvement | 自分自身への改善パッチ提案・ローカルブランチ作成 |
+| **0** | Manual Only | 計画・プレビュー中心。ファイル変更はしない |
+| **1** | Guarded Single Step | dry-run証明 + 明示承認で1アクション実行 |
+| **2** | Guarded Bounded Loop | 上限付きループ。各段階で安全ゲート |
+| **3** | Autonomous Loop | 自律実行し、最終的にDraft PR相当まで進める |
+| **4** | Self-Improvement | KasaneCore自身への改善提案をローカルに作る |
 
-> 🛡️ **Level 1 を通過するには17の承認ゲートが全て揃う必要があります** — snapshot/restore・risk classification・dry-run proof・explicit approval token・allowlisted verification・rollback readiness・stop kill-switch・loop bounds・remote-git restriction・audit log … 「速いが危険」ではなく「速くても安全」を選んだ設計です。
-
-## 🎯 リスクで動きが変わる
-
-| リスク | 動作 | 例 |
-|:---:|---|---|
-| 🟢 `low` | 自動実行可 | 新規ソースファイルの作成、ドキュメント、テスト追加 |
-| 🟡 `medium` | ポリシー依存 | 既存ソースの変更 |
-| 🟠 `high` | 承認必須 | 削除・リネーム、APIの変更 |
-| 🔴 `strict_gate` | **強ゲート** | `main.py` / `app/api/**` / `.github/workflows/**` / secrets |
-
-リスク分類は**変更の種類**で判定します（新規作成=追加的=low、既存変更=medium、削除=high…）。外部プロジェクトの普通のファイルが過剰にブロックされることはありません。
-
-## 🧭 コードを「理解」してから書く — Atlas CodeIntel
-
-- **シンボルインデックス** — Python AST解析でクラス/関数/メソッドを全列挙
-- **依存グラフ** — モジュール間importを自動追跡
-- **関連テストの自動発見** — 変更対象に対応するテストを特定
-- **兄弟ファイルの実装接地** — テスト生成時、対象実装の**実APIを読んでから**書く（存在しない関数をでっち上げない）
-- **クロスファイル整合** — 生成物どうしの参照（`<script src>` / import）が**実ファイル名で噛み合う**
+> KasaneCoreの思想は「速いけど危ない」ではなく、**ワクワクするほど自動化しつつ、止まるべきところでは止まる**ことです。
 
 ---
 
-# 💬 Lumen — インテリジェントチャット
+# 🎮 Atlas Play — 作ったものをその場で動かす
 
-会話から天気・ニュース・Web検索まで、意図を即座に見分けてさばく軽量サーフェス。
+Atlas Playは、生成した成果物をただのファイルで終わらせず、実行対象として扱うためのレイヤーです。
 
+## できること
+
+- Workspace fileの一覧・読み取り・書き込み
+- 起動対象の自動解決
+- Launch Profileに基づく環境解決
+- 単体セッション / Composite Session の起動
+- Static Previewの配信
+- HTTP Proxy / WebSocket Proxy
+- Console event / failed request / observations の記録
+- Stop / Restart / Purge / Startup orphan reconciliation
+
+## なぜ重要か
+
+コード生成エージェントは「コードを書いた」と「本当に動いた」の間に大きな谷があります。Playはこの谷を埋めるための面です。
+
+```text
+Atlasで生成
+  ↓
+Playで起動
+  ↓
+Previewで確認
+  ↓
+Console / Failed Requestを観察
+  ↓
+必要ならAtlasへ修正フィードバック
 ```
-「明日の横浜の天気は？」
-   └─▶ intent=weather → 位置抽出 → Open-Meteo (APIキー不要) → 3日予報 → 自然言語で回答
-「最新のAIニュースを調べて」
-   └─▶ intent=web/news → SearXNG・GDELT・RSS → 軽量ダイジェスト
+
+---
+
+# 📦 Capsule — 成功した成果物を封じ込める
+
+Capsuleは、Playで確認したプロジェクトを再利用可能なパッケージに変換します。
+
+## 特徴
+
+- **決定論的アーカイブ** — 同じ内容なら再現しやすいZIPを作る。
+- **Manifest / checksums / findings** を同梱。
+- **runtime dataは含めない** — 実行中に生まれたユーザーデータを勝手に混ぜない。
+- **秘密情報チェック** — `.env`、API key、secret、token、private keyらしきものを検出。
+- **除外ルール** — `.git`、`node_modules`、`venv`、`ca_data`、`.portal`、`data` などを標準除外。
+
+Capsuleは、AtlasとPortalをつなぐ箱です。
+
+```text
+Play session
+  ↓ successful
+Capsule build
+  ↓ deterministic ZIP
+Portal catalog
 ```
 
-| Intent | トリガー | 動作 |
+---
+
+# 🌀 Portal — 作ったアプリを配って、実行して、データを管理する
+
+Portalは、Capsule化された成果物を扱うカタログ兼ランタイムです。
+
+## できること
+
+- Package catalog表示
+- `.zip` / `.portal.zip` のImport
+- Import preflight / quarantine / manifest / checksum検証
+- Package export
+- Install / Run / Stop / Purge
+- Run sheetでPreview / Logs表示
+- 実行データのSave / Snapshot / Discard
+- Installation data backup / delete
+- Snapshotからの起動
+- Portal上の成果物をAtlasへFork
+- Forge traceとの連携
+
+## Portalの思想
+
+AIで作ったものは、生成直後はまだ「作品の卵」です。Portalに入れることで、**再実行できる作品、保存できる作品、捨てられる作品、改造できる作品**になります。
+
+```text
+Capsule package
+  ↓ Import
+Portal catalog
+  ↓ Install
+Run sheet
+  ├─ Preview
+  ├─ Logs
+  ├─ Save data
+  ├─ Snapshot
+  └─ Discard
+```
+
+> 生成AIの成果物に「セーブデータを残す / 捨てる / バックアップする」というゲームやアプリらしい体験を持ち込むのがPortalです。
+
+---
+
+# 🔥 Forge — モデルを鍛え、比べ、ルーティングする工房
+
+Forgeは、KasaneCoreのモデル工房です。どのモデルが、どのステージで、どのタスクに強いのかを比べ、記録し、慎重に切り替えるためのレイヤーです。
+
+## できること
+
+- Provider一覧 / Model一覧 / Profile一覧
+- Leaderboard表示
+- Benchmark Preset
+- Arena Run
+- Stage Policy
+- Route Policy
+- Loadout保存・適用
+- Risky Loadoutの明示確認
+- Cutover / Rollback
+- Portal run evidenceの取り込み
+- Capsule replay結果の記録
+
+## 安全設計
+
+- Forgeは明示的に有効化するまでOFF。
+- Legacy Atlas実行経路は主経路として残す。
+- Secret値は返さない。
+- 外部プロバイダは、明示的に有効化し、ポリシーで許可されるまで使わない。
+- Production routingの自動切替はしない。
+- Cutoverには証拠と確認を要求する。
+
+```text
+Candidate models
+  ↓
+Arena
+  ↓
+Profile / Leaderboard
+  ↓
+Loadout
+  ↓
+Stage Policy
+  ↓
+Guarded Cutover
+```
+
+Forgeは「このモデル、なんとなく良さそう」ではなく、**実行証拠・スコア・用途別の勝ち筋**でモデル運用を考えるための仕組みです。
+
+---
+
+# 🧬 Project Digital Twin — プロジェクトの写し身
+
+Project Digital Twinは、プロジェクトの構造を読み取り専用で投影するレイヤーです。
+
+## できること
+
+- Twin health / revision確認
+- node + 近傍ノードのlazy expansion
+- bounded / paginated query
+- path trace
+- change impact
+- bounded context slice
+
+## 重要な制約
+
+Digital Twinは、実行も、変更も、承認状態の変更もしません。あくまで読み取り専用の投影です。
+
+```text
+Project files / symbols / relations
+  ↓
+Twin store
+  ↓
+Graph / impact / context slice
+  ↓
+Atlas planning context
+```
+
+これにより、Atlasはプロジェクトを「ファイルの束」ではなく、**関係性を持った構造物**として扱いやすくなります。
+
+---
+
+# 💬 Lumen — 日常会話と軽量タスク
+
+Lumenは、日常的な会話、天気、ニュース、Web検索を担当する軽量サーフェスです。
+
+| Intent | 例 | 動作 |
 |---|---|---|
-| `chat` | その他 | ローカルLLMとの通常会話 |
-| `weather` | 天気 / 気温 / forecast | Open-Meteo（キー不要・日本語の時制も理解） |
-| `news` | ニュース / 速報 / headlines | マルチソース・ダイジェスト |
-| `web` | 検索 / 調べて / https:// | SearXNG経由のWeb検索（予算上限つき） |
-| `nexus_deep_research` | 深掘り / レポート | Nexus Deep Researchへ誘導 |
+| `chat` | 普通の会話 | ローカルLLMへ送る |
+| `weather` | 明日の東京の天気 | Open-Meteo系の天気取得 |
+| `news` | 最新ニュース | マルチソース要約 |
+| `web` | 調べて / URL | SearXNG等の検索 |
+| `nexus_deep_research` | 深掘り調査 | Nexusへ誘導 |
 
-> Lumenは意図的に**軽量**。ファイル編集・自律ループ・Deep Researchはやりません（それぞれAtlas・Nexusの担当）。境界がはっきりしているから速い。
+Lumenは軽いから良い。重いコード生成はAtlasへ、深い調査はNexusへ、音声はEchoへ。役割分担をはっきりさせています。
 
 ---
 
-# 🎙️ Echo — 音声I/Oシステム
+# 🎙️ Echo — 聞く・話す・訳す
 
-リアルタイムASR・翻訳・TTSを統合した音声ワークベンチ。**言語ルーター**で「日本語で話して英語で返す」も自在。
+Echoは音声I/Oのためのサーフェスです。
 
 | 種別 | エンジン | 用途 |
 |---|---|---|
-| ASR | `faster-whisper` (CUDA/CPU) | large-v3-turbo をバンドル |
-| ASR | `whisper.cpp` (Vulkan) | **Windows AMD GPU 対応**（RX 9070 XT 等） |
-| TTS | **Style-Bert-VITS2** | 高品質日本語TTS（koharune-ami 同梱） |
-| TTS | Qwen3-TTS | 多言語TTS |
+| ASR | faster-whisper | CUDA/CPUで音声認識 |
+| ASR | whisper.cpp | Windows AMD / Vulkan運用の選択肢 |
+| TTS | Style-Bert-VITS2 | 高品質日本語TTS |
+| TTS | Qwen系TTS | 多言語TTSの実験 |
 
-```
-🎤 入力(ja) ─▶ ASR ─▶ テキスト(ja) ─▶ LLM翻訳(ja→en) ─▶ TTS ─▶ 🔊 出力(en)
+```text
+🎤 音声入力
+  ↓
+ASR
+  ↓
+LLM / 翻訳 / 整形
+  ↓
+TTS
+  ↓
+🔊 音声出力
 ```
 
-`/echo/stream`（WebSocket）でASRチャンク・TTS応答・EchoVault保存を並行処理。Windowsは `setup_whisper_cpp_vulkan_windows.bat` でVulkan ASRをワンクリック準備。
+EchoVaultに録音・文字起こし・成果物を残し、会話や議事録のワークフローへつなげられます。
 
 ---
 
-# 🔍 Nexus — 知識調査システム
+# 🔍 Nexus — Deep Research / RAG / Evidence
 
-クエリ一つから、ソース設計 → 並行収集 → 証拠化 → ギャップ分析 → レポート生成までを自走する調査エンジン。
+Nexusは、Webや文書を扱う調査レイヤーです。
 
+## できること
+
+- Web search
+- PDF / HTML download
+- document upload
+- evidence DB
+- source ranking
+- gap analysis
+- recursive research
+- markdown report
+- export bundle
+
+```text
+Query
+  ↓
+Research plan
+  ↓
+Search / download / extract
+  ↓
+Evidence DB
+  ↓
+Gap analysis
+  ↓
+Report
 ```
-クエリ ─▶ ResearchPlanner (意図推定・ソースミックス設計・カバレッジ行列)
-        ─▶ SearXNG 並行マルチクエリ ─▶ ランキング/重複排除
-        ─▶ Downloader (PDF/HTML, PyMuPDF抽出) ─▶ Evidence DB
-        ─▶ AnswerBuilder (引用付き) ─▶ GapAnalysis ─▶ Markdownレポート + ZIP
-```
 
-| モード | 説明 |
-|---|---|
-| `standard` | 単一ラウンドの標準調査 |
-| `deep` | ギャップ分析 + フォローアップ |
-| `recursive` | 再帰調査・ダウンロード予算を自動拡張 |
-| `news` / `market` / `official` / `academic` | 領域特化（ニュース / 市場 / 公的機関 / 学術） |
-
-Agentツールとしても呼べます：`nexus_web_search` / `nexus_build_report` / `nexus_upload_document` / `nexus_market_research` / `nexus_export_bundle` …
+Atlasがコードを書く前にNexusで仕様・規格・参考実装を調べる、Lumenから軽いWeb検索を回す、という連携ができます。
 
 ---
 
-## 🏗️ アーキテクチャ全体図
+## ⚔️ 公平な比較: KasaneCoreと他のAIコーディングエージェント
 
-```
+この比較は、公開情報とKasaneCoreの現在のコードベースをもとにした**機能設計・運用思想の比較**です。速度、モデル性能、SWE-bench等の絶対スコア比較ではありません。
+
+凡例: ✅ 強い / 標準対応、◯ 対応、△ 条件付き・限定的、❌ 主目的ではない / 標準ではない、? 公開情報だけでは判断困難
+
+| # | 比較項目 | KasaneCore | Claude Code | GitHub Copilot Agent | Cursor | Devin | OpenHands |
+|---:|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| 1 | 完全ローカル運用 | ✅ | ❌ | ❌ | △ | ❌ | ◯ |
+| 2 | GGUF / llama.cppを主役にできる | ✅ | ❌ | ❌ | △ | ❌ | △ |
+| 3 | クラウド管理の手軽さ | △ | ✅ | ✅ | ✅ | ✅ | △ |
+| 4 | IDE / Terminal統合の成熟度 | △ | ✅ | ✅ | ✅ | ◯ | ◯ |
+| 5 | 自然言語→計画→コード編集 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 6 | コマンド実行・検証ループ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 7 | Safe Apply / 明示承認ゲート | ✅ | ◯ | ◯ | ◯ | ◯ | ◯ |
+| 8 | Snapshot / Rollback志向 | ✅ | △ | △ | △ | ◯ | ◯ |
+| 9 | 上限付き自律ループ | ✅ | ◯ | ◯ | ◯ | ✅ | ✅ |
+| 10 | ブラウザ/HTML成果物のPlay Preview | ✅ | △ | △ | △ | ◯ | ◯ |
+| 11 | 生成成果物のパッケージ化 | ✅ Capsule | ❌ | ❌ | ❌ | △ | △ |
+| 12 | アプリカタログ / 再実行Portal | ✅ Portal | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 13 | 実行データSave / Snapshot / Discard | ✅ | ❌ | ❌ | ❌ | △ | △ |
+| 14 | Project Digital Twin / Impact graph | ✅ | △ | △ | △ | △ | △ |
+| 15 | モデルArena / Leaderboard | ✅ Forge | ❌ | ❌ | ❌ | ❌ | △ |
+| 16 | Loadout / Stage Policy / Cutover | ✅ Forge | ❌ | ❌ | ❌ | ❌ | △ |
+| 17 | Deep Research / 文書RAG内蔵 | ✅ Nexus | △ | △ | △ | △ | △ |
+| 18 | ASR / TTS / 翻訳内蔵 | ✅ Echo | ❌ | ❌ | ❌ | ❌ | ❌ |
+| 19 | Skill / Hook / Tool拡張 | ✅ | ✅ | ✅ | ◯ | △ | ✅ |
+| 20 | No API Keyで始めやすい | ✅ | ❌ | ❌ | ❌ | ❌ | △ |
+| 21 | チーム向けSaaS運用 | △ | ✅ | ✅ | ✅ | ✅ | △ |
+| 22 | 企業サポート / 運用品質 | △ | ✅ | ✅ | ✅ | ✅ | △ |
+| 23 | ローカル改造しやすさ | ✅ | △ | △ | △ | ❌ | ✅ |
+| 24 | 研究・実験プラットフォーム性 | ✅ | ◯ | ◯ | ◯ | ◯ | ✅ |
+
+## 比較の読み方
+
+### KasaneCoreが強いところ
+
+KasaneCoreの強みは、**ローカルファーストで、作る・動かす・封じ込める・配る・評価する・調べる・話す**が一体化していることです。
+
+特に、Portal / Play / Capsule / Forge / Digital Twin まで同じワークベンチにある点はかなり独特です。単なる「AIがコードを書く」ではなく、生成物をローカル環境で育てる工房に近い設計です。
+
+### 他エージェントが強いところ
+
+Claude Code、GitHub Copilot、Cursor、Devinは、導入の簡単さ、クラウドモデル品質、IDE/PR/チーム連携、商用サポートの面で強いです。特に既存のGitHub/IDE中心の開発フローに入るなら、これらの完成度は高いです。
+
+OpenHandsはオープンなエージェント基盤として強く、サンドボックス実行や研究・拡張の文脈で魅力があります。
+
+### 公平な結論
+
+KasaneCoreは、現時点で「万人向けに最も完成された商用サービス」ではありません。けれど、**自分のGPU、自分のデータ、自分のプロジェクト、自分のモデル評価まで握りたい人**にとっては、非常にワクワクする方向へ伸びています。
+
+---
+
+## 🏗️ アーキテクチャ
+
+```text
 ┌──────────────────────────────────────────────────────────────┐
-│                    ブラウザ UI (ui.html)                       │
+│                         Browser UI                            │
+│  Lumen / Atlas / Echo / Nexus / Forge / Portal                 │
 └──────────────────────────────┬───────────────────────────────┘
                                │ HTTP / SSE / WebSocket
 ┌──────────────────────────────▼───────────────────────────────┐
-│                FastAPI バックエンド (main.py)                   │
-│                     300+ エンドポイント                         │
-│   ┌────────┐  ┌────────┐  ┌───────┐  ┌───────┐  ┌──────────┐  │
-│   │ Atlas  │  │ Lumen  │  │ Echo  │  │ Nexus │  │  Models  │  │
-│   │(Coding)│  │ (Chat) │  │(Voice)│  │ (RAG) │  │(llama.cpp)│ │
-│   └────────┘  └────────┘  └───────┘  └───────┘  └──────────┘  │
+│                      FastAPI Backend                           │
+│  app.api.atlas_*  app.api.portal  app.api.forge                 │
+│  app.api.project_twin  app.api.echo  app.api.nexus              │
 └──────────────────────────────┬───────────────────────────────┘
-                   ┌────────────▼────────────┐
-                   │   llama-server (GGUF)   │
-                   │  OpenAI互換 /v1/chat    │
-                   └─────────────────────────┘
+                               │
+        ┌──────────────────────┼──────────────────────┐
+        │                      │                      │
+┌───────▼────────┐   ┌────────▼────────┐   ┌─────────▼─────────┐
+│ llama-server    │   │ ca_data / SQLite │   │ workspace / files  │
+│ GGUF / CUDA     │   │ plans, memory,   │   │ generated apps     │
+│ Vulkan / CPU    │   │ portal, forge    │   │ previews, packages │
+└────────────────┘   └─────────────────┘   └───────────────────┘
 ```
-
-**役割別にLLMを割り当て可能**（9ロール: plan / chat / search / verify / code / complex / reason / multi / translate）。計画は賢いモデル、軽処理は軽量モデル、といった使い分けがモデルDBでできます。
 
 ---
 
-## 🚀 クイックスタート
+## 📁 ディレクトリ構成
 
-### Windows（ローカル）
+```text
+KasaneCore/
+├── main.py                         # Production FastAPI entrypoint
+├── ui.html                         # Main browser UI
+├── agent/
+│   ├── loop.py                     # Agent loop
+│   ├── planner.py                  # Planner
+│   ├── deep_planner.py             # Deep planner
+│   ├── model_forge/                # 🔥 Forge: providers, arena, stage policy, loadouts
+│   ├── project_twin/               # 🧬 Digital Twin store / contracts / context broker
+│   └── atlas_*.py                  # Atlas services
+├── app/
+│   ├── api/
+│   │   ├── atlas_play.py           # 🎮 Atlas Play API
+│   │   ├── atlas_capsule.py        # 📦 Capsule API
+│   │   ├── portal.py               # 🌀 Portal API
+│   │   ├── forge.py                # 🔥 Forge API
+│   │   ├── project_twin.py         # 🧬 Digital Twin API
+│   │   ├── echo.py                 # 🎙️ Echo API
+│   │   ├── lumen.py                # 💬 Lumen API
+│   │   └── nexus.py                # 🔍 Nexus API
+│   ├── atlas/
+│   │   ├── play/                   # Play sessions, preview, proxy, workspace policy
+│   │   └── capsule/                # Capsule builder, contracts, package metadata
+│   ├── portal/                     # Portal catalog/runtime/recovery/paths
+│   ├── nexus/                      # Research / RAG / reports
+│   ├── asr/ tts/ audio/            # Echo audio runtime
+│   └── server.py                   # Router registration / app factory migration
+├── web/                            # Static assets
+├── docs/                           # Roadmaps / handoff / design docs
+├── tests/                          # Contract / unit / smoke tests
+├── scripts/                        # Launchers / setup / smoke scripts
+├── Dockerfile
+└── start.bat
+```
 
-```bash
+---
+
+## 💾 永続データ
+
+```text
+ca_data/
+├── memory.db                       # Hybrid memory
+├── model_db.db                     # Model DB / role assignment
+├── skills/                         # SKILL.md hot reload
+├── workspace/                      # Project workspaces
+├── atlas_play/                     # Play sessions / target graph / preview data
+├── portal/                         # Package catalog / installations / runtime data
+├── model_forge/                    # Forge profiles / arena runs / loadouts / cutovers
+├── project_twin/                   # Digital Twin SQLite store
+├── nexus/                          # Evidence DB / reports / uploads
+└── EchoVault/                      # Audio transcripts / recordings / outputs
+```
+
+---
+
+## 🚀 Quick Start
+
+### Windows
+
+```bat
 git clone https://github.com/souten-yd/KasaneCore.git
 cd KasaneCore
 
-set LLAMA_SERVER_PATH=C:\path\to\llama-server.exe   # llama-server を指定
-start.bat                                            # → http://localhost:8000
+set LLAMA_SERVER_PATH=C:\path\to\llama-server.exe
+start.bat
 ```
-初回起動で `venv_sys/` が自動作成されます。
+
+Open: `http://localhost:8000`
 
 ### Linux / Runpod
 
 ```bash
 python scripts/start_codeagent.py --host 0.0.0.0 --port 8000
-# Runpod専用ランチャー
+# or
 bash scripts/runpod_start.sh
 ```
 
-### Docker（Runpod推奨）
+### Docker
 
 ```bash
 docker build -t kasanecore .
@@ -272,156 +546,149 @@ docker run -p 8000:8000 -p 8080:8080 \
   kasanecore
 ```
 
-> 📦 Dockerイメージ同梱: llama.cpp CUDAバイナリ / faster-whisper large-v3-turbo / Style-Bert-VITS2(koharune-ami) / デフォルトGGUF / SearXNG（Runpod時 自動起動）
-
-### 必要環境
-
-| 項目 | 推奨 |
-|---|---|
-| OS | Windows 10/11 · Linux · Runpod |
-| Python | 3.11 |
-| RAM / VRAM | 32GB / 16GB以上（RTX 3070等） |
-| GPU | NVIDIA CUDA · AMD Vulkan · CPU fallback |
-
 ---
 
 ## ⚙️ 主要な環境変数
 
-<details>
-<summary><strong>LLMエンドポイント / コア</strong>（クリックで展開）</summary>
+### Core / LLM
 
-| 変数 | 既定値 | 説明 |
+| 変数 | 既定 | 説明 |
 |---|---|---|
-| `LLM_URL` | `http://localhost:8080/v1/chat/completions` | 共通LLM |
-| `CODEAGENT_LLM_PLANNER` | `LLM_URL` | Planner / Verifier |
-| `CODEAGENT_LLM_EXECUTOR` | `LLM_URL` | Executor |
-| `CODEAGENT_LLM_CHAT` | `LLM_URL` | Chat / Clarify |
-| `CODEAGENT_LLM_LIGHT` | `LLM_URL` | 軽量処理 |
-| `LLAMA_SERVER_PATH` | 自動検出 | llama-server実行ファイル |
-| `CODEAGENT_RUNTIME` | 自動判定 | `runpod` / `local` / `docker` |
-| `CODEAGENT_CA_DATA_DIR` | `./ca_data` | 永続データ |
-| `CODEAGENT_WORK_DIR` | `ca_data/workspace` | プロジェクト作業ディレクトリ |
-| `CODEAGENT_TEST_CMD` | 自動推定 | テスト実行コマンド |
-| `DEFAULT_LLM_CTX_SIZE` | `16384` | デフォルトコンテキスト長 |
+| `LLM_URL` | `http://localhost:8080/v1/chat/completions` | OpenAI互換LLM endpoint |
+| `CODEAGENT_LLM_PLANNER` | `LLM_URL` | Planner / Verifier用 |
+| `CODEAGENT_LLM_EXECUTOR` | `LLM_URL` | Executor用 |
+| `CODEAGENT_LLM_CHAT` | `LLM_URL` | Chat / Clarify用 |
+| `CODEAGENT_LLM_LIGHT` | `LLM_URL` | 軽量処理用 |
+| `LLAMA_SERVER_PATH` | auto | llama-server実行ファイル |
+| `CODEAGENT_CA_DATA_DIR` | `./ca_data` | 永続データroot |
+| `CODEAGENT_WORK_DIR` | `ca_data/workspace` | workspace root |
+| `DEFAULT_LLM_CTX_SIZE` | `16384` | default context length |
 
-</details>
+### Forge
 
-<details>
-<summary><strong>ASR / TTS / Echo</strong></summary>
-
-| 変数 | 既定値 | 説明 |
+| 変数 | 既定 | 説明 |
 |---|---|---|
-| `CODEAGENT_ASR_DEFAULT_MODEL` | `large-v3-turbo` | faster-whisperモデル |
-| `CODEAGENT_ASR_ENGINE` | `auto` | `faster_whisper` / `whisper_cpp` / `auto` |
-| `CODEAGENT_WHISPER_CPP_BACKEND` | `vulkan`(Win) / `cpu` | whisper.cppバックエンド |
-| `CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR` | `…/tts/style_bert_vits2/models` | SBV2モデル |
-| `ECHO_UPLOAD_MAX_BYTES` | `104857600` (100MB) | 音声アップロード上限 |
+| `FORGE_ENABLED` | off | Forge UI/APIの明示有効化 |
+| `FORGE_SOURCE_MODE` | `local_only` | local_only等のソースポリシー |
+| `FORGE_LOCAL_BASE_URL` | empty | ローカルOpenAI互換provider URL |
+| `FORGE_LOCAL_MODEL` | empty | ローカルproviderのmodel id |
+| `FORGE_OPENROUTER_ENABLED` | off | OpenRouter providerの明示有効化 |
+| `FORGE_OPENROUTER_MODEL` | empty | OpenRouter側model id |
 
-</details>
+### Nexus
 
-<details>
-<summary><strong>Nexus / SearXNG</strong></summary>
-
-| 変数 | 既定値 | 説明 |
+| 変数 | 既定 | 説明 |
 |---|---|---|
-| `NEXUS_WEB_SEARCH_PROVIDER` | `searxng` | 検索プロバイダ |
-| `NEXUS_SEARXNG_URL` | Runpod:`:8088` / 他:`http://searxng:8080` | SearXNG URL |
-| `NEXUS_SEARCH_FREE_ONLY` | `true` | 無料プロバイダのみ |
-| `NEXUS_MAX_UPLOAD_MB` | `200` | 最大アップロードサイズ |
-| `AUTO_START_SEARXNG` | Runpod:`true` / 他:`false` | SearXNG自動起動 |
+| `NEXUS_WEB_SEARCH_PROVIDER` | `searxng` | Web検索provider |
+| `NEXUS_SEARXNG_URL` | runtime依存 | SearXNG URL |
+| `NEXUS_SEARCH_FREE_ONLY` | `true` | 有償/クォータproviderを避ける |
+| `NEXUS_MAX_UPLOAD_MB` | `200` | upload上限 |
+| `AUTO_START_SEARXNG` | runtime依存 | Runpod等でSearXNG自動起動 |
 
-</details>
+### Echo
+
+| 変数 | 既定 | 説明 |
+|---|---|---|
+| `CODEAGENT_ASR_ENGINE` | `auto` | faster_whisper / whisper_cpp / auto |
+| `CODEAGENT_ASR_DEFAULT_MODEL` | `large-v3-turbo` | ASR model |
+| `CODEAGENT_WHISPER_CPP_BACKEND` | runtime依存 | Vulkan / CPU等 |
+| `CODEAGENT_STYLE_BERT_VITS2_MODELS_DIR` | runtime依存 | SBV2 models directory |
+| `ECHO_UPLOAD_MAX_BYTES` | `104857600` | audio upload上限 |
 
 ---
 
-## 🧠 拡張: SKILLシステム
-
-`ca_data/skills/<name>/SKILL.md` を置くだけでAgentの能力が増えます（**再起動不要・ホットリロード**）。
-
-```markdown
-# ログ解析スキル
-## When to use
-- ERROR / WARN / Traceback を含むログを解析するとき
-## Steps
-1. read_file でログ取得
-2. search_code で "ERROR|WARN|Traceback" を抽出
-3. 発生時刻順に整理し、原因候補と修正案を提示
-```
-
----
-
-## 📁 ディレクトリ構成
-
-```
-KasaneCore/
-├── main.py                 # FastAPIバックエンド (300+ エンドポイント)
-├── agent/
-│   ├── loop.py             # AgentLoop (Planner/Executor/Evaluator統合)
-│   ├── deep_planner.py     # アーキ3案生成→選択
-│   ├── memory.py           # HybridMemoryStore (短期deque + 長期SQLite)
-│   ├── tools/              # builtin (read/write/patch/search/run) + nexus_tools
-│   └── atlas_*.py          # 🧠 Atlasサービス群 (190+ ファイル)
-├── app/
-│   ├── api/                # APIルーター群
-│   ├── atlas/              # 実行安全ゲート (Level1〜Level4)
-│   ├── asr/ tts/ audio/    # 🎙️ Echo (faster-whisper / whisper.cpp / SBV2)
-│   ├── nexus/              # 🔍 RAG・Deep Research・レポート
-│   └── lumen/              # 💬 インテント・天気・ニュース
-├── web/                    # UIアセット
-├── docs/                   # 設計ドキュメント・ロードマップ
-├── tests/                  # contractテスト (800+ ファイル)
-├── scripts/                # ランチャー・セットアップ・スモーク
-├── ui.html                 # メインUI
-├── Dockerfile              # マルチステージ (CUDA 12.8)
-└── start.bat               # Windowsランチャー
-```
-
-### 💾 永続データ (`ca_data/`)
-
-```
-memory.db        HybridMemoryStore(短期+長期)
-model_db.db      GGUFモデルDB + ロール割当
-skills/          SKILL.md (ホットリロード)
-workspace/       プロジェクト作業ディレクトリ
-EchoVault/       Echo録音・文字起こし・成果物
-nexus/           Evidence DB・uploads・reports・exports
-```
-
----
-
-## 🧪 テスト
+## 🧪 Tests / Smoke
 
 ```bash
-pytest -q                                          # 800+ contractテスト
+pytest -q
 
-python scripts/smoke_ui_modes_playwright.py        # UIスモーク (Playwright / 9シナリオ)
+python scripts/smoke_ui_modes_playwright.py
 
 PLAYWRIGHT_SMOKE_BASE_URL=http://127.0.0.1:8000 \
 RUN_ATLAS_BACKEND_E2E=1 \
-python scripts/smoke_ui_modes_playwright.py        # Atlas E2E dry-run
+python scripts/smoke_ui_modes_playwright.py
 
-python -m pip install playwright && python -m playwright install chromium
+python -m pip install playwright
+python -m playwright install chromium
 ```
+
+---
+
+## 🛡️ Safety Philosophy
+
+KasaneCoreは、自律化を進めながらも、次の原則を重視します。
+
+- **Remote git push / merge / self-applyを勝手にしない**
+- **危険変更は承認ゲートへ送る**
+- **Portal importはquarantine + preflight + manifest + checksum**
+- **Capsule exportにruntime dataを混ぜない**
+- **Forgeはsecretを返さない**
+- **Forgeはproduction routingを自動切替しない**
+- **Project Digital Twinは読み取り専用**
+- **Playはresource limit / threat model / preview gatewayを持つ**
+- **ログと証拠を残し、後から追えるようにする**
 
 ---
 
 ## 🗺️ 実装状況
 
-| サーフェス | 機能 | 状態 |
+| 領域 | 状態 | メモ |
 |---|---|---|
-| 🧠 Atlas | 計画 → 生成 → 適用 → 検証 → 自己修復 | **動作中**（マルチファイル生成を実証・継続強化中） |
-| 🧠 Atlas | Guarded Operator Loop / Self-Improvement(Lv4) | Experimental |
-| 💬 Lumen | チャット・天気・ニュース・Web検索 | Stable |
-| 🎙️ Echo | ASR / TTS / 翻訳 / リアルタイム配信 | Experimental |
-| 🔍 Nexus | Deep / Recursive Research・レポート | Experimental |
-| ⚙️ 基盤 | モデル管理・SQLite永続メモリ・SKILL・Runpod/Docker | Stable |
-
-> 🚧 **現在地**: Atlasの自律コード生成パイプライン（計画→生成→適用→検証）を、実タスク（HTML/CSS/JSのゲーム生成）で一気通貫に通せるところまで到達。最終目標は `fully_autonomous_code_agent`。安全ゲートは常に最優先で維持します。
+| Lumen | Stable | Chat / weather / news / web intent |
+| Model DB / local LLM runtime | Stable | GGUF / llama.cpp / role assignment |
+| Nexus | Experimental | Deep / recursive research, evidence, report |
+| Echo | Experimental | ASR / TTS / translation / realtime audio |
+| Atlas planning / codegen | Experimental | PlanPool, Safe Apply, verification loopを継続強化中 |
+| Atlas Play | Experimental | Preview / proxy / session管理 |
+| Capsule | Experimental | Deterministic package builder |
+| Portal | Experimental | Package catalog / run / data lifecycle |
+| Forge | Experimental | Model arena / loadout / stage policy / guarded cutover |
+| Project Digital Twin | Experimental | Read-only graph / impact / context projection |
 
 ---
 
-## 📜 ライセンス
+## 🧠 SKILL System
 
-ライセンスファイルが存在する場合はその内容に従ってください。
+`ca_data/skills/<name>/SKILL.md` を置くだけで、Agentの振る舞いを拡張できます。
+
+```markdown
+# ログ解析スキル
+
+## When to use
+- ERROR / WARN / Traceback を含むログを解析するとき
+
+## Steps
+1. read_file でログ取得
+2. search_code で関連箇所を確認
+3. 原因候補、再現手順、修正案を整理
+```
+
+---
+
+## 🌟 Roadmap Flavor
+
+KasaneCoreが目指しているのは、単に「AIがコードを書く」世界ではありません。
+
+- Atlasが作る
+- Playが動かす
+- Capsuleが封じ込める
+- Portalが作品化する
+- Forgeがモデルを鍛える
+- Digital Twinがプロジェクトを理解する
+- Nexusが外の知識を集める
+- Echoが声を与える
+- Lumenが日常の入口になる
+
+つまり、**個人のGPUの中に、小さなAI開発スタジオを作る**ことです。
+
+<p align="center">
+  <strong>KasaneCore: Local-first AI workshop for building, running, packaging, replaying, and improving software agents.</strong>
+</p>
+
+---
+
+## 📜 License
+
+ライセンスファイルが存在する場合は、その内容に従ってください。
 
 <p align="center"><sub>Built to run on your own machine. 🖥️⚡</sub></p>
