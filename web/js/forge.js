@@ -24,6 +24,7 @@
     { id: 'overview', label: 'Overview' },
     { id: 'skills', label: 'Skills' },
     { id: 'benchmark', label: 'Benchmark' },
+    { id: 'arena', label: 'Arena' },
   ];
 
   const state = {
@@ -286,7 +287,10 @@
       });
       const cand = (record.candidates || [])[0] || {};
       sel.result = 'Arena run ' + record.arena_run_id + ' — candidate ' + (cand.adoption_state || 'not_applied')
-        + ' (Safe Apply required before any adoption).';
+        + ' (Safe Apply required before any adoption). See the Arena tab for candidates.';
+      // Fetch the enriched run (per-candidate metadata) for the Arena tab.
+      try { state.data.arena = await api('/arena/runs/' + record.arena_run_id); }
+      catch (_e) { state.data.arena = record; }
       setStatus('Benchmark recorded (no model adopted)', 'ok');
     } catch (err) {
       sel.result = 'Run failed: ' + (err && err.message ? err.message : 'error');
@@ -295,7 +299,79 @@
     renderActive();
   }
 
-  const VIEWS = { overview: overviewHtml, skills: skillsHtml, benchmark: benchmarkHtml };
+  // ----- Arena (PFG-24) -----
+
+  function winnerCandidateId(record) {
+    // Honest, mechanical winner: among contract-valid candidates, the lowest latency.
+    // No winner is declared if none ran a valid contract.
+    let best = null;
+    (record.candidates || []).forEach((c) => {
+      const r = c.result || {};
+      if (!r.contract_valid) return;
+      if (best === null || (r.latency_ms || 0) < (best.result.latency_ms || 0)) best = c;
+    });
+    return best ? best.candidate_id : '';
+  }
+
+  function adoptionLabel(stateValue) {
+    const v = String(stateValue || 'not_applied');
+    return v === 'not_applied' ? 'Not applied' : v.replace(/_/g, ' ');
+  }
+
+  function candidateRow(c, isWinner) {
+    const r = c.result || {};
+    const contract = r.contract_valid
+      ? '<span class="forge-badge forge-badge-ready">contract ok</span>'
+      : '<span class="forge-badge forge-badge-error">contract fail</span>';
+    const latency = r.latency_ms ? (r.latency_ms + ' ms') : '—';
+    return (
+      '<div class="forge-cand-row' + (isWinner ? ' is-winner' : '') + '">'
+      + '<div class="forge-cand-main">'
+      + (isWinner ? '<span class="forge-cand-win">★ winner</span>' : '')
+      + '<span class="forge-cand-model">' + escapeHtml(c.model_id) + '</span>'
+      + '<span class="forge-cand-route">' + escapeHtml(c.route_id) + '</span>'
+      + '</div>'
+      + '<div class="forge-cand-metrics">'
+      + contract
+      + '<span class="forge-cand-metric">lat ' + escapeHtml(latency) + '</span>'
+      + '<span class="forge-cand-metric">risk —</span>'
+      + '<span class="forge-cand-metric">cost —</span>'
+      + '<span class="forge-cand-adopt">' + escapeHtml(adoptionLabel(c.adoption_state)) + '</span>'
+      + '</div>'
+      + '</div>'
+    );
+  }
+
+  function arenaHtml(data) {
+    const record = data.arena;
+    if (!record || !(record.candidates || []).length) {
+      return (
+        '<div class="forge-card">'
+        + '<div class="forge-card-title">Arena</div>'
+        + '<div class="forge-empty">No Arena run yet. Run a Benchmark to compare model × '
+        + 'route candidates side by side. Candidates are never applied automatically.</div>'
+        + '</div>'
+      );
+    }
+    const winner = winnerCandidateId(record);
+    const rows = record.candidates.map((c) => candidateRow(c, c.candidate_id === winner)).join('');
+    return (
+      '<div class="forge-card">'
+      + '<div class="forge-card-title">Arena run ' + escapeHtml(record.arena_run_id) + '</div>'
+      + '<div class="forge-cand-list">' + rows + '</div>'
+      + '</div>'
+      + '<div class="forge-card forge-adopt-card">'
+      + '<div class="forge-card-title">Adoption</div>'
+      + '<div class="forge-adopt-note">Arena candidates are never applied directly. To adopt a '
+      + 'candidate it must go through Proposal → Safe Apply → Verification (and Portal when '
+      + 'runnable). There is no direct apply here.</div>'
+      + '<button type="button" class="forge-adopt-btn" disabled title="Adoption goes through Safe Apply">'
+      + 'Adopt → requires Safe Apply</button>'
+      + '</div>'
+    );
+  }
+
+  const VIEWS = { overview: overviewHtml, skills: skillsHtml, benchmark: benchmarkHtml, arena: arenaHtml };
 
   // ----- model detail drawer (Skills) -----
 
@@ -416,6 +492,7 @@
     _overviewHtml: overviewHtml,
     _skillsHtml: skillsHtml,
     _benchmarkHtml: benchmarkHtml,
+    _arenaHtml: arenaHtml,
     _state: state,
   };
 })();
