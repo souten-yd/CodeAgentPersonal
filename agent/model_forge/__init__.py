@@ -15,6 +15,14 @@ from agent.model_forge.provider_base import (
     ProviderUnavailableError,
     redact_for_log,
 )
+from agent.model_forge.provider_policy import (
+    ProviderPolicyDecision,
+    privacy_allowed_for_provider,
+    provider_availability_matrix,
+    resolve_provider_policy,
+    select_eligible_provider_ids,
+    source_class_allowed,
+)
 from agent.model_forge.provider_registry import ProviderRegistry
 from agent.model_forge.providers.legacy_atlas import (
     LEGACY_ATLAS_PROVIDER_ID,
@@ -138,4 +146,10 @@ __all__ = [
     "OpenRouterProvider",
     "OpenRouterCatalog",
     "OpenRouterCatalogResult",
+    "ProviderPolicyDecision",
+    "source_class_allowed",
+    "privacy_allowed_for_provider",
+    "resolve_provider_policy",
+    "provider_availability_matrix",
+    "select_eligible_provider_ids",
 ]
