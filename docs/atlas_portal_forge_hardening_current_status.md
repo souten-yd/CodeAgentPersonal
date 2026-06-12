@@ -7,8 +7,8 @@
 
 - Overall: **ACTIVE — POST-PFG PRODUCTION HARDENING**
 - Active track: `PFH-1..PFH-8`
-- Current package: `PFH-3`
-- Current package goal: split provider configured state from runtime readiness.
+- Current package: `PFH-4`
+- Current package goal: add ForgeModelExecutionBridge in shadow-first mode at the Atlas model execution boundary.
 - Rollout: Forge remains off/default unless bridge-level shadow/cutover evidence proves otherwise.
 - Legacy model execution remains primary until PFH-4/PFH-5 evidence passes.
 - OpenRouter live evidence remains unavailable unless explicitly configured.
@@ -31,8 +31,8 @@
 |---|---|---|
 | PFH-1 | Benchmark preset identity and execution semantics | acceptance_complete |
 | PFH-2 | OpenRouter catalog product integration | acceptance_complete |
-| PFH-3 | Provider configured state vs runtime readiness | in_progress |
-| PFH-4 | ForgeModelExecutionBridge, shadow-first | not_started |
+| PFH-3 | Provider configured state vs runtime readiness | acceptance_complete |
+| PFH-4 | ForgeModelExecutionBridge, shadow-first | in_progress |
 | PFH-5 | Real cutover and rollback | not_started |
 | PFH-6 | Real evidence through Forge provider/preset runner | not_started |
 | PFH-7 | Actual Portal runtime replay for Capsule evidence | not_started |
@@ -47,7 +47,7 @@
 4. Benchmark UI primary preset IDs can diverge from real backend preset IDs. [PFH-1 addressed]
 5. Benchmark run can submit only the first selected preset. [PFH-1 addressed]
 6. Some real evidence tests use direct urllib model calls rather than Forge provider/preset runner path.
-7. Local provider health can be misleading if base_url exists but server is unreachable.
+7. Local provider health can be misleading if base_url exists but server is unreachable. [PFH-3 addressed]
 8. Capsule replay evidence should be actual Portal/Play runtime evidence where applicable, not caller assertion only.
 ```
 
@@ -212,13 +212,84 @@ Remaining gaps:
 Next package: PFH-3 — Provider configured state vs runtime readiness.
 Blocker: none.
 
-## Current package: PFH-3 checklist
+## Completed package: PFH-3 provider configured state vs runtime readiness
 
-- Inspect provider health contracts and LocalOpenAICompatibleProvider health behavior.
-- Add provider status fields for configured state and runtime health.
-- Add explicit provider probe API that is offline-safe by default.
-- Ensure local base URL means configured, not runtime-ready, unless a probe succeeds.
-- Update Forge UI to show Configured/Ready/Unavailable/Disabled distinctly.
+Completed package: PFH-3
+Status: acceptance_complete
+Changed modules/files:
+- `agent/model_forge/__init__.py`
+- `agent/model_forge/provider_base.py`
+- `agent/model_forge/providers/local_openai_compatible.py`
+- `agent/model_forge/forge_service.py`
+- `app/api/forge.py`
+- `web/js/forge.js`
+- `web/css/app.css`
+- `tests/test_model_forge_local_openai.py`
+- `tests/test_forge_api.py`
+- `tests/test_forge_benchmark_render.py`
+- `tests/test_forge_provider_cards_render.py`
+- `docs/atlas_portal_forge_hardening_current_status.md`
+
+Behavior implemented:
+- Extended provider health with `configured_state`, `runtime_health`, `last_probe_at`, and `last_probe_error`.
+- Added `ConfiguredState` and `RuntimeHealth` exports.
+- Local provider without base URL now reports `configured_state=missing_config`.
+- Local provider with base URL but no successful probe now reports `configured_state=configured`, `runtime_health=not_probed`, and legacy `health=unavailable`.
+- Local provider explicit runtime probe uses `GET {base_url}/v1/models` and records ready/unavailable/error without treating configured state as readiness.
+- Added `POST /api/forge/providers/{provider_id}/probe`.
+- Forge provider summaries expose configured/runtime/probe fields.
+- Forge Overview UI displays Configured and Runtime state and provides a Probe action for non-legacy providers.
+
+Focused tests:
+- `python -m pytest -q tests/test_model_forge_provider_registry.py tests/test_model_forge_local_openai.py tests/test_forge_api.py tests/test_forge_provider_cards_render.py tests/test_forge_benchmark_render.py` -> 42 passed.
+
+Syntax checks:
+- `node --check web/js/forge.js` -> passed.
+- `python -m compileall -q agent/model_forge app/api tests/test_forge_provider_cards_render.py` -> passed.
+- `git diff --check` -> passed with CRLF normalization warnings only.
+
+Affected tests:
+- Expanded invocation: `$files = @(Get-ChildItem tests -Filter 'test_model_forge_*.py' | ForEach-Object { $_.FullName }) + @(Get-ChildItem tests -Filter 'test_forge_*.py' | ForEach-Object { $_.FullName }); python -m pytest -q @files` -> 170 passed, 1 skipped.
+
+Real model evidence:
+- PFH-3 does not require model execution.
+- Required user LLM code-review verification ran through `http://127.0.0.1:8080/v1/chat/completions` using `Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf` -> PASS, no blocking issues. This is advisory code review evidence, not runtime/model acceptance evidence.
+
+Portal runtime evidence:
+- Not applicable to PFH-3; no Portal runtime claim made.
+
+Capsule replay evidence:
+- Not applicable to PFH-3; no Capsule replay claim made.
+
+OpenRouter evidence:
+- Not applicable to PFH-3; OpenRouter live smoke not run and not claimed.
+
+Unavailable checks:
+- Local provider with base URL but no probe reports `runtime_health=not_probed`, not `ready`.
+- Local provider with no base URL reports `missing_config` and explicit probe remains offline-safe.
+- Failed local provider probe records unavailable/error and `last_probe_error`.
+
+Safety invariants:
+- Disabled/unavailable providers still fail closed through `ProviderRegistry.execute`.
+- Local Only and external-provider policy behavior unchanged.
+- Forge remains off by default; legacy model execution remains primary.
+- No secrets persisted, logged, or returned.
+
+Remaining gaps:
+- PFH-4 must connect Forge to the actual Atlas LLM execution boundary in disabled/shadow modes.
+- PFH-5 must make real cutover/rollback consume the bridge path.
+
+Next package: PFH-4 — ForgeModelExecutionBridge, shadow-first.
+Blocker: none.
+
+## Current package: PFH-4 checklist
+
+- Locate the central Atlas LLM JSON execution boundary and direct callers.
+- Add `agent/model_forge/execution_bridge.py`.
+- Disabled mode must call legacy only and preserve legacy output.
+- Shadow mode must return legacy output while optionally recording Forge shadow evidence.
+- Record stage, route/model/provider, policy, shadow/fallback decisions.
+- Integrate at the central boundary without scattered call-site rewrites.
 - Update tests and this status with exact evidence.
 
 ## Stop conditions

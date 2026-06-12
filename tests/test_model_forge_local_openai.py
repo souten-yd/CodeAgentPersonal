@@ -5,6 +5,7 @@ import urllib.request
 import pytest
 
 from agent.model_forge import (
+    ConfiguredState,
     ForgeExecutionRequest,
     ForgeRoute,
     ForgeStage,
@@ -12,6 +13,7 @@ from agent.model_forge import (
     LocalOpenAICompatibleProvider,
     ProviderRegistry,
     ProviderUnavailableError,
+    RuntimeHealth,
     SourceClass,
     local_openai_compatible_descriptor,
 )
@@ -32,10 +34,10 @@ def _chat_body(content: str, *, prompt_tokens=5, completion_tokens=2) -> str:
     })
 
 
-def _provider(http_post, *, base_url="http://localhost:9999", model_id="m-local", enabled=True):
+def _provider(http_post, *, base_url="http://localhost:9999", model_id="m-local", enabled=True, http_get=None):
     return LocalOpenAICompatibleProvider(
         base_url=base_url, model_id=model_id, prompt_resolver=_resolver,
-        http_post=http_post, enabled=enabled, timeout_seconds=5,
+        http_post=http_post, http_get=http_get, enabled=enabled, timeout_seconds=5,
     )
 
 
@@ -100,15 +102,52 @@ def test_empty_content_is_invalid_contract() -> None:
 def test_missing_base_url_is_unavailable_and_fails_closed() -> None:
     provider = _provider(lambda u, p, t: (200, _chat_body("x")), base_url="")
     assert provider.health_check().state == HealthState.UNAVAILABLE
+    assert provider.health_check().configured_state == ConfiguredState.MISSING_CONFIG
     reg = ProviderRegistry()
     reg.register(provider)
     with pytest.raises(ProviderUnavailableError):
         reg.execute("local_openai_compatible", _request())
 
 
+def test_base_url_only_is_configured_but_not_runtime_ready_until_probe() -> None:
+    provider = _provider(lambda u, p, t: (200, _chat_body("x")))
+    health = provider.health_check()
+    assert health.state == HealthState.UNAVAILABLE
+    assert health.configured_state == ConfiguredState.CONFIGURED
+    assert health.runtime_health == RuntimeHealth.NOT_PROBED
+    assert health.detail == "runtime_not_probed"
+    reg = ProviderRegistry()
+    reg.register(provider)
+    with pytest.raises(ProviderUnavailableError):
+        reg.execute("local_openai_compatible", _request())
+
+
+def test_explicit_runtime_probe_success_marks_local_provider_ready() -> None:
+    provider = _provider(
+        lambda u, p, t: (200, _chat_body("x")),
+        http_get=lambda u, t: (200, '{"data": []}'),
+    )
+    health = provider.probe_runtime()
+    assert health.state == HealthState.READY
+    assert health.runtime_health == RuntimeHealth.READY
+    assert health.last_probe_at
+
+
+def test_explicit_runtime_probe_failure_is_unavailable_not_ready() -> None:
+    provider = _provider(
+        lambda u, p, t: (200, _chat_body("x")),
+        http_get=lambda u, t: (_ for _ in ()).throw(ConnectionError("refused")),
+    )
+    health = provider.probe_runtime()
+    assert health.state == HealthState.UNAVAILABLE
+    assert health.runtime_health == RuntimeHealth.UNAVAILABLE
+    assert health.last_probe_error == "connection_error"
+
+
 def test_disabled_provider_is_disabled() -> None:
     provider = _provider(lambda u, p, t: (200, _chat_body("x")), enabled=False)
     assert provider.health_check().state == HealthState.DISABLED
+    assert provider.health_check().configured_state == ConfiguredState.DISABLED
 
 
 def _server_reachable(url: str) -> bool:

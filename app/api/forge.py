@@ -78,6 +78,14 @@ def get_providers(request: Request) -> dict:
     return {"providers": _service(request).providers()}
 
 
+@router.post("/providers/{provider_id}/probe")
+def post_provider_probe(request: Request, provider_id: str) -> dict:
+    try:
+        return {"provider": _service(request).probe_provider(provider_id)}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/models")
 def get_models(request: Request) -> dict:
     return {"models": _service(request).models()}

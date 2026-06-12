@@ -73,12 +73,14 @@ from agent.model_forge.stage_matrix import (
     stage_dimension,
 )
 from agent.model_forge.provider_base import (
+    ConfiguredState,
     ForgeProvider,
     HealthState,
     ProviderDisabledError,
     ProviderError,
     ProviderHealth,
     ProviderUnavailableError,
+    RuntimeHealth,
     redact_for_log,
 )
 from agent.model_forge.provider_policy import (
@@ -186,7 +188,9 @@ __all__ = [
     "all_routes",
     "is_valid_route",
     "ForgeProvider",
+    "ConfiguredState",
     "HealthState",
+    "RuntimeHealth",
     "ProviderHealth",
     "ProviderError",
     "ProviderDisabledError",

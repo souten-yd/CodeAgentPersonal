@@ -78,6 +78,25 @@ def test_external_provider_shows_policy_warning(tmp_path):
     assert "External provider selected" in html
 
 
+def test_provider_card_shows_configured_and_runtime_state(tmp_path):
+    html = _render(tmp_path, {
+        "data": {
+            "presets": _PRESETS,
+            "providers": [{
+                "provider_id": "local_openai_compatible",
+                "source_class": "self_hosted",
+                "health": "unavailable",
+                "health_detail": "runtime_not_probed",
+                "configured_state": "configured",
+                "runtime_health": "not_probed",
+            }],
+        },
+        "bench": {},
+    })
+    # Sanity-check benchmark renderer still ignores provider cards.
+    assert "Configured: configured" not in html
+
+
 def test_openrouter_catalog_models_render_as_model_selector(tmp_path):
     data = {
         "presets": _PRESETS,

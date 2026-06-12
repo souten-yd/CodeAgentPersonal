@@ -62,6 +62,7 @@ class ForgeService:
         self.loadouts = LoadoutStore(self._root / "loadouts.json")
         self._settings_path = self._root / "settings.json"
         self._catalog_path = self._root / "catalog" / "openrouter_models.json"
+        self._provider_probe_path = self._root / "provider_probes.json"
         self._route_policy_path = self._root / "route_policy.json"
         self._active_loadout_path = self._root / "active_loadout.json"
         self.registry = self._build_registry()
@@ -79,12 +80,17 @@ class ForgeService:
         registry.register(LegacyAtlasProvider(backend_fn=None, prompt_resolver=_prompt_resolver))
 
         settings = self._settings()
+        probes = self._provider_probe_status()
         local_settings = settings.get("local_provider", {})
         local_base = self._env.get("FORGE_LOCAL_BASE_URL", "").strip() or str(local_settings.get("base_url") or "").strip()
         local_model = self._env.get("FORGE_LOCAL_MODEL", "").strip() or str(local_settings.get("model_id") or "").strip()
+        local_probe = probes.get(LOCAL_OPENAI_PROVIDER_ID, {})
         registry.register(LocalOpenAICompatibleProvider(
             base_url=local_base, model_id=local_model, prompt_resolver=_prompt_resolver,
-            enabled=bool(local_base),
+            enabled=True,
+            runtime_health=str(local_probe.get("runtime_health") or ""),
+            last_probe_at=str(local_probe.get("last_probe_at") or ""),
+            last_probe_error=str(local_probe.get("last_probe_error") or ""),
         ))
 
         openrouter_config = self._openrouter_config(settings)
@@ -100,6 +106,15 @@ class ForgeService:
             return {}
         try:
             data = json.loads(self._settings_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _provider_probe_status(self) -> dict:
+        if not self._provider_probe_path.exists():
+            return {}
+        try:
+            data = json.loads(self._provider_probe_path.read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001
             return {}
         return data if isinstance(data, dict) else {}
@@ -154,6 +169,10 @@ class ForgeService:
             h = health.get(desc.provider_id)
             d["health"] = h.state.value if h else "error"
             d["health_detail"] = h.detail if h else "no_health"
+            d["configured_state"] = h.configured_state.value if h else "missing_config"
+            d["runtime_health"] = h.runtime_health.value if h else "error"
+            d["last_probe_at"] = h.last_probe_at if h else ""
+            d["last_probe_error"] = h.last_probe_error if h else "no_health"
             # Defensive: ensure no secret value is ever attached.
             d.pop("api_key", None)
             d.pop("authorization", None)
@@ -301,6 +320,23 @@ class ForgeService:
             }
             for m in result.models
         ]
+
+    def probe_provider(self, provider_id: str) -> dict:
+        provider = self.registry.get(provider_id)
+        if provider is None:
+            raise ValueError(f"unknown_provider:{provider_id}")
+        health = provider.probe_runtime()
+        probes = self._provider_probe_status()
+        probes[provider_id] = {
+            "runtime_health": health.runtime_health.value,
+            "last_probe_at": health.last_probe_at or health.checked_at,
+            "last_probe_error": health.last_probe_error,
+            "state": health.state.value,
+            "detail": health.detail,
+        }
+        self._provider_probe_path.parent.mkdir(parents=True, exist_ok=True)
+        self._provider_probe_path.write_text(json.dumps(probes, ensure_ascii=False, indent=2), encoding="utf-8")
+        return health.model_dump(mode="json")
 
     # ----- arena -----
 
