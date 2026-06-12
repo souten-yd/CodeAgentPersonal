@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-13`
-- Current package goal: benchmark preset schema and initial presets.
-- Next action: add the benchmark preset registry with the initial task-family presets
-  (Quick / Web App / Game / UI / DB / Repair / Greenfield).
-- Last completed: `PFG-12` (provider health and Source Mode policy) —
-  acceptance_complete; see PFG-12 evidence below. PFG-1..PFG-11 also complete.
+- Current package: `PFG-14`
+- Current package goal: Arena runner foundation.
+- Next action: add an Arena runner that executes candidate model x route combinations
+  through the provider registry/policy (deterministic, no adoption/apply).
+- Last completed: `PFG-13` (benchmark preset schema and initial presets) —
+  acceptance_complete; see PFG-13 evidence below. PFG-1..PFG-12 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -68,7 +68,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-10 | OpenRouter mock chat client | acceptance_complete |
 | PFG-11 | OpenRouter model catalog cache | acceptance_complete |
 | PFG-12 | provider health and Source Mode policy | acceptance_complete |
-| PFG-13 | benchmark preset schema and initial presets | not_started |
+| PFG-13 | benchmark preset schema and initial presets | acceptance_complete |
 | PFG-14 | Arena runner foundation | not_started |
 | PFG-15 | Candidate Evaluator foundation | not_started |
 | PFG-16 | Model Profile Store and profile updater | not_started |
@@ -581,6 +581,33 @@ Remaining gaps:
 - PFG-12 provider health + Source Mode/privacy policy selection.
 Next package:
 - PFG-12 — provider health and Source Mode policy.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-13 — benchmark preset schema and initial presets
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/benchmark_presets.py (new), __init__ re-exports
+- tests/test_model_forge_benchmark_presets.py (new)
+Behavior implemented:
+- Built-in presets for every task family (Quick, Web App, Game/Canvas, UI/Visual,
+  DB/Persistence, Repair, Greenfield), each declaring tasks, required evaluators,
+  recommended routes, risk level, runtime budget, and profile dimensions.
+- validate_preset enforces tasks + required_evaluators + positive runtime budget;
+  load_presets surfaces only valid presets; get_preset/preset_listing provide
+  API-ready data. No model execution.
+Focused tests:
+- python -m pytest tests/test_model_forge_benchmark_presets.py -> 5 passed
+  (required Quick/Web App/Repair/Greenfield present; all builtins valid; validation
+   flags missing fields; get_preset known/unknown; listing API-ready).
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-14 Arena runner foundation.
+Next package:
+- PFG-14 — Arena runner foundation.
 Blocker:
 - None.
 ```

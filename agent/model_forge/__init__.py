@@ -6,6 +6,12 @@ not perform provider execution or change production routing on import.
 """
 from __future__ import annotations
 
+from agent.model_forge.benchmark_presets import (
+    get_preset,
+    load_presets,
+    preset_listing,
+    validate_preset,
+)
 from agent.model_forge.provider_base import (
     ForgeProvider,
     HealthState,
@@ -152,4 +158,8 @@ __all__ = [
     "resolve_provider_policy",
     "provider_availability_matrix",
     "select_eligible_provider_ids",
+    "load_presets",
+    "get_preset",
+    "preset_listing",
+    "validate_preset",
 ]
