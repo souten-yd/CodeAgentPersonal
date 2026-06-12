@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-14`
-- Current package goal: Arena runner foundation.
-- Next action: add an Arena runner that executes candidate model x route combinations
-  through the provider registry/policy (deterministic, no adoption/apply).
-- Last completed: `PFG-13` (benchmark preset schema and initial presets) —
-  acceptance_complete; see PFG-13 evidence below. PFG-1..PFG-12 also complete.
+- Current package: `PFG-15`
+- Current package goal: Candidate Evaluator foundation.
+- Next action: add a mechanical candidate evaluator (contract/schema/syntax checks,
+  scoring aggregation, explicit unavailable markers; no LLM judge required).
+- Last completed: `PFG-14` (Arena runner foundation) — acceptance_complete; see
+  PFG-14 evidence below. PFG-1..PFG-13 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -69,7 +69,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-11 | OpenRouter model catalog cache | acceptance_complete |
 | PFG-12 | provider health and Source Mode policy | acceptance_complete |
 | PFG-13 | benchmark preset schema and initial presets | acceptance_complete |
-| PFG-14 | Arena runner foundation | not_started |
+| PFG-14 | Arena runner foundation | acceptance_complete |
 | PFG-15 | Candidate Evaluator foundation | not_started |
 | PFG-16 | Model Profile Store and profile updater | not_started |
 | PFG-17 | Stage Matrix policy and selector | not_started |
@@ -720,6 +720,38 @@ Remaining gaps:
 - PFG-13 benchmark preset schema + initial presets.
 Next package:
 - PFG-13 — benchmark preset schema and initial presets.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-14 — Arena runner foundation
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/arena_runner.py (new), __init__ re-exports
+- tests/test_model_forge_arena_runner.py (new)
+Behavior implemented:
+- ArenaRunner executes model x route candidate specs through the provider registry in
+  a non-applying mode. It checks provider policy first (Local Only / privacy block a
+  candidate, which is recorded but never executed), runs selectable candidates via the
+  provider interface (run_and_capture when available), and persists each candidate's
+  ForgeExecutionResult metadata + raw output under ca_data/model_forge/arena_runs/.
+- Every ArenaCandidate defaults to adoption_state=not_applied; the runner never mutates
+  workspace source and never applies a candidate (no Safe Apply bypass). Works with or
+  without a disk store.
+Focused tests:
+- python -m pytest tests/test_model_forge_arena_runner.py -> 3 passed
+  (candidates run + not_applied + raw/metadata persisted; Local Only blocks the
+   external candidate from executing and records policy_blocked; in-memory run).
+Safety invariants verified:
+- No source mutation; candidates stay not_applied; Arena never bypasses Safe Apply;
+  external candidate not executed under Local Only.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-15 Candidate Evaluator foundation.
+Next package:
+- PFG-15 — Candidate Evaluator foundation.
 Blocker:
 - None.
 ```
