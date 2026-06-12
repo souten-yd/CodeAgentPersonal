@@ -31,6 +31,8 @@ from agent.model_forge.profile_store import (
     ProfileStore,
     profile_key,
 )
+from agent.model_forge.forge_service import ForgeService
+from agent.model_forge.loadouts import Loadout, LoadoutStore, default_loadouts
 from agent.model_forge.route_matrix import (
     ChangeClass,
     RouteMatrix,
@@ -224,4 +226,8 @@ __all__ = [
     "RouteMatrix",
     "RouteSelector",
     "default_routes_for_class",
+    "ForgeService",
+    "Loadout",
+    "LoadoutStore",
+    "default_loadouts",
 ]
