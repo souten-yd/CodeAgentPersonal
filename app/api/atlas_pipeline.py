@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 
 class _AppOnlyRequest:
@@ -416,6 +419,14 @@ def register_atlas_llm_json_adapter(app: Any) -> None:
     model = str(os.environ.get("CODEAGENT_MODEL") or os.environ.get("OPENAI_MODEL") or "").strip()
     base_url = _resolve_atlas_llm_backend_base_url(app)
     if not base_url:
+        # No backend URL resolved: leaving atlas_llm_json_fn unset makes patch generation
+        # silently yield no content (fallback proposals). Warn so this misconfiguration is
+        # diagnosable instead of surfacing only as empty generations downstream.
+        logger.warning(
+            "register_atlas_llm_json_adapter: no LLM backend base URL resolved "
+            "(set CODEAGENT_LLM_BASE_URL / LLM_URL or app.state.llm_base_url); "
+            "Atlas patch generation will produce no content until configured."
+        )
         return
     app.state.atlas_llm_json_fn = AtlasLLMJsonAdapter(base_url=base_url, model=model)
 
@@ -3075,6 +3086,7 @@ def _do_pool_revision(
 
     note = str(req.note or "").strip()
     replan_result: dict = {}
+    llm_revision_error = ""
 
     # ── LLM-based revision (primary path) ─────────────────────────────────────
     llm_revision_applied = False
@@ -3121,8 +3133,11 @@ def _do_pool_revision(
                         "status": bridge_result.status,
                         "item_count": len(pool.items),
                     }
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Do not silently fall back: a swallowed LLM-replan error made revisions
+            # quietly degrade to the rule-based path with no signal to the caller. Capture
+            # the reason so the response surfaces WHY the LLM planner did not apply.
+            llm_revision_error = f"{exc.__class__.__name__}: {exc}"[:300]
 
     # ── Rule-based fallback ────────────────────────────────────────────────────
     if not llm_revision_applied:
@@ -3158,10 +3173,23 @@ def _do_pool_revision(
     if llm_revision_applied:
         metadata["llm_revision_applied"] = True
         metadata["revision_note"] = note
+        metadata.pop("llm_revision_error", None)
         for key in _REVISION_BLOCK_FLAGS:
             metadata.pop(key, None)
         pool.metadata = metadata
         pool.status = "approval_required"
+    elif note:
+        # Rule-based fallback was used for a real revision request. Record whether that was
+        # because the LLM planner errored (llm_revision_error) or merely fell back, so the
+        # degradation is observable instead of silent.
+        metadata["llm_revision_applied"] = False
+        if llm_revision_error:
+            metadata["llm_revision_error"] = llm_revision_error
+        pool.metadata = metadata
+        if isinstance(replan_result, dict):
+            replan_result.setdefault("revision_source", "rule_based_fallback")
+            if llm_revision_error:
+                replan_result["llm_revision_error"] = llm_revision_error
     pool.completed_item_ids = []
     pool.failed_item_ids = []
     pool.blocked_item_ids = []

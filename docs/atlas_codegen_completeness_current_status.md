@@ -71,16 +71,48 @@ WP-0 must convert these observations into current-code tests before broad produc
 
 Semantic-Evidence Missing Incident.
 
+## Real-LLM evaluation (2026-06-13)
+
+Live evaluation with the configured local model (`Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S`
+via llama-server) — full report: `docs/atlas_codegen_llm_eval_report.md`. New runners:
+`tools/run_codegen_patchtype_eval.py`, `tools/run_codegen_route_eval.py`.
+
+- Per-patch-type element evaluation: **7/7 passed** (create, full-replace, edit, insert,
+  delete(line/block), unified_diff-intent, append) — all produced real, applicable content,
+  applied by Safe Apply, judged correct by an LLM judge.
+- Post-plan route evaluation end-to-end to verification: **4/4 passed** — ① empty/new,
+  ② existing-modify, ③ plan-history revision (`revision_source=llm_planner`), ④ autonomous
+  convergence. All reach plan → generate → apply → verify.
+
+Quality fixes from the evaluation (with tests):
+- Revision no longer silently degrades to the rule-based fallback: `_do_pool_revision` now
+  captures `llm_revision_error` and surfaces `revision_source` / `llm_revision_applied`
+  (`tests/test_atlas_revision_fallback_diagnostic.py`).
+- `register_atlas_llm_json_adapter` warns when no LLM backend URL resolves (was a silent return
+  that made patch generation produce empty content with no signal).
+- Stale test corrected (see below) to match PR #1604 plan_item routing.
+
+Recorded-not-fixed (out of scope): legacy "Phase 6" codegen path (`main.call_patch_llm` +
+`ImplementationExecutor`, `/api/plans/{id}/execute`) parallels the Atlas pipeline with a looser
+safety model; flagged for a future consolidation decision. The real model never emits a
+`unified_diff` content_mode (prefers `edits`); the executor's diff path stays unit-tested only.
+
+Regression: touched-area suites green (112 + 61 passed). Full `tests/test_atlas_*.py` baseline
+(changes stashed) = 372 failed / 2050 passed; with changes = 369 failed / 2053 passed — i.e. this
+work adds zero new failures and fixes 3. The ~369 pre-existing failures are full-suite
+environmental/ordering issues (31 collection errors from an absent untracked `web/atlas-next/`
+directory + cp932 decode; plus `main.app` global-state pollution between tests run together) and
+are independent of this evaluation — recorded for a separate test-isolation follow-up.
+
 ## Current blockers
 
 None recorded for the autonomous codegen loop.
 
-Unrelated pre-existing test failure (NOT caused by this incident, reproduces on clean main at
-commit `11ac2a5`): `tests/test_atlas_patch_proposal_manual_ux_flow.py::test_patch_proposal_blocked_without_debug_review`
-asserts a plan item without `debug_review` is `blocked/debug_review_not_analyzed`, but PR #1604
-("Fix Atlas patch generation blocked for new plan items") intentionally routes such items down the
-`plan_item` path (now `failed` with no LLM). The test expectation is stale relative to PR #1604;
-left untouched here because it is outside this incident's scope.
+Resolved: the previously-stale `tests/test_atlas_patch_proposal_manual_ux_flow.py`
+debug-review expectation was updated to match PR #1604 (plan items without `debug_review` route
+down the `plan_item` path and `fail` honestly with no LLM, rather than blocking on
+`debug_review_not_analyzed`). Renamed to
+`test_plan_item_without_debug_review_routes_to_plan_item_not_debug_block`.
 
 ## Latest completed work package evidence
 
