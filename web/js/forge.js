@@ -25,7 +25,12 @@
     { id: 'skills', label: 'Skills' },
     { id: 'benchmark', label: 'Benchmark' },
     { id: 'arena', label: 'Arena' },
+    { id: 'advanced', label: 'Advanced' },
   ];
+
+  // Stage modes; the active production-routing ones require explicit acknowledgement.
+  const STAGE_MODES = ['disabled', 'shadow_select', 'fallback_only', 'fixed_model', 'auto_select', 'arena_select'];
+  const ACTIVE_STAGE_MODES = ['fixed_model', 'auto_select', 'arena_select'];
 
   const state = {
     activated: false,
@@ -371,7 +376,89 @@
     );
   }
 
-  const VIEWS = { overview: overviewHtml, skills: skillsHtml, benchmark: benchmarkHtml, arena: arenaHtml };
+  // ----- Advanced: Stage Matrix and Route Matrix (PFG-25) -----
+
+  function stageRow(entry) {
+    const active = ACTIVE_STAGE_MODES.indexOf(entry.mode) >= 0;
+    const opts = STAGE_MODES.map((m) => (
+      '<option value="' + m + '"' + (entry.mode === m ? ' selected' : '') + '>' + m + '</option>'
+    )).join('');
+    const model = entry.fixed_model_id ? escapeHtml(entry.fixed_model_id) : '—';
+    const warn = active
+      ? '<span class="forge-warn-pill" title="Changes live routing">routes live</span>' : '';
+    return (
+      '<div class="forge-matrix-row">'
+      + '<span class="forge-matrix-key">' + escapeHtml(entry.stage) + '</span>'
+      + '<select class="forge-select forge-matrix-select" data-stage="' + escapeHtml(entry.stage) + '">' + opts + '</select>'
+      + '<span class="forge-matrix-model">' + model + '</span>'
+      + warn
+      + '<span class="forge-matrix-reason">' + escapeHtml(entry.reason || '') + '</span>'
+      + '</div>'
+    );
+  }
+
+  function routeRow(entry) {
+    const routes = (entry.candidate_routes || []).join(', ');
+    const crit = entry.critical_gate_required
+      ? '<span class="forge-warn-pill" title="Unsafe change class">critical gate</span>' : '';
+    const pref = entry.preferred_route_override
+      ? ' · default ' + escapeHtml(entry.preferred_route_override) : '';
+    return (
+      '<div class="forge-matrix-row">'
+      + '<span class="forge-matrix-key">' + escapeHtml(entry.change_class) + '</span>'
+      + '<span class="forge-matrix-routes">' + escapeHtml(routes) + escapeHtml(pref) + '</span>'
+      + crit
+      + '</div>'
+    );
+  }
+
+  function advancedHtml(data) {
+    const stagePolicy = data.stagePolicy || [];
+    const routePolicy = data.routePolicy || [];
+    const stageRows = stagePolicy.map(stageRow).join('') || '<div class="forge-empty">No stage policy.</div>';
+    const routeRows = routePolicy.map(routeRow).join('') || '<div class="forge-empty">No route policy.</div>';
+    // Collapsed by default — advanced controls do not clutter normal use.
+    return (
+      '<div class="forge-hint">Advanced controls. Changing a stage to a live-routing mode '
+      + '(fixed/auto/arena) asks for confirmation; nothing here cuts over automatically.</div>'
+      + '<details class="forge-adv"><summary>Stage Matrix</summary>'
+      + '<div class="forge-matrix">' + stageRows + '</div></details>'
+      + '<details class="forge-adv"><summary>Route Matrix</summary>'
+      + '<div class="forge-matrix">' + routeRows + '</div></details>'
+    );
+  }
+
+  function wireAdvanced(content) {
+    content.querySelectorAll('[data-stage]').forEach((sel) => {
+      sel.addEventListener('change', () => changeStageMode(sel.getAttribute('data-stage'), sel.value));
+    });
+  }
+
+  async function changeStageMode(stage, mode) {
+    const active = ACTIVE_STAGE_MODES.indexOf(mode) >= 0;
+    if (active) {
+      const ok = (typeof confirm === 'function')
+        ? confirm('Stage "' + stage + '" → ' + mode + ' changes live production routing. Continue?')
+        : false;
+      if (!ok) { renderActive(); return; }
+    }
+    try {
+      await api('/stage-policy', {
+        method: 'POST',
+        body: JSON.stringify({ stage, mode, allow_production_routing: active, reason: 'ui_advanced' }),
+      });
+      setStatus('Stage policy updated: ' + stage + ' → ' + mode, 'ok');
+      try { state.data.stagePolicy = (await api('/stage-policy')).stage_policy || []; } catch (_e) {}
+    } catch (err) {
+      setStatus('Stage policy change refused: ' + (err && err.message ? err.message : 'error'), 'error');
+    }
+    renderActive();
+  }
+
+  const VIEWS = {
+    overview: overviewHtml, skills: skillsHtml, benchmark: benchmarkHtml,
+    arena: arenaHtml, advanced: advancedHtml,
+  };
 
   // ----- model detail drawer (Skills) -----
 
@@ -439,6 +526,8 @@
       });
     } else if (state.tab === 'benchmark') {
       wireBenchmark(content, state.data);
+    } else if (state.tab === 'advanced') {
+      wireAdvanced(content);
     }
   }
 
@@ -459,6 +548,8 @@
       try { data.profiles = (await api('/profiles')).profiles || []; } catch (_e) {}
       try { data.leaderboard = (await api('/leaderboard')).leaderboard || []; } catch (_e) {}
       try { data.presets = (await api('/presets')).presets || []; } catch (_e) {}
+      try { data.stagePolicy = (await api('/stage-policy')).stage_policy || []; } catch (_e) {}
+      try { data.routePolicy = (await api('/route-policy')).route_policy || []; } catch (_e) {}
       state.data = data;
       renderShell();
       setStatus(status.forge_enabled ? 'Forge enabled' : 'Forge off — legacy model execution primary', 'ok');
@@ -493,6 +584,7 @@
     _skillsHtml: skillsHtml,
     _benchmarkHtml: benchmarkHtml,
     _arenaHtml: arenaHtml,
+    _advancedHtml: advancedHtml,
     _state: state,
   };
 })();
