@@ -31,6 +31,15 @@ from agent.model_forge.profile_store import (
     ProfileStore,
     profile_key,
 )
+from agent.model_forge.route_matrix import (
+    ChangeClass,
+    RouteMatrix,
+    RoutePolicyEntry,
+    RouteSelection,
+    RouteSelector,
+    UNSAFE_MICRO_ROUTES,
+    default_routes_for_class,
+)
 from agent.model_forge.stage_matrix import (
     StageCandidate,
     StageMatrix,
@@ -208,4 +217,11 @@ __all__ = [
     "StageMatrix",
     "StageSelector",
     "stage_dimension",
+    "ChangeClass",
+    "UNSAFE_MICRO_ROUTES",
+    "RoutePolicyEntry",
+    "RouteSelection",
+    "RouteMatrix",
+    "RouteSelector",
+    "default_routes_for_class",
 ]
