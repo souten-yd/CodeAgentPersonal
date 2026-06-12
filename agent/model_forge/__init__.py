@@ -6,6 +6,11 @@ not perform provider execution or change production routing on import.
 """
 from __future__ import annotations
 
+from agent.model_forge.arena_runner import (
+    ArenaCandidateSpec,
+    ArenaRunner,
+    ArenaRunRecord,
+)
 from agent.model_forge.benchmark_presets import (
     get_preset,
     load_presets,
@@ -162,4 +167,7 @@ __all__ = [
     "get_preset",
     "preset_listing",
     "validate_preset",
+    "ArenaCandidateSpec",
+    "ArenaRunRecord",
+    "ArenaRunner",
 ]
