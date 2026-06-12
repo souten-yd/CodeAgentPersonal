@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-20`
-- Current package goal: Forge top-level nav and shell UI.
-- Next action: add a Forge top-level nav entry (desktop + mobile) wired to the Forge API,
-  keep the default view simple, and preserve Portal nav.
-- Last completed: `PFG-19` (Forge backend API) — acceptance_complete; see PFG-19 evidence
-  below. PFG-1..PFG-18 also complete.
+- Current package: `PFG-21`
+- Current package goal: Forge Overview and Provider cards.
+- Next action: render Active Loadout, Source Mode, provider health (OpenRouter/local/legacy)
+  cards that work with no configured external provider and show missing key as disabled.
+- Last completed: `PFG-20` (Forge top-level nav and shell UI) — acceptance_complete; see
+  PFG-20 evidence below. PFG-1..PFG-19 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -75,7 +75,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-17 | Stage Matrix policy and selector | acceptance_complete |
 | PFG-18 | Route Matrix policy and selector | acceptance_complete |
 | PFG-19 | Forge backend API | acceptance_complete |
-| PFG-20 | Forge top-level nav and shell UI | not_started |
+| PFG-20 | Forge top-level nav and shell UI | acceptance_complete |
 | PFG-21 | Forge Overview and Provider cards | not_started |
 | PFG-22 | Skill Radar and Leaderboard UI | not_started |
 | PFG-23 | Benchmark Preset selector UI | not_started |
@@ -946,6 +946,49 @@ Remaining gaps:
 - PFG-20 Forge top-level nav and shell UI.
 Next package:
 - PFG-20 — Forge top-level nav and shell UI.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-20 — Forge top-level nav and shell UI
+Status: acceptance_complete
+Changed modules/files:
+- ui/index.html — Forge desktop nav button + mobile tab, forge-col shell panel, mode
+  plumbing (UI_VALID_MODES/UI_PRIMARY_MODES, _FORGE_MOB_TAB_IDS, _updateMobTabs, setMode
+  + mobSwitch forge branches, desktop/mobile show-hide), forge.js include.
+- web/js/forge.js (new) — read-only Forge shell (window.Forge.activate/onLeave/refresh).
+- web/css/app.css — forge-col/shell/card/badge styles mirroring Portal; mobile rules.
+- tests/test_forge_ui_shell.py (new) — structural locks.
+Behavior implemented:
+- A Forge top-level mode sits between Echo/Nexus and Portal (desktop + mobile). Selecting
+  Forge shows the forge-col shell and calls window.Forge.activate(), which fetches
+  /api/forge/status + /providers and renders a simple Overview (Forge on/off, source mode,
+  profile count) and Provider health list. Default view is intentionally minimal.
+- Forge is hidden by default and never displaces Portal; Portal nav is unchanged.
+Syntax checks:
+- node --check web/js/forge.js -> OK; node --check web/js/portal.js -> OK (unchanged).
+- inline #index.html script extracted + node --check -> OK (663k chars).
+Focused tests:
+- python -m pytest tests/test_forge_ui_shell.py -> 6 passed (desktop+mobile nav exist;
+  shell column exists; mode plumbing knows forge; script included once; Portal nav intact;
+  forge.js exposes activate and is read-only).
+Unavailable checks:
+- Live browser/mobile rendering not executed in CI; TestClient /static/js/forge.js 404s
+  exactly like the working /static/js/portal.js (static mounted at runtime), so this is
+  not a regression. Mobile viewport verified structurally (atlas-mode row collapse +
+  mob-forge wiring), not via a real device.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-20 is UI shell only, no model execution.
+Safety invariants verified:
+- Forge shell is read-only (no execution POST); Portal Save/Snapshot/Discard/run paths
+  untouched; legacy primary.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-21 Forge Overview and Provider cards (richer overview).
+Next package:
+- PFG-21 — Forge Overview and Provider cards.
 Blocker:
 - None.
 ```

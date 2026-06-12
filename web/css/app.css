@@ -243,13 +243,13 @@ html.logo-svg-ready .logo-text{display:none}
     height:auto;
     width:100%;
   }
-  .chat-col,.agent-col,.agent-panel-col,.atlas-panel-col,.nexus-col,.portal-col{
+  .chat-col,.agent-col,.agent-panel-col,.atlas-panel-col,.nexus-col,.portal-col,.forge-col{
     /* flex layout: messages flex-grow, input always visible at bottom */
     display:flex!important;flex-direction:column!important;
     height:100%;max-height:100%;
     width:100%;max-width:100%;flex:1 1 100%;
   }
-  .portal-col.mob-hidden{display:none!important}
+  .portal-col.mob-hidden,.forge-col.mob-hidden{display:none!important}
   .panel-col{
     height:100%;max-height:100%;display:flex;flex-direction:column;
     width:100%;max-width:100%;flex:1 1 100%;
@@ -275,6 +275,7 @@ html.logo-svg-ready .logo-text{display:none}
   .chat-col,.echo-col,.agent-col{flex:1 1 auto;min-width:0;border-right:1px solid var(--border)}
   .nexus-col{flex:1 1 auto;min-width:0}
   .portal-col{flex:1 1 auto;min-width:0}
+  .forge-col{flex:1 1 auto;min-width:0}
   .panel-col{flex:0 0 var(--panel-col-width, min(46vw, 560px));min-width:260px;max-width:75vw}
   .agent-panel-col{flex:0 0 min(42vw, 520px);min-width:240px;max-width:70vw}
   .panel-resizer{display:block}
@@ -1707,6 +1708,32 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .portal-head-actions{display:flex;gap:8px}
 .portal-action-btn{background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;padding:6px 12px;cursor:pointer;white-space:nowrap}
 .portal-action-btn:hover{background:var(--bg3)}
+/* Forge (PFG-20+) — mirrors the Portal shell for visual consistency */
+.forge-col{background:var(--bg1);overflow:hidden;min-height:0;flex:1 1 auto;min-width:0}
+.forge-shell{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden}
+.forge-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.forge-title{font-family:var(--font),Syne,sans-serif;font-size:18px;font-weight:700;color:var(--text)}
+.forge-head-actions{display:flex;gap:8px}
+.forge-action-btn{background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+.forge-action-btn:hover{background:var(--bg3)}
+.forge-status{padding:8px 16px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border)}
+.forge-status.is-error{color:var(--danger,#e06c75)}
+.forge-status.is-ok{color:var(--accent)}
+.forge-body{flex:1 1 auto;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px}
+.forge-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.forge-card-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px}
+.forge-kv{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--text2);padding:3px 0}
+.forge-kv b{color:var(--text)}
+.forge-prov-row{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px}
+.forge-prov-row:first-of-type{border-top:none}
+.forge-prov-id{color:var(--text);font-family:var(--font-mono);flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.forge-prov-class{color:var(--text3);font-size:11px}
+.forge-empty{color:var(--text3);font-size:12px;padding:6px 0}
+.forge-badge{font-size:10.5px;padding:2px 8px;border-radius:10px;border:1px solid var(--border);white-space:nowrap}
+.forge-badge-ready{color:var(--accent);border-color:var(--accent-border,var(--accent))}
+.forge-badge-disabled{color:var(--text3)}
+.forge-badge-unavailable{color:var(--amber,#d6a23e)}
+.forge-badge-error{color:var(--danger,#e06c75)}
 .portal-browse-overlay{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px}
 .portal-browse-modal{display:flex;flex-direction:column;width:min(640px,94vw);max-height:80vh;background:var(--bg1);border:1px solid var(--border);border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.5);overflow:hidden}
 .portal-browse-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;color:var(--text)}
