@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
 from agent.model_forge.arena_runner import ArenaCandidateSpec, ArenaRunner
 from agent.model_forge.benchmark_presets import get_preset, preset_listing
@@ -41,21 +41,32 @@ from agent.model_forge.providers.openrouter_config import (
 )
 from agent.model_forge.cutover import CutoverController
 from agent.model_forge.route_matrix import ChangeClass, RouteMatrix, RouteSelector
+from agent.model_forge.schema import ForgeExecutionRequest
 from agent.model_forge.shadow import ShadowStore
 from agent.model_forge.source_policy import SourceMode
 from agent.model_forge.stage_matrix import StageMatrix
 from agent.model_forge.stage_taxonomy import ForgeStage
 
 
-def _prompt_resolver(system: str, user: str) -> tuple[str, str]:
-    return system, user
+PromptResolver = Callable[[ForgeExecutionRequest], "tuple[str, str]"]
+
+
+def _prompt_resolver(_request: ForgeExecutionRequest) -> tuple[str, str]:
+    return "", ""
 
 
 class ForgeService:
-    def __init__(self, ca_data_root: str | Path, *, env: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        ca_data_root: str | Path,
+        *,
+        env: Mapping[str, str] | None = None,
+        prompt_resolver: PromptResolver | None = None,
+    ) -> None:
         self._env = dict(env if env is not None else os.environ)
         self._ca_data_root = Path(ca_data_root)
         self._root = Path(ca_data_root) / "model_forge"
+        self._prompt_resolver = prompt_resolver or _prompt_resolver
         self.profiles = ProfileStore(self._root / "profiles")
         self.stage_matrix = StageMatrix(self._root / "stage_policy.json")
         self.route_matrix = RouteMatrix()
@@ -77,7 +88,7 @@ class ForgeService:
         registry = ProviderRegistry()
         # Legacy Atlas executor: local, enabled, but unwired here (health UNAVAILABLE),
         # which is truthful — the live legacy path runs in the Atlas pipeline, not here.
-        registry.register(LegacyAtlasProvider(backend_fn=None, prompt_resolver=_prompt_resolver))
+        registry.register(LegacyAtlasProvider(backend_fn=None, prompt_resolver=self._prompt_resolver))
 
         settings = self._settings()
         probes = self._provider_probe_status()
@@ -86,7 +97,7 @@ class ForgeService:
         local_model = self._env.get("FORGE_LOCAL_MODEL", "").strip() or str(local_settings.get("model_id") or "").strip()
         local_probe = probes.get(LOCAL_OPENAI_PROVIDER_ID, {})
         registry.register(LocalOpenAICompatibleProvider(
-            base_url=local_base, model_id=local_model, prompt_resolver=_prompt_resolver,
+            base_url=local_base, model_id=local_model, prompt_resolver=self._prompt_resolver,
             enabled=True,
             runtime_health=str(local_probe.get("runtime_health") or ""),
             last_probe_at=str(local_probe.get("last_probe_at") or ""),
@@ -97,7 +108,7 @@ class ForgeService:
         registry.register(OpenRouterProvider(
             config=openrouter_config,
             model_id=self._env.get("FORGE_OPENROUTER_MODEL", "").strip(),
-            prompt_resolver=_prompt_resolver,
+            prompt_resolver=self._prompt_resolver,
         ))
         return registry
 
@@ -143,6 +154,14 @@ class ForgeService:
             return SourceMode(raw) if raw else SourceMode.LOCAL_ONLY
         except ValueError:
             return SourceMode.LOCAL_ONLY
+
+    def record_execution_bridge_event(self, payload: dict) -> str:
+        request_id = str(payload.get("request_id") or "unknown").replace("/", "_").replace("\\", "_")
+        stage = str(payload.get("stage") or "unknown").replace("/", "_").replace("\\", "_")
+        path = self._root / "execution_bridge" / f"{stage}.{request_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return str(path)
 
     # ----- read endpoints -----
 

@@ -32,6 +32,7 @@ from agent.model_forge.profile_store import (
     profile_key,
 )
 from agent.model_forge.forge_service import ForgeService
+from agent.model_forge.execution_bridge import ForgeModelExecutionBridge
 from agent.model_forge.portal_evidence import (
     EvidenceStrength,
     PortalEvidenceResult,
@@ -253,6 +254,7 @@ __all__ = [
     "RouteSelector",
     "default_routes_for_class",
     "ForgeService",
+    "ForgeModelExecutionBridge",
     "Loadout",
     "LoadoutStore",
     "default_loadouts",

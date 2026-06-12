@@ -7,8 +7,8 @@
 
 - Overall: **ACTIVE — POST-PFG PRODUCTION HARDENING**
 - Active track: `PFH-1..PFH-8`
-- Current package: `PFH-4`
-- Current package goal: add ForgeModelExecutionBridge in shadow-first mode at the Atlas model execution boundary.
+- Current package: `PFH-5`
+- Current package goal: make cutover and rollback affect the actual ForgeModelExecutionBridge path.
 - Rollout: Forge remains off/default unless bridge-level shadow/cutover evidence proves otherwise.
 - Legacy model execution remains primary until PFH-4/PFH-5 evidence passes.
 - OpenRouter live evidence remains unavailable unless explicitly configured.
@@ -32,8 +32,8 @@
 | PFH-1 | Benchmark preset identity and execution semantics | acceptance_complete |
 | PFH-2 | OpenRouter catalog product integration | acceptance_complete |
 | PFH-3 | Provider configured state vs runtime readiness | acceptance_complete |
-| PFH-4 | ForgeModelExecutionBridge, shadow-first | in_progress |
-| PFH-5 | Real cutover and rollback | not_started |
+| PFH-4 | ForgeModelExecutionBridge, shadow-first | acceptance_complete |
+| PFH-5 | Real cutover and rollback | in_progress |
 | PFH-6 | Real evidence through Forge provider/preset runner | not_started |
 | PFH-7 | Actual Portal runtime replay for Capsule evidence | not_started |
 | PFH-8 | Guarded Candidate-to-Proposal handoff | not_started |
@@ -41,8 +41,8 @@
 ## Known review findings to address
 
 ```text
-1. Forge cutover updates StageMatrix policy but does not yet prove the actual Atlas model execution data path is switched.
-2. LegacyAtlasProvider is not wired as a live ForgeService execution backend for current Atlas calls.
+1. Forge cutover updates StageMatrix policy but does not yet prove the actual Atlas model execution data path is switched. [PFH-4 bridge connected; PFH-5 cutover still required]
+2. LegacyAtlasProvider is not wired as a live ForgeService execution backend for current Atlas calls. [PFH-4 addressed for central legacy-primary bridge observation]
 3. OpenRouterCatalog exists but is not fully product-connected to ForgeService/API/UI model selection. [PFH-2 addressed]
 4. Benchmark UI primary preset IDs can diverge from real backend preset IDs. [PFH-1 addressed]
 5. Benchmark run can submit only the first selected preset. [PFH-1 addressed]
@@ -282,15 +282,87 @@ Remaining gaps:
 Next package: PFH-4 — ForgeModelExecutionBridge, shadow-first.
 Blocker: none.
 
-## Current package: PFH-4 checklist
+## Completed package: PFH-4 ForgeModelExecutionBridge, shadow-first
 
-- Locate the central Atlas LLM JSON execution boundary and direct callers.
-- Add `agent/model_forge/execution_bridge.py`.
-- Disabled mode must call legacy only and preserve legacy output.
-- Shadow mode must return legacy output while optionally recording Forge shadow evidence.
-- Record stage, route/model/provider, policy, shadow/fallback decisions.
-- Integrate at the central boundary without scattered call-site rewrites.
-- Update tests and this status with exact evidence.
+Completed package: PFH-4
+Status: acceptance_complete
+Changed modules/files:
+- `agent/model_forge/execution_bridge.py`
+- `agent/model_forge/__init__.py`
+- `agent/model_forge/forge_service.py`
+- `agent/model_forge/providers/local_openai_compatible.py`
+- `agent/model_forge/providers/openrouter_client.py`
+- `app/api/atlas_pipeline.py`
+- `tests/test_forge_execution_bridge.py`
+- `tests/test_atlas_api_pipeline.py`
+- `docs/atlas_portal_forge_hardening_current_status.md`
+
+Behavior implemented:
+- Added `ForgeModelExecutionBridge` around the central `atlas_llm_json_fn` execution boundary.
+- Disabled mode records `forge_disabled_legacy_primary`, returns legacy output, and does not execute Forge providers.
+- Shadow-select mode returns legacy output while running eligible Forge providers through `ProviderRegistry` and recording `ShadowStore` comparison evidence.
+- Bridge evidence records stage, route, provider/model selection, source/privacy mode, policy decision, shadow result, fallback/legacy-primary decision, and prompt byte counts without persisting prompt text.
+- `ForgeService` now accepts a per-call prompt resolver so Atlas prompts are passed to Forge providers only in memory during the bridge call.
+- Local and OpenRouter providers expose `run_and_capture()` for shadow comparison while preserving `execute_chat_completion()`.
+- Atlas planning and patch proposal LLM paths resolve through the bridge with explicit stage/route/task metadata.
+- Progress wrapping now uses `with_progress` capability so both raw `AtlasLLMJsonAdapter` and the bridge remain compatible.
+
+Focused tests:
+- `python -m pytest tests/test_forge_execution_bridge.py tests/test_atlas_api_pipeline.py::test_create_plan_pool_uses_registered_atlas_llm_json_fn tests/test_atlas_api_pipeline.py::test_create_plan_pool_records_forge_bridge_decision_at_llm_boundary tests/test_atlas_api_pipeline.py::test_create_plan_pool_falls_back_when_llm_json_fn_returns_none -q` -> 5 passed.
+- After source-mode fallback adjustment: `python -m pytest tests/test_forge_execution_bridge.py -q` -> 2 passed.
+
+Syntax checks:
+- `python -m py_compile agent/model_forge/execution_bridge.py agent/model_forge/forge_service.py agent/model_forge/providers/local_openai_compatible.py agent/model_forge/providers/openrouter_client.py app/api/atlas_pipeline.py` -> passed.
+- `python -m py_compile agent/model_forge/execution_bridge.py` -> passed after source-mode fallback adjustment.
+- `python -m compileall -q agent/model_forge app/api/atlas_pipeline.py` -> passed.
+- `git diff --check` -> passed with CRLF normalization warnings only.
+
+Affected tests:
+- Expanded invocation: `$forge = Get-ChildItem tests -Filter 'test_forge*.py' | ForEach-Object { $_.FullName }; $modelForge = Get-ChildItem tests -Filter 'test_model_forge*.py' | ForEach-Object { $_.FullName }; python -m pytest @($forge + $modelForge + @('tests/test_atlas_llm_json_adapter.py','tests/test_atlas_llm_json_streaming.py','tests/test_atlas_api_pipeline.py::test_create_plan_pool_uses_registered_atlas_llm_json_fn','tests/test_atlas_api_pipeline.py::test_create_plan_pool_records_forge_bridge_decision_at_llm_boundary','tests/test_atlas_api_pipeline.py::test_create_plan_pool_falls_back_when_llm_json_fn_returns_none')) -q` -> 194 passed, 1 skipped.
+
+Real model evidence:
+- Required user LLM code-review verification ran through `http://127.0.0.1:8080/v1/chat/completions` -> PASS, no required fixes. This is advisory code review evidence, not runtime/model acceptance evidence.
+- PFH-4 bridge tests use mocked/local fake providers; live model runtime evidence through Forge provider path is deferred to PFH-6.
+
+Portal runtime evidence:
+- Not applicable to PFH-4; no Portal runtime claim made.
+
+Capsule replay evidence:
+- Not applicable to PFH-4; no Capsule replay claim made.
+
+OpenRouter evidence:
+- OpenRouter live smoke was not run because PFH-4 does not enable `FORGE_OPENROUTER_LIVE_SMOKE=1` or provide `OPENROUTER_API_KEY`; no live evidence claimed.
+
+Unavailable checks:
+- Live Forge provider/model evidence is not claimed in PFH-4; PFH-6 remains responsible for real evidence through Forge provider/preset runner.
+- Portal runtime and Capsule replay evidence are unavailable/not applicable for PFH-4.
+- OpenRouter live evidence remains unavailable unless `FORGE_OPENROUTER_LIVE_SMOKE=1` and `OPENROUTER_API_KEY` are configured.
+
+Safety invariants:
+- Legacy output remains primary in disabled and shadow-select modes.
+- Shadow evidence is advisory and `changes_production_routing=false`.
+- Local Only remains the default source mode and blocks external providers through provider policy.
+- Prompts are not persisted in bridge evidence; only byte counts and routing metadata are stored.
+- No secrets are persisted, logged, or returned.
+- Proposal / Safe Apply / Verification authority boundaries unchanged.
+- Legacy model execution paths are not deleted.
+
+Remaining gaps:
+- PFH-5 must consume cutover/rollback state in the bridge so acknowledged cutover can return Forge output with legacy fallback.
+- PFH-6 must run real evidence through Forge provider or preset runner rather than adapter-only or direct urllib paths.
+
+Next package: PFH-5 — Real cutover and rollback.
+Blocker: none.
+
+## Current package: PFH-5 checklist
+
+- Update `CutoverController` or the bridge caller path so cutover state is consumed by `ForgeModelExecutionBridge`.
+- Before cutover, bridge must return legacy output.
+- After acknowledged cutover, bridge must return Forge output for the selected stage.
+- If Forge fails, bridge must use legacy fallback.
+- Rollback must return to legacy primary.
+- Persist fallback and rollback evidence.
+- Do not remove legacy execution.
 
 ## Stop conditions
 

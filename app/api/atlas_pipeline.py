@@ -23,6 +23,10 @@ class _AppOnlyRequest:
         self.app = app
 
 from agent.atlas_llm_json_adapter import AtlasLLMJsonAdapter
+from agent.model_forge.execution_bridge import ForgeModelExecutionBridge
+from agent.model_forge.forge_service import ForgeService
+from agent.model_forge.route_taxonomy import ForgeRoute
+from agent.model_forge.stage_taxonomy import ForgeStage
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -420,8 +424,32 @@ def _resolve_callable_state(request: Request, name: str) -> Any:
     return value if callable(value) else None
 
 
-def _resolve_atlas_llm_json_fn(request: Request) -> Any:
-    return _resolve_callable_state(request, "atlas_llm_json_fn")
+def _resolve_atlas_llm_json_fn(
+    request: Request,
+    *,
+    stage: ForgeStage | str = ForgeStage.PLANNING,
+    route_id: ForgeRoute | str = ForgeRoute.SLICED_IMPACT,
+    task_category: str = "atlas_llm_json",
+) -> Any:
+    legacy_fn = _resolve_callable_state(request, "atlas_llm_json_fn")
+    if legacy_fn is None:
+        return None
+    if isinstance(legacy_fn, ForgeModelExecutionBridge):
+        return legacy_fn
+
+    def _service_factory(system_prompt: str, user_prompt: str) -> ForgeService:
+        return ForgeService(
+            resolve_atlas_ca_data_root(request),
+            prompt_resolver=lambda _forge_request: (system_prompt, user_prompt),
+        )
+
+    return ForgeModelExecutionBridge(
+        legacy_fn=legacy_fn,
+        service_factory=_service_factory,
+        stage=stage,
+        route_id=route_id,
+        task_category=task_category,
+    )
 
 
 def _resolve_atlas_test_command_runner(request: Request) -> Any:
@@ -1136,8 +1164,13 @@ def _create_plan_pool_core(
         pool.metadata["source"] = "plan_payload"
         planner_status = "skipped"
     else:
-        llm_json_fn = _resolve_atlas_llm_json_fn(request)
-        if progress_cb is not None and isinstance(llm_json_fn, AtlasLLMJsonAdapter):
+        llm_json_fn = _resolve_atlas_llm_json_fn(
+            request,
+            stage=ForgeStage.PLANNING,
+            route_id=ForgeRoute.SLICED_IMPACT,
+            task_category="plan_pool_create",
+        )
+        if progress_cb is not None and hasattr(llm_json_fn, "with_progress"):
             llm_json_fn = llm_json_fn.with_progress(lambda payload: progress_cb(**dict(payload or {})))
         bridge = AtlasPlannerBridge(
             ca_data_dir=str(ca_data_root),
@@ -1703,7 +1736,18 @@ def submit_clarification_answers(req: AtlasClarificationSubmitRequest, request: 
     merged_input = service.merge_answers_into_input(session.original_input, session.questions, session.answers)
     merged_requirement = service.merge_answers_into_requirement(session.requirement, session.answers)
     builder = AtlasPlanPoolBuilder()
-    bridge = AtlasPlannerBridge(ca_data_dir=str(ca_data_root), llm_json_fn=_resolve_atlas_llm_json_fn(request), memory_search_fn=_resolve_callable_state(request, "atlas_memory_search_fn"), active_skills_fn=_resolve_callable_state(request, "atlas_active_skills_fn"), builder=builder)
+    bridge = AtlasPlannerBridge(
+        ca_data_dir=str(ca_data_root),
+        llm_json_fn=_resolve_atlas_llm_json_fn(
+            request,
+            stage=ForgeStage.PLANNING,
+            route_id=ForgeRoute.SLICED_IMPACT,
+            task_category="clarification_replan",
+        ),
+        memory_search_fn=_resolve_callable_state(request, "atlas_memory_search_fn"),
+        active_skills_fn=_resolve_callable_state(request, "atlas_active_skills_fn"),
+        builder=builder,
+    )
     try:
         result = bridge.create_plan_pool(AtlasPlannerBridgeRequest(input=merged_input, project_path=session.project_path, project_name=session.project_name, planning_depth=session.planning_depth, automation_level=session.automation_level, execution_strategy=session.execution_strategy, requirement_mode=session.requirement_mode, use_nexus=True, mode=_normalize_planner_mode(session.planner_mode), workspace_id=session.workspace_id, metadata=dict(session.metadata)))
         if result.status == "waiting_for_clarification" and result.pool is None:
@@ -2526,8 +2570,13 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
         "pool_id": req.pool_id, "item_id": req.item_id, "run_id": req.run_id, "status": "running",
         "started_at": now, "last_token_at": now, "tokens_generated": 0, "phase": "generating",
     })
-    llm_json_fn = _resolve_atlas_llm_json_fn(request)
-    if isinstance(llm_json_fn, AtlasLLMJsonAdapter):
+    llm_json_fn = _resolve_atlas_llm_json_fn(
+        request,
+        stage=ForgeStage.PATCH_GENERATION,
+        route_id=ForgeRoute.DIRECT_PATCH,
+        task_category="patch_proposal_generation",
+    )
+    if hasattr(llm_json_fn, "with_progress"):
         def _on_patchgen_progress(payload: dict) -> None:
             _merge_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
                 "last_token_at": payload.get("last_token_at") or datetime.now(timezone.utc).isoformat(),
@@ -3032,7 +3081,12 @@ def _do_pool_revision(
     if note:
         try:
             register_atlas_llm_json_adapter(app)
-            llm_json_fn = _resolve_atlas_llm_json_fn(fake_request)
+            llm_json_fn = _resolve_atlas_llm_json_fn(
+                fake_request,
+                stage=ForgeStage.PLANNING,
+                route_id=ForgeRoute.SLICED_IMPACT,
+                task_category="manual_replan_revision",
+            )
             if llm_json_fn is not None:
                 original_goal = str(pool.root_goal or "").strip()
                 items_summary = "\n".join(

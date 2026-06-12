@@ -70,12 +70,12 @@ class OpenRouterProvider(ForgeProvider):
             return ProviderHealth(provider_id=self.provider_id, state=HealthState.UNAVAILABLE, detail="missing_credential")
         return ProviderHealth(provider_id=self.provider_id, state=HealthState.READY)
 
-    def execute_chat_completion(self, request: ForgeExecutionRequest) -> ForgeExecutionResult:
+    def run_and_capture(self, request: ForgeExecutionRequest) -> "tuple[ForgeExecutionResult, str]":
         start = time.monotonic()
         # Per-request source-mode gate: Local Only blocks OpenRouter before any request.
         gate = check_openrouter_allowed(self.config, request.source_mode)
         if not gate.allowed:
-            return self._error_result(request, start, gate.reason)
+            return self._error_result(request, start, gate.reason), ""
         system_prompt, user_prompt = self._prompt_resolver(request)
         payload: dict = {
             "model": self._model_id,
@@ -90,20 +90,20 @@ class OpenRouterProvider(ForgeProvider):
         try:
             status, body = self._http_post(endpoint, payload, headers, self.config.request_timeout_seconds)
         except TimeoutError:
-            return self._error_result(request, start, "timeout")
+            return self._error_result(request, start, "timeout"), ""
         except ConnectionError:
-            return self._error_result(request, start, "connection_error")
+            return self._error_result(request, start, "connection_error"), ""
         except Exception as exc:  # noqa: BLE001
-            return self._error_result(request, start, f"transport_error:{type(exc).__name__}")
+            return self._error_result(request, start, f"transport_error:{type(exc).__name__}"), ""
         latency_ms = int((time.monotonic() - start) * 1000)
         if status != 200:
-            return self._error_result(request, start, f"http_{status}", latency_ms)
+            return self._error_result(request, start, f"http_{status}", latency_ms), ""
         try:
             data = json.loads(body)
             text = str(data["choices"][0]["message"]["content"] or "")
             usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         except Exception:  # noqa: BLE001
-            return self._error_result(request, start, "malformed_response", latency_ms)
+            return self._error_result(request, start, "malformed_response", latency_ms), ""
         contract_valid = bool(text.strip())
         return ForgeExecutionResult(
             request_id=request.request_id,
@@ -118,7 +118,11 @@ class OpenRouterProvider(ForgeProvider):
                 output_tokens=int(usage.get("completion_tokens") or 0),
             ),
             errors=[] if contract_valid else ["empty_output"],
-        )
+        ), text
+
+    def execute_chat_completion(self, request: ForgeExecutionRequest) -> ForgeExecutionResult:
+        result, _text = self.run_and_capture(request)
+        return result
 
     def _error_result(self, request: ForgeExecutionRequest, start: float, error: str, latency_ms: int | None = None) -> ForgeExecutionResult:
         return ForgeExecutionResult(
