@@ -268,6 +268,94 @@ def test_asset_only_step_verifies_through_plan_index_html(tmp_path):
     assert svc._resolve_visual_html(item, pool) == 'index.html'
 
 
+def test_asset_only_canvas_game_step_uses_pool_goal_for_visual_contract(tmp_path):
+    storage, journal, pool, item = _setup(tmp_path)
+    pool.root_goal = (
+        'Create a Space Invaders game using HTML where the player can move their ship '
+        'using the left and right arrow keys and shoot bullets at enemies by pressing the space bar.'
+    )
+    pool.metadata['requirement_trace'] = [
+        {'requirement_id': 'req_001', 'description': 'インベーダーゲームをHTMLで作って'},
+        {'requirement_id': 'req_002', 'description': '左右キーで自機を移動しスペースで弾丸を発射する'},
+    ]
+    step1 = AtlasPlanItem(
+        item_id='step_1',
+        pool_id=pool.pool_id,
+        title='Create Basic HTML Structure',
+        goal='Set up the basic structure for the Space Invaders game.',
+        target_files=['index.html'],
+    )
+    pool.items = [step1, item]
+    item.item_id = 'step_4'
+    item.goal = 'Enemies move and shoot at the player.'
+    item.target_files = ['script.js']
+    item.metadata['safe_apply']['changed_files'] = ['script.js']
+    item.metadata['original_step_payload'] = {
+        'acceptance_criteria': [
+            'Enemies move across the screen.',
+            'Enemies shoot bullets at the player.',
+        ],
+        'done_definition': [
+            'Enemies move across the screen.',
+            'Enemies shoot bullets at the player.',
+        ],
+    }
+    storage.save_pool(pool)
+    (Path(pool.project_path) / 'index.html').write_text(
+        '<!doctype html><html><body><canvas id="gameCanvas"></canvas>'
+        '<script src="script.js"></script></body></html>',
+        encoding='utf-8',
+    )
+    (Path(pool.project_path) / 'script.js').write_text(
+        "const canvas = document.getElementById('gameCanvas');\n"
+        "const ctx = canvas.getContext('2d');\n"
+        "const enemies = [{x: 0, y: 10, isAlive: true}];\n"
+        "const enemyBullets = [];\n"
+        "function update(){ enemies[0].x += 1; enemyBullets.push({x: enemies[0].x, y: 20}); }\n"
+        "setInterval(function(){ ctx.clearRect(0,0,canvas.width,canvas.height); "
+        "ctx.fillRect(enemies[0].x, enemies[0].y, 10, 10); update(); }, 10);\n",
+        encoding='utf-8',
+    )
+
+    class _Smoke:
+        def verify(self, *_args, **kwargs):
+            assert kwargs.get('contract_id') == 'canvas_game_visual_v1'
+            return {'status': 'browser_smoke_passed', 'contract_id': kwargs.get('contract_id')}
+
+    svc = AtlasAutoVerificationService(
+        journal=journal,
+        storage=storage,
+        command_runner=_runner(),
+        playwright_verifier=_Smoke(),
+    )
+    out = svc.run_after_auto_safe_apply(
+        AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id='r1')
+    )
+
+    assert out.status == 'passed'
+    assert out.metadata['visual_contract_id'] == 'canvas_game_visual_v1'
+    assert out.metadata['visual_classification']['artifact_type'] == 'canvas_game'
+    assert 'Space Invaders game' in out.metadata['visual_classification_context']
+    assert 'visual_contract_failed' not in out.warnings
+
+
+def test_direct_html_step_does_not_inherit_pool_goal_for_visual_classification(tmp_path):
+    storage, journal, pool, item = _setup(tmp_path)
+    pool.root_goal = 'Create a dashboard, then add a rainbow animation in a later step.'
+    item.goal = 'Create the dashboard HTML scaffold.'
+    item.target_files = ['index.html']
+    item.metadata['safe_apply']['changed_files'] = ['index.html']
+    item.metadata['original_step_payload'] = {
+        'acceptance_criteria': ['Dashboard heading is visible.'],
+    }
+    storage.save_pool(pool)
+
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=_runner())
+
+    assert svc._visual_task_description(item, pool) == 'Create the dashboard HTML scaffold. Dashboard heading is visible.'
+    assert svc._visual_classification_description(item, pool) == svc._visual_task_description(item, pool)
+
+
 def test_asset_step_not_referenced_by_plan_html_stays_unresolved(tmp_path):
     # A test-file step (tests/...js) that no plan page loads must NOT be falsely verified through
     # index.html — it stays unresolved so the missing-test-runner condition is reported honestly.
