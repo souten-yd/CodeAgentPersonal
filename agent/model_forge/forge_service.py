@@ -24,6 +24,7 @@ from typing import Mapping
 from agent.model_forge.arena_runner import ArenaCandidateSpec, ArenaRunner
 from agent.model_forge.benchmark_presets import preset_listing
 from agent.model_forge.loadouts import LoadoutStore
+from agent.model_forge.portal_evidence import PortalRunEvidence, ingest_portal_evidence
 from agent.model_forge.profile_store import ProfileStore
 from agent.model_forge.provider_registry import ProviderRegistry
 from agent.model_forge.providers.legacy_atlas import LegacyAtlasProvider
@@ -256,6 +257,12 @@ class ForgeService:
 
     def save_loadout(self, payload: dict) -> dict:
         return self.loadouts.upsert(payload).model_dump(mode="json")
+
+    def record_portal_evidence(self, payload: dict) -> dict:
+        """Ingest a Portal run outcome into the model profile. Runtime pass/fail moves the
+        score; a user decision alone is weak feedback (never moves the score)."""
+        result = ingest_portal_evidence(self.profiles, PortalRunEvidence(**payload))
+        return result.model_dump(mode="json")
 
     def active_loadout(self) -> dict | None:
         if self._active_loadout_path.exists():
