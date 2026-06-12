@@ -7,14 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-32`
-- Current package goal: real Repair preset run.
-- Next action: use a reproducible failing fixture, run repair candidates with the local
-  model, and verify the fix via tests/runtime (not a model claim).
-- Last completed: `PFG-31` (real Web App / Portal run preset) — acceptance_complete with REAL
-  model + Portal runtime evidence (Mistral served through Play static runtime); see PFG-31
-  evidence below. PFG-30 also REAL-model complete; PFG-1..PFG-29 complete.
-  PFG-1..PFG-29 also complete.
+- Current package: `PFG-33`
+- Current package goal: real Greenfield Capsule replay run.
+- Next action: generate a Greenfield artifact with the local model, run it through Portal,
+  build a Capsule, replay it, and feed replay evidence into the Forge profile.
+- Last completed: `PFG-32` (real Repair preset run) — acceptance_complete with REAL model
+  evidence verified by re-running the check (Mistral fixed a buggy add); see PFG-32
+  evidence below. PFG-30/31 also REAL-model complete; PFG-1..PFG-29 complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -89,7 +88,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-29 | Capsule Forge metadata and replay | acceptance_complete |
 | PFG-30 | real local-model Quick preset run | acceptance_complete |
 | PFG-31 | real Web App / Portal run preset | acceptance_complete |
-| PFG-32 | real Repair preset run | not_started |
+| PFG-32 | real Repair preset run | acceptance_complete |
 | PFG-33 | real Greenfield Capsule replay run | not_started |
 | PFG-34 | optional OpenRouter live smoke gate | not_started |
 | PFG-35 | stage shadow evidence for patch/test/failure/repair | not_started |
@@ -1387,6 +1386,38 @@ Remaining gaps:
 - PFG-32 real Repair preset run.
 Next package:
 - PFG-32 — real Repair preset run.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-32 — real Repair preset run
+Status: acceptance_complete
+Changed modules/files:
+- tests/test_forge_real_repair.py (new) — gated real-model repair test verified by re-run.
+Behavior implemented:
+- A reproducible failing fixture (def add returns a-b; a check asserts add(2,3)==5) is
+  repaired by the real local model. The fixture really fails before repair; the model's
+  candidate is applied to a throwaway tmp_path fixture and the check is RE-RUN in a
+  subprocess. Repair success is the subprocess verdict, never the model's claim. Skips when
+  no model server is reachable.
+REAL model evidence (actually executed):
+- python -m pytest tests/test_forge_real_repair.py -q -s -> 1 passed in 14.30s.
+- model_id=Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf; passed_before=false,
+  passed_after=true; fixed function = `def add(a, b):\n    return a + b`; check output =
+  REPAIR_OK.
+- evidence artifact: ca_data/model_forge/evidence/pfg32_repair_local.json.
+Unavailable checks:
+- Skips truthfully when :8080 is unreachable.
+Safety invariants verified:
+- repair applied only to a throwaway fixture (no real workspace mutation, no Safe Apply
+  bypass); success decided by re-running the check, not a model claim.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-33 real Greenfield Capsule replay run.
+Next package:
+- PFG-33 — real Greenfield Capsule replay run.
 Blocker:
 - None.
 ```
