@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-12`
-- Current package goal: provider health and Source Mode policy.
-- Next action: add a provider health + Source Mode/privacy policy layer that selects
-  eligible providers per request (local vs external) on top of the registry/catalog.
-- Last completed: `PFG-11` (OpenRouter model catalog cache) — acceptance_complete;
-  see PFG-11 evidence below. PFG-1..PFG-10 also complete.
+- Current package: `PFG-13`
+- Current package goal: benchmark preset schema and initial presets.
+- Next action: add the benchmark preset registry with the initial task-family presets
+  (Quick / Web App / Game / UI / DB / Repair / Greenfield).
+- Last completed: `PFG-12` (provider health and Source Mode policy) —
+  acceptance_complete; see PFG-12 evidence below. PFG-1..PFG-11 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -67,7 +67,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-9 | OpenRouter configuration and secret policy | acceptance_complete |
 | PFG-10 | OpenRouter mock chat client | acceptance_complete |
 | PFG-11 | OpenRouter model catalog cache | acceptance_complete |
-| PFG-12 | provider health and Source Mode policy | not_started |
+| PFG-12 | provider health and Source Mode policy | acceptance_complete |
 | PFG-13 | benchmark preset schema and initial presets | not_started |
 | PFG-14 | Arena runner foundation | not_started |
 | PFG-15 | Candidate Evaluator foundation | not_started |
@@ -660,6 +660,39 @@ Remaining gaps:
 - PFG-11 OpenRouter model catalog cache (mock + offline fallback).
 Next package:
 - PFG-11 — OpenRouter model catalog cache.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-12 — provider health and Source Mode policy
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/provider_policy.py (new), __init__ re-exports
+- tests/test_model_forge_provider_policy.py (new)
+Behavior implemented:
+- source_class_allowed: Local Only -> local/self_hosted only; Frontier Only ->
+  external only; local_preferred/hybrid/frontier_preferred -> both.
+- privacy_allowed_for_provider: local/self_hosted always allowed (data stays local);
+  external providers must declare the requested privacy mode in privacy_capabilities.
+- resolve_provider_policy / provider_availability_matrix / select_eligible_provider_ids:
+  combine registry health + source mode + privacy into a ProviderPolicyDecision
+  (selectable + reasons + recorded source/privacy modes + decided_at) — API-ready for
+  the UI and serializable as run evidence.
+Focused tests:
+- python -m pytest tests/test_model_forge_provider_policy.py -> 6 passed
+  (source-class rules; Local Only makes external unselectable; unsupported privacy
+   blocks external; local privacy always allowed; disabled -> health reason;
+   availability matrix is API-ready and records the decision).
+Safety invariants verified:
+- External provider cannot be selected under Local Only or an unsupported privacy
+  mode; source/privacy decisions are recorded as evidence.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-13 benchmark preset schema + initial presets.
+Next package:
+- PFG-13 — benchmark preset schema and initial presets.
 Blocker:
 - None.
 ```
