@@ -7,12 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-18`
-- Current package goal: Route Matrix policy and selector.
-- Next action: implement a route matrix connecting change class/task category to route
-  candidates, keep critical_gate for unsafe tasks, and record route decisions.
-- Last completed: `PFG-17` (Stage Matrix policy and selector) — acceptance_complete;
-  see PFG-17 evidence below. PFG-1..PFG-16 also complete.
+- Current package: `PFG-19`
+- Current package goal: Forge backend API.
+- Next action: expose read-only Forge status/providers/models/profiles/leaderboard/presets
+  plus arena/stage-policy/route-policy/loadout endpoints; never return secrets; show
+  disabled/unavailable states.
+- Last completed: `PFG-18` (Route Matrix policy and selector) — acceptance_complete;
+  see PFG-18 evidence below. PFG-1..PFG-17 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -73,7 +74,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-15 | Candidate Evaluator foundation | acceptance_complete |
 | PFG-16 | Model Profile Store and profile updater | acceptance_complete |
 | PFG-17 | Stage Matrix policy and selector | acceptance_complete |
-| PFG-18 | Route Matrix policy and selector | not_started |
+| PFG-18 | Route Matrix policy and selector | acceptance_complete |
 | PFG-19 | Forge backend API | not_started |
 | PFG-20 | Forge top-level nav and shell UI | not_started |
 | PFG-21 | Forge Overview and Provider cards | not_started |
@@ -867,6 +868,40 @@ Remaining gaps:
 - PFG-18 Route Matrix policy and selector.
 Next package:
 - PFG-18 — Route Matrix policy and selector.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-18 — Route Matrix policy and selector
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/route_matrix.py (new), __init__ re-exports
+- tests/test_model_forge_route_matrix.py (new)
+Behavior implemented:
+- ChangeClass taxonomy (trivial/micro/small/medium/large/critical/greenfield) mapped to
+  ordered candidate routes; repair-style task categories pull in repair routes.
+- RouteSelector records every decision (selected_route, candidates, reasons, overridden,
+  critical_gate_required, decided_at). Large/critical changes strip unsafe micro routes
+  (deterministic/micro_patch/direct_patch) from the candidate set and override any
+  requested unsafe micro route; critical changes always route through critical_gate.
+Focused tests:
+- python -m pytest tests/test_model_forge_route_matrix.py -> 7 passed
+  (micro change uses micro route; large change cannot be forced through a micro route;
+   critical forces critical_gate with and without a request; default route recorded;
+   repair task pulls repair routes; greenfield uses skeleton route).
+- python -m pytest tests/test_model_forge_*.py -> 95 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-18 is a route policy/selection package, no model execution.
+Safety invariants verified:
+- large/critical tasks cannot be forced through unsafe micro routes; critical_gate kept
+  for critical changes; route decisions are evidence-recorded.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-19 Forge backend API.
+Next package:
+- PFG-19 — Forge backend API.
 Blocker:
 - None.
 ```
