@@ -23,13 +23,16 @@
   const TABS = [
     { id: 'overview', label: 'Overview' },
     { id: 'skills', label: 'Skills' },
+    { id: 'benchmark', label: 'Benchmark' },
   ];
 
   const state = {
     activated: false,
     loading: false,
     tab: 'overview',
-    data: { status: {}, providers: [], loadouts: [], profiles: [], leaderboard: [] },
+    data: { status: {}, providers: [], loadouts: [], profiles: [], leaderboard: [], presets: [] },
+    // Benchmark selector state. Depth defaults to 'standard' — full/deep is never forced.
+    bench: { presets: [], depth: 'standard', provider: '', model: '', result: null },
   };
 
   function setStatus(text, kind) {
@@ -180,7 +183,119 @@
     );
   }
 
-  const VIEWS = { overview: overviewHtml, skills: skillsHtml };
+  // ----- Benchmark selector (PFG-23) -----
+
+  const DEPTHS = ['quick', 'standard', 'deep'];
+  // Presets surfaced as primary checkboxes; others remain selectable from the full list.
+  const PRIMARY_PRESETS = ['quick', 'web_app', 'repair', 'greenfield'];
+
+  function selectedProvider(data) {
+    return (data.providers || []).find((p) => p.provider_id === state.bench.provider) || null;
+  }
+
+  function benchmarkHtml(data) {
+    const presets = data.presets || [];
+    const sel = state.bench;
+    const primaries = presets.filter((p) => PRIMARY_PRESETS.indexOf(p.preset_id) >= 0);
+    const others = presets.filter((p) => PRIMARY_PRESETS.indexOf(p.preset_id) < 0);
+    const checkbox = (p) => (
+      '<label class="forge-check"><input type="checkbox" data-bench-preset="' + escapeHtml(p.preset_id) + '"'
+      + (sel.presets.indexOf(p.preset_id) >= 0 ? ' checked' : '') + '>'
+      + '<span>' + escapeHtml(p.display_name || p.preset_id) + '</span></label>'
+    );
+    const depthBtns = DEPTHS.map((d) => (
+      '<button type="button" class="forge-seg' + (sel.depth === d ? ' active' : '')
+      + '" data-bench-depth="' + d + '">' + escapeHtml(d) + '</button>'
+    )).join('');
+    const provOpts = ['<option value="">Select provider…</option>'].concat(
+      (data.providers || []).map((p) => (
+        '<option value="' + escapeHtml(p.provider_id) + '"' + (sel.provider === p.provider_id ? ' selected' : '')
+        + '>' + escapeHtml(providerLabel(p.provider_id)) + ' (' + escapeHtml(p.health) + ')</option>'
+      ))
+    ).join('');
+    const prov = selectedProvider(data);
+    const externalWarning = prov && prov.source_class === 'external_cloud'
+      ? '<div class="forge-warn">External provider selected. Source/privacy policy applies; '
+        + 'this is blocked under Local Only and may send context to a cloud model.</div>'
+      : '';
+    const canRun = sel.presets.length > 0 && sel.provider && sel.model;
+    const result = sel.result
+      ? '<div class="forge-bench-result">' + escapeHtml(sel.result) + '</div>'
+      : '';
+    return (
+      '<div class="forge-card">'
+      + '<div class="forge-card-title">Benchmark presets</div>'
+      + '<div class="forge-check-grid">' + (primaries.map(checkbox).join('') || '<div class="forge-empty">No presets.</div>') + '</div>'
+      + (others.length ? '<details class="forge-more"><summary>More presets</summary><div class="forge-check-grid">'
+          + others.map(checkbox).join('') + '</div></details>' : '')
+      + '</div>'
+      + '<div class="forge-card">'
+      + '<div class="forge-card-title">Depth</div>'
+      + '<div class="forge-seg-row">' + depthBtns + '</div>'
+      + '<div class="forge-hint">Default is standard; full/deep is opt-in.</div>'
+      + '</div>'
+      + '<div class="forge-card">'
+      + '<div class="forge-card-title">Model</div>'
+      + '<select class="forge-select" data-bench-provider>' + provOpts + '</select>'
+      + '<input class="forge-input" data-bench-model placeholder="model id" value="' + escapeHtml(sel.model) + '">'
+      + externalWarning
+      + '<button type="button" class="forge-run-btn" data-bench-run' + (canRun ? '' : ' disabled') + '>Run benchmark</button>'
+      + result
+      + '</div>'
+    );
+  }
+
+  function wireBenchmark(content, data) {
+    content.querySelectorAll('[data-bench-preset]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const id = cb.getAttribute('data-bench-preset');
+        const i = state.bench.presets.indexOf(id);
+        if (cb.checked && i < 0) state.bench.presets.push(id);
+        else if (!cb.checked && i >= 0) state.bench.presets.splice(i, 1);
+        renderActive();
+      });
+    });
+    content.querySelectorAll('[data-bench-depth]').forEach((btn) => {
+      btn.addEventListener('click', () => { state.bench.depth = btn.getAttribute('data-bench-depth'); renderActive(); });
+    });
+    content.querySelector('[data-bench-provider]')?.addEventListener('change', (e) => {
+      state.bench.provider = e.target.value; renderActive();
+    });
+    content.querySelector('[data-bench-model]')?.addEventListener('input', (e) => {
+      state.bench.model = e.target.value;
+      const btn = content.querySelector('[data-bench-run]');
+      if (btn) btn.disabled = !(state.bench.presets.length && state.bench.provider && state.bench.model);
+    });
+    content.querySelector('[data-bench-run]')?.addEventListener('click', () => runBenchmark(data));
+  }
+
+  async function runBenchmark(data) {
+    const sel = state.bench;
+    const preset = (data.presets || []).find((p) => p.preset_id === sel.presets[0]);
+    const route = (preset && preset.recommended_routes && preset.recommended_routes[0]) || 'direct_patch';
+    const stage = 'patch_generation';
+    setStatus('Running benchmark…');
+    try {
+      const record = await api('/arena/run', {
+        method: 'POST',
+        body: JSON.stringify({
+          stage,
+          specs: [{ provider_id: sel.provider, model_id: sel.model, route_id: route }],
+          preset_id: sel.presets[0],
+        }),
+      });
+      const cand = (record.candidates || [])[0] || {};
+      sel.result = 'Arena run ' + record.arena_run_id + ' — candidate ' + (cand.adoption_state || 'not_applied')
+        + ' (Safe Apply required before any adoption).';
+      setStatus('Benchmark recorded (no model adopted)', 'ok');
+    } catch (err) {
+      sel.result = 'Run failed: ' + (err && err.message ? err.message : 'error');
+      setStatus('Benchmark run failed', 'error');
+    }
+    renderActive();
+  }
+
+  const VIEWS = { overview: overviewHtml, skills: skillsHtml, benchmark: benchmarkHtml };
 
   // ----- model detail drawer (Skills) -----
 
@@ -246,6 +361,8 @@
       content.querySelectorAll('[data-model]').forEach((row) => {
         row.addEventListener('click', () => openModelDrawer(row.getAttribute('data-model')));
       });
+    } else if (state.tab === 'benchmark') {
+      wireBenchmark(content, state.data);
     }
   }
 
@@ -265,6 +382,7 @@
       try { data.loadouts = (await api('/loadouts')).loadouts || []; } catch (_e) {}
       try { data.profiles = (await api('/profiles')).profiles || []; } catch (_e) {}
       try { data.leaderboard = (await api('/leaderboard')).leaderboard || []; } catch (_e) {}
+      try { data.presets = (await api('/presets')).presets || []; } catch (_e) {}
       state.data = data;
       renderShell();
       setStatus(status.forge_enabled ? 'Forge enabled' : 'Forge off — legacy model execution primary', 'ok');
@@ -297,5 +415,7 @@
     _renderOverview: renderOverview,
     _overviewHtml: overviewHtml,
     _skillsHtml: skillsHtml,
+    _benchmarkHtml: benchmarkHtml,
+    _state: state,
   };
 })();
