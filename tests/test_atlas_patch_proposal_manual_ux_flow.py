@@ -61,10 +61,16 @@ def test_manual_patch_proposal_does_not_auto_approve_or_create_draft(tmp_path):
     m=c.get(f"/api/atlas/plan-pools/{pool['pool_id']}").json()['plan_pool']['items'][0]['metadata']
     assert 'patch_proposal_approval' not in m and 'patch_proposal_planitem_draft' not in m
 
-def test_patch_proposal_blocked_without_debug_review(tmp_path):
+def test_plan_item_without_debug_review_routes_to_plan_item_not_debug_block(tmp_path):
+    # PR #1604: a plan item with no debug_review metadata is NOT blocked on the debug-review
+    # gate; it is routed down the plan_item path. With no LLM configured it then fails HONESTLY
+    # (no content) rather than being blocked for a missing debug review.
     c=_client(tmp_path);pool=_create_pool(c);item=pool['plan_pool']['items'][0]
     body=c.post('/api/atlas/patch-proposals/generate',json={'pool_id':pool['pool_id'],'item_id':item['item_id'],'run_id':'m5'}).json()
-    assert body['status']=='blocked' and 'debug_review_not_analyzed' in body['warnings']
+    assert body['status']=='failed'
+    assert 'debug_review_not_analyzed' not in (body.get('warnings') or [])
+    assert (body.get('metadata') or {}).get('patch_content_available') is False
+    assert ((body.get('metadata') or {}).get('patch_generation') or {}).get('state')=='failed'
 
 def test_patch_proposal_blocked_without_proposed_fix(tmp_path):
     c=_client(tmp_path);pool=_create_pool(c);item=pool['plan_pool']['items'][0];_set_debug(c,pool['pool_id'],item['item_id'],fix='', root='')
