@@ -7,13 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-24`
-- Current package goal: Arena UI.
-- Next action: add an Arena run sheet with candidate rows (score/test/risk/latency/cost/
-  privacy), winner indication, and an adoption control that clearly says Safe Apply is
-  required (no direct apply button).
-- Last completed: `PFG-23` (Benchmark Preset selector UI) — acceptance_complete; see
-  PFG-23 evidence below. PFG-1..PFG-22 also complete.
+- Current package: `PFG-25`
+- Current package goal: Stage Matrix and Route Matrix UI.
+- Next action: add collapsible Advanced controls — stage rows (mode/model/reason) and
+  route rows (change class/route/default model hints) with unsafe-change warnings, hidden
+  by default.
+- Last completed: `PFG-24` (Arena UI) — acceptance_complete; see PFG-24 evidence below.
+  PFG-1..PFG-23 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -80,7 +80,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-21 | Forge Overview and Provider cards | acceptance_complete |
 | PFG-22 | Skill Radar and Leaderboard UI | acceptance_complete |
 | PFG-23 | Benchmark Preset selector UI | acceptance_complete |
-| PFG-24 | Arena UI | not_started |
+| PFG-24 | Arena UI | acceptance_complete |
 | PFG-25 | Stage Matrix and Route Matrix UI | not_started |
 | PFG-26 | Loadouts UI and persistence | not_started |
 | PFG-27 | Portal Run Forge Trace metadata | not_started |
@@ -1101,6 +1101,41 @@ Remaining gaps:
 - PFG-24 Arena UI.
 Next package:
 - PFG-24 — Arena UI.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-24 — Arena UI
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/forge_service.py — get_arena_run now enriches each candidate with its
+  persisted result metadata (contract_valid, latency_ms, errors, usage).
+- web/js/forge.js — Arena tab: candidate rows (model/route/contract/latency/risk/cost),
+  mechanical winner indication, and an Adoption card that requires Safe Apply.
+- web/css/app.css — candidate row + adoption card styles.
+- tests/test_forge_arena_ui.py (new).
+Behavior implemented:
+- The Arena tab shows the candidates from the last run side by side with contract pass/
+  fail and latency; the winner is the contract-valid candidate with the lowest latency
+  (no winner if none are valid). The Adoption card states adoption goes through Proposal →
+  Safe Apply → Verification and the only button is disabled — there is NO direct apply.
+Focused tests:
+- python -m pytest tests/test_forge_arena_ui.py -> 3 passed (backend enriches candidates +
+  candidate stays not_applied; empty state; candidates+winner render and adoption is
+  Safe-Apply-only with no enabled apply button).
+- python -m pytest tests/test_forge_*.py tests/test_model_forge_*.py -> 121 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-24 is UI + a read-only metadata enrichment.
+Safety invariants verified:
+- no direct apply button; adoption requires Safe Apply; candidates stay not_applied;
+  winner is mechanical, not a model claim.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-25 Stage Matrix and Route Matrix UI.
+Next package:
+- PFG-25 — Stage Matrix and Route Matrix UI.
 Blocker:
 - None.
 ```

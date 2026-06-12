@@ -168,10 +168,26 @@ class ForgeService:
         return record.model_dump(mode="json")
 
     def get_arena_run(self, arena_run_id: str) -> dict | None:
-        path = self._root / "arena_runs" / arena_run_id / "arena.json"
+        run_dir = self._root / "arena_runs" / arena_run_id
+        path = run_dir / "arena.json"
         if not path.exists():
             return None
-        return json.loads(path.read_text(encoding="utf-8"))
+        record = json.loads(path.read_text(encoding="utf-8"))
+        # Enrich each candidate with its persisted execution-result metadata (latency,
+        # contract validity, errors) so the Arena UI shows real per-candidate data. No
+        # secrets are involved; results contain only metadata + output references.
+        for cand in record.get("candidates", []):
+            ref = cand.get("execution_result_ref", "")
+            result_path = run_dir / ref if ref else None
+            if result_path and result_path.exists():
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+                cand["result"] = {
+                    "contract_valid": result.get("contract_valid", False),
+                    "latency_ms": result.get("latency_ms", 0),
+                    "errors": result.get("errors", []),
+                    "usage": result.get("usage", {}),
+                }
+        return record
 
     # ----- stage policy -----
 
