@@ -202,7 +202,7 @@ class LocalOpenAICompatibleProvider(ForgeProvider):
             last_probe_error=f"http_{status}",
         )
 
-    def execute_chat_completion(self, request: ForgeExecutionRequest) -> ForgeExecutionResult:
+    def run_and_capture(self, request: ForgeExecutionRequest) -> "tuple[ForgeExecutionResult, str]":
         start = time.monotonic()
         system_prompt, user_prompt = self._prompt_resolver(request)
         payload: dict = {
@@ -220,20 +220,20 @@ class LocalOpenAICompatibleProvider(ForgeProvider):
         try:
             status, body = self._http_post(endpoint, payload, self._timeout)
         except TimeoutError:
-            return self._error_result(request, start, "timeout")
+            return self._error_result(request, start, "timeout"), ""
         except ConnectionError:
-            return self._error_result(request, start, "connection_error")
+            return self._error_result(request, start, "connection_error"), ""
         except Exception as exc:  # noqa: BLE001 — classify, never crash the caller.
-            return self._error_result(request, start, f"transport_error:{type(exc).__name__}")
+            return self._error_result(request, start, f"transport_error:{type(exc).__name__}"), ""
         latency_ms = int((time.monotonic() - start) * 1000)
         if status != 200:
-            return self._error_result(request, start, f"http_{status}", latency_ms)
+            return self._error_result(request, start, f"http_{status}", latency_ms), ""
         try:
             data = json.loads(body)
             text = str(data["choices"][0]["message"]["content"] or "")
             usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         except Exception:  # noqa: BLE001
-            return self._error_result(request, start, "malformed_response", latency_ms)
+            return self._error_result(request, start, "malformed_response", latency_ms), ""
         contract_valid = bool(text.strip())
         response_model = str(data.get("model") or "") if isinstance(data, dict) else ""
         return ForgeExecutionResult(
@@ -249,7 +249,11 @@ class LocalOpenAICompatibleProvider(ForgeProvider):
                 output_tokens=int(usage.get("completion_tokens") or 0),
             ),
             errors=[] if contract_valid else ["empty_output"],
-        )
+        ), text
+
+    def execute_chat_completion(self, request: ForgeExecutionRequest) -> ForgeExecutionResult:
+        result, _text = self.run_and_capture(request)
+        return result
 
     def _error_result(self, request: ForgeExecutionRequest, start: float, error: str, latency_ms: int | None = None) -> ForgeExecutionResult:
         return ForgeExecutionResult(

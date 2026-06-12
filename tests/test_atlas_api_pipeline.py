@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -537,6 +538,24 @@ def test_create_plan_pool_uses_registered_atlas_llm_json_fn(tmp_path) -> None:
     body = response.json()
     assert body["used_fallback"] is False
     assert body["plan_pool"]["metadata"]["source"] == "real_planner"
+
+
+def test_create_plan_pool_records_forge_bridge_decision_at_llm_boundary(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("FORGE_ENABLED", raising=False)
+    client = _client(tmp_path)
+    main.app.state.atlas_llm_json_fn = lambda _s, _u: {"plan": {"implementation_steps": [{"title": "x"}]}, "status": "planned"}
+
+    response = client.post("/api/atlas/plan-pools?sync=1", json={"input": "goal", "planner_mode": "real_planner"})
+
+    assert response.status_code == 200
+    event_files = list((tmp_path / "model_forge" / "execution_bridge").glob("planning.*.json"))
+    assert event_files
+    event = json.loads(event_files[-1].read_text(encoding="utf-8"))
+    assert event["stage"] == "planning"
+    assert event["task_category"] == "plan_pool_create"
+    assert event["decision"] == "forge_disabled_legacy_primary"
+    assert event["legacy_primary"] is True
+    assert event["changes_production_routing"] is False
 
 
 def test_create_plan_pool_falls_back_when_llm_json_fn_returns_none(tmp_path) -> None:
