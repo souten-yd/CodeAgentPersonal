@@ -48,6 +48,15 @@ from agent.model_forge.route_matrix import (
     UNSAFE_MICRO_ROUTES,
     default_routes_for_class,
 )
+from agent.model_forge.retirement import (
+    LEGACY_MODEL_MARKERS,
+    RETIREMENT_CHECKLIST,
+    LegacyModelConsumerRegistry,
+    RetirementGateResult,
+    build_model_consumer_registry,
+    evaluate_model_retirement_gate,
+    scan_legacy_model_consumers,
+)
 from agent.model_forge.shadow import (
     SHADOW_STAGES,
     ShadowSide,
@@ -252,4 +261,11 @@ __all__ = [
     "ShadowStageComparison",
     "ShadowStore",
     "compare_stage",
+    "LEGACY_MODEL_MARKERS",
+    "RETIREMENT_CHECKLIST",
+    "LegacyModelConsumerRegistry",
+    "RetirementGateResult",
+    "scan_legacy_model_consumers",
+    "build_model_consumer_registry",
+    "evaluate_model_retirement_gate",
 ]
