@@ -1,10 +1,9 @@
-"""Forge execution bridge for the Atlas LLM JSON boundary (PFH-4).
+"""Forge execution bridge for the Atlas LLM JSON boundary (PFH-4/PFH-5).
 
 The bridge wraps the existing ``atlas_llm_json_fn`` callable. Legacy Atlas remains
-authoritative: the returned value always comes from the legacy callable in this
-package. When Forge is enabled and the stage policy is shadow-select, the bridge
-also runs the selected Forge provider and records advisory shadow evidence without
-persisting prompts, secrets, or changing production routing.
+authoritative unless an acknowledged cutover record is active for the selected stage.
+Shadow mode records advisory evidence without changing production routing; cutover
+mode returns Forge output only when it is valid, with legacy fallback kept available.
 """
 from __future__ import annotations
 
@@ -14,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Callable
 from uuid import uuid4
 
-from agent.atlas_llm_json_adapter import call_llm_json
+from agent.atlas_llm_json_adapter import AtlasLLMJsonAdapter, call_llm_json
 from agent.atlas_llm_json_adapter_schema import AtlasLLMJsonRequest, AtlasLLMJsonResult
 from agent.model_forge.provider_policy import select_eligible_provider_ids
 from agent.model_forge.providers.legacy_atlas import LEGACY_ATLAS_PROVIDER_ID
@@ -70,13 +69,16 @@ class ForgeModelExecutionBridge:
             backend="legacy_callable",
             error="" if data is not None else "legacy_empty_or_unparseable",
         )
-        self._observe(
+        metadata = self._observe(
             system_prompt,
             user_prompt,
             request=AtlasLLMJsonRequest(system_prompt=system_prompt, user_prompt=user_prompt),
             legacy_result=result,
             legacy_latency_ms=int((time.monotonic() - start) * 1000),
         )
+        if "_routed_data" in metadata:
+            routed = metadata.get("_routed_data")
+            return routed if isinstance(routed, dict) else None
         return data
 
     def generate_json(self, request: AtlasLLMJsonRequest) -> AtlasLLMJsonResult:
@@ -91,7 +93,20 @@ class ForgeModelExecutionBridge:
         )
         if metadata:
             merged = dict(legacy_result.metadata or {})
-            merged["forge_execution_bridge"] = metadata
+            public_metadata = self._public_event(metadata)
+            merged["forge_execution_bridge"] = public_metadata
+            if "_routed_data" in metadata:
+                routed = metadata.get("_routed_data")
+                return AtlasLLMJsonResult(
+                    ok=isinstance(routed, dict),
+                    data=routed if isinstance(routed, dict) else {},
+                    raw_text="",
+                    model=str(metadata.get("routed_model_id") or ""),
+                    backend="forge_execution_bridge",
+                    structured=bool(request.json_schema or request.grammar),
+                    metadata=merged,
+                    error="" if isinstance(routed, dict) else "forge_routed_output_invalid",
+                )
             return legacy_result.model_copy(update={"metadata": merged})
         return legacy_result
 
@@ -187,6 +202,49 @@ class ForgeModelExecutionBridge:
                 candidates=candidates,
             )
             event["selection"] = selection.model_dump(mode="json")
+            cutover_record = self._cutover_record(service, stage)
+            if cutover_record:
+                event["cutover"] = cutover_record
+            if selection.changes_production_routing:
+                if not self._cutover_active(cutover_record):
+                    event["decision"] = "active_policy_without_cutover_record_legacy_primary"
+                    event["reasons"] = list(selection.reasons) + ["cutover_record_not_active", "legacy_primary"]
+                    return self._record_event(service, event)
+                if not selection.selected_provider_id:
+                    event["decision"] = "forge_primary_unavailable_legacy_fallback"
+                    event["reasons"] = list(selection.reasons) + ["no_forge_candidate", "legacy_fallback"]
+                    event["fallback"] = {"used": True, "reason": "no_forge_candidate"}
+                    return self._record_event(service, event)
+                forge_result, forge_output = self._run_forge_shadow(
+                    service,
+                    provider_id=selection.selected_provider_id,
+                    request=request_obj,
+                )
+                routed = self._parse_json_output(forge_output)
+                event["forge_primary"] = {
+                    "provider_id": forge_result.provider_id,
+                    "model_id": forge_result.model_id,
+                    "contract_valid": forge_result.contract_valid,
+                    "errors": list(forge_result.errors),
+                }
+                if forge_result.contract_valid and routed is not None:
+                    event["legacy_primary"] = False
+                    event["changes_production_routing"] = True
+                    event["decision"] = "forge_primary_returned"
+                    event["reasons"] = list(selection.reasons) + ["cutover_active", "legacy_fallback_available"]
+                    event["fallback"] = {"used": False}
+                    event["routed_provider_id"] = forge_result.provider_id
+                    event["routed_model_id"] = forge_result.model_id
+                    event["_routed_data"] = routed
+                    return self._record_event(service, event)
+                event["decision"] = "forge_primary_failed_legacy_fallback"
+                event["reasons"] = list(selection.reasons) + ["forge_primary_failed", "legacy_fallback"]
+                event["fallback"] = {
+                    "used": True,
+                    "reason": "forge_output_invalid_or_failed",
+                    "forge_errors": list(forge_result.errors),
+                }
+                return self._record_event(service, event)
             if selection.mode != StageMode.SHADOW_SELECT:
                 event["decision"] = (
                     "production_routing_deferred_to_pfh5"
@@ -292,6 +350,23 @@ class ForgeModelExecutionBridge:
             return provider.run_and_capture(request)  # type: ignore[attr-defined]
         return service.registry.execute(provider_id, request), ""
 
+    def _parse_json_output(self, output: str) -> dict | None:
+        return AtlasLLMJsonAdapter().parse_json_response(output)
+
+    def _cutover_record(self, service: object, stage: ForgeStage) -> dict:
+        controller = getattr(service, "cutover_controller", None)
+        if controller is None or not hasattr(controller, "load"):
+            return {}
+        record = controller.load(stage)
+        if record is None:
+            return {}
+        if hasattr(record, "model_dump"):
+            return record.model_dump(mode="json")  # type: ignore[call-arg]
+        return dict(record) if isinstance(record, dict) else {}
+
+    def _cutover_active(self, record: dict) -> bool:
+        return bool(record and record.get("status") == "active" and record.get("forge_primary") is True)
+
     def _legacy_forge_result(
         self,
         request: ForgeExecutionRequest,
@@ -316,8 +391,11 @@ class ForgeModelExecutionBridge:
     def _record_event(self, service: object, event: dict) -> dict:
         if hasattr(service, "record_execution_bridge_event"):
             event = dict(event)
-            event["evidence_ref"] = service.record_execution_bridge_event(event)  # type: ignore[attr-defined]
+            event["evidence_ref"] = service.record_execution_bridge_event(self._public_event(event))  # type: ignore[attr-defined]
         return event
+
+    def _public_event(self, event: dict) -> dict:
+        return {key: value for key, value in event.items() if not str(key).startswith("_")}
 
 
 __all__ = ["ForgeModelExecutionBridge"]
