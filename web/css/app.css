@@ -1765,6 +1765,21 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .forge-drawer-sub{color:var(--text3);font-size:11.5px;margin:2px 0 10px}
 .forge-drawer-body{display:flex;flex-direction:column;gap:2px}
 @media(min-width:769px){.forge-drawer{align-items:center}.forge-drawer-inner{border-radius:14px}}
+/* Benchmark selector (PFG-23) */
+.forge-check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px}
+.forge-check{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);cursor:pointer}
+.forge-more{margin-top:8px}
+.forge-more>summary{font-size:11.5px;color:var(--text3);cursor:pointer}
+.forge-seg-row{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.forge-seg{background:var(--bg1);border:none;color:var(--text2);font-size:12px;padding:6px 14px;cursor:pointer;text-transform:capitalize}
+.forge-seg+.forge-seg{border-left:1px solid var(--border)}
+.forge-seg.active{background:var(--accent-bg,rgba(120,180,255,.12));color:var(--accent)}
+.forge-hint{margin-top:6px;font-size:11px;color:var(--text3)}
+.forge-select,.forge-input{width:100%;margin-top:8px;background:var(--bg1);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;padding:7px 10px;box-sizing:border-box}
+.forge-warn{margin-top:8px;font-size:11.5px;color:var(--amber,#d6a23e);background:rgba(214,162,62,.1);border:1px solid rgba(214,162,62,.3);border-radius:8px;padding:7px 10px;line-height:1.4}
+.forge-run-btn{margin-top:10px;width:100%;background:var(--accent);border:none;border-radius:8px;color:#05140a;font-size:13px;font-weight:700;padding:9px 12px;cursor:pointer}
+.forge-run-btn:disabled{opacity:.45;cursor:not-allowed}
+.forge-bench-result{margin-top:10px;font-size:12px;color:var(--text2);background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:8px 10px;line-height:1.4}
 .portal-browse-overlay{position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px}
 .portal-browse-modal{display:flex;flex-direction:column;width:min(640px,94vw);max-height:80vh;background:var(--bg1);border:1px solid var(--border);border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.5);overflow:hidden}
 .portal-browse-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;color:var(--text)}

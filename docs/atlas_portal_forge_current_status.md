@@ -7,12 +7,13 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-23`
-- Current package goal: Benchmark Preset selector UI.
-- Next action: add preset checkboxes (Quick/Web App/Repair/Greenfield), a depth control,
-  model/provider selection from the registry, and a policy warning for external providers.
-- Last completed: `PFG-22` (Skill Radar and Leaderboard UI) — acceptance_complete; see
-  PFG-22 evidence below. PFG-1..PFG-21 also complete.
+- Current package: `PFG-24`
+- Current package goal: Arena UI.
+- Next action: add an Arena run sheet with candidate rows (score/test/risk/latency/cost/
+  privacy), winner indication, and an adoption control that clearly says Safe Apply is
+  required (no direct apply button).
+- Last completed: `PFG-23` (Benchmark Preset selector UI) — acceptance_complete; see
+  PFG-23 evidence below. PFG-1..PFG-22 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -78,7 +79,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-20 | Forge top-level nav and shell UI | acceptance_complete |
 | PFG-21 | Forge Overview and Provider cards | acceptance_complete |
 | PFG-22 | Skill Radar and Leaderboard UI | acceptance_complete |
-| PFG-23 | Benchmark Preset selector UI | not_started |
+| PFG-23 | Benchmark Preset selector UI | acceptance_complete |
 | PFG-24 | Arena UI | not_started |
 | PFG-25 | Stage Matrix and Route Matrix UI | not_started |
 | PFG-26 | Loadouts UI and persistence | not_started |
@@ -1061,6 +1062,45 @@ Remaining gaps:
 - PFG-23 Benchmark Preset selector UI.
 Next package:
 - PFG-23 — Benchmark Preset selector UI.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-23 — Benchmark Preset selector UI
+Status: acceptance_complete
+Changed modules/files:
+- web/js/forge.js — Benchmark tab: primary preset checkboxes (Quick/Web App/Repair/
+  Greenfield) + "More presets" disclosure, depth segmented control (quick/standard/deep),
+  provider select + model input, external-provider policy warning, Run button that posts
+  /arena/run (which never auto-applies).
+- web/css/app.css — benchmark form/segment/warning/run-button styles.
+- tests/test_forge_benchmark_render.py (new).
+Behavior implemented:
+- The Benchmark tab lets the user pick presets, depth (default standard — full/deep is
+  opt-in, never forced), and a provider+model. Selecting an external provider shows a
+  source/privacy policy warning. Run is disabled until preset+provider+model are chosen;
+  when run it goes through /arena/run, so a candidate is recorded as not_applied and
+  adoption still requires Safe Apply.
+Syntax / render checks:
+- node --check web/js/forge.js -> OK.
+Focused tests:
+- python -m pytest tests/test_forge_benchmark_render.py -> 4 passed (primary presets as
+  checkboxes + More disclosure; depth defaults to standard not deep; external provider
+  policy warning; Run disabled until preset+provider+model chosen).
+- python -m pytest tests/test_forge_*render.py tests/test_forge_ui_shell.py
+  tests/test_forge_api.py -> 23 passed.
+Real model / Portal / OpenRouter evidence:
+- None claimed; PFG-23 is selector UI; any run goes through the non-applying Arena path.
+Safety invariants verified:
+- full/deep not forced; external provider warned + blocked under Local Only by backend;
+  benchmark run never adopts a candidate (Safe Apply required).
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary.
+Remaining gaps:
+- PFG-24 Arena UI.
+Next package:
+- PFG-24 — Arena UI.
 Blocker:
 - None.
 ```
