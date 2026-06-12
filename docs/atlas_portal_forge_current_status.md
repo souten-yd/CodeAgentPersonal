@@ -7,12 +7,12 @@
 
 - Overall: **ACTIVE — IMPLEMENTATION READY**
 - Active track: `PFG-0..PFG-38`
-- Current package: `PFG-9`
-- Current package goal: OpenRouter configuration and secret policy.
-- Next action: add OpenRouter provider configuration + secret policy (env-only key,
-  never persisted/logged, disabled by default, blocked in Local Only). No live calls.
-- Last completed: `PFG-8` (local OpenAI-compatible provider adapter) —
-  acceptance_complete; see PFG-8 evidence below. PFG-1..PFG-7 also complete.
+- Current package: `PFG-10`
+- Current package goal: OpenRouter mock chat client.
+- Next action: implement an OpenRouter chat client driven by a mock transport
+  (no live calls); live smoke gated behind FORGE_OPENROUTER_LIVE_SMOKE + key.
+- Last completed: `PFG-9` (OpenRouter configuration and secret policy) —
+  acceptance_complete; see PFG-9 evidence below. PFG-1..PFG-8 also complete.
 - Portal baseline: PR-PPC-0 through PR-PPC-12 are complete; Portal UI reconciliation has wired Portal navigation/catalog/run/data decisions into the production shell.
 - Project Intelligence baseline: PIR remains active separately. Do not delete or override PIR instructions.
 - Rollout: Forge off by default; legacy model execution remains primary until shadow/cutover gates pass.
@@ -64,7 +64,7 @@ This file selects the active Portal + Model Forge package. Do not use this statu
 | PFG-6 | provider base and registry | acceptance_complete |
 | PFG-7 | Legacy Atlas Executor adapter | acceptance_complete |
 | PFG-8 | local OpenAI-compatible provider adapter | acceptance_complete |
-| PFG-9 | OpenRouter configuration and secret policy | not_started |
+| PFG-9 | OpenRouter configuration and secret policy | acceptance_complete |
 | PFG-10 | OpenRouter mock chat client | not_started |
 | PFG-11 | OpenRouter model catalog cache | not_started |
 | PFG-12 | provider health and Source Mode policy | not_started |
@@ -510,6 +510,45 @@ Remaining gaps:
 - PFG-8 local OpenAI-compatible provider adapter.
 Next package:
 - PFG-8 — local OpenAI-compatible provider adapter.
+Blocker:
+- None.
+```
+
+```text
+Work package: PFG-9 — OpenRouter configuration and secret policy
+Status: acceptance_complete
+Changed modules/files:
+- agent/model_forge/providers/openrouter_config.py (new)
+- agent/model_forge/providers/__init__.py, agent/model_forge/__init__.py (re-exports)
+- tests/test_model_forge_openrouter_config.py (new)
+Public contracts added or changed:
+- OpenRouterConfig + gating/header helpers in the isolated model_forge package; not
+  wired into production. No live HTTP (client is PFG-10/11).
+Behavior implemented:
+- OpenRouterConfig holds only non-secret settings and the NAME of the key env var
+  (api_key_env), never the key value, so it is safe to persist/log. The key is read
+  from os.environ at use time. openrouter_descriptor() is external_cloud + disabled.
+- check_openrouter_allowed gates BEFORE request construction: Local Only ->
+  local_only_blocks_external; disabled -> openrouter_disabled; missing key ->
+  missing_openrouter_api_key; otherwise allowed. build_openrouter_headers adds
+  Authorization/HTTP-Referer/X-Title from env; redact_openrouter_headers masks the
+  Authorization header. live_smoke_enabled requires FORGE_OPENROUTER_LIVE_SMOKE=1 AND
+  a key.
+Focused tests:
+- python -m pytest tests/test_model_forge_openrouter_config.py -> 7 passed
+  (disabled+external by default; key read only from env and never in model_dump_json;
+   Local Only blocks before request; disabled/missing-key gated; allowed when
+   enabled+keyed+external; headers carry key but redaction masks it; live smoke needs
+   opt-in + key).
+Safety invariants verified:
+- API key never persisted (config stores env name only); logs redact secrets;
+  disabled by default; Local Only blocks OpenRouter before any request.
+Migration/rollout state:
+- Forge off by default; legacy model execution remains primary; no external call.
+Remaining gaps:
+- PFG-10 OpenRouter mock chat client (no live calls).
+Next package:
+- PFG-10 — OpenRouter mock chat client.
 Blocker:
 - None.
 ```

@@ -26,6 +26,18 @@ from agent.model_forge.providers.local_openai_compatible import (
     LocalOpenAICompatibleProvider,
     local_openai_compatible_descriptor,
 )
+from agent.model_forge.providers.openrouter_config import (
+    OPENROUTER_PROVIDER_ID,
+    OpenRouterConfig,
+    OpenRouterGate,
+    build_openrouter_headers,
+    check_openrouter_allowed,
+    live_smoke_enabled,
+    openrouter_api_key,
+    openrouter_credentials_available,
+    openrouter_descriptor,
+    redact_openrouter_headers,
+)
 from agent.model_forge.route_taxonomy import ForgeRoute, all_routes, is_valid_route
 from agent.model_forge.schema import (
     FORGE_SCHEMA_VERSION,
@@ -108,4 +120,14 @@ __all__ = [
     "LocalOpenAICompatibleProvider",
     "local_openai_compatible_descriptor",
     "LOCAL_OPENAI_PROVIDER_ID",
+    "OPENROUTER_PROVIDER_ID",
+    "OpenRouterConfig",
+    "OpenRouterGate",
+    "openrouter_descriptor",
+    "openrouter_api_key",
+    "openrouter_credentials_available",
+    "check_openrouter_allowed",
+    "live_smoke_enabled",
+    "build_openrouter_headers",
+    "redact_openrouter_headers",
 ]
