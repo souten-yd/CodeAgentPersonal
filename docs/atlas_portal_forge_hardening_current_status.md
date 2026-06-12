@@ -5,10 +5,10 @@
 
 ## Program state
 
-- Overall: **ACTIVE — POST-PFG PRODUCTION HARDENING**
+- Overall: **PFH HARDENING ACCEPTANCE COMPLETE**
 - Active track: `PFH-1..PFH-8`
-- Current package: `PFH-8`
-- Current package goal: guarded Candidate-to-Proposal handoff.
+- Current package: none — `PFH-1..PFH-8` are acceptance complete.
+- Current package goal: completed guarded Candidate-to-Proposal handoff.
 - Rollout: Forge remains off/default unless bridge-level shadow/cutover evidence proves otherwise.
 - Legacy model execution remains available as fallback until consumer-zero, benchmark, shadow, rollback, and migration gates pass.
 - OpenRouter live evidence remains unavailable unless explicitly configured.
@@ -36,7 +36,7 @@
 | PFH-5 | Real cutover and rollback | acceptance_complete |
 | PFH-6 | Real evidence through Forge provider/preset runner | acceptance_complete |
 | PFH-7 | Actual Portal runtime replay for Capsule evidence | acceptance_complete |
-| PFH-8 | Guarded Candidate-to-Proposal handoff | in_progress |
+| PFH-8 | Guarded Candidate-to-Proposal handoff | acceptance_complete |
 
 ## Known review findings to address
 
@@ -46,9 +46,9 @@
 3. OpenRouterCatalog exists but is not fully product-connected to ForgeService/API/UI model selection. [PFH-2 addressed]
 4. Benchmark UI primary preset IDs can diverge from real backend preset IDs. [PFH-1 addressed]
 5. Benchmark run can submit only the first selected preset. [PFH-1 addressed]
-6. Some real evidence tests use direct urllib model calls rather than Forge provider/preset runner path.
+6. Some real evidence tests use direct urllib model calls rather than Forge provider/preset runner path. [PFH-6 addressed]
 7. Local provider health can be misleading if base_url exists but server is unreachable. [PFH-3 addressed]
-8. Capsule replay evidence should be actual Portal/Play runtime evidence where applicable, not caller assertion only.
+8. Capsule replay evidence should be actual Portal/Play runtime evidence where applicable, not caller assertion only. [PFH-7 addressed]
 ```
 
 ## Evidence requirements
@@ -554,14 +554,76 @@ Remaining gaps:
 Next package: PFH-8 — Guarded Candidate-to-Proposal handoff.
 Blocker: none.
 
-## Current package: PFH-8 checklist
+## Completed package: PFH-8 Guarded Candidate-to-Proposal handoff
 
-- Locate candidate/adoption state and Proposal draft creation surfaces.
-- Add guarded handoff that creates a Proposal draft only for eligible candidates.
-- Block ineligible candidates with evaluator reasons.
-- Ensure no Safe Apply or source mutation happens during handoff.
-- Include candidate/evaluator/risk/privacy metadata in the Proposal draft.
-- Update tests and final hardening status.
+Completed package: PFH-8
+Status: acceptance_complete
+Changed modules/files:
+- `agent/model_forge/schema.py`
+- `agent/model_forge/__init__.py`
+- `agent/model_forge/forge_service.py`
+- `app/api/forge.py`
+- `web/js/forge.js`
+- `web/css/app.css`
+- `tests/test_forge_candidate_proposal_handoff.py`
+- `docs/atlas_portal_forge_hardening_current_status.md`
+
+Behavior implemented:
+- Added a Forge candidate Proposal draft contract that records candidate ID, Arena run ID, provider/model/route/preset, evaluator score, blocked reasons, risk level, source mode, privacy mode, required Safe Apply steps, and required Verification steps.
+- Added `POST /api/forge/arena/candidates/{candidate_id}/proposal-draft`.
+- Eligible Arena candidates create only a Proposal draft sidecar under `ca_data/model_forge/proposal_drafts/...`; no source file, Safe Apply, or Verification path runs during handoff.
+- Ineligible candidates are mechanically re-evaluated, blocked with evaluator reasons, and marked `rejected` without creating a Proposal draft.
+- Arena run retrieval now enriches candidates with evaluator score, blocked reasons, risk/privacy metadata, eligibility state, and proposal-draft status.
+- Forge Arena UI labels the action `Create Proposal draft`, disables it for blocked candidates, shows blocked reasons, and keeps the action explicitly approval/Safe-Apply-required with no direct apply button.
+
+Focused tests:
+- `python -m pytest tests/test_forge_candidate_proposal_handoff.py -q` -> 3 passed.
+- `python -m pytest tests/test_forge_api.py tests/test_forge_benchmark_render.py tests/test_forge_candidate_proposal_handoff.py -q` -> 25 passed.
+
+Syntax checks:
+- `python -m py_compile agent/model_forge/schema.py agent/model_forge/forge_service.py app/api/forge.py tests/test_forge_candidate_proposal_handoff.py` -> passed.
+- `python -m compileall -q agent/model_forge app/api/forge.py tests/test_forge_candidate_proposal_handoff.py` -> passed.
+- `node --check web/js/forge.js` -> passed.
+- `node --check web/js/portal.js` -> passed.
+- `git diff --check` -> passed with CRLF normalization warnings only.
+
+Affected tests:
+- Expanded invocation: `$files = Get-ChildItem tests -Filter 'test_model_forge_*.py' | ForEach-Object { $_.FullName }; python -m pytest @files -q` -> 100 passed.
+- Expanded invocation: `$files = Get-ChildItem tests -Filter 'test_forge_*.py' | ForEach-Object { $_.FullName }; python -m pytest @files -q` -> 82 passed, 1 skipped.
+- Expanded invocation: `$files = Get-ChildItem tests -Filter 'test_portal_*.py' | ForEach-Object { $_.FullName }; python -m pytest @files -q` -> 45 passed.
+
+Real model evidence:
+- PFH-8 handoff itself does not require a new model call; it consumes persisted Arena candidate output and mechanical evaluator state.
+- Real local evidence suite through Forge provider/runner remained green: `python -m pytest tests/test_forge_real_local_quick.py tests/test_forge_real_webapp_portal.py tests/test_forge_real_repair.py tests/test_forge_real_greenfield_replay.py -q -s` -> 4 passed using `Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf` on `http://localhost:8080`.
+- Required user LLM code-review verification ran through `http://127.0.0.1:8080/v1/chat/completions` -> PASS, no blocking issues. This is advisory code review evidence.
+
+Portal runtime evidence:
+- PFH-8 does not add a new Portal runtime path.
+- Existing Forge real Web App evidence remained green through Portal/Play static preview with `runtime_verdict=passed`.
+
+Capsule replay evidence:
+- PFH-8 does not add a new Capsule replay path.
+- Existing real Greenfield evidence remained green through Play runtime Capsule replay with `runtime_status=passed` and immutable replay evidence.
+
+OpenRouter evidence:
+- OpenRouter live smoke was not run because `FORGE_OPENROUTER_LIVE_SMOKE` and `OPENROUTER_API_KEY` were unset; no live evidence claimed.
+
+Unavailable checks:
+- OpenRouter live evidence remains unavailable unless `FORGE_OPENROUTER_LIVE_SMOKE=1` and `OPENROUTER_API_KEY` are configured.
+- Candidate handoff blocks mechanically rejected candidates; rejected/unavailable evaluator evidence is not treated as passed.
+
+Safety invariants:
+- Proposal draft handoff writes only Forge sidecar artifacts and Arena metadata.
+- No source mutation, Safe Apply, Verification, production routing, or legacy-path deletion occurs during handoff.
+- Proposal approval, Safe Apply, Verification, Portal runtime, and Capsule replay authority boundaries remain separate.
+- Local Only and external-provider policy behavior unchanged.
+- No secrets are persisted, logged, or returned.
+
+Remaining gaps:
+- None for PFH-1..PFH-8. Future work may add a richer Atlas Proposal/PlanItem conversion workflow from the draft artifact, still behind approval and Safe Apply.
+
+Next package: none — PFH-1..PFH-8 are acceptance complete.
+Blocker: none.
 
 ## Stop conditions
 

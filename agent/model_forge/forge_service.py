@@ -18,11 +18,18 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping
 
 from agent.model_forge.arena_runner import ArenaCandidateSpec, ArenaRunner
 from agent.model_forge.benchmark_presets import get_preset, preset_listing
+from agent.model_forge.candidate_evaluator import (
+    CandidateEvaluation,
+    CandidateEvaluationInput,
+    CandidateEvaluator,
+    VERDICT_ELIGIBLE,
+)
 from agent.model_forge.loadouts import LoadoutStore
 from agent.model_forge.portal_evidence import PortalRunEvidence, ingest_portal_evidence
 from agent.model_forge.profile_store import ProfileStore
@@ -41,7 +48,12 @@ from agent.model_forge.providers.openrouter_config import (
 )
 from agent.model_forge.cutover import CutoverController
 from agent.model_forge.route_matrix import ChangeClass, RouteMatrix, RouteSelector
-from agent.model_forge.schema import ForgeExecutionRequest
+from agent.model_forge.schema import (
+    AdoptionState,
+    CandidateProposalDraft,
+    ForgeExecutionRequest,
+    ForgeExecutionResult,
+)
 from agent.model_forge.shadow import ShadowStore
 from agent.model_forge.source_policy import SourceMode
 from agent.model_forge.stage_matrix import StageMatrix
@@ -406,7 +418,227 @@ class ForgeService:
                     "errors": result.get("errors", []),
                     "usage": result.get("usage", {}),
                 }
+            evaluation = self._evaluate_arena_candidate(record, cand, run_dir)
+            cand["evaluation"] = evaluation.model_dump(mode="json")
+            cand["evaluator_score"] = evaluation.score.model_dump(mode="json")
+            cand["blocked_reasons"] = list(evaluation.score.blocked_reasons)
+            cand["eligible_for_proposal"] = evaluation.score.verdict == VERDICT_ELIGIBLE
+            cand["risk_level"] = self._candidate_risk_level(cand)
+            cand["proposal_draft"] = self._candidate_proposal_draft_summary(
+                str(cand.get("arena_run_id") or arena_run_id), str(cand.get("candidate_id") or "")
+            )
         return record
+
+    def create_candidate_proposal_draft(self, candidate_id: str) -> dict:
+        found = self._find_arena_candidate(candidate_id)
+        if found is None:
+            raise ValueError(f"unknown_candidate:{candidate_id}")
+        arena_run_id, run_dir, record, cand = found
+        evaluation = self._evaluate_arena_candidate(record, cand, run_dir)
+        self._persist_candidate_evaluation(run_dir, cand, evaluation)
+        if evaluation.score.verdict != VERDICT_ELIGIBLE:
+            cand["adoption_state"] = AdoptionState.REJECTED.value
+            self._save_arena_record(run_dir, record)
+            return {
+                "status": "blocked",
+                "candidate_id": candidate_id,
+                "arena_run_id": arena_run_id,
+                "blocked_reasons": list(evaluation.score.blocked_reasons),
+                "evaluator_score": evaluation.score.model_dump(mode="json"),
+                "proposal_draft": None,
+            }
+
+        existing = self._load_candidate_proposal_draft(arena_run_id, candidate_id)
+        if existing is not None:
+            cand["adoption_state"] = AdoptionState.PROPOSAL_CREATED.value
+            self._save_arena_record(run_dir, record)
+            return {
+                "status": "created",
+                "candidate_id": candidate_id,
+                "arena_run_id": arena_run_id,
+                "proposal_draft": existing,
+                "idempotent": True,
+            }
+
+        draft = self._build_candidate_proposal_draft(record, cand, evaluation)
+        draft_path = self._proposal_draft_path(arena_run_id, candidate_id)
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = draft.model_copy(update={"artifact_ref": str(draft_path)}).model_dump(mode="json")
+        draft_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._write_candidate_proposal_draft_markdown(record, cand, payload)
+        cand["adoption_state"] = AdoptionState.PROPOSAL_CREATED.value
+        cand["score_ref"] = f"{candidate_id}.score.json"
+        self._save_arena_record(run_dir, record)
+        return {
+            "status": "created",
+            "candidate_id": candidate_id,
+            "arena_run_id": arena_run_id,
+            "proposal_draft": payload,
+            "idempotent": False,
+        }
+
+    def _find_arena_candidate(self, candidate_id: str) -> tuple[str, Path, dict, dict] | None:
+        arena_root = self._root / "arena_runs"
+        if not arena_root.exists():
+            return None
+        for path in sorted(arena_root.glob("*/arena.json")):
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                continue
+            for cand in record.get("candidates", []):
+                if str(cand.get("candidate_id") or "") == candidate_id:
+                    return str(record.get("arena_run_id") or path.parent.name), path.parent, record, cand
+        return None
+
+    @staticmethod
+    def _save_arena_record(run_dir: Path, record: dict) -> None:
+        (run_dir / "arena.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _evaluate_arena_candidate(self, record: dict, cand: dict, run_dir: Path) -> CandidateEvaluation:
+        result = self._candidate_execution_result(cand, run_dir)
+        raw = self._candidate_raw_output(cand, run_dir)
+        privacy_mode = str(record.get("privacy_mode") or "")
+        privacy_penalty = 0.0 if privacy_mode == "no_external_code" else None
+        return CandidateEvaluator().evaluate(CandidateEvaluationInput(
+            candidate_id=str(cand.get("candidate_id") or ""),
+            execution_result=result,
+            output_contract="text",
+            raw_output=raw,
+            privacy_penalty=privacy_penalty,
+        ))
+
+    @staticmethod
+    def _candidate_execution_result(cand: dict, run_dir: Path) -> ForgeExecutionResult:
+        ref = str(cand.get("execution_result_ref") or "")
+        path = run_dir / ref if ref else None
+        if path and path.exists():
+            return ForgeExecutionResult.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        return ForgeExecutionResult(
+            request_id=str(cand.get("candidate_id") or "unknown"),
+            provider_id=str(cand.get("provider_id") or "unknown"),
+            model_id=str(cand.get("model_id") or "unknown"),
+            route_id=cand.get("route_id") or "direct_patch",
+            stage="patch_generation",
+            contract_valid=False,
+            errors=["execution_result_missing"],
+        )
+
+    @staticmethod
+    def _candidate_raw_output(cand: dict, run_dir: Path) -> str:
+        raw_path = run_dir / f"{cand.get('candidate_id')}.raw.txt"
+        if raw_path.exists():
+            return raw_path.read_text(encoding="utf-8", errors="replace")
+        return ""
+
+    @staticmethod
+    def _persist_candidate_evaluation(run_dir: Path, cand: dict, evaluation: CandidateEvaluation) -> None:
+        candidate_id = str(cand.get("candidate_id") or "")
+        if not candidate_id:
+            return
+        ref = f"{candidate_id}.score.json"
+        (run_dir / ref).write_text(
+            json.dumps(evaluation.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        cand["score_ref"] = ref
+
+    def _build_candidate_proposal_draft(
+        self, record: dict, cand: dict, evaluation: CandidateEvaluation
+    ) -> CandidateProposalDraft:
+        preset_id = str(cand.get("preset_id") or record.get("preset_id") or "")
+        risk_level = self._candidate_risk_level(cand)
+        required_evaluators = list((get_preset(preset_id).required_evaluators if get_preset(preset_id) else []) or [])
+        return CandidateProposalDraft(
+            draft_id=f"proposal_draft_{cand.get('candidate_id')}",
+            candidate_id=str(cand.get("candidate_id") or ""),
+            arena_run_id=str(record.get("arena_run_id") or cand.get("arena_run_id") or ""),
+            provider_id=str(cand.get("provider_id") or ""),
+            model_id=str(cand.get("model_id") or ""),
+            route_id=cand.get("route_id") or "direct_patch",
+            preset_id=preset_id,
+            task_id=str(cand.get("task_id") or record.get("task_id") or ""),
+            stage=record.get("stage") or "patch_generation",
+            source_mode=record.get("source_mode") or self.source_mode().value,
+            privacy_mode=record.get("privacy_mode") or "no_external_code",
+            risk_level=risk_level,
+            evaluator_score=evaluation.score,
+            blocked_reasons=list(evaluation.score.blocked_reasons),
+            required_safe_apply_steps=[
+                "Review and approve this Proposal draft before adoption.",
+                "Create an Atlas PlanItem from the approved Proposal.",
+                "Run changes only through Atlas Safe Apply.",
+            ],
+            required_verification_steps=required_evaluators + [
+                "Run focused and affected Atlas Verification after Safe Apply.",
+            ],
+            metadata={
+                "source": "forge_candidate_proposal_handoff",
+                "approval_required": True,
+                "safe_apply_run": False,
+                "verification_run": False,
+                "source_mutation": False,
+                "execution_result_ref": str(cand.get("execution_result_ref") or ""),
+                "raw_output_ref": f"{cand.get('candidate_id')}.raw.txt",
+                "candidate_adoption_state_before": str(cand.get("adoption_state") or ""),
+            },
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def _candidate_risk_level(self, cand: dict) -> str:
+        preset = get_preset(str(cand.get("preset_id") or ""))
+        return preset.risk_level if preset else "medium"
+
+    def _proposal_draft_path(self, arena_run_id: str, candidate_id: str) -> Path:
+        safe_arena = arena_run_id.replace("/", "_").replace("\\", "_")
+        safe_candidate = candidate_id.replace("/", "_").replace("\\", "_")
+        return self._root / "proposal_drafts" / safe_arena / f"{safe_candidate}.json"
+
+    def _proposal_draft_markdown_path(self, arena_run_id: str, candidate_id: str) -> Path:
+        safe_arena = arena_run_id.replace("/", "_").replace("\\", "_")
+        safe_candidate = candidate_id.replace("/", "_").replace("\\", "_")
+        return self._root / "proposal_drafts" / safe_arena / f"{safe_candidate}.md"
+
+    def _load_candidate_proposal_draft(self, arena_run_id: str, candidate_id: str) -> dict | None:
+        path = self._proposal_draft_path(arena_run_id, candidate_id)
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _candidate_proposal_draft_summary(self, arena_run_id: str, candidate_id: str) -> dict:
+        draft = self._load_candidate_proposal_draft(arena_run_id, candidate_id)
+        if not draft:
+            return {"status": "not_created"}
+        return {
+            "status": str(draft.get("status") or "proposal_draft"),
+            "draft_id": str(draft.get("draft_id") or ""),
+            "artifact_ref": str(draft.get("artifact_ref") or ""),
+        }
+
+    def _write_candidate_proposal_draft_markdown(self, record: dict, cand: dict, draft: dict) -> None:
+        path = self._proposal_draft_markdown_path(
+            str(record.get("arena_run_id") or cand.get("arena_run_id") or ""),
+            str(cand.get("candidate_id") or ""),
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        md = (
+            "# Forge Candidate Proposal Draft\n\n"
+            f"- Arena run ID: {draft.get('arena_run_id')}\n"
+            f"- Candidate ID: {draft.get('candidate_id')}\n"
+            f"- Provider/model: {draft.get('provider_id')} / {draft.get('model_id')}\n"
+            f"- Route/preset: {draft.get('route_id')} / {draft.get('preset_id')}\n"
+            f"- Risk level: {draft.get('risk_level')}\n"
+            f"- Source/privacy: {draft.get('source_mode')} / {draft.get('privacy_mode')}\n"
+            f"- Evaluator verdict: {(draft.get('evaluator_score') or {}).get('verdict')}\n"
+            f"- Blocked reasons: {json.dumps(draft.get('blocked_reasons') or [], ensure_ascii=False)}\n"
+            f"- Required Safe Apply steps: {json.dumps(draft.get('required_safe_apply_steps') or [], ensure_ascii=False)}\n"
+            f"- Required Verification steps: {json.dumps(draft.get('required_verification_steps') or [], ensure_ascii=False)}\n\n"
+            "- No source file was modified.\n"
+            "- No Safe Apply was run.\n"
+            "- No Verification was run.\n"
+            "- Atlas Proposal approval is still required before adoption.\n"
+        )
+        path.write_text(md, encoding="utf-8")
 
     # ----- stage policy -----
 

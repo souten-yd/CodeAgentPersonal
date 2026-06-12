@@ -163,3 +163,27 @@ class CandidateScore(ForgeModel):
     final_score: float = 0.0
     verdict: str = ""
     blocked_reasons: list[str] = Field(default_factory=list)
+
+
+class CandidateProposalDraft(ForgeModel):
+    schema_version: str = FORGE_SCHEMA_VERSION
+    draft_id: str = Field(min_length=1)
+    status: str = "proposal_draft"
+    candidate_id: str = Field(min_length=1)
+    arena_run_id: str = Field(min_length=1)
+    provider_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    route_id: ForgeRoute
+    preset_id: str = ""
+    task_id: str = ""
+    stage: ForgeStage
+    source_mode: SourceMode
+    privacy_mode: PrivacyMode
+    risk_level: str = "medium"
+    evaluator_score: CandidateScore
+    blocked_reasons: list[str] = Field(default_factory=list)
+    required_safe_apply_steps: list[str] = Field(default_factory=list)
+    required_verification_steps: list[str] = Field(default_factory=list)
+    artifact_ref: str = ""
+    metadata: dict = Field(default_factory=dict)
+    created_at: str = ""

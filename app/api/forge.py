@@ -145,6 +145,14 @@ def get_arena_run(request: Request, arena_run_id: str) -> dict:
     return record
 
 
+@router.post("/arena/candidates/{candidate_id}/proposal-draft")
+def post_candidate_proposal_draft(request: Request, candidate_id: str) -> dict:
+    try:
+        return _service(request).create_candidate_proposal_draft(candidate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/stage-policy")
 def get_stage_policy(request: Request) -> dict:
     return {"stage_policy": _service(request).get_stage_policy()}

@@ -357,10 +357,23 @@
 
   function candidateRow(c, isWinner) {
     const r = c.result || {};
+    const score = c.evaluator_score || {};
+    const blocked = c.blocked_reasons || [];
+    const draft = c.proposal_draft || {};
+    const created = draft.status && draft.status !== 'not_created';
+    const eligible = c.eligible_for_proposal === true && !created;
+    const btnLabel = created ? 'Proposal draft created' : 'Create Proposal draft';
+    const btnTitle = created
+      ? 'Proposal draft already exists'
+      : (eligible ? 'Creates an approval-required Proposal draft'
+        : ('Blocked: ' + (blocked.join('; ') || 'candidate is not eligible')));
     const contract = r.contract_valid
       ? '<span class="forge-badge forge-badge-ready">contract ok</span>'
       : '<span class="forge-badge forge-badge-error">contract fail</span>';
     const latency = r.latency_ms ? (r.latency_ms + ' ms') : '—';
+    const reasonHtml = blocked.length
+      ? '<div class="forge-cand-blocked">Blocked: ' + escapeHtml(blocked.join('; ')) + '</div>'
+      : '<div class="forge-cand-blocked forge-cand-ok">Proposal handoff eligible; approval required.</div>';
     return (
       '<div class="forge-cand-row' + (isWinner ? ' is-winner' : '') + '">'
       + '<div class="forge-cand-main">'
@@ -371,9 +384,16 @@
       + '<div class="forge-cand-metrics">'
       + contract
       + '<span class="forge-cand-metric">lat ' + escapeHtml(latency) + '</span>'
-      + '<span class="forge-cand-metric">risk —</span>'
-      + '<span class="forge-cand-metric">cost —</span>'
+      + '<span class="forge-cand-metric">score ' + escapeHtml(String(score.final_score ?? '—')) + '</span>'
+      + '<span class="forge-cand-metric">risk ' + escapeHtml(c.risk_level || 'medium') + '</span>'
       + '<span class="forge-cand-adopt">' + escapeHtml(adoptionLabel(c.adoption_state)) + '</span>'
+      + '</div>'
+      + reasonHtml
+      + '<div class="forge-cand-actions">'
+      + '<button type="button" class="forge-adopt-btn" data-candidate-proposal="'
+      + escapeHtml(c.candidate_id) + '"' + (eligible ? '' : ' disabled')
+      + ' title="' + escapeHtml(btnTitle) + '">' + escapeHtml(btnLabel) + '</button>'
+      + '<span class="forge-cand-metric">approval required; requires Safe Apply</span>'
       + '</div>'
       + '</div>'
     );
@@ -402,10 +422,28 @@
       + '<div class="forge-adopt-note">Arena candidates are never applied directly. To adopt a '
       + 'candidate it must go through Proposal → Safe Apply → Verification (and Portal when '
       + 'runnable). There is no direct apply here.</div>'
-      + '<button type="button" class="forge-adopt-btn" disabled title="Adoption goes through Safe Apply">'
-      + 'Adopt → requires Safe Apply</button>'
       + '</div>'
     );
+  }
+
+  async function createProposalDraft(candidateId) {
+    if (!candidateId) return;
+    setStatus('Creating Proposal draft...');
+    try {
+      const result = await api('/arena/candidates/' + encodeURIComponent(candidateId) + '/proposal-draft', {
+        method: 'POST',
+        body: '{}',
+      });
+      if (result.status !== 'created') {
+        setStatus('Proposal draft blocked: ' + ((result.blocked_reasons || []).join('; ') || 'not eligible'), 'error');
+      } else {
+        setStatus('Proposal draft created; approval required before Safe Apply', 'ok');
+      }
+      if (result.arena_run_id) state.data.arena = await api('/arena/runs/' + result.arena_run_id);
+    } catch (err) {
+      setStatus('Proposal draft failed: ' + (err && err.message ? err.message : 'error'), 'error');
+    }
+    renderActive();
   }
 
   // ----- Advanced: Stage Matrix and Route Matrix (PFG-25) -----
@@ -679,6 +717,10 @@
       });
     } else if (state.tab === 'benchmark') {
       wireBenchmark(content, state.data);
+    } else if (state.tab === 'arena') {
+      content.querySelectorAll('[data-candidate-proposal]').forEach((btn) => {
+        btn.addEventListener('click', () => createProposalDraft(btn.getAttribute('data-candidate-proposal')));
+      });
     } else if (state.tab === 'advanced') {
       wireAdvanced(content);
     } else if (state.tab === 'loadouts') {
