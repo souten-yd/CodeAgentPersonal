@@ -1437,6 +1437,10 @@ class AtlasPatchProposalService:
                 continue
             path = str(finding.get("path") or "")
             reasons.append(f"{reason}:{path}" if path else reason)
+        # ② Contract-adherence: when a step replaces a shared file's FULL content, it must not DROP a
+        # contract entity that the previous content already wired in (the classic integration
+        # regression: an "add score" step rewrites the file and silently loses the player/enemies).
+        advisories.extend(self._contract_adherence_advisories(input_payload, content_by_path, metadata))
         return {
             "status": "failed" if reasons else "passed",
             "task_kind": patch_task_kind,
@@ -1448,6 +1452,33 @@ class AtlasPatchProposalService:
             "missing_evidence": missing_evidence,
             "quality_findings": quality_findings,
         }
+
+    def _contract_adherence_advisories(self, input_payload: dict, content_by_path: dict[str, str], metadata: dict) -> list[str]:
+        """Advisory: a contract entity present in the prior file content is missing from a FULL-content
+        rewrite (dropped during integration). Edits are skipped (they preserve surroundings), and this
+        is advisory only — recorded so the self-review / next regeneration can restore the entity."""
+        contract = input_payload.get("app_interface_contract")
+        if not isinstance(contract, dict):
+            return []
+        names = [str(e.get("name") or "").strip() for e in (contract.get("entities") or []) if str(e.get("name") or "").strip()]
+        if not names:
+            return []
+        # Only meaningful when THIS step produced full replacement content (not surgical edits).
+        if not str(metadata.get("proposed_content") or "").strip() and not any(
+            str((fc or {}).get("content_mode") or "") == "full_content" for fc in (metadata.get("file_changes") or []) if isinstance(fc, dict)
+        ):
+            return []
+        prior = input_payload.get("current_target_contents") or {}
+        out: list[str] = []
+        for path, new_content in content_by_path.items():
+            old = str((prior.get(path) or {}).get("content") or "")
+            new = str(new_content or "")
+            if not old.strip() or not new.strip():
+                continue  # new file (nothing to drop) or no new content
+            for name in names:
+                if len(name) >= 3 and name in old and name not in new and f"contract_entity_dropped:{name}" not in out:
+                    out.append(f"contract_entity_dropped:{name}")
+        return out
 
     def _sanitize_requirement_claims_and_infer_coverage(self, proposal: AtlasPatchProposal, input_payload: dict) -> dict[str, Any]:
         metadata = proposal.metadata or {}
