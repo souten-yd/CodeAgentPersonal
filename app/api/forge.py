@@ -66,6 +66,7 @@ class LoadoutRequest(BaseModel):
 class ForgeSettingsRequest(BaseModel):
     openrouter: dict = Field(default_factory=dict)
     local_provider: dict = Field(default_factory=dict)
+    runtime_management: dict = Field(default_factory=dict)
 
 
 @router.get("/status")

@@ -100,6 +100,9 @@ def test_settings_tab_exposes_runtime_kind_and_lm_studio_support(tmp_path: Path)
     assert "/v1/v1" not in html
     # The deferred-automation caveat must be stated truthfully in the UI.
     assert "後日対応" in html
+    # The runtime-management (Forge management feature) enable/disable toggle lives here.
+    assert "data-setting-runtime-mgmt-enabled" in html
+    assert "ランタイム管理" in html
 
 
 def test_overview_tab_includes_forge_usage_help(tmp_path: Path) -> None:

@@ -322,6 +322,24 @@
     const freeTextModel = (isAnvil || isLmStudio)
       ? ''
       : '<input class="forge-input" data-bench-model placeholder="provider model id" value="' + escapeHtml(sel.model) + '">';
+    // Runtime management (the "Forge management feature"): when enabled in Settings, expose a Load
+    // action for the selected local model. llama-server gets a real load (POST /model/switch) with
+    // live status monitoring; LM Studio auto-load is deferred and says so rather than faking it.
+    const mgmtEnabled = !!(data.settings && data.settings.runtime_management && data.settings.runtime_management.enabled);
+    let runtimeLoadBlock = '';
+    if (mgmtEnabled && (isAnvil || isLmStudio)) {
+      if (isLmStudio) {
+        runtimeLoadBlock = '<div class="forge-hint">LM Studio のモデル自動ロードは後日対応です。現時点では LM Studio 側で対象モデルを手動ロードしてください。</div>';
+      } else {
+        const rs = data.runtimeStatus || {};
+        const statusLine = rs.status
+          ? '<div class="forge-kv"><span>Load status</span><b>' + escapeHtml(String(rs.status))
+            + (rs.current_key ? ' · ' + escapeHtml(String(rs.current_key)) : '') + '</b></div>'
+          : '';
+        runtimeLoadBlock = '<button type="button" class="forge-seg" data-bench-load'
+          + (sel.model ? '' : ' disabled') + '>選択モデルをロード</button>' + statusLine;
+      }
+    }
     const externalWarning = prov && prov.source_class === 'external_cloud'
       ? '<div class="forge-warn">External provider selected. Source/privacy policy applies; '
         + 'this is blocked under Local Only and may send context to a cloud model.</div>'
@@ -349,6 +367,7 @@
       + freeTextModel
       + ctxField
       + modelNote
+      + runtimeLoadBlock
       + externalWarning
       + '<button type="button" class="forge-run-btn" data-bench-run' + (canRun ? '' : ' disabled') + '>Run benchmark</button>'
       + result
@@ -394,7 +413,53 @@
     content.querySelector('[data-bench-ctx-save]')?.addEventListener('click', (e) => {
       saveAnvilModelCtx(e.target.getAttribute('data-model-id'), state.bench.ctx);
     });
+    content.querySelector('[data-bench-load]')?.addEventListener('click', () => loadSelectedModel());
     content.querySelector('[data-bench-run]')?.addEventListener('click', () => runBenchmark(data));
+  }
+
+  // Ask the local runtime (llama-server) to load the selected registry model, then watch the load
+  // through to ready/error. Only reachable when runtime management is enabled. Reuses the core app's
+  // existing /model/switch (async ensure_model) and /model/status (loading state) endpoints.
+  async function loadSelectedModel() {
+    const sel = state.bench;
+    if (!sel.model) { setStatus('モデルが未選択です', 'error'); return; }
+    setStatus('モデルをロード中…');
+    try {
+      const resp = await fetch('/model/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: sel.model }),
+      });
+      if (!resp.ok) {
+        let detail = String(resp.status);
+        try { detail = (await resp.json()).detail || detail; } catch (_e) {}
+        throw new Error(detail);
+      }
+      setStatus('ロードを開始しました。状態を監視します…', 'ok');
+      pollModelStatus();
+    } catch (err) {
+      setStatus('ロード開始に失敗: ' + (err && err.message ? err.message : 'error'), 'error');
+    }
+  }
+
+  let _modelPollTimer = null;
+  async function pollModelStatus() {
+    if (_modelPollTimer) { clearTimeout(_modelPollTimer); _modelPollTimer = null; }
+    let ticks = 0;
+    const tick = async () => {
+      ticks += 1;
+      try {
+        const r = await fetch('/model/status');
+        const s = r.ok ? await r.json() : {};
+        state.data.runtimeStatus = { status: String(s.status || ''), current_key: String(s.current_key || '') };
+        if (state.tab === 'benchmark') renderActive();
+        const st = String(s.status || '');
+        // Stop on a terminal state or after ~2 minutes so the poll never runs forever.
+        if (st === 'ready' || st === 'error' || st === 'unavailable' || ticks > 60) return;
+      } catch (_e) {}
+      _modelPollTimer = setTimeout(tick, 2000);
+    };
+    tick();
   }
 
   // Persist an edited context length back to the Models DB registry entry (Anvil). The runtime
@@ -733,11 +798,21 @@
     const openrouter = settings.openrouter || {};
     const catalog = data.openrouterCatalog || {};
     const runtimeKind = String(local.runtime_kind || 'llama_cpp');
+    const runtimeMgmt = settings.runtime_management || {};
     const runtimeOpt = (value, label) => (
       '<option value="' + value + '"' + (runtimeKind === value ? ' selected' : '') + '>' + escapeHtml(label) + '</option>'
     );
     return (
+      // Runtime management toggle: this is where the "Forge management feature" is turned on/off.
+      // When on, the benchmark Model card exposes a Load action that drives the local runtime
+      // (llama-server loads the selected model). LM Studio auto-load is deferred (stated below).
       '<div class="forge-card">'
+      + '<div class="forge-card-title">ランタイム管理（モデルロード）</div>'
+      + '<label class="forge-check"><input type="checkbox" data-setting-runtime-mgmt-enabled' + (runtimeMgmt.enabled ? ' checked' : '') + '><span>有効化（選択モデルのロード操作を許可）</span></label>'
+      + '<div class="forge-hint">有効化すると Benchmark の Anvil で選択したモデルを llama-server にロードでき、ロード中/完了を監視します。無効時は既にロード済みのモデルでベンチマークします。LM Studio のモデル自動ロードは後日対応です。</div>'
+      + '<button type="button" class="forge-run-btn" data-settings-save>Save settings</button>'
+      + '</div>'
+      + '<div class="forge-card">'
       + '<div class="forge-card-title">Local Provider</div>'
       // Runtime kind: both llama.cpp and LM Studio expose an OpenAI-compatible /v1 API, so either can
       // be benchmarked from Forge. runtime_kind records which one so later model-load automation can
@@ -799,6 +874,9 @@
         enabled: !!content.querySelector('[data-setting-openrouter-enabled]')?.checked,
         api_key_env: content.querySelector('[data-setting-openrouter-env]')?.value || 'OPENROUTER_API_KEY',
         base_url: content.querySelector('[data-setting-openrouter-base]')?.value || 'https://openrouter.ai/api/v1',
+      },
+      runtime_management: {
+        enabled: !!content.querySelector('[data-setting-runtime-mgmt-enabled]')?.checked,
       },
     };
     try {
