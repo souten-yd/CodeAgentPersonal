@@ -128,7 +128,20 @@
     const activeName = active ? active.display_name : '—';
     const cards = (data.providers || []).map(providerCard).join('');
     return (
-      '<div class="forge-card">'
+      // Onboarding help: Forge is read-mostly and never applies a model by itself. The steps below
+      // make the intended flow explicit so the tabs are not a mystery on first use.
+      '<div class="forge-card forge-help">'
+      + '<div class="forge-card-title">Forge の使い方</div>'
+      + '<div class="forge-hint">Forge はモデルを「比較・評価」するための場です。ここから本番ルーティングを直接書き換えたり、モデルを自動適用したりはしません。</div>'
+      + '<ol class="forge-help-steps">'
+      + '<li><b>Settings</b>: 使うローカルサーバー（llama.cpp / LM Studio）の Runtime と Base URL・Model ID を設定（OpenRouter を使う場合はここで有効化）。</li>'
+      + '<li><b>Benchmark</b>: プリセットと深さ、Provider・Model を選んで実行。結果は記録されますが適用はされません。</li>'
+      + '<li><b>Arena</b>: モデル×ルートの候補を横並びで比較。採用は Proposal → Safe Apply → Verification を経由します（直接適用なし）。</li>'
+      + '<li><b>Skills</b>: 蓄積されたベンチ結果からモデルごとの強み（チャンピオン/スコア）を確認。</li>'
+      + '<li><b>Loadouts</b>: ステージ/プロバイダ方針のプリセット適用。<b>Advanced</b> は本番ルーティング変更（確認あり）。</li>'
+      + '</ol>'
+      + '</div>'
+      + '<div class="forge-card">'
       + '<div class="forge-card-title">Overview</div>'
       + '<div class="forge-kv"><span>Forge</span><b>' + escapeHtml(forgeState) + '</b></div>'
       + '<div class="forge-kv"><span>Active loadout</span><b>' + escapeHtml(activeName) + '</b></div>'
@@ -596,12 +609,30 @@
     const local = settings.local_provider || {};
     const openrouter = settings.openrouter || {};
     const catalog = data.openrouterCatalog || {};
+    const runtimeKind = String(local.runtime_kind || 'llama_cpp');
+    const runtimeOpt = (value, label) => (
+      '<option value="' + value + '"' + (runtimeKind === value ? ' selected' : '') + '>' + escapeHtml(label) + '</option>'
+    );
     return (
       '<div class="forge-card">'
       + '<div class="forge-card-title">Local Provider</div>'
+      // Runtime kind: both llama.cpp and LM Studio expose an OpenAI-compatible /v1 API, so either can
+      // be benchmarked from Forge. runtime_kind records which one so later model-load automation can
+      // pick the right path (and so the Base URL preset matches the usual port).
+      + '<label class="forge-label">Runtime'
+      + '<select class="forge-select" data-setting-local-runtime>'
+      + runtimeOpt('llama_cpp', 'llama.cpp (llama-server :8080)')
+      + runtimeOpt('lm_studio', 'LM Studio (:1234)')
+      + '</select></label>'
       + '<label class="forge-label">Base URL<input class="forge-input" data-setting-local-base value="' + escapeHtml(local.base_url || '') + '"></label>'
+      + '<div class="forge-seg-row">'
+      + '<button type="button" class="forge-seg" data-local-base-preset="http://127.0.0.1:8080/v1">llama.cpp 8080</button>'
+      + '<button type="button" class="forge-seg" data-local-base-preset="http://127.0.0.1:1234/v1">LM Studio 1234</button>'
+      + '</div>'
       + '<label class="forge-label">Model ID<input class="forge-input" data-setting-local-model value="' + escapeHtml(local.model_id || '') + '"></label>'
       + '<label class="forge-label">LLM folder<input class="forge-input" data-setting-local-dir value="' + escapeHtml(local.model_storage_dir || '') + '"></label>'
+      + '<div class="forge-hint">llama.cpp はポート8080で起動中のサーバーをそのまま利用できます。LM Studio は OpenAI 互換サーバー（既定:1234）を有効化すればベンチマークで選択可能です。'
+      + '<br><b>注意:</b> LM Studio の「モデル自動ロード」は現在ロードが動作しないため未対応です（後日対応予定）。それまでは LM Studio 側で対象モデルを手動ロードしてからご利用ください。</div>'
       + '</div>'
       + '<div class="forge-card">'
       + '<div class="forge-card-title">OpenRouter</div>'
@@ -617,6 +648,20 @@
 
   function wireSettings(content) {
     content.querySelector('[data-settings-save]')?.addEventListener('click', () => saveSettings(content));
+    // Base URL quick-fill presets. Selecting a runtime also nudges the matching default port so the
+    // two stay consistent without forcing it (an explicit URL the user typed is never overwritten on save).
+    content.querySelectorAll('[data-local-base-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const input = content.querySelector('[data-setting-local-base]');
+        if (input) input.value = btn.getAttribute('data-local-base-preset') || '';
+      });
+    });
+    content.querySelector('[data-setting-local-runtime]')?.addEventListener('change', (e) => {
+      const input = content.querySelector('[data-setting-local-base]');
+      if (input && !String(input.value || '').trim()) {
+        input.value = e.target.value === 'lm_studio' ? 'http://127.0.0.1:1234/v1' : 'http://127.0.0.1:8080/v1';
+      }
+    });
   }
 
   async function saveSettings(content) {
@@ -625,6 +670,7 @@
         base_url: content.querySelector('[data-setting-local-base]')?.value || '',
         model_id: content.querySelector('[data-setting-local-model]')?.value || '',
         model_storage_dir: content.querySelector('[data-setting-local-dir]')?.value || '',
+        runtime_kind: content.querySelector('[data-setting-local-runtime]')?.value || 'llama_cpp',
       },
       openrouter: {
         enabled: !!content.querySelector('[data-setting-openrouter-enabled]')?.checked,
