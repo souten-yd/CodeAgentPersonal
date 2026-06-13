@@ -104,12 +104,8 @@
 <audio id="tts-audio" playsinline preload="auto" style="display:none"></audio>
 
 <div class="mob-tabs">
-  <!-- Chat/Task モード用タブ -->
+  <!-- Chat/Task モード用タブ (Lumen は会話のみ。Log/Skill/Memory/Models は Nexus/Forge に集約済み) -->
   <button class="mob-tab wide active" id="mob-chat" onclick="mobSwitch('chat')">Lumen</button>
-  <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
-  <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skill</button>
-  <button class="mob-tab wide" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
-  <button class="mob-tab" id="mob-models" onclick="mobSwitch('models')">Models</button>
   <!-- Agent モード用タブ (デフォルト非表示) -->
   <button class="mob-tab wide" id="mob-agent-chat" onclick="mobSwitch('agent_chat')" style="display:none">Agent Chat</button>
   <button class="mob-tab wide" id="mob-agent-tasks" onclick="mobSwitch('agent_tasks')" style="display:none">Agent Tasks</button>
@@ -1260,11 +1256,7 @@
   <div class="panel-resizer" id="panel-resizer" role="separator" aria-label="Panel width resize handle" aria-orientation="vertical"></div>
   <div class="panel-col mob-hidden" id="panel-col">
     <div class="panel-tabs">
-      <!-- Chat/Task モード用タブ -->
-      <button class="tab-btn active" id="tab-btn-log" onclick="switchTab('log')">Log</button>
-      <button class="tab-btn" id="tab-btn-skills" onclick="switchTab('skills')">Skill</button>
-      <button class="tab-btn" id="tab-btn-memory" onclick="switchTab('memory')">Memory</button>
-      <button class="tab-btn" id="tab-btn-models" onclick="switchTab('models')">Models</button>
+      <!-- Chat/Task tabs removed: Lumen is conversation-only; Log/Skill/Memory/Models live in Nexus/Forge. -->
       <!-- Echo モード用タブ (デフォルト非表示) -->
       <button class="tab-btn" id="tab-btn-vault" onclick="switchTab('vault')" style="display:none">Vault</button>
       <button class="tab-btn" id="tab-btn-log-echo" onclick="switchTab('log')" style="display:none">Log</button>
@@ -2508,7 +2500,8 @@ const UI_VALID_MODES = ['chat','atlas','echo','nexus','forge','portal','agent'];
 const UI_PRIMARY_MODES = ['chat','atlas','echo','nexus','forge','portal'];
 const UI_MODE_DEFAULT_SUBTABS = {chat: 'chat', echo: 'echo', atlas: 'start', nexus: 'dashboard', portal: 'catalog', forge: 'models'};
 const UI_MODE_SUBTABS = {
-  chat: ['chat','log','skills','memory','models'],
+  // Lumen は会話のみ。Log/Skill/Memory/Models のサブタブは Nexus/Forge に集約済み。
+  chat: ['chat'],
   echo: ['echo','vault','log','models','asr','tts'],
   atlas: ['start'],
   // Nexus keeps its internal dashboard tabs (managed by switchNexusTab) and additionally hosts the
@@ -6122,8 +6115,8 @@ function formatModelShortName(name) {
 }
 
 // ── MODE ──
-// Chat/Task モード用パネルタブID
-const _CHAT_PANEL_TAB_IDS = ['tab-btn-log','tab-btn-skills','tab-btn-memory','tab-btn-models'];
+// Chat/Task モード用パネルタブID (Lumen は会話のみ。Log/Skill/Memory/Models は Nexus/Forge に集約済みのため空)
+const _CHAT_PANEL_TAB_IDS = [];
 // Echo モード用パネルタブID
 const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-echo','tab-btn-asr','tab-btn-tts'];
 // Forge モード用パネルタブID (Lumen Models + Echo ASR/TTS を Forge に集約)
@@ -6146,12 +6139,9 @@ const _FORGE_MOB_TAB_IDS = ['mob-forge'];
 const _PORTAL_MOB_TAB_IDS = ['mob-portal'];
 
 const MODE_SUBTAB_BUTTON_IDS = {
+  // Lumen は会話のみ。Log/Skill/Memory/Models は Nexus/Forge に集約済み。
   chat: {
     chat: 'mob-chat',
-    log: 'mob-log',
-    skills: 'mob-skills',
-    memory: 'mob-memory',
-    models: 'mob-models',
   },
   echo: {
     echo: 'mob-echo',
@@ -6167,12 +6157,7 @@ const MODE_SUBTAB_BUTTON_IDS = {
   agent: { agent_chat: 'mob-agent-chat', agent_tasks: 'mob-agent-tasks' },
 };
 const MODE_PANEL_TAB_BUTTON_IDS = {
-  chat: {
-    log: 'tab-btn-log',
-    skills: 'tab-btn-skills',
-    memory: 'tab-btn-memory',
-    models: 'tab-btn-models',
-  },
+  // Lumen (chat) has no panel tabs anymore; Log/Skill/Memory/Models live in Nexus/Forge.
   echo: {
     vault: 'tab-btn-vault',
     log: 'tab-btn-log-echo',

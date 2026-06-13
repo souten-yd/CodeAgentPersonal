@@ -2,7 +2,7 @@
 
 The Files *tab* (panel-col File Manager) is deleted from the chat panel. The backend file
 operations (list_files/read_file/edit_file and /projects/.../files) are intentionally KEPT — they
-are used by Agent/project features — so this is a UI-only removal. Log becomes the default panel.
+are used by Agent/project features — so this is a UI-only removal.
 """
 from __future__ import annotations
 
@@ -21,18 +21,15 @@ def test_files_tab_button_and_content_removed():
 
 
 def test_files_dropped_from_tab_registries():
-    assert "const _CHAT_PANEL_TAB_IDS = ['tab-btn-log','tab-btn-skills','tab-btn-memory','tab-btn-models']" in UI_HTML
-    assert "const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-log','mob-skills','mob-memory','mob-models']" in UI_HTML
-    assert "chat: ['chat','log','skills','memory','models']" in UI_HTML
-    # chat panel-button mapping no longer maps files.
-    chat_map = UI_HTML[UI_HTML.index("chat: {", UI_HTML.index("MODE_PANEL_TAB_BUTTON_IDS")):]
-    chat_map = chat_map[: chat_map.index("}")]
-    assert "files:" not in chat_map
-
-
-def test_log_is_default_active_panel():
-    assert '<button class="tab-btn active" id="tab-btn-log"' in UI_HTML
-    assert '<div class="tab-content active" id="tab-log">' in UI_HTML
+    # 'files' must not reappear in any chat tab registry. (The chat registries were later emptied
+    # entirely when Lumen became conversation-only — see test_lumen_orphan_chat_tabs_removed_contract
+    # — so the strongest invariant that survives is simply: no 'files' subtab anywhere.)
+    assert "'files'" not in UI_HTML or "switchTab('files')" not in UI_HTML
+    assert "mob-files" not in UI_HTML
+    # chat no longer has a panel-button mapping at all (no Log/Skill/Memory/Models/Files tabs).
+    panel_map = UI_HTML[UI_HTML.index("const MODE_PANEL_TAB_BUTTON_IDS"):]
+    panel_map = panel_map[: panel_map.index("};")]
+    assert "files:" not in panel_map
 
 
 def test_backend_file_operations_are_retained():
