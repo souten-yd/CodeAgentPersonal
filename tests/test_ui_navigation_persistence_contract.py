@@ -33,9 +33,13 @@ def test_set_mode_persists_last_mode_after_validation():
 
 def test_mode_aware_subtab_mapping_distinguishes_chat_and_echo_duplicates():
     assert "const MODE_SUBTAB_BUTTON_IDS" in UI
-    assert re.search(r"chat:\s*\{[^}]*log:\s*'mob-log'", UI, re.S)
+    # Lumen (chat) is conversation-only now: its subtab map holds only the conversation tab, so the
+    # old chat/echo Log/Models duplication no longer exists on the chat side.
+    chat_subtab_map = re.search(r"chat:\s*\{(?P<body>[^}]*)\}", UI, re.S).group("body")
+    assert "mob-chat" in chat_subtab_map
+    assert "mob-log" not in chat_subtab_map and "mob-models" not in chat_subtab_map
+    # Echo keeps its distinct -echo-suffixed ids.
     assert re.search(r"echo:\s*\{[^}]*log:\s*'mob-log-echo'", UI, re.S)
-    assert re.search(r"chat:\s*\{[^}]*models:\s*'mob-models'", UI, re.S)
     assert re.search(r"echo:\s*\{[^}]*models:\s*'mob-models-echo'", UI, re.S)
     assert "MODE_PANEL_TAB_BUTTON_IDS" in UI
     assert "tab-btn-log-echo" in UI and "tab-btn-models-echo" in UI
@@ -44,7 +48,16 @@ def test_mode_aware_subtab_mapping_distinguishes_chat_and_echo_duplicates():
 def test_subtab_switching_saves_by_current_mode():
     assert "function saveLastSubtab(currentMode, name)" in UI
     assert "readLastSubtabsByMode" in UI
-    assert "saveLastSubtab(mode === 'echo' ? 'echo' : 'chat', name)" in PANELS_JS
+    # switchTab persists the subtab under the active mode. Forge/Nexus consolidate panels, so their
+    # subtabs are remembered under their own mode (not coerced to 'chat'); everything else → 'chat'.
+    assert re.search(
+        r"const persistMode = mode === 'echo' \? 'echo'\s*"
+        r": mode === 'forge' \? 'forge'\s*"
+        r": mode === 'nexus' \? 'nexus'\s*"
+        r": 'chat';\s*"
+        r"saveLastSubtab\(persistMode, name\);",
+        PANELS_JS,
+    )
     assert "restoreLastSubtabForMode(m," in UI
 
 
