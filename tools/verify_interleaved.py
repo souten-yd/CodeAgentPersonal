@@ -117,6 +117,25 @@ def run(output_json: Path) -> dict[str, Any]:
         per_item.append(rec)
         print(f"[interleaved] {iid}: generated={rec.get('generated')} apply={rec.get('apply_status')} reason={rec.get('apply_reason')}", flush=True)
 
+    # Save the final built file + a coherence check (does it contain the contract entities and wire
+    # them in a loop?) — this measures INTEGRATION QUALITY, which apply-rate does not.
+    final_html = (ws / "index.html").read_text(encoding="utf-8") if (ws / "index.html").is_file() else ""
+    out_html = output_json.with_suffix(".index.html")
+    try:
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        out_html.write_text(final_html, encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+    contract = ((revised.get("plan_pool") or {}).get("metadata") or {}).get("app_interface_contract") or {}
+    entity_names = [str(e.get("name") or "") for e in (contract.get("entities") or []) if str(e.get("name") or "")]
+    lc = final_html.lower()
+    present = [n for n in entity_names if n and n.lower() in lc]
+    rep["final_html_len"] = len(final_html)
+    rep["contract_entities"] = entity_names
+    rep["contract_entities_present_in_final"] = present
+    rep["has_game_loop"] = any(k in lc for k in ("requestanimationframe", "setinterval(", "gameloop", "function update", "function draw"))
+    rep["saved_html"] = str(out_html)
+    print(f"[coherence] entities={entity_names} present={present} game_loop={rep['has_game_loop']} html_len={len(final_html)}", flush=True)
     rep["per_item"] = per_item
     generated = [r for r in per_item if r.get("generated")]
     applied = [r for r in generated if str(r.get("apply_status")) in {"applied", "completed"} or r.get("apply_reason") == "safe_apply_drift_recovered"]
