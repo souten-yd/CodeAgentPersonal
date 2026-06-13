@@ -40,8 +40,23 @@
     tab: 'overview',
     data: { status: {}, providers: [], loadouts: [], profiles: [], leaderboard: [], presets: [], settings: {}, openrouterCatalog: null },
     // Benchmark selector state. Depth defaults to 'standard' — full/deep is never forced.
-    bench: { presets: [], depth: 'standard', provider: '', model: '', result: null },
+    // ctx is the context length for the chosen local/LM-Studio model (persisted to the model
+    // registry for Anvil models; used at load time by the runtime manager — see enable/monitor).
+    bench: { presets: [], depth: 'standard', provider: '', model: '', ctx: '', result: null },
   };
+
+  // The benchmark "LLM management tool": Anvil surfaces the local model registry (Models DB);
+  // LM Studio surfaces a running LM Studio server's models. Both run through the local
+  // OpenAI-compatible provider, so they are offered as provider choices alongside the backend ones.
+  const LOCAL_RUNTIME_PROVIDERS = [
+    { provider_id: 'anvil', label: 'Anvil（ローカルモデル管理）' },
+    { provider_id: 'lm_studio', label: 'LM Studio' },
+  ];
+
+  function normalizeCtx(value) {
+    const n = parseInt(value, 10);
+    return Number.isFinite(n) && n > 0 ? n : '';
+  }
 
   function setStatus(text, kind) {
     const el = $('forge-status');
@@ -248,17 +263,65 @@
         '<option value="' + escapeHtml(p.provider_id) + '"' + (sel.provider === p.provider_id ? ' selected' : '')
         + '>' + escapeHtml(providerLabel(p.provider_id)) + ' (' + escapeHtml(p.health) + ')</option>'
       ))
+    ).concat(
+      LOCAL_RUNTIME_PROVIDERS.map((p) => (
+        '<option value="' + escapeHtml(p.provider_id) + '"' + (sel.provider === p.provider_id ? ' selected' : '')
+        + '>' + escapeHtml(p.label) + '</option>'
+      ))
     ).join('');
     const prov = selectedProvider(data);
-    const catalogModels = prov && prov.provider_id === 'openrouter' && data.openrouterCatalog
-      ? (data.openrouterCatalog.models || []) : [];
-    const modelSelect = catalogModels.length
-      ? '<select class="forge-select" data-bench-model-select><option value="">Catalog model...</option>'
-        + catalogModels.map((m) => (
+    const isAnvil = sel.provider === 'anvil';
+    const isLmStudio = sel.provider === 'lm_studio';
+    let modelSelect = '';
+    let modelNote = '';
+    let ctxField = '';
+    if (isAnvil) {
+      // Anvil = the local model registry (Models DB). Each option carries its registered ctx_size;
+      // the CTX editor below persists a change back to the registry so model load uses it later.
+      const models = data.localModels || [];
+      modelSelect = '<select class="forge-select" data-bench-model-select><option value="">登録モデルを選択…</option>'
+        + models.map((m) => {
+          const id = String(m.model_key || m.name || '');
+          const ctx = normalizeCtx(m.ctx_size);
+          return '<option value="' + escapeHtml(id) + '"' + (sel.model === id ? ' selected' : '') + '>'
+            + escapeHtml(m.name || id) + (ctx ? ' · ctx ' + ctx : '') + '</option>';
+        }).join('') + '</select>';
+      const selModel = models.find((m) => String(m.model_key || m.name || '') === sel.model);
+      const selCtx = sel.ctx || (selModel ? normalizeCtx(selModel.ctx_size) : '');
+      ctxField = models.length
+        ? '<label class="forge-label">CTX (context length)'
+          + '<input class="forge-input" type="number" min="512" step="512" data-bench-ctx value="' + escapeHtml(String(selCtx || '')) + '"></label>'
+          + (selModel ? '<button type="button" class="forge-seg" data-bench-ctx-save data-model-id="' + escapeHtml(String(selModel.id || '')) + '">CTX を登録に保存</button>' : '')
+        : '<div class="forge-empty">登録モデルがありません。Models タブでスキャン/追加してください。</div>';
+    } else if (isLmStudio) {
+      const lmCatalog = data.lmStudioCatalog || {};
+      const lm = lmCatalog.models || [];
+      modelSelect = '<select class="forge-select" data-bench-model-select><option value="">LM Studio モデルを選択…</option>'
+        + lm.map((m) => (
           '<option value="' + escapeHtml(m.model_id) + '"' + (sel.model === m.model_id ? ' selected' : '') + '>'
-          + escapeHtml(m.display_name || m.model_id) + '</option>'
-        )).join('') + '</select>'
-      : '';
+          + escapeHtml(m.model_id) + '</option>'
+        )).join('') + '</select>';
+      ctxField = '<label class="forge-label">CTX (context length)'
+        + '<input class="forge-input" type="number" min="512" step="512" data-bench-ctx value="' + escapeHtml(String(sel.ctx || '')) + '"></label>';
+      const st = String(lmCatalog.status || '');
+      if (st && st !== 'ready') {
+        modelNote = '<div class="forge-hint">LM Studio に接続できません（' + escapeHtml(st) + '）。Settings の Base URL（既定 :1234）と起動状態を確認してください。モデルの自動ロードは後日対応です。</div>';
+      }
+    } else if (prov && prov.provider_id === 'openrouter' && data.openrouterCatalog) {
+      const catalogModels = data.openrouterCatalog.models || [];
+      modelSelect = catalogModels.length
+        ? '<select class="forge-select" data-bench-model-select><option value="">Catalog model...</option>'
+          + catalogModels.map((m) => (
+            '<option value="' + escapeHtml(m.model_id) + '"' + (sel.model === m.model_id ? ' selected' : '') + '>'
+            + escapeHtml(m.display_name || m.model_id) + '</option>'
+          )).join('') + '</select>'
+        : '';
+    }
+    // Free-text model id stays for backend providers that have no dropdown; the managed-runtime
+    // dropdowns (Anvil / LM Studio) are authoritative, so the free input is hidden for them.
+    const freeTextModel = (isAnvil || isLmStudio)
+      ? ''
+      : '<input class="forge-input" data-bench-model placeholder="provider model id" value="' + escapeHtml(sel.model) + '">';
     const externalWarning = prov && prov.source_class === 'external_cloud'
       ? '<div class="forge-warn">External provider selected. Source/privacy policy applies; '
         + 'this is blocked under Local Only and may send context to a cloud model.</div>'
@@ -283,7 +346,9 @@
       + '<div class="forge-card-title">Model</div>'
       + '<select class="forge-select" data-bench-provider>' + provOpts + '</select>'
       + modelSelect
-      + '<input class="forge-input" data-bench-model placeholder="provider model id" value="' + escapeHtml(sel.model) + '">'
+      + freeTextModel
+      + ctxField
+      + modelNote
       + externalWarning
       + '<button type="button" class="forge-run-btn" data-bench-run' + (canRun ? '' : ' disabled') + '>Run benchmark</button>'
       + result
@@ -305,17 +370,71 @@
       btn.addEventListener('click', () => { state.bench.depth = btn.getAttribute('data-bench-depth'); renderActive(); });
     });
     content.querySelector('[data-bench-provider]')?.addEventListener('change', (e) => {
-      state.bench.provider = e.target.value; renderActive();
+      state.bench.provider = e.target.value;
+      // Switching provider clears the model/ctx selection so a stale id from another runtime is
+      // never submitted. Selecting LM Studio pulls its live model list (server-side proxy).
+      state.bench.model = '';
+      state.bench.ctx = '';
+      if (e.target.value === 'lm_studio') { loadLmStudioCatalog(); return; }
+      renderActive();
     });
     content.querySelector('[data-bench-model-select]')?.addEventListener('change', (e) => {
-      state.bench.model = e.target.value; renderActive();
+      state.bench.model = e.target.value;
+      state.bench.ctx = '';  // re-derive ctx from the newly selected model's registered value
+      renderActive();
     });
     content.querySelector('[data-bench-model]')?.addEventListener('input', (e) => {
       state.bench.model = e.target.value;
       const btn = content.querySelector('[data-bench-run]');
       if (btn) btn.disabled = !(state.bench.presets.length && state.bench.provider && state.bench.model);
     });
+    content.querySelector('[data-bench-ctx]')?.addEventListener('input', (e) => {
+      state.bench.ctx = e.target.value;
+    });
+    content.querySelector('[data-bench-ctx-save]')?.addEventListener('click', (e) => {
+      saveAnvilModelCtx(e.target.getAttribute('data-model-id'), state.bench.ctx);
+    });
     content.querySelector('[data-bench-run]')?.addEventListener('click', () => runBenchmark(data));
+  }
+
+  // Persist an edited context length back to the Models DB registry entry (Anvil). The runtime
+  // manager uses model_db.ctx_size when it loads the model, so this is the authoritative CTX.
+  async function saveAnvilModelCtx(modelId, ctx) {
+    const ctxNum = normalizeCtx(ctx);
+    if (!modelId || !ctxNum) { setStatus('CTX を保存できません（モデル未選択または無効な値）', 'error'); return; }
+    setStatus('CTX を保存中…');
+    try {
+      const resp = await fetch('/models/db/' + encodeURIComponent(modelId), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ctx_size: ctxNum }),
+      });
+      if (!resp.ok) throw new Error(String(resp.status));
+      await loadLocalModels();
+      setStatus('CTX を登録に保存しました: ' + ctxNum, 'ok');
+    } catch (err) {
+      setStatus('CTX 保存に失敗: ' + (err && err.message ? err.message : 'error'), 'error');
+    }
+    renderActive();
+  }
+
+  // Anvil model registry (Models DB). Same-origin endpoint owned by the core app.
+  async function loadLocalModels() {
+    try {
+      const resp = await fetch('/models/db');
+      const data = resp.ok ? await resp.json() : {};
+      state.data.localModels = data.models || [];
+    } catch (_e) { state.data.localModels = state.data.localModels || []; }
+  }
+
+  // LM Studio (or any local OpenAI-compatible server) model list via the Forge server-side proxy.
+  async function loadLmStudioCatalog() {
+    try {
+      state.data.lmStudioCatalog = await api('/local-catalog?runtime_kind=lm_studio');
+    } catch (err) {
+      state.data.lmStudioCatalog = { status: 'error', models: [] };
+    }
+    renderActive();
   }
 
   async function runBenchmark(data) {
@@ -323,13 +442,17 @@
     const preset = (data.presets || []).find((p) => p.preset_id === sel.presets[0]);
     const route = (preset && preset.recommended_routes && preset.recommended_routes[0]) || 'direct_patch';
     const stage = 'patch_generation';
+    // Anvil and LM Studio both execute through the local OpenAI-compatible provider; map the
+    // UI-level runtime choice to that real provider id for the arena run.
+    const runtimeProviderId = (sel.provider === 'anvil' || sel.provider === 'lm_studio')
+      ? 'local_openai_compatible' : sel.provider;
     setStatus('Running benchmark…');
     try {
       const record = await api('/arena/run', {
         method: 'POST',
         body: JSON.stringify({
           stage,
-          specs: [{ provider_id: sel.provider, model_id: sel.model, route_id: route }],
+          specs: [{ provider_id: runtimeProviderId, model_id: sel.model, route_id: route }],
           preset_id: sel.presets[0],
           preset_ids: sel.presets.slice(),
           depth: sel.depth,
@@ -626,8 +749,8 @@
       + '</select></label>'
       + '<label class="forge-label">Base URL<input class="forge-input" data-setting-local-base value="' + escapeHtml(local.base_url || '') + '"></label>'
       + '<div class="forge-seg-row">'
-      + '<button type="button" class="forge-seg" data-local-base-preset="http://127.0.0.1:8080/v1">llama.cpp 8080</button>'
-      + '<button type="button" class="forge-seg" data-local-base-preset="http://127.0.0.1:1234/v1">LM Studio 1234</button>'
+      + '<button type="button" class="forge-seg" data-local-base-preset="http://127.0.0.1:8080">llama.cpp 8080</button>'
+      + '<button type="button" class="forge-seg" data-local-base-preset="http://127.0.0.1:1234">LM Studio 1234</button>'
       + '</div>'
       + '<label class="forge-label">Model ID<input class="forge-input" data-setting-local-model value="' + escapeHtml(local.model_id || '') + '"></label>'
       + '<label class="forge-label">LLM folder<input class="forge-input" data-setting-local-dir value="' + escapeHtml(local.model_storage_dir || '') + '"></label>'
@@ -659,7 +782,7 @@
     content.querySelector('[data-setting-local-runtime]')?.addEventListener('change', (e) => {
       const input = content.querySelector('[data-setting-local-base]');
       if (input && !String(input.value || '').trim()) {
-        input.value = e.target.value === 'lm_studio' ? 'http://127.0.0.1:1234/v1' : 'http://127.0.0.1:8080/v1';
+        input.value = e.target.value === 'lm_studio' ? 'http://127.0.0.1:1234' : 'http://127.0.0.1:8080';
       }
     });
   }
@@ -800,7 +923,9 @@
     setStatus('Loading…');
     try {
       const status = await api('/status');
-      const data = { status, providers: [], loadouts: [], profiles: [], leaderboard: [], settings: {}, openrouterCatalog: null };
+      const data = { status, providers: [], loadouts: [], profiles: [], leaderboard: [], settings: {}, openrouterCatalog: null, localModels: [], lmStudioCatalog: null };
+      // Anvil (local model registry) is the core app's Models DB, not a /api/forge endpoint.
+      try { data.localModels = ((await (await fetch('/models/db')).json()).models) || []; } catch (_e) {}
       try { data.providers = (await api('/providers')).providers || []; } catch (_e) {}
       try { data.settings = (await api('/settings')).settings || {}; } catch (_e) {}
       try { data.openrouterCatalog = await api('/providers/openrouter/catalog'); } catch (_e) {}

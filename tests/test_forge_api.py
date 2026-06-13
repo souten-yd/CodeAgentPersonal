@@ -139,6 +139,37 @@ def test_local_provider_runtime_kind_roundtrips_and_defaults_to_llama_cpp(tmp_pa
     assert c.get("/api/forge/settings").json()["settings"]["local_provider"]["runtime_kind"] == "llama_cpp"
 
 
+def test_local_catalog_parses_openai_models_shape(tmp_path):
+    from agent.model_forge.forge_service import ForgeService
+
+    def fake_get(url, _timeout):
+        assert url.endswith("/v1/models")
+        assert "/v1/v1/" not in url  # base_url must be host root, not already include /v1
+        return 200, '{"data": [{"id": "Mistral-Small.gguf"}, {"id": "Qwen.gguf"}], "object": "list"}'
+
+    out = ForgeService(tmp_path).local_catalog(base_url="http://127.0.0.1:8080", runtime_kind="lm_studio", http_get=fake_get)
+    assert out["status"] == "ready"
+    assert out["runtime_kind"] == "lm_studio"
+    assert [m["model_id"] for m in out["models"]] == ["Mistral-Small.gguf", "Qwen.gguf"]
+
+
+def test_local_catalog_unreachable_is_graceful(tmp_path):
+    from agent.model_forge.forge_service import ForgeService
+
+    def boom(_url, _timeout):
+        raise ConnectionError("refused")
+
+    out = ForgeService(tmp_path).local_catalog(base_url="http://127.0.0.1:9", http_get=boom)
+    assert out["status"] == "unreachable"
+    assert out["models"] == []
+
+
+def test_local_catalog_endpoint_returns_shape(tmp_path):
+    body = _client(tmp_path).get("/api/forge/local-catalog?runtime_kind=lm_studio").json()
+    assert "models" in body and isinstance(body["models"], list)
+    assert "status" in body and "base_url" in body
+
+
 def test_settings_reports_credential_state_without_returning_secret(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-secret-value")
     settings = _client(tmp_path).get("/api/forge/settings").json()["settings"]

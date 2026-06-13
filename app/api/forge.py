@@ -109,6 +109,16 @@ def get_openrouter_catalog(request: Request, force_refresh: bool = False) -> dic
     return _service(request).openrouter_catalog(force_refresh=force_refresh)
 
 
+@router.get("/local-catalog")
+def get_local_catalog(request: Request, base_url: str = "", runtime_kind: str = "") -> dict:
+    """Server-side proxy listing of a local OpenAI-compatible server's models.
+
+    Lets the benchmark "LLM management tool" (Anvil) and the LM Studio option populate a model
+    dropdown without a browser cross-origin call. Truthful status on an unreachable server.
+    """
+    return _service(request).local_catalog(base_url=base_url, runtime_kind=runtime_kind)
+
+
 @router.get("/profiles")
 def get_profiles(request: Request) -> dict:
     return {"profiles": _service(request).profiles_list()}

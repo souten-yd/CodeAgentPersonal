@@ -93,9 +93,11 @@ def test_settings_tab_exposes_runtime_kind_and_lm_studio_support(tmp_path: Path)
     assert "llama.cpp" in html
     assert "LM Studio" in html
     assert 'value="lm_studio" selected' in html
-    # Base URL quick-fill presets for the two default ports.
-    assert 'data-local-base-preset="http://127.0.0.1:8080/v1"' in html
-    assert 'data-local-base-preset="http://127.0.0.1:1234/v1"' in html
+    # Base URL quick-fill presets for the two default ports. Host root WITHOUT a trailing /v1 —
+    # the local provider appends /v1/chat/completions itself, so a /v1 suffix would double it.
+    assert 'data-local-base-preset="http://127.0.0.1:8080"' in html
+    assert 'data-local-base-preset="http://127.0.0.1:1234"' in html
+    assert "/v1/v1" not in html
     # The deferred-automation caveat must be stated truthfully in the UI.
     assert "後日対応" in html
 

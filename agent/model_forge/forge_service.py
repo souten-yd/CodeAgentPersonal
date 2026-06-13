@@ -234,6 +234,65 @@ class ForgeService:
                 out.append(model)
         return out
 
+    def local_catalog(self, *, base_url: str = "", runtime_kind: str = "", http_get=None) -> dict:
+        """List models advertised by a local OpenAI-compatible server ({base_url}/v1/models).
+
+        Serves both llama.cpp (default :8080) and LM Studio (default :1234) — they share the
+        OpenAI /v1/models shape — so the Forge benchmark "LLM management tool" (Anvil) and the
+        LM Studio option can populate a real model dropdown. base_url is the host root WITHOUT a
+        trailing /v1 (the provider appends /v1/models), matching LocalOpenAICompatibleProvider.
+        Never raises: an unreachable/erroring server returns a truthful status with an empty list
+        so the UI shows an empty dropdown with a reason instead of failing.
+        """
+        from agent.model_forge.providers.local_openai_compatible import _default_http_get
+
+        raw_settings = self._settings()
+        local_settings = raw_settings.get("local_provider", {}) if isinstance(raw_settings.get("local_provider"), dict) else {}
+        resolved_runtime = str(runtime_kind or local_settings.get("runtime_kind") or "llama_cpp").strip().lower()
+        if resolved_runtime not in {"llama_cpp", "lm_studio"}:
+            resolved_runtime = "llama_cpp"
+        resolved_base = str(
+            base_url
+            or self._env.get("FORGE_LOCAL_BASE_URL", "").strip()
+            or local_settings.get("base_url")
+            or ""
+        ).rstrip("/")
+        if not resolved_base:
+            resolved_base = "http://127.0.0.1:1234" if resolved_runtime == "lm_studio" else "http://127.0.0.1:8080"
+        getter = http_get or _default_http_get
+
+        def _result(status: str, models: list[dict]) -> dict:
+            return {"runtime_kind": resolved_runtime, "base_url": resolved_base, "status": status, "models": models}
+
+        try:
+            status_code, body = getter(f"{resolved_base}/v1/models", 8.0)
+        except TimeoutError:
+            return _result("timeout", [])
+        except ConnectionError:
+            return _result("unreachable", [])
+        except Exception as exc:  # noqa: BLE001 — classify, never crash the API.
+            return _result(f"error:{type(exc).__name__}", [])
+        if status_code != 200:
+            return _result(f"http_{status_code}", [])
+        try:
+            data = json.loads(body)
+        except Exception:  # noqa: BLE001
+            return _result("malformed", [])
+        raw = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(raw, list):
+            raw = data.get("models") if isinstance(data, dict) else None
+        models: list[dict] = []
+        seen: set[str] = set()
+        for entry in raw or []:
+            if isinstance(entry, dict):
+                mid = str(entry.get("id") or entry.get("model") or entry.get("name") or "").strip()
+            else:
+                mid = str(entry).strip()
+            if mid and mid not in seen:
+                seen.add(mid)
+                models.append({"model_id": mid})
+        return _result("ready", models)
+
     def profiles_list(self) -> list[dict]:
         return [p.model_dump(mode="json") for p in self.profiles.list_profiles()]
 
