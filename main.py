@@ -16342,52 +16342,9 @@ def reload_skills():
 # Git API
 # =========================
 
-@app.get("/git/status")
-def git_status_api(project: str = "default"):
-    return {"status": git_status(project), "project": project}
-
-@app.post("/git/commit")
-def git_commit_api(req: dict):
-    project = req.get("project", "default")
-    message = req.get("message", "CodeAgent commit")
-    return {"result": git_commit(message, project)}
-
-@app.post("/git/checkout")
-def git_checkout_api(req: dict):
-    project = req.get("project", "default")
-    name = req.get("name", "")
-    create = req.get("create", True)
-    if not name:
-        raise HTTPException(400, "branch name required")
-    return {"result": git_checkout_branch(name, create, project)}
-
-@app.post("/git/reset")
-def git_reset_api(req: dict):
-    project = req.get("project", "default")
-    mode = req.get("mode", "hard")
-    return {"result": git_reset(mode, project)}
-
-@app.get("/git/diff")
-def git_diff_api(project: str = "default", path: str = ""):
-    return {"diff": git_diff(path, project)}
-
-@app.get("/git/log")
-def git_log_api(project: str = "default", limit: int = 10):
-    cwd = os.path.join(WORK_DIR, project)
-    if not os.path.exists(os.path.join(cwd, ".git")):
-        return {"log": "no git repository", "commits": []}
-    rc, out, err = _git_run(
-        ["log", f"--max-count={limit}", "--pretty=format:%h|%s|%an|%ar"],
-        cwd
-    )
-    commits = []
-    if rc == 0 and out:
-        for line in out.splitlines():
-            parts = line.split("|", 3)
-            if len(parts) == 4:
-                commits.append({"hash": parts[0], "message": parts[1],
-                                 "author": parts[2], "when": parts[3]})
-    return {"commits": commits}
+# /git/* routes were extracted to app/api/git.py (registered via include_routers in app/server.py).
+# The git_status / git_commit / git_checkout_branch / git_reset / git_diff / _git_run helpers remain
+# in this module for now (the router imports them lazily); see docs/MAINTAINABILITY_PLAN.md.
 
 
 # =========================
