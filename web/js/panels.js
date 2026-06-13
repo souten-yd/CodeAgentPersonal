@@ -1,9 +1,14 @@
 // ── PANEL TABS ──
 function switchTab(name, options = {}) {
   if (options.persist !== false && typeof saveLastSubtab === 'function') {
-    // Persist the subtab under the active mode. Forge consolidates Models/ASR/TTS, so its subtabs
-    // must be remembered under 'forge' (not coerced to 'chat') to restore correctly on re-entry.
-    saveLastSubtab(mode === 'echo' ? 'echo' : (mode === 'forge' ? 'forge' : 'chat'), name);
+    // Persist the subtab under the active mode. Forge (Models/ASR/TTS) and Nexus (Memory/Skill/Log)
+    // consolidate panels, so their subtabs must be remembered under their own mode (not coerced to
+    // 'chat') to restore correctly on re-entry.
+    const persistMode = mode === 'echo' ? 'echo'
+      : mode === 'forge' ? 'forge'
+      : mode === 'nexus' ? 'nexus'
+      : 'chat';
+    saveLastSubtab(persistMode, name);
   }
   _setPanelTabActiveButton(name);
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
