@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -344,6 +346,47 @@ class AtlasAutoVerificationService:
                     planned.add(rel.rsplit("/", 1)[-1])  # basename
         return planned
 
+    def _verify_smoke_with_timeout(self, html_path: Path, *, task_description: str, contract_id: str, planned_paths: set[str] | None) -> dict:
+        """Run the Playwright browser smoke under an overall wall-clock timeout.
+
+        The smoke is internally bounded (goto 10s, sampling 3.5s), but a rare environment hang
+        (browser launch stalling under heavy local-LLM CPU/GPU load, a wedged static file server)
+        would otherwise block the synchronous apply→verify call forever and the UI would sit on
+        "ブラウザスモークで検証中". On timeout we return a SOFT failure (playwright_timeout) so the item
+        is not falsely hard-failed and the run continues.
+        """
+        try:
+            timeout_seconds = max(15, int(str(os.environ.get("ATLAS_SMOKE_TIMEOUT_SECONDS", "") or "75").strip()))
+        except ValueError:
+            timeout_seconds = 75
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(
+            self.playwright_verifier.verify,
+            html_path, task_description=task_description, contract_id=contract_id, planned_paths=planned_paths,
+        )
+        try:
+            result = future.result(timeout=timeout_seconds)
+            executor.shutdown(wait=False)
+            return result
+        except _FutureTimeout:
+            executor.shutdown(wait=False, cancel_futures=True)
+            return {
+                "status": "browser_smoke_failed",
+                "reason": "playwright_timeout",
+                "console_errors": [],
+                "diagnostics": {"timeout_seconds": timeout_seconds, "note": "browser smoke did not finish in time"},
+            }
+        except Exception as exc:  # noqa: BLE001
+            # Threaded smoke failed to even run (e.g. an environment-specific playwright issue). Degrade
+            # to a SOFT failure — same effect as an unavailable browser — rather than propagating.
+            executor.shutdown(wait=False, cancel_futures=True)
+            return {
+                "status": "browser_smoke_failed",
+                "reason": "playwright_error",
+                "console_errors": [str(exc)[:200]],
+                "diagnostics": {"note": "browser smoke could not run"},
+            }
+
     def _evaluate_visual(self, html_path: Path, task_desc: str, planned_paths: set[str] | None = None, classification_desc: str | None = None) -> dict:
         """Run static visual contract + optional Playwright smoke; classify hard/soft outcomes.
 
@@ -369,7 +412,7 @@ class AtlasAutoVerificationService:
             html_path, task_description=task_desc, contract=contract,
             extra_required_signals=[],
         )
-        smoke = self.playwright_verifier.verify(
+        smoke = self._verify_smoke_with_timeout(
             html_path, task_description=task_desc, contract_id=contract.contract_id,
             planned_paths=planned_paths,
         )
