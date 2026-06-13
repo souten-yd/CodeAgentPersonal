@@ -113,10 +113,7 @@
   <!-- Echo モード用タブ (デフォルト非表示) -->
   <button class="mob-tab" id="mob-echo" onclick="mobSwitch('echo')" style="display:none">Echo</button>
   <button class="mob-tab" id="mob-vault" onclick="mobSwitch('vault')" style="display:none">Vault</button>
-  <button class="mob-tab" id="mob-log-echo" onclick="mobSwitch('log')" style="display:none">Log</button>
-  <button class="mob-tab" id="mob-models-echo" onclick="mobSwitch('models')" style="display:none">Models</button>
-  <button class="mob-tab" id="mob-asr" onclick="mobSwitch('asr')" style="display:none">ASR</button>
-  <button class="mob-tab" id="mob-tts" onclick="mobSwitch('tts')" style="display:none">TTS</button>
+  <!-- Echo mobile: Vault only. Log → Nexus, Models/ASR/TTS → Forge. -->
   <button class="mob-tab wide" id="mob-nexus" onclick="mobSwitch('nexus')" style="display:none">Nexus</button>
   <!-- Forge モード用タブ (デフォルト非表示) -->
   <button class="mob-tab wide" id="mob-forge" onclick="mobSwitch('forge')" style="display:none">Forge</button>
@@ -825,6 +822,10 @@
         <button class="nexus-subtab" id="nexus-btn-evidence" data-nexus-tab="evidence" onclick="switchNexusTab('evidence')">Evidence</button>
         <button class="nexus-subtab" id="nexus-btn-reports" data-nexus-tab="reports" onclick="switchNexusTab('reports')">Reports</button>
         <button class="nexus-subtab" id="nexus-btn-settings" data-nexus-tab="settings" onclick="switchNexusTab('settings')">Settings</button>
+        <!-- Lumen Memory/Skill/Log は Nexus へ完全移動。Research 等と同じ行に統合（実体は nexus-body 内に移設） -->
+        <button class="nexus-subtab" id="nexus-btn-memory" data-nexus-tab="memory" onclick="switchNexusTab('memory')">Memory</button>
+        <button class="nexus-subtab" id="nexus-btn-skills" data-nexus-tab="skills" onclick="switchNexusTab('skills')">Skill</button>
+        <button class="nexus-subtab" id="nexus-btn-log" data-nexus-tab="log" onclick="switchNexusTab('log')">Log</button>
       </div>
     </div>
     <div class="nexus-body">
@@ -1196,6 +1197,61 @@
         <div class="nexus-card"><div class="nexus-card-title">Source Storage & Dedupe</div><div id="nexus-settings-storage" class="nexus-empty">Coming soon</div></div>
         <div class="nexus-card"><div class="nexus-card-title">Debug & Maintenance</div><div id="nexus-settings-debug" class="nexus-empty">Loading...</div></div>
       </div>
+      <!-- MEMORY (Lumen Memory consolidated into the Nexus subtab row; same inner IDs + JS) -->
+      <div class="nexus-tab" id="nexus-tab-memory" data-nexus-panel="memory" hidden style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Permanent Memory</span>
+          <div style="display:flex;gap:4px">
+            <button onclick="refreshMemory()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺</button>
+            <button onclick="showAddMemoryForm()" style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ Add</button>
+          </div>
+        </div>
+        <div style="margin-bottom:8px">
+          <input id="memory-search" type="text" placeholder="🔍 キーワード検索..." oninput="searchMemory(this.value)"
+            style="width:100%;padding:6px 10px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);outline:none;font-family:var(--font-mono)">
+        </div>
+        <div id="memory-add-form" style="display:none;border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
+          <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">新規メモリ追加</div>
+          <select id="mem-category" style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+            <option value="error_solution">error_solution（エラーと解決策）</option>
+            <option value="env_knowledge">env_knowledge（環境・ツール知識）</option>
+            <option value="workflow">workflow（作業フロー）</option>
+            <option value="general">general（その他）</option>
+          </select>
+          <input id="mem-title" type="text" placeholder="タイトル（必須）"
+            style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+          <textarea id="mem-content" placeholder="内容・詳細（必須）" rows="3"
+            style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);resize:vertical"></textarea>
+          <input id="mem-keywords" type="text" placeholder="キーワード（カンマ区切り）"
+            style="width:100%;padding:4px 8px;margin-bottom:8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+          <div class="scan-row">
+            <button onclick="saveNewMemory()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">保存</button>
+            <button onclick="hideAddMemoryForm()" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+          </div>
+        </div>
+        <div id="memory-stats" style="font-size:10px;color:var(--text3);margin-bottom:6px"></div>
+        <div id="memory-list" style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:var(--text3)">Loading...</div>
+        </div>
+      </div>
+      <!-- SKILL (Lumen Skills consolidated into the Nexus subtab row; same inner IDs + JS) -->
+      <div class="nexus-tab" id="nexus-tab-skills" data-nexus-panel="skills" hidden style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Skills / SKILL.md</span>
+          <button onclick="refreshSkills()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ Reload</button>
+        </div>
+        <div id="skills-path-info" style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6;padding:6px 8px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
+          📁 <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">読み込み中...</code>
+        </div>
+        <div id="skills-list" style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:var(--text3)">Loading...</div>
+        </div>
+        <div id="skill-proposals" style="margin-top:12px"></div>
+      </div>
+      <!-- LOG (Lumen Log moved into the Nexus subtab row; #log-output keeps its ID so addLog is unchanged) -->
+      <div class="nexus-tab" id="nexus-tab-log" data-nexus-panel="log" hidden style="display:none">
+        <div class="log-output" id="log-output"></div>
+      </div>
     </div>
   </div>
 
@@ -1240,7 +1296,16 @@
 
   <!-- FORGE (Model Forge) — hidden by default; shown only in Forge mode -->
   <div class="forge-col mob-hidden" id="forge-col" style="display:none" data-mode-panel="forge" aria-label="Forge">
-    <div class="forge-shell">
+    <!-- Forge subtab row: Overview (forge.js shell) + Models/ASR/TTS (Lumen/Echo panels moved here) -->
+    <div class="forge-subtab-row">
+      <div class="nexus-subtabs">
+        <button class="nexus-subtab active" id="forge-subtab-overview" data-forge-tab="overview" onclick="switchForgeTab('overview')">Overview</button>
+        <button class="nexus-subtab" id="forge-subtab-models" data-forge-tab="models" onclick="switchForgeTab('models')">Models</button>
+        <button class="nexus-subtab" id="forge-subtab-asr" data-forge-tab="asr" onclick="switchForgeTab('asr')">ASR</button>
+        <button class="nexus-subtab" id="forge-subtab-tts" data-forge-tab="tts" onclick="switchForgeTab('tts')">TTS</button>
+      </div>
+    </div>
+    <div class="forge-shell" id="forge-shell">
       <div class="forge-head">
         <div class="forge-title">Forge</div>
         <div class="forge-head-actions">
@@ -1250,6 +1315,8 @@
       <div class="forge-status" id="forge-status" role="status" aria-live="polite"></div>
       <div class="forge-body" id="forge-body" aria-label="Forge overview"></div>
     </div>
+    <!-- Host for the relocated Models/ASR/TTS panels (filled at load from panel-col; same inner IDs + JS) -->
+    <div class="forge-panel-host" id="forge-panel-host" style="display:none"></div>
   </div>
 
   <!-- PANEL -->
@@ -1257,20 +1324,11 @@
   <div class="panel-col mob-hidden" id="panel-col">
     <div class="panel-tabs">
       <!-- Chat/Task tabs removed: Lumen is conversation-only; Log/Skill/Memory/Models live in Nexus/Forge. -->
-      <!-- Echo モード用タブ (デフォルト非表示) -->
+      <!-- Echo モード用タブ: Vault のみ残す。Log は Nexus、Models/ASR/TTS は Forge へ完全移動。 -->
       <button class="tab-btn" id="tab-btn-vault" onclick="switchTab('vault')" style="display:none">Vault</button>
-      <button class="tab-btn" id="tab-btn-log-echo" onclick="switchTab('log')" style="display:none">Log</button>
-      <button class="tab-btn" id="tab-btn-models-echo" onclick="switchTab('models')" style="display:none">Models</button>
-      <button class="tab-btn" id="tab-btn-asr" onclick="switchTab('asr')" style="display:none">ASR</button>
-      <button class="tab-btn" id="tab-btn-tts" onclick="switchTab('tts')" style="display:none">TTS</button>
-      <!-- Forge モード用タブ (Lumen Models + Echo ASR/TTS を Forge に集約。デフォルト非表示) -->
-      <button class="tab-btn" id="tab-btn-forge-models" onclick="switchTab('models')" style="display:none">Models</button>
-      <button class="tab-btn" id="tab-btn-forge-asr" onclick="switchTab('asr')" style="display:none">ASR</button>
-      <button class="tab-btn" id="tab-btn-forge-tts" onclick="switchTab('tts')" style="display:none">TTS</button>
-      <!-- Nexus モード用タブ (Lumen Memory/Skill/Log を Nexus に集約。デフォルト非表示) -->
-      <button class="tab-btn" id="tab-btn-nexus-memory" onclick="switchTab('memory')" style="display:none">Memory</button>
-      <button class="tab-btn" id="tab-btn-nexus-skills" onclick="switchTab('skills')" style="display:none">Skill</button>
-      <button class="tab-btn" id="tab-btn-nexus-log" onclick="switchTab('log')" style="display:none">Log</button>
+      <!-- Forge Models/ASR/TTS は forge-col の subtab 行へ完全移動 (panel-col では扱わない) -->
+      <!-- Nexus Memory/Skill/Log も nexus-col の subtab 行へ移動済み -->
+      <!-- panel-col に残るのは Echo Vault と共通の output/preview/git のみ -->
       <div class="tab-spacer"></div>
       <span class="tab-label" id="tab-label">—</span>
     </div>
@@ -1316,63 +1374,11 @@
       </div>
     </div>
 
-    <!-- Lumen Files タブは削除。Log を既定のアクティブパネルにする。ファイル操作のバックエンド
-         (list_files/read_file 等) と /projects/.../files は Agent・プロジェクト機能で引き続き使用。 -->
-    <div class="tab-content active" id="tab-log">
-      <div class="log-output" id="log-output"></div>
-    </div>
+    <!-- Lumen Log は Nexus へ完全移動 (#nexus-tab-log)。#log-output は同一 ID のまま addLog が書き込む。
+         ファイル操作のバックエンド (list_files/read_file 等) と /projects/.../files は Agent・プロジェクト機能で引き続き使用。 -->
 
-    <div class="tab-content" id="tab-skills" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Skills / SKILL.md</span>
-        <button onclick="refreshSkills()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ Reload</button>
-      </div>
-      <div id="skills-path-info" style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6;padding:6px 8px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
-        📁 <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">読み込み中...</code>
-      </div>
-      <div id="skills-list" style="display:flex;flex-direction:column;gap:6px">
-        <div style="font-size:12px;color:var(--text3)">Loading...</div>
-      </div>
-      <div id="skill-proposals" style="margin-top:12px"></div>
-    </div>
-
-    <!-- MEMORY TAB -->
-    <div class="tab-content" id="tab-memory" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Permanent Memory</span>
-        <div style="display:flex;gap:4px">
-          <button onclick="refreshMemory()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺</button>
-          <button onclick="showAddMemoryForm()" style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ Add</button>
-        </div>
-      </div>
-      <div style="margin-bottom:8px">
-        <input id="memory-search" type="text" placeholder="🔍 キーワード検索..." oninput="searchMemory(this.value)"
-          style="width:100%;padding:6px 10px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);outline:none;font-family:var(--font-mono)">
-      </div>
-      <div id="memory-add-form" style="display:none;border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
-        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">新規メモリ追加</div>
-        <select id="mem-category" style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
-          <option value="error_solution">error_solution（エラーと解決策）</option>
-          <option value="env_knowledge">env_knowledge（環境・ツール知識）</option>
-          <option value="workflow">workflow（作業フロー）</option>
-          <option value="general">general（その他）</option>
-        </select>
-        <input id="mem-title" type="text" placeholder="タイトル（必須）"
-          style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
-        <textarea id="mem-content" placeholder="内容・詳細（必須）" rows="3"
-          style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);resize:vertical"></textarea>
-        <input id="mem-keywords" type="text" placeholder="キーワード（カンマ区切り）"
-          style="width:100%;padding:4px 8px;margin-bottom:8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
-        <div class="scan-row">
-          <button onclick="saveNewMemory()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">保存</button>
-          <button onclick="hideAddMemoryForm()" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
-        </div>
-      </div>
-      <div id="memory-stats" style="font-size:10px;color:var(--text3);margin-bottom:6px"></div>
-      <div id="memory-list" style="display:flex;flex-direction:column;gap:6px">
-        <div style="font-size:12px;color:var(--text3)">Loading...</div>
-      </div>
-    </div>
+    <!-- Lumen Memory/Skill panels are Nexus-only and were relocated into the Nexus subtab row
+         (see #nexus-tab-memory / #nexus-tab-skills in nexus-col). Same inner IDs, same JS. -->
 
     <!-- GIT TAB -->
     <div class="tab-content" id="tab-git" style="display:none;overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
@@ -2498,19 +2504,19 @@ const UI_LAST_MODE_KEY = 'kasane:lastMode';
 const UI_LAST_SUBTABS_KEY = 'kasane:lastSubtabsByMode';
 const UI_VALID_MODES = ['chat','atlas','echo','nexus','forge','portal','agent'];
 const UI_PRIMARY_MODES = ['chat','atlas','echo','nexus','forge','portal'];
-const UI_MODE_DEFAULT_SUBTABS = {chat: 'chat', echo: 'echo', atlas: 'start', nexus: 'dashboard', portal: 'catalog', forge: 'models'};
+const UI_MODE_DEFAULT_SUBTABS = {chat: 'chat', echo: 'echo', atlas: 'start', nexus: 'dashboard', portal: 'catalog', forge: 'overview'};
 const UI_MODE_SUBTABS = {
   // Lumen は会話のみ。Log/Skill/Memory/Models のサブタブは Nexus/Forge に集約済み。
   chat: ['chat'],
-  echo: ['echo','vault','log','models','asr','tts'],
+  echo: ['echo','vault'],
   atlas: ['start'],
-  // Nexus keeps its internal dashboard tabs (managed by switchNexusTab) and additionally hosts the
-  // consolidated Lumen Memory/Skill/Log panel subtabs so they persist/restore like other modes.
-  nexus: ['dashboard','memory','skills','log'],
+  // Nexus subtabs are managed by switchNexusTab. Memory/Skill (Lumen) are consolidated into this
+  // same row, so they persist/restore alongside research/library/evidence/reports/settings.
+  nexus: ['dashboard','research','library','evidence','reports','settings','memory','skills','log'],
   portal: ['catalog'],
-  // Forge consolidates the model/speech management panels (Lumen Models + Echo ASR/TTS) so they
-  // are reachable from the Forge mode panel without leaving Forge. Same panels/JS/endpoints.
-  forge: ['models','asr','tts'],
+  // Forge owns Overview (forge.js shell) + the relocated Lumen Models + Echo ASR/TTS panels in its
+  // own subtab row (switchForgeTab). Same panels/JS/endpoints.
+  forge: ['overview','models','asr','tts'],
 };
 let asrRuntimeConfig = {is_windows:false,is_runpod:false,gpu_vendor:'unknown',asr_engine:'faster_whisper',whisper_cpp_ready:false};
 const CHAT_TASK_TOGGLE_KEY = 'chat_task_enabled';
@@ -5887,6 +5893,8 @@ _echoRefreshStatusLine();
   if (mode === 'task') mode = 'chat';
   syncChatTaskToggle();
   syncAllTtsToggles();
+  // Relocate the Forge panels (Models/ASR/TTS) into forge-col before restore can enter Forge mode.
+  relocateForgePanels();
   // Restore persisted mode/subtab before async startup work can delay or abort later init.
   restoreUiNavigationState();
   localStorage.removeItem('llm_endpoints'); // 旧LLMエンドポイント設定をクリーンアップ
@@ -6118,11 +6126,11 @@ function formatModelShortName(name) {
 // Chat/Task モード用パネルタブID (Lumen は会話のみ。Log/Skill/Memory/Models は Nexus/Forge に集約済みのため空)
 const _CHAT_PANEL_TAB_IDS = [];
 // Echo モード用パネルタブID
-const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-echo','tab-btn-asr','tab-btn-tts'];
-// Forge モード用パネルタブID (Lumen Models + Echo ASR/TTS を Forge に集約)
-const _FORGE_PANEL_TAB_IDS = ['tab-btn-forge-models','tab-btn-forge-asr','tab-btn-forge-tts'];
-// Nexus モード用パネルタブID (Lumen Memory/Skill/Log を Nexus に集約)
-const _NEXUS_PANEL_TAB_IDS = ['tab-btn-nexus-memory','tab-btn-nexus-skills','tab-btn-nexus-log'];
+const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault'];
+// Forge モード用パネルタブID: Models/ASR/TTS は forge-col の subtab 行へ移動済みのため panel-col では空。
+const _FORGE_PANEL_TAB_IDS = [];
+// Nexus モード用パネルタブID: Memory/Skill は nexus-col の subtab 行へ統合済みのため panel-col では空。
+const _NEXUS_PANEL_TAB_IDS = [];
 // Chat/Task モード用モバイルタブID
 // Lumen submenu removed: chat shows only the conversation tab on mobile (panel tabs moved to
 // Nexus/Forge). The orphaned mob-log/skills/memory/models buttons stay in DOM but are never shown.
@@ -6132,7 +6140,7 @@ const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
 // Atlas モード用モバイルタブID
 const _ATLAS_MOB_TAB_IDS = ['mob-atlas'];
 // Echo モード用モバイルタブID
-const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-asr','mob-tts'];
+const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault'];
 // Nexus モード用モバイルタブID（単一ビューのためタブ不要）
 const _NEXUS_MOB_TAB_IDS = ['mob-nexus'];
 const _FORGE_MOB_TAB_IDS = ['mob-forge'];
@@ -6146,10 +6154,6 @@ const MODE_SUBTAB_BUTTON_IDS = {
   echo: {
     echo: 'mob-echo',
     vault: 'mob-vault',
-    log: 'mob-log-echo',
-    models: 'mob-models-echo',
-    asr: 'mob-asr',
-    tts: 'mob-tts',
   },
   atlas: { atlas: 'mob-atlas' },
   nexus: { nexus: 'mob-nexus' },
@@ -6160,21 +6164,9 @@ const MODE_PANEL_TAB_BUTTON_IDS = {
   // Lumen (chat) has no panel tabs anymore; Log/Skill/Memory/Models live in Nexus/Forge.
   echo: {
     vault: 'tab-btn-vault',
-    log: 'tab-btn-log-echo',
-    models: 'tab-btn-models-echo',
-    asr: 'tab-btn-asr',
-    tts: 'tab-btn-tts',
   },
-  forge: {
-    models: 'tab-btn-forge-models',
-    asr: 'tab-btn-forge-asr',
-    tts: 'tab-btn-forge-tts',
-  },
-  nexus: {
-    memory: 'tab-btn-nexus-memory',
-    skills: 'tab-btn-nexus-skills',
-    log: 'tab-btn-nexus-log',
-  },
+  // Forge Models/ASR/TTS moved to the forge-col subtab row (switchForgeTab), not panel-col tabs.
+  // Nexus Memory/Skill/Log moved to the nexus-col subtab row (switchNexusTab), not panel-col tabs.
 };
 
 function isValidUiMode(m) {
@@ -6589,22 +6581,20 @@ function setMode(m, options = {}) {
     panelCol?.classList.add('chat-task-tabs-equal');
     chatCol.style.display  = 'none';
     echoCol.style.display  = 'none';
-    // Show the side panel in Nexus so the consolidated Memory / Skill / Log tabs are reachable
-    // without leaving Nexus (desktop). Nexus keeps its own dashboard tabs in nexus-col. Mobile
-    // re-hides the panel below, as before.
-    panelCol.style.display = '';
+    // Nexus owns its panels (incl. the consolidated Lumen Memory/Skill) inside nexus-col's subtab
+    // row, so the shared side panel-col is not used here (works on desktop AND mobile).
+    panelCol.style.display = 'none';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
     if (nexusCol) nexusCol.style.display = '';
-    if (resizer) resizer.style.display = '';
+    if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
-    switchNexusTab(window._nexusTab || 'research');
-    // Reuse the existing Memory/Skill/Log panels (same JS + endpoints) — restore the last Nexus
-    // panel subtab or fall back to Memory.
-    if (shouldRestoreSubtab && window.innerWidth > 768) {
-      const _nsub = getLastSubtabForMode('nexus');
-      switchTab(['memory','skills','log'].includes(_nsub) ? _nsub : 'memory', {persist: shouldPersistMode});
+    // Restore the last Nexus subtab (research/library/.../memory/skills) — switchNexusTab handles all.
+    {
+      const _nsub = (typeof getLastSubtabForMode === 'function') ? getLastSubtabForMode('nexus') : '';
+      const _valid = ['research','library','evidence','reports','settings','memory','skills','log'];
+      switchNexusTab(_valid.includes(_nsub) ? _nsub : (window._nexusTab || 'research'));
     }
     startNexusPolling();
   } else if (m === 'forge') {
@@ -6613,22 +6603,23 @@ function setMode(m, options = {}) {
     panelCol?.classList.add('chat-task-tabs-equal');
     chatCol.style.display  = 'none';
     echoCol.style.display  = 'none';
-    // Show the side panel in Forge so the consolidated Models / ASR / TTS tabs are reachable
-    // without leaving Forge mode (desktop). Mobile re-hides the panel below, as before.
-    panelCol.style.display = '';
+    // Forge owns its panels (Overview shell + relocated Models/ASR/TTS) in forge-col's subtab row,
+    // so the shared side panel-col is not used here (works on desktop AND mobile).
+    panelCol.style.display = 'none';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (forgeCol) forgeCol.style.display = '';
-    if (resizer) resizer.style.display = '';
+    if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
-    // Reuse the existing Models/ASR/TTS panels (same JS + endpoints) — restore the last Forge
-    // subtab or fall back to Models.
-    if (shouldRestoreSubtab && window.innerWidth > 768) {
-      switchTab(getLastSubtabForMode('forge') || 'models', {persist: shouldPersistMode});
+    // Restore the last Forge subtab (overview/models/asr/tts) — switchForgeTab also activates the
+    // forge.js Overview shell when needed.
+    {
+      const _fsub = (typeof getLastSubtabForMode === 'function') ? getLastSubtabForMode('forge') : '';
+      const _fvalid = ['overview','models','asr','tts'];
+      switchForgeTab(_fvalid.includes(_fsub) ? _fsub : (window._forgeTab || 'overview'));
     }
-    try { window.Forge?.activate?.(); } catch (_e) {}
   } else if (m === 'portal') {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -6773,10 +6764,13 @@ function normalizeNexusTabName(name) {
 }
 
 function switchNexusTab(name) {
-  const tabs = ['research','library','evidence','reports','settings'];
+  // Lumen Memory/Skill/Log moved into the Nexus subtab row (same panels/JS, relocated into nexus-body).
+  const tabs = ['research','library','evidence','reports','settings','memory','skills','log'];
   const normalized = normalizeNexusTabName(name);
   const target = tabs.includes(normalized) ? normalized : 'research';
   window._nexusTab = target;
+  // Persist so re-entering Nexus (or reload) restores the same subtab, like other modes.
+  if (mode === 'nexus' && typeof saveLastSubtab === 'function') saveLastSubtab('nexus', target);
   document.querySelectorAll('[data-nexus-tab]').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.nexusTab === target);
   });
@@ -6811,10 +6805,51 @@ function switchNexusTab(name) {
   }
   if (target === 'evidence') runNexusEvidenceMvp();
   if (target === 'reports') runNexusReportMvp();
+  if (target === 'memory' && typeof refreshMemory === 'function') refreshMemory();
+  if (target === 'skills' && typeof refreshSkills === 'function') refreshSkills();
 }
 
 function showNexusTab(name) {
   return switchNexusTab(name);
+}
+
+// ── FORGE SUBTABS ──
+// Forge hosts its own Overview (forge.js shell) plus the relocated Lumen Models + Echo ASR/TTS
+// panels in a single subtab row. The panels keep their original IDs (#tab-models/#tab-asr/#tab-tts)
+// and JS (refreshModelDb/refreshAsrTab/refreshTtsTab); they are moved into #forge-panel-host at load
+// so forge.js (which rewrites #forge-body) never clobbers them.
+function relocateForgePanels() {
+  const host = document.getElementById('forge-panel-host');
+  if (!host) return;
+  ['tab-models', 'tab-asr', 'tab-tts'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && el.parentElement !== host) host.appendChild(el);
+  });
+}
+
+function switchForgeTab(name) {
+  const tabs = ['overview', 'models', 'asr', 'tts'];
+  const target = tabs.includes(name) ? name : 'overview';
+  window._forgeTab = target;
+  document.querySelectorAll('[data-forge-tab]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.forgeTab === target);
+  });
+  const shell = document.getElementById('forge-shell');
+  const host = document.getElementById('forge-panel-host');
+  const isOverview = target === 'overview';
+  if (shell) shell.style.display = isOverview ? '' : 'none';
+  if (host) host.style.display = isOverview ? 'none' : '';
+  if (mode === 'forge' && typeof saveLastSubtab === 'function') saveLastSubtab('forge', target);
+  if (isOverview) {
+    try { window.Forge?.activate?.(); } catch (_e) {}
+    return;
+  }
+  // Show the selected panel inside the host and trigger its existing refresh.
+  host?.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active'));
+  document.getElementById('tab-' + target)?.classList.add('active');
+  if (target === 'models' && typeof refreshModelDb === 'function') refreshModelDb();
+  if (target === 'asr' && typeof refreshAsrTab === 'function') refreshAsrTab();
+  if (target === 'tts' && typeof refreshTtsTab === 'function') refreshTtsTab();
 }
 
 
@@ -9943,43 +9978,9 @@ function mobSwitch(name, options = {}) {
     nc?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
     switchTab('vault', {persist: shouldPersistSubtab});
-  } else if (name === 'asr') {
-    if (mode !== 'echo') { setMode('echo', {restore: false, persist: shouldPersistSubtab}); }
-    if (shouldPersistSubtab) saveLastSubtab('echo', 'asr');
-    ec?.classList.add('mob-hidden');
-    cc?.classList.add('mob-hidden');
-    ac?.classList.add('mob-hidden');
-    ap?.classList.add('mob-hidden');
-    nc?.classList.add('mob-hidden');
-    pc.classList.remove('mob-hidden');
-    switchTab('asr', {persist: shouldPersistSubtab});
-  } else if (name === 'tts') {
-    if (mode !== 'echo') { setMode('echo', {restore: false, persist: shouldPersistSubtab}); }
-    if (shouldPersistSubtab) saveLastSubtab('echo', 'tts');
-    ec?.classList.add('mob-hidden');
-    cc?.classList.add('mob-hidden');
-    ac?.classList.add('mob-hidden');
-    ap?.classList.add('mob-hidden');
-    nc?.classList.add('mob-hidden');
-    pc.classList.remove('mob-hidden');
-    switchTab('tts', {persist: shouldPersistSubtab});
-  } else {
-    if (shouldPersistSubtab) {
-      if (mode === 'echo') saveLastSubtab('echo', name === 'models' ? 'models' : 'log');
-      else saveLastSubtab('chat', name === 'files' ? 'files' : name === 'skills' ? 'skills' : name === 'memory' ? 'memory' : name === 'models' ? 'models' : 'log');
-    }
-    cc.classList.add('mob-hidden');
-    ec?.classList.add('mob-hidden');
-    ac?.classList.add('mob-hidden');
-    ap?.classList.add('mob-hidden');
-    nc?.classList.add('mob-hidden');
-    pc.classList.remove('mob-hidden');
-    switchTab(name === 'files' ? 'files'
-      : name === 'skills' ? 'skills'
-      : name === 'memory' ? 'memory'
-      : name === 'models' ? 'models'
-      : 'log', {persist: shouldPersistSubtab});
   }
+  // asr/tts and the legacy log/skills/memory/models subtabs were moved into Forge/Nexus's own
+  // subtab rows (switchForgeTab/switchNexusTab); no mobile button routes those names here anymore.
 }
 
 // ── SKILL PROPOSALS ──
@@ -10006,11 +10007,11 @@ function _renderSkillProposals(proposals, stats) {
           <button onclick="discardSkillProposal(${i})" style="padding:5px 10px;font-size:11px;font-weight:600;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:4px;cursor:pointer">✕</button>
         </div>
       </div>`).join('');
-  // Skills タブに切り替えて提案をスクロール表示（モバイル対応）
-  const isMobile = window.innerWidth <= 768;
-  if (isMobile) mobSwitch('skills');
-  else switchTab('skills');
-  setTimeout(() => el.scrollIntoView({behavior:'smooth', block:'nearest'}), 150);
+  // Skill パネルは Nexus の subtab 行に統合済み。Nexus 表示中なら Skill タブへ切り替えてスクロール表示。
+  if (mode === 'nexus' && typeof switchNexusTab === 'function') {
+    switchNexusTab('skills');
+    setTimeout(() => el.scrollIntoView({behavior:'smooth', block:'nearest'}), 150);
+  }
 }
 
 async function saveSkillProposal(i) {

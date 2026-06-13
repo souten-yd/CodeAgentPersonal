@@ -31,18 +31,19 @@ def test_set_mode_persists_last_mode_after_validation():
     assert "options.persist !== false" in body
 
 
-def test_mode_aware_subtab_mapping_distinguishes_chat_and_echo_duplicates():
+def test_mode_aware_subtab_mapping_is_consolidated():
     assert "const MODE_SUBTAB_BUTTON_IDS" in UI
-    # Lumen (chat) is conversation-only now: its subtab map holds only the conversation tab, so the
-    # old chat/echo Log/Models duplication no longer exists on the chat side.
+    # Lumen (chat) is conversation-only: its subtab map holds only the conversation tab.
     chat_subtab_map = re.search(r"chat:\s*\{(?P<body>[^}]*)\}", UI, re.S).group("body")
     assert "mob-chat" in chat_subtab_map
     assert "mob-log" not in chat_subtab_map and "mob-models" not in chat_subtab_map
-    # Echo keeps its distinct -echo-suffixed ids.
-    assert re.search(r"echo:\s*\{[^}]*log:\s*'mob-log-echo'", UI, re.S)
-    assert re.search(r"echo:\s*\{[^}]*models:\s*'mob-models-echo'", UI, re.S)
+    # Echo is Vault-only now: Log → Nexus, Models/ASR/TTS → Forge (fully moved out of Echo).
+    echo_subtab_map = re.search(r"echo:\s*\{(?P<body>[^}]*)\}", UI, re.S).group("body")
+    assert "mob-vault" in echo_subtab_map
+    assert "mob-log-echo" not in echo_subtab_map and "mob-models-echo" not in echo_subtab_map
     assert "MODE_PANEL_TAB_BUTTON_IDS" in UI
-    assert "tab-btn-log-echo" in UI and "tab-btn-models-echo" in UI
+    # Echo's panel-tab mapping is reduced to Vault.
+    assert "tab-btn-log-echo" not in UI and "tab-btn-models-echo" not in UI
 
 
 def test_subtab_switching_saves_by_current_mode():
