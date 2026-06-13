@@ -114,7 +114,41 @@ def run(output_json: Path) -> dict[str, Any]:
 
     produced = sum(1 for r in gen_results if r.get("patch_content_available"))
     report["revised_generation_summary"] = {"items": len(gen_results), "produced_content": produced}
-    report["status"] = "reproduced_failure" if (gen_results and produced == 0) else "generation_ok"
+
+    # Mirror the panel's generate-ALL-then-apply-ALL flow: now safe-apply each generated item
+    # SEQUENTIALLY against the live file. If multiple items edit the same file, later items'
+    # stale old_string snapshots can drift -> edit_not_applicable -> safe_apply_not_applied.
+    from agent.atlas_file_safe_apply_executor import AtlasFileSafeApplyExecutor
+    from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+    storage = AtlasPlanPoolStorage(dd)
+    apply_results = []
+    appliable = [r for r in gen_results if r.get("patch_content_available")]
+    for r in appliable:
+        pool2 = storage.load_pool(pool_id)
+        item2 = pool2.get_item(r["item_id"])
+        try:
+            ares = AtlasFileSafeApplyExecutor(workspace_root=ws).apply_plan_item_safe(item=item2, pool=pool2)
+        except Exception as exc:  # noqa: BLE001
+            ares = {"status": "exception", "reasons": [str(exc)[:160]]}
+        rec = {"item_id": r["item_id"], "targets": list(item2.target_files or []),
+               "apply_status": ares.get("status"), "reasons": list(ares.get("reasons") or [])[:4],
+               "content_mode": (item2.metadata or {}).get("file_changes") and "file_changes"
+                               or ((item2.metadata or {}).get("edits") and "edits")
+                               or ((item2.metadata or {}).get("unified_diff_preview") and "unified_diff")
+                               or ((item2.metadata or {}).get("proposed_content") and "full_content") or "none"}
+        apply_results.append(rec)
+        print(f"[repro] apply {rec['item_id']} ({rec['content_mode']}) -> {rec['apply_status']} {rec['reasons']}", flush=True)
+    report["sequential_apply"] = apply_results
+    applied_ok = sum(1 for a in apply_results if a.get("apply_status") == "applied")
+    drift = [a for a in apply_results if a.get("apply_status") != "applied"]
+    report["sequential_apply_summary"] = {"items": len(apply_results), "applied": applied_ok, "not_applied": len(drift)}
+
+    if drift:
+        report["status"] = "reproduced_safe_apply_failure"
+    elif gen_results and produced == 0:
+        report["status"] = "reproduced_generation_failure"
+    else:
+        report["status"] = "ok_all_applied"
     report["finished_at"] = _now()
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -1372,9 +1372,22 @@
         authoritative_source: 'PlanPool',
       }), stages);
       updateStage(stages, 'patch', 'running', `0/${items.length}`);
+      // Interleaved generate -> approve -> apply+verify, ONE item at a time, so each patch is
+      // generated against the CURRENT file (including earlier items' applied edits). Generating ALL
+      // patches first and then applying them in a batch caused EDIT DRIFT (a later item's old_string
+      // no longer matched the file an earlier item had changed) -> safe_apply_not_applied.
+      const envelope = state.latestEnvelope || {};
+      const bounds = envelope.bounds || {};
       let generated = 0;
+      let appliedCount = 0;
+      let failedCount = 0;
       const genFailures = [];
       const appliableIds = [];
+      const perItemResults = [];
+      // User-facing checklist of the planned items (steps); updated as each one runs.
+      const planSteps = items.map((it) => ({ item_id: it.item_id || it.id, title: it.title || it.goal || it.item_id || it.id, state: 'pending', note: '' }));
+      renderPlanSteps(stages, planSteps);
+      const markStep = (idx, state, note) => { if (planSteps[idx]) { planSteps[idx].state = state; if (note != null) planSteps[idx].note = note; renderPlanSteps(stages, planSteps); } };
       for (let i = 0; i < items.length; i += 1) {
         const it = items[i];
         const itemId = it.item_id || it.id;
@@ -1382,6 +1395,7 @@
         // Show that THIS item is now being generated BEFORE the (potentially long /
         // slow LLM) call returns. Without this, the panel stays frozen on the previous
         // item's "N/total" until generation completes, so a slow item looks like a hang.
+        markStep(i, 'running', '生成中');
         updateStage(stages, 'patch', 'running', `${i}/${items.length} → 生成中 ${i + 1}`);
         renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
           phase: 'patch_generation',
@@ -1398,23 +1412,79 @@
           // update after a previous item reached the terminal "succeeded" state.
           patch_generation: { state: 'running', run_id: '' },
         }), stages);
-        const r = await root.AtlasPipelineAPI.generatePatchProposal({
-          pool_id: poolId,
-          item_id: itemId,
-          workspace_id: workspaceId(),
-          force_regenerate: true,
-        });
-        const prop = r && r.ok && r.data ? r.data.proposal : null;
-        const propMeta = (prop && prop.metadata) || {};
-        const resultMeta = (r && r.ok && r.data && r.data.metadata) || {};
-        const patchGeneration = resultMeta.patch_generation || propMeta.patch_generation || {};
-        const hasContent = patchGeneration.state === 'succeeded'
-          && patchGeneration.outcome === 'success'
-          && patchGeneration.patch_content_available === true;
+        // Generation can miss non-deterministically on a weak local model (e.g. a transient
+        // semantic_validation_failed) even for a real implementation item. A fresh attempt usually
+        // succeeds, so retry a content-required item before giving up — this is a generation
+        // reliability fix, NOT a no-op: the item IS meant to produce code.
+        const GEN_MAX_ATTEMPTS = 2;
+        let r = null, prop = null, propMeta = {}, resultMeta = {}, patchGeneration = {}, hasContent = false;
+        for (let attempt = 1; attempt <= GEN_MAX_ATTEMPTS && !hasContent; attempt += 1) {
+          if (attempt > 1) markStep(i, 'running', `生成リトライ ${attempt}/${GEN_MAX_ATTEMPTS}`);
+          r = await root.AtlasPipelineAPI.generatePatchProposal({
+            pool_id: poolId,
+            item_id: itemId,
+            workspace_id: workspaceId(),
+            force_regenerate: true,
+          });
+          prop = r && r.ok && r.data ? r.data.proposal : null;
+          propMeta = (prop && prop.metadata) || {};
+          resultMeta = (r && r.ok && r.data && r.data.metadata) || {};
+          patchGeneration = resultMeta.patch_generation || propMeta.patch_generation || {};
+          hasContent = patchGeneration.state === 'succeeded'
+            && patchGeneration.outcome === 'success'
+            && patchGeneration.patch_content_available === true;
+        }
         if (hasContent) {
           generated += 1;
           appliableIds.push(itemId);
+          updateStage(stages, 'patch', 'running', `${i + 1}/${items.length}`);
+          // Approve, then apply+verify THIS item immediately (single-item autopilot keeps
+          // self-correction / bounded-retry) so the NEXT item is generated against the updated file.
+          updateStage(stages, 'approve', 'running', `${generated}`);
+          await root.AtlasPipelineAPI.decidePatchProposal({ pool_id: poolId, item_id: itemId, decision: 'approved' });
+          markStep(i, 'running', '適用+検証中');
+          updateStage(stages, 'apply', 'running', `${appliedCount}/${generated}`);
+          // Keep the theme-colored indicator current during the (token-less) apply/verify of this item.
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('atlas:llm-progress', { detail: { phase: 'applying', tokens: 0, secondsSince: 0, poolId } }));
+          }
+          renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+            phase: 'applying', status: 'running', items_total: items.length, items_started: generated,
+            items_completed: appliedCount, current_item_index: i + 1, current_item_title: it.title || itemId,
+            message: `適用+検証 ${i + 1}/${items.length}`, next_actions: ['wait', 'cancel'],
+            authoritative_source: '/api/atlas/multi-item-autopilot/run',
+          }), stages);
+          let one;
+          try {
+            one = await root.AtlasPipelineAPI.runMultiItemAutopilot({
+              pool_id: poolId, item_ids: [itemId], policy_id: 'full_auto_multi_item_v1', max_items: 1,
+              max_runtime_seconds: bounds.max_runtime_seconds || 1800,
+              max_changed_files_total: bounds.max_files_changed || 25, dry_run: false, require_approval: false,
+              include_context_refresh: true, include_evaluator: true, include_bounded_retry: true,
+              include_self_correction: true, self_correction_max_attempts: 2,
+              metadata: { ui: 'atlas_claude_panel', envelope_id: envelope.envelope_id, interleaved: true },
+            });
+          } catch (err) { one = { ok: false, error: true, message: String(err) }; }
+          const od = (one && one.ok && one.data) || {};
+          const ir = (od.item_results || [])[0] || {};
+          const itemApplied = (od.completed_count || 0) > 0 || ir.status === 'applied' || ir.status === 'completed' || ir.reason === 'safe_apply_drift_recovered' || ir.reason === 'already_satisfied';
+          if (itemApplied) {
+            appliedCount += 1;
+            markStep(i, 'done', ir.reason === 'safe_apply_drift_recovered' ? '適用(再生成で回復)' : (ir.reason === 'already_satisfied' ? '既に反映済み' : '適用済み'));
+            updateStage(stages, 'apply', 'running', `${appliedCount}/${generated}`);
+            updateStage(stages, 'verify', 'running', `pass ${appliedCount}`);
+          } else {
+            failedCount += 1;
+            markStep(i, 'failed', _shortStepReason(ir.reason || (one && one.message) || 'failed'));
+          }
+          perItemResults.push({ item_id: itemId, status: ir.status || (one && one.ok ? 'unknown' : 'error'), reason: ir.reason || (one && one.message) || '' });
         } else {
+          // Still no content after retries. A real implementation item (has target_files) failing
+          // to generate is an HONEST failure that needs attention — not a benign skip. A genuine
+          // non-file/meta step (no target_files) is legitimately skipped.
+          const isFileItem = Array.isArray(it.target_files) && it.target_files.length > 0;
+          markStep(i, isFileItem ? 'failed' : 'skipped', isFileItem ? '生成失敗(リトライ後も内容なし)' : 'パッチ内容なし(スキップ)');
+          if (isFileItem) failedCount += 1;
           // Build a richer error: distinguish "no patch content" from HTTP/backend errors so the
           // user understands WHY an item will be skipped instead of seeing a cryptic skip later.
           let msg = formatError(r);
@@ -1470,143 +1540,35 @@
         }), stages);
         return;
       }
-      updateStage(stages, 'patch', 'done', `${generated}/${items.length}`);
-
-      // ── Stage 3: Approve items (only those with real patch content) ──
-      updateStage(stages, 'approve', 'running', `0/${appliableIds.length}`);
-      for (let i = 0; i < appliableIds.length; i += 1) {
-        await root.AtlasPipelineAPI.decidePatchProposal({
-          pool_id: poolId,
-          item_id: appliableIds[i],
-          decision: 'approved',
-        });
-        updateStage(stages, 'approve', 'running', `${i + 1}/${appliableIds.length}`);
-      }
-      updateStage(stages, 'approve', 'done', `${appliableIds.length}/${appliableIds.length}`);
-
-      // ── Stage 4: Autopilot (apply + verify) — only appliable items ──
-      const envelope = state.latestEnvelope || {};
-      const bounds = envelope.bounds || {};
-      const applyTotal = appliableIds.length;
-      updateStage(stages, 'apply', 'running', 'starting');
-      updateStage(stages, 'verify', 'pending', '');
+      // ── Finalize (apply+verify already happened inline, per item) ──
+      updateStage(stages, 'patch', generated > 0 ? 'done' : 'failed', `${generated}/${items.length}`);
+      updateStage(stages, 'approve', generated > 0 ? 'done' : 'pending', `${generated}/${generated}`);
+      updateStage(stages, 'apply', appliedCount > 0 ? 'done' : 'failed', `${appliedCount}/${generated}`);
+      updateStage(stages, 'verify', (appliedCount > 0 && failedCount === 0) ? 'done' : (appliedCount > 0 ? 'failed' : 'pending'), `pass ${appliedCount} / fail ${failedCount}`);
+      const summary = {
+        status: failedCount === 0 ? 'completed' : 'completed_with_failures',
+        processed_count: generated,
+        completed_count: appliedCount,
+        failed_count: failedCount,
+        item_results: perItemResults,
+      };
+      if (genFailures.length) summary.no_content_failures = genFailures;
+      renderPipelineSummary(stages, summary);
       renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
-        phase: 'applying',
-        status: 'running',
-        items_total: applyTotal,
-        items_started: 0,
-        items_completed: 0,
-        message: 'Autopilot run starting',
-        next_actions: ['wait', 'cancel'],
-        authoritative_source: '/api/atlas/multi-item-autopilot/run',
-      }), stages);
-      const autopilotPromise = root.AtlasPipelineAPI.runMultiItemAutopilot({
-        pool_id: poolId,
-        item_ids: appliableIds,
-        // Autonomous code-generation run: allow low/medium/high-risk create/update items so a real
-        // program (not just trivial low-risk steps) can be built end-to-end.
-        policy_id: 'full_auto_multi_item_v1',
-        max_items: Math.min(bounds.max_actions_per_loop || 20, applyTotal),
-        max_runtime_seconds: bounds.max_runtime_seconds || 1800,
-        max_changed_files_total: bounds.max_files_changed || 25,
-        dry_run: false,
-        require_approval: false,
-        include_context_refresh: true,
-        include_evaluator: true,
-        include_bounded_retry: true,
-        include_self_correction: true,
-        self_correction_max_attempts: 2,
-        metadata: { ui: 'atlas_claude_panel', envelope_id: envelope.envelope_id },
-      });
-      // Concurrent polling: peek at the persisted autopilot result every 1.5s
-      // and surface item-by-item progress while the synchronous run completes.
-      const pollTimer = setInterval(async () => {
-        try {
-          const peek = await root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult({ pool_id: poolId });
-          if (peek && peek.ok && peek.data) {
-            const processed = peek.data.processed_count || 0;
-            const completed = peek.data.completed_count || 0;
-            const failed = peek.data.failed_count || 0;
-            // Keep the theme-colored generation indicator current through apply/verify (no token
-            // generation here, so phase-only) so it stays visible across the whole dev phase.
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('atlas:llm-progress', {
-                detail: { phase: (completed + failed > 0 ? 'verifying' : 'applying'), tokens: 0, secondsSince: 0, poolId },
-              }));
-            }
-            updateStage(stages, 'apply', processed >= applyTotal ? 'done' : 'running', `${processed}/${applyTotal}`);
-            if (completed + failed > 0) {
-              updateStage(stages, 'verify', processed >= applyTotal ? 'done' : 'running', `pass ${completed} / fail ${failed}`);
-            }
-            renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
-              phase: completed + failed > 0 ? 'verifying' : 'applying',
-              status: peek.data.status || 'running',
-              run_id: peek.data.run_id || '',
-              autopilot_run_id: peek.data.autopilot_run_id || '',
-              items_total: applyTotal,
-              items_started: processed,
-              items_completed: completed,
-              message: `Autopilot ${peek.data.status || 'running'}`,
-              error: peek.data.stop_reason || '',
-              next_actions: ['wait', 'cancel'],
-              authoritative_source: 'multi_item_autopilot_result',
-            }), stages);
-          }
-        } catch (err) {
-          console.warn('Atlas autopilot polling failed', err);
-          renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
-            phase: 'failed',
-            status: 'failed',
-            items_total: applyTotal,
-            message: 'Run status unavailable',
-            error: 'endpoint=/api/atlas/multi-item-autopilot/latest',
-            requires_user_action: true,
-            next_actions: ['retry', 'cancel'],
-          }), stages);
-        }
-      }, 1500);
-      const result = await autopilotPromise;
-      clearInterval(pollTimer);
-
-      if (!result.ok) {
-        updateStage(stages, 'apply', 'failed', formatError(result));
-        renderPipelineSummary(stages, { status: 'autopilot_failed', error: formatError(result), genFailures });
-        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
-          phase: 'failed',
-          status: 'failed',
-          items_total: applyTotal,
-          message: 'Autopilot failed before applying the first item',
-          error: formatError(result),
-          requires_user_action: true,
-          next_actions: ['retry', 'revise plan', 'cancel'],
-          authoritative_source: '/api/atlas/multi-item-autopilot/run',
-        }), stages);
-        return;
-      }
-      const d = result.data || {};
-      // Surface items that had no patch content so the summary explains why they were not applied.
-      if (genFailures.length) d.no_content_failures = genFailures;
-      updateStage(stages, 'apply', 'done', `${d.processed_count || 0} processed`);
-      const verifyStatus = (d.failed_count || 0) === 0 ? 'done' : 'failed';
-      updateStage(stages, 'verify', verifyStatus, `pass ${d.completed_count || 0} / fail ${d.failed_count || 0}`);
-      renderPipelineSummary(stages, d);
-      renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
-        phase: (d.failed_count || 0) === 0 ? 'completed' : 'failed',
-        status: d.status || ((d.failed_count || 0) === 0 ? 'completed' : 'failed'),
-        run_id: d.run_id || '',
-        autopilot_run_id: d.autopilot_run_id || '',
-        items_total: applyTotal,
-        items_started: d.processed_count || 0,
-        items_completed: d.completed_count || 0,
-        message: `Autopilot ${d.status || 'completed'}`,
-        error: (d.failed_count || 0) ? (d.stop_reason || 'verification_failed') : '',
-        requires_user_action: (d.failed_count || 0) > 0,
-        next_actions: (d.failed_count || 0) > 0 ? ['retry', 'revise plan', 'cancel'] : [],
+        phase: failedCount === 0 ? 'completed' : 'failed',
+        status: summary.status,
+        items_total: items.length,
+        items_started: generated,
+        items_completed: appliedCount,
+        message: `完了 ${appliedCount} / 失敗 ${failedCount}（生成 ${generated}/${items.length}）`,
+        error: failedCount ? 'safe_apply_or_verify_failed' : '',
+        requires_user_action: failedCount > 0,
+        next_actions: failedCount > 0 ? ['retry', 'revise plan', 'cancel'] : [],
         authoritative_source: 'multi_item_autopilot_result',
-        failed_phase: (d.failed_count || 0) > 0 ? 'verify' : undefined,
+        failed_phase: failedCount > 0 ? 'verify' : undefined,
       }), stages);
       // Persist run pointer so the result block re-renders after a reload.
-      persistMeta({ active_pool_id: poolId, latest_autopilot_run_id: d.autopilot_run_id || '' });
+      persistMeta({ active_pool_id: poolId });
     } finally {
       setBusy(false);
     }
@@ -1621,7 +1583,7 @@
     { id: 'verify', label: 'Verify' },
     { id: 'summary', label: 'Summary' },
   ];
-  const STATE_ICONS = { pending: '·', running: '⟳', done: '✓', failed: '✗' };
+  const STATE_ICONS = { pending: '·', running: '⟳', done: '✓', failed: '✗', skipped: '–' };
 
   function appendStageBlock(poolId) {
     if (!dom.transcript) return null;
@@ -1653,13 +1615,56 @@
       row.append(icon, label, detail);
       list.appendChild(row);
     });
+    const planSteps = document.createElement('div');
+    planSteps.className = 'atlas-claude-plan-steps';
+    planSteps.dataset.role = 'plan-steps';
     const summary = document.createElement('div');
     summary.className = 'atlas-claude-summary-block';
     summary.dataset.role = 'summary';
-    block.append(list, summary);
+    block.append(list, planSteps, summary);
     dom.transcript.appendChild(block);
     dom.transcript.scrollTop = dom.transcript.scrollHeight;
     return block;
+  }
+
+  // Compact, user-facing checklist of the PLAN ITEMS (steps) and which one is running now:
+  // ✓ done, ⟳ running, ✗ failed, · pending. Replaces verbose diagnostics as the primary view.
+  function renderPlanSteps(block, steps) {
+    if (!block) return;
+    const host = block.querySelector('.atlas-claude-plan-steps');
+    if (!host) return;
+    host.innerHTML = '';
+    (steps || []).forEach((s, idx) => {
+      const row = document.createElement('div');
+      row.className = 'atlas-claude-plan-step';
+      row.dataset.state = s.state || 'pending';
+      const icon = document.createElement('span');
+      icon.className = 'atlas-claude-plan-step-icon';
+      icon.textContent = STATE_ICONS[s.state] || '·';
+      const label = document.createElement('span');
+      label.className = 'atlas-claude-plan-step-label';
+      label.textContent = `${idx + 1}. ${s.title || s.item_id || 'step'}`;
+      row.append(icon, label);
+      if (s.note) {
+        const note = document.createElement('span');
+        note.className = 'atlas-claude-plan-step-note';
+        note.textContent = s.note;
+        row.append(note);
+      }
+      host.appendChild(row);
+    });
+    if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  // Map an internal reason/code to a short, user-facing note for the step checklist.
+  function _shortStepReason(reason) {
+    const r = String(reason || '').toLowerCase();
+    if (r.includes('safe_apply_not_applied') || r.includes('edit_not_applicable')) return '適用できず';
+    if (r.includes('verification_failed') || r.includes('browser_smoke')) return '検証に失敗';
+    if (r.includes('missing_patch_or_content')) return 'パッチ内容なし';
+    if (r.includes('blocked')) return 'ブロック';
+    if (r.includes('network') || r.includes('timeout')) return '接続エラー';
+    return '失敗';
   }
 
   function updateStage(block, stageId, stateName, detail) {
@@ -1806,13 +1811,12 @@
         rows.push(`現在: ${view.current_item_index || 0}. ${view.current_item_title}`);
       }
       if (hasProblem) {
-        if (view.block_reason) rows.push(`ブロック理由: ${view.block_reason}`);
-        if (view.error) rows.push(`エラー: ${view.error}`);
-        if (view.message) rows.push(`詳細: ${view.message}`);
-        if (incomingPatch.strategy) rows.push(`repair strategy: ${incomingPatch.strategy}`);
-        if (incomingPatch.attempt) rows.push(`attempt: ${incomingPatch.attempt}`);
-        rows.push(`必要な操作: ${(view.next_actions || ['wait']).join(', ') || 'wait'}`);
-        rows.push(`pool_id: ${view.pool_id || '-'} / run_id: ${view.autopilot_run_id || view.run_id || '-'} / source: ${view.authoritative_source || 'PlanPool'}`);
+        // Concise, user-facing: a single reason line + the recommended next action. Internal
+        // diagnostics (pool_id / run_id / source / repair strategy/attempt) are intentionally
+        // omitted — the step checklist above already shows which item failed and why.
+        const reason = view.block_reason || view.error || view.message || '';
+        if (reason) rows.push(`理由: ${String(reason).slice(0, 200)}`);
+        rows.push(`推奨操作: ${(view.next_actions || ['wait']).join(', ') || 'wait'}`);
       }
       rows.filter(Boolean).forEach((text) => {
         const div = document.createElement('div');

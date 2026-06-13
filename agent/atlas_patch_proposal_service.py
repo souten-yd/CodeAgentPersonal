@@ -659,14 +659,31 @@ class AtlasPatchProposalService:
             if smoke_meta:
                 diag = smoke_meta.get("diagnostics") or {}
                 canvas_diag = diag.get("canvas") or {}
+                console_errors = [str(e) for e in (smoke_meta.get("console_errors") or []) if str(e).strip()][:8]
                 feedback["browser_smoke_result"] = {
                     "status": smoke_meta.get("status", ""),
                     "reason": smoke_meta.get("reason", ""),
                     "style_changed": bool(diag.get("style_changed")),
                     "canvas_changed": bool(canvas_diag.get("changed")),
                     "canvas_present": bool(canvas_diag.get("present")),
-                    "console_errors": list((smoke_meta.get("console_errors") or [])[:3]),
+                    "console_errors": console_errors,
                 }
+                # Claude-style targeted repair: put the EXACT console / page errors front-and-center
+                # in the instruction (de-duplicated) so a weak model fixes the specific failing line
+                # instead of guessing. Without this the errors sit in a nested dict the model ignores.
+                if console_errors:
+                    seen: list[str] = []
+                    for err in console_errors:
+                        trimmed = err.strip()[:300]
+                        if trimmed and trimmed not in seen:
+                            seen.append(trimmed)
+                    bullet = "\n".join(f"  - {e}" for e in seen[:6])
+                    feedback["instruction"] = (
+                        f"{feedback['instruction']}\n\nThe browser reported these EXACT JavaScript "
+                        f"errors at runtime — fix the specific cause of EACH one (a missing/renamed "
+                        f"symbol, an undefined variable, a bad selector, a wrong import path, or a "
+                        f"call before definition):\n{bullet}"
+                    )
             vc_meta = vr_meta.get("visual_contract") or {}
             missing = list(vc_meta.get("missing") or [])
             if missing:
@@ -1294,6 +1311,17 @@ class AtlasPatchProposalService:
         quality_findings = self._generation_quality_findings(input_payload, content_by_path, metadata)
         for finding in quality_findings:
             reason = str(finding.get("reason") or finding.get("type") or "generation_quality_failed")
+            # requirement_evidence_mismatch is a BRITTLE token match: it flags a requirement the model
+            # CLAIMED to satisfy whose description words are not a literal substring of the code — but a
+            # feature is routinely implemented under a different name (Enemy vs "enemy ships", foe, alien).
+            # Like known_limitations above, hard-failing it punishes real, working code (it blocked the
+            # enemy/bullet game steps). Coverage is recomputed deterministically by claim sanitization,
+            # so record it as advisory instead of failing the whole patch. Genuine non-implementation is
+            # still caught by the stub / placeholder / trivial-body / AST / HTML checks.
+            if str(finding.get("type")) == "requirement_evidence_mismatch":
+                req_id = str(finding.get("requirement_id") or "")
+                advisories.append(f"{reason}:{req_id}" if req_id else reason)
+                continue
             path = str(finding.get("path") or "")
             reasons.append(f"{reason}:{path}" if path else reason)
         return {
