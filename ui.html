@@ -1296,7 +1296,16 @@
 
   <!-- FORGE (Model Forge) — hidden by default; shown only in Forge mode -->
   <div class="forge-col mob-hidden" id="forge-col" style="display:none" data-mode-panel="forge" aria-label="Forge">
-    <div class="forge-shell">
+    <!-- Forge subtab row: Overview (forge.js shell) + Models/ASR/TTS (Lumen/Echo panels moved here) -->
+    <div class="forge-subtab-row">
+      <div class="nexus-subtabs">
+        <button class="nexus-subtab active" id="forge-subtab-overview" data-forge-tab="overview" onclick="switchForgeTab('overview')">Overview</button>
+        <button class="nexus-subtab" id="forge-subtab-models" data-forge-tab="models" onclick="switchForgeTab('models')">Models</button>
+        <button class="nexus-subtab" id="forge-subtab-asr" data-forge-tab="asr" onclick="switchForgeTab('asr')">ASR</button>
+        <button class="nexus-subtab" id="forge-subtab-tts" data-forge-tab="tts" onclick="switchForgeTab('tts')">TTS</button>
+      </div>
+    </div>
+    <div class="forge-shell" id="forge-shell">
       <div class="forge-head">
         <div class="forge-title">Forge</div>
         <div class="forge-head-actions">
@@ -1306,6 +1315,8 @@
       <div class="forge-status" id="forge-status" role="status" aria-live="polite"></div>
       <div class="forge-body" id="forge-body" aria-label="Forge overview"></div>
     </div>
+    <!-- Host for the relocated Models/ASR/TTS panels (filled at load from panel-col; same inner IDs + JS) -->
+    <div class="forge-panel-host" id="forge-panel-host" style="display:none"></div>
   </div>
 
   <!-- PANEL -->
@@ -1315,11 +1326,9 @@
       <!-- Chat/Task tabs removed: Lumen is conversation-only; Log/Skill/Memory/Models live in Nexus/Forge. -->
       <!-- Echo モード用タブ: Vault のみ残す。Log は Nexus、Models/ASR/TTS は Forge へ完全移動。 -->
       <button class="tab-btn" id="tab-btn-vault" onclick="switchTab('vault')" style="display:none">Vault</button>
-      <!-- Forge モード用タブ (Lumen Models + Echo ASR/TTS を Forge に集約。デフォルト非表示) -->
-      <button class="tab-btn" id="tab-btn-forge-models" onclick="switchTab('models')" style="display:none">Models</button>
-      <button class="tab-btn" id="tab-btn-forge-asr" onclick="switchTab('asr')" style="display:none">ASR</button>
-      <button class="tab-btn" id="tab-btn-forge-tts" onclick="switchTab('tts')" style="display:none">TTS</button>
-      <!-- Nexus Memory/Skill は nexus-col の subtab 行へ統合済み (panel-col では扱わない) -->
+      <!-- Forge Models/ASR/TTS は forge-col の subtab 行へ完全移動 (panel-col では扱わない) -->
+      <!-- Nexus Memory/Skill/Log も nexus-col の subtab 行へ移動済み -->
+      <!-- panel-col に残るのは Echo Vault と共通の output/preview/git のみ -->
       <div class="tab-spacer"></div>
       <span class="tab-label" id="tab-label">—</span>
     </div>
@@ -2495,7 +2504,7 @@ const UI_LAST_MODE_KEY = 'kasane:lastMode';
 const UI_LAST_SUBTABS_KEY = 'kasane:lastSubtabsByMode';
 const UI_VALID_MODES = ['chat','atlas','echo','nexus','forge','portal','agent'];
 const UI_PRIMARY_MODES = ['chat','atlas','echo','nexus','forge','portal'];
-const UI_MODE_DEFAULT_SUBTABS = {chat: 'chat', echo: 'echo', atlas: 'start', nexus: 'dashboard', portal: 'catalog', forge: 'models'};
+const UI_MODE_DEFAULT_SUBTABS = {chat: 'chat', echo: 'echo', atlas: 'start', nexus: 'dashboard', portal: 'catalog', forge: 'overview'};
 const UI_MODE_SUBTABS = {
   // Lumen は会話のみ。Log/Skill/Memory/Models のサブタブは Nexus/Forge に集約済み。
   chat: ['chat'],
@@ -2505,9 +2514,9 @@ const UI_MODE_SUBTABS = {
   // same row, so they persist/restore alongside research/library/evidence/reports/settings.
   nexus: ['dashboard','research','library','evidence','reports','settings','memory','skills','log'],
   portal: ['catalog'],
-  // Forge consolidates the model/speech management panels (Lumen Models + Echo ASR/TTS) so they
-  // are reachable from the Forge mode panel without leaving Forge. Same panels/JS/endpoints.
-  forge: ['models','asr','tts'],
+  // Forge owns Overview (forge.js shell) + the relocated Lumen Models + Echo ASR/TTS panels in its
+  // own subtab row (switchForgeTab). Same panels/JS/endpoints.
+  forge: ['overview','models','asr','tts'],
 };
 let asrRuntimeConfig = {is_windows:false,is_runpod:false,gpu_vendor:'unknown',asr_engine:'faster_whisper',whisper_cpp_ready:false};
 const CHAT_TASK_TOGGLE_KEY = 'chat_task_enabled';
@@ -5884,6 +5893,8 @@ _echoRefreshStatusLine();
   if (mode === 'task') mode = 'chat';
   syncChatTaskToggle();
   syncAllTtsToggles();
+  // Relocate the Forge panels (Models/ASR/TTS) into forge-col before restore can enter Forge mode.
+  relocateForgePanels();
   // Restore persisted mode/subtab before async startup work can delay or abort later init.
   restoreUiNavigationState();
   localStorage.removeItem('llm_endpoints'); // 旧LLMエンドポイント設定をクリーンアップ
@@ -6116,8 +6127,8 @@ function formatModelShortName(name) {
 const _CHAT_PANEL_TAB_IDS = [];
 // Echo モード用パネルタブID
 const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault'];
-// Forge モード用パネルタブID (Lumen Models + Echo ASR/TTS を Forge に集約)
-const _FORGE_PANEL_TAB_IDS = ['tab-btn-forge-models','tab-btn-forge-asr','tab-btn-forge-tts'];
+// Forge モード用パネルタブID: Models/ASR/TTS は forge-col の subtab 行へ移動済みのため panel-col では空。
+const _FORGE_PANEL_TAB_IDS = [];
 // Nexus モード用パネルタブID: Memory/Skill は nexus-col の subtab 行へ統合済みのため panel-col では空。
 const _NEXUS_PANEL_TAB_IDS = [];
 // Chat/Task モード用モバイルタブID
@@ -6154,12 +6165,8 @@ const MODE_PANEL_TAB_BUTTON_IDS = {
   echo: {
     vault: 'tab-btn-vault',
   },
-  forge: {
-    models: 'tab-btn-forge-models',
-    asr: 'tab-btn-forge-asr',
-    tts: 'tab-btn-forge-tts',
-  },
-  // Nexus Memory/Skill moved to the nexus-col subtab row (switchNexusTab), not panel-col tabs.
+  // Forge Models/ASR/TTS moved to the forge-col subtab row (switchForgeTab), not panel-col tabs.
+  // Nexus Memory/Skill/Log moved to the nexus-col subtab row (switchNexusTab), not panel-col tabs.
 };
 
 function isValidUiMode(m) {
@@ -6596,22 +6603,23 @@ function setMode(m, options = {}) {
     panelCol?.classList.add('chat-task-tabs-equal');
     chatCol.style.display  = 'none';
     echoCol.style.display  = 'none';
-    // Show the side panel in Forge so the consolidated Models / ASR / TTS tabs are reachable
-    // without leaving Forge mode (desktop). Mobile re-hides the panel below, as before.
-    panelCol.style.display = '';
+    // Forge owns its panels (Overview shell + relocated Models/ASR/TTS) in forge-col's subtab row,
+    // so the shared side panel-col is not used here (works on desktop AND mobile).
+    panelCol.style.display = 'none';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
     if (forgeCol) forgeCol.style.display = '';
-    if (resizer) resizer.style.display = '';
+    if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
-    // Reuse the existing Models/ASR/TTS panels (same JS + endpoints) — restore the last Forge
-    // subtab or fall back to Models.
-    if (shouldRestoreSubtab && window.innerWidth > 768) {
-      switchTab(getLastSubtabForMode('forge') || 'models', {persist: shouldPersistMode});
+    // Restore the last Forge subtab (overview/models/asr/tts) — switchForgeTab also activates the
+    // forge.js Overview shell when needed.
+    {
+      const _fsub = (typeof getLastSubtabForMode === 'function') ? getLastSubtabForMode('forge') : '';
+      const _fvalid = ['overview','models','asr','tts'];
+      switchForgeTab(_fvalid.includes(_fsub) ? _fsub : (window._forgeTab || 'overview'));
     }
-    try { window.Forge?.activate?.(); } catch (_e) {}
   } else if (m === 'portal') {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
@@ -6803,6 +6811,45 @@ function switchNexusTab(name) {
 
 function showNexusTab(name) {
   return switchNexusTab(name);
+}
+
+// ── FORGE SUBTABS ──
+// Forge hosts its own Overview (forge.js shell) plus the relocated Lumen Models + Echo ASR/TTS
+// panels in a single subtab row. The panels keep their original IDs (#tab-models/#tab-asr/#tab-tts)
+// and JS (refreshModelDb/refreshAsrTab/refreshTtsTab); they are moved into #forge-panel-host at load
+// so forge.js (which rewrites #forge-body) never clobbers them.
+function relocateForgePanels() {
+  const host = document.getElementById('forge-panel-host');
+  if (!host) return;
+  ['tab-models', 'tab-asr', 'tab-tts'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && el.parentElement !== host) host.appendChild(el);
+  });
+}
+
+function switchForgeTab(name) {
+  const tabs = ['overview', 'models', 'asr', 'tts'];
+  const target = tabs.includes(name) ? name : 'overview';
+  window._forgeTab = target;
+  document.querySelectorAll('[data-forge-tab]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.forgeTab === target);
+  });
+  const shell = document.getElementById('forge-shell');
+  const host = document.getElementById('forge-panel-host');
+  const isOverview = target === 'overview';
+  if (shell) shell.style.display = isOverview ? '' : 'none';
+  if (host) host.style.display = isOverview ? 'none' : '';
+  if (mode === 'forge' && typeof saveLastSubtab === 'function') saveLastSubtab('forge', target);
+  if (isOverview) {
+    try { window.Forge?.activate?.(); } catch (_e) {}
+    return;
+  }
+  // Show the selected panel inside the host and trigger its existing refresh.
+  host?.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active'));
+  document.getElementById('tab-' + target)?.classList.add('active');
+  if (target === 'models' && typeof refreshModelDb === 'function') refreshModelDb();
+  if (target === 'asr' && typeof refreshAsrTab === 'function') refreshAsrTab();
+  if (target === 'tts' && typeof refreshTtsTab === 'function') refreshTtsTab();
 }
 
 

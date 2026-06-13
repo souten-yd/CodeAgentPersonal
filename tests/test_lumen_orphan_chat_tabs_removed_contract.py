@@ -41,10 +41,6 @@ def test_chat_mobile_tab_id_list_is_conversation_only():
 
 
 def test_other_modes_keep_their_own_tab_buttons():
-    # Sanity: Forge still owns its dedicated panel buttons. (Nexus Memory/Skill/Log moved to the
-    # nexus-col subtab row; Echo was reduced to Vault-only, so its log/models-echo buttons are gone.)
-    for kept in (
-        'id="tab-btn-forge-models"',
-        'id="tab-btn-vault"',
-    ):
-        assert kept in UI_HTML, f"{kept} must be retained"
+    # After the full consolidation the only panel-col tab button left is Echo's Vault; Nexus
+    # (Memory/Skill/Log) and Forge (Models/ASR/TTS) own their panels in their own subtab rows.
+    assert 'id="tab-btn-vault"' in UI_HTML
