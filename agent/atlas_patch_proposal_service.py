@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
+from agent.atlas_interface_contract import app_is_interface_coupled, build_app_interface_contract, render_contract_for_prompt
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_llm_json_adapter import call_llm_json
 from agent.atlas_llm_schemas import patch_proposal_json_schema
@@ -431,6 +432,47 @@ class AtlasPatchProposalService:
             return {"symbols": [], "related_tests": []}
         return out
 
+    def _ensure_app_interface_contract(self, pool: AtlasPlanPool, current_targets: dict | None) -> dict:
+        """Lazily build (once) and cache the shared interface contract on the pool, for apps where
+        several items edit the same file (the integration-risk case). Cached on pool.metadata so it is
+        generated once and injected into every item's generation. Failure is non-fatal (returns {})."""
+        meta = pool.metadata if isinstance(pool.metadata, dict) else {}
+        existing = meta.get("app_interface_contract")
+        if isinstance(existing, dict) and existing.get("entities"):
+            return existing
+        if meta.get("app_interface_contract_skipped") or self.llm_json_fn is None:
+            return {}
+        items = list(pool.items or [])
+        if not app_is_interface_coupled(items):
+            meta["app_interface_contract_skipped"] = True
+            pool.metadata = meta
+            return {}
+        target_files: list[str] = []
+        for it in items:
+            target_files.extend(str(p) for p in (getattr(it, "target_files", []) or []))
+        existing_content = {
+            str(path): str((entry or {}).get("content") or "")
+            for path, entry in dict(current_targets or {}).items()
+            if str((entry or {}).get("content") or "").strip()
+        }
+        contract = build_app_interface_contract(
+            goal=str(pool.root_goal or ""),
+            item_titles=[str(getattr(it, "title", "") or getattr(it, "goal", "") or "") for it in items],
+            target_files=target_files,
+            llm_json_fn=self.llm_json_fn,
+            existing_content=existing_content or None,
+        )
+        if contract:
+            meta["app_interface_contract"] = contract
+        else:
+            meta["app_interface_contract_skipped"] = True
+        pool.metadata = meta
+        try:
+            self.storage.save_pool(pool)
+        except Exception:  # noqa: BLE001
+            pass
+        return contract or {}
+
     def build_proposal_input(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
         source_type = self._effective_source_type(item, request)
         debug_review = (item.metadata or {}).get("debug_review") or {}
@@ -464,6 +506,9 @@ class AtlasPatchProposalService:
             "root_goal": pool.root_goal,
             "original_user_request": getattr(pool, "original_user_request", "") or (pool.metadata or {}).get("original_user_request", "") or pool.root_goal,
             "selected_architecture": getattr(pool, "selected_architecture", "") or (pool.metadata or {}).get("selected_architecture", ""),
+            # Shared interface contract so every step that edits the same file integrates (new files:
+            # a defined contract; existing files: extracted from the real code). See ① / digital twin.
+            "app_interface_contract": self._ensure_app_interface_contract(pool, current_targets),
             "global_constraints": list(getattr(pool, "global_constraints", []) or (pool.metadata or {}).get("global_constraints") or (pool.metadata or {}).get("constraints") or []),
             "all_requirements": requirements,
             "requirements_for_this_item": requirements_for_item,
@@ -858,6 +903,21 @@ class AtlasPatchProposalService:
                 "or an object shape that does not exist in that content. If the implementation uses module-level "
                 "functions and globals rather than a class, test it the same way."
             )
+        # ① Shared interface contract: this app is built by multiple steps editing the same file, so
+        # each step must implement/consume the SAME entities, identifiers and wiring or the result does
+        # not integrate (enemies never spawn, the player is misplaced). Inject it prominently.
+        contract = input_payload.get("app_interface_contract")
+        if isinstance(contract, dict) and contract.get("entities"):
+            rendered_contract = render_contract_for_prompt(contract)
+            if rendered_contract:
+                base_task += (
+                    "\n\nSHARED INTERFACE CONTRACT — this app is built by several steps that all edit "
+                    "the same file. Implement THIS step's part of the contract and WIRE it in, reusing "
+                    "the EXACT identifiers, methods, properties and the main-loop/init wiring below so "
+                    "every step integrates. Do NOT invent parallel names or a different object shape, "
+                    "and do NOT drop existing entities already wired in the current content:\n"
+                    + rendered_contract
+                )
         content_required = self._plan_item_requires_content(input_payload)
         output_schema = patch_proposal_json_schema(require_content=content_required)
         # If this is a self-correction regeneration, surface the failing verification output so the
