@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.api.atlas_root import resolve_atlas_ca_data_root
+from agent.atlas_codegen_progress import read_progress, write_progress
 from agent.atlas_auto_safe_apply_service import AtlasAutoSafeApplyService
 from agent.atlas_auto_verification_service import AtlasAutoVerificationService
 from agent.atlas_automation_gate_service import AtlasAutomationGateService
@@ -141,6 +143,19 @@ def run(payload: AtlasMultiItemAutopilotRequest, request: Request):
         AtlasPlanPoolStorage(root).load_pool(payload.pool_id)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=404, detail={"error": "pool_not_found", "reason": f"pool_not_found:{payload.pool_id}"}) from exc
+    # Inject the data root + a progress key so the service writes live sub-phase progress
+    # (context_refresh / safe_apply / verification / self_correction) that the UI can poll, instead of
+    # looking "stuck at apply" during the long synchronous apply+verify+repair.
+    progress_run_id = payload.run_id or f"autopilot_{uuid4().hex[:10]}"
+    payload.run_id = progress_run_id
+    meta = dict(payload.metadata or {})
+    meta.setdefault("data_root", str(root))
+    meta["orchestrator_run_id"] = progress_run_id
+    payload.metadata = meta
+    write_progress(root, payload.pool_id, progress_run_id, {
+        "run_id": progress_run_id, "orchestrator_run_id": progress_run_id,
+        "phase": "candidate_apply", "sub_phase": "starting", "status": "running", "last_event": "autopilot_started",
+    })
     # Build + run inside a guard: surface service/executor wiring failures as a structured 500 rather
     # than leaking an unhandled exception (the "Apply: Internal Server Error" the user saw).
     try:
@@ -152,6 +167,29 @@ def run(payload: AtlasMultiItemAutopilotRequest, request: Request):
             status_code=500,
             detail={"error": "autopilot_failed", "reason": f"{exc.__class__.__name__}: {exc}"[:300]},
         ) from exc
+
+
+@router.get("/progress")
+def get_progress(request: Request, pool_id: str = Query(...), run_id: str = Query(...)) -> dict:
+    """Live sub-phase progress of a synchronous autopilot run, so the UI can show what is executing
+    now (applying / browser-smoke verifying / auto-repairing) instead of a static "apply"."""
+    pool_id = _validate_id(pool_id, "pool_id")
+    progress = read_progress(resolve_atlas_ca_data_root(request), pool_id, run_id)
+    if not progress:
+        return {"pool_id": pool_id, "run_id": run_id, "found": False}
+    return {
+        "pool_id": pool_id,
+        "run_id": run_id,
+        "found": True,
+        "phase": progress.get("phase", ""),
+        "sub_phase": progress.get("sub_phase", ""),
+        "last_event": progress.get("last_event", ""),
+        "attempt": int(progress.get("attempt") or 0),
+        "current_item_index": int(progress.get("current_item_index") or 0),
+        "total_items": int(progress.get("total_items") or 0),
+        "status": progress.get("status", ""),
+        "heartbeat_at": progress.get("heartbeat_at", ""),
+    }
 
 
 @router.get("/results/{pool_id}/{autopilot_run_id}")

@@ -1455,9 +1455,26 @@
             authoritative_source: '/api/atlas/multi-item-autopilot/run',
           }), stages);
           let one;
+          // The single-item apply+verify+self-correct call is synchronous and can take minutes (browser
+          // smoke + LLM repair). Poll the server's live SUB-PHASE so the step shows WHAT is executing
+          // now (適用中 / ブラウザスモーク検証中 / 不具合を自動修正中) instead of looking "stuck at apply".
+          const autopilotRunId = `interleaved_${itemId}_${Date.now().toString(36)}`;
+          let _hbSec = 0;
+          const _applyHeartbeat = setInterval(async () => {
+            _hbSec += 2;
+            let label = '適用+検証中';
+            try {
+              const pr = await root.AtlasPipelineAPI.getMultiItemAutopilotProgress(poolId, autopilotRunId);
+              if (pr && pr.ok && pr.data && pr.data.found) label = _autopilotSubPhaseLabel(pr.data);
+            } catch (_) { /* keep generic label */ }
+            markStep(i, 'running', `${label}… ${_hbSec}s`);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('atlas:llm-progress', { detail: { phase: label, tokens: 0, secondsSince: 0, poolId } }));
+            }
+          }, 2000);
           try {
             one = await root.AtlasPipelineAPI.runMultiItemAutopilot({
-              pool_id: poolId, item_ids: [itemId], policy_id: 'full_auto_multi_item_v1', max_items: 1,
+              pool_id: poolId, run_id: autopilotRunId, item_ids: [itemId], policy_id: 'full_auto_multi_item_v1', max_items: 1,
               max_runtime_seconds: bounds.max_runtime_seconds || 1800,
               max_changed_files_total: bounds.max_files_changed || 25, dry_run: false, require_approval: false,
               include_context_refresh: true, include_evaluator: true, include_bounded_retry: true,
@@ -1465,6 +1482,7 @@
               metadata: { ui: 'atlas_claude_panel', envelope_id: envelope.envelope_id, interleaved: true },
             });
           } catch (err) { one = { ok: false, error: true, message: String(err) }; }
+          finally { clearInterval(_applyHeartbeat); }
           const od = (one && one.ok && one.data) || {};
           const ir = (od.item_results || [])[0] || {};
           const itemApplied = (od.completed_count || 0) > 0 || ir.status === 'applied' || ir.status === 'completed' || ir.reason === 'safe_apply_drift_recovered' || ir.reason === 'already_satisfied';
@@ -1666,6 +1684,25 @@
     if (r.includes('blocked')) return 'ブロック';
     if (r.includes('network') || r.includes('timeout')) return '接続エラー';
     return '失敗';
+  }
+
+  // Map the autopilot's live sub-phase to a short, user-facing "what is running now" label.
+  function _autopilotSubPhaseLabel(p) {
+    const sp = String((p && p.sub_phase) || '').toLowerCase();
+    const attempt = Number((p && p.attempt) || 0);
+    const map = {
+      starting: '適用を準備中',
+      item_start: '適用を準備中',
+      context_refresh: 'コンテキストを整理中',
+      safe_apply: 'コードを適用中',
+      safe_apply_drift_recovery: '再生成して適用中',
+      verification: 'ブラウザスモークで検証中',
+      bounded_retry: '再試行中',
+      self_correction: '不具合を自動修正して再検証中',
+    };
+    let label = map[sp] || '適用+検証中';
+    if ((sp === 'self_correction' || sp === 'bounded_retry') && attempt > 0) label += `（${attempt}回目）`;
+    return label;
   }
 
   // Pull the most specific verification failure out of an autopilot item_result (the browser-smoke /
