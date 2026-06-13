@@ -6131,7 +6131,9 @@ const _FORGE_PANEL_TAB_IDS = ['tab-btn-forge-models','tab-btn-forge-asr','tab-bt
 // Nexus モード用パネルタブID (Lumen Memory/Skill/Log を Nexus に集約)
 const _NEXUS_PANEL_TAB_IDS = ['tab-btn-nexus-memory','tab-btn-nexus-skills','tab-btn-nexus-log'];
 // Chat/Task モード用モバイルタブID
-const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-log','mob-skills','mob-memory','mob-models'];
+// Lumen submenu removed: chat shows only the conversation tab on mobile (panel tabs moved to
+// Nexus/Forge). The orphaned mob-log/skills/memory/models buttons stay in DOM but are never shown.
+const _CHAT_MOB_TAB_IDS = ['mob-chat'];
 // Agent モード用モバイルタブID
 const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
 // Atlas モード用モバイルタブID
@@ -6660,15 +6662,17 @@ function setMode(m, options = {}) {
   } else {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
-    panelCol?.classList.add('chat-task-tabs-equal');
+    panelCol?.classList.remove('chat-task-tabs-equal');
     chatCol.style.display  = '';
     echoCol.style.display  = 'none';
-    panelCol.style.display = '';
+    // Lumen submenu removed: chat is just the conversation. The panel-col tabs (Log/Skill/Memory/
+    // Models) live in Nexus/Forge now, so the side panel + resizer are hidden in chat mode.
+    panelCol.style.display = 'none';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
     if (nexusCol) nexusCol.style.display = 'none';
-    if (resizer) resizer.style.display = '';
+    if (resizer) resizer.style.display = 'none';
     _setEchoTabVisibility(false);
   }
 
