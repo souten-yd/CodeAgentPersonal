@@ -1277,6 +1277,10 @@
       <button class="tab-btn" id="tab-btn-forge-models" onclick="switchTab('models')" style="display:none">Models</button>
       <button class="tab-btn" id="tab-btn-forge-asr" onclick="switchTab('asr')" style="display:none">ASR</button>
       <button class="tab-btn" id="tab-btn-forge-tts" onclick="switchTab('tts')" style="display:none">TTS</button>
+      <!-- Nexus モード用タブ (Lumen Memory/Skill/Log を Nexus に集約。デフォルト非表示) -->
+      <button class="tab-btn" id="tab-btn-nexus-memory" onclick="switchTab('memory')" style="display:none">Memory</button>
+      <button class="tab-btn" id="tab-btn-nexus-skills" onclick="switchTab('skills')" style="display:none">Skill</button>
+      <button class="tab-btn" id="tab-btn-nexus-log" onclick="switchTab('log')" style="display:none">Log</button>
       <div class="tab-spacer"></div>
       <span class="tab-label" id="tab-label">—</span>
     </div>
@@ -2517,7 +2521,9 @@ const UI_MODE_SUBTABS = {
   chat: ['chat','files','log','skills','memory','models'],
   echo: ['echo','vault','log','models','asr','tts'],
   atlas: ['start'],
-  nexus: ['dashboard'],
+  // Nexus keeps its internal dashboard tabs (managed by switchNexusTab) and additionally hosts the
+  // consolidated Lumen Memory/Skill/Log panel subtabs so they persist/restore like other modes.
+  nexus: ['dashboard','memory','skills','log'],
   portal: ['catalog'],
   // Forge consolidates the model/speech management panels (Lumen Models + Echo ASR/TTS) so they
   // are reachable from the Forge mode panel without leaving Forge. Same panels/JS/endpoints.
@@ -6132,6 +6138,8 @@ const _CHAT_PANEL_TAB_IDS = ['tab-btn-files','tab-btn-log','tab-btn-skills','tab
 const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-echo','tab-btn-asr','tab-btn-tts'];
 // Forge モード用パネルタブID (Lumen Models + Echo ASR/TTS を Forge に集約)
 const _FORGE_PANEL_TAB_IDS = ['tab-btn-forge-models','tab-btn-forge-asr','tab-btn-forge-tts'];
+// Nexus モード用パネルタブID (Lumen Memory/Skill/Log を Nexus に集約)
+const _NEXUS_PANEL_TAB_IDS = ['tab-btn-nexus-memory','tab-btn-nexus-skills','tab-btn-nexus-log'];
 // Chat/Task モード用モバイルタブID
 const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-files','mob-log','mob-skills','mob-memory','mob-models'];
 // Agent モード用モバイルタブID
@@ -6186,6 +6194,11 @@ const MODE_PANEL_TAB_BUTTON_IDS = {
     models: 'tab-btn-forge-models',
     asr: 'tab-btn-forge-asr',
     tts: 'tab-btn-forge-tts',
+  },
+  nexus: {
+    memory: 'tab-btn-nexus-memory',
+    skills: 'tab-btn-nexus-skills',
+    log: 'tab-btn-nexus-log',
   },
 };
 
@@ -6313,15 +6326,19 @@ function _renderAgentMessagesFromHistory() {
 }
 
 function _setEchoTabVisibility(isEcho) {
-  // Panel tabs now belong to three sets: chat/task, echo, and forge (Models + ASR/TTS consolidated
-  // into Forge). Derive from the global `mode` (already set before this runs) so forge shows its
-  // own set and hides the others; chat/echo keep their prior behaviour.
+  // Panel tabs now belong to four sets: chat/task, echo, forge (Models + ASR/TTS) and nexus
+  // (Memory/Skill/Log). Derive from the global `mode` (already set before this runs) so each mode
+  // shows only its own set; chat/echo keep their prior behaviour.
   const isForge = mode === 'forge';
-  const showChat = !isEcho && !isForge;
+  const isNexus = mode === 'nexus';
+  const showChat = !isEcho && !isForge && !isNexus;
   _CHAT_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = showChat ? '' : 'none'; });
   _ECHO_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
   if (typeof _FORGE_PANEL_TAB_IDS !== 'undefined') {
     _FORGE_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isForge ? '' : 'none'; });
+  }
+  if (typeof _NEXUS_PANEL_TAB_IDS !== 'undefined') {
+    _NEXUS_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isNexus ? '' : 'none'; });
   }
 }
 
@@ -6350,7 +6367,7 @@ function _updateMobTabs(m) {
 }
 
 function _setPanelTabActiveButton(name) {
-  const allBtnIds = [..._CHAT_PANEL_TAB_IDS, ..._ECHO_PANEL_TAB_IDS, ...(typeof _FORGE_PANEL_TAB_IDS !== 'undefined' ? _FORGE_PANEL_TAB_IDS : [])];
+  const allBtnIds = [..._CHAT_PANEL_TAB_IDS, ..._ECHO_PANEL_TAB_IDS, ...(typeof _FORGE_PANEL_TAB_IDS !== 'undefined' ? _FORGE_PANEL_TAB_IDS : []), ...(typeof _NEXUS_PANEL_TAB_IDS !== 'undefined' ? _NEXUS_PANEL_TAB_IDS : [])];
   allBtnIds.forEach(id => document.getElementById(id)?.classList.remove('active'));
   const activeBtnId = MODE_PANEL_TAB_BUTTON_IDS[mode]?.[name] || 'tab-btn-' + name;
   document.getElementById(activeBtnId)?.classList.add('active');
@@ -6594,17 +6611,26 @@ function setMode(m, options = {}) {
   } else if (m === 'nexus') {
     appBody?.classList.remove('echo-active');
     panelCol?.classList.remove('echo-tabs-equal');
-    panelCol?.classList.remove('chat-task-tabs-equal');
+    panelCol?.classList.add('chat-task-tabs-equal');
     chatCol.style.display  = 'none';
     echoCol.style.display  = 'none';
-    panelCol.style.display = 'none';
+    // Show the side panel in Nexus so the consolidated Memory / Skill / Log tabs are reachable
+    // without leaving Nexus (desktop). Nexus keeps its own dashboard tabs in nexus-col. Mobile
+    // re-hides the panel below, as before.
+    panelCol.style.display = '';
     if (agentCol) agentCol.style.display = 'none';
     if (agentPanelCol) agentPanelCol.style.display = 'none';
     if (atlasPanelCol) atlasPanelCol.style.display = 'none';
     if (nexusCol) nexusCol.style.display = '';
-    if (resizer) resizer.style.display = 'none';
+    if (resizer) resizer.style.display = '';
     _setEchoTabVisibility(false);
     switchNexusTab(window._nexusTab || 'research');
+    // Reuse the existing Memory/Skill/Log panels (same JS + endpoints) — restore the last Nexus
+    // panel subtab or fall back to Memory.
+    if (shouldRestoreSubtab && window.innerWidth > 768) {
+      const _nsub = getLastSubtabForMode('nexus');
+      switchTab(['memory','skills','log'].includes(_nsub) ? _nsub : 'memory', {persist: shouldPersistMode});
+    }
     startNexusPolling();
   } else if (m === 'forge') {
     appBody?.classList.remove('echo-active');
