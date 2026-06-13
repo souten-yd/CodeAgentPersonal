@@ -9978,43 +9978,9 @@ function mobSwitch(name, options = {}) {
     nc?.classList.add('mob-hidden');
     pc.classList.remove('mob-hidden');
     switchTab('vault', {persist: shouldPersistSubtab});
-  } else if (name === 'asr') {
-    if (mode !== 'echo') { setMode('echo', {restore: false, persist: shouldPersistSubtab}); }
-    if (shouldPersistSubtab) saveLastSubtab('echo', 'asr');
-    ec?.classList.add('mob-hidden');
-    cc?.classList.add('mob-hidden');
-    ac?.classList.add('mob-hidden');
-    ap?.classList.add('mob-hidden');
-    nc?.classList.add('mob-hidden');
-    pc.classList.remove('mob-hidden');
-    switchTab('asr', {persist: shouldPersistSubtab});
-  } else if (name === 'tts') {
-    if (mode !== 'echo') { setMode('echo', {restore: false, persist: shouldPersistSubtab}); }
-    if (shouldPersistSubtab) saveLastSubtab('echo', 'tts');
-    ec?.classList.add('mob-hidden');
-    cc?.classList.add('mob-hidden');
-    ac?.classList.add('mob-hidden');
-    ap?.classList.add('mob-hidden');
-    nc?.classList.add('mob-hidden');
-    pc.classList.remove('mob-hidden');
-    switchTab('tts', {persist: shouldPersistSubtab});
-  } else {
-    if (shouldPersistSubtab) {
-      if (mode === 'echo') saveLastSubtab('echo', name === 'models' ? 'models' : 'log');
-      else saveLastSubtab('chat', name === 'files' ? 'files' : name === 'skills' ? 'skills' : name === 'memory' ? 'memory' : name === 'models' ? 'models' : 'log');
-    }
-    cc.classList.add('mob-hidden');
-    ec?.classList.add('mob-hidden');
-    ac?.classList.add('mob-hidden');
-    ap?.classList.add('mob-hidden');
-    nc?.classList.add('mob-hidden');
-    pc.classList.remove('mob-hidden');
-    switchTab(name === 'files' ? 'files'
-      : name === 'skills' ? 'skills'
-      : name === 'memory' ? 'memory'
-      : name === 'models' ? 'models'
-      : 'log', {persist: shouldPersistSubtab});
   }
+  // asr/tts and the legacy log/skills/memory/models subtabs were moved into Forge/Nexus's own
+  // subtab rows (switchForgeTab/switchNexusTab); no mobile button routes those names here anymore.
 }
 
 // ── SKILL PROPOSALS ──
