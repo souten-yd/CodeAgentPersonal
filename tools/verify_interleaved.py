@@ -65,11 +65,32 @@ def run(output_json: Path) -> dict[str, Any]:
     per_item = []
     for it in rev_items[:6]:
         iid = str(it["item_id"])
-        g = _post(client, "/api/atlas/patch-proposals/generate", {
-            "pool_id": pool_id, "item_id": iid, "workspace_id": wsid, "run_id": f"gen_{iid}",
-            "source_type": "plan_item", "force_regenerate": True})
-        has = ((g.get("metadata") or {}).get("patch_content_available")) is True
-        rec: dict[str, Any] = {"item_id": iid, "generated": has}
+        # Mirror the panel: retry a content-required generation up to 2x (non-deterministic misses).
+        has = False
+        g = {}
+        for attempt in range(1, 3):
+            g = _post(client, "/api/atlas/patch-proposals/generate", {
+                "pool_id": pool_id, "item_id": iid, "workspace_id": wsid, "run_id": f"gen_{iid}_{attempt}",
+                "source_type": "plan_item", "force_regenerate": True})
+            has = ((g.get("metadata") or {}).get("patch_content_available")) is True
+            if has:
+                break
+        # Capture the item's nature + WHY generation produced no content (to tell a real
+        # implementation item that the model missed from a genuine non-file/meta step).
+        rec: dict[str, Any] = {
+            "item_id": iid,
+            "title": str(it.get("title") or it.get("goal") or "")[:80],
+            "item_type": it.get("item_type"),
+            "target_files": list(it.get("target_files") or []),
+            "patch_task_kind": it.get("patch_task_kind"),
+            "generated": has,
+            "gen_status": g.get("status"),
+            "gen_warnings": list(g.get("warnings") or [])[:6],
+            "gen_reason": (((g.get("metadata") or {}).get("patch_generation") or {}).get("reason_code")),
+        }
+        print(f"[item] {iid} type={rec['item_type']} targets={rec['target_files']} kind={rec['patch_task_kind']} title={rec['title']!r}", flush=True)
+        if not has:
+            print(f"       NO CONTENT: status={rec['gen_status']} reason={rec['gen_reason']} warnings={rec['gen_warnings']}", flush=True)
         if has:
             _post(client, "/api/atlas/patch-proposals/decide", {
                 "pool_id": pool_id, "item_id": iid, "workspace_id": wsid, "decision": "approved", "reason": "interleaved"})

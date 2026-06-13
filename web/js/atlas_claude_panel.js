@@ -1384,6 +1384,10 @@
       const genFailures = [];
       const appliableIds = [];
       const perItemResults = [];
+      // User-facing checklist of the planned items (steps); updated as each one runs.
+      const planSteps = items.map((it) => ({ item_id: it.item_id || it.id, title: it.title || it.goal || it.item_id || it.id, state: 'pending', note: '' }));
+      renderPlanSteps(stages, planSteps);
+      const markStep = (idx, state, note) => { if (planSteps[idx]) { planSteps[idx].state = state; if (note != null) planSteps[idx].note = note; renderPlanSteps(stages, planSteps); } };
       for (let i = 0; i < items.length; i += 1) {
         const it = items[i];
         const itemId = it.item_id || it.id;
@@ -1391,6 +1395,7 @@
         // Show that THIS item is now being generated BEFORE the (potentially long /
         // slow LLM) call returns. Without this, the panel stays frozen on the previous
         // item's "N/total" until generation completes, so a slow item looks like a hang.
+        markStep(i, 'running', '生成中');
         updateStage(stages, 'patch', 'running', `${i}/${items.length} → 生成中 ${i + 1}`);
         renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
           phase: 'patch_generation',
@@ -1407,19 +1412,28 @@
           // update after a previous item reached the terminal "succeeded" state.
           patch_generation: { state: 'running', run_id: '' },
         }), stages);
-        const r = await root.AtlasPipelineAPI.generatePatchProposal({
-          pool_id: poolId,
-          item_id: itemId,
-          workspace_id: workspaceId(),
-          force_regenerate: true,
-        });
-        const prop = r && r.ok && r.data ? r.data.proposal : null;
-        const propMeta = (prop && prop.metadata) || {};
-        const resultMeta = (r && r.ok && r.data && r.data.metadata) || {};
-        const patchGeneration = resultMeta.patch_generation || propMeta.patch_generation || {};
-        const hasContent = patchGeneration.state === 'succeeded'
-          && patchGeneration.outcome === 'success'
-          && patchGeneration.patch_content_available === true;
+        // Generation can miss non-deterministically on a weak local model (e.g. a transient
+        // semantic_validation_failed) even for a real implementation item. A fresh attempt usually
+        // succeeds, so retry a content-required item before giving up — this is a generation
+        // reliability fix, NOT a no-op: the item IS meant to produce code.
+        const GEN_MAX_ATTEMPTS = 2;
+        let r = null, prop = null, propMeta = {}, resultMeta = {}, patchGeneration = {}, hasContent = false;
+        for (let attempt = 1; attempt <= GEN_MAX_ATTEMPTS && !hasContent; attempt += 1) {
+          if (attempt > 1) markStep(i, 'running', `生成リトライ ${attempt}/${GEN_MAX_ATTEMPTS}`);
+          r = await root.AtlasPipelineAPI.generatePatchProposal({
+            pool_id: poolId,
+            item_id: itemId,
+            workspace_id: workspaceId(),
+            force_regenerate: true,
+          });
+          prop = r && r.ok && r.data ? r.data.proposal : null;
+          propMeta = (prop && prop.metadata) || {};
+          resultMeta = (r && r.ok && r.data && r.data.metadata) || {};
+          patchGeneration = resultMeta.patch_generation || propMeta.patch_generation || {};
+          hasContent = patchGeneration.state === 'succeeded'
+            && patchGeneration.outcome === 'success'
+            && patchGeneration.patch_content_available === true;
+        }
         if (hasContent) {
           generated += 1;
           appliableIds.push(itemId);
@@ -1428,6 +1442,7 @@
           // self-correction / bounded-retry) so the NEXT item is generated against the updated file.
           updateStage(stages, 'approve', 'running', `${generated}`);
           await root.AtlasPipelineAPI.decidePatchProposal({ pool_id: poolId, item_id: itemId, decision: 'approved' });
+          markStep(i, 'running', '適用+検証中');
           updateStage(stages, 'apply', 'running', `${appliedCount}/${generated}`);
           // Keep the theme-colored indicator current during the (token-less) apply/verify of this item.
           if (typeof window !== 'undefined') {
@@ -1452,16 +1467,24 @@
           } catch (err) { one = { ok: false, error: true, message: String(err) }; }
           const od = (one && one.ok && one.data) || {};
           const ir = (od.item_results || [])[0] || {};
-          const itemApplied = (od.completed_count || 0) > 0 || ir.status === 'applied' || ir.status === 'completed' || ir.reason === 'safe_apply_drift_recovered';
+          const itemApplied = (od.completed_count || 0) > 0 || ir.status === 'applied' || ir.status === 'completed' || ir.reason === 'safe_apply_drift_recovered' || ir.reason === 'already_satisfied';
           if (itemApplied) {
             appliedCount += 1;
+            markStep(i, 'done', ir.reason === 'safe_apply_drift_recovered' ? '適用(再生成で回復)' : (ir.reason === 'already_satisfied' ? '既に反映済み' : '適用済み'));
             updateStage(stages, 'apply', 'running', `${appliedCount}/${generated}`);
             updateStage(stages, 'verify', 'running', `pass ${appliedCount}`);
           } else {
             failedCount += 1;
+            markStep(i, 'failed', _shortStepReason(ir.reason || (one && one.message) || 'failed'));
           }
           perItemResults.push({ item_id: itemId, status: ir.status || (one && one.ok ? 'unknown' : 'error'), reason: ir.reason || (one && one.message) || '' });
         } else {
+          // Still no content after retries. A real implementation item (has target_files) failing
+          // to generate is an HONEST failure that needs attention — not a benign skip. A genuine
+          // non-file/meta step (no target_files) is legitimately skipped.
+          const isFileItem = Array.isArray(it.target_files) && it.target_files.length > 0;
+          markStep(i, isFileItem ? 'failed' : 'skipped', isFileItem ? '生成失敗(リトライ後も内容なし)' : 'パッチ内容なし(スキップ)');
+          if (isFileItem) failedCount += 1;
           // Build a richer error: distinguish "no patch content" from HTTP/backend errors so the
           // user understands WHY an item will be skipped instead of seeing a cryptic skip later.
           let msg = formatError(r);
@@ -1560,7 +1583,7 @@
     { id: 'verify', label: 'Verify' },
     { id: 'summary', label: 'Summary' },
   ];
-  const STATE_ICONS = { pending: '·', running: '⟳', done: '✓', failed: '✗' };
+  const STATE_ICONS = { pending: '·', running: '⟳', done: '✓', failed: '✗', skipped: '–' };
 
   function appendStageBlock(poolId) {
     if (!dom.transcript) return null;
@@ -1592,13 +1615,56 @@
       row.append(icon, label, detail);
       list.appendChild(row);
     });
+    const planSteps = document.createElement('div');
+    planSteps.className = 'atlas-claude-plan-steps';
+    planSteps.dataset.role = 'plan-steps';
     const summary = document.createElement('div');
     summary.className = 'atlas-claude-summary-block';
     summary.dataset.role = 'summary';
-    block.append(list, summary);
+    block.append(list, planSteps, summary);
     dom.transcript.appendChild(block);
     dom.transcript.scrollTop = dom.transcript.scrollHeight;
     return block;
+  }
+
+  // Compact, user-facing checklist of the PLAN ITEMS (steps) and which one is running now:
+  // ✓ done, ⟳ running, ✗ failed, · pending. Replaces verbose diagnostics as the primary view.
+  function renderPlanSteps(block, steps) {
+    if (!block) return;
+    const host = block.querySelector('.atlas-claude-plan-steps');
+    if (!host) return;
+    host.innerHTML = '';
+    (steps || []).forEach((s, idx) => {
+      const row = document.createElement('div');
+      row.className = 'atlas-claude-plan-step';
+      row.dataset.state = s.state || 'pending';
+      const icon = document.createElement('span');
+      icon.className = 'atlas-claude-plan-step-icon';
+      icon.textContent = STATE_ICONS[s.state] || '·';
+      const label = document.createElement('span');
+      label.className = 'atlas-claude-plan-step-label';
+      label.textContent = `${idx + 1}. ${s.title || s.item_id || 'step'}`;
+      row.append(icon, label);
+      if (s.note) {
+        const note = document.createElement('span');
+        note.className = 'atlas-claude-plan-step-note';
+        note.textContent = s.note;
+        row.append(note);
+      }
+      host.appendChild(row);
+    });
+    if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;
+  }
+
+  // Map an internal reason/code to a short, user-facing note for the step checklist.
+  function _shortStepReason(reason) {
+    const r = String(reason || '').toLowerCase();
+    if (r.includes('safe_apply_not_applied') || r.includes('edit_not_applicable')) return '適用できず';
+    if (r.includes('verification_failed') || r.includes('browser_smoke')) return '検証に失敗';
+    if (r.includes('missing_patch_or_content')) return 'パッチ内容なし';
+    if (r.includes('blocked')) return 'ブロック';
+    if (r.includes('network') || r.includes('timeout')) return '接続エラー';
+    return '失敗';
   }
 
   function updateStage(block, stageId, stateName, detail) {
@@ -1745,13 +1811,12 @@
         rows.push(`現在: ${view.current_item_index || 0}. ${view.current_item_title}`);
       }
       if (hasProblem) {
-        if (view.block_reason) rows.push(`ブロック理由: ${view.block_reason}`);
-        if (view.error) rows.push(`エラー: ${view.error}`);
-        if (view.message) rows.push(`詳細: ${view.message}`);
-        if (incomingPatch.strategy) rows.push(`repair strategy: ${incomingPatch.strategy}`);
-        if (incomingPatch.attempt) rows.push(`attempt: ${incomingPatch.attempt}`);
-        rows.push(`必要な操作: ${(view.next_actions || ['wait']).join(', ') || 'wait'}`);
-        rows.push(`pool_id: ${view.pool_id || '-'} / run_id: ${view.autopilot_run_id || view.run_id || '-'} / source: ${view.authoritative_source || 'PlanPool'}`);
+        // Concise, user-facing: a single reason line + the recommended next action. Internal
+        // diagnostics (pool_id / run_id / source / repair strategy/attempt) are intentionally
+        // omitted — the step checklist above already shows which item failed and why.
+        const reason = view.block_reason || view.error || view.message || '';
+        if (reason) rows.push(`理由: ${String(reason).slice(0, 200)}`);
+        rows.push(`推奨操作: ${(view.next_actions || ['wait']).join(', ') || 'wait'}`);
       }
       rows.filter(Boolean).forEach((text) => {
         const div = document.createElement('div');

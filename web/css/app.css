@@ -1584,6 +1584,19 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 @media (prefers-reduced-motion: reduce){.atlas-claude-stage-row[data-state="running"] .atlas-claude-stage-icon{animation:none}}
 .atlas-claude-summary-block{display:flex;flex-direction:column;gap:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:12px;color:var(--text)}
 .atlas-claude-summary-block:empty{display:none}
+/* Plan-item (step) checklist: the primary, user-facing progress view during development. */
+.atlas-claude-plan-steps{display:flex;flex-direction:column;gap:2px;padding-top:6px;border-top:1px dashed var(--border)}
+.atlas-claude-plan-steps:empty{display:none}
+.atlas-claude-plan-step{display:grid;grid-template-columns:16px 1fr auto;gap:6px;align-items:baseline;color:var(--text2);font-size:12px}
+.atlas-claude-plan-step[data-state="running"]{color:var(--accent)}
+.atlas-claude-plan-step[data-state="done"]{color:var(--text)}
+.atlas-claude-plan-step[data-state="failed"]{color:var(--red,#ff6b6b)}
+.atlas-claude-plan-step[data-state="skipped"]{color:var(--text2);opacity:.7}
+.atlas-claude-plan-step-icon{text-align:center}
+.atlas-claude-plan-step[data-state="running"] .atlas-claude-plan-step-icon{animation:atlas-claude-spin 1.2s linear infinite;display:inline-block}
+.atlas-claude-plan-step-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.atlas-claude-plan-step-note{font-size:11px;color:var(--text2);opacity:.85}
+@media (prefers-reduced-motion: reduce){.atlas-claude-plan-step[data-state="running"] .atlas-claude-plan-step-icon{animation:none}}
 .atlas-claude-summary-counts{font-family:var(--font-mono);font-size:12px;color:var(--text)}
 .atlas-claude-summary-head{font-size:11px;color:var(--text3);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.05em}
 .atlas-claude-llm-progress{display:flex;align-items:center;gap:9px;font-size:11px;color:var(--accent);font-family:var(--font-mono);padding:5px 11px;border:1px solid var(--accent-border);border-radius:8px;margin:4px 0;position:sticky;bottom:4px;background:var(--accent-softer)}

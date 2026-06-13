@@ -659,14 +659,31 @@ class AtlasPatchProposalService:
             if smoke_meta:
                 diag = smoke_meta.get("diagnostics") or {}
                 canvas_diag = diag.get("canvas") or {}
+                console_errors = [str(e) for e in (smoke_meta.get("console_errors") or []) if str(e).strip()][:8]
                 feedback["browser_smoke_result"] = {
                     "status": smoke_meta.get("status", ""),
                     "reason": smoke_meta.get("reason", ""),
                     "style_changed": bool(diag.get("style_changed")),
                     "canvas_changed": bool(canvas_diag.get("changed")),
                     "canvas_present": bool(canvas_diag.get("present")),
-                    "console_errors": list((smoke_meta.get("console_errors") or [])[:3]),
+                    "console_errors": console_errors,
                 }
+                # Claude-style targeted repair: put the EXACT console / page errors front-and-center
+                # in the instruction (de-duplicated) so a weak model fixes the specific failing line
+                # instead of guessing. Without this the errors sit in a nested dict the model ignores.
+                if console_errors:
+                    seen: list[str] = []
+                    for err in console_errors:
+                        trimmed = err.strip()[:300]
+                        if trimmed and trimmed not in seen:
+                            seen.append(trimmed)
+                    bullet = "\n".join(f"  - {e}" for e in seen[:6])
+                    feedback["instruction"] = (
+                        f"{feedback['instruction']}\n\nThe browser reported these EXACT JavaScript "
+                        f"errors at runtime — fix the specific cause of EACH one (a missing/renamed "
+                        f"symbol, an undefined variable, a bad selector, a wrong import path, or a "
+                        f"call before definition):\n{bullet}"
+                    )
             vc_meta = vr_meta.get("visual_contract") or {}
             missing = list(vc_meta.get("missing") or [])
             if missing:

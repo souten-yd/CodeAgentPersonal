@@ -238,7 +238,15 @@ class AtlasMultiItemAutopilotService:
                     result.safe_apply_result = safe.model_dump()
                     _append_sub_phase(result, "safe_apply", safe.status, phase_started, _safe_apply_subphase_detail(result.safe_apply_result))
                     self.emit("multi_item_autopilot_safe_apply_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=safe.status)
-                    if safe.status != "applied":
+                    if safe.status != "applied" and self._safe_apply_block_reasons(safe) <= {"no_effective_change"} and self._safe_apply_block_reasons(safe):
+                        # "no_effective_change" alone means applying the patch would change nothing —
+                        # the target file is ALREADY in the desired state (common for a redundant or
+                        # already-implemented item after a revision, e.g. "Create HTML structure" when
+                        # the file already has it). That is the goal already met, NOT a failure, and
+                        # regenerating would just reproduce the same no-op. Mark it satisfied.
+                        _append_sub_phase(result, "safe_apply", "already_satisfied", phase_started, {"reason": "no_effective_change"})
+                        result.status, result.reason = "applied", "already_satisfied"
+                    elif safe.status != "applied":
                         # GENERAL drift recovery: a patch generated against a STALE snapshot of the
                         # target file fails to apply (edit_not_applicable / no_effective_change) once
                         # an earlier item in the same run has changed that file. Regenerate against
