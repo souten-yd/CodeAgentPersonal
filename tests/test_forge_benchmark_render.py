@@ -147,6 +147,37 @@ def test_lm_studio_runtime_is_offered_with_model_dropdown_and_ctx(tmp_path):
     assert "data-bench-ctx" in html
 
 
+def test_runtime_management_enabled_shows_load_action_for_anvil(tmp_path):
+    # With runtime management ON, the Anvil model card offers a Load action and shows load status;
+    # with it OFF there is no Load button (benchmark uses the already-loaded model).
+    base = {
+        "presets": _PRESETS,
+        "providers": [],
+        "localModels": [{"id": "row1", "model_key": "mistral-small", "name": "Mistral Small", "ctx_size": 16384}],
+    }
+    on = dict(base, settings={"runtime_management": {"enabled": True}}, runtimeStatus={"status": "loading", "current_key": "mistral-small"})
+    html_on = _render(tmp_path, {"data": on, "bench": {"provider": "anvil", "model": "mistral-small"}})
+    assert "data-bench-load" in html_on
+    assert "Load status" in html_on and "loading" in html_on
+
+    off = dict(base, settings={"runtime_management": {"enabled": False}})
+    html_off = _render(tmp_path, {"data": off, "bench": {"provider": "anvil", "model": "mistral-small"}})
+    assert "data-bench-load" not in html_off
+
+
+def test_runtime_management_lm_studio_load_is_marked_deferred(tmp_path):
+    data = {
+        "presets": _PRESETS,
+        "providers": [],
+        "settings": {"runtime_management": {"enabled": True}},
+        "lmStudioCatalog": {"status": "ready", "models": [{"model_id": "lm-a"}]},
+    }
+    html = _render(tmp_path, {"data": data, "bench": {"provider": "lm_studio", "model": "lm-a"}})
+    # LM Studio auto-load is deferred — no real load button, an explicit message instead.
+    assert "data-bench-load" not in html
+    assert "後日対応" in html
+
+
 def test_run_disabled_until_preset_provider_model_chosen(tmp_path):
     data = {"presets": _PRESETS, "providers": [{"provider_id": "local_openai_compatible", "source_class": "self_hosted", "health": "ready"}]}
     # Nothing selected -> Run disabled.

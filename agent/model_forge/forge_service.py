@@ -189,7 +189,20 @@ class ForgeService:
             "ready_providers": self.registry.ready_providers(),
             "profile_count": len(self.profiles.list_profiles()),
             "active_loadout": active.get("loadout_id", "") if active else "",
+            "runtime_management_enabled": self.runtime_management_enabled(),
         }
+
+    def runtime_management_enabled(self) -> bool:
+        """Whether Forge may drive model load operations on the selected local model.
+
+        OFF by default (and env FORGE_RUNTIME_MANAGEMENT=1 can force it on): when off, Forge only
+        benchmarks the model already loaded on the server and never triggers a load. When on, the
+        UI exposes a Load action that asks the runtime (llama-server) to load the selected model.
+        """
+        if str(self._env.get("FORGE_RUNTIME_MANAGEMENT", "")).strip() in {"1", "true", "True"}:
+            return True
+        raw = self._settings().get("runtime_management", {})
+        return bool(raw.get("enabled")) if isinstance(raw, dict) else False
 
     def providers(self) -> list[dict]:
         # Descriptors carry only the credential ENV NAME, never a secret value.
@@ -337,6 +350,7 @@ class ForgeService:
                 "base_url": openrouter_config.base_url,
                 "catalog_cache_path": str(self._catalog_path),
             },
+            "runtime_management": {"enabled": self.runtime_management_enabled()},
         }
 
     def save_settings(self, payload: dict) -> dict:
@@ -345,6 +359,7 @@ class ForgeService:
             raise ValueError("secret_values_must_not_be_persisted")
         openrouter = dict(payload.get("openrouter") or {})
         local_provider = dict(payload.get("local_provider") or {})
+        runtime_management = dict(payload.get("runtime_management") or {})
         safe = {
             "openrouter": {
                 "enabled": bool(openrouter.get("enabled", False)),
@@ -364,6 +379,7 @@ class ForgeService:
                     else "llama_cpp"
                 ),
             },
+            "runtime_management": {"enabled": bool(runtime_management.get("enabled", False))},
         }
         self._settings_path.parent.mkdir(parents=True, exist_ok=True)
         self._settings_path.write_text(json.dumps(safe, ensure_ascii=False, indent=2), encoding="utf-8")

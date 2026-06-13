@@ -170,6 +170,17 @@ def test_local_catalog_endpoint_returns_shape(tmp_path):
     assert "status" in body and "base_url" in body
 
 
+def test_runtime_management_toggle_roundtrips_and_surfaces_in_status(tmp_path):
+    c = _client(tmp_path)
+    # Off by default.
+    assert c.get("/api/forge/status").json()["runtime_management_enabled"] is False
+    assert c.get("/api/forge/settings").json()["settings"]["runtime_management"]["enabled"] is False
+    # Enabling persists and is reflected in both settings and status.
+    c.post("/api/forge/settings", json={"runtime_management": {"enabled": True}})
+    assert c.get("/api/forge/settings").json()["settings"]["runtime_management"]["enabled"] is True
+    assert c.get("/api/forge/status").json()["runtime_management_enabled"] is True
+
+
 def test_settings_reports_credential_state_without_returning_secret(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-secret-value")
     settings = _client(tmp_path).get("/api/forge/settings").json()["settings"]
