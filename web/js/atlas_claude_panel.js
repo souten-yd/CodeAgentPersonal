@@ -1468,16 +1468,30 @@
           const od = (one && one.ok && one.data) || {};
           const ir = (od.item_results || [])[0] || {};
           const itemApplied = (od.completed_count || 0) > 0 || ir.status === 'applied' || ir.status === 'completed' || ir.reason === 'safe_apply_drift_recovered' || ir.reason === 'already_satisfied';
+          // Did this item FAIL verification first and then get auto-repaired (regenerate -> re-apply
+          // -> re-verify) before passing? Surface that as a "fixed on re-run" note.
+          const scResult = (ir.metadata || {}).self_correction_result || {};
+          const recoveredByRepair = ir.reason === 'self_correction_recovered'
+            || String(scResult.status || '') === 'recovered'
+            || !!((ir.verification_result || {}).recovered_by_self_correction)
+            || !!((ir.verification_result || {}).recovered_by_bounded_retry);
           if (itemApplied) {
             appliedCount += 1;
-            markStep(i, 'done', ir.reason === 'safe_apply_drift_recovered' ? '適用(再生成で回復)' : (ir.reason === 'already_satisfied' ? '既に反映済み' : '適用済み'));
+            const note = ir.reason === 'safe_apply_drift_recovered' ? '適用(再生成で回復)'
+              : ir.reason === 'already_satisfied' ? '既に反映済み'
+              : recoveredByRepair ? '不具合を修正して再検証OK'
+              : '適用済み';
+            markStep(i, 'done', note);
             updateStage(stages, 'apply', 'running', `${appliedCount}/${generated}`);
             updateStage(stages, 'verify', 'running', `pass ${appliedCount}`);
           } else {
             failedCount += 1;
-            markStep(i, 'failed', _shortStepReason(ir.reason || (one && one.message) || 'failed'));
+            // Name the actual defect (e.g. 検証失敗: JSエラー) and note if auto-repair was exhausted.
+            const detail = _itemFailureDetail(ir);
+            const exhausted = String(scResult.status || '') === 'exhausted';
+            markStep(i, 'failed', exhausted ? `${detail}（自動修正でも未解決）` : detail);
           }
-          perItemResults.push({ item_id: itemId, status: ir.status || (one && one.ok ? 'unknown' : 'error'), reason: ir.reason || (one && one.message) || '' });
+          perItemResults.push({ item_id: itemId, status: ir.status || (one && one.ok ? 'unknown' : 'error'), reason: ir.reason || (one && one.message) || '', verify_detail: _itemFailureDetail(ir) });
         } else {
           // Still no content after retries. A real implementation item (has target_files) failing
           // to generate is an HONEST failure that needs attention — not a benign skip. A genuine
@@ -1596,32 +1610,16 @@
     block.dataset.pool = poolId;
     block.dataset.poolId = poolId;
     block.dataset.atlasStageBlock = 'true';
-    const list = document.createElement('div');
-    list.className = 'atlas-claude-stage-list';
-    STAGE_DEFS.forEach((def) => {
-      const row = document.createElement('div');
-      row.className = 'atlas-claude-stage-row';
-      row.dataset.stage = def.id;
-      row.dataset.state = 'pending';
-      const icon = document.createElement('span');
-      icon.className = 'atlas-claude-stage-icon';
-      icon.textContent = STATE_ICONS.pending;
-      const label = document.createElement('span');
-      label.className = 'atlas-claude-stage-label';
-      label.textContent = def.label;
-      const detail = document.createElement('span');
-      detail.className = 'atlas-claude-stage-detail';
-      detail.textContent = '';
-      row.append(icon, label, detail);
-      list.appendChild(row);
-    });
+    // The high-level Plan/Patch/Approve/Apply/Verify/Summary stage rows were removed as redundant:
+    // the per-item plan-step checklist below already conveys progress, and the theme-color indicator
+    // shows live activity. updateStage() calls become graceful no-ops (no matching rows exist).
     const planSteps = document.createElement('div');
     planSteps.className = 'atlas-claude-plan-steps';
     planSteps.dataset.role = 'plan-steps';
     const summary = document.createElement('div');
     summary.className = 'atlas-claude-summary-block';
     summary.dataset.role = 'summary';
-    block.append(list, planSteps, summary);
+    block.append(planSteps, summary);
     dom.transcript.appendChild(block);
     dom.transcript.scrollTop = dom.transcript.scrollHeight;
     return block;
@@ -1659,12 +1657,24 @@
   // Map an internal reason/code to a short, user-facing note for the step checklist.
   function _shortStepReason(reason) {
     const r = String(reason || '').toLowerCase();
+    if (r.includes('js_error')) return '検証失敗: JSエラー';
+    if (r.includes('visual_contract') || r.includes('visual_missing') || r.includes('animation_not_detected')) return '検証失敗: 表示要件を満たさず';
+    if (r.includes('expected_text_missing')) return '検証失敗: 必要なテキストなし';
+    if (r.includes('browser_smoke') || r.includes('verification_failed')) return '検証に失敗';
     if (r.includes('safe_apply_not_applied') || r.includes('edit_not_applicable')) return '適用できず';
-    if (r.includes('verification_failed') || r.includes('browser_smoke')) return '検証に失敗';
     if (r.includes('missing_patch_or_content')) return 'パッチ内容なし';
     if (r.includes('blocked')) return 'ブロック';
     if (r.includes('network') || r.includes('timeout')) return '接続エラー';
     return '失敗';
+  }
+
+  // Pull the most specific verification failure out of an autopilot item_result (the browser-smoke /
+  // visual-contract reason a verify step reported), so the checklist names the actual defect.
+  function _itemFailureDetail(ir) {
+    const vr = (ir && ir.verification_result) || {};
+    const warnings = Array.isArray(vr.warnings) ? vr.warnings : [];
+    const verify = warnings.find((w) => /browser_smoke_failed|visual_missing|visual_contract|animation_not_detected|expected_text_missing|js_error/.test(String(w)));
+    return _shortStepReason(verify || (ir && ir.reason) || 'failed');
   }
 
   function updateStage(block, stageId, stateName, detail) {
@@ -1799,21 +1809,15 @@
         || ['failed', 'blocked'].includes(lc(status))
         || phase === 'failed' || phase === 'blocked_safety_review'
       );
+      // Normal running progress and the "current item" are already shown by the per-item plan-step
+      // checklist and the theme-color indicator, so this panel stays EMPTY during a healthy run and
+      // only surfaces (a) an active self-correction re-run, or (b) a problem (concise reason + action).
       const rows = [];
+      void phaseLabel;
       if (incomingPatch.state === 'repairing') {
-        rows.push(`🛠 ${phaseLabel}（自動修正中）— ${completed}/${total || '-'}`);
-      } else if (phase === 'completed' && !hasProblem) {
-        rows.push(`✅ 完了 — ${completed}/${total || '-'} タスク`);
-      } else {
-        rows.push(`${phaseLabel}中 — ${completed}/${total || '-'} 完了${started > completed ? `（処理中 ${started}）` : ''}`);
-      }
-      if (view.current_item_title) {
-        rows.push(`現在: ${view.current_item_index || 0}. ${view.current_item_title}`);
+        rows.push(`🛠 不具合を自動修正して再検証中（attempt ${incomingPatch.attempt || 0}）`);
       }
       if (hasProblem) {
-        // Concise, user-facing: a single reason line + the recommended next action. Internal
-        // diagnostics (pool_id / run_id / source / repair strategy/attempt) are intentionally
-        // omitted — the step checklist above already shows which item failed and why.
         const reason = view.block_reason || view.error || view.message || '';
         if (reason) rows.push(`理由: ${String(reason).slice(0, 200)}`);
         rows.push(`推奨操作: ${(view.next_actions || ['wait']).join(', ') || 'wait'}`);
