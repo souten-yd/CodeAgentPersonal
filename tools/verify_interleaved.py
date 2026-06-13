@@ -104,6 +104,16 @@ def run(output_json: Path) -> dict[str, Any]:
             rec["apply_status"] = ir.get("status")
             rec["apply_reason"] = ir.get("reason")
             rec["autopilot_status"] = one.get("status")
+            # Capture the ACTUAL executor block reason + content mode so safe_apply_not_applied is diagnosable.
+            sar = ir.get("safe_apply_result") or {}
+            file_results = (sar.get("safe_apply_result") or {}).get("file_results") or (sar.get("metadata") or {}).get("file_results") or []
+            rec["block_reasons"] = sorted({str(fr.get("reason")) for fr in file_results if isinstance(fr, dict) and fr.get("reason")})
+            rec["sar_warnings"] = list((sar.get("warnings") or []))[:5]
+            md = (((g.get("plan_pool") or {}).get("items") or [{}]))
+            it_meta = next((x.get("metadata") or {} for x in md if x.get("item_id") == iid), {})
+            rec["content_mode"] = (it_meta.get("file_changes") and "file_changes") or (it_meta.get("edits") and "edits") or (it_meta.get("unified_diff_preview") and "unified_diff") or (it_meta.get("proposed_content") and "full_content") or "?"
+            if rec["apply_status"] not in ("applied", "completed"):
+                print(f"       BLOCK {iid}: status={rec['apply_status']} mode={rec['content_mode']} reasons={rec['block_reasons']} warns={rec['sar_warnings']}", flush=True)
         per_item.append(rec)
         print(f"[interleaved] {iid}: generated={rec.get('generated')} apply={rec.get('apply_status')} reason={rec.get('apply_reason')}", flush=True)
 
