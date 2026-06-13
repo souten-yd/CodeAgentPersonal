@@ -361,7 +361,69 @@
       })();
       const result = await Promise.race([generatePromise, stallPromise]);
       watcherDone = true;
+      // Transport resilience: a synchronous patch generation holds the HTTP connection open for the
+      // whole (10-60s+) LLM run with no bytes flowing, which mobile/LAN links routinely drop -> the
+      // browser sees `network_error` even though the server THREAD keeps generating and writes the
+      // patchgen job to completion. Surfacing that error makes the item skip as
+      // missing_patch_or_content. Instead, recover the server-side outcome by polling the status.
+      if (result && result.error && result.code === 'network_error' && poolId && itemId) {
+        const recovered = await self.recoverPatchGenAfterDisconnect(poolId, itemId);
+        if (recovered) return recovered;
+      }
       return result;
+    },
+    async recoverPatchGenAfterDisconnect(poolId, itemId) {
+      const start = Date.now();
+      while (Date.now() - start < PATCHGEN_ABSOLUTE_MAX_MS) {
+        await new Promise((r) => setTimeout(r, 2000));
+        let st;
+        try { st = await this.getPatchGenStatus(poolId, itemId); } catch (_) { continue; }
+        if (!st || !st.ok || !st.data) continue;
+        const d = st.data;
+        if (d.is_stalled) return null; // server itself is not progressing -> surface original error
+        if (d.status === 'running') {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('atlas:llm-progress', {
+              detail: {
+                phase: d.phase || 'patch_generation',
+                tokens: Number(d.tokens_generated) || 0,
+                maxCtx: Number(d.max_ctx) || 0,
+                secondsSince: Number(d.seconds_since_progress),
+                poolId,
+              },
+            }));
+          }
+          continue;
+        }
+        if (d.status === 'done') {
+          const base = d.patch_generation || { state: d.patch_generation_state, outcome: d.patch_generation_outcome };
+          const success = !!base && base.state === 'succeeded' && base.outcome === 'success';
+          // Mirror the field the build loop reads (patch_generation.patch_content_available) so a
+          // recovered success is treated as appliable, not skipped.
+          const pg = { ...base, patch_content_available: success };
+          return {
+            ok: true,
+            status: 200,
+            data: {
+              status: success ? 'proposed' : ((base && base.state) || 'failed'),
+              metadata: { patch_generation: pg, patch_content_available: success },
+              recovered_after_disconnect: true,
+            },
+          };
+        }
+        if (d.status === 'failed' || d.status === 'cancelled') {
+          return {
+            ok: true,
+            status: 200,
+            data: {
+              status: 'failed',
+              metadata: { patch_generation: d.patch_generation || { state: d.status }, patch_content_available: false },
+              recovered_after_disconnect: true,
+            },
+          };
+        }
+      }
+      return null;
     },
     decidePatchProposal(payload) {
       return atlasFetch('/api/atlas/patch-proposals/decide', { method: 'POST', body: JSON.stringify(payload || {}) });

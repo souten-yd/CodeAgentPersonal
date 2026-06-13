@@ -32,6 +32,20 @@ def test_patch_generation_watcher_dispatches_llm_progress_with_tokens():
     assert "seconds_since_progress" in body
 
 
+def test_generate_recovers_server_result_on_client_disconnect():
+    # A long synchronous patch generation can drop the mobile/LAN connection (network_error) even
+    # though the server finishes and persists the patchgen job. The client must recover the
+    # server-side outcome by polling status instead of surfacing a misleading network_error that
+    # makes the item skip as missing_patch_or_content.
+    body = _slice(API, "async generatePatchProposal(", "async recoverPatchGenAfterDisconnect(")
+    assert "network_error" in body
+    assert "self.recoverPatchGenAfterDisconnect(" in body
+    recover = _slice(API, "async recoverPatchGenAfterDisconnect(", "decidePatchProposal(")
+    assert "getPatchGenStatus(" in recover
+    assert "'done'" in recover and "patch_content_available" in recover
+    assert "atlas:llm-progress" in recover  # indicator stays live during recovery
+
+
 def test_apply_verify_peek_loop_keeps_indicator_phase_current():
     # The Stage 4 (apply + verify) autopilot peek loop must keep the indicator phase current so it
     # stays visible across the whole development phase, not just during generation.
