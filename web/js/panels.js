@@ -1,6 +1,10 @@
 // ── PANEL TABS ──
 function switchTab(name, options = {}) {
-  if (options.persist !== false && typeof saveLastSubtab === 'function') saveLastSubtab(mode === 'echo' ? 'echo' : 'chat', name);
+  if (options.persist !== false && typeof saveLastSubtab === 'function') {
+    // Persist the subtab under the active mode. Forge consolidates Models/ASR/TTS, so its subtabs
+    // must be remembered under 'forge' (not coerced to 'chat') to restore correctly on re-entry.
+    saveLastSubtab(mode === 'echo' ? 'echo' : (mode === 'forge' ? 'forge' : 'chat'), name);
+  }
   _setPanelTabActiveButton(name);
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
   document.getElementById('tab-'+name)?.classList.add('active');
