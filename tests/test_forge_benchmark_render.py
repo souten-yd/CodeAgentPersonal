@@ -111,6 +111,42 @@ def test_openrouter_catalog_models_render_as_model_selector(tmp_path):
     assert "anthropic/claude" in html
 
 
+def test_anvil_runtime_lists_registry_models_with_ctx_and_ctx_editor(tmp_path):
+    # The "LLM management tool" (Anvil) offers registered models (Models DB) in a dropdown with
+    # their context length, plus a CTX editor that persists back to the registry.
+    data = {
+        "presets": _PRESETS,
+        "providers": [],
+        "localModels": [
+            {"id": "row1", "model_key": "mistral-small", "name": "Mistral Small", "ctx_size": 16384},
+            {"id": "row2", "model_key": "qwen-coder", "name": "Qwen Coder", "ctx_size": 32768},
+        ],
+    }
+    # Anvil appears as a selectable provider/tool.
+    opts = _render(tmp_path, {"data": data, "bench": {}})
+    assert 'value="anvil"' in opts and "Anvil" in opts
+    # With Anvil selected and a model chosen, the dropdown + ctx editor render.
+    html = _render(tmp_path, {"data": data, "bench": {"provider": "anvil", "model": "mistral-small"}})
+    assert "data-bench-model-select" in html
+    assert "mistral-small" in html and "Mistral Small" in html
+    assert "ctx 16384" in html
+    assert "data-bench-ctx" in html
+    assert 'data-bench-ctx-save data-model-id="row1"' in html
+
+
+def test_lm_studio_runtime_is_offered_with_model_dropdown_and_ctx(tmp_path):
+    data = {
+        "presets": _PRESETS,
+        "providers": [],
+        "lmStudioCatalog": {"status": "ready", "models": [{"model_id": "lmstudio-model-a"}]},
+    }
+    opts = _render(tmp_path, {"data": data, "bench": {}})
+    assert 'value="lm_studio"' in opts and "LM Studio" in opts
+    html = _render(tmp_path, {"data": data, "bench": {"provider": "lm_studio", "model": "lmstudio-model-a"}})
+    assert "lmstudio-model-a" in html
+    assert "data-bench-ctx" in html
+
+
 def test_run_disabled_until_preset_provider_model_chosen(tmp_path):
     data = {"presets": _PRESETS, "providers": [{"provider_id": "local_openai_compatible", "source_class": "self_hosted", "health": "ready"}]}
     # Nothing selected -> Run disabled.
