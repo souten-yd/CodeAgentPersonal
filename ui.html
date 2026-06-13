@@ -113,10 +113,7 @@
   <!-- Echo モード用タブ (デフォルト非表示) -->
   <button class="mob-tab" id="mob-echo" onclick="mobSwitch('echo')" style="display:none">Echo</button>
   <button class="mob-tab" id="mob-vault" onclick="mobSwitch('vault')" style="display:none">Vault</button>
-  <button class="mob-tab" id="mob-log-echo" onclick="mobSwitch('log')" style="display:none">Log</button>
-  <button class="mob-tab" id="mob-models-echo" onclick="mobSwitch('models')" style="display:none">Models</button>
-  <button class="mob-tab" id="mob-asr" onclick="mobSwitch('asr')" style="display:none">ASR</button>
-  <button class="mob-tab" id="mob-tts" onclick="mobSwitch('tts')" style="display:none">TTS</button>
+  <!-- Echo mobile: Vault only. Log → Nexus, Models/ASR/TTS → Forge. -->
   <button class="mob-tab wide" id="mob-nexus" onclick="mobSwitch('nexus')" style="display:none">Nexus</button>
   <!-- Forge モード用タブ (デフォルト非表示) -->
   <button class="mob-tab wide" id="mob-forge" onclick="mobSwitch('forge')" style="display:none">Forge</button>
@@ -825,9 +822,10 @@
         <button class="nexus-subtab" id="nexus-btn-evidence" data-nexus-tab="evidence" onclick="switchNexusTab('evidence')">Evidence</button>
         <button class="nexus-subtab" id="nexus-btn-reports" data-nexus-tab="reports" onclick="switchNexusTab('reports')">Reports</button>
         <button class="nexus-subtab" id="nexus-btn-settings" data-nexus-tab="settings" onclick="switchNexusTab('settings')">Settings</button>
-        <!-- Lumen Memory/Skill は Nexus 専用パネル。Research 等と同じ行に統合（実体は nexus-body 内に移設） -->
+        <!-- Lumen Memory/Skill/Log は Nexus へ完全移動。Research 等と同じ行に統合（実体は nexus-body 内に移設） -->
         <button class="nexus-subtab" id="nexus-btn-memory" data-nexus-tab="memory" onclick="switchNexusTab('memory')">Memory</button>
         <button class="nexus-subtab" id="nexus-btn-skills" data-nexus-tab="skills" onclick="switchNexusTab('skills')">Skill</button>
+        <button class="nexus-subtab" id="nexus-btn-log" data-nexus-tab="log" onclick="switchNexusTab('log')">Log</button>
       </div>
     </div>
     <div class="nexus-body">
@@ -1250,6 +1248,10 @@
         </div>
         <div id="skill-proposals" style="margin-top:12px"></div>
       </div>
+      <!-- LOG (Lumen Log moved into the Nexus subtab row; #log-output keeps its ID so addLog is unchanged) -->
+      <div class="nexus-tab" id="nexus-tab-log" data-nexus-panel="log" hidden style="display:none">
+        <div class="log-output" id="log-output"></div>
+      </div>
     </div>
   </div>
 
@@ -1311,12 +1313,8 @@
   <div class="panel-col mob-hidden" id="panel-col">
     <div class="panel-tabs">
       <!-- Chat/Task tabs removed: Lumen is conversation-only; Log/Skill/Memory/Models live in Nexus/Forge. -->
-      <!-- Echo モード用タブ (デフォルト非表示) -->
+      <!-- Echo モード用タブ: Vault のみ残す。Log は Nexus、Models/ASR/TTS は Forge へ完全移動。 -->
       <button class="tab-btn" id="tab-btn-vault" onclick="switchTab('vault')" style="display:none">Vault</button>
-      <button class="tab-btn" id="tab-btn-log-echo" onclick="switchTab('log')" style="display:none">Log</button>
-      <button class="tab-btn" id="tab-btn-models-echo" onclick="switchTab('models')" style="display:none">Models</button>
-      <button class="tab-btn" id="tab-btn-asr" onclick="switchTab('asr')" style="display:none">ASR</button>
-      <button class="tab-btn" id="tab-btn-tts" onclick="switchTab('tts')" style="display:none">TTS</button>
       <!-- Forge モード用タブ (Lumen Models + Echo ASR/TTS を Forge に集約。デフォルト非表示) -->
       <button class="tab-btn" id="tab-btn-forge-models" onclick="switchTab('models')" style="display:none">Models</button>
       <button class="tab-btn" id="tab-btn-forge-asr" onclick="switchTab('asr')" style="display:none">ASR</button>
@@ -1367,11 +1365,8 @@
       </div>
     </div>
 
-    <!-- Lumen Files タブは削除。Log を既定のアクティブパネルにする。ファイル操作のバックエンド
-         (list_files/read_file 等) と /projects/.../files は Agent・プロジェクト機能で引き続き使用。 -->
-    <div class="tab-content active" id="tab-log">
-      <div class="log-output" id="log-output"></div>
-    </div>
+    <!-- Lumen Log は Nexus へ完全移動 (#nexus-tab-log)。#log-output は同一 ID のまま addLog が書き込む。
+         ファイル操作のバックエンド (list_files/read_file 等) と /projects/.../files は Agent・プロジェクト機能で引き続き使用。 -->
 
     <!-- Lumen Memory/Skill panels are Nexus-only and were relocated into the Nexus subtab row
          (see #nexus-tab-memory / #nexus-tab-skills in nexus-col). Same inner IDs, same JS. -->
@@ -2504,11 +2499,11 @@ const UI_MODE_DEFAULT_SUBTABS = {chat: 'chat', echo: 'echo', atlas: 'start', nex
 const UI_MODE_SUBTABS = {
   // Lumen は会話のみ。Log/Skill/Memory/Models のサブタブは Nexus/Forge に集約済み。
   chat: ['chat'],
-  echo: ['echo','vault','log','models','asr','tts'],
+  echo: ['echo','vault'],
   atlas: ['start'],
   // Nexus subtabs are managed by switchNexusTab. Memory/Skill (Lumen) are consolidated into this
   // same row, so they persist/restore alongside research/library/evidence/reports/settings.
-  nexus: ['dashboard','research','library','evidence','reports','settings','memory','skills'],
+  nexus: ['dashboard','research','library','evidence','reports','settings','memory','skills','log'],
   portal: ['catalog'],
   // Forge consolidates the model/speech management panels (Lumen Models + Echo ASR/TTS) so they
   // are reachable from the Forge mode panel without leaving Forge. Same panels/JS/endpoints.
@@ -6120,7 +6115,7 @@ function formatModelShortName(name) {
 // Chat/Task モード用パネルタブID (Lumen は会話のみ。Log/Skill/Memory/Models は Nexus/Forge に集約済みのため空)
 const _CHAT_PANEL_TAB_IDS = [];
 // Echo モード用パネルタブID
-const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-echo','tab-btn-asr','tab-btn-tts'];
+const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault'];
 // Forge モード用パネルタブID (Lumen Models + Echo ASR/TTS を Forge に集約)
 const _FORGE_PANEL_TAB_IDS = ['tab-btn-forge-models','tab-btn-forge-asr','tab-btn-forge-tts'];
 // Nexus モード用パネルタブID: Memory/Skill は nexus-col の subtab 行へ統合済みのため panel-col では空。
@@ -6134,7 +6129,7 @@ const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
 // Atlas モード用モバイルタブID
 const _ATLAS_MOB_TAB_IDS = ['mob-atlas'];
 // Echo モード用モバイルタブID
-const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault','mob-log-echo','mob-models-echo','mob-asr','mob-tts'];
+const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault'];
 // Nexus モード用モバイルタブID（単一ビューのためタブ不要）
 const _NEXUS_MOB_TAB_IDS = ['mob-nexus'];
 const _FORGE_MOB_TAB_IDS = ['mob-forge'];
@@ -6148,10 +6143,6 @@ const MODE_SUBTAB_BUTTON_IDS = {
   echo: {
     echo: 'mob-echo',
     vault: 'mob-vault',
-    log: 'mob-log-echo',
-    models: 'mob-models-echo',
-    asr: 'mob-asr',
-    tts: 'mob-tts',
   },
   atlas: { atlas: 'mob-atlas' },
   nexus: { nexus: 'mob-nexus' },
@@ -6162,10 +6153,6 @@ const MODE_PANEL_TAB_BUTTON_IDS = {
   // Lumen (chat) has no panel tabs anymore; Log/Skill/Memory/Models live in Nexus/Forge.
   echo: {
     vault: 'tab-btn-vault',
-    log: 'tab-btn-log-echo',
-    models: 'tab-btn-models-echo',
-    asr: 'tab-btn-asr',
-    tts: 'tab-btn-tts',
   },
   forge: {
     models: 'tab-btn-forge-models',
@@ -6599,7 +6586,7 @@ function setMode(m, options = {}) {
     // Restore the last Nexus subtab (research/library/.../memory/skills) — switchNexusTab handles all.
     {
       const _nsub = (typeof getLastSubtabForMode === 'function') ? getLastSubtabForMode('nexus') : '';
-      const _valid = ['research','library','evidence','reports','settings','memory','skills'];
+      const _valid = ['research','library','evidence','reports','settings','memory','skills','log'];
       switchNexusTab(_valid.includes(_nsub) ? _nsub : (window._nexusTab || 'research'));
     }
     startNexusPolling();
@@ -6769,8 +6756,8 @@ function normalizeNexusTabName(name) {
 }
 
 function switchNexusTab(name) {
-  // Lumen Memory/Skill consolidated into the Nexus subtab row (same panels/JS, relocated into nexus-body).
-  const tabs = ['research','library','evidence','reports','settings','memory','skills'];
+  // Lumen Memory/Skill/Log moved into the Nexus subtab row (same panels/JS, relocated into nexus-body).
+  const tabs = ['research','library','evidence','reports','settings','memory','skills','log'];
   const normalized = normalizeNexusTabName(name);
   const target = tabs.includes(normalized) ? normalized : 'research';
   window._nexusTab = target;
