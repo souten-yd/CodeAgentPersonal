@@ -927,6 +927,99 @@
     insertApprovalActionsNode(node, poolId, context && context.revisionId);
   }
 
+  // Record a pool-scope critical decision (approve / edit_scope / cancel) against the backend
+  // /critical-decisions/decide endpoint, then re-render so the next state (approval_required after an
+  // approve, cancelled after a cancel, a fresh revision after edit_scope) surfaces its own controls.
+  async function submitCriticalDecision(poolId, decision, reason) {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.decideCriticalEvent) return;
+    try {
+      const result = await root.AtlasPipelineAPI.decideCriticalEvent({
+        pool_id: poolId,
+        item_id: '',
+        decision: decision,
+        reason: reason || '',
+        workspace_id: workspaceId(),
+        metadata: { ui: 'atlas_claude_panel', critical_decision_path: true },
+      });
+      const status = result && result.data ? String(result.data.status || '') : '';
+      const label = decision === 'approve'
+        ? '重大リスクを承認しました'
+        : (decision === 'cancel' ? 'プランをキャンセルしました' : '改訂を依頼しました');
+      pushSystemMessage(status ? `${label}（状態: ${status}）` : label);
+      await renderPlanPoolMarkdown(poolId);
+    } catch (e) {
+      pushSystemMessage('重大判断の送信に失敗しました: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  // Status-driven critical-decision prompt: shown when pool.status === 'waiting_for_critical_decision'.
+  // The critique gate raised a CRITICAL event on the (revised) plan, so the backend parks the pool in
+  // waiting_for_critical_decision. Before this branch existed the plan card rendered with NO controls —
+  // the exact reported dead-end where, after the Critic is shown and an option is selected, no approve /
+  // revise / cancel buttons appear. Offer the three actions that map to the pool-scope critical-decision
+  // endpoint: approve (accept the critical risk → approval_required) / edit_scope (revise) / cancel.
+  function appendCriticalDecisionPrompt(poolId, poolMeta = {}, context = {}) {
+    if (!dom.transcript) return;
+    clearAtlasApprovalActions({ removeAll: true });
+    const node = document.createElement('div');
+    node.className = 'atlas-claude-msg';
+    node.dataset.role = 'system';
+    node.dataset.atlasApprovalActions = 'true';
+    node.dataset.atlasCriticalDecision = 'true';
+    node.dataset.poolId = String(poolId || '');
+    node.style.flexDirection = 'column';
+    node.style.gap = '6px';
+
+    const meta = poolMeta && typeof poolMeta === 'object' ? poolMeta : {};
+    const ce = meta.critical_event && typeof meta.critical_event === 'object' ? meta.critical_event : {};
+    const reason = String(ce.reason || ce.summary || ce.detail || meta.next_required_user_action || '').trim()
+      || 'この Plan は重大な判断（クリティカルリスク）を含みます。続行を承認するか、改訂を依頼するか、キャンセルしてください。';
+    const text = document.createElement('div');
+    text.textContent = `重大な判断が必要です: ${reason}`;
+    node.appendChild(text);
+
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '6px';
+
+    const approve = document.createElement('button');
+    approve.type = 'button';
+    approve.className = 'atlas-claude-primary-btn';
+    approve.textContent = '重大リスクを承認して続行';
+
+    const revise = document.createElement('button');
+    revise.type = 'button';
+    revise.className = 'atlas-claude-secondary-btn';
+    revise.textContent = '改訂を依頼';
+
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'atlas-claude-secondary-btn';
+    cancel.textContent = 'キャンセル';
+
+    const disableAll = () => Array.from(actions.querySelectorAll('button')).forEach((b) => { b.disabled = true; });
+
+    approve.addEventListener('click', () => {
+      disableAll();
+      node.remove();
+      submitCriticalDecision(poolId, 'approve', '');
+    });
+    revise.addEventListener('click', () => {
+      const note = (root.prompt && root.prompt('改訂依頼の内容（任意）')) || '';
+      disableAll();
+      node.remove();
+      submitCriticalDecision(poolId, 'edit_scope', note);
+    });
+    cancel.addEventListener('click', () => {
+      disableAll();
+      node.remove();
+      submitCriticalDecision(poolId, 'cancel', '');
+    });
+    actions.append(approve, revise, cancel);
+    node.append(actions);
+    insertApprovalActionsNode(node, poolId, context && context.revisionId);
+  }
+
   // Re-run an existing plan. Clearing prior execution first is essential: an already
   // applied/approved item sets patch_proposal.status to applied/accepted, which blocks
   // regeneration ("patch_proposal_blocked") even with force_regenerate. reset-execution
@@ -2565,6 +2658,12 @@
       // post-answer replan/gate-rerun failed). Without a control here the user is stranded on a
       // button-less plan card. Surface WHY plus an actionable recovery path (revise / cancel).
       appendClarificationRecoveryPrompt(poolId, approvalContext, clarificationBlocks, poolMeta);
+    } else if (poolStatus === 'waiting_for_critical_decision') {
+      // The critique gate raised a CRITICAL event on the (revised) plan, so the backend parked the
+      // pool in waiting_for_critical_decision. This state had NO branch before, so the plan card
+      // rendered with zero controls — the reported "Critic shown, then no approve/revise/cancel
+      // buttons" dead-end. Surface approve / revise / cancel mapped to the critical-decision endpoint.
+      appendCriticalDecisionPrompt(poolId, poolMeta, approvalContext);
     } else if (poolStatus === 'approval_required') {
       appendPlanActionPrompt(poolId, approvalContext);
     } else if (opts.allowReuse) {

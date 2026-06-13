@@ -364,6 +364,35 @@ def test_claude_panel_clarification_recovery_prompt_offers_revise_and_cancel() -
     assert "blockedReasons" in snippet
 
 
+def test_claude_panel_critical_decision_prompt_offers_approve_revise_cancel() -> None:
+    # When the critique gate raises a CRITICAL event the backend parks the pool in
+    # waiting_for_critical_decision. The panel MUST render actionable controls for this state —
+    # otherwise the plan card shows the Critic but no approve/revise/cancel buttons (a dead end).
+    assert "function appendCriticalDecisionPrompt" in ATLAS_CLAUDE_PANEL_JS
+    assert "function submitCriticalDecision" in ATLAS_CLAUDE_PANEL_JS
+    prompt_snippet = ATLAS_CLAUDE_PANEL_JS[
+        ATLAS_CLAUDE_PANEL_JS.index("function appendCriticalDecisionPrompt"):
+        ATLAS_CLAUDE_PANEL_JS.index("// Re-run an existing plan.")
+    ]
+    # Three actions mapping to the pool-scope /critical-decisions/decide endpoint.
+    assert "submitCriticalDecision(poolId, 'approve'" in prompt_snippet
+    assert "submitCriticalDecision(poolId, 'edit_scope'" in prompt_snippet
+    assert "submitCriticalDecision(poolId, 'cancel'" in prompt_snippet
+    # The decision must go through the dedicated critical-event API (not the plain approval API).
+    assert "decideCriticalEvent" in ATLAS_CLAUDE_PANEL_JS
+    # The render decision-tree must branch on waiting_for_critical_decision BEFORE approval_required,
+    # so a revised plan that lands in the critical state is never left without controls.
+    render_snippet = ATLAS_CLAUDE_PANEL_JS[
+        ATLAS_CLAUDE_PANEL_JS.index("async function renderPlanPoolMarkdown"):
+        ATLAS_CLAUDE_PANEL_JS.index("function preparePlanCardForUpsert")
+    ]
+    assert "appendCriticalDecisionPrompt(poolId" in render_snippet
+    assert (
+        render_snippet.index("poolStatus === 'waiting_for_critical_decision'")
+        < render_snippet.index("poolStatus === 'approval_required'")
+    )
+
+
 def test_claude_panel_renders_user_facing_clarification_issue_and_impact() -> None:
     assert "user_facing_issue_summary" in ATLAS_CLAUDE_PANEL_JS
     assert "why_it_matters" in ATLAS_CLAUDE_PANEL_JS
