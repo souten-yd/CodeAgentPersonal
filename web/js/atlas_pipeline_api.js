@@ -508,13 +508,21 @@
       return atlasFetch('/api/atlas/multi-item-autopilot/policies');
     },
     runMultiItemAutopilot(payload) {
-      return atlasFetch('/api/atlas/multi-item-autopilot/run', { method: 'POST', body: JSON.stringify(payload || {}) });
+      // This endpoint is SYNCHRONOUS server-side: it applies, verifies (browser smoke can take tens
+      // of seconds), and runs self-correction (each repair = an LLM regenerate + re-apply + re-verify
+      // that on a local model can take a couple of minutes). The default 2-minute fetch timeout
+      // therefore aborts a legitimately-running item mid-repair and makes the UI look "stuck at apply".
+      // Allow up to the server-side max_runtime budget.
+      return atlasFetch('/api/atlas/multi-item-autopilot/run', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 1800000 });
     },
     getMultiItemAutopilotResult(poolId, autopilotRunId) {
       return atlasFetch(`/api/atlas/multi-item-autopilot/results/${encodeURIComponent(poolId)}/${encodeURIComponent(autopilotRunId)}`);
     },
     getLatestMultiItemAutopilotResult(payload) {
       return atlasFetch('/api/atlas/multi-item-autopilot/latest', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    getMultiItemAutopilotProgress(poolId, runId) {
+      return atlasFetch(`/api/atlas/multi-item-autopilot/progress${query({ pool_id: poolId, run_id: runId })}`, { timeoutMs: 10000 });
     },
     
     submitClarificationAnswers(payload) {
