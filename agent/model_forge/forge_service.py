@@ -260,6 +260,12 @@ class ForgeService:
                 "base_url": self._env.get("FORGE_LOCAL_BASE_URL", "").strip() or str(local_settings.get("base_url") or ""),
                 "model_id": self._env.get("FORGE_LOCAL_MODEL", "").strip() or str(local_settings.get("model_id") or ""),
                 "model_storage_dir": str(local_settings.get("model_storage_dir") or ""),
+                # runtime_kind distinguishes which OpenAI-compatible local server backs this
+                # provider: "llama_cpp" (llama-server, default port 8080) or "lm_studio" (LM Studio,
+                # default port 1234). Both speak /v1/chat/completions, so benchmarking works for
+                # either today; runtime_kind lets later model-load automation pick the right path.
+                "runtime_kind": self._env.get("FORGE_LOCAL_RUNTIME_KIND", "").strip().lower()
+                or str(local_settings.get("runtime_kind") or "llama_cpp"),
                 "base_url_source": "env" if self._env.get("FORGE_LOCAL_BASE_URL", "").strip() else "settings",
                 "model_id_source": "env" if self._env.get("FORGE_LOCAL_MODEL", "").strip() else "settings",
             },
@@ -293,6 +299,11 @@ class ForgeService:
                 "base_url": str(local_provider.get("base_url") or ""),
                 "model_id": str(local_provider.get("model_id") or ""),
                 "model_storage_dir": str(local_provider.get("model_storage_dir") or ""),
+                "runtime_kind": (
+                    str(local_provider.get("runtime_kind") or "llama_cpp").strip().lower()
+                    if str(local_provider.get("runtime_kind") or "").strip().lower() in {"llama_cpp", "lm_studio"}
+                    else "llama_cpp"
+                ),
             },
         }
         self._settings_path.parent.mkdir(parents=True, exist_ok=True)

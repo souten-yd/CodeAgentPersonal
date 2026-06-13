@@ -124,6 +124,21 @@ def test_settings_persist_safe_provider_config_and_reject_secret_values(tmp_path
     assert rejected.json()["detail"] == "secret_values_must_not_be_persisted"
 
 
+def test_local_provider_runtime_kind_roundtrips_and_defaults_to_llama_cpp(tmp_path):
+    c = _client(tmp_path)
+    # Default when unspecified.
+    c.post("/api/forge/settings", json={"local_provider": {"base_url": "http://127.0.0.1:8080/v1"}})
+    assert c.get("/api/forge/settings").json()["settings"]["local_provider"]["runtime_kind"] == "llama_cpp"
+    # LM Studio runtime persists.
+    c.post("/api/forge/settings", json={
+        "local_provider": {"base_url": "http://127.0.0.1:1234/v1", "runtime_kind": "lm_studio"},
+    })
+    assert c.get("/api/forge/settings").json()["settings"]["local_provider"]["runtime_kind"] == "lm_studio"
+    # An unknown runtime kind is normalised back to the safe default rather than persisted verbatim.
+    c.post("/api/forge/settings", json={"local_provider": {"runtime_kind": "bogus"}})
+    assert c.get("/api/forge/settings").json()["settings"]["local_provider"]["runtime_kind"] == "llama_cpp"
+
+
 def test_settings_reports_credential_state_without_returning_secret(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-secret-value")
     settings = _client(tmp_path).get("/api/forge/settings").json()["settings"]

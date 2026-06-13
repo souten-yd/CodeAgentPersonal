@@ -71,3 +71,45 @@ def test_settings_tab_renders_safe_provider_configuration_without_secret_field(t
     assert "OPENROUTER_API_KEY" in html
     assert "data-setting-openrouter-token" not in html
     assert "sk-" not in html.lower()
+
+
+def test_settings_tab_exposes_runtime_kind_and_lm_studio_support(tmp_path: Path) -> None:
+    html = _render(tmp_path, {
+        "data": {
+            "settings": {
+                "local_provider": {
+                    "base_url": "http://127.0.0.1:1234/v1",
+                    "model_id": "m1",
+                    "model_storage_dir": "D:/models",
+                    "runtime_kind": "lm_studio",
+                },
+                "openrouter": {"enabled": False, "api_key_env": "OPENROUTER_API_KEY"},
+            },
+            "openrouterCatalog": {"status": "disabled"},
+        }
+    })
+    # Runtime selector with both local server kinds, LM Studio preselected from settings.
+    assert "data-setting-local-runtime" in html
+    assert "llama.cpp" in html
+    assert "LM Studio" in html
+    assert 'value="lm_studio" selected' in html
+    # Base URL quick-fill presets for the two default ports.
+    assert 'data-local-base-preset="http://127.0.0.1:8080/v1"' in html
+    assert 'data-local-base-preset="http://127.0.0.1:1234/v1"' in html
+    # The deferred-automation caveat must be stated truthfully in the UI.
+    assert "後日対応" in html
+
+
+def test_overview_tab_includes_forge_usage_help(tmp_path: Path) -> None:
+    script = tmp_path / "overview.js"
+    script.write_text(_NODE_TEMPLATE.replace("_settingsHtml", "_overviewHtml"), encoding="utf-8")
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    proc = subprocess.run(
+        [node, str(script), str(FORGE_JS), json.dumps({"data": {"status": {}, "providers": [], "loadouts": []}})],
+        capture_output=True, text=True, timeout=30, encoding="utf-8", errors="replace",
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "Forge の使い方" in proc.stdout
+    assert "Benchmark" in proc.stdout and "Arena" in proc.stdout
