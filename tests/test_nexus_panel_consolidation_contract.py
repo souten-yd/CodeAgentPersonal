@@ -1,8 +1,10 @@
-"""Contract: Lumen Memory/Skill/Log panels are consolidated into Nexus mode.
+"""Contract: Lumen Memory/Skill panels are merged into the Nexus subtab row.
 
-UI-consolidation-only change (data/endpoints unchanged): Nexus mode shows the side panel with the
-existing Memory / Skill / Log tabs, reusing their panels and refresh functions, alongside Nexus's
-own dashboard tabs. These text-level contracts guard the wiring.
+UI consolidation (data/endpoints unchanged): the Memory and Skill panels are Nexus-only, so they
+were relocated out of the shared side panel-col into Nexus's own subtab row (same row as
+Research/Library/Evidence/Reports/Settings), keeping their inner element IDs and refresh functions.
+Nexus no longer uses the shared panel-col; the panels live in nexus-col and work on desktop AND
+mobile. These text-level contracts guard the wiring.
 """
 from __future__ import annotations
 
@@ -10,42 +12,46 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 UI_HTML = (ROOT / "ui.html").read_text(encoding="utf-8")
-PANELS_JS = (ROOT / "web" / "js" / "panels.js").read_text(encoding="utf-8")
 
 
-def test_nexus_panel_tab_buttons_exist():
-    for btn_id, sub in (("tab-btn-nexus-memory", "memory"), ("tab-btn-nexus-skills", "skills"), ("tab-btn-nexus-log", "log")):
-        assert f'id="{btn_id}"' in UI_HTML
-        assert f"switchTab('{sub}')" in UI_HTML
+def test_memory_skill_buttons_live_in_the_nexus_subtab_row():
+    subtabs = UI_HTML[UI_HTML.index('<div class="nexus-subtabs">'):]
+    subtabs = subtabs[: subtabs.index("</div>")]
+    for name in ("memory", "skills"):
+        assert f"switchNexusTab('{name}')" in subtabs
+        assert f'id="nexus-btn-{name}"' in subtabs
 
 
-def test_nexus_panel_tab_ids_and_mode_mapping_registered():
-    assert "_NEXUS_PANEL_TAB_IDS = ['tab-btn-nexus-memory','tab-btn-nexus-skills','tab-btn-nexus-log']" in UI_HTML
-    nexus_map = UI_HTML[UI_HTML.index("nexus: {", UI_HTML.index("MODE_PANEL_TAB_BUTTON_IDS")):]
-    nexus_map = nexus_map[: nexus_map.index("}")]
-    assert "memory: 'tab-btn-nexus-memory'" in nexus_map
-    assert "skills: 'tab-btn-nexus-skills'" in nexus_map
-    assert "log: 'tab-btn-nexus-log'" in nexus_map
+def test_memory_skill_panels_relocated_into_nexus_body_with_inner_ids():
+    # The panels now live as nexus-tab panels (data-nexus-panel), keeping their inner IDs so the
+    # existing JS (refreshMemory/refreshSkills in skills_memory.js) drives them unchanged.
+    assert 'id="nexus-tab-memory" data-nexus-panel="memory"' in UI_HTML
+    assert 'id="nexus-tab-skills" data-nexus-panel="skills"' in UI_HTML
+    assert 'id="memory-list"' in UI_HTML and 'id="skills-list"' in UI_HTML
+    assert 'id="mem-category"' in UI_HTML  # add-memory form retained
+
+
+def test_old_panel_col_nexus_tabs_are_gone():
+    for dead in ("tab-btn-nexus-memory", "tab-btn-nexus-skills", "tab-btn-nexus-log"):
+        assert dead not in UI_HTML
+    assert "const _NEXUS_PANEL_TAB_IDS = [];" in UI_HTML
+
+
+def test_switchnexustab_handles_memory_and_skills():
+    fn = UI_HTML[UI_HTML.index("function switchNexusTab(name) {"):]
+    fn = fn[: fn.index("\nfunction ")]
+    assert "'memory','skills'" in fn
+    assert "refreshMemory()" in fn and "refreshSkills()" in fn
+
+
+def test_setmode_nexus_does_not_use_panel_col():
+    start = UI_HTML.index("} else if (m === 'nexus') {")
+    branch = UI_HTML[start: UI_HTML.index("} else if (m === 'forge') {", start)]
+    assert "panelCol.style.display = 'none'" in branch
+    # Nexus drives its own subtab row (incl. the relocated Memory/Skill).
+    assert "switchNexusTab(" in branch
+    assert "getLastSubtabForMode('nexus')" in branch
 
 
 def test_nexus_subtabs_declared_for_persistence():
-    # Nexus keeps its own dashboard tab AND gains the consolidated panel subtabs.
-    assert "nexus: ['dashboard','memory','skills','log']" in UI_HTML
-
-
-def test_setmode_nexus_shows_panel_and_restores_subtab():
-    start = UI_HTML.index("} else if (m === 'nexus') {")
-    branch = UI_HTML[start: UI_HTML.index("} else if (m === 'forge') {", start)]
-    assert "panelCol.style.display = ''" in branch
-    assert "getLastSubtabForMode('nexus')" in branch
-    # Nexus still drives its own dashboard tabs.
-    assert "switchNexusTab(" in branch
-
-
-def test_panel_visibility_helper_handles_nexus():
-    assert "mode === 'nexus'" in UI_HTML
-    assert "_NEXUS_PANEL_TAB_IDS.forEach" in UI_HTML
-
-
-def test_switchtab_persists_nexus_subtab():
-    assert "mode === 'nexus' ? 'nexus'" in PANELS_JS
+    assert "'research','library','evidence','reports','settings','memory','skills'" in UI_HTML
