@@ -4,6 +4,7 @@ import ast
 import hashlib
 import json
 import re
+from types import SimpleNamespace
 from html.parser import HTMLParser
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -13,6 +14,7 @@ from typing import Any, Callable
 from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
 from agent.atlas_interface_contract import app_is_interface_coupled, build_app_interface_contract, render_contract_for_prompt
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_nexus_web_research_client import AtlasNexusWebResearchClient, web_research_enabled
 from agent.atlas_llm_json_adapter import call_llm_json
 from agent.atlas_llm_schemas import patch_proposal_json_schema
 from agent.atlas_plan_item_file_changes import DEFAULT_CHANGE_SET, has_file_change_content, normalize_plan_item_file_changes
@@ -473,6 +475,45 @@ class AtlasPatchProposalService:
             pass
         return contract or {}
 
+    def _ensure_web_research_notes(self, pool: AtlasPlanPool) -> str:
+        """GENERAL Nexus web-research injection path (new builds AND existing-code feature additions).
+
+        Disabled unless ATLAS_NEXUS_WEB_RESEARCH=1 (web research is external / policy-gated / slow). When
+        enabled, run a bounded research job ONCE for the app goal, cache the synthesized notes on the
+        pool, and return them for injection into every item's generation prompt. Failure is non-fatal."""
+        meta = pool.metadata if isinstance(pool.metadata, dict) else {}
+        cached = meta.get("web_research_notes")
+        if isinstance(cached, str):
+            return cached
+        if not web_research_enabled() or meta.get("web_research_skipped"):
+            return ""
+        goal = str(pool.root_goal or (meta.get("original_user_request") or "")).strip()
+        if not goal:
+            meta["web_research_skipped"] = True
+            pool.metadata = meta
+            return ""
+        try:
+            request = SimpleNamespace(query=goal, project_id=str(pool.project_name or "atlas"))
+            result = AtlasNexusWebResearchClient().run_research(request)
+        except Exception:  # noqa: BLE001
+            result = {}
+        summary = str((result or {}).get("summary") or "").strip()
+        findings = (result or {}).get("findings") or []
+        notes = summary[:2500]
+        if findings:
+            ref = "\n".join(f"- {str(f.get('title') or '')[:120]}: {str(f.get('snippet') or '')[:160]}" for f in findings[:5] if isinstance(f, dict))
+            notes = (notes + ("\n\nReferences:\n" + ref if ref else "")).strip()
+        if notes:
+            meta["web_research_notes"] = notes
+        else:
+            meta["web_research_skipped"] = True
+        pool.metadata = meta
+        try:
+            self.storage.save_pool(pool)
+        except Exception:  # noqa: BLE001
+            pass
+        return notes
+
     def build_proposal_input(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
         source_type = self._effective_source_type(item, request)
         debug_review = (item.metadata or {}).get("debug_review") or {}
@@ -509,6 +550,9 @@ class AtlasPatchProposalService:
             # Shared interface contract so every step that edits the same file integrates (new files:
             # a defined contract; existing files: extracted from the real code). See ① / digital twin.
             "app_interface_contract": self._ensure_app_interface_contract(pool, current_targets),
+            # ③ Optional Nexus web-research notes (general path: new builds AND existing-code feature
+            # additions). Empty unless ATLAS_NEXUS_WEB_RESEARCH=1.
+            "web_research_notes": self._ensure_web_research_notes(pool),
             "global_constraints": list(getattr(pool, "global_constraints", []) or (pool.metadata or {}).get("global_constraints") or (pool.metadata or {}).get("constraints") or []),
             "all_requirements": requirements,
             "requirements_for_this_item": requirements_for_item,
@@ -918,6 +962,15 @@ class AtlasPatchProposalService:
                     "and do NOT drop existing entities already wired in the current content:\n"
                     + rendered_contract
                 )
+        # ③ Web-research notes (when enabled): ground the implementation in real conventions/patterns
+        # for the goal or the feature being added. Advisory context — never override the contract or
+        # the actual file content.
+        research_notes = input_payload.get("web_research_notes")
+        if isinstance(research_notes, str) and research_notes.strip():
+            base_task += (
+                "\n\nRESEARCH NOTES (reference conventions / patterns for this goal — advisory, do not "
+                "copy verbatim or invent files):\n" + research_notes.strip()[:2500]
+            )
         content_required = self._plan_item_requires_content(input_payload)
         output_schema = patch_proposal_json_schema(require_content=content_required)
         # If this is a self-correction regeneration, surface the failing verification output so the
