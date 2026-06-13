@@ -22,6 +22,10 @@ _GROUPS = {
         "routes": ["/voice/load", "/voice/unload", "/voice/transcribe"],
         "helpers": ["def voice_load(", "def voice_unload("],
     },
+    "mcp": {
+        "routes": ["/mcp", "/mcp/info"],
+        "helpers": [],  # only the TOOLS registry is referenced (imported lazily), no def to keep
+    },
 }
 
 

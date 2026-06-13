@@ -148,6 +148,7 @@ def include_routers(app: FastAPI) -> None:
     from app.api.ensemble import router as ensemble_router
     from app.api.forge import router as forge_router
     from app.api.git import router as git_router
+    from app.api.mcp import router as mcp_router
     from app.api.memory import router as memory_router
     from app.api.repo import router as repo_router
     from app.api.skills import router as skills_router
@@ -200,6 +201,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(ensemble_router)
     app.include_router(forge_router)
     app.include_router(git_router)
+    app.include_router(mcp_router)
     app.include_router(memory_router)
     app.include_router(repo_router)
     app.include_router(skills_router)
