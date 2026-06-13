@@ -336,7 +336,10 @@ def test_claude_panel_mirrors_clarification_execution_blocker_contract() -> None
         ATLAS_CLAUDE_PANEL_JS.index("function preparePlanCardForUpsert")
     ]
     assert "const clarificationBlocks = clarificationExecutionBlockReasons(poolMeta);" in render_snippet
-    assert "確認回答と plan revision / gate rerun が完了するまで承認できません" in render_snippet
+    # When clarification was answered but the revised plan did NOT clear the gate, the panel must
+    # render an ACTIONABLE recovery prompt (revise / cancel) rather than a dead-end text message —
+    # otherwise the user is stranded on a button-less plan card after answering every question.
+    assert "appendClarificationRecoveryPrompt(poolId" in render_snippet
     assert render_snippet.index("clarificationBlocks.length") < render_snippet.index("poolStatus === 'approval_required'")
     assert render_snippet.index("clarificationBlocks.length") < render_snippet.index("appendPlanActionPrompt(poolId,")
     assert "Plan revised and gates rerun" in render_snippet
@@ -344,6 +347,21 @@ def test_claude_panel_mirrors_clarification_execution_blocker_contract() -> None
     assert "gate_rerun_summary" in render_snippet
     assert "allowed_paths_after_clarification" in render_snippet
     assert "item_changed_fields" in render_snippet
+
+
+def test_claude_panel_clarification_recovery_prompt_offers_revise_and_cancel() -> None:
+    # A clarification that was answered but whose revised plan did not clear the gate must NOT be a
+    # dead end: the recovery prompt has to give the user a way forward (request revision / cancel).
+    assert "function appendClarificationRecoveryPrompt" in ATLAS_CLAUDE_PANEL_JS
+    snippet = ATLAS_CLAUDE_PANEL_JS[
+        ATLAS_CLAUDE_PANEL_JS.index("function appendClarificationRecoveryPrompt"):
+        ATLAS_CLAUDE_PANEL_JS.index("async function renderPlanPoolMarkdown")
+    ]
+    assert "requestPlanRevision(poolId" in snippet
+    assert "cancelPlan(poolId)" in snippet
+    # Surface WHY it is blocked and the next required action so the prompt is not opaque.
+    assert "next_required_user_action" in snippet
+    assert "blockedReasons" in snippet
 
 
 def test_claude_panel_renders_user_facing_clarification_issue_and_impact() -> None:

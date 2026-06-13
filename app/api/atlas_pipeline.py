@@ -2995,7 +2995,15 @@ def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Reque
             automation_level=str(getattr(pool, "automation_level", "") or ""),
             critical_handling=str(((pool.metadata or {}).get("automation_features") or {}).get("critical_handling") or "ask"),
         )
-    if pool.status == "ready" and not replan_result:
+    # A revised plan whose gates re-ran clean lands in "ready" (safety allow + no risk raised). In
+    # this human-in-the-loop UI "ready" has NO interactive control — the approval CTA ("承認して実行")
+    # only renders for approval_required — so leaving it "ready" stranded the user on a button-less
+    # green plan card after answering every clarification. Promote it to approval_required (same gate
+    # a freshly created plan goes through) so the revised plan gets the same approve/revise/cancel
+    # CTA. The old `not replan_result` guard skipped exactly the all-answered case (replan DID run),
+    # which is the case that needs the promotion most. blocked_safety_review / waiting_for_critical_
+    # decision / approval_required are distinct recoverable states and are left untouched.
+    if pool.status == "ready":
         pool.status = "approval_required"
     storage.save_pool(pool)
     journal.save_plan_pool(pool)
