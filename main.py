@@ -11774,40 +11774,9 @@ def voice_status_payload():
     return voice_status()
 
 # PR4.54: ASR runtime load endpoint; route owner remains main.py for this preparation PR.
-@app.post("/voice/load")
-def voice_load_api(req: dict):
-    _apply_asr_runtime_settings(req)
-    model_name = str(req.get("model", "small")).strip() or "small"
-    device = req.get("device")
-    if device not in ("cpu", "cuda"):
-        device = None
-    return voice_load(model_name, device=device)
-
-@app.post("/voice/unload")
-def voice_unload_api():
-    return voice_unload()
-
-# PR4.62: ASR transcribe service body extracted; route owner remains main.py.
-# Preserve CUDA fallback, response shape, model load timing, and debug entry format.
-@app.post("/voice/transcribe")
-def voice_transcribe_api(req: dict):
-    deps = VoiceTranscribeServiceDependencies(
-        apply_asr_runtime_settings=_apply_asr_runtime_settings,
-        resolve_asr_profile=_resolve_asr_profile,
-        voice_model_exists=_voice_model_exists,
-        transcribe_audio=voice_transcribe,
-        is_runpod_runtime=lambda: IS_RUNPOD_RUNTIME,
-        json_dumps=json.dumps,
-    )
-    try:
-        response = run_voice_transcribe_service_body(req, deps)
-    except AudioRuntimeHttpError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail)
-    return StreamingResponse(
-        response.body_iterator,
-        media_type=response.media_type,
-        headers=dict(response.headers),
-    )
+# /voice/* routes extracted to app/api/voice.py (registered via include_routers). The voice_load /
+# voice_unload / voice_transcribe / _apply_asr_runtime_settings / _resolve_asr_profile /
+# _voice_model_exists helpers + the transcribe service body remain here.
 
 # =========================
 # TALK MODE / EchoVault
@@ -17063,34 +17032,8 @@ def save_model_orchestration_api(req: dict):
     return {"ok": True, "saved": updates}
 
 
-@app.get("/ensemble/settings")
-def get_ensemble_settings_api():
-    status = get_ensemble_resource_status()
-    return {
-        "execution_mode": status.get("configured_mode", "parallel"),
-        "auto_switch_on_low_vram": status.get("auto_switch_on_low_vram", True),
-        "status": status,
-    }
-
-
-@app.post("/ensemble/settings")
-def save_ensemble_settings_api(req: dict):
-    mode = str(req.get("execution_mode", "parallel")).strip().lower() or "parallel"
-    if mode not in ("parallel", "serial"):
-        raise HTTPException(400, "execution_mode must be parallel or serial")
-    auto_switch = bool(req.get("auto_switch_on_low_vram", True))
-    settings_set_bulk({
-        "ensemble_execution_mode": mode,
-        "ensemble_auto_switch_on_low_vram": "true" if auto_switch else "false",
-    })
-    _sync_ensemble_settings_to_opencode_json()
-    status = _apply_ensemble_execution_mode_guard()
-    return {"ok": True, "execution_mode": settings_get("ensemble_execution_mode"), "status": status}
-
-
-@app.get("/ensemble/vram")
-def get_ensemble_vram_api():
-    return get_ensemble_resource_status()
+# /ensemble/* routes extracted to app/api/ensemble.py (registered via include_routers). The
+# get_ensemble_resource_status / settings_* / ensemble guard helpers remain here.
 
 
 # =========================
