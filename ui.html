@@ -106,7 +106,6 @@
 <div class="mob-tabs">
   <!-- Chat/Task モード用タブ -->
   <button class="mob-tab wide active" id="mob-chat" onclick="mobSwitch('chat')">Lumen</button>
-  <button class="mob-tab wide" id="mob-files" onclick="mobSwitch('files')">Files</button>
   <button class="mob-tab" id="mob-log" onclick="mobSwitch('log')">Log</button>
   <button class="mob-tab" id="mob-skills" onclick="mobSwitch('skills')">Skill</button>
   <button class="mob-tab wide" id="mob-memory" onclick="mobSwitch('memory')">Memory</button>
@@ -1262,8 +1261,7 @@
   <div class="panel-col mob-hidden" id="panel-col">
     <div class="panel-tabs">
       <!-- Chat/Task モード用タブ -->
-      <button class="tab-btn active" id="tab-btn-files" onclick="switchTab('files')">Files</button>
-      <button class="tab-btn" id="tab-btn-log" onclick="switchTab('log')">Log</button>
+      <button class="tab-btn active" id="tab-btn-log" onclick="switchTab('log')">Log</button>
       <button class="tab-btn" id="tab-btn-skills" onclick="switchTab('skills')">Skill</button>
       <button class="tab-btn" id="tab-btn-memory" onclick="switchTab('memory')">Memory</button>
       <button class="tab-btn" id="tab-btn-models" onclick="switchTab('models')">Models</button>
@@ -1326,18 +1324,10 @@
       </div>
     </div>
 
-    <div class="tab-content" id="tab-log">
+    <!-- Lumen Files タブは削除。Log を既定のアクティブパネルにする。ファイル操作のバックエンド
+         (list_files/read_file 等) と /projects/.../files は Agent・プロジェクト機能で引き続き使用。 -->
+    <div class="tab-content active" id="tab-log">
       <div class="log-output" id="log-output"></div>
-    </div>
-
-    <div class="tab-content active" id="tab-files" style="overflow-y:auto;padding:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">File Manager</span>
-        <button onclick="refreshProjectFileManager()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ Refresh</button>
-      </div>
-      <div id="fm-list" style="display:flex;flex-direction:column;gap:6px">
-        <div style="font-size:11px;color:var(--text3)">No files yet</div>
-      </div>
     </div>
 
     <div class="tab-content" id="tab-skills" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
@@ -2518,7 +2508,7 @@ const UI_VALID_MODES = ['chat','atlas','echo','nexus','forge','portal','agent'];
 const UI_PRIMARY_MODES = ['chat','atlas','echo','nexus','forge','portal'];
 const UI_MODE_DEFAULT_SUBTABS = {chat: 'chat', echo: 'echo', atlas: 'start', nexus: 'dashboard', portal: 'catalog', forge: 'models'};
 const UI_MODE_SUBTABS = {
-  chat: ['chat','files','log','skills','memory','models'],
+  chat: ['chat','log','skills','memory','models'],
   echo: ['echo','vault','log','models','asr','tts'],
   atlas: ['start'],
   // Nexus keeps its internal dashboard tabs (managed by switchNexusTab) and additionally hosts the
@@ -6133,7 +6123,7 @@ function formatModelShortName(name) {
 
 // ── MODE ──
 // Chat/Task モード用パネルタブID
-const _CHAT_PANEL_TAB_IDS = ['tab-btn-files','tab-btn-log','tab-btn-skills','tab-btn-memory','tab-btn-models'];
+const _CHAT_PANEL_TAB_IDS = ['tab-btn-log','tab-btn-skills','tab-btn-memory','tab-btn-models'];
 // Echo モード用パネルタブID
 const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault','tab-btn-log-echo','tab-btn-models-echo','tab-btn-asr','tab-btn-tts'];
 // Forge モード用パネルタブID (Lumen Models + Echo ASR/TTS を Forge に集約)
@@ -6141,7 +6131,7 @@ const _FORGE_PANEL_TAB_IDS = ['tab-btn-forge-models','tab-btn-forge-asr','tab-bt
 // Nexus モード用パネルタブID (Lumen Memory/Skill/Log を Nexus に集約)
 const _NEXUS_PANEL_TAB_IDS = ['tab-btn-nexus-memory','tab-btn-nexus-skills','tab-btn-nexus-log'];
 // Chat/Task モード用モバイルタブID
-const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-files','mob-log','mob-skills','mob-memory','mob-models'];
+const _CHAT_MOB_TAB_IDS = ['mob-chat','mob-log','mob-skills','mob-memory','mob-models'];
 // Agent モード用モバイルタブID
 const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
 // Atlas モード用モバイルタブID
@@ -6156,7 +6146,6 @@ const _PORTAL_MOB_TAB_IDS = ['mob-portal'];
 const MODE_SUBTAB_BUTTON_IDS = {
   chat: {
     chat: 'mob-chat',
-    files: 'mob-files',
     log: 'mob-log',
     skills: 'mob-skills',
     memory: 'mob-memory',
@@ -6177,7 +6166,6 @@ const MODE_SUBTAB_BUTTON_IDS = {
 };
 const MODE_PANEL_TAB_BUTTON_IDS = {
   chat: {
-    files: 'tab-btn-files',
     log: 'tab-btn-log',
     skills: 'tab-btn-skills',
     memory: 'tab-btn-memory',
@@ -6251,7 +6239,7 @@ function restoreLastSubtabForMode(m, options = {}) {
   const shouldPersistSubtab = options.persist !== false;
   if (m === 'chat') {
     if (window.innerWidth <= 768) mobSwitch(subtab, {restore: true, persist: shouldPersistSubtab});
-    else if (subtab === 'chat') _setPanelTabActiveButton(document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'files');
+    else if (subtab === 'chat') _setPanelTabActiveButton(document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'log');
     else switchTab(subtab, {persist: shouldPersistSubtab});
     if (shouldPersistSubtab) saveLastSubtab('chat', subtab);
     return;
@@ -15925,7 +15913,7 @@ function renderStepsToOutput(steps) {
       const ext = fp.split('.').pop().toLowerCase();
       const isRunnable = ['py','js','html'].includes(ext);
       const runBtnHtml = isRunnable
-        ? `<button class="pv-btn run" style="font-size:10px;padding:2px 8px" onclick="switchTab('files');setTimeout(()=>runFile('${esc(fp)}'),100)">▶ Run</button>`
+        ? `<button class="pv-btn run" style="font-size:10px;padding:2px 8px" onclick="runFile('${esc(fp)}')">▶ Run</button>`
         : '';
       b.innerHTML = `<div class="cb-hdr">
         <span class="cb-lang">${s.action==='patch_function'?'patch':'file'}</span>
@@ -15949,7 +15937,7 @@ function detectHtml(data) {
   if (found.length) {
     htmlFiles = found;
     loadPreview(htmlFiles[htmlFiles.length-1]);
-    switchTab('files');
+    // Files tab removed: the preview renders in the preview frame; no panel tab switch needed.
   } else {
     refreshFileBrowser();
   }
