@@ -56,7 +56,10 @@ class AtlasPatchProposalService:
     # an empty/invalid first response but succeed when told the prior attempt was unusable. Attempts
     # are spent only on OBJECTIVE failure signals (parse error, stub/placeholder, broken HTML,
     # real verification failure) — weak keyword heuristics are advisory and never burn a retry.
-    MAX_LLM_GENERATION_ATTEMPTS = 3
+    # Raised 3 -> 5: on a weak local model an honest item still failed after 3 reasoned attempts
+    # ("生成失敗(リトライ後も内容なし)"). Each retry re-injects the CONCRETE prior failure reason
+    # (see retry_note / self_review_feedback below), so the extra attempts compound that feedback.
+    MAX_LLM_GENERATION_ATTEMPTS = 5
     _SIGNAL_REPAIR_HINTS = {
         "color_mutation_signal": (
             "色の変化が静的解析で検出できなかった。描画コードで色を動的に変える表現を使うこと"
@@ -1011,11 +1014,20 @@ class AtlasPatchProposalService:
                         "semantic_validation": self_review_feedback,
                     }
                 else:
-                    user_obj["retry_note"] = (
-                        f"Attempt {attempt} of {self.MAX_LLM_GENERATION_ATTEMPTS}. The previous response could not be "
-                        "used (it was not valid JSON, or its \"proposed_content\" was empty). Return JSON only with a "
-                        "non-empty \"proposed_content\" containing the COMPLETE file text."
-                    )
+                    # Inject the CONCRETE reason the previous attempt was rejected (e.g.
+                    # "semantic_validation_failed:missing_symbol_foo", "llm_returned_empty_patch_content",
+                    # "llm_output_unparseable:...") so the model fixes THAT specific cause instead of
+                    # re-rolling blindly. last_failure is set at every rejection point in this loop.
+                    user_obj["retry_note"] = {
+                        "attempt": attempt,
+                        "max_attempts": self.MAX_LLM_GENERATION_ATTEMPTS,
+                        "previous_failure_reason": last_failure,
+                        "instruction": (
+                            "The previous response was REJECTED for the reason in previous_failure_reason. "
+                            "Do not repeat it. Return JSON only with a non-empty \"proposed_content\" "
+                            "containing the COMPLETE file text that fixes that specific cause."
+                        ),
+                    }
             try:
                 output = call_llm_json(self.llm_json_fn, system_prompt, json.dumps(user_obj, ensure_ascii=False), json_schema=output_schema) or {}
                 if not isinstance(output, dict):

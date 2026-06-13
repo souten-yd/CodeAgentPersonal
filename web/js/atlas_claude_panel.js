@@ -865,6 +865,68 @@
     insertApprovalActionsNode(node, poolId, context && context.revisionId);
   }
 
+  // Recovery prompt for when clarification was fully answered but the revised plan did NOT clear the
+  // post-clarification gate (replan/gate-rerun failed, or a revision/gate-rerun is still required).
+  // Replaces a dead-end text message with actionable controls so the user is never stranded on a
+  // button-less plan card: revise (re-run replan + gates) or cancel.
+  function appendClarificationRecoveryPrompt(poolId, context = {}, blockedReasons = [], poolMeta = {}) {
+    if (!dom.transcript) return;
+    clearAtlasApprovalActions({ removeAll: true });
+    const node = document.createElement('div');
+    node.className = 'atlas-claude-msg';
+    node.dataset.role = 'system';
+    node.dataset.atlasApprovalActions = 'true';
+    node.dataset.atlasClarificationRecovery = 'true';
+    node.dataset.poolId = String(poolId || '');
+    node.style.flexDirection = 'column';
+    node.style.gap = '6px';
+
+    const text = document.createElement('div');
+    const guidance = String((poolMeta && poolMeta.next_required_user_action) || '').trim()
+      || '確認回答後のプラン改訂/ゲート再実行が完了しませんでした。改訂を依頼して再実行するか、キャンセルしてください。';
+    text.textContent = guidance;
+    node.appendChild(text);
+
+    if (Array.isArray(blockedReasons) && blockedReasons.length) {
+      const detail = document.createElement('div');
+      detail.className = 'atlas-claude-stage-detail';
+      detail.style.whiteSpace = 'normal';
+      detail.textContent = `未解決: ${blockedReasons.join(', ')}`;
+      node.appendChild(detail);
+    }
+
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '6px';
+
+    const revise = document.createElement('button');
+    revise.type = 'button';
+    revise.className = 'atlas-claude-primary-btn';
+    revise.textContent = '改訂を依頼して再実行';
+
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'atlas-claude-secondary-btn';
+    cancel.textContent = 'キャンセル';
+
+    const disableAll = () => Array.from(actions.querySelectorAll('button')).forEach((b) => { b.disabled = true; });
+
+    revise.addEventListener('click', () => {
+      const note = (root.prompt && root.prompt('改訂依頼の内容（任意）')) || '';
+      disableAll();
+      node.remove();
+      requestPlanRevision(poolId, note);
+    });
+    cancel.addEventListener('click', () => {
+      disableAll();
+      node.remove();
+      cancelPlan(poolId);
+    });
+    actions.append(revise, cancel);
+    node.append(actions);
+    insertApprovalActionsNode(node, poolId, context && context.revisionId);
+  }
+
   // Re-run an existing plan. Clearing prior execution first is essential: an already
   // applied/approved item sets patch_proposal.status to applied/accepted, which blocks
   // regeneration ("patch_proposal_blocked") even with force_regenerate. reset-execution
@@ -2499,7 +2561,10 @@
     } else if (poolMeta.clarification_required && Array.isArray(clarification.options) && clarification.options.length) {
       appendClarificationPrompt(poolId, { clarification_questions: [{ question_id: 'clar_q_1', index: 1, total: 1, prompt: '確認が必要です。以下から選択してください:', options: clarification.options, status: 'pending' }] });
     } else if (clarificationBlocks.length) {
-      pushSystemMessage(`確認回答と plan revision / gate rerun が完了するまで承認できません: ${clarificationBlocks.join(', ')}`);
+      // Clarification was answered but the revised plan did NOT clear the gate (typically the
+      // post-answer replan/gate-rerun failed). Without a control here the user is stranded on a
+      // button-less plan card. Surface WHY plus an actionable recovery path (revise / cancel).
+      appendClarificationRecoveryPrompt(poolId, approvalContext, clarificationBlocks, poolMeta);
     } else if (poolStatus === 'approval_required') {
       appendPlanActionPrompt(poolId, approvalContext);
     } else if (opts.allowReuse) {
