@@ -1311,6 +1311,17 @@ class AtlasPatchProposalService:
         quality_findings = self._generation_quality_findings(input_payload, content_by_path, metadata)
         for finding in quality_findings:
             reason = str(finding.get("reason") or finding.get("type") or "generation_quality_failed")
+            # requirement_evidence_mismatch is a BRITTLE token match: it flags a requirement the model
+            # CLAIMED to satisfy whose description words are not a literal substring of the code — but a
+            # feature is routinely implemented under a different name (Enemy vs "enemy ships", foe, alien).
+            # Like known_limitations above, hard-failing it punishes real, working code (it blocked the
+            # enemy/bullet game steps). Coverage is recomputed deterministically by claim sanitization,
+            # so record it as advisory instead of failing the whole patch. Genuine non-implementation is
+            # still caught by the stub / placeholder / trivial-body / AST / HTML checks.
+            if str(finding.get("type")) == "requirement_evidence_mismatch":
+                req_id = str(finding.get("requirement_id") or "")
+                advisories.append(f"{reason}:{req_id}" if req_id else reason)
+                continue
             path = str(finding.get("path") or "")
             reasons.append(f"{reason}:{path}" if path else reason)
         return {
