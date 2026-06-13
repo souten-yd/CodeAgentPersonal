@@ -108,6 +108,73 @@ class AtlasMultiItemAutopilotService:
         self.correction_router_service = correction_router_service
         self.supervised_status_service = AtlasMultiItemSupervisedStatusService(storage=storage, journal=journal, supervised_item_status_service=AtlasSupervisedItemStatusService(storage=storage, journal=journal))
 
+    # Safe-apply block reasons that mean "the patch no longer matches the live file" (stale snapshot
+    # / drift), as opposed to policy/risk/path blocks which must NOT be auto-regenerated.
+    _DRIFT_SAFE_APPLY_REASONS = {
+        "edit_not_applicable",
+        "no_effective_change",
+        "update_target_missing",
+        "content_mismatch",
+        "unsupported_patch_format",
+        "diff_extract_failed",
+    }
+
+    def _safe_apply_block_reasons(self, safe) -> set[str]:
+        """Collect every block reason a safe-apply result exposes (top-level + per-file)."""
+        out: set[str] = set()
+        for r in (list(getattr(safe, "warnings", []) or []) + list(getattr(safe, "errors", []) or [])):
+            if r:
+                out.add(str(r))
+        for container in (getattr(safe, "metadata", {}) or {}, getattr(safe, "safe_apply_result", {}) or {}):
+            for fr in (container.get("file_results") or []):
+                if isinstance(fr, dict):
+                    if fr.get("reason"):
+                        out.add(str(fr.get("reason")))
+                    for x in (fr.get("reasons") or []):
+                        if x:
+                            out.add(str(x))
+        return out
+
+    def _recover_safe_apply_drift(self, request, pool, item, run_id, autopilot_run_id, idx, total, safe):
+        """Regenerate a drifted patch against current content and re-apply via self-correction.
+
+        Returns a dict {recovered, reasons, meta, safe_apply_result?, verification_result?} or None
+        when recovery does not apply (self-correction disabled/absent, or a non-drift block reason).
+        """
+        if not (getattr(request, "include_self_correction", False) and self.self_correction_service):
+            return None
+        reasons = self._safe_apply_block_reasons(safe)
+        drift = reasons & self._DRIFT_SAFE_APPLY_REASONS
+        if not drift:
+            return None
+        self._progress(request, phase="candidate_apply", current_item_index=idx, total_items=total, sub_phase="safe_apply_drift_recovery", attempt=1, last_event="safe_apply_drift_recovery_started")
+        self.emit("multi_item_autopilot_safe_apply_drift_recovery_started", request, autopilot_run_id, item_id=item.item_id, item_index=idx, reasons=sorted(drift))
+        synthetic_vr = {"status": "failed", "reason": "safe_apply_not_applied", "safe_apply_block_reasons": sorted(reasons), "drift_recovery": True}
+        try:
+            sc = self.self_correction_service.run(
+                AtlasSelfCorrectionRequest(
+                    pool_id=pool.pool_id,
+                    item_id=item.item_id,
+                    run_id=run_id,
+                    workspace_id=request.workspace_id,
+                    project_path=self.resolve_project_path(request, pool, item),
+                    verification_result=synthetic_vr,
+                    changed_files=list(item.target_files or []),
+                    file_results=[],
+                    max_attempts=max(1, int(request.self_correction_max_attempts or 1)),
+                    risk_levels=request.self_correction_risk_levels,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {"recovered": False, "reasons": drift, "meta": {"error": str(exc)[:200]}}
+        recovered = str(sc.status) == "recovered"
+        self.emit("multi_item_autopilot_safe_apply_drift_recovery_completed", request, autopilot_run_id, item_id=item.item_id, item_index=idx, status=str(sc.status))
+        out = {"recovered": recovered, "reasons": drift, "meta": sc.model_dump()}
+        if recovered:
+            out["safe_apply_result"] = {"status": "applied", "changed_files": list(getattr(sc, "changed_files", []) or [])}
+            out["verification_result"] = (getattr(sc, "metadata", {}) or {}).get("final_verification_result")
+        return out
+
     def run(self, request: AtlasMultiItemAutopilotRequest) -> AtlasMultiItemAutopilotResult:
         pool = self.storage.load_pool(request.pool_id)
         policy = get_multi_item_policy(request.policy_id)
@@ -172,7 +239,23 @@ class AtlasMultiItemAutopilotService:
                     _append_sub_phase(result, "safe_apply", safe.status, phase_started, _safe_apply_subphase_detail(result.safe_apply_result))
                     self.emit("multi_item_autopilot_safe_apply_completed", request, autopilot_run_id, item_id=item_id, item_index=idx, status=safe.status)
                     if safe.status != "applied":
-                        result.status, result.reason = "failed", "safe_apply_not_applied"
+                        # GENERAL drift recovery: a patch generated against a STALE snapshot of the
+                        # target file fails to apply (edit_not_applicable / no_effective_change) once
+                        # an earlier item in the same run has changed that file. Regenerate against
+                        # the CURRENT content and re-apply via the existing self-correction machinery
+                        # (regenerate -> re-apply -> re-verify), gated to drift reasons + risk levels.
+                        recovery = self._recover_safe_apply_drift(request, pool, item, run_id, autopilot_run_id, idx, len(ids), safe)
+                        if recovery is not None:
+                            result.metadata["safe_apply_drift_recovery"] = recovery.get("meta") or {}
+                            _append_sub_phase(result, "safe_apply_drift_recovery", "recovered" if recovery.get("recovered") else "failed", phase_started, {"reasons": sorted(recovery.get("reasons") or [])})
+                        if recovery is not None and recovery.get("recovered"):
+                            if recovery.get("safe_apply_result"):
+                                result.safe_apply_result = recovery["safe_apply_result"]
+                            if recovery.get("verification_result"):
+                                result.verification_result = recovery["verification_result"]
+                            result.status, result.reason = "applied", "safe_apply_drift_recovered"
+                        else:
+                            result.status, result.reason = "failed", "safe_apply_not_applied"
                     else:
                         # Clear the pessimistic "failed" default so the verification stage runs.
                         # (Previously this path was never reached because items were skipped at
@@ -411,10 +494,17 @@ class AtlasMultiItemAutopilotService:
         patch_proposal = md.get("patch_proposal") or {}
         file_changes = md.get("file_changes") if isinstance(md.get("file_changes"), list) else []
         file_change_content = bool(file_changes) and all(isinstance(fc, dict) and has_file_change_content(fc) for fc in file_changes)
+        # Surgical "edits" (old_string -> new_string) are real, applicable content the executor
+        # honors, but an edits-only proposal sets item.metadata["edits"] WITHOUT a proposed_content /
+        # file_changes / patch field. Recognize it here so existing-file modifications (which the
+        # model expresses as edits) are not skipped as missing_patch_or_content.
+        item_edits = md.get("edits") if isinstance(md.get("edits"), list) else []
+        proposal_edits = patch_proposal.get("edits") if isinstance(patch_proposal.get("edits"), list) else []
+        has_edits = bool(item_edits) or bool(proposal_edits)
         if not (
             file_change_content
-            or
-            (md.get("patch") or "")
+            or has_edits
+            or (md.get("patch") or "")
             or (md.get("content") or "")
             or (md.get("proposed_content") or "")
             or (md.get("unified_diff_preview") or "")

@@ -54,6 +54,35 @@ def test_apply_verify_peek_loop_keeps_indicator_phase_current():
     assert "verifying" in body and "applying" in body
 
 
+def test_build_flow_interleaves_generate_and_apply_per_item():
+    # ROOT-CAUSE FIX for safe_apply_not_applied: generating ALL patches then applying them as a
+    # batch caused edit drift. The build loop must generate -> approve -> apply+verify ONE item at a
+    # time (single-item autopilot) so each patch is generated against the CURRENT file state.
+    body = _slice(PANEL, "async function approveAndRunPipeline(", "function escapeText(")
+    # The apply call must target a SINGLE item (interleaved), not the whole appliable batch.
+    assert "item_ids: [itemId]" in body
+    # ...and it must sit inside the per-item generation loop (after a successful generatePatchProposal).
+    gen_idx = body.index("generatePatchProposal(")
+    apply_idx = body.index("item_ids: [itemId]")
+    assert apply_idx > gen_idx
+    # The old generate-all-then-batch-apply call must be gone.
+    assert "item_ids: appliableIds" not in body
+
+
+def test_self_correction_recovers_safe_apply_drift_backend():
+    # Defense in depth: the autopilot regenerates a drifted patch against current content and
+    # re-applies it (safe_apply_drift_recovered) instead of failing with safe_apply_not_applied.
+    svc = (Path(__file__).resolve().parents[1] / "agent" / "atlas_multi_item_autopilot_service.py").read_text(encoding="utf-8")
+    assert "_recover_safe_apply_drift" in svc
+    assert "safe_apply_drift_recovered" in svc
+    assert "edit_not_applicable" in svc
+    # Edits-only patches (how the model expresses existing-file modifications) must count as
+    # applicable content in the eligibility check, else they skip as missing_patch_or_content.
+    elig_start = svc.index("def _check_eligibility(")
+    elig = svc[elig_start:svc.index("\n    def ", elig_start)]
+    assert "has_edits" in elig and 'reason": "missing_patch_or_content' in elig
+
+
 def test_indicator_is_cleared_when_dev_phase_finishes():
     # The shared indicator must be torn down when the run ends (setBusy(false) -> clearLlmProgressLine).
     assert "clearLlmProgressLine()" in PANEL

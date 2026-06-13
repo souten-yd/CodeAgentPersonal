@@ -113,6 +113,53 @@ def test_full_auto_multi_item_passes_full_auto_preset(tmp_path):
     assert phases[1]["detail"]["output_summary"] == ""
 
 
+def test_edits_only_item_is_eligible_not_skipped(tmp_path):
+    # Existing-file modifications are expressed by the model as surgical "edits" (old->new). An
+    # edits-only proposal sets metadata["edits"] WITHOUT proposed_content/file_changes/patch, and
+    # must NOT be skipped as missing_patch_or_content (regression for safe_apply_not_applied skips).
+    (tmp_path / 'a.py').write_text('def f():\n    return 1\n', encoding='utf-8')
+    pool = AtlasPlanPool(
+        pool_id='p1', root_goal='g', project_path=str(tmp_path),
+        items=[AtlasPlanItem(
+            item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation',
+            risk_level='medium', status='ready', target_files=['a.py'],
+            metadata={'action_type': 'update', 'approval': {'decision': 'approved'},
+                      'edits': [{'old_string': 'return 1', 'new_string': 'return 2'}]},
+        )],
+    )
+
+    class Storage:
+        def load_pool(self, pool_id):
+            return pool
+        def save_pool(self, p):
+            pass
+
+    class Journal:
+        def append_event(self, *args, **kwargs):
+            pass
+
+    class AutoSafe:
+        def execute_one(self, request):
+            return SimpleNamespace(status='applied', changed_files=['a.py'],
+                                   model_dump=lambda: {'status': 'applied', 'changed_files': ['a.py']})
+
+    class Verification:
+        def run_after_auto_safe_apply(self, request):
+            return SimpleNamespace(status='skipped', warnings=['verification_command_missing'],
+                                   model_dump=lambda: {'status': 'skipped', 'warnings': ['verification_command_missing']})
+
+    svc = AtlasMultiItemAutopilotService(
+        storage=Storage(), journal=Journal(), automation_gate=AtlasAutomationGateService(),
+        auto_safe_apply_service=AutoSafe(), auto_verification_service=Verification(),
+        context_refresh_service=SimpleNamespace(refresh=lambda request: SimpleNamespace(status='available', bundle_id='ctx1')),
+        evaluator_service=SimpleNamespace(evaluate=lambda request: SimpleNamespace(metadata={}, decision=SimpleNamespace(model_dump=lambda: {'decision': 'continue'}))),
+    )
+    out = svc.run(AtlasMultiItemAutopilotRequest(pool_id='p1', project_path=str(tmp_path), policy_id='full_auto_multi_item_v1', require_approval=False, include_context_refresh=False, include_evaluator=False))
+    res = out.item_results[0]
+    assert res.reason != 'missing_patch_or_content'
+    assert str(res.status).startswith('applied')
+
+
 def test_multi_item_autopilot_continues_after_first_item_pool_coverage_partial(tmp_path):
     (tmp_path / 'tests').mkdir(parents=True, exist_ok=True)
     (tmp_path / 'tests' / 'test_ok.py').write_text('def test_ok():\n    assert True\n', encoding='utf-8')

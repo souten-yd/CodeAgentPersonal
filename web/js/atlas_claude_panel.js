@@ -1372,9 +1372,18 @@
         authoritative_source: 'PlanPool',
       }), stages);
       updateStage(stages, 'patch', 'running', `0/${items.length}`);
+      // Interleaved generate -> approve -> apply+verify, ONE item at a time, so each patch is
+      // generated against the CURRENT file (including earlier items' applied edits). Generating ALL
+      // patches first and then applying them in a batch caused EDIT DRIFT (a later item's old_string
+      // no longer matched the file an earlier item had changed) -> safe_apply_not_applied.
+      const envelope = state.latestEnvelope || {};
+      const bounds = envelope.bounds || {};
       let generated = 0;
+      let appliedCount = 0;
+      let failedCount = 0;
       const genFailures = [];
       const appliableIds = [];
+      const perItemResults = [];
       for (let i = 0; i < items.length; i += 1) {
         const it = items[i];
         const itemId = it.item_id || it.id;
@@ -1414,6 +1423,44 @@
         if (hasContent) {
           generated += 1;
           appliableIds.push(itemId);
+          updateStage(stages, 'patch', 'running', `${i + 1}/${items.length}`);
+          // Approve, then apply+verify THIS item immediately (single-item autopilot keeps
+          // self-correction / bounded-retry) so the NEXT item is generated against the updated file.
+          updateStage(stages, 'approve', 'running', `${generated}`);
+          await root.AtlasPipelineAPI.decidePatchProposal({ pool_id: poolId, item_id: itemId, decision: 'approved' });
+          updateStage(stages, 'apply', 'running', `${appliedCount}/${generated}`);
+          // Keep the theme-colored indicator current during the (token-less) apply/verify of this item.
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('atlas:llm-progress', { detail: { phase: 'applying', tokens: 0, secondsSince: 0, poolId } }));
+          }
+          renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+            phase: 'applying', status: 'running', items_total: items.length, items_started: generated,
+            items_completed: appliedCount, current_item_index: i + 1, current_item_title: it.title || itemId,
+            message: `適用+検証 ${i + 1}/${items.length}`, next_actions: ['wait', 'cancel'],
+            authoritative_source: '/api/atlas/multi-item-autopilot/run',
+          }), stages);
+          let one;
+          try {
+            one = await root.AtlasPipelineAPI.runMultiItemAutopilot({
+              pool_id: poolId, item_ids: [itemId], policy_id: 'full_auto_multi_item_v1', max_items: 1,
+              max_runtime_seconds: bounds.max_runtime_seconds || 1800,
+              max_changed_files_total: bounds.max_files_changed || 25, dry_run: false, require_approval: false,
+              include_context_refresh: true, include_evaluator: true, include_bounded_retry: true,
+              include_self_correction: true, self_correction_max_attempts: 2,
+              metadata: { ui: 'atlas_claude_panel', envelope_id: envelope.envelope_id, interleaved: true },
+            });
+          } catch (err) { one = { ok: false, error: true, message: String(err) }; }
+          const od = (one && one.ok && one.data) || {};
+          const ir = (od.item_results || [])[0] || {};
+          const itemApplied = (od.completed_count || 0) > 0 || ir.status === 'applied' || ir.status === 'completed' || ir.reason === 'safe_apply_drift_recovered';
+          if (itemApplied) {
+            appliedCount += 1;
+            updateStage(stages, 'apply', 'running', `${appliedCount}/${generated}`);
+            updateStage(stages, 'verify', 'running', `pass ${appliedCount}`);
+          } else {
+            failedCount += 1;
+          }
+          perItemResults.push({ item_id: itemId, status: ir.status || (one && one.ok ? 'unknown' : 'error'), reason: ir.reason || (one && one.message) || '' });
         } else {
           // Build a richer error: distinguish "no patch content" from HTTP/backend errors so the
           // user understands WHY an item will be skipped instead of seeing a cryptic skip later.
@@ -1470,143 +1517,35 @@
         }), stages);
         return;
       }
-      updateStage(stages, 'patch', 'done', `${generated}/${items.length}`);
-
-      // ── Stage 3: Approve items (only those with real patch content) ──
-      updateStage(stages, 'approve', 'running', `0/${appliableIds.length}`);
-      for (let i = 0; i < appliableIds.length; i += 1) {
-        await root.AtlasPipelineAPI.decidePatchProposal({
-          pool_id: poolId,
-          item_id: appliableIds[i],
-          decision: 'approved',
-        });
-        updateStage(stages, 'approve', 'running', `${i + 1}/${appliableIds.length}`);
-      }
-      updateStage(stages, 'approve', 'done', `${appliableIds.length}/${appliableIds.length}`);
-
-      // ── Stage 4: Autopilot (apply + verify) — only appliable items ──
-      const envelope = state.latestEnvelope || {};
-      const bounds = envelope.bounds || {};
-      const applyTotal = appliableIds.length;
-      updateStage(stages, 'apply', 'running', 'starting');
-      updateStage(stages, 'verify', 'pending', '');
+      // ── Finalize (apply+verify already happened inline, per item) ──
+      updateStage(stages, 'patch', generated > 0 ? 'done' : 'failed', `${generated}/${items.length}`);
+      updateStage(stages, 'approve', generated > 0 ? 'done' : 'pending', `${generated}/${generated}`);
+      updateStage(stages, 'apply', appliedCount > 0 ? 'done' : 'failed', `${appliedCount}/${generated}`);
+      updateStage(stages, 'verify', (appliedCount > 0 && failedCount === 0) ? 'done' : (appliedCount > 0 ? 'failed' : 'pending'), `pass ${appliedCount} / fail ${failedCount}`);
+      const summary = {
+        status: failedCount === 0 ? 'completed' : 'completed_with_failures',
+        processed_count: generated,
+        completed_count: appliedCount,
+        failed_count: failedCount,
+        item_results: perItemResults,
+      };
+      if (genFailures.length) summary.no_content_failures = genFailures;
+      renderPipelineSummary(stages, summary);
       renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
-        phase: 'applying',
-        status: 'running',
-        items_total: applyTotal,
-        items_started: 0,
-        items_completed: 0,
-        message: 'Autopilot run starting',
-        next_actions: ['wait', 'cancel'],
-        authoritative_source: '/api/atlas/multi-item-autopilot/run',
-      }), stages);
-      const autopilotPromise = root.AtlasPipelineAPI.runMultiItemAutopilot({
-        pool_id: poolId,
-        item_ids: appliableIds,
-        // Autonomous code-generation run: allow low/medium/high-risk create/update items so a real
-        // program (not just trivial low-risk steps) can be built end-to-end.
-        policy_id: 'full_auto_multi_item_v1',
-        max_items: Math.min(bounds.max_actions_per_loop || 20, applyTotal),
-        max_runtime_seconds: bounds.max_runtime_seconds || 1800,
-        max_changed_files_total: bounds.max_files_changed || 25,
-        dry_run: false,
-        require_approval: false,
-        include_context_refresh: true,
-        include_evaluator: true,
-        include_bounded_retry: true,
-        include_self_correction: true,
-        self_correction_max_attempts: 2,
-        metadata: { ui: 'atlas_claude_panel', envelope_id: envelope.envelope_id },
-      });
-      // Concurrent polling: peek at the persisted autopilot result every 1.5s
-      // and surface item-by-item progress while the synchronous run completes.
-      const pollTimer = setInterval(async () => {
-        try {
-          const peek = await root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult({ pool_id: poolId });
-          if (peek && peek.ok && peek.data) {
-            const processed = peek.data.processed_count || 0;
-            const completed = peek.data.completed_count || 0;
-            const failed = peek.data.failed_count || 0;
-            // Keep the theme-colored generation indicator current through apply/verify (no token
-            // generation here, so phase-only) so it stays visible across the whole dev phase.
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('atlas:llm-progress', {
-                detail: { phase: (completed + failed > 0 ? 'verifying' : 'applying'), tokens: 0, secondsSince: 0, poolId },
-              }));
-            }
-            updateStage(stages, 'apply', processed >= applyTotal ? 'done' : 'running', `${processed}/${applyTotal}`);
-            if (completed + failed > 0) {
-              updateStage(stages, 'verify', processed >= applyTotal ? 'done' : 'running', `pass ${completed} / fail ${failed}`);
-            }
-            renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
-              phase: completed + failed > 0 ? 'verifying' : 'applying',
-              status: peek.data.status || 'running',
-              run_id: peek.data.run_id || '',
-              autopilot_run_id: peek.data.autopilot_run_id || '',
-              items_total: applyTotal,
-              items_started: processed,
-              items_completed: completed,
-              message: `Autopilot ${peek.data.status || 'running'}`,
-              error: peek.data.stop_reason || '',
-              next_actions: ['wait', 'cancel'],
-              authoritative_source: 'multi_item_autopilot_result',
-            }), stages);
-          }
-        } catch (err) {
-          console.warn('Atlas autopilot polling failed', err);
-          renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
-            phase: 'failed',
-            status: 'failed',
-            items_total: applyTotal,
-            message: 'Run status unavailable',
-            error: 'endpoint=/api/atlas/multi-item-autopilot/latest',
-            requires_user_action: true,
-            next_actions: ['retry', 'cancel'],
-          }), stages);
-        }
-      }, 1500);
-      const result = await autopilotPromise;
-      clearInterval(pollTimer);
-
-      if (!result.ok) {
-        updateStage(stages, 'apply', 'failed', formatError(result));
-        renderPipelineSummary(stages, { status: 'autopilot_failed', error: formatError(result), genFailures });
-        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
-          phase: 'failed',
-          status: 'failed',
-          items_total: applyTotal,
-          message: 'Autopilot failed before applying the first item',
-          error: formatError(result),
-          requires_user_action: true,
-          next_actions: ['retry', 'revise plan', 'cancel'],
-          authoritative_source: '/api/atlas/multi-item-autopilot/run',
-        }), stages);
-        return;
-      }
-      const d = result.data || {};
-      // Surface items that had no patch content so the summary explains why they were not applied.
-      if (genFailures.length) d.no_content_failures = genFailures;
-      updateStage(stages, 'apply', 'done', `${d.processed_count || 0} processed`);
-      const verifyStatus = (d.failed_count || 0) === 0 ? 'done' : 'failed';
-      updateStage(stages, 'verify', verifyStatus, `pass ${d.completed_count || 0} / fail ${d.failed_count || 0}`);
-      renderPipelineSummary(stages, d);
-      renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
-        phase: (d.failed_count || 0) === 0 ? 'completed' : 'failed',
-        status: d.status || ((d.failed_count || 0) === 0 ? 'completed' : 'failed'),
-        run_id: d.run_id || '',
-        autopilot_run_id: d.autopilot_run_id || '',
-        items_total: applyTotal,
-        items_started: d.processed_count || 0,
-        items_completed: d.completed_count || 0,
-        message: `Autopilot ${d.status || 'completed'}`,
-        error: (d.failed_count || 0) ? (d.stop_reason || 'verification_failed') : '',
-        requires_user_action: (d.failed_count || 0) > 0,
-        next_actions: (d.failed_count || 0) > 0 ? ['retry', 'revise plan', 'cancel'] : [],
+        phase: failedCount === 0 ? 'completed' : 'failed',
+        status: summary.status,
+        items_total: items.length,
+        items_started: generated,
+        items_completed: appliedCount,
+        message: `完了 ${appliedCount} / 失敗 ${failedCount}（生成 ${generated}/${items.length}）`,
+        error: failedCount ? 'safe_apply_or_verify_failed' : '',
+        requires_user_action: failedCount > 0,
+        next_actions: failedCount > 0 ? ['retry', 'revise plan', 'cancel'] : [],
         authoritative_source: 'multi_item_autopilot_result',
-        failed_phase: (d.failed_count || 0) > 0 ? 'verify' : undefined,
+        failed_phase: failedCount > 0 ? 'verify' : undefined,
       }), stages);
       // Persist run pointer so the result block re-renders after a reload.
-      persistMeta({ active_pool_id: poolId, latest_autopilot_run_id: d.autopilot_run_id || '' });
+      persistMeta({ active_pool_id: poolId });
     } finally {
       setBusy(false);
     }
