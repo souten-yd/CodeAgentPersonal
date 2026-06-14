@@ -8,8 +8,8 @@ AUIR: Atlas UI Runtime Progress and Resume/Rehydrate Hardening
 
 ```text
 status: in_progress
-current_package: AUIR-5
-next_action: add regression tests and mobile/browser reload smoke
+current_package: AUIR-6
+next_action: return to PIBIH-1 LLM planning timeout hardening
 ```
 
 ## User-Observed Bug
@@ -36,32 +36,29 @@ Log:
 
 ## Active Package
 
-### AUIR-5: Regression tests and mobile/browser reload smoke
+### AUIR-6: Return to PIBIH-1 LLM planning timeout hardening
 
 ### Required Code Investigation
 
 Search and inspect:
 
 ```text
-tests/test_atlas_ui_llm_props_init.py
-tests/test_atlas_runtime_progress_events.py
-tests/test_atlas_reload_resume_progress_ui_contract.py
-tests/test_atlas_runtime_progress_connection_state_contract.py
-scripts/smoke_ui_modes_playwright.py
-playwright-ui-smoke.yml
-atlas_current_ui_smoke
-mobile_mode_switches
-reload
-tab switch
+docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md
+docs/atlas_project_intelligence_behavioral_impact_hardening_plan.md
+docs/atlas_project_intelligence_behavioral_impact_hardening_test_plan.md
+docs/atlas_project_intelligence_behavioral_impact_hardening_agent_entrypoint.md
+LLM planning timeout
+streaming progress
+phase-specific timeout reason
 ```
 
 ### Acceptance Checklist
 
-- [ ] Focused regression tests cover AUIR-1 through AUIR-4 behavior.
-- [ ] Mobile/browser reload smoke is run or truthfully recorded unavailable with reason.
-- [ ] Browser tab switch/reload scenario has evidence for restored status and indicator.
-- [ ] Existing static UI smoke harness gaps are documented without marking them passed.
-- [ ] Current status doc is updated with changed files and evidence.
+- [ ] PIBIH status/plan/test/entrypoint docs are read before editing.
+- [ ] Slow local planning models can complete or fail with phase-specific timeout reasons.
+- [ ] Streaming planning progress remains visible during long-running LLM calls.
+- [ ] Local-only and external-provider policy boundaries remain intact.
+- [ ] Focused tests and live localhost:8080 advisory review are recorded truthfully.
 
 ## Evidence Log Template
 
@@ -304,6 +301,65 @@ Safety invariants:
 Remaining gaps:
 - AUIR-5 must consolidate regression coverage and produce mobile/browser reload smoke evidence or truthfully record remaining smoke blockers.
 Next package: AUIR-5 Regression tests and mobile/browser reload smoke
+Blocker: none
+```
+
+```text
+Completed package: AUIR-5 Regression tests and mobile/browser reload smoke
+Status: completed
+Changed modules/files:
+- scripts/smoke_ui_modes_playwright.py
+- tests/test_phase25_4_1_playwright_http_smoke_harness_contract.py
+- ui.html
+- docs/atlas_runtime_progress_resume_hardening_current_status.md
+Behavior implemented:
+- Updated the mock-backed Playwright smoke server to serve `/static/*` from `web/` and `/assets/*` from `assets/` with path escape checks, no-store responses, and content types.
+- Removed an early unused `switchTab` reference in `ui.html` that could throw before `web/js/panels.js` initialized the function.
+- Aligned `atlas_current_ui_smoke` with the current Atlas Claude shell by using `#atlas-claude-col`, submitting through `#atlas-claude-input` / `#atlas-claude-send-btn`, and verifying visible `PlanPool 作成` output.
+- Added deterministic mock runtime/progress replay routes for `pool_auir5_reload` / `run_auir5_reload`.
+- Added `atlas_reload_resume_progress_smoke`, which seeds Atlas pool/run/sequence hints, reloads the full `ui.html`, activates Atlas, and verifies a restored live LLM indicator plus runtime panel state from server replay.
+- Aligned `mobile_mode_switches` with the current Atlas Claude shell and treated absent optional mobile panels as hidden instead of failing `getComputedStyle` on missing elements.
+Focused tests:
+- `python -m pytest tests\test_phase25_4_1_playwright_http_smoke_harness_contract.py tests\test_static_js_serving.py tests\test_ui_js_dependency_contract.py -q` -> 21 passed.
+Syntax checks:
+- `python -m py_compile scripts\smoke_ui_modes_playwright.py` -> passed.
+- `python scripts\check_ui_inline_script_syntax.py` -> passed for 1 inline script block and 16 external script files.
+- `git diff --check` -> passed; only Git line-ending warnings for existing Windows checkout behavior.
+Affected tests:
+- Static JS serving and UI dependency contract tests were included in the focused test run.
+Real model evidence:
+- localhost:8080 `/v1/models` returned `Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf`.
+- localhost:8080 `/v1/chat/completions` advisory review of the final AUIR-5 diff returned `verdict: pass` with no blockers. This is advisory evidence only.
+Atlas UI evidence:
+- `python scripts\smoke_ui_modes_playwright.py --only atlas_current_ui_smoke` -> 1 pass, 0 fail.
+- `python scripts\smoke_ui_modes_playwright.py --only atlas_reload_resume_progress_smoke` -> 1 pass, 0 fail.
+- `python scripts\smoke_ui_modes_playwright.py --only mobile_mode_switches` -> 2 pass, 0 fail.
+Reload/resume evidence:
+- Full mock-backed browser reload smoke restored Atlas from local pool/run/sequence hints after `page.reload()`.
+- The restored UI showed `#atlas-llm-progress-line` with `data-connection-state="live"` and text containing `patch_generation` and `tokens 64 / 8192`.
+- The restored runtime panel for `pool_auir5_reload` showed `data-atlas-runtime-connection-state="live"` and `復元: server progress replay restored`.
+Project Intelligence evidence:
+- Not applicable to AUIR-5.
+Impact analysis evidence:
+- Not applicable to AUIR-5.
+Web research evidence:
+- Not applicable; external/web calls remain disabled by default.
+Runtime/Portal evidence:
+- Portal runtime paths were not changed.
+Unavailable checks:
+- No full live approved Atlas development run was executed through the complete browser UI in this package.
+- Mock-backed browser smoke evidence is UI evidence, not live runtime authority.
+Safety invariants:
+- Proposal / Safe Apply / Verification boundaries were not bypassed.
+- No approval, execution, patch apply, bulk apply, or external-code exposure default was enabled by the smoke harness.
+- UI rendering and browser smoke observations are recorded as UI evidence, not runtime evidence.
+- No external provider was enabled by default.
+- No secrets or generated data persistence paths were added.
+- `unavailable` checks are not marked as passed.
+Remaining gaps:
+- AUIR runtime progress/resume hardening is complete enough to return to PIBIH-1.
+- Live approved Atlas development runtime evidence remains a future end-to-end check, not an AUIR-5 mock-smoke pass.
+Next package: AUIR-6 Return to PIBIH-1 LLM planning timeout hardening
 Blocker: none
 ```
 
