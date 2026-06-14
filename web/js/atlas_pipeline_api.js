@@ -191,8 +191,8 @@
     getPipelineStatus(poolId, runId, workspaceId) {
       return atlasFetch(`/api/atlas/pipeline/status/${encodeURIComponent(runId)}${query({ pool_id: poolId, workspace_id: workspaceId })}`);
     },
-    getPipelineEvents(poolId, runId, workspaceId) {
-      return atlasFetch(`/api/atlas/pipeline/events/${encodeURIComponent(poolId)}/${encodeURIComponent(runId)}${query({ workspace_id: workspaceId })}`);
+    getPipelineEvents(poolId, runId, workspaceId, afterSequence) {
+      return atlasFetch(`/api/atlas/pipeline/events/${encodeURIComponent(poolId)}/${encodeURIComponent(runId)}${query({ workspace_id: workspaceId, after_sequence: afterSequence })}`);
     },
     getRecoveryLatest(workspaceId) {
       return atlasFetch(`/api/atlas/recovery/latest${query({ workspace_id: workspaceId })}`);

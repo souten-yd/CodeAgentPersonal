@@ -17,6 +17,8 @@
   const root = (typeof window !== 'undefined' ? window : globalThis);
   const STORAGE_LAST_GOAL_KEY = 'atlas_claude_last_goal';
   const STORAGE_LAST_POOL_ID_KEY = 'atlas_claude_last_pool_id';
+  const STORAGE_LAST_RUN_ID_KEY = 'atlas_claude_last_run_id';
+  const STORAGE_LAST_EVENT_SEQUENCE_KEY = 'atlas_claude_last_event_sequence';
   const TRANSCRIPT_MAX_MESSAGES = 200;
   const POLL_INTERVAL_MS = 8000;
   const CONFIRM_TEXT = 'SELECT AUTOMATION PROFILE';
@@ -166,14 +168,32 @@
     } catch (err) {
       console.warn('Atlas project restore failed', err);
     }
+    if (!restored) {
+      try {
+        const lastPoolId = localStorage.getItem(STORAGE_LAST_POOL_ID_KEY);
+        if (lastPoolId) {
+          await renderPlanPoolMarkdown(lastPoolId);
+          await restoreLatestRun(lastPoolId);
+          restored = true;
+        }
+      } catch (err) {
+        console.warn('Atlas local hint restore failed', err);
+      }
+    }
     if (!restored) pushSystemMessage('指示を入力してください');
   }
 
   async function restoreLatestRun(poolId) {
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult) return;
+    let runtime = null;
     try {
-      const runtime = await loadRuntimeStatus(poolId);
+      runtime = await loadRuntimeStatus(poolId);
       if (runtime) renderRuntimeStatusPanel(runtime);
+      try {
+        await restoreRuntimeProgressReplay(poolId, runtime);
+      } catch (replayErr) {
+        console.warn('Atlas runtime progress replay failed', replayErr);
+      }
     } catch (err) {
       console.warn('Atlas runtime status restore failed', err);
       renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
@@ -202,6 +222,92 @@
       console.warn('Atlas latest autopilot restore failed', err);
     }
     await restoreLatestAutonomousRun(poolId);
+  }
+
+  function progressRunIdFromRuntime(runtime) {
+    const patch = (runtime && runtime.patch_generation) || {};
+    return String(patch.run_id || (runtime && runtime.run_id) || '');
+  }
+
+  function progressPhaseForRuntime(event) {
+    const phase = String((event && event.phase) || '').toLowerCase();
+    const eventType = String((event && event.event_type) || '').toLowerCase();
+    const status = String((event && event.status) || '').toLowerCase();
+    if (eventType === 'atlas_run_completed') return 'completed';
+    if (eventType === 'atlas_run_failed' || status === 'failed') return 'failed';
+    if (phase.includes('verif')) return 'verifying';
+    if (phase.includes('apply')) return 'applying';
+    if (phase.includes('plan')) return 'planning';
+    if (status === 'completed' && !phase.includes('patch')) return 'completed';
+    return phase || 'patch_generation';
+  }
+
+  function applyRuntimeProgressEvent(event, poolId) {
+    if (!event) return false;
+    const effectivePoolId = String(event.pool_id || poolId || '');
+    const runId = String(event.run_id || '');
+    const sequence = Number(event.sequence || 0);
+    const tokens = Number(event.tokens_total || event.tokens || 0);
+    const latestAt = event.last_progress_at || event.timestamp || '';
+    const secondsSince = latestAt ? Math.max(0, Math.round((Date.now() - Date.parse(latestAt)) / 1000)) : Number(event.seconds_since_progress);
+    try {
+      if (effectivePoolId) localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, effectivePoolId);
+      if (runId) localStorage.setItem(STORAGE_LAST_RUN_ID_KEY, runId);
+      if (sequence > 0) localStorage.setItem(STORAGE_LAST_EVENT_SEQUENCE_KEY, String(sequence));
+    } catch (_) {}
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('atlas:llm-progress', {
+        detail: {
+          phase: event.phase || event.message || event.event_type || 'runtime_progress',
+          tokens,
+          maxCtx: Number(event.max_ctx || (event.metadata && event.metadata.max_ctx) || 0),
+          tps: Number(event.tokens_per_second || 0),
+          secondsSince,
+          poolId: effectivePoolId,
+          runId,
+        },
+      }));
+    }
+    renderRuntimeStatusPanel(runtimeStatusPayload(effectivePoolId, {
+      run_id: runId,
+      phase: progressPhaseForRuntime(event),
+      status: event.status || 'running',
+      current_item_title: event.item_id || '',
+      message: event.message || event.event_type || 'Runtime progress restored',
+      authoritative_source: 'server progress replay',
+      restored_progress: true,
+      latest_progress_sequence: sequence,
+      patch_generation: String(event.phase || '').toLowerCase().includes('patch')
+        ? { run_id: runId, state: event.status || 'running', updated_at: latestAt }
+        : {},
+    }));
+    return true;
+  }
+
+  async function restoreRuntimeProgressReplay(poolId, runtime) {
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPipelineEvents) return false;
+    let runId = progressRunIdFromRuntime(runtime);
+    if (!runId) {
+      try { runId = localStorage.getItem(STORAGE_LAST_RUN_ID_KEY) || ''; } catch (_) { runId = ''; }
+    }
+    if (!runId && root.AtlasPipelineAPI.getContinuationPool) {
+      try {
+        const cont = await root.AtlasPipelineAPI.getContinuationPool(poolId, '', workspaceId());
+        if (cont && cont.ok && cont.data) runId = String(cont.data.run_id || '');
+      } catch (_) {}
+    }
+    if (!runId) return false;
+    let afterSequence = 0;
+    try { afterSequence = Number(localStorage.getItem(STORAGE_LAST_EVENT_SEQUENCE_KEY) || 0) || 0; } catch (_) {}
+    const replay = await root.AtlasPipelineAPI.getPipelineEvents(poolId, runId, workspaceId(), afterSequence);
+    if (!replay || !replay.ok || !replay.data) return false;
+    const events = Array.isArray(replay.data.progress_events) ? replay.data.progress_events : [];
+    let restored = false;
+    events.forEach((event) => { restored = applyRuntimeProgressEvent(event, poolId) || restored; });
+    if (!restored && replay.data.latest_progress) {
+      restored = applyRuntimeProgressEvent(replay.data.latest_progress, poolId) || restored;
+    }
+    return restored;
   }
 
   async function restoreLatestAutonomousRun(poolId) {
@@ -366,6 +472,7 @@
         if (lastPoolId) {
           state.dismissedApprovalPlanKeys.delete(lastPoolId);
           renderPlanPoolMarkdown(lastPoolId).catch((_) => {});
+          restoreLatestRun(lastPoolId).catch((_) => {});
         }
       } catch (_) {}
     }
@@ -1593,6 +1700,13 @@
           propMeta = (prop && prop.metadata) || {};
           resultMeta = (r && r.ok && r.data && r.data.metadata) || {};
           patchGeneration = resultMeta.patch_generation || propMeta.patch_generation || {};
+          const generatedRunId = (r && r.ok && r.data && r.data.run_id) || patchGeneration.run_id || '';
+          if (generatedRunId) {
+            try {
+              localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, poolId);
+              localStorage.setItem(STORAGE_LAST_RUN_ID_KEY, generatedRunId);
+            } catch (_) {}
+          }
           hasContent = patchGeneration.state === 'succeeded'
             && patchGeneration.outcome === 'success'
             && patchGeneration.patch_content_available === true;
@@ -1950,8 +2064,10 @@
     const started = Number(view.items_started || 0);
     const completed = Number(view.items_completed || 0);
     ['plan', 'patch', 'approve', 'apply', 'verify', 'summary'].forEach((stage) => updateStage(panel, stage, 'pending', ''));
-    updateStage(panel, 'plan', phase === 'approving' ? 'running' : 'done', phase === 'approving' ? (view.message || 'approving') : '');
-    if (phase === 'blocked_safety_review') {
+    updateStage(panel, 'plan', (phase === 'approving' || phase === 'planning') ? 'running' : 'done', (phase === 'approving' || phase === 'planning') ? (view.message || phase) : '');
+    if (phase === 'planning') {
+      updateStage(panel, 'patch', 'pending', view.message || 'Planning');
+    } else if (phase === 'blocked_safety_review') {
       updateStage(panel, 'patch', 'failed', `Blocked by safety gate: ${view.block_reason || 'safety_gate_blocked'}`);
     } else if (phase === 'failed' || status === 'failed') {
       if (view.failed_phase === 'verify') {
@@ -1967,7 +2083,7 @@
       const patchState = String((incomingPatch.state || status || '')).toLowerCase();
       const activeRepair = patchState === 'repairing';
       const detail = activeRepair ? `自動修正中: attempt ${incomingPatch.attempt || 0}` : (total ? `${started}/${total}` : (view.message || 'Patchを生成・検証しています'));
-      const stageState = ['failed', 'blocked'].includes(patchState) ? 'failed' : (patchState === 'succeeded' ? 'done' : (status === 'running' || ['queued', 'validating', 'repairing', 'retrying'].includes(patchState) ? 'running' : 'pending'));
+      const stageState = ['failed', 'blocked'].includes(patchState) ? 'failed' : (patchState === 'succeeded' || status === 'completed' ? 'done' : (status === 'running' || ['queued', 'validating', 'repairing', 'retrying'].includes(patchState) ? 'running' : 'pending'));
       updateStage(panel, 'patch', stageState, detail);
     } else if (phase === 'applying') {
       updateStage(panel, 'patch', 'done', `${completed || started}/${total || '-'}`);
@@ -1995,6 +2111,7 @@
       // high-level pipeline state.
       const PHASE_LABELS = {
         patch_generation: 'パッチ生成',
+        planning: 'プラン生成',
         approving: '承認',
         applying: '適用',
         verifying: '検証',
@@ -2016,6 +2133,9 @@
       void phaseLabel;
       if (incomingPatch.state === 'repairing') {
         rows.push(`🛠 不具合を自動修正して再検証中（attempt ${incomingPatch.attempt || 0}）`);
+      }
+      if (view.restored_progress && view.message) {
+        rows.push(`復元: ${String(view.message).slice(0, 200)}`);
       }
       if (hasProblem) {
         const reason = view.block_reason || view.error || view.message || '';
