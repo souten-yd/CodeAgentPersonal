@@ -31,7 +31,7 @@ from agent.project_twin.contracts import (
     TwinNode,
 )
 
-PARSER_VERSION = "static_graph.v2"
+PARSER_VERSION = "static_graph.v3"
 
 _IGNORE_DIRS = {
     ".git", "__pycache__", "node_modules", "venv_sys", "tts_envs", "third_party",
@@ -292,9 +292,14 @@ def _analyze_python(b: _Builder, root: Path, path: Path, file_ref: str, module_m
     b.edge(domain="structural", edge_type="contains", source_ref_node=file_ref, target_ref_node=module_ref, source_ref=rel)
 
     is_test = _is_test_file(rel)
-    # Import-aware call resolution: alias/from-import tables + this file's top-level function names.
+    # Import-aware call resolution: alias/from-import tables + this file's top-level function names +
+    # per-class method names (so `self.m()` resolves to the concrete method on the same class).
     module_aliases, from_imports = _import_table(tree)
     local_funcs = {n.name: n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    class_methods: dict[str, set[str]] = {
+        node.name: {it.name for it in node.body if isinstance(it, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        for node in tree.body if isinstance(node, ast.ClassDef)
+    }
 
     def handle_function(fn: ast.FunctionDef | ast.AsyncFunctionDef, qual: str, container_ref: str) -> None:
         sym_ref = f"py://{rel}#{qual}"
@@ -347,9 +352,14 @@ def _analyze_python(b: _Builder, root: Path, path: Path, file_ref: str, module_m
                 elif isinstance(callee, ast.Attribute):
                     callee_name = callee.attr
                     is_attr = True
-                    chain = _attr_chain(callee)
-                    if chain and len(chain) >= 2:
-                        resolved_ref, resolution = _resolve_attr_call(chain, module_aliases, module_map)
+                    # self.method() inside a class -> resolve to the concrete method on this class.
+                    if (isinstance(callee.value, ast.Name) and callee.value.id == "self" and "." in qual
+                            and callee.attr in class_methods.get(qual.split(".")[0], set())):
+                        resolved_ref, resolution = f"py://{rel}#{qual.split('.')[0]}.{callee.attr}", "self_method"
+                    if resolved_ref is None:
+                        chain = _attr_chain(callee)
+                        if chain and len(chain) >= 2:
+                            resolved_ref, resolution = _resolve_attr_call(chain, module_aliases, module_map)
                 if callee_name:
                     # Always keep the name-based edge so a caller matchable only by name is still linked.
                     b.edge(domain="structural", edge_type="calls", source_ref_node=sym_ref,

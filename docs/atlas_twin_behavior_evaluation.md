@@ -36,7 +36,7 @@ app/legacy.py    os.environ['LEGACY_FLAG'] subscript read            (edge case)
 
 ## Evaluation result
 
-**18 / 20 checks appropriate** (after remediation R1 below).
+**20 / 20 checks appropriate** (after remediations R1–R3 below; was 16/20 before R1).
 
 Appropriate (PASS) behavior confirmed:
 
@@ -54,8 +54,8 @@ Appropriate (PASS) behavior confirmed:
 | ID | Finding | Severity | Status |
 | --- | --- | --- | --- |
 | F1 | Impact results were polluted with structural container nodes (`dir://`, `file://`, `module://`) reached via `defines`/`contains` reverse edges — noise that hurts planner usefulness. | High | **Fixed (R1)** |
-| F2 | `os.environ['X']` **subscript** config reads are not modeled (only `os.getenv` / `os.environ.get` Call forms are). A config change to a subscript-only var would not surface its readers. | Medium | Planned (R2) |
-| F3 | `self.method()` / class-method calls do not resolve to the concrete method canonical ref (only the name-based `pyname://` edge exists), so intra-class impact precision is reduced. | Medium | Planned (R3) |
+| F2 | `os.environ['X']` **subscript** config reads are not modeled (only `os.getenv` / `os.environ.get` Call forms are). A config change to a subscript-only var would not surface its readers. | Medium | **Fixed (R2)** |
+| F3 | `self.method()` / class-method calls do not resolve to the concrete method canonical ref (only the name-based `pyname://` edge exists), so intra-class impact precision is reduced. | Medium | **Fixed (R3)** |
 | F4 | DB effect direction is coarse: every `execute(...)` is classified `write`, so a read-only `execute('SELECT ...')` is mislabeled. | Low | Planned (R4) |
 
 ## Remediation plan
@@ -67,26 +67,21 @@ Appropriate (PASS) behavior confirmed:
 - Test: `tests/test_project_twin_impact_analysis.py::test_impact_excludes_structural_container_nodes`.
 - Result: virtual-project checks 9 & 12 now PASS; container noise eliminated.
 
-### R2 — Model config reads beyond the `.get()` Call form — PLANNED
+### R2 — Model config reads beyond the `.get()` Call form — DONE
 
-- Target: `agent/project_twin/behavioral_graph.py` (`_config_identity` + a Subscript branch in
-  `_emit_behavior_facts`).
-- Scope: detect `os.environ['X']` / `os.environ["X"]` subscript reads (and optionally `settings.X` /
-  `config.get('X')` patterns behind a conservative allowlist) as `resource://config:<X>` with read
-  direction. Keep heuristic; do not flag arbitrary dict subscripts.
-- Acceptance: `os.environ['LEGACY_FLAG']` yields `resource://config:LEGACY_FLAG`; a config-change
-  ImpactRequest returns the reader; existing config tests still pass.
-- Priority: medium (config-impact completeness).
+- Change: `agent/project_twin/behavioral_graph.py` adds `_config_subscript_identity` + a `Subscript`
+  branch (via the shared `_emit_resource_effect` helper) so `os.environ['X']` / `environ["X"]` reads
+  model `resource://config:<X>` with read direction. `ANALYZER_VERSION` -> `behavioral_graph.v4`.
+- Test: `tests/test_project_twin_behavioral_graph_v3.py::test_config_env_subscript_read_is_modeled`.
+- Result: virtual-project check 10 now PASS.
 
-### R3 — Resolve self/class-method calls to concrete refs — PLANNED
+### R3 — Resolve self/class-method calls to concrete refs — DONE
 
-- Target: `agent/project_twin/static_graph.py` call-resolution (`handle_function` / a per-class method
-  table) and/or `behavioral_graph.py` local resolution.
-- Scope: within a class body, resolve `self.m()` to `py://<rel>#<Class>.m` when `m` is defined on the
-  same class; keep the name-based edge; leave cross-class/duck-typed calls name-based + ambiguous.
-- Acceptance: `self._validate()` produces a `calls` edge to `py://app/models.py#ItemRepo._validate`;
-  no regression to module-level resolution.
-- Priority: medium (intra-class impact precision).
+- Change: `agent/project_twin/static_graph.py` builds a per-class method table and resolves `self.m()`
+  inside a class to `py://<rel>#<Class>.m` (resolution `self_method`) when `m` is defined on the same
+  class; the name-based edge is kept. `PARSER_VERSION` -> `static_graph.v3`.
+- Test: `tests/test_project_twin_call_resolution.py::test_self_method_call_resolves_to_concrete_method`.
+- Result: virtual-project check 11 now PASS.
 
 ### R4 — DB effect direction precision — PLANNED
 
@@ -98,8 +93,9 @@ Appropriate (PASS) behavior confirmed:
 
 ## Sequencing
 
-R1 is landed. R2 and R3 are natural PIBIH-3 follow-on deepening (already listed as PIBIH-3 deferred
-gaps) and can be taken before or alongside PIBIH-4. R4 is opportunistic. None block PIBIH-4.
+R1, R2, and R3 are landed — the virtual-project evaluation is now **20/20 appropriate**. R4 (DB
+`execute` direction precision) remains opportunistic and does not block PIBIH-4. Next planned package:
+PIBIH-4 (Project Intelligence Planning and Generation Injection).
 
 ## Safety / invariants
 

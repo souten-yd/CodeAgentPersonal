@@ -29,7 +29,7 @@ from agent.project_twin.contracts import (
 )
 from agent.project_twin.static_graph import _iter_files, _rel, nid
 
-ANALYZER_VERSION = "behavioral_graph.v3"
+ANALYZER_VERSION = "behavioral_graph.v4"
 _DOMAIN = "behavioral"
 
 _FILE_NAMES = {"open", "read", "write", "read_text", "write_text", "read_bytes",
@@ -239,6 +239,39 @@ def _classify_resource(call: ast.Call) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _config_subscript_identity(node: ast.AST) -> str | None:
+    """Env/config read identity for ``os.environ['X']`` / ``environ["X"]`` subscript reads, else None."""
+    if not isinstance(node, ast.Subscript):
+        return None
+    val = node.value
+    is_environ = (isinstance(val, ast.Attribute) and val.attr == "environ") or (
+        isinstance(val, ast.Name) and val.id == "environ"
+    )
+    if not is_environ:
+        return None
+    key = node.slice
+    if isinstance(key, ast.Constant) and isinstance(key.value, str):
+        return key.value
+    return "env"
+
+
+def _emit_resource_effect(b: "_Builder", rel: str, sym_ref: str, sub: ast.AST, kind: str, identity: str | None, direction: str) -> str:
+    """Emit a resource node + a direction-scoped side-effect node and their edges; return the resource ref."""
+    res_ref = f"resource://{kind}:{identity or 'unknown'}"
+    # Direction is part of the effect identity so a function that both reads and writes the same
+    # resource produces two distinct, non-colliding side-effect nodes.
+    se_ref = f"side_effect://{sym_ref}/{kind}/{identity or 'unknown'}/{direction}"
+    b.node(node_type="resource", canonical_ref=res_ref, label=identity or kind, source_ref=rel,
+           kind=kind, confidence=0.65, properties={**_source_range(sub), "identity": identity})
+    b.node(node_type="side_effect", canonical_ref=se_ref, label=f"{kind} {direction} effect", source_ref=rel,
+           kind=kind, confidence=0.65, properties={**_source_range(sub), "resource": identity, "direction": direction})
+    b.edge(edge_type="performs_side_effect", source_ref_node=sym_ref, target_ref_node=se_ref,
+           source_ref=rel, confidence=0.65, properties={"direction": direction})
+    b.edge(edge_type="targets_resource", source_ref_node=se_ref, target_ref_node=res_ref,
+           source_ref=rel, confidence=0.65, properties={"direction": direction})
+    return res_ref
+
+
 def _classify_side_effects(fn: ast.AST) -> set[str]:
     kinds: set[str] = set()
     for sub in ast.walk(fn):
@@ -409,22 +442,16 @@ def _emit_behavior_facts(b: _Builder, rel: str, sym_ref: str, fn: ast.AST, local
                                source_ref=rel, confidence=0.65)
                         state_seen[field] = state_ref
 
+        if isinstance(sub, ast.Subscript):
+            cfg = _config_subscript_identity(sub)
+            if cfg is not None:
+                _emit_resource_effect(b, rel, sym_ref, sub, "config", cfg, "read")
+
         if isinstance(sub, ast.Call):
             kind, identity = _classify_resource(sub)
             if kind:
                 direction = _resource_direction(kind, sub)
-                res_ref = f"resource://{kind}:{identity or 'unknown'}"
-                # Direction is part of the effect identity so a function that both reads and writes the
-                # same resource produces two distinct, non-colliding side-effect nodes.
-                se_ref = f"side_effect://{sym_ref}/{kind}/{identity or 'unknown'}/{direction}"
-                b.node(node_type="resource", canonical_ref=res_ref, label=identity or kind, source_ref=rel,
-                       kind=kind, confidence=0.65, properties={**_source_range(sub), "identity": identity})
-                b.node(node_type="side_effect", canonical_ref=se_ref, label=f"{kind} {direction} effect", source_ref=rel,
-                       kind=kind, confidence=0.65, properties={**_source_range(sub), "resource": identity, "direction": direction})
-                b.edge(edge_type="performs_side_effect", source_ref_node=sym_ref, target_ref_node=se_ref,
-                       source_ref=rel, confidence=0.65, properties={"direction": direction})
-                b.edge(edge_type="targets_resource", source_ref_node=se_ref, target_ref_node=res_ref,
-                       source_ref=rel, confidence=0.65, properties={"direction": direction})
+                res_ref = _emit_resource_effect(b, rel, sym_ref, sub, kind, identity, direction)
                 if kind == "database" and identity:
                     b.edge(edge_type="persists_to", source_ref_node=sym_ref, target_ref_node=res_ref,
                            source_ref=rel, confidence=0.65)

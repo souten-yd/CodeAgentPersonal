@@ -82,3 +82,27 @@ def test_builtins_are_not_flagged_ambiguous(tmp_path: Path):
     result = _fixture(tmp_path)
     callees = {d.get("callee") for d in result.diagnostics if d.get("code") == "ambiguous_call"}
     assert "len" not in callees
+
+
+def test_self_method_call_resolves_to_concrete_method(tmp_path: Path):
+    # R3: self.m() inside a class resolves to the concrete method ref on the same class.
+    _write(
+        tmp_path,
+        "pkg/models.py",
+        "class Repo:\n"
+        "    def save(self, item):\n"
+        "        self._validate(item)\n"
+        "        return item\n\n"
+        "    def _validate(self, item):\n"
+        "        return bool(item)\n",
+    )
+    result = _analyze(tmp_path)
+    triples = _edge_triples(result)
+    assert ("calls", nid("py://pkg/models.py#Repo.save"), nid("py://pkg/models.py#Repo._validate")) in triples
+    resolved = [
+        e for e in result.delta.edges
+        if e.edge_type == "calls"
+        and e.source_node_id == nid("py://pkg/models.py#Repo.save")
+        and e.target_node_id == nid("py://pkg/models.py#Repo._validate")
+    ]
+    assert resolved and resolved[0].properties.get("resolution") == "self_method"
