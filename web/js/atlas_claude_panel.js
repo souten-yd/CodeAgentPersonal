@@ -270,13 +270,21 @@
     const phase = detail.phase || '';
     const tokens = Number(detail.tokens) || 0;
     const maxCtx = Number(detail.maxCtx) || 0;
+    const tps = Number(detail.tps || detail.tokensPerSecond || detail.tokens_per_second) || 0;
     const sec = Number(detail.secondsSince);
     // トークンが一定時間進まなければ生成停止とみなしアニメーションを止める。
     const stalled = Number.isFinite(sec) && sec >= 4;
     line.classList.toggle('stalled', stalled);
     const parts = [];
     if (phase) parts.push(phase);
-    if (tokens > 0) parts.push(maxCtx > 0 ? `tokens ${tokens} / ${maxCtx}` : `tokens ${tokens}`);
+    else parts.push('LLM generating');
+    parts.push(maxCtx > 0 ? `tokens ${tokens} / ${maxCtx}` : `tokens ${tokens}`);
+    const previousTokens = Number(line.dataset.tokens || 0) || 0;
+    const tokenDelta = Math.max(0, tokens - previousTokens);
+    if (tokenDelta > 0 && typeof root.updateTokenDisplay === 'function') {
+      root.updateTokenDisplay(tokenDelta, tps);
+    }
+    line.dataset.tokens = String(Math.max(previousTokens, tokens));
     const textEl = line.querySelector('.atlas-llm-progress-text');
     if (textEl) textEl.textContent = parts.join('  ·  ');
     dom.transcript.scrollTop = dom.transcript.scrollHeight;
