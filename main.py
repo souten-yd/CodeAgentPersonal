@@ -616,7 +616,12 @@ def _clamp_docker_timeout(tool: str, requested: int | None) -> int:
         print(f"[timeout_guard] {tool}: {requested}s → {clamped}s (max={max_val}s)")
     return clamped
 
-UI_DIR = "./ui"
+# Absolute so the UI mount and index lookup resolve regardless of the server
+# process working directory. A relative "./ui" silently breaks /ui/ and the
+# root index when uvicorn is launched from any cwd other than the repo root,
+# which leaves the 8000 UI unreachable even though /static (BASE_DIR-anchored)
+# keeps working.
+UI_DIR = os.path.join(BASE_DIR, "ui")
 os.makedirs(UI_DIR, exist_ok=True)
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 WEB_DIR = os.path.join(BASE_DIR, "web")

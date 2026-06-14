@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import socket
+import time
 from datetime import datetime, timezone
 from typing import Callable
 from urllib import error as urllib_error
@@ -23,6 +24,26 @@ _STRICT_JSON_REINFORCEMENT = (
     "\n\nIMPORTANT: Respond with a SINGLE valid JSON object ONLY. No prose, no markdown, no code "
     "fences, no trailing commas. Ensure every string is closed and every bracket is balanced."
 )
+
+
+class _StreamTimeout(Exception):
+    """A streaming planning call exceeded a phase-specific timeout budget.
+
+    ``phase`` is one of the truthful terminal reasons the planner must be able to
+    distinguish for a slow local model:
+
+    - ``llm_stalled_before_first_token``: prefill never produced a content token.
+    - ``llm_stalled_after_progress``: generation started but then went idle.
+    - ``llm_total_timeout``: total wall-clock budget exhausted regardless of progress.
+
+    A slow-but-progressing model resets the idle timer on every real token and so
+    must never surface ``llm_stalled_after_progress`` purely for being slow.
+    """
+
+    def __init__(self, phase: str, *, tokens_generated: int = 0) -> None:
+        super().__init__(phase)
+        self.phase = phase
+        self.tokens_generated = int(tokens_generated)
 
 
 def call_llm_json(
@@ -113,6 +134,17 @@ class AtlasLLMJsonAdapter:
                 logger.warning("llm_json_parse_failed backend=openai_compatible model=%s raw=%r", model_name, raw_text[:500])
                 return AtlasLLMJsonResult(ok=False, raw_text=raw_text, model=model_name, backend="openai_compatible", structured=structured, error="llm_json_parse_failed")
             return AtlasLLMJsonResult(ok=True, data=parsed, raw_text=raw_text, model=model_name, backend="openai_compatible", structured=structured)
+        except _StreamTimeout as exc:
+            # Phase-specific terminal reason so Plan status/journal can record the timeout phase
+            # truthfully (before-first-token vs after-progress vs total) instead of a flat stall.
+            return AtlasLLMJsonResult(
+                ok=False,
+                model=model_name,
+                backend="openai_compatible",
+                error=exc.phase,
+                used_fallback=True,
+                metadata={"timeout_phase": exc.phase, "tokens_generated": exc.tokens_generated},
+            )
         except socket.timeout:
             return AtlasLLMJsonResult(ok=False, model=model_name, backend="openai_compatible", error="llm_stalled", used_fallback=True)
         except Exception as exc:  # noqa: BLE001
@@ -352,40 +384,67 @@ class AtlasLLMJsonAdapter:
         payload = self._build_payload(request, structured=structured)
         payload["stream"] = True
         req = self._build_request(payload)
-        first_token_sec = _env_float("ATLAS_PLAN_FIRST_TOKEN_SEC", 300.0)
-        stall_after_sec = _env_float("ATLAS_PLAN_STALL_AFTER_SEC", 120.0)
+        # Three independent budgets so a slow local model is judged on the right axis:
+        #   - first-token: how long prefill may run before any content token;
+        #   - idle-token: max gap *between real tokens* once generation has started;
+        #   - total: an absolute wall-clock ceiling regardless of progress.
+        # New env names take precedence; the historical names remain as fallbacks so existing
+        # deployments and tuning keep working.
+        first_token_sec = _resolve_timeout("ATLAS_LLM_FIRST_TOKEN_TIMEOUT_SECONDS", "ATLAS_PLAN_FIRST_TOKEN_SEC", 300.0)
+        idle_token_sec = _resolve_timeout("ATLAS_LLM_IDLE_TOKEN_TIMEOUT_SECONDS", "ATLAS_LLM_INTER_TOKEN_SEC", 300.0)
+        total_sec = _resolve_timeout("ATLAS_LLM_TOTAL_TIMEOUT_SECONDS", "", 1800.0)
         chunks: list[str] = []
         tokens_generated = 0
         saw_token = False
+        start_mono = time.monotonic()
+        last_token_mono = start_mono
         with urllib_request.urlopen(req, timeout=first_token_sec) as resp:  # noqa: S310
             self._set_response_timeout(resp, first_token_sec)
-            for raw_line in resp:
-                line = raw_line.decode("utf-8", errors="replace").strip() if isinstance(raw_line, bytes) else str(raw_line).strip()
-                if not line or not line.startswith("data:"):
-                    continue
-                data = line[len("data:"):].strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    event = json.loads(data)
-                except Exception:
-                    continue
-                choices = event.get("choices") if isinstance(event, dict) else None
-                choice = choices[0] if isinstance(choices, list) and choices else {}
-                delta = choice.get("delta") if isinstance(choice, dict) else {}
-                content = ""
-                if isinstance(delta, dict):
-                    content = str(delta.get("content") or "")
-                if not content and isinstance(choice.get("message"), dict):
-                    content = str(choice["message"].get("content") or "")
-                if not content:
-                    continue
-                chunks.append(content)
-                tokens_generated += max(1, len(content.split()))
-                if not saw_token:
-                    saw_token = True
-                    self._set_response_timeout(resp, _env_float("ATLAS_LLM_INTER_TOKEN_SEC", 300.0))
-                self._emit_progress(tokens_generated)
+            try:
+                for raw_line in resp:
+                    now = time.monotonic()
+                    # Wall-clock guards run on every received line, so a server that keeps the
+                    # socket alive with heartbeats/keep-alives cannot silently dodge the budgets.
+                    if now - start_mono > total_sec:
+                        raise _StreamTimeout("llm_total_timeout", tokens_generated=tokens_generated)
+                    if not saw_token and now - start_mono > first_token_sec:
+                        raise _StreamTimeout("llm_stalled_before_first_token", tokens_generated=tokens_generated)
+                    if saw_token and now - last_token_mono > idle_token_sec:
+                        raise _StreamTimeout("llm_stalled_after_progress", tokens_generated=tokens_generated)
+                    line = raw_line.decode("utf-8", errors="replace").strip() if isinstance(raw_line, bytes) else str(raw_line).strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[len("data:"):].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        event = json.loads(data)
+                    except Exception:
+                        continue
+                    choices = event.get("choices") if isinstance(event, dict) else None
+                    choice = choices[0] if isinstance(choices, list) and choices else {}
+                    delta = choice.get("delta") if isinstance(choice, dict) else {}
+                    content = ""
+                    if isinstance(delta, dict):
+                        content = str(delta.get("content") or "")
+                    if not content and isinstance(choice.get("message"), dict):
+                        content = str(choice["message"].get("content") or "")
+                    if not content:
+                        # A non-content chunk (role-only delta / keep-alive) proves the connection
+                        # is alive but is not a token, so it does not reset the idle-token timer.
+                        continue
+                    chunks.append(content)
+                    tokens_generated += max(1, len(content.split()))
+                    if not saw_token:
+                        saw_token = True
+                        self._set_response_timeout(resp, idle_token_sec)
+                    last_token_mono = now
+                    self._emit_progress(tokens_generated)
+            except socket.timeout:
+                # A blocking-read timeout maps to the same phase the wall-clock guards would
+                # report: before-first-token if nothing has been generated yet, otherwise idle.
+                phase = "llm_stalled_after_progress" if saw_token else "llm_stalled_before_first_token"
+                raise _StreamTimeout(phase, tokens_generated=tokens_generated)
         return "".join(chunks)
 
     def _emit_progress(self, tokens_generated: int) -> None:
@@ -421,3 +480,22 @@ def _env_float(name: str, default: float) -> float:
         return max(1.0, float(os.environ.get(name, str(default)) or default))
     except Exception:
         return default
+
+
+def _resolve_timeout(primary_env: str, fallback_env: str, default: float) -> float:
+    """Resolve a timeout budget, preferring ``primary_env`` then ``fallback_env``.
+
+    Empty/unset/invalid values fall through to the next source so a blank override never
+    collapses the budget to a tiny number; the final default is clamped to >= 1s.
+    """
+    for name in (primary_env, fallback_env):
+        if not name:
+            continue
+        raw = os.environ.get(name)
+        if raw is None or str(raw).strip() == "":
+            continue
+        try:
+            return max(1.0, float(raw))
+        except Exception:
+            continue
+    return max(1.0, float(default))
