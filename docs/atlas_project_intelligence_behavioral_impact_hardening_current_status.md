@@ -8,8 +8,8 @@ PIBIH: Project Intelligence Behavioral Impact Hardening
 
 ```text
 status: in_progress
-current_package: PIBIH-3
-next_action: complete PIBIH-3 remaining slice — import-alias call resolution + ambiguous-call uncertainty diagnostics (resource-effect direction/identity + config/env facts already landed)
+current_package: PIBIH-4
+next_action: implement Project Intelligence Planning and Generation Injection
 ```
 
 ## Completed Foundations
@@ -274,12 +274,69 @@ Next package: PIBIH-3 (remaining slice) then PIBIH-4
 Blocker: none
 ```
 
+```text
+Completed package: PIBIH-3 (slice 2 of 2) Deep Behavioral Graph V3 — import-aware call resolution
+Status: completed (PIBIH-3 acceptance now met across both slices)
+Changed modules/files:
+- agent/project_twin/static_graph.py
+- tests/test_project_twin_call_resolution.py
+- docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md
+Behavior implemented:
+- Build a project module map (dotted module -> rel file) plus a per-file import table (module aliases,
+  from-imports) and same-file function names; resolve calls beyond name-based matching to stable
+  canonical `py://<rel>#<symbol>` refs for from-imports, `import m as x` aliases, and local definitions.
+- The name-only `pyname://<name>` `calls` edge is always retained (callers matchable only by name still
+  link); the resolved edge is added at higher confidence (0.9) with a `resolution` property.
+- A bare-name, non-builtin call that cannot be resolved to a canonical ref emits an `ambiguous_call`
+  uncertainty diagnostic (builtins are filtered to avoid noise), satisfying "ambiguous calls retained
+  with lower confidence and uncertainty diagnostics".
+- Added an optional `properties` arg to the static `_Builder.edge`; bumped `PARSER_VERSION` to
+  `static_graph.v2`.
+Focused tests:
+- `python -m pytest tests\test_project_twin_call_resolution.py` -> 6 passed (from-import / module-alias /
+  local resolution to canonical refs; name-only edge retained; resolved-edge higher confidence +
+  resolution property; ambiguous_call diagnostic for an unresolved bare name; builtins not flagged).
+Syntax checks:
+- `python -m py_compile agent\project_twin\static_graph.py` -> passed.
+Affected tests:
+- `python -m pytest <11 project_twin suites incl. static_graph, call_resolution, analysis, impact,
+  behavioral_graph[_v3], source_adapter, source_refresh_lifecycle, store, api, pir7>` -> 64 passed.
+Real model evidence:
+- localhost:8080 advisory review of the static_graph diff returned `verdict: pass` (advisory only;
+  deterministic graph-assertion tests are authoritative).
+Project Intelligence evidence:
+- Not applicable to this slice.
+Impact analysis evidence:
+- Resolved `py://` call edges feed the PIBIH-2 traversal directly (in addition to the existing
+  pyname bridging), tightening transitive impact precision for import-backed calls.
+Web research evidence:
+- Not applicable; external/web calls remain disabled by default.
+Runtime/Portal evidence:
+- Static analysis reads source and emits a delta; no Portal/runtime paths changed.
+Unavailable checks:
+- Relative (`from . import x`) and star imports are left name-based by design; class/self-method
+  resolution (`self.m()`) and `os.environ[...]` subscript reads remain future deepening.
+Safety invariants:
+- Existing name-based call edges are preserved (additive change); no Proposal / Safe Apply /
+  Verification path touched; no external calls; no secrets.
+- `unavailable` checks are not marked as passed.
+PIBIH-3 acceptance (now met):
+- Def-use edges stable/deterministic (slice 1); alias imports resolve to stable canonical refs
+  (slice 2); ambiguous calls retained with lower confidence + diagnostics (slice 2); resource effects
+  include direction + identity (slice 1); UI event -> API -> route -> handler path discoverable
+  (PIBIH-2 fixture); all behavioral facts remain inferred (slice 1).
+Remaining gaps (deferred deepening, not acceptance blockers):
+- self/class-method call resolution; relative/star import resolution; `os.environ[...]` subscript.
+Next package: PIBIH-4 Project Intelligence Planning and Generation Injection
+Blocker: none
+```
+
 ## Next Package Queue
 
 ```text
 PIBIH-1: LLM Planning Timeout and Streaming Progress Hardening  (completed)
 PIBIH-2: Impact Analysis Core  (completed)
-PIBIH-3: Deep Behavioral Graph V3  (in progress — resource direction + config/env landed; alias resolution + ambiguous diagnostics pending)
+PIBIH-3: Deep Behavioral Graph V3  (completed)
 PIBIH-4: Project Intelligence Planning and Generation Injection
 PIBIH-5: Plan-Time Nexus Web Research
 PIBIH-6: Impact UI / Planner Exposure
