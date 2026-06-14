@@ -31,7 +31,7 @@ from agent.project_twin.contracts import (
     TwinNode,
 )
 
-PARSER_VERSION = "static_graph.v1"
+PARSER_VERSION = "static_graph.v2"
 
 _IGNORE_DIRS = {
     ".git", "__pycache__", "node_modules", "venv_sys", "tts_envs", "third_party",
@@ -61,6 +61,87 @@ def _module_dotted(rel_path: str) -> str:
 def _is_test_file(rel_path: str) -> bool:
     name = rel_path.rsplit("/", 1)[-1]
     return name.startswith("test_") and name.endswith(".py") or name.endswith("_test.py")
+
+
+# Common builtins/keywords-as-calls we never treat as an ambiguous *project* call (avoids diagnostic
+# noise). Not exhaustive — only the high-frequency names that would otherwise dominate diagnostics.
+_PY_BUILTINS = frozenset({
+    "len", "print", "open", "str", "int", "float", "bool", "bytes", "dict", "list", "set", "tuple",
+    "range", "enumerate", "zip", "map", "filter", "sorted", "reversed", "sum", "min", "max", "abs",
+    "isinstance", "issubclass", "super", "getattr", "setattr", "hasattr", "delattr", "type", "repr",
+    "format", "vars", "dir", "id", "hash", "iter", "next", "any", "all", "round", "callable",
+})
+
+
+def _build_module_map(root: Path) -> dict[str, str]:
+    """Map a project module's dotted path -> its rel file path, for import resolution."""
+    out: dict[str, str] = {}
+    for p in _iter_files(root, None):
+        if p.suffix == ".py":
+            rel = _rel(root, p)
+            out.setdefault(_module_dotted(rel), rel)
+    return out
+
+
+def _import_table(tree: ast.Module) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
+    """(module_aliases, from_imports) for a module.
+
+    module_aliases: local name -> dotted module (`import a.b as x` -> {x: a.b}; `import a.b` -> {a: a}).
+    from_imports:   local name -> (dotted module, original symbol) for absolute `from m import f [as g]`.
+    Relative and star imports are skipped (left to name-based matching).
+    """
+    module_aliases: dict[str, str] = {}
+    from_imports: dict[str, tuple[str, str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname:
+                    module_aliases[alias.asname] = alias.name
+                else:
+                    module_aliases.setdefault(alias.name.split(".")[0], alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.level and node.level > 0:
+                continue
+            mod = node.module or ""
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                from_imports[alias.asname or alias.name] = (mod, alias.name)
+    return module_aliases, from_imports
+
+
+def _attr_chain(node: ast.AST) -> list[str] | None:
+    parts: list[str] = []
+    cur = node
+    while isinstance(cur, ast.Attribute):
+        parts.append(cur.attr)
+        cur = cur.value
+    if isinstance(cur, ast.Name):
+        parts.append(cur.id)
+        return list(reversed(parts))
+    return None
+
+
+def _resolve_name_call(name, from_imports, local_funcs, module_map, rel) -> tuple[str | None, str | None]:
+    if name in from_imports:
+        mod, orig = from_imports[name]
+        if mod in module_map:
+            return f"py://{module_map[mod]}#{orig}", "from_import"
+    if name in local_funcs:
+        return f"py://{rel}#{local_funcs[name]}", "local"
+    return None, None
+
+
+def _resolve_attr_call(chain, module_aliases, module_map) -> tuple[str | None, str | None]:
+    func = chain[-1]
+    prefix = chain[:-1]
+    candidates = [".".join(prefix)]
+    if prefix and prefix[0] in module_aliases:
+        candidates.append(".".join([module_aliases[prefix[0]]] + prefix[1:]))
+    for mod in candidates:
+        if mod in module_map:
+            return f"py://{module_map[mod]}#{func}", "alias_import"
+    return None, None
 
 
 class _Builder:
@@ -122,6 +203,7 @@ class _Builder:
         source_ref: str,
         derivation: str = "deterministic_static",
         confidence: float = 1.0,
+        properties: dict | None = None,
     ) -> None:
         edge_id = nid(f"{edge_type}|{source_ref_node}|{target_ref_node}")
         key = edge_id
@@ -136,6 +218,7 @@ class _Builder:
                 source_node_id=nid(source_ref_node),
                 target_node_id=nid(target_ref_node),
                 edge_type=edge_type,
+                properties=dict(properties or {}),
                 source_kind="git",
                 source_ref=source_ref,
                 derivation=derivation,
@@ -191,8 +274,9 @@ def _route_path(dec: ast.expr) -> str | None:
 _HTTP_METHODS = {"get", "post", "put", "delete", "patch", "options", "head"}
 
 
-def _analyze_python(b: _Builder, root: Path, path: Path, file_ref: str) -> None:
+def _analyze_python(b: _Builder, root: Path, path: Path, file_ref: str, module_map: dict[str, str] | None = None) -> None:
     rel = _rel(root, path)
+    module_map = module_map or {}
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(text)
@@ -208,6 +292,9 @@ def _analyze_python(b: _Builder, root: Path, path: Path, file_ref: str) -> None:
     b.edge(domain="structural", edge_type="contains", source_ref_node=file_ref, target_ref_node=module_ref, source_ref=rel)
 
     is_test = _is_test_file(rel)
+    # Import-aware call resolution: alias/from-import tables + this file's top-level function names.
+    module_aliases, from_imports = _import_table(tree)
+    local_funcs = {n.name: n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
     def handle_function(fn: ast.FunctionDef | ast.AsyncFunctionDef, qual: str, container_ref: str) -> None:
         sym_ref = f"py://{rel}#{qual}"
@@ -251,14 +338,33 @@ def _analyze_python(b: _Builder, root: Path, path: Path, file_ref: str) -> None:
             if isinstance(sub, ast.Call):
                 callee = sub.func
                 callee_name = None
+                resolved_ref = None
+                resolution = None
+                is_attr = False
                 if isinstance(callee, ast.Name):
                     callee_name = callee.id
+                    resolved_ref, resolution = _resolve_name_call(callee_name, from_imports, local_funcs, module_map, rel)
                 elif isinstance(callee, ast.Attribute):
                     callee_name = callee.attr
+                    is_attr = True
+                    chain = _attr_chain(callee)
+                    if chain and len(chain) >= 2:
+                        resolved_ref, resolution = _resolve_attr_call(chain, module_aliases, module_map)
                 if callee_name:
+                    # Always keep the name-based edge so a caller matchable only by name is still linked.
                     b.edge(domain="structural", edge_type="calls", source_ref_node=sym_ref,
                            target_ref_node=f"pyname://{callee_name}", source_ref=rel,
                            confidence=0.7)
+                    if resolved_ref:
+                        # Import/alias/local resolution to a stable canonical ref — higher confidence
+                        # than the name-only edge.
+                        b.edge(domain="structural", edge_type="calls", source_ref_node=sym_ref,
+                               target_ref_node=resolved_ref, source_ref=rel, confidence=0.9,
+                               properties={"resolution": resolution})
+                    elif not is_attr and callee_name not in _PY_BUILTINS:
+                        # A bare-name project-looking call we could not resolve to a canonical ref:
+                        # retained name-based above, flagged here so the imprecision is visible.
+                        b.diagnostics.append({"code": "ambiguous_call", "file": rel, "caller": qual, "callee": callee_name})
 
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
@@ -363,6 +469,9 @@ class StaticStructuralAnalyzer:
 
         changed = None if request.full_rebuild else (request.changed_paths or None)
         files = _iter_files(root, changed)
+        # Full project module map (all py files, not just the changed subset) so import-based call
+        # resolution stays correct during incremental rebuilds.
+        module_map = _build_module_map(root)
 
         seen_dirs: set[str] = set()
         for path in files:
@@ -382,7 +491,7 @@ class StaticStructuralAnalyzer:
             b.edge(domain="structural", edge_type="contains", source_ref_node=parent_ref, target_ref_node=file_ref, source_ref=rel)
 
             if path.suffix == ".py":
-                _analyze_python(b, root, path, file_ref)
+                _analyze_python(b, root, path, file_ref, module_map)
             elif path.suffix == ".html":
                 _analyze_html(b, root, path, file_ref)
             elif path.suffix == ".js":
