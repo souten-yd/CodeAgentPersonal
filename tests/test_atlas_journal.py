@@ -155,3 +155,61 @@ def test_journal_has_no_runtime_api_command_side_effect_tokens() -> None:
 
     for forbidden in ["FastAPI", "@app.", "subprocess", "safe_apply", "run_command(", "delete_file"]:
         assert forbidden not in source
+
+
+# --- PIBIH-6: impact analysis section in the plan pool markdown ----------------
+
+def test_plan_pool_markdown_renders_impact_section(tmp_path: Path) -> None:
+    journal = AtlasJournal(tmp_path, workspace_id="ws_1")
+    pool = make_pool()
+    pool.metadata["plan_item_impact_map"] = {
+        "status": "ready",
+        "item_count": 1,
+        "impacts": [
+            {
+                "item_id": "item_1",
+                "title": "Write journal storage",
+                "confidence": "medium",
+                "impacted_files": ["agent/atlas_journal.py"],
+                "impacted_symbols": ["py://agent/atlas_journal.py#AtlasJournal.save_plan_pool", "route://GET /x"],
+                "related_tests": ["tests/test_atlas_journal.py::test_save_plan_pool"],
+                "recommended_commands": ["python -m pytest tests/test_atlas_journal.py"],
+                "reasons": ["target file changed", "test covers symbol"],
+            }
+        ],
+    }
+
+    markdown = journal.write_plan_pool_markdown(pool).read_text(encoding="utf-8")
+
+    assert "## Impact Analysis" in markdown
+    assert "confidence: medium" in markdown
+    assert "agent/atlas_journal.py" in markdown
+    assert "route://GET /x" in markdown
+    assert "Recommended tests: tests/test_atlas_journal.py::test_save_plan_pool" in markdown
+    assert "Reasons: target file changed; test covers symbol" in markdown
+
+
+def test_plan_pool_markdown_shows_uncertainty_when_impact_unavailable(tmp_path: Path) -> None:
+    journal = AtlasJournal(tmp_path, workspace_id="ws_1")
+    pool = make_pool()  # no plan_item_impact_map in metadata
+
+    markdown = journal.write_plan_pool_markdown(pool).read_text(encoding="utf-8")
+
+    assert "## Impact Analysis" in markdown
+    # Unknown impact is uncertainty, never "no risk".
+    assert "uncertainty" in markdown.lower()
+    assert "not as zero risk" in markdown
+
+
+def test_plan_pool_markdown_unknown_confidence_is_uncertainty_not_no_risk(tmp_path: Path) -> None:
+    journal = AtlasJournal(tmp_path, workspace_id="ws_1")
+    pool = make_pool()
+    pool.metadata["plan_item_impact_map"] = {
+        "status": "ready",
+        "impacts": [{"item_id": "item_1", "title": "x", "confidence": "unknown", "impacted_files": []}],
+    }
+
+    markdown = journal.write_plan_pool_markdown(pool).read_text(encoding="utf-8")
+
+    assert "Impacted files: unknown (uncertainty — not zero risk)" in markdown
+    assert "confidence: unknown (uncertainty — not zero risk)" in markdown
