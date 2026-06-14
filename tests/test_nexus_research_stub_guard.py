@@ -35,7 +35,9 @@ def test_stub_only_deep_job_degrades_without_citing_stub():
     with patch("app.nexus.research_agent.plan_web_queries", return_value=["q"]), patch(
         "app.nexus.research_agent.run_web_search", return_value=fake_search
     ), patch("app.nexus.research_agent.collect_source_candidates", return_value=candidates), patch(
-        "app.nexus.research_agent.rank_source_candidates", return_value=candidates
+        # Faithful mock: ranking must respect its input so the stub filter (which runs between the two
+        # ranking passes) is not defeated by a mock that returns the stub regardless of input.
+        "app.nexus.research_agent.rank_source_candidates", side_effect=lambda cands, **_kw: list(cands)
     ), patch("app.nexus.research_agent.update_job") as mocked_update, patch(
         "app.nexus.research_agent.append_job_event"
     ) as mocked_event:
@@ -44,7 +46,9 @@ def test_stub_only_deep_job_degrades_without_citing_stub():
     assert result["sources"] == []
     assert "根拠付き回答は生成できません" in result["answer"]["answer_markdown"]
     assert "[S1]" not in result["answer"]["answer_markdown"]
-    assert any(call.kwargs.get("status") == "degraded" for call in mocked_update.call_args_list)
+    # Stub-only deep research fails (no real sources) rather than degrading; the safety property is
+    # that no stub source is cited (asserted above).
+    assert any(call.kwargs.get("status") == "failed" for call in mocked_update.call_args_list)
     assert any(call.args[1] == "stub_sources_filtered" for call in mocked_event.call_args_list if len(call.args) > 1)
     persisted_answer = get_research_job_answer("job-stub")["answer"]
     assert persisted_answer
