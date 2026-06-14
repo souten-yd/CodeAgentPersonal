@@ -16,7 +16,7 @@ CSS = (ROOT / "web" / "css" / "app.css").read_text(encoding="utf-8")
 # assets share the atlas-dashboard-* line.
 APP_CSS_VERSION = "atlas-ui-fix-14"
 ATLAS_PIPELINE_API_VERSION = "atlas-ui-fix-13"
-ATLAS_CLAUDE_PANEL_VERSION = "atlas-ui-fix-14"
+ATLAS_CLAUDE_PANEL_VERSION = "atlas-ui-fix-17"
 DASHBOARD_ASSET_VERSION = "atlas-dashboard-40"
 
 
