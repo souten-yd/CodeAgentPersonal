@@ -8,8 +8,8 @@ PIBIH: Project Intelligence Behavioral Impact Hardening
 
 ```text
 status: in_progress
-current_package: PIBIH-5
-next_action: implement Plan-Time Nexus Web Research
+current_package: PIBIH-6
+next_action: implement Impact UI / Planner Exposure
 ```
 
 ## Completed Foundations
@@ -389,6 +389,65 @@ Next package: PIBIH-5 Plan-Time Nexus Web Research
 Blocker: none
 ```
 
+```text
+Completed package: PIBIH-5 Plan-Time Nexus Web Research
+Status: completed
+Changed modules/files:
+- agent/atlas_plan_time_research.py (new)
+- app/api/atlas_pipeline.py (attach advisory research to PlanPool metadata)
+- tests/test_atlas_plan_time_web_research.py (new)
+- tests/test_atlas_api_pipeline.py (default-off advisory attach assertion)
+- docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md
+Behavior implemented:
+- Added the missing plan-time DECISION point: `should_research` decides eligibility from the
+  requirement text (external API/library/framework/protocol signals, browser/platform terms,
+  greenfield/feature signals) and user preference (`use_nexus`, `force`).
+- `AtlasPlanTimeResearchService.research` runs a BOUNDED Nexus research job (via the existing
+  `AtlasNexusResearchAdapter` + `AtlasNexusWebResearchClient`) ONLY when the request is eligible AND
+  `ATLAS_NEXUS_WEB_RESEARCH=1`; otherwise returns a truthful skipped result with a warning. It never
+  calls web by default, never fabricates external evidence, and never raises (research must not fail
+  planning). Result is always advisory (`advisory=True`), never authoritative.
+- Wired into `_create_plan_pool_core`: the advisory result (`to_metadata()`) is attached to
+  `pool.metadata["plan_time_web_research"]`, persisting context packs through the adapter+journal when
+  enabled. Plan-time research thus reflects in PlanPool output as advisory context.
+Focused tests:
+- `python -m pytest tests\test_atlas_plan_time_web_research.py` -> 8 passed (eligibility decision;
+  user preference/force; default-off no-call + warning; ineligible no-call; enabled+eligible bounded
+  research via fake client; unavailable -> warning without failing; advisory/truthful metadata).
+- `python -m pytest tests\test_atlas_api_pipeline.py::test_plan_pool_attaches_advisory_web_research_disabled_by_default`
+  -> passed (PlanPool metadata carries advisory, enabled=False, called=False, `web_research_disabled`).
+Syntax checks:
+- `python -m py_compile agent\atlas_plan_time_research.py app\api\atlas_pipeline.py` -> passed.
+Affected tests:
+- `python -m pytest tests\test_atlas_api_pipeline.py tests\test_atlas_plan_time_web_research.py` -> 40 passed.
+- Pre-existing, unrelated nexus router/API/web-integration failures (duplicate `/nexus/summary` route,
+  searxng/brave/zip environment) reproduce with this change stashed and are NOT caused by it.
+Real model evidence:
+- localhost:8080 advisory review of the service + pipeline attach -> `verdict: pass` (advisory only;
+  the gating/eligibility contract tests are authoritative).
+Project Intelligence evidence:
+- Not applicable beyond PlanPool metadata attach.
+Impact analysis evidence:
+- Not applicable.
+Web research evidence:
+- External web research remains OFF by default and policy-gated (`ATLAS_NEXUS_WEB_RESEARCH=1`); the
+  default path performs no external call and records no false external evidence (asserted).
+Runtime/Portal evidence:
+- No Portal/runtime paths changed; research is advisory and bounded.
+Unavailable checks:
+- No live `ATLAS_NEXUS_WEB_RESEARCH=1` end-to-end searxng run executed here; enabled/eligible behavior
+  is covered by a fake-client bounded-research test, and the unavailable path degrades to warnings.
+Safety invariants:
+- Default off; eligible-but-disabled never calls web; unavailable never fails planning; results are
+  advisory, never authoritative; no secrets; no Proposal/Safe Apply/Verification path touched.
+- `unavailable` checks are not marked as passed.
+Remaining gaps:
+- Per-PlanItem rationale/risk/verification injection (vs PlanPool-level advisory metadata) and a live
+  `=1` searxng end-to-end verification can be hardened in a follow-up.
+Next package: PIBIH-6 Impact UI / Planner Exposure
+Blocker: none
+```
+
 ## Next Package Queue
 
 ```text
@@ -396,7 +455,7 @@ PIBIH-1: LLM Planning Timeout and Streaming Progress Hardening  (completed)
 PIBIH-2: Impact Analysis Core  (completed)
 PIBIH-3: Deep Behavioral Graph V3  (completed)
 PIBIH-4: Project Intelligence Planning and Generation Injection  (completed)
-PIBIH-5: Plan-Time Nexus Web Research
+PIBIH-5: Plan-Time Nexus Web Research  (completed)
 PIBIH-6: Impact UI / Planner Exposure
 PIBIH-7: Runtime Evidence Promotion and Historical Risk Memory
 ```
