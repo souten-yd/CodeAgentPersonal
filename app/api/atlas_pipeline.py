@@ -1434,6 +1434,26 @@ def _create_plan_pool_core(
             )
 
     pool.status = "ready"
+    # Plan-time web research (PIBIH-5): advisory only, gated OFF by default. Decide eligibility from
+    # the goal, run a bounded Nexus job ONLY when ATLAS_NEXUS_WEB_RESEARCH=1 AND the requirement is
+    # eligible, and attach the result (or a truthful skipped/disabled warning) to pool metadata.
+    # Never authoritative; never fails plan creation.
+    try:
+        from agent.atlas_nexus_research_adapter import AtlasNexusResearchAdapter
+        from agent.atlas_nexus_web_research_client import AtlasNexusWebResearchClient
+        from agent.atlas_plan_time_research import AtlasPlanTimeResearchService
+
+        _pt_adapter = AtlasNexusResearchAdapter(nexus_client=AtlasNexusWebResearchClient(), journal=journal)
+        _pt_research = AtlasPlanTimeResearchService(adapter=_pt_adapter).research(
+            requirement_text=root_goal, pool_id=pool.pool_id, run_id="plan_create",
+            project_id=req.project_name, use_nexus=bool(req.use_nexus),
+        )
+        pool.metadata["plan_time_web_research"] = _pt_research.to_metadata()
+    except Exception as exc:  # noqa: BLE001 - research is advisory; never fail plan creation.
+        pool.metadata["plan_time_web_research"] = {
+            "enabled": False, "called": False, "advisory": True,
+            "warnings": [f"plan_time_research_attach_failed:{str(exc)[:120]}"],
+        }
     if project_intelligence_planning_metadata:
         pool.metadata["project_intelligence_planning"] = project_intelligence_planning_metadata
         for key, value in (project_intelligence_planning_metadata.get("refs") or {}).items():

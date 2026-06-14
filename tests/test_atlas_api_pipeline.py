@@ -53,6 +53,19 @@ def test_create_plan_pool_from_empty_payload_returns_fallback_pool(tmp_path) -> 
     assert item_types or body["plan_pool"]["metadata"].get("planner_failure_requires_replan") is True
 
 
+def test_plan_pool_attaches_advisory_web_research_disabled_by_default(tmp_path, monkeypatch) -> None:
+    # PIBIH-5: plan-time web research is gated OFF by default; the pool records a truthful,
+    # advisory-only, not-called result with no fabricated external evidence.
+    monkeypatch.delenv("ATLAS_NEXUS_WEB_RESEARCH", raising=False)
+    client = _client(tmp_path)
+    body = _create_pool(client, goal="Add OAuth2 integration with the Stripe API")
+    research = body["plan_pool"]["metadata"]["plan_time_web_research"]
+    assert research["advisory"] is True
+    assert research["enabled"] is False
+    assert research["called"] is False
+    assert "web_research_disabled" in research["warnings"]
+
+
 def test_get_plan_pool(tmp_path) -> None:
     client = _client(tmp_path)
     created = _create_pool(client)
