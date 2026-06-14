@@ -27,9 +27,11 @@ from agent.project_twin.contracts import (
     StaticAnalysisRequest,
     RuntimeObservation,
     TwinDelta,
+    TwinEdge,
     TwinNode,
     TwinQuery as StoreTwinQuery,
 )
+from agent.project_twin.static_graph import nid
 from agent.project_twin.facade import (
     DigitalTwinModule,
     OpenTwinRequest,
@@ -601,6 +603,7 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
                 diagnostics=diagnostics,
             )
         before = self._health(request.project.project_id, request.project.workspace_id)
+        evidence_nodes, evidence_edges = self._runtime_evidence_facts(observations, internal)
         rev = self._store.apply_delta(
             TwinDelta(
                 project_id=internal,
@@ -608,6 +611,8 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
                 idempotency_key=f"runtime:{request.correlation_id or uuid.uuid4().hex}",
                 trigger_type="runtime_observation.recorded",
                 observations=observations,
+                nodes=evidence_nodes,
+                edges=evidence_edges,
             )
         )
         return RuntimeIngestResult(
@@ -618,6 +623,61 @@ class DigitalTwinModuleImpl(DigitalTwinModule):
             twin_revision_id=rev.revision_id,
             diagnostics=diagnostics,
         )
+
+    def _runtime_node(self, ref: str, node_type: str, internal: str, *, label: str, confidence: float, source_ref: str, properties: dict) -> TwinNode:
+        now = datetime.now(timezone.utc)
+        return TwinNode(
+            node_id=nid(ref), project_id=internal, domain="runtime", node_type=node_type,
+            canonical_ref=ref, label=label[:200], properties=properties, source_kind="runtime",
+            source_ref=source_ref, derivation="runtime_observation", confidence=confidence,
+            status="observed", valid_from=now, created_at=now, updated_at=now,
+        )
+
+    def _runtime_edge(self, edge_type: str, source_ref: str, target_ref: str, internal: str, *, confidence: float, observation_id: str) -> TwinEdge:
+        now = datetime.now(timezone.utc)
+        return TwinEdge(
+            edge_id=nid(f"{edge_type}|{source_ref}|{target_ref}"), project_id=internal, domain="runtime",
+            source_node_id=nid(source_ref), target_node_id=nid(target_ref), edge_type=edge_type,
+            properties={"observation_id": observation_id}, source_kind="runtime", source_ref=observation_id,
+            derivation="runtime_observation", confidence=confidence, status="observed",
+            valid_from=now, created_at=now, updated_at=now,
+        )
+
+    def _runtime_evidence_facts(self, observations: list[RuntimeObservation], internal: str) -> tuple[list[TwinNode], list[TwinEdge]]:
+        """Promote runtime/verification results into durable graph facts (PIBIH-7).
+
+        A FAILED observation becomes an ``incident`` node linked to each affected subject ref via an
+        ``affects`` edge, so future impact analysis surfaces it as a past incident (gated by
+        ``include_historical_risks``). A PASSED observation becomes a ``runtime_evidence`` node that
+        ``supports`` its subject refs — additive, runtime-observed evidence that can raise confidence
+        WITHOUT mutating or falsely verifying any inferred fact. Subjects with no refs are skipped.
+        """
+        nodes: list[TwinNode] = []
+        edges: list[TwinEdge] = []
+        for obs in observations:
+            subjects = [r for r in (obs.subject_refs or []) if str(r).strip()]
+            if not subjects:
+                continue
+            result = str(obs.result)
+            if result == "failed":
+                ref = f"incident://{obs.observation_id}"
+                nodes.append(self._runtime_node(
+                    ref, "incident", internal, label=f"failed: {obs.summary or obs.observation_id}",
+                    confidence=0.9, source_ref=obs.observation_id,
+                    properties={"observation_id": obs.observation_id, "result": "failed", "run_id": obs.run_id, "affected_refs": subjects},
+                ))
+                for subject in subjects:
+                    edges.append(self._runtime_edge("affects", ref, subject, internal, confidence=0.85, observation_id=obs.observation_id))
+            elif result == "passed":
+                ref = f"runtime_evidence://{obs.observation_id}"
+                nodes.append(self._runtime_node(
+                    ref, "runtime_evidence", internal, label=f"passed: {obs.summary or obs.observation_id}",
+                    confidence=0.8, source_ref=obs.observation_id,
+                    properties={"observation_id": obs.observation_id, "result": "passed", "run_id": obs.run_id, "supports_refs": subjects},
+                ))
+                for subject in subjects:
+                    edges.append(self._runtime_edge("supports", ref, subject, internal, confidence=0.8, observation_id=obs.observation_id))
+        return nodes, edges
 
     def query(self, request: TwinQueryRequest) -> TwinQueryResult:
         internal = self._key(request.project_id, request.workspace_id)

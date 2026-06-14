@@ -7,9 +7,9 @@ PIBIH: Project Intelligence Behavioral Impact Hardening
 ## Overall Status
 
 ```text
-status: in_progress
-current_package: PIBIH-7
-next_action: implement Runtime Evidence Promotion and Historical Risk Memory
+status: completed
+current_package: PIBIH-7 (done)
+next_action: PIBIH track complete (PIBIH-1..7); follow-on hardening only
 ```
 
 ## Completed Foundations
@@ -503,6 +503,50 @@ Next package: PIBIH-7 Runtime Evidence Promotion and Historical Risk Memory
 Blocker: none
 ```
 
+```text
+Completed package: PIBIH-7 Runtime Evidence Promotion and Historical Risk Memory
+Status: completed
+Changed modules/files:
+- agent/project_twin/module.py
+- tests/test_project_twin_runtime_evidence_promotion.py
+- docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md
+Behavior implemented:
+- `ingest_runtime` now promotes runtime/verification results into durable graph facts: a FAILED
+  observation becomes an `incident` node (status=observed, derivation=runtime_observation) linked to
+  each affected subject ref via an `affects` edge; a PASSED observation becomes a `runtime_evidence`
+  node that `supports` its subject refs.
+- The incident edges make failures discoverable by `assess_impact` as `past_incidents` (gated by
+  `include_historical_risks`) when a future change touches an affected ref.
+- Passing evidence is additive runtime-observed support that can raise confidence WITHOUT mutating or
+  falsely marking any inferred fact verified; `unavailable` is never converted into a failure/incident.
+Focused tests:
+- `python -m pytest tests\test_project_twin_runtime_evidence_promotion.py` -> 4 passed.
+Syntax checks:
+- `python -m py_compile agent\project_twin\module.py` -> passed.
+Affected tests:
+- `python -m pytest <runtime_evidence + verification_context + durable_event_projection +
+  runtime_collectors + store + impact_analysis + verification_resume>` -> 49 passed.
+Real model evidence:
+- localhost:8080 advisory review of the module diff -> verdict approved/pass (advisory only).
+Impact analysis evidence:
+- A failed observation on a subject ref is surfaced by assess_impact(include_historical_risks=True) as
+  a past incident; excluded when False (asserted).
+Web research evidence:
+- Not applicable.
+Runtime/Portal evidence:
+- Runtime observations promoted to graph facts; no Portal/runtime execution path changed.
+Unavailable checks:
+- `unavailable` observations never become incidents (asserted).
+Safety invariants:
+- `unavailable` is not `passed`; passing evidence never marks unrelated inferred facts verified;
+  incidents are runtime-observed, not fabricated; no Proposal/Safe Apply/Verification path touched.
+Remaining gaps:
+- Repeated-pass numeric confidence promotion on the subject node itself and historical-risk decay can
+  be hardened in a follow-up.
+Next package: none — PIBIH-1..7 complete.
+Blocker: none
+```
+
 ## Next Package Queue
 
 ```text
@@ -512,5 +556,17 @@ PIBIH-3: Deep Behavioral Graph V3  (completed)
 PIBIH-4: Project Intelligence Planning and Generation Injection  (completed)
 PIBIH-5: Plan-Time Nexus Web Research  (completed)
 PIBIH-6: Impact UI / Planner Exposure  (completed)
-PIBIH-7: Runtime Evidence Promotion and Historical Risk Memory
+PIBIH-7: Runtime Evidence Promotion and Historical Risk Memory  (completed)
 ```
+
+## Track completion
+
+All PIBIH packages (PIBIH-1..7) are complete. The Atlas Project Intelligence Behavioral Impact
+Hardening track is done: slow-model planning timeouts are phase-aware; impact analysis returns
+direct/transitive impacts, side effects, recommended tests, and uncertainty; the behavioral graph
+captures function/variable/state/resource/UI-API paths with deterministic refs and import/self call
+resolution; Project Intelligence active planning AND generation both inject rich context; plan-time
+Nexus web research is bounded, gated, and reflected in PlanPool metadata; PlanPool artifacts show
+per-item impact summaries and recommended tests; and runtime/verification evidence feeds future impact
+risk (incidents) and supports confidence without false verification. A virtual-project behavior
+evaluation (`scripts/twin_behavior_eval.py`, 20/20) plus remediations R1-R3 validated the twin.
