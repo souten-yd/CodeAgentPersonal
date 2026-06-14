@@ -7,9 +7,9 @@ AUIR: Atlas UI Runtime Progress and Resume/Rehydrate Hardening
 ## Overall Status
 
 ```text
-status: in_progress
-current_package: AUIR-6
-next_action: return to PIBIH-1 LLM planning timeout hardening
+status: completed
+current_package: AUIR-6 (handed off to PIBIH-1)
+next_action: continue PIBIH-2 Impact Analysis Core; see docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md
 ```
 
 ## User-Observed Bug
@@ -54,11 +54,11 @@ phase-specific timeout reason
 
 ### Acceptance Checklist
 
-- [ ] PIBIH status/plan/test/entrypoint docs are read before editing.
-- [ ] Slow local planning models can complete or fail with phase-specific timeout reasons.
-- [ ] Streaming planning progress remains visible during long-running LLM calls.
-- [ ] Local-only and external-provider policy boundaries remain intact.
-- [ ] Focused tests and live localhost:8080 advisory review are recorded truthfully.
+- [x] PIBIH status/plan/test/entrypoint docs are read before editing.
+- [x] Slow local planning models can complete or fail with phase-specific timeout reasons.
+- [x] Streaming planning progress remains visible during long-running LLM calls.
+- [x] Local-only and external-provider policy boundaries remain intact.
+- [x] Focused tests and live localhost:8080 advisory review are recorded truthfully (see PIBIH-1 evidence in docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md).
 
 ## Evidence Log Template
 

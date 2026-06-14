@@ -74,7 +74,7 @@ def test_streaming_concatenates_sse_chunks_and_reports_progress(monkeypatch) -> 
     assert all(p["last_token_at"] for p in progress)
 
 
-def test_streaming_socket_timeout_returns_llm_stalled(monkeypatch) -> None:
+def test_streaming_socket_timeout_before_first_token_reason(monkeypatch) -> None:
     def fake_urlopen(_req, timeout=0):
         return _StreamResp([_sse('{"a":')], timeout_after=0)
 
@@ -84,7 +84,10 @@ def test_streaming_socket_timeout_returns_llm_stalled(monkeypatch) -> None:
     result = adapter.generate_json(AtlasLLMJsonRequest(system_prompt="s", user_prompt="u", stream=True))
 
     assert result.ok is False
-    assert result.error == "llm_stalled"
+    # A read timeout before any content token is a truthful before-first-token stall, not a
+    # flat "llm_stalled", so the planner can distinguish prefill failure from idle generation.
+    assert result.error == "llm_stalled_before_first_token"
+    assert result.metadata.get("timeout_phase") == "llm_stalled_before_first_token"
 
 
 def test_streaming_uses_first_token_then_stall_timeouts(monkeypatch) -> None:
