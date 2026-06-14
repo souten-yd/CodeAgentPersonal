@@ -90,6 +90,22 @@ def test_config_env_read_is_modeled(tmp_path: Path):
     assert _has_effect(delta, fn="configured", kind="config", direction="read")
 
 
+def test_config_env_subscript_read_is_modeled(tmp_path: Path):
+    # R2: os.environ['X'] subscript reads model the same config resource as os.environ.get('X').
+    _write(tmp_path, "s.py", "import os\n\ndef flagged():\n    return os.environ['LEGACY_FLAG']\n")
+    delta = BehavioralAnalyzer().analyze(
+        StaticAnalysisRequest(project_id="p1", project_path=str(tmp_path), full_rebuild=True)
+    ).delta
+    refs = {n.canonical_ref for n in delta.nodes}
+    assert "resource://config:LEGACY_FLAG" in refs
+    assert any(
+        n.node_type == "side_effect"
+        and n.canonical_ref.startswith("side_effect://py://s.py#flagged/config/")
+        and n.properties.get("direction") == "read"
+        for n in delta.nodes
+    )
+
+
 def test_config_change_impact_returns_reader(tmp_path: Path):
     _write(tmp_path, "m.py", SOURCE)
     store = SqliteProjectTwinStore(":memory:")
