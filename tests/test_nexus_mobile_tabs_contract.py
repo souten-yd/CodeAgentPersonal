@@ -13,8 +13,10 @@ def _nexus_subtab_labels():
     return re.findall(r'<button[^>]+class="nexus-subtab[^>]*"[^>]*>([^<]+)</button>', topbar.group("body"))
 
 
-def test_nexus_subtabs_show_only_five_visible_tabs():
-    assert _nexus_subtab_labels() == ["Research", "Library", "Evidence", "Reports", "Settings"]
+def test_nexus_subtabs_match_current_visible_tabs():
+    # Source of truth is the current UI. The nexus subtab bar now exposes the workspace tabs plus
+    # Memory / Skill / Log; Dashboard and Sources remain removed (asserted below).
+    assert _nexus_subtab_labels() == ["Research", "Library", "Evidence", "Reports", "Settings", "Memory", "Skill", "Log"]
 
 
 def test_nexus_subtabs_remove_dashboard_and_sources_buttons():
