@@ -14,7 +14,9 @@ CSS = (ROOT / "web" / "css" / "app.css").read_text(encoding="utf-8")
 # Per-asset cache-bust versions, kept in sync with the live <link>/<script> tags in ui.html.
 # app.css and the atlas claude panel advance on their own UI-fix cadence, while the dashboard
 # assets share the atlas-dashboard-* line.
-APP_CSS_VERSION = "atlas-ui-fix-5"
+APP_CSS_VERSION = "atlas-ui-fix-14"
+ATLAS_PIPELINE_API_VERSION = "atlas-ui-fix-13"
+ATLAS_CLAUDE_PANEL_VERSION = "atlas-ui-fix-14"
 DASHBOARD_ASSET_VERSION = "atlas-dashboard-40"
 
 
@@ -165,8 +167,9 @@ def test_css_contract_contains_visual_rescue_selectors() -> None:
 def test_ui_loads_cache_busted_static_assets() -> None:
     # atlas_pipeline_api.js advanced onto the atlas-ui-fix line when async plan-pool creation landed.
     assert f'<link rel="stylesheet" href="/static/css/app.css?v={APP_CSS_VERSION}">' in HTML
-    assert '<script src="/static/js/atlas_pipeline_api.js?v=atlas-ui-fix-7"></script>' in HTML
+    assert f'<script src="/static/js/atlas_pipeline_api.js?v={ATLAS_PIPELINE_API_VERSION}"></script>' in HTML
     assert f'<script src="/static/js/atlas_dashboard.js?v={DASHBOARD_ASSET_VERSION}"></script>' in HTML
+    assert f'<script src="/static/js/atlas_claude_panel.js?v={ATLAS_CLAUDE_PANEL_VERSION}"></script>' in HTML
     assert "AtlasPipelineAPI" in ATLAS_API_JS
     assert "AtlasDashboard" in ATLAS_DASHBOARD_JS
 
@@ -448,7 +451,7 @@ def test_claude_panel_renders_practical_workbench_flow_without_ui_execution_auth
         "execute_apply_visible: false",
     ):
         assert token in ATLAS_CLAUDE_PANEL_JS
-    assert "renderWorkbenchFlow(poolId, text" in ATLAS_CLAUDE_PANEL_JS
+    assert "renderWorkbenchFlow(poolId, requirement" in ATLAS_CLAUDE_PANEL_JS
     assert "dataset.atlasWorkbenchBlock" in ATLAS_CLAUDE_PANEL_JS
 
 

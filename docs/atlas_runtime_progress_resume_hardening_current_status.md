@@ -8,8 +8,8 @@ AUIR: Atlas UI Runtime Progress and Resume/Rehydrate Hardening
 
 ```text
 status: in_progress
-current_package: AUIR-4
-next_action: implement live indicator reconnection and stale/stalled state UX
+current_package: AUIR-5
+next_action: add regression tests and mobile/browser reload smoke
 ```
 
 ## User-Observed Bug
@@ -36,35 +36,31 @@ Log:
 
 ## Active Package
 
-### AUIR-4: Live indicator reconnection and stale/stalled state UX
+### AUIR-5: Regression tests and mobile/browser reload smoke
 
 ### Required Code Investigation
 
 Search and inspect:
 
 ```text
-atlas-claude-transcript
-atlas-llm-progress-line
-atlas:llm-progress
-secondsSince
-stalled
-reconnecting
-disconnect
-heartbeat
-poll
-getPipelineEvents
-latest_progress
-progress_events
-renderRuntimeStatusPanel
-runtimeStatusPayload
+tests/test_atlas_ui_llm_props_init.py
+tests/test_atlas_runtime_progress_events.py
+tests/test_atlas_reload_resume_progress_ui_contract.py
+tests/test_atlas_runtime_progress_connection_state_contract.py
+scripts/smoke_ui_modes_playwright.py
+playwright-ui-smoke.yml
+atlas_current_ui_smoke
+mobile_mode_switches
+reload
+tab switch
 ```
 
 ### Acceptance Checklist
 
-- [ ] Live, reconnecting, stale, stalled, and terminal states are visibly distinct.
-- [ ] A disconnected/reconnecting UI never shows an empty green frame without status.
-- [ ] Stalled token generation stops the spinner and shows a concrete stale/stalled reason.
-- [ ] Reconnected progress replay resumes the indicator from server-authoritative state.
+- [ ] Focused regression tests cover AUIR-1 through AUIR-4 behavior.
+- [ ] Mobile/browser reload smoke is run or truthfully recorded unavailable with reason.
+- [ ] Browser tab switch/reload scenario has evidence for restored status and indicator.
+- [ ] Existing static UI smoke harness gaps are documented without marking them passed.
 - [ ] Current status doc is updated with changed files and evidence.
 
 ## Evidence Log Template
@@ -248,6 +244,66 @@ Remaining gaps:
 - Live indicator reconnecting/stale/stalled visual distinctions remain AUIR-4.
 - Full `ui.html` Playwright smoke needs a separate harness/static-serving fix before it can be authoritative UI evidence.
 Next package: AUIR-4 Live indicator reconnection and stale/stalled state UX
+Blocker: none
+```
+
+```text
+Completed package: AUIR-4 Live indicator reconnection and stale/stalled state UX
+Status: completed
+Changed modules/files:
+- web/js/atlas_claude_panel.js
+- web/css/app.css
+- ui.html
+- tests/test_atlas_runtime_progress_connection_state_contract.py
+- tests/test_atlas_runtime_status_panel_contract.py
+- tests/test_atlas_dashboard_ui_contract.py
+- docs/atlas_runtime_progress_resume_hardening_current_status.md
+Behavior implemented:
+- Added a shared runtime progress connection-state classifier for `live`, `reconnecting`, `stale`, `stalled`, `terminal`, and `unknown`.
+- Updated the LLM progress line to expose `dataset.connectionState`, distinct state classes, state labels, last-progress age, and backend stalled reasons.
+- Updated runtime status panel rendering to expose `data-atlas-runtime-connection-state`, distinct runtime classes, and non-empty state rows for reconnecting/stale/stalled/terminal/unknown states.
+- Rendered `reconnecting` while server progress replay is being fetched, `unknown` when replay returns no events, and `stale` when replay fails but the latest runtime snapshot is still available.
+- Kept backend-stalled progress visually distinct from disconnected/stale UI by requiring explicit stalled status/event/reason for the `stalled` state.
+- Prevented empty latest autopilot result payloads from overwriting a meaningful replay/restored runtime panel.
+- Added CSS classes for distinct progress/runtime state styling and bumped cache-bust versions for `app.css` and `atlas_claude_panel.js`.
+Focused tests:
+- `python -m pytest tests\test_atlas_runtime_progress_connection_state_contract.py tests\test_atlas_reload_resume_progress_ui_contract.py tests\test_atlas_dev_phase_llm_progress_indicator_contract.py tests\test_atlas_runtime_status_panel_contract.py tests\test_atlas_dashboard_ui_contract.py -q` -> 75 passed.
+Syntax checks:
+- `python scripts\check_ui_inline_script_syntax.py` -> passed for 1 inline script block and 16 external script files.
+- `git diff --check` -> passed; only Git line-ending warnings for existing Windows checkout behavior.
+Affected tests:
+- `python -m pytest tests\test_static_js_serving.py tests\test_ui_js_dependency_contract.py tests\test_atlas_dashboard_ui_contract.py -q` -> 64 passed.
+Real model evidence:
+- localhost:8080 `/v1/models` returned `Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf`.
+- localhost:8080 `/v1/chat/completions` advisory review of the final AUIR-4 diff returned `verdict: pass` with no concerns. This is advisory evidence only.
+Atlas UI evidence:
+- In-app Browser minimal Atlas harness loaded the real `atlas_pipeline_api.js`, `atlas_claude_panel.js`, and `app.css`.
+- The harness showed a visible `reconnecting` runtime panel while `/api/atlas/pipeline/events/pool_auir4/run_auir4?...after_sequence=0` was delayed.
+- After a backend `llm_stalled_after_progress` event, the browser showed `lineState=stalled`, text `patch_generation  ·  stalled: backend heartbeat stopped  ·  tokens 12 / 8192`, `panelState=stalled`, and token total `12`.
+Reload/resume evidence:
+- The browser harness seeded reload hints in localStorage, reloaded into Atlas, and replayed server progress with `after_sequence=0`.
+- Contract tests assert replay-visible states and non-empty reconnect/stale/stalled panels.
+Project Intelligence evidence:
+- Not applicable to AUIR-4.
+Impact analysis evidence:
+- Not applicable to AUIR-4.
+Web research evidence:
+- Not applicable; external/web calls remain disabled by default.
+Runtime/Portal evidence:
+- Portal runtime paths were not changed.
+Unavailable checks:
+- No full live approved Atlas development run was executed through the complete `ui.html` surface in this package.
+- Full mock-backed `ui.html` Playwright smoke remains unavailable as authoritative evidence until the existing static-serving/startup-order issue from AUIR-3 is fixed or worked around in AUIR-5.
+Safety invariants:
+- Proposal / Safe Apply / Verification boundaries were not bypassed.
+- UI rendering and browser harness observations are recorded as UI evidence, not runtime authority.
+- Backend stalled state is not inferred from UI age alone; explicit backend stalled status/event/reason is required.
+- No external provider was enabled by default.
+- No secrets or generated data persistence paths were added.
+- `unavailable` checks are not marked as passed.
+Remaining gaps:
+- AUIR-5 must consolidate regression coverage and produce mobile/browser reload smoke evidence or truthfully record remaining smoke blockers.
+Next package: AUIR-5 Regression tests and mobile/browser reload smoke
 Blocker: none
 ```
 

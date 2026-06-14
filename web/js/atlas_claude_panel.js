@@ -21,6 +21,7 @@
   const STORAGE_LAST_EVENT_SEQUENCE_KEY = 'atlas_claude_last_event_sequence';
   const TRANSCRIPT_MAX_MESSAGES = 200;
   const POLL_INTERVAL_MS = 8000;
+  const PROGRESS_STALE_AFTER_SECONDS = 30;
   const CONFIRM_TEXT = 'SELECT AUTOMATION PROFILE';
 
   const state = {
@@ -193,6 +194,15 @@
         await restoreRuntimeProgressReplay(poolId, runtime);
       } catch (replayErr) {
         console.warn('Atlas runtime progress replay failed', replayErr);
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          run_id: progressRunIdFromRuntime(runtime),
+          phase: (runtime && runtime.phase) || 'patch_generation',
+          status: 'running',
+          message: 'Progress replay unavailable; showing latest runtime snapshot',
+          runtime_connection_state: 'stale',
+          next_actions: ['wait', 'refresh'],
+          authoritative_source: 'PlanPool runtime-status endpoint',
+        }));
       }
     } catch (err) {
       console.warn('Atlas runtime status restore failed', err);
@@ -207,7 +217,13 @@
     }
     try {
       const peek = await root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult({ pool_id: poolId });
-      if (peek && peek.ok && peek.data) {
+      const hasAutopilotResult = peek && peek.ok && peek.data && (
+        peek.data.autopilot_run_id || peek.data.run_id
+        || Number.isFinite(Number(peek.data.processed_count))
+        || Number.isFinite(Number(peek.data.completed_count))
+        || Number.isFinite(Number(peek.data.failed_count))
+      );
+      if (hasAutopilotResult) {
         const d = peek.data;
         const stages = appendStageBlock(poolId);
         if (stages) {
@@ -242,6 +258,52 @@
     return phase || 'patch_generation';
   }
 
+  function lc(value) {
+    return String(value || '').toLowerCase();
+  }
+
+  function progressAgeSeconds(timestamp, fallback) {
+    if (timestamp) {
+      const parsed = Date.parse(timestamp);
+      if (Number.isFinite(parsed)) return Math.max(0, Math.round((Date.now() - parsed) / 1000));
+    }
+    const direct = Number(fallback);
+    return Number.isFinite(direct) ? Math.max(0, Math.round(direct)) : null;
+  }
+
+  function classifyRuntimeConnectionState(detail) {
+    const explicit = lc(detail && (detail.connectionState || detail.runtime_connection_state || detail.progress_state));
+    if (['live', 'reconnecting', 'stale', 'stalled', 'terminal', 'unknown'].includes(explicit)) return explicit;
+    const status = lc(detail && (detail.status || detail.state));
+    const phase = lc(detail && detail.phase);
+    const eventType = lc(detail && (detail.event_type || detail.eventType));
+    if (['completed', 'failed', 'cancelled', 'canceled'].includes(status)
+      || ['completed', 'failed', 'cancelled', 'canceled'].includes(phase)
+      || eventType.endsWith('_completed') || eventType.endsWith('_failed') || eventType.endsWith('_cancelled')) {
+      return 'terminal';
+    }
+    if ((detail && detail.is_stalled === true) || status === 'stalled' || eventType.includes('stalled') || !!(detail && (detail.stalled_reason || detail.stalledReason))) {
+      return 'stalled';
+    }
+    if ((detail && detail.reconnecting === true) || status === 'reconnecting' || eventType.includes('reconnect')) return 'reconnecting';
+    const sec = Number(detail && (detail.secondsSince ?? detail.seconds_since_progress ?? detail.progress_age_seconds));
+    if (Number.isFinite(sec) && sec >= PROGRESS_STALE_AFTER_SECONDS) return 'stale';
+    if (!status && !phase && !eventType) return 'unknown';
+    return 'live';
+  }
+
+  function runtimeConnectionLabel(state, detail) {
+    const sec = Number(detail && (detail.secondsSince ?? detail.seconds_since_progress ?? detail.progress_age_seconds));
+    const age = Number.isFinite(sec) ? ` / last progress ${Math.max(0, Math.round(sec))}s ago` : '';
+    const reason = String((detail && (detail.stalled_reason || detail.stalledReason || detail.message)) || '').trim();
+    if (state === 'reconnecting') return `reconnecting${age}`;
+    if (state === 'stale') return `stale${age}`;
+    if (state === 'stalled') return reason ? `stalled: ${reason}` : `stalled${age}`;
+    if (state === 'terminal') return 'terminal';
+    if (state === 'unknown') return 'unknown progress state';
+    return `live${age}`;
+  }
+
   function applyRuntimeProgressEvent(event, poolId) {
     if (!event) return false;
     const effectivePoolId = String(event.pool_id || poolId || '');
@@ -249,7 +311,12 @@
     const sequence = Number(event.sequence || 0);
     const tokens = Number(event.tokens_total || event.tokens || 0);
     const latestAt = event.last_progress_at || event.timestamp || '';
-    const secondsSince = latestAt ? Math.max(0, Math.round((Date.now() - Date.parse(latestAt)) / 1000)) : Number(event.seconds_since_progress);
+    const secondsSince = progressAgeSeconds(latestAt, event.seconds_since_progress);
+    const connectionState = classifyRuntimeConnectionState({
+      ...event,
+      secondsSince,
+      stalledReason: event.stalled_reason,
+    });
     try {
       if (effectivePoolId) localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, effectivePoolId);
       if (runId) localStorage.setItem(STORAGE_LAST_RUN_ID_KEY, runId);
@@ -263,6 +330,10 @@
           maxCtx: Number(event.max_ctx || (event.metadata && event.metadata.max_ctx) || 0),
           tps: Number(event.tokens_per_second || 0),
           secondsSince,
+          connectionState,
+          status: event.status || '',
+          eventType: event.event_type || '',
+          stalledReason: event.stalled_reason || '',
           poolId: effectivePoolId,
           runId,
         },
@@ -276,6 +347,11 @@
       message: event.message || event.event_type || 'Runtime progress restored',
       authoritative_source: 'server progress replay',
       restored_progress: true,
+      runtime_connection_state: connectionState,
+      progress_age_seconds: secondsSince,
+      last_progress_at: latestAt,
+      stalled_reason: event.stalled_reason || '',
+      event_type: event.event_type || '',
       latest_progress_sequence: sequence,
       patch_generation: String(event.phase || '').toLowerCase().includes('patch')
         ? { run_id: runId, state: event.status || 'running', updated_at: latestAt }
@@ -299,6 +375,15 @@
     if (!runId) return false;
     let afterSequence = 0;
     try { afterSequence = Number(localStorage.getItem(STORAGE_LAST_EVENT_SEQUENCE_KEY) || 0) || 0; } catch (_) {}
+    renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+      run_id: runId,
+      phase: 'patch_generation',
+      status: 'reconnecting',
+      message: 'Reconnecting to server progress replay',
+      runtime_connection_state: 'reconnecting',
+      next_actions: ['wait'],
+      authoritative_source: 'server progress replay',
+    }));
     const replay = await root.AtlasPipelineAPI.getPipelineEvents(poolId, runId, workspaceId(), afterSequence);
     if (!replay || !replay.ok || !replay.data) return false;
     const events = Array.isArray(replay.data.progress_events) ? replay.data.progress_events : [];
@@ -306,6 +391,17 @@
     events.forEach((event) => { restored = applyRuntimeProgressEvent(event, poolId) || restored; });
     if (!restored && replay.data.latest_progress) {
       restored = applyRuntimeProgressEvent(replay.data.latest_progress, poolId) || restored;
+    }
+    if (!restored) {
+      renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+        run_id: runId,
+        phase: 'patch_generation',
+        status: 'unknown',
+        message: 'No replay progress event was returned for this run',
+        runtime_connection_state: 'unknown',
+        next_actions: ['wait', 'refresh'],
+        authoritative_source: 'server progress replay',
+      }));
     }
     return restored;
   }
@@ -378,12 +474,15 @@
     const maxCtx = Number(detail.maxCtx) || 0;
     const tps = Number(detail.tps || detail.tokensPerSecond || detail.tokens_per_second) || 0;
     const sec = Number(detail.secondsSince);
-    // トークンが一定時間進まなければ生成停止とみなしアニメーションを止める。
-    const stalled = Number.isFinite(sec) && sec >= 4;
-    line.classList.toggle('stalled', stalled);
+    const connectionState = classifyRuntimeConnectionState(detail || {});
+    ['live', 'reconnecting', 'stale', 'stalled', 'terminal', 'unknown'].forEach((state) => line.classList.remove(state));
+    line.classList.add(connectionState);
+    line.classList.toggle('stalled', connectionState === 'stalled');
+    line.dataset.connectionState = connectionState;
     const parts = [];
     if (phase) parts.push(phase);
     else parts.push('LLM generating');
+    parts.push(runtimeConnectionLabel(connectionState, detail || {}));
     parts.push(maxCtx > 0 ? `tokens ${tokens} / ${maxCtx}` : `tokens ${tokens}`);
     const previousTokens = Number(line.dataset.tokens || 0) || 0;
     const tokenDelta = Math.max(0, tokens - previousTokens);
@@ -2060,6 +2159,15 @@
     if (incomingPatchSpecific) panel.__atlasPatchGenerationState = Object.assign({}, incomingPatch, { run_id: incomingRunId || incomingPatch.run_id || '' });
     const phase = String(view.phase || 'patch_generation');
     const status = String(view.status || 'waiting');
+    const connectionState = classifyRuntimeConnectionState({
+      ...view,
+      connectionState: view.runtime_connection_state,
+      secondsSince: view.progress_age_seconds ?? view.seconds_since_progress,
+      stalledReason: view.stalled_reason,
+    });
+    panel.dataset.atlasRuntimeConnectionState = connectionState;
+    ['live', 'reconnecting', 'stale', 'stalled', 'terminal', 'unknown'].forEach((state) => panel.classList.remove(`atlas-runtime-${state}`));
+    panel.classList.add(`atlas-runtime-${connectionState}`);
     const total = Number(view.items_total || 0);
     const started = Number(view.items_started || 0);
     const completed = Number(view.items_completed || 0);
@@ -2136,6 +2244,13 @@
       }
       if (view.restored_progress && view.message) {
         rows.push(`復元: ${String(view.message).slice(0, 200)}`);
+      }
+      if (connectionState !== 'live' || view.runtime_connection_state || view.progress_age_seconds != null || view.stalled_reason) {
+        rows.push(`状態: ${runtimeConnectionLabel(connectionState, {
+          ...view,
+          secondsSince: view.progress_age_seconds ?? view.seconds_since_progress,
+          stalledReason: view.stalled_reason,
+        }).slice(0, 200)}`);
       }
       if (hasProblem) {
         const reason = view.block_reason || view.error || view.message || '';
