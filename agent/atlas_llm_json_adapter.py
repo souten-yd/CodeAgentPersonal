@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import copy
 import logging
 import os
 import re
@@ -70,13 +71,9 @@ class AtlasLLMJsonAdapter:
         self.on_progress = on_progress
 
     def with_progress(self, on_progress: Callable[[dict], None] | None) -> "AtlasLLMJsonAdapter":
-        return AtlasLLMJsonAdapter(
-            backend_fn=self.backend_fn,
-            base_url=self.base_url,
-            model=self.model,
-            timeout_seconds=self.timeout_seconds,
-            on_progress=on_progress,
-        )
+        clone = copy.copy(self)
+        clone.on_progress = on_progress
+        return clone
 
     def __call__(self, system_prompt: str, user_prompt: str) -> dict | None:
         result = self.generate_json(AtlasLLMJsonRequest(system_prompt=system_prompt, user_prompt=user_prompt))
