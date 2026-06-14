@@ -84,15 +84,16 @@ class NexusMvpAndJobsTests(unittest.TestCase):
             ),
         ]
 
+        # News MVP now runs through the shared no-key News Source layer
+        # (collect_news_research_sources -> convert_news_items_to_evidence) rather than the
+        # plan_web_queries/run_web_search/build_web_evidence pipeline.
         with patch("app.nexus.news.load_runtime_config", return_value=SimpleNamespace(enable_news=True)), patch(
             "app.nexus.news.create_job", return_value=None
         ), patch("app.nexus.news.update_job", return_value=None), patch(
-            "app.nexus.news.plan_web_queries", return_value=["q"]
+            "app.nexus.news.collect_news_research_sources",
+            return_value={"items": [{"title": "a"}], "queries": ["q"], "search": {}},
         ), patch(
-            "app.nexus.news.run_web_search",
-            return_value={"items": [{"title": "a"}]},
-        ), patch(
-            "app.nexus.news.build_web_evidence", return_value=evidence_items
+            "app.nexus.news.convert_news_items_to_evidence", return_value=evidence_items
         ), patch("app.nexus.news.save_evidence_items", return_value=len(evidence_items)):
             result = run_news_mvp("ai")
 

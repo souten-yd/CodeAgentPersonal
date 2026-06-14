@@ -256,7 +256,15 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         chunks = [{"quote": "fact", "source_id": "src-1", "citation_label": "article#1"}]
         llm_text = "結論です article#1\n\n## 追加確認が必要な点\n- なし"
 
+        # Pin model resolution to the clean-CI fallback (no search-role model, no live models API)
+        # so the assertion does not couple to an ambient LLM served on :8080.
         with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=True), patch(
+            "app.nexus.answer_builder._load_search_role_assignment",
+            return_value={"role": "SEARCH", "model": "", "enabled": False, "error": "search_role_model_missing_or_disabled"},
+        ), patch(
+            "app.nexus.answer_builder._discover_model_from_models_api",
+            return_value=None,
+        ), patch(
             "app.nexus.answer_builder._generate_answer_with_llm",
             return_value=llm_text,
         ) as mocked:
@@ -301,6 +309,12 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             "response_length_chars": len("補完回答 [S1]"),
         }
         with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=True), patch(
+            "app.nexus.answer_builder._load_search_role_assignment",
+            return_value={"role": "SEARCH", "model": "", "enabled": False, "error": "search_role_model_missing_or_disabled"},
+        ), patch(
+            "app.nexus.answer_builder._discover_model_from_models_api",
+            return_value=None,
+        ), patch(
             "app.nexus.answer_builder._generate_answer_with_llm",
             side_effect=[initial, continuation],
         ):
@@ -365,6 +379,12 @@ class NexusAnswerBuilderTests(unittest.TestCase):
         fallback_summary = "fallback summary legacy-label"
 
         with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "true"}, clear=True), patch(
+            "app.nexus.answer_builder._load_search_role_assignment",
+            return_value={"role": "SEARCH", "model": "", "enabled": False, "error": "search_role_model_missing_or_disabled"},
+        ), patch(
+            "app.nexus.answer_builder._discover_model_from_models_api",
+            return_value=None,
+        ), patch(
             "app.nexus.answer_builder._generate_answer_with_llm",
             side_effect=TimeoutError("timeout"),
         ):
@@ -555,6 +575,12 @@ class NexusAnswerBuilderTests(unittest.TestCase):
                 {"NEXUS_ENABLE_ANSWER_LLM": "true"},
                 clear=True,
             ), patch(
+                "app.nexus.answer_builder._load_search_role_assignment",
+                return_value={"role": "SEARCH", "model": "", "enabled": False, "error": "search_role_model_missing_or_disabled"},
+            ), patch(
+                "app.nexus.answer_builder._discover_model_from_models_api",
+                return_value=None,
+            ), patch(
                 "app.nexus.answer_builder._generate_answer_with_llm",
                 side_effect=RuntimeError("llm unavailable"),
             ):
@@ -665,16 +691,19 @@ class NexusAnswerBuilderTests(unittest.TestCase):
             {"citation_label": "r3", "source_id": "src-3", "chunk_id": "c3", "quote": "全く関係のない証拠文です。"},
         ]
 
-        payload = build_answer_payload(
-            question="質問",
-            summary=(
-                "東京の人口は約1400万人です。[S1] "
-                "電気自動車市場については増加傾向です。[S2] "
-                "火星に海があると断定できます。[S3]"
-            ),
-            references=references,
-            evidence_chunks=chunks,
-        )
+        # Disable the answer LLM so the template summary (with its exact sentences) is verified
+        # directly; otherwise an ambient LLM on :8080 rewrites the answer and the sentence set.
+        with patch.dict(os.environ, {"NEXUS_ENABLE_ANSWER_LLM": "false"}, clear=True):
+            payload = build_answer_payload(
+                question="質問",
+                summary=(
+                    "東京の人口は約1400万人です。[S1] "
+                    "電気自動車市場については増加傾向です。[S2] "
+                    "火星に海があると断定できます。[S3]"
+                ),
+                references=references,
+                evidence_chunks=chunks,
+            )
 
         sentence_results = payload["citation_verification"]["sentence_results"]
         self.assertEqual([row["status"] for row in sentence_results], ["supported", "weak", "unsupported"])
