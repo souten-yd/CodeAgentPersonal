@@ -170,16 +170,16 @@
       console.warn('Atlas project restore failed', err);
     }
     if (!restored) {
+      // The server conversation is authoritative for an explicitly loaded project. Do NOT fall back
+      // to the global localStorage pool hint here: it is not project-scoped, so after deleting or
+      // switching projects it would resurrect the previous project's pool — leaving a stale
+      // "戦略プラン — 実行ステップ 0 件 / no plan items are available" card on a fresh/empty project.
+      // Clear the stale hints so a later no-project reload cannot resurrect a deleted pool either.
       try {
-        const lastPoolId = localStorage.getItem(STORAGE_LAST_POOL_ID_KEY);
-        if (lastPoolId) {
-          await renderPlanPoolMarkdown(lastPoolId);
-          await restoreLatestRun(lastPoolId);
-          restored = true;
-        }
-      } catch (err) {
-        console.warn('Atlas local hint restore failed', err);
-      }
+        localStorage.removeItem(STORAGE_LAST_POOL_ID_KEY);
+        localStorage.removeItem(STORAGE_LAST_RUN_ID_KEY);
+        localStorage.removeItem(STORAGE_LAST_EVENT_SEQUENCE_KEY);
+      } catch (_) {}
     }
     if (!restored) pushSystemMessage('指示を入力してください');
   }
