@@ -9,9 +9,25 @@ class EmptyConnector(nc.BaseNewsConnector):
         return result
 
 
+class UnconfiguredSearxngConnector(nc.BaseNewsConnector):
+    provider = "searxng"
+
+    def search(self, query):
+        # The real SearxngNewsConnector always falls back to a default localhost endpoint, so its
+        # status depends on ambient docker state. Inject a deterministic unconfigured stub so this
+        # contract test exercises the provider_status / overall_status aggregation, not the network.
+        result = nc.NewsSourceResult(provider=self.provider, query=query, metadata={"endpoint_configured": False})
+        result.errors.append("SEARXNG_URL is not configured")
+        return result
+
+
 def test_provider_status_and_overall_status_are_returned_for_each_provider():
     query = nc.NewsSourceQuery(query="AI", max_items=2)
-    result = nc.collect_news_from_connectors(query, providers=["empty", "searxng"], connectors=[EmptyConnector()])
+    result = nc.collect_news_from_connectors(
+        query,
+        providers=["empty", "searxng"],
+        connectors=[EmptyConnector(), UnconfiguredSearxngConnector()],
+    )
     assert "provider_status" in result
     providers = {status["provider"] for status in result["provider_status"]}
     assert {"empty", "searxng"}.issubset(providers)

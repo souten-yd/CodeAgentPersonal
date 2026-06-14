@@ -10,7 +10,12 @@ from agent.tools.registry import create_default_registry
 from agent.tools.nexus_tools import nexus_web_search
 from app.api.nexus import router as nexus_api_router
 from app.nexus.export import nexus_export_router
-from app.nexus.router import nexus_router, nexus_web_research_payload, nexus_web_search_payload
+from app.nexus.router import (
+    nexus_router,
+    nexus_web_research_payload,
+    nexus_web_search_payload,
+    nexus_web_status_compat,
+)
 from app.nexus.web_scout import run_web_search
 
 
@@ -19,6 +24,9 @@ def _install_nexus_test_routes(app: FastAPI) -> None:
     app.include_router(nexus_api_router)
     app.state.nexus_web_search_provider = nexus_web_search_payload
     app.state.nexus_web_research_provider = nexus_web_research_payload
+    # /nexus/web/status is owned by the canonical API router and dispatches to a registered provider;
+    # wire the real compat handler so status tests exercise actual probe behavior, not the fallback.
+    app.state.nexus_web_status_provider = nexus_web_status_compat
 
 
 class NexusWebIntegrationTests(unittest.TestCase):
@@ -34,8 +42,12 @@ class NexusWebIntegrationTests(unittest.TestCase):
             "NEXUS_SEARCH_FALLBACK_PROVIDERS": "searxng",
             "NEXUS_SEARXNG_URL": "http://127.0.0.1:65535",
         }
+        # get_last_web_search_status() is process-global and gets polluted by other web-search tests
+        # in the same session, so pin it to a fresh empty status for the last_* assertions below.
         with patch.dict(os.environ, env, clear=False):
-            with patch("app.nexus.router._check_searxng_connectivity", return_value=(False, "probe failed")):
+            with patch("app.nexus.router._check_searxng_connectivity", return_value=(False, "probe failed")), patch(
+                "app.nexus.router.get_last_web_search_status", return_value={}
+            ):
                 r = self.client.get("/nexus/web/status")
 
         self.assertEqual(r.status_code, 200)
@@ -251,11 +263,16 @@ class NexusWebIntegrationTests(unittest.TestCase):
         export_app = FastAPI()
         export_app.include_router(nexus_export_router, prefix="/nexus")
         export_client = TestClient(export_app)
-        with tempfile.NamedTemporaryFile(suffix=".zip") as tmp:
+        # On Windows a still-open NamedTemporaryFile cannot be reopened by FileResponse, so write the
+        # bundle, close it, and clean up manually instead of relying on the context manager handle.
+        tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        try:
             tmp.write(b"PK\x03\x04")
-            tmp.flush()
+            tmp.close()
             with patch("app.nexus.export.create_research_bundle", return_value=tmp.name):
                 r = export_client.get("/nexus/research/jobs/job-test/bundle.zip")
+        finally:
+            os.unlink(tmp.name)
 
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.headers.get("content-type"), "application/zip")

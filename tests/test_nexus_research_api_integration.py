@@ -17,14 +17,34 @@ from app.nexus.db import get_conn, insert_chunk, insert_document, update_documen
 from app.nexus.downloader import save_download_artifacts
 from app.nexus.export import create_research_bundle
 from app.nexus.jobs import append_job_event, append_job_heartbeat, create_job, update_job
+from app.api.nexus import router as nexus_api_router
 from app.nexus.research_api import ResearchRunRequest, run_research
-from app.nexus.router import nexus_router
+from app.nexus.router import (
+    nexus_deep_research_payload,
+    nexus_recursive_research_payload,
+    nexus_research_payload,
+    nexus_router,
+    nexus_search_payload,
+    nexus_web_collect_payload,
+    nexus_web_research_payload,
+    nexus_web_search_payload,
+)
 
 
 class NexusResearchApiIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         app = FastAPI()
         app.include_router(nexus_router, prefix="/nexus")
+        # Web search/research/collect and search routes are owned by the canonical API router and
+        # dispatch to registered providers; mirror the production wiring so these endpoints resolve.
+        app.include_router(nexus_api_router)
+        app.state.nexus_search_provider = nexus_search_payload
+        app.state.nexus_web_search_provider = nexus_web_search_payload
+        app.state.nexus_web_research_provider = nexus_web_research_payload
+        app.state.nexus_web_collect_provider = nexus_web_collect_payload
+        app.state.nexus_research_provider = nexus_research_payload
+        app.state.nexus_deep_research_provider = nexus_deep_research_payload
+        app.state.nexus_recursive_research_provider = nexus_recursive_research_payload
         self.client = TestClient(app)
         self._tmpdir = tempfile.TemporaryDirectory()
         self._artifact_root = Path(self._tmpdir.name)

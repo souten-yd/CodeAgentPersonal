@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -27,9 +29,12 @@ def test_nexus_jobs_latest_api_returns_fallback_payload():
 def test_nexus_jobs_latest_api_uses_registered_provider():
     assert callable(getattr(main_app.state, "nexus_latest_jobs_provider", None))
     client = TestClient(main_app)
-    create_job("research_provider_test", status="running", metadata={"project": "default", "is_research_job": True})
+    # Unique id so the test is idempotent against the persistent jobs DB (no UNIQUE-constraint
+    # collision across runs) and the most-recent job is deterministically the one we just created.
+    job_id = f"research_provider_test_{uuid.uuid4().hex}"
+    create_job(job_id, status="running", metadata={"project": "default", "is_research_job": True})
     response = client.get("/nexus/jobs/latest?project=default&limit=1&include_terminal=true")
     assert response.status_code == 200
     payload = response.json()
     assert payload["jobs"]
-    assert payload["jobs"][0]["job_id"] == "research_provider_test"
+    assert payload["jobs"][0]["job_id"] == job_id
