@@ -2492,12 +2492,38 @@ async function _fetchWithTimeout(url, options = {}, timeoutMs = 7000) {
 }
 const DEFAULT_CTX_SIZE = 16384;
 let _settingsDefaultCtxSize = DEFAULT_CTX_SIZE;
+const LLM_CONTEXT_STATE = {
+  currentNctxUi: DEFAULT_CTX_SIZE,
+  maxNctxUi: null,
+  initialized: false,
+  propsAvailable: false,
+  lastError: '',
+};
 
 function normalizeCtxSize(value, fallback = _settingsDefaultCtxSize) {
   const n = Number(value);
   if (Number.isFinite(n) && n > 0) return Math.max(512, Math.min(65535, Math.trunc(n)));
   return Math.max(512, Math.min(65535, Math.trunc(Number(fallback) || DEFAULT_CTX_SIZE)));
 }
+
+function getCurrentNctxUi() {
+  return normalizeCtxSize(LLM_CONTEXT_STATE.currentNctxUi, DEFAULT_CTX_SIZE);
+}
+
+function setCurrentNctxUi(value) {
+  const n = normalizeCtxSize(value, _settingsDefaultCtxSize);
+  LLM_CONTEXT_STATE.currentNctxUi = n;
+  LLM_CONTEXT_STATE.initialized = true;
+  return n;
+}
+
+try {
+  Object.defineProperty(globalThis, '_current_n_ctx_ui', {
+    configurable: true,
+    get: getCurrentNctxUi,
+    set: setCurrentNctxUi,
+  });
+} catch (_) {}
 
 let mode = 'chat';
 const UI_LAST_MODE_KEY = 'kasane:lastMode';
@@ -15406,7 +15432,8 @@ async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firs
         allSteps.push(ev);
         const _ptok = ev.prompt_tokens||0;
         const _ctok = ev.completion_tokens||0;
-        const _ctxStr = _ptok > 0 ? `${(_ptok+_ctok).toLocaleString()}/${(_current_n_ctx_ui||0).toLocaleString()}` : `--/${(_current_n_ctx_ui||'?').toLocaleString()}`;
+        const _ctxLimit = getCurrentNctxUi();
+        const _ctxStr = _ptok > 0 ? `${(_ptok+_ctok).toLocaleString()}/${(_ctxLimit||0).toLocaleString()}` : `--/${(_ctxLimit||'?').toLocaleString()}`;
         const isWebSearch = (ev.action||'') === 'nexus_web_search';
         const actionText = isWebSearch
           ? `🔎 Nexus Web検索中... topic: ${(ev.input?.topic || ev.thought || '').slice(0, 120)}`
@@ -15672,10 +15699,11 @@ function startTimer() {
         wrap._refs.elapsed.textContent = t;
         // コンテキスト使用率に応じて色変化
         const ctxEl = wrap._refs.ctx;
-        if (ctxEl && _current_n_ctx_ui > 0) {
+        const currentNctxUi = getCurrentNctxUi();
+        if (ctxEl && currentNctxUi > 0) {
           const m = ctxEl.textContent.match(/ctx: (\d+)\//);
           if (m) {
-            const ratio = parseInt(m[1]) / _current_n_ctx_ui;
+            const ratio = parseInt(m[1]) / currentNctxUi;
             ctxEl.style.color = ratio > 0.95 ? 'var(--red)' : ratio > 0.8 ? 'var(--amber)' : 'var(--text3)';
           }
         }
@@ -16227,9 +16255,6 @@ function updateStepsLabel(val) {
   _saveSettingDb('max_steps', val);
 }
 
-// ── CONTEXT LENGTH SLIDER ──
-let _current_n_ctx_ui = DEFAULT_CTX_SIZE; // UIが知っているn_ctx（統計表示用）
-
 async function initCtxSlider() {
   try {
     // llama-serverの最大コンテキスト長を取得
@@ -16249,14 +16274,19 @@ async function initCtxSlider() {
       slider.max = maxCtx;
       slider.value = curCtx;
     }
-    _current_n_ctx_ui = curCtx; // 統計表示に使用
+    LLM_CONTEXT_STATE.maxNctxUi = maxCtx;
+    LLM_CONTEXT_STATE.propsAvailable = true;
+    LLM_CONTEXT_STATE.lastError = '';
+    setCurrentNctxUi(curCtx);
     if (label) label.textContent = curCtx.toLocaleString();
     if (maxLabel) maxLabel.textContent = 'max: ' + maxCtx.toLocaleString();
     if (maxRight) maxRight.textContent = maxCtx.toLocaleString();
 
     addLog('ok', 'ctx', `n_ctx=${curCtx} / max=${maxCtx}`);
   } catch(e) {
-    addLog('warn', 'ctx', 'Could not fetch llm props: ' + e.message);
+    LLM_CONTEXT_STATE.propsAvailable = false;
+    LLM_CONTEXT_STATE.lastError = e && e.message ? e.message : String(e);
+    addLog('warn', 'ctx', 'Could not fetch llm props: ' + LLM_CONTEXT_STATE.lastError);
   }
 }
 
@@ -16270,7 +16300,7 @@ async function applyCtxLen(val) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({n_ctx: n})
     });
-    _current_n_ctx_ui = n;
+    setCurrentNctxUi(n);
     _saveSettingDb('ctx_size', n);
     addLog('ok', 'ctx', 'Context length set to ' + n.toLocaleString());
   } catch(e) {
