@@ -164,6 +164,17 @@ def _incident_delta(target_ref: str) -> TwinDelta:
     return TwinDelta(project_id=PROJECT, idempotency_key="incident-seed-1", trigger_type="test", nodes=[node], edges=[edge])
 
 
+def test_impact_excludes_structural_container_nodes(tmp_path: Path):
+    # A function's module/file/parent-dir/repo are reachable via containment edges but are not
+    # behavioral impacts; they must not pollute the impact items shown to the planner.
+    store = _fixture_store(tmp_path)
+    res = store.assess_impact(ImpactRequest(project_id=PROJECT, changed_refs=[B_REF], change_kind="body", min_confidence=0.0))
+    containers = {"repository", "directory", "file", "module", "package"}
+    polluting = [i.canonical_ref for i in res.direct_impacts + res.transitive_impacts if i.item_type in containers]
+    assert polluting == [], f"impact items must exclude structural containers, got {polluting}"
+    store.close()
+
+
 def test_historical_risks_included_only_when_requested(tmp_path: Path):
     store = _fixture_store(tmp_path)
     store.apply_delta(_incident_delta(A_REF))

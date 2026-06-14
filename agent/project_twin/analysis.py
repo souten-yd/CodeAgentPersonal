@@ -30,6 +30,10 @@ _SIDE_EFFECT_TYPES = {"side_effect", "api_call", "api_route"}
 _TEST_TYPES = {"test"}
 _REQUIREMENT_TYPES = {"requirement"}
 _INCIDENT_TYPES = {"incident", "risk"}
+# Pure structural containers reached by walking `defines`/`contains` edges in reverse (a function's
+# module, its file, parent directories, the repo). They *contain* the changed symbol but are not
+# behaviorally impacted by it, so they must not pollute the impact items shown to the planner.
+_CONTAINER_NODE_TYPES = {"repository", "directory", "file", "module", "package"}
 # Definitional forward edges along which a change propagates to the *implementing* entity, e.g. an
 # `api_route` is implemented by its handler function via `handled_by`. Reverse reachability alone
 # misses these because the implementer is the edge target, not a dependent; expanding seeds forward
@@ -238,6 +242,9 @@ class GraphAnalysisService:
         for nodeid, depth in depth_of.items():
             node = nodes_by_id.get(nodeid)
             if node is None:
+                continue
+            if node.node_type in _CONTAINER_NODE_TYPES:
+                # Structural container reached via containment edges — not a behavioral impact.
                 continue
             reason = reason_of.get(nodeid, f"reverse_dependency_depth_{depth}")
             (direct if depth <= 1 else transitive).append(item(node, reason))
