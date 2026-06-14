@@ -112,6 +112,8 @@ class AtlasJournal:
 
 {chr(10).join(rows)}
 
+{self._plan_pool_impact_section(pool)}
+
 ## Warnings
 
 {self._markdown_list(pool.warnings)}
@@ -124,6 +126,53 @@ class AtlasJournal:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
         return path
+
+    _UNCERTAIN_NOTE = "unknown (uncertainty — not zero risk)"
+
+    def _plan_pool_impact_section(self, pool: AtlasPlanPool) -> str:
+        """Render the per-item impact analysis (PIBIH-6) from pool.metadata['plan_item_impact_map'].
+
+        Surfaces impacted files/symbols, recommended tests, and recommended checks with their
+        confidence and reasons so the plan UI/artifact exposes change impact. Unknown/empty impact is
+        always shown as uncertainty, never as "no risk", and all commands stay advisory suggestions.
+        """
+        meta = getattr(pool, "metadata", {}) or {}
+        impact_map = meta.get("plan_item_impact_map") if isinstance(meta, dict) else None
+        header = "## Impact Analysis"
+        if not isinstance(impact_map, dict) or str(impact_map.get("status") or "") in {"", "missing", "unavailable"}:
+            return (
+                f"{header}\n\n"
+                "- Impact analysis is unavailable for this pool. Treat unknown impact as uncertainty, "
+                "not as zero risk; run/refresh impact analysis before relying on it."
+            )
+        impacts = impact_map.get("impacts") if isinstance(impact_map.get("impacts"), list) else []
+        if not impacts:
+            return f"{header}\n\n- No per-item impact was resolved. Unknown impact is uncertainty, not zero risk."
+
+        def _list(values, label):
+            vals = [str(v) for v in (values or []) if str(v).strip()]
+            return f"- {label}: " + (", ".join(vals) if vals else self._UNCERTAIN_NOTE)
+
+        blocks: list[str] = [header, ""]
+        for impact in impacts:
+            if not isinstance(impact, dict):
+                continue
+            title = self._md_cell(str(impact.get("title") or impact.get("item_id") or "item"))
+            confidence = str(impact.get("confidence") or "unknown")
+            conf_label = confidence if confidence != "unknown" else self._UNCERTAIN_NOTE
+            blocks.append(f"### {title} (item {impact.get('item_id', '')}) — confidence: {conf_label}")
+            blocks.append(_list(impact.get("impacted_files"), "Impacted files"))
+            blocks.append(_list(impact.get("impacted_symbols"), "Impacted functions/routes/symbols"))
+            blocks.append(_list(impact.get("related_tests"), "Recommended tests"))
+            blocks.append(_list(impact.get("recommended_commands"), "Recommended checks (advisory)"))
+            reasons = [str(r) for r in (impact.get("reasons") or []) if str(r).strip()]
+            if reasons:
+                blocks.append("- Reasons: " + "; ".join(reasons))
+            warnings = [str(w) for w in (impact.get("warnings") or []) if str(w).strip()]
+            if warnings:
+                blocks.append("- Warnings: " + "; ".join(warnings))
+            blocks.append("")
+        return "\n".join(blocks).rstrip()
 
     def save_pipeline_state(self, pool_id: str, state: AtlasPipelineRunState) -> AtlasJournalArtifact:
         paths = self.paths(pool_id=pool_id, run_id=state.run_id)

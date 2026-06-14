@@ -8,8 +8,8 @@ PIBIH: Project Intelligence Behavioral Impact Hardening
 
 ```text
 status: in_progress
-current_package: PIBIH-6
-next_action: implement Impact UI / Planner Exposure
+current_package: PIBIH-7
+next_action: implement Runtime Evidence Promotion and Historical Risk Memory
 ```
 
 ## Completed Foundations
@@ -448,6 +448,61 @@ Next package: PIBIH-6 Impact UI / Planner Exposure
 Blocker: none
 ```
 
+```text
+Completed package: PIBIH-6 Impact UI / Planner Exposure
+Status: completed
+Changed modules/files:
+- agent/atlas_journal.py (plan pool markdown Impact Analysis section)
+- tests/test_atlas_journal.py
+- app/nexus/router.py (fix duplicate /nexus/* routes — merged separately, #1848)
+- docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md
+Behavior implemented:
+- `write_plan_pool_markdown` now renders a per-item "## Impact Analysis" section from
+  `pool.metadata['plan_item_impact_map']`: impacted files, impacted functions/routes/symbols,
+  recommended tests, recommended advisory checks, confidence, and reasons.
+- Unknown/empty impact is always shown as uncertainty ("unknown (uncertainty — not zero risk)"),
+  never as "no risk"; when the map is missing/unavailable the section says so and instructs treating
+  unknown impact as uncertainty. Commands stay advisory suggestions; the renderer never executes.
+- The plan UI surfaces this through the existing PlanPool markdown path (the panel renders the raw
+  markdown), and the impact map remains available on the PlanPool projection (pool metadata).
+Focused tests:
+- `python -m pytest tests\test_atlas_journal.py` -> 13 passed (impact section renders impacted
+  files/symbols/routes + recommended tests with reasons + confidence; unavailable map shows
+  uncertainty/not-zero-risk; unknown confidence shows the uncertainty note).
+Syntax checks:
+- `python -m py_compile agent\atlas_journal.py` -> passed.
+Affected tests:
+- `python -m pytest tests\test_atlas_journal.py tests\test_atlas_api_pipeline.py
+  tests\test_atlas_plan_item_impact_map_service.py tests\test_atlas_plan_item_impact_map_ui_contract.py`
+  -> 50 passed.
+- `tests\test_nexus_router_contract.py` + `tests\test_nexus_web_status_contract.py` -> 8 passed after
+  removing the duplicate `/nexus/summary` `/jobs/active` `/web/status` compat routes (api router is the
+  single owner). Pre-existing nexus research-agent/web-integration failures are environment-dependent
+  (searxng/brave/zip, recursive-search mock drift) and unrelated.
+Real model evidence:
+- localhost:8080 advisory review of the markdown renderer -> `verdict: pass` (advisory only;
+  deterministic markdown contract tests are authoritative).
+Impact analysis evidence:
+- The rendered section consumes the existing AtlasPlanItemImpactMap (impacted files/tests/symbols +
+  confidence), which is built on the PIBIH-2/PIBIH-3 graph.
+Web research evidence:
+- Not applicable; no external calls.
+Runtime/Portal evidence:
+- Pure renderer; no Portal/runtime paths changed; no execution.
+Unavailable checks:
+- No full live browser screenshot of the Impact section was captured; exposure is via the existing
+  markdown rendering path and covered by markdown contract tests.
+Safety invariants:
+- Renderer-only; unknown impact is uncertainty, never zero risk; commands are advisory; no
+  Proposal/Safe Apply/Verification path touched; no secrets.
+- `unavailable` checks are not marked as passed.
+Remaining gaps:
+- A dedicated structured PlanPool/PlanItem impact projection endpoint and richer in-panel (non-markdown)
+  impact widgets can be added in a follow-up; the authoritative artifact already carries the section.
+Next package: PIBIH-7 Runtime Evidence Promotion and Historical Risk Memory
+Blocker: none
+```
+
 ## Next Package Queue
 
 ```text
@@ -456,6 +511,6 @@ PIBIH-2: Impact Analysis Core  (completed)
 PIBIH-3: Deep Behavioral Graph V3  (completed)
 PIBIH-4: Project Intelligence Planning and Generation Injection  (completed)
 PIBIH-5: Plan-Time Nexus Web Research  (completed)
-PIBIH-6: Impact UI / Planner Exposure
+PIBIH-6: Impact UI / Planner Exposure  (completed)
 PIBIH-7: Runtime Evidence Promotion and Historical Risk Memory
 ```
