@@ -631,7 +631,8 @@ def nexus_search_compat(payload: NexusSearchRequest) -> dict:
     return nexus_search_payload(payload)
 
 
-@nexus_router.get("/summary")
+# /nexus/summary is owned by the canonical API router (app.api.nexus#get_nexus_summary_api); this
+# legacy handler is kept callable but no longer registered as a duplicate route.
 def nexus_summary_compat(project: str = Query("default")) -> dict:
     cfg = load_runtime_config()
     return {
@@ -650,7 +651,8 @@ def nexus_summary_compat(project: str = Query("default")) -> dict:
     }
 
 
-@nexus_router.get("/jobs/active")
+# /nexus/jobs/active is owned by the canonical API router (app.api.nexus#get_nexus_active_jobs_api);
+# this legacy handler is kept callable but no longer registered as a duplicate route.
 def nexus_active_jobs_compat(limit: int = Query(20, ge=1, le=500)) -> dict:
     return {"jobs": list_active_jobs(limit=limit)}
 
@@ -665,7 +667,8 @@ def nexus_latest_jobs_compat(
     return {"ok": True, "project": project, "jobs": jobs, "job": jobs[0] if jobs else None, "count": len(jobs)}
 
 
-@nexus_router.get("/web/status")
+# /nexus/web/status is owned by the canonical API router (app.api.nexus#get_nexus_web_status_api);
+# this legacy handler is kept callable (used directly by tests) but no longer registered as a route.
 def nexus_web_status_compat() -> dict:
     cfg = load_runtime_config()
     searxng_configured, searxng_message = _is_provider_configured("searxng", cfg)
