@@ -16166,9 +16166,6 @@ function setEditorLang(ext) {
   if (map[ext]) sel.value = map[ext];
 }
 
-// プロジェクト切り替え時・タブ切り替え時にファイルリストを更新
-const _origSwitchTab = switchTab;
-
 // ── INLINE EDITOR ──
 function toggleEditor() { /* editor is always visible in new layout */ }
 function editorKey(e) {

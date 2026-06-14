@@ -8,6 +8,7 @@ from pathlib import Path
 import os
 import re
 import time
+import mimetypes
 from urllib.parse import urljoin
 import traceback
 import json
@@ -101,6 +102,36 @@ def _json_response(handler: BaseHTTPRequestHandler, payload, status: int = 200):
   handler.end_headers()
   handler.wfile.write(body)
 
+def _serve_bytes(handler: BaseHTTPRequestHandler, body: bytes, content_type: str):
+  handler.send_response(200)
+  handler.send_header("Content-Type", content_type)
+  handler.send_header("Content-Length", str(len(body)))
+  handler.send_header("Cache-Control", "no-store")
+  handler.end_headers()
+  handler.wfile.write(body)
+
+def _serve_static_asset(handler: BaseHTTPRequestHandler, path: str) -> bool:
+  if path.startswith("/static/"):
+    root = ROOT / "web"
+    rel = path.removeprefix("/static/")
+  elif path.startswith("/assets/"):
+    root = ROOT / "assets"
+    rel = path.removeprefix("/assets/")
+  else:
+    return False
+  candidate = (root / rel).resolve()
+  try:
+    candidate.relative_to(root.resolve())
+  except ValueError:
+    _json_response(handler, {"error": "static_path_escape"}, status=404)
+    return True
+  if not candidate.is_file():
+    _json_response(handler, {"error": "static_not_found", "path": path}, status=404)
+    return True
+  content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
+  _serve_bytes(handler, candidate.read_bytes(), content_type)
+  return True
+
 def start_mock_server():
   ui_html = ROOT.joinpath("ui.html").read_bytes()
   class Handler(BaseHTTPRequestHandler):
@@ -109,12 +140,48 @@ def start_mock_server():
     def do_GET(self):
       path = self.path.split("?", 1)[0]
       if path in ("/", "/ui.html"):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(ui_html)))
-        self.end_headers()
-        self.wfile.write(ui_html)
+        _serve_bytes(self, ui_html, "text/html; charset=utf-8")
         return
+      if _serve_static_asset(self, path):
+        return
+      if path == "/api/atlas/plan-pools/pool_auir5_reload":
+        return _json_response(self, {
+          "pool_id": "pool_auir5_reload",
+          "status": "ready",
+          "items": [{"item_id": "item_auir5", "title": "AUIR-5 reload progress smoke", "status": "approved"}],
+        })
+      if path == "/api/atlas/plan-pools/pool_auir5_reload/markdown":
+        return _json_response(self, {"markdown": "# AUIR-5 reload progress smoke\n\n- Restore runtime progress."})
+      if path == "/api/atlas/plan-pools/pool_auir5_reload/runtime-status":
+        return _json_response(self, {
+          "ok": True,
+          "pool_id": "pool_auir5_reload",
+          "run_id": "run_auir5_reload",
+          "phase": "patch_generation",
+          "status": "running",
+          "items_total": 1,
+          "items_started": 1,
+          "items_completed": 0,
+          "message": "server runtime status restored",
+          "runtime_connection_state": "live",
+          "authoritative_source": "PlanPool runtime-status endpoint",
+          "patch_generation": {"run_id": "run_auir5_reload", "state": "running"},
+        })
+      if path == "/api/atlas/pipeline/events/pool_auir5_reload/run_auir5_reload":
+        event = {
+          "sequence": 8,
+          "event_type": "llm_token_delta",
+          "pool_id": "pool_auir5_reload",
+          "run_id": "run_auir5_reload",
+          "phase": "patch_generation",
+          "status": "running",
+          "tokens_total": 64,
+          "tokens_per_second": 4.0,
+          "max_ctx": 8192,
+          "message": "server progress replay restored",
+          "last_progress_at": "2999-01-01T00:00:00Z",
+        }
+        return _json_response(self, {"progress_events": [event], "latest_progress": event})
       payload = MOCK_GET_ROUTES.get(path, {})
       _json_response(self, payload)
     def do_POST(self):
@@ -214,8 +281,9 @@ async def click_named(page, name: str, selector: str, *, timeout: int = 10_000) 
 
 async def open_atlas(page) -> None:
   await page.click("#btn-atlas")
-  await wait_named(page, 'atlas_panel_visible', "() => document.getElementById('atlas-panel-col') && getComputedStyle(document.getElementById('atlas-panel-col')).display !== 'none'")
-  await wait_named(page, 'atlas_workbench_visible', "() => document.getElementById('atlas-workbench-card') && getComputedStyle(document.getElementById('atlas-workbench-card')).display !== 'none'")
+  await wait_named(page, 'atlas_claude_shell_visible', "() => document.getElementById('atlas-claude-col') && getComputedStyle(document.getElementById('atlas-claude-col')).display !== 'none'")
+  await wait_named(page, 'atlas_claude_transcript_visible', "() => document.getElementById('atlas-claude-transcript') && getComputedStyle(document.getElementById('atlas-claude-transcript')).display !== 'none'")
+  await wait_named(page, 'atlas_claude_send_visible', "() => document.getElementById('atlas-claude-send-btn') && getComputedStyle(document.getElementById('atlas-claude-send-btn')).display !== 'none'")
 
 async def set_mode(page, mode: str) -> None:
   button_map = {
@@ -1993,9 +2061,9 @@ async def verify_atlas_current_ui_smoke(page) -> None:
     assert forbidden not in chat_text, f"Chat should not expose planning affordance: {forbidden}"
 
   await open_atlas(page)
-  atlas_text = await page.locator("#atlas-panel-col").inner_text()
+  atlas_text = await page.locator("#atlas-claude-col").inner_text()
 
-  leaked_note_visible = await page.evaluate("""() => (document.body?.innerText || '').includes('This only finalizes item status and next action') && !document.getElementById('atlas-panel-col')?.contains(document.activeElement)""")
+  leaked_note_visible = await page.evaluate("""() => (document.body?.innerText || '').includes('This only finalizes item status and next action') && !document.getElementById('atlas-claude-col')?.contains(document.activeElement)""")
   assert not leaked_note_visible
 
   atlas_api_contract = await page.evaluate("""() => ({
@@ -2023,20 +2091,20 @@ async def verify_atlas_current_ui_smoke(page) -> None:
     window.__atlasFetchHookInstalled = true;
   }""")
 
-  await click_named(page, "atlas_create_plan_smoke", "#atlas-create-plan-btn")
+  await page.locator("#atlas-claude-input").fill("AUIR-5 browser smoke plan")
+  await click_named(page, "atlas_claude_send_plan_smoke", "#atlas-claude-send-btn")
   await wait_named(page, "atlas_create_plan_fetch", "() => (window.__atlasFetches || []).some((u) => u.includes('/api/atlas/plan-pools'))")
 
-  await click_named(page, "atlas_start_dry_run_smoke", "#atlas-start-dry-run-btn")
-  await wait_named(page, "atlas_dry_run_fetch", "() => (window.__atlasFetches || []).some((u) => u.includes('/api/atlas/pipeline/dry-run'))")
-
-  assert "Workflow Workbench" in atlas_text
+  await wait_named(page, "atlas_planpool_created_visible", "() => document.getElementById('atlas-claude-col')?.textContent.includes('PlanPool 作成')")
+  atlas_text = await page.locator("#atlas-claude-col").inner_text()
+  assert "PlanPool 作成" in atlas_text
   assert "Workflow Workbench: Requirement / Plan / Review / Approval / Agent Execution / Execute Preview / Patch Review / Apply." not in atlas_text
   assert "Agent execution is moving under Atlas" not in atlas_text
   assert "Recent and manual run inspection live" not in atlas_text
-  assert await page.locator("#atlas-panel-col > .agent-head").count() == 0
+  assert await page.locator("#atlas-claude-col > .agent-head").count() == 0
   stray_atlas_heading = await page.evaluate("""() => {
-    const panel = document.getElementById('atlas-panel-col');
-    const card = document.getElementById('atlas-workbench-card');
+    const panel = document.getElementById('atlas-claude-col');
+    const card = document.getElementById('atlas-claude-transcript');
     if (!panel || !card) return false;
     const walker = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
     let node;
@@ -2045,7 +2113,7 @@ async def verify_atlas_current_ui_smoke(page) -> None:
       if (text !== 'Atlas') continue;
       const parent = node.parentElement;
       if (!parent) continue;
-      if (parent.closest('.mode-wrap, .mob-tabs, #atlas-workbench-card')) continue;
+      if (parent.closest('.mode-wrap, .mob-tabs, #atlas-claude-transcript')) continue;
       const rect = parent.getBoundingClientRect();
       const cardRect = card.getBoundingClientRect();
       const style = getComputedStyle(parent);
@@ -2054,7 +2122,7 @@ async def verify_atlas_current_ui_smoke(page) -> None:
     return false;
   }""")
   await wait_named(page, 'no_standalone_atlas_label', """() => {
-    const card = document.getElementById('atlas-workbench-card');
+    const card = document.getElementById('atlas-claude-transcript');
     if (!card) return false;
     const cardTop = card.getBoundingClientRect().top;
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -2064,7 +2132,7 @@ async def verify_atlas_current_ui_smoke(page) -> None:
       if (text !== 'Atlas') continue;
       const parent = node.parentElement;
       if (!parent) continue;
-      if (parent.closest('.mode-wrap, .mob-tabs, #atlas-workbench-card')) continue;
+      if (parent.closest('.mode-wrap, .mob-tabs, #atlas-claude-transcript')) continue;
       const style = getComputedStyle(parent);
       const rect = parent.getBoundingClientRect();
       const visible = style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
@@ -2072,128 +2140,33 @@ async def verify_atlas_current_ui_smoke(page) -> None:
     }
     return true;
   }""")
-  assert not stray_atlas_heading, "Atlas mode must not render a standalone Atlas heading above Workflow Workbench"
-  assert await page.locator("#atlas-workbench-card [data-atlas-subview-tab='legacy']").count() == 0
-  for tab in ["start", "plan", "review", "execute", "patch", "runs", "activity"]:
-    assert await page.locator(f"#atlas-workbench-card [data-atlas-subview-tab='{tab}']").count() == 1
+  assert not stray_atlas_heading, "Atlas mode must not render a standalone Atlas heading above Atlas Workbench"
 
   await wait_named(page, 'atlas_panel_visible', """() => {
-    const panel = document.getElementById('atlas-panel-col');
+    const panel = document.getElementById('atlas-claude-col');
     return !!panel && getComputedStyle(panel).display !== 'none' && panel.getBoundingClientRect().height > 0;
   }""")
-  await wait_named(page, 'atlas_workbench_visible', """() => {
-    const card = document.getElementById('atlas-workbench-card');
+  await wait_named(page, 'atlas_planpool_message_visible', """() => {
+    const card = document.getElementById('atlas-claude-transcript');
     return !!card && getComputedStyle(card).display !== 'none' && card.getBoundingClientRect().height > 0;
   }""")
-  await wait_named(page, 'activity_tab_exists', "() => document.querySelectorAll(\"#atlas-workbench-card [data-atlas-subview-tab='activity']\").length === 1")
-  await wait_named(page, 'activity_panel_exists', "() => document.querySelectorAll(\"#atlas-workbench-card [data-atlas-subview-panel='activity']\").length === 1")
-  await wait_named(page, 'activity_stream_singleton', "() => document.querySelectorAll('#atlas-activity-stream').length === 1")
-  await wait_named(page, 'activity_stream_inside_activity_panel', """() => {
-    const panel = document.querySelector("#atlas-workbench-card [data-atlas-subview-panel='activity']");
-    const stream = document.getElementById('atlas-activity-stream');
-    return !!panel && !!stream && panel.contains(stream);
-  }""")
-  await wait_named(page, 'activity_stream_hidden_until_activity_tab_selected', """() => {
-    const stream = document.getElementById('atlas-activity-stream');
-    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
-    if (!panel || !stream) return false;
-    if (!panel.contains(stream)) return false;
-    const panelVisible = !panel.hidden && getComputedStyle(panel).display !== 'none' && panel.getBoundingClientRect().height > 0;
-    return !panelVisible;
-  }""")
-  for mode_name in ["chat", "echo", "agent", "nexus"]:
+  for mode_name in ["chat", "echo", "nexus"]:
     await set_mode(page, mode_name)
-    await wait_named(page, f'atlas_activity_stream_hidden_{mode_name}', """() => {
-      const stream = document.getElementById('atlas-activity-stream');
-      if (!stream) return false;
-      const style = getComputedStyle(stream);
-      const atlas = document.getElementById('atlas-panel-col');
-      const atlasHidden = !atlas || style.display === 'none' || atlas.offsetParent === null;
-      return atlasHidden && stream.offsetParent === null;
+    await wait_named(page, f'atlas_claude_shell_hidden_{mode_name}', """() => {
+      const atlas = document.getElementById('atlas-claude-col');
+      return !atlas || getComputedStyle(atlas).display === 'none' || atlas.offsetParent === null;
     }""")
   await open_atlas(page)
-  await wait_named(page, 'activity_stream_hidden_after_mode_switches_until_tab_selected', """() => {
-    const stream = document.getElementById('atlas-activity-stream');
-    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
-    if (!panel || !stream) return false;
-    if (!panel.contains(stream)) return false;
-    const panelVisible = !panel.hidden && getComputedStyle(panel).display !== 'none' && panel.getBoundingClientRect().height > 0;
-    return !panelVisible;
+  await wait_named(page, 'atlas_planpool_message_visible_after_mode_switch', """() => {
+    const card = document.getElementById('atlas-claude-transcript');
+    return !!card && getComputedStyle(card).display !== 'none' && card.textContent.includes('PlanPool 作成');
   }""")
-
-  await ensure_atlas_start(page)
-  await wait_named(page, 'atlas_start_tab_visible', "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'start'")
-  assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='start'] #atlas-requirement-input").count() == 1
-  assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='start'] button", has_text="Start Atlas").count() == 1
-  await ensure_atlas_plan(page)
-  await wait_named(page, 'plan_tab_plan_only', """() => {
-    const panel = document.querySelector("#atlas-workbench-card [data-atlas-subview-panel='plan']");
-    if (!panel) return false;
-    const text = panel.textContent || '';
-    return !text.includes('Approve Plan') && !text.includes('Execute Preview') && !text.includes('Patch Review');
-  }""")
-  plan_panel_text = await page.locator("#atlas-workbench-card [data-atlas-subview-panel='plan']").inner_text()
-  assert "No plan yet" in plan_panel_text
-  assert await page.locator("#atlas-workbench-card [data-atlas-subview-panel='plan'] button", has_text="Start Atlas").count() == 0
-  await set_atlas_subview(page, "review")
-  await wait_named(page, 'review_tab_has_review_host', """() => {
-    const panel = document.querySelector("#atlas-workbench-card [data-atlas-subview-panel='review']");
-    if (!panel) return false;
-    const text = panel.textContent || '';
-    return text.includes('Plan Review') || text.includes('No review yet') || !!panel.querySelector('[data-atlas-workflow-target="approval"], #atlas-workbench-card-plan-next-action');
-  }""")
-  await set_atlas_subview(page, "execute")
-  await wait_named(page, 'execute_tab_visible', "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'execute'")
-  await set_atlas_subview(page, "patch")
-  await wait_named(page, 'patch_tab_visible', "() => document.getElementById('atlas-workbench-card')?.dataset.atlasCurrentSubview === 'patch'")
-  await set_atlas_subview(page, "activity")
-  await wait_named(page, 'activity_tab_stream_visible_after_select', """() => {
-    const stream = document.getElementById('atlas-activity-stream');
-    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
-    if (!panel || !stream) return false;
-    if (!panel.contains(stream)) return false;
-    return (
-      !panel.hidden &&
-      getComputedStyle(panel).display !== 'none' &&
-      stream.getBoundingClientRect().height > 0
-    );
-  }""")
-  await set_mode(page, "chat")
-  await wait_named(page, 'chat_hides_activity_stream', """() => {
-    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
-    const stream = document.getElementById('atlas-activity-stream');
-    if (!panel || !stream) return false;
-    return panel.hidden || getComputedStyle(panel).display === 'none' || stream.offsetParent === null;
-  }""")
-  await set_mode(page, "echo")
-  await wait_named(page, 'echo_hides_activity_stream', """() => {
-    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
-    const stream = document.getElementById('atlas-activity-stream');
-    if (!panel || !stream) return false;
-    return panel.hidden || getComputedStyle(panel).display === 'none' || stream.offsetParent === null;
-  }""")
-  await open_atlas(page)
-  await set_atlas_subview(page, "activity")
-
-  collapse = page.locator("#atlas-workbench-collapse-btn")
-  await collapse.click()
-  await wait_named(page, 'workbench_collapsed', "() => document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
-  await wait_named(page, 'activity_stream_hidden_when_collapsed_off_activity_tab', """() => {
-    const stream = document.getElementById('atlas-activity-stream');
-    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
-    if (!panel || !stream) return false;
-    return panel.hidden || getComputedStyle(panel).display === 'none' || stream.offsetParent === null;
-  }""")
-  await collapse.click()
-  await wait_named(page, 'workbench_collapse_available', "() => !document.getElementById('atlas-workbench-card')?.classList.contains('is-collapsed')")
-  assert await page.locator("#atlas-agent-execution-marker[data-atlas-agent-execution='true']").count() == 1
-
   await page.set_viewport_size(DEFAULT_MOBILE_VIEWPORT)
   await page.wait_for_timeout(100)
   overflow = await page.evaluate("""() => ({
     doc: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     body: document.body.scrollWidth - document.body.clientWidth,
-    atlas: document.getElementById('atlas-panel-col')?.scrollWidth - document.getElementById('atlas-panel-col')?.clientWidth,
+    atlas: document.getElementById('atlas-claude-col')?.scrollWidth - document.getElementById('atlas-claude-col')?.clientWidth,
   })""")
   if not (overflow["doc"] <= 1 and overflow["body"] <= 1 and overflow["atlas"] <= 1):
     offenders = await page.evaluate("""() => Array.from(document.body.querySelectorAll('*')).map((el) => {
@@ -2212,15 +2185,57 @@ async def verify_atlas_current_ui_smoke(page) -> None:
     raise AssertionError(f"mobile horizontal overflow detected: {overflow}; offenders: {offenders}")
   await wait_named(page, 'mobile_no_horizontal_overflow', "() => document.documentElement.scrollWidth - document.documentElement.clientWidth <= 1 && document.body.scrollWidth - document.body.clientWidth <= 1")
 
-  await page.click("#btn-agent")
-  await wait_named(page, 'agent_hides_atlas_panel_from_atlas_smoke', "() => document.getElementById('atlas-panel-col')?.classList.contains('mob-hidden') || getComputedStyle(document.getElementById('atlas-panel-col')).display === 'none'")
-  await wait_named(page, 'agent_hides_activity_stream_from_atlas_smoke', """() => {
-    const panel = document.querySelector('[data-atlas-subview-panel="activity"]');
-    const stream = document.getElementById('atlas-activity-stream');
-    if (!panel || !stream) return false;
-    return panel.hidden || getComputedStyle(panel).display === 'none' || stream.offsetParent === null;
+
+async def verify_atlas_reload_resume_progress_smoke(page) -> None:
+  await page.evaluate("""() => {
+    localStorage.setItem('atlas_claude_last_pool_id', 'pool_auir5_reload');
+    localStorage.setItem('atlas_claude_last_run_id', 'run_auir5_reload');
+    localStorage.setItem('atlas_claude_last_event_sequence', '0');
   }""")
-  await assert_no_atlas_chat_leak(page, "atlas_current_ui_smoke_agent_switch")
+  await page.add_init_script("""() => {
+    localStorage.setItem('atlas_claude_last_pool_id', 'pool_auir5_reload');
+    localStorage.setItem('atlas_claude_last_run_id', 'run_auir5_reload');
+    localStorage.setItem('atlas_claude_last_event_sequence', '0');
+    const originalFetch = window.fetch;
+    if (typeof originalFetch === 'function' && !window.__atlasReloadSmokeFetchHookInstalled) {
+      window.__atlasReloadSmokeFetchHookInstalled = true;
+      window.__atlasFetches = [];
+      window.fetch = (...args) => {
+        try {
+          const raw = args[0];
+          const url = typeof raw === 'string' ? raw : (raw && raw.url) || '';
+          window.__atlasFetches.push(String(url));
+        } catch (_) {}
+        return originalFetch(...args);
+      };
+    }
+  }""")
+  await page.reload(wait_until="domcontentloaded")
+  await open_atlas(page)
+  await wait_named(page, "atlas_reload_progress_indicator_restored", """() => {
+    const line = document.getElementById('atlas-llm-progress-line');
+    const text = line?.querySelector('.atlas-llm-progress-text')?.textContent || '';
+    return !!line
+      && line.dataset.connectionState === 'live'
+      && text.includes('patch_generation')
+      && text.includes('tokens 64 / 8192');
+  }""")
+  await wait_named(page, "atlas_reload_runtime_panel_restored", """() => {
+    const panel = Array.from(document.querySelectorAll('.atlas-claude-stage-block'))
+      .find((el) => el.dataset.poolId === 'pool_auir5_reload' && el.dataset.atlasStageBlock === 'true');
+    return !!panel
+      && panel.dataset.atlasRuntimeConnectionState === 'live'
+      && panel.textContent.includes('復元: server progress replay restored');
+  }""")
+  restored = await page.evaluate("""() => ({
+    lineText: document.querySelector('#atlas-llm-progress-line .atlas-llm-progress-text')?.textContent || '',
+    lineState: document.getElementById('atlas-llm-progress-line')?.dataset.connectionState || '',
+    panelState: Array.from(document.querySelectorAll('.atlas-claude-stage-block')).find((el) => el.dataset.poolId === 'pool_auir5_reload' && el.dataset.atlasStageBlock === 'true')?.dataset.atlasRuntimeConnectionState || '',
+    tokenTotal: document.getElementById('token-total')?.textContent || '',
+  })""")
+  assert restored["lineState"] == "live", restored
+  assert restored["panelState"] == "live", restored
+  assert "tokens 64 / 8192" in restored["lineText"], restored
 
 
 async def verify_mobile_mode_switches(page) -> None:
@@ -2238,27 +2253,16 @@ async def verify_mobile_mode_switches(page) -> None:
 
   await page.click("#btn-atlas")
   await page.wait_for_function(
-    "() => document.getElementById('atlas-panel-col') && !document.getElementById('atlas-panel-col').classList.contains('mob-hidden')"
+    "() => document.getElementById('atlas-claude-col') && !document.getElementById('atlas-claude-col').classList.contains('mob-hidden')"
   )
   await page.wait_for_function(
-    "() => document.getElementById('atlas-workbench-card') && getComputedStyle(document.getElementById('atlas-workbench-card')).display !== 'none'"
+    "() => document.getElementById('atlas-claude-transcript') && getComputedStyle(document.getElementById('atlas-claude-transcript')).display !== 'none'"
   )
   await page.wait_for_function(
     "() => document.getElementById('mob-atlas')?.classList.contains('active')"
   )
   await page.wait_for_function("() => document.getElementById('agent-panel-col')?.classList.contains('mob-hidden')")
   await page.wait_for_function("() => document.getElementById('agent-col')?.classList.contains('mob-hidden')")
-
-  await page.click("#btn-agent")
-  await page.wait_for_function(
-    "() => document.getElementById('agent-col') && !document.getElementById('agent-col').classList.contains('mob-hidden')"
-  )
-  await page.wait_for_function(
-    "() => { const col = document.getElementById('agent-col'); const panel = document.getElementById('agent-panel-col'); const chat = document.getElementById('mob-agent-chat'); return (!!col && !col.classList.contains('mob-hidden')) || (!!panel && !panel.classList.contains('mob-hidden')) || (!!chat && getComputedStyle(chat).display !== 'none'); }"
-  )
-  await page.wait_for_function("() => document.getElementById('atlas-panel-col')?.classList.contains('mob-hidden')")
-  agent_tasks_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-agent-tasks')).display !== 'none'")
-  assert agent_tasks_visible
 
   await page.click("#btn-echo")
   await page.wait_for_function(
@@ -2272,10 +2276,15 @@ async def verify_mobile_mode_switches(page) -> None:
   await page.wait_for_function(
     "() => document.getElementById('mob-nexus') && getComputedStyle(document.getElementById('mob-nexus')).display !== 'none'"
   )
-  nexus_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-nexus')).display !== 'none'")
-  echo_tts_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-tts')).display !== 'none'")
-  agent_chat_visible = await page.evaluate("() => getComputedStyle(document.getElementById('mob-agent-chat')).display !== 'none'")
+  nexus_visible = await page.evaluate("() => { const el = document.getElementById('mob-nexus'); return !!el && getComputedStyle(el).display !== 'none'; }")
+  echo_tts_visible = await page.evaluate("() => { const el = document.getElementById('mob-tts'); return !!el && getComputedStyle(el).display !== 'none'; }")
+  agent_chat_visible = await page.evaluate("() => { const el = document.getElementById('mob-agent-chat'); return !!el && getComputedStyle(el).display !== 'none'; }")
   assert nexus_visible and not echo_tts_visible and not agent_chat_visible
+
+  await page.click("#btn-atlas")
+  await page.wait_for_function(
+    "() => document.getElementById('atlas-claude-col') && !document.getElementById('atlas-claude-col').classList.contains('mob-hidden')"
+  )
 
   if errors:
     raise AssertionError("\n".join(errors))
@@ -2554,6 +2563,7 @@ SMOKE_SCENARIOS: dict[str, SmokeScenarioSpec] = {
   "bootstrap_api_contract": SmokeScenarioSpec(id="bootstrap_api_contract", fn=verify_mode_switches, kind="ui", default_ui=True),
   "mode_switches": SmokeScenarioSpec(id="mode_switches", fn=verify_mode_switches, kind="ui", default_ui=True),
   "atlas_current_ui_smoke": SmokeScenarioSpec(id="atlas_current_ui_smoke", fn=verify_atlas_current_ui_smoke, kind="ui", default_ui=True),
+  "atlas_reload_resume_progress_smoke": SmokeScenarioSpec(id="atlas_reload_resume_progress_smoke", fn=verify_atlas_reload_resume_progress_smoke, kind="ui", default_ui=True),
   "nexus_current_ui_smoke": SmokeScenarioSpec(id="nexus_current_ui_smoke", fn=verify_nexus_current_ui_smoke, kind="ui", default_ui=True),
   "atlas_plan_api_contract": SmokeScenarioSpec(id="atlas_plan_api_contract", fn=verify_atlas_plan_api_contract, kind="backend_api", requires_backend=True, allowed_in_preflight_only=True),
   "atlas_start_button_feedback": SmokeScenarioSpec(id="atlas_start_button_feedback", fn=verify_atlas_start_button_feedback, kind="ui", default_ui=True),

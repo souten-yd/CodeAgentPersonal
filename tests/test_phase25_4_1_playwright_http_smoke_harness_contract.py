@@ -1,4 +1,7 @@
 import unittest
+import importlib.util
+import sys
+import urllib.request
 from pathlib import Path
 
 
@@ -14,6 +17,43 @@ class TestPhase2541PlaywrightHttpSmokeHarnessContract(unittest.TestCase):
 
     def test_http_mock_server_exists(self):
         for token in ["ThreadingHTTPServer", "127.0.0.1", '"/settings"', '"/health"', '"/system/summary"', '"/api/task/plan"']:
+            self.assertIn(token, self.smoke)
+        for token in ["_serve_static_asset", 'path.startswith("/static/")', 'path.startswith("/assets/")']:
+            self.assertIn(token, self.smoke)
+
+    def test_mock_server_serves_static_assets(self):
+        spec = importlib.util.spec_from_file_location(
+            "smoke_ui_modes_playwright_contract",
+            Path("scripts/smoke_ui_modes_playwright.py"),
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.path.insert(0, str(Path("scripts").resolve()))
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        server, _thread = module.start_mock_server()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            js = urllib.request.urlopen(f"{base}/static/js/atlas_claude_panel.js", timeout=10)
+            self.assertIn("javascript", js.headers.get("Content-Type", "").lower())
+            self.assertIn(b"AtlasClaudePanel", js.read())
+            css = urllib.request.urlopen(f"{base}/static/css/app.css", timeout=10)
+            self.assertIn("css", css.headers.get("Content-Type", "").lower())
+            self.assertIn(b"atlas-claude-llm-progress", css.read())
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_atlas_reload_resume_progress_smoke_exists(self):
+        for token in [
+            "verify_atlas_reload_resume_progress_smoke",
+            '"atlas_reload_resume_progress_smoke"',
+            "pool_auir5_reload",
+            "run_auir5_reload",
+            "/api/atlas/pipeline/events/pool_auir5_reload/run_auir5_reload",
+            "atlas_claude_last_event_sequence",
+            "tokens 64 / 8192",
+        ]:
             self.assertIn(token, self.smoke)
 
     def test_scenario_isolation_exists(self):
