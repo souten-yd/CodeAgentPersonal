@@ -30,6 +30,29 @@ _SIDE_EFFECT_TYPES = {"side_effect", "api_call", "api_route"}
 _TEST_TYPES = {"test"}
 _REQUIREMENT_TYPES = {"requirement"}
 _INCIDENT_TYPES = {"incident", "risk"}
+# Definitional forward edges along which a change propagates to the *implementing* entity, e.g. an
+# `api_route` is implemented by its handler function via `handled_by`. Reverse reachability alone
+# misses these because the implementer is the edge target, not a dependent; expanding seeds forward
+# along them lets a route change surface its backend handler (and through it, callers/tests/effects).
+_FORWARD_IMPACT_EDGES = {"handled_by"}
+# Below this weakest-link confidence an impact was reached only through heuristic/inferred edges and
+# must be reported with uncertainty rather than presented as a verified dependency.
+_UNCERTAIN_PATH_CONFIDENCE = 0.7
+
+
+def _pyname_alias_ref(ref: str | None) -> str | None:
+    """The name-only alias for a resolved python symbol ref, or None.
+
+    Name-based call edges (a caller that could not be statically resolved) target a shared
+    ``pyname://<short>`` pseudo-node rather than the resolved ``py://path#qual`` node. Bridging the
+    two during traversal lets heuristic name-only callers (e.g. a test calling an intermediate
+    function) still be discovered, at the cost of name-collision imprecision that is surfaced as
+    reduced path confidence.
+    """
+    if ref and ref.startswith("py://") and "#" in ref:
+        short = ref.split("#", 1)[1].split(".")[-1]
+        return f"pyname://{short}"
+    return None
 
 
 class GraphAnalysisService:
@@ -107,10 +130,46 @@ class GraphAnalysisService:
                 short = ref.split("#", 1)[1].split(".")[-1]
                 seeds.add(nid(f"pyname://{short}"))
 
-        # reverse reachability: who depends on the changed entities
+        # Forward-expand seeds along definitional edges (e.g. api_route -> handler via `handled_by`)
+        # so changing a route/definition surfaces the implementing symbol; through it we then also
+        # reach that symbol's callers, tests, and side effects below.
+        impl_ids: set[str] = set()
+        ix_stack = list(seeds)
+        ix_seen = set(seeds)
+        while ix_stack:
+            cur = ix_stack.pop()
+            for e in fwd.get(cur, []):
+                if e.edge_type not in _FORWARD_IMPACT_EDGES or e.confidence < request.min_confidence:
+                    continue
+                tgt = e.target_node_id
+                if tgt not in ix_seen:
+                    ix_seen.add(tgt)
+                    impl_ids.add(tgt)
+                    ix_stack.append(tgt)
+        seeds |= impl_ids
+
+        def alias_id(node_id: str) -> str | None:
+            alias_ref = _pyname_alias_ref(id_to_ref.get(node_id))
+            if alias_ref is None:
+                return None
+            aid = nid(alias_ref)
+            return aid if aid != node_id else None
+
+        # reverse reachability: who depends on the changed entities. `path_conf` tracks the weakest
+        # edge confidence along the discovered path so an impact reached only via heuristic/inferred
+        # links is reported with honest uncertainty instead of false certainty. A resolved symbol is
+        # bridged to its name-only alias (same depth/confidence) so name-based callers are found.
         depth_of: dict[str, int] = {}
-        frontier = [(s, 0) for s in seeds]
         visited = set(seeds)
+        path_conf: dict[str, float] = {s: 1.0 for s in seeds}
+        frontier: list[tuple[str, int]] = []
+        for s in list(seeds):
+            frontier.append((s, 0))
+            alias = alias_id(s)
+            if alias is not None and alias not in visited:
+                visited.add(alias)
+                path_conf[alias] = 1.0
+                frontier.append((alias, 0))
         while frontier:
             cur, depth = frontier.pop()
             if depth >= request.max_depth:
@@ -119,10 +178,28 @@ class GraphAnalysisService:
                 if e.confidence < request.min_confidence:
                     continue
                 src = e.source_node_id
+                conf = min(path_conf.get(cur, 1.0), e.confidence)
                 if src not in visited:
                     visited.add(src)
                     depth_of[src] = depth + 1
+                    path_conf[src] = conf
                     frontier.append((src, depth + 1))
+                    alias = alias_id(src)
+                    if alias is not None and alias not in visited:
+                        visited.add(alias)
+                        depth_of[alias] = depth + 1
+                        path_conf[alias] = conf
+                        frontier.append((alias, depth + 1))
+                elif conf > path_conf.get(src, 0.0):
+                    path_conf[src] = conf
+
+        # Resolve a name-only alias node back to the concrete symbol(s) it could refer to, so a
+        # name-based call (caller -> pyname://x) can reach the real symbol's side effects downstream.
+        alias_to_ids: dict[str, list[str]] = {}
+        for node_id, ref in id_to_ref.items():
+            alias_ref = _pyname_alias_ref(ref)
+            if alias_ref is not None:
+                alias_to_ids.setdefault(nid(alias_ref), []).append(node_id)
 
         # forward reachability: side effects produced by the changed entities
         side_effect_ids: set[str] = set()
@@ -130,6 +207,10 @@ class GraphAnalysisService:
         fstack = list(seeds)
         while fstack:
             cur = fstack.pop()
+            for real_id in alias_to_ids.get(cur, []):
+                if real_id not in fseen:
+                    fseen.add(real_id)
+                    fstack.append(real_id)
             for e in fwd.get(cur, []):
                 if e.confidence < request.min_confidence:
                     continue
@@ -148,20 +229,30 @@ class GraphAnalysisService:
                 reason=reason,
             )
 
+        # Implementing symbols reached by forward-expansion are direct impacts of the change.
+        reason_of: dict[str, str] = {i: "implements_changed_entity" for i in impl_ids}
+        for nodeid in impl_ids:
+            depth_of.setdefault(nodeid, 1)
+
         direct, transitive, requirements, tests, incidents, uncertainty = [], [], [], [], [], []
         for nodeid, depth in depth_of.items():
             node = nodes_by_id.get(nodeid)
             if node is None:
                 continue
-            (direct if depth == 1 else transitive).append(item(node, f"reverse_dependency_depth_{depth}"))
+            reason = reason_of.get(nodeid, f"reverse_dependency_depth_{depth}")
+            (direct if depth <= 1 else transitive).append(item(node, reason))
             if node.node_type in _REQUIREMENT_TYPES:
                 requirements.append(item(node, "affected_requirement"))
             if node.node_type in _TEST_TYPES:
                 tests.append(item(node, "recommended_test"))
             if node.node_type in _INCIDENT_TYPES:
                 incidents.append(item(node, "historical_risk"))
-            if node.status in HISTORICAL_STATUSES or node.confidence < 0.5:
-                uncertainty.append({"canonical_ref": node.canonical_ref, "status": node.status, "confidence": node.confidence})
+            link_conf = path_conf.get(nodeid, node.confidence)
+            if node.status in HISTORICAL_STATUSES or node.confidence < 0.5 or link_conf < _UNCERTAIN_PATH_CONFIDENCE:
+                uncertainty.append({
+                    "canonical_ref": node.canonical_ref, "status": node.status,
+                    "confidence": node.confidence, "path_confidence": round(link_conf, 3),
+                })
 
         side_effects = [item(nodes_by_id[i], "side_effect_of_change") for i in side_effect_ids if i in nodes_by_id]
 
