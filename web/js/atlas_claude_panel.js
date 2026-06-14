@@ -43,6 +43,10 @@
     activeProject: { name: '', projectPath: '', workspaceId: 'default' },
     provisional: false,
     loadedProject: '',
+    // True while loadProject() re-renders persisted/server state on reload. Render-time status
+    // messages (e.g. "Plan was created…", approval prompts) must NOT be re-persisted during a
+    // restore, or every reload appends another copy to the conversation log forever.
+    restoring: false,
   };
 
   const dom = {};
@@ -149,13 +153,21 @@
     state.transcript = [];
     let restored = false;
     let poolRestored = false;
+    state.restoring = true;
+    try {
     try {
       const resp = await fetch('/api/atlas/projects/' + encodeURIComponent(target) + '/conversation', { headers: { 'Content-Type': 'application/json' } });
       if (resp.ok) {
         const data = await resp.json();
         state.provisional = !!(data.meta && data.meta.provisional);
         (data.messages || []).forEach((m) => {
-          if (m && m.text) { appendMessage(m.role, m.text, false); restored = true; }
+          if (!m || !m.text) return;
+          // Skip legacy render-time status lines that an earlier bug persisted on every reload
+          // (e.g. "Plan was created. Use Recover to view it."). They are not real conversation; the
+          // plan/progress is re-rendered from authoritative server state below.
+          if (isTransientStatusMessage(m)) return;
+          appendMessage(m.role, m.text, false);
+          restored = true;
         });
         const poolId = data.meta && data.meta.active_pool_id;
         if (poolId) {
@@ -205,6 +217,9 @@
       } catch (_) {}
     }
     if (!restored) pushSystemMessage('指示を入力してください');
+    } finally {
+      state.restoring = false;
+    }
   }
 
   async function restoreLatestRun(poolId) {
@@ -2861,7 +2876,9 @@
     }
 
     if (!items.length && !rawMarkdown && !strategic) {
-      pushAtlasMessage('Plan was created. Use Recover to view it.');
+      // Non-persisting: this is a transient render-time status, never a conversation event. Persisting
+      // it (the old behavior) duplicated it into the log on every reload.
+      appendMessage('atlas', 'Plan was created. Use Recover to view it.', false);
       return;
     }
     if (!dom.transcript) {
@@ -3363,11 +3380,22 @@
   function pushAtlasMessage(text) { appendMessage('atlas', text); }
   function pushSystemMessage(text) { appendMessage('system', text); }
 
+  // Render-time status lines that must not be treated as real conversation when replaying a
+  // persisted transcript. An earlier bug persisted these on every reload; filter them on restore so
+  // legacy logs stop showing duplicates (the plan/progress itself is re-rendered from server state).
+  function isTransientStatusMessage(m) {
+    const role = m && m.role;
+    const text = String((m && m.text) || '').trim();
+    return role === 'atlas' && /^Plan was created/.test(text);
+  }
+
   function appendMessage(role, text, persist = true, meta = null) {
     if (!dom.transcript) return;
     state.transcript.push({ role, text, ts: Date.now() });
     while (state.transcript.length > TRANSCRIPT_MAX_MESSAGES) state.transcript.shift();
-    if (persist) persistMessage(role, text, meta);
+    // Never persist while restoring: loadProject() replays/re-renders server state, so persisting
+    // here would duplicate render-time status lines into the conversation log on every reload.
+    if (persist && !state.restoring) persistMessage(role, text, meta);
 
     const node = document.createElement('div');
     node.className = 'atlas-claude-msg';
