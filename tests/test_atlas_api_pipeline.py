@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import main
@@ -13,6 +14,14 @@ from agent.project_intelligence.service_registry import (
 
 
 API_FILE = Path("app/api/atlas_pipeline.py")
+
+
+@pytest.fixture(autouse=True)
+def _disable_local_llm_default(monkeypatch):
+    # These tests drive the no-real-planner fallback path by leaving atlas_llm_json_fn unset.
+    # Disable the local-backend default so the outcome is deterministic regardless of whether a
+    # llama-server happens to be listening on the conventional local port in the test environment.
+    monkeypatch.setenv("ATLAS_DISABLE_LOCAL_LLM_DEFAULT", "1")
 
 
 def _client(tmp_path):

@@ -412,6 +412,15 @@ def _resolve_atlas_llm_backend_base_url(app: Any) -> str:
     return ""
 
 
+# Conventional local llama-server endpoint, matching main.py's own `LLM_URL` default. Used as a
+# last-resort fallback so a bare `uvicorn main:app` launch (i.e. one that did NOT inherit the
+# CODEAGENT_LLM_* env that scripts/start_codeagent.py sets) still finds the local backend and the
+# Atlas real planner / patch generation keep working instead of silently degrading to
+# `real_planner_unavailable`. Local-only, so it preserves Local Only safety; opt out with
+# ATLAS_DISABLE_LOCAL_LLM_DEFAULT=1 in environments that must fail closed on misconfiguration.
+_DEFAULT_LOCAL_LLM_BASE_URL = "http://127.0.0.1:8080"
+
+
 def register_atlas_llm_json_adapter(app: Any) -> None:
     current = getattr(app.state, "atlas_llm_json_fn", None)
     if callable(current):
@@ -419,15 +428,23 @@ def register_atlas_llm_json_adapter(app: Any) -> None:
     model = str(os.environ.get("CODEAGENT_MODEL") or os.environ.get("OPENAI_MODEL") or "").strip()
     base_url = _resolve_atlas_llm_backend_base_url(app)
     if not base_url:
-        # No backend URL resolved: leaving atlas_llm_json_fn unset makes patch generation
-        # silently yield no content (fallback proposals). Warn so this misconfiguration is
-        # diagnosable instead of surfacing only as empty generations downstream.
+        if str(os.environ.get("ATLAS_DISABLE_LOCAL_LLM_DEFAULT", "")).strip() in {"1", "true", "True"}:
+            # Explicitly told to fail closed: leave atlas_llm_json_fn unset so misconfiguration
+            # surfaces as `real_planner_unavailable` rather than silently hitting a local default.
+            logger.warning(
+                "register_atlas_llm_json_adapter: no LLM backend base URL resolved and local "
+                "default disabled (ATLAS_DISABLE_LOCAL_LLM_DEFAULT); Atlas planning/patch "
+                "generation will be unavailable until CODEAGENT_LLM_BASE_URL / LLM_URL is set."
+            )
+            return
+        # Fall back to the conventional local llama-server so a bare launch keeps Atlas working.
+        base_url = _DEFAULT_LOCAL_LLM_BASE_URL
         logger.warning(
             "register_atlas_llm_json_adapter: no LLM backend base URL resolved "
             "(set CODEAGENT_LLM_BASE_URL / LLM_URL or app.state.llm_base_url); "
-            "Atlas patch generation will produce no content until configured."
+            "falling back to local default %s.",
+            base_url,
         )
-        return
     app.state.atlas_llm_json_fn = AtlasLLMJsonAdapter(base_url=base_url, model=model)
 
 def _resolve_callable_state(request: Request, name: str) -> Any:
