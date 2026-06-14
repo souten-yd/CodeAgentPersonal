@@ -1005,9 +1005,22 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
             pending_progress: dict[str, Any] = {}
             last_write_monotonic = 0.0
             last_phase = ""
+            plan_progress_run_id = f"planpool_{pool_id}"
+            first_token_seen = False
+            last_tokens_generated = 0
+            _append_runtime_progress(
+                _journal,
+                pool_id=pool_id,
+                run_id=plan_progress_run_id,
+                event_type="llm_started",
+                phase="planning",
+                status="running",
+                source="atlas_plan_pool",
+                message="Atlas plan generation started",
+            )
 
             def heartbeat(**details: Any) -> None:
-                nonlocal last_write_monotonic, last_phase
+                nonlocal last_write_monotonic, last_phase, first_token_seen, last_tokens_generated
                 now_iso = datetime.now(timezone.utc).isoformat()
                 phase = str(details.get("phase") or pending_progress.get("phase") or last_phase or "running")
                 patch = {
@@ -1025,6 +1038,29 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
                 last_phase = phase
                 last_write_monotonic = current_monotonic
                 _merge_plan_pool_job(ca_data_root, pool_id, dict(pending_progress))
+                tokens_generated = int(pending_progress.get("tokens_generated") or 0)
+                tokens_delta = max(0, tokens_generated - last_tokens_generated)
+                if tokens_delta > 0:
+                    first_event = not first_token_seen
+                    first_token_seen = True
+                    event_type = "llm_first_token" if first_event else "llm_token_delta"
+                else:
+                    event_type = "llm_heartbeat"
+                last_tokens_generated = max(last_tokens_generated, tokens_generated)
+                _append_runtime_progress(
+                    _journal,
+                    pool_id=pool_id,
+                    run_id=plan_progress_run_id,
+                    event_type=event_type,
+                    phase=phase,
+                    status="running",
+                    source="atlas_plan_pool",
+                    tokens_total=tokens_generated,
+                    tokens_delta=tokens_delta,
+                    first_token_seen=first_token_seen,
+                    message=f"Planning phase: {phase}",
+                    metadata={key: value for key, value in dict(pending_progress).items() if key not in {"phase"}},
+                )
 
             try:
                 result = _create_plan_pool_core(req, app_ref, forced_pool_id=pool_id, progress_cb=heartbeat)
@@ -1034,6 +1070,18 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
                     "last_progress_at": datetime.now(timezone.utc).isoformat(),
                     "phase": "ready",
                 })
+                _append_runtime_progress(
+                    _journal,
+                    pool_id=pool_id,
+                    run_id=plan_progress_run_id,
+                    event_type="llm_completed",
+                    phase="planning",
+                    status="completed",
+                    source="atlas_plan_pool",
+                    tokens_total=last_tokens_generated,
+                    first_token_seen=first_token_seen,
+                    message="Atlas plan generation completed",
+                )
             except Exception as exc:  # noqa: BLE001 — never leak a raw traceback to the UI.
                 _write_plan_pool_job(ca_data_root, pool_id, {
                     "pool_id": pool_id, "status": "failed",
@@ -1041,6 +1089,19 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
                     "error_kind": exc.__class__.__name__,
                     "created_at": now, "finished_at": datetime.now(timezone.utc).isoformat(),
                 })
+                _append_runtime_progress(
+                    _journal,
+                    pool_id=pool_id,
+                    run_id=plan_progress_run_id,
+                    event_type="llm_failed",
+                    phase="planning",
+                    status="failed",
+                    source="atlas_plan_pool",
+                    tokens_total=last_tokens_generated,
+                    first_token_seen=first_token_seen,
+                    message="Atlas plan generation failed",
+                    metadata={"error_kind": exc.__class__.__name__},
+                )
 
         threading.Thread(target=_runner, daemon=True).start()
         return {"pool_id": pool_id, "status": "queued"}
@@ -1063,9 +1124,68 @@ def _current_llm_max_ctx(request: Request) -> int:
         return 0
 
 
+def _llm_model_id(llm_json_fn: Any) -> str:
+    for attr in ("model", "model_id"):
+        try:
+            value = getattr(llm_json_fn, attr, "")
+        except Exception:
+            value = ""
+        if value:
+            return str(value)
+    legacy = getattr(llm_json_fn, "legacy", None) or getattr(llm_json_fn, "_legacy_fn", None)
+    if legacy is not None and legacy is not llm_json_fn:
+        return _llm_model_id(legacy)
+    return ""
+
+
+def _append_runtime_progress(
+    journal: AtlasJournal,
+    *,
+    pool_id: str,
+    run_id: str,
+    event_type: str,
+    phase: str,
+    status: str,
+    item_id: str = "",
+    source: str = "atlas_runtime",
+    model: str = "",
+    tokens_total: int = 0,
+    tokens_delta: int = 0,
+    tokens_per_second: float = 0.0,
+    first_token_seen: bool = False,
+    message: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not pool_id or not run_id:
+        return {}
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        return journal.append_progress_event(
+            pool_id,
+            run_id,
+            {
+                "event_type": event_type,
+                "phase": phase,
+                "status": status,
+                "item_id": item_id,
+                "source": source,
+                "model": model,
+                "tokens_total": max(0, int(tokens_total or 0)),
+                "tokens_delta": max(0, int(tokens_delta or 0)),
+                "tokens_per_second": max(0.0, float(tokens_per_second or 0.0)),
+                "first_token_seen": bool(first_token_seen),
+                "last_progress_at": now,
+                "message": message,
+                "metadata": dict(metadata or {}),
+            },
+        )
+    except Exception:
+        return {}
+
+
 @router.get("/plan-pools/{pool_id}/status")
 def get_plan_pool_status(pool_id: str, request: Request, workspace_id: str = Query("default")) -> dict[str, Any]:
-    ca_data_root, _storage, _journal = _atlas_components(request, workspace_id=workspace_id)
+    ca_data_root, _storage, journal = _atlas_components(request, workspace_id=workspace_id)
     path = _plan_pool_jobs_dir(ca_data_root) / f"{pool_id}.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail={"error": "plan_pool_job_not_found", "pool_id": pool_id})
@@ -2267,8 +2387,32 @@ def run_pipeline_dry_run(req: PipelineDryRunRequest, request: Request) -> Pipeli
             )
         )
         journal.save_pipeline_state(pool.pool_id, state)
+        _append_runtime_progress(
+            journal,
+            pool_id=pool.pool_id,
+            run_id=state.run_id,
+            event_type="atlas_run_started",
+            phase="dry_run",
+            status="running",
+            source="atlas_pipeline",
+            item_id=state.current_item_id,
+            message="Atlas pipeline dry-run started",
+            metadata={"dry_run": True},
+        )
         for event in state.events:
             journal.append_event(pool.pool_id, state.run_id, event)
+        _append_runtime_progress(
+            journal,
+            pool_id=pool.pool_id,
+            run_id=state.run_id,
+            event_type="atlas_run_completed" if state.status in {"completed", "completed_with_warnings"} else "atlas_run_failed",
+            phase="dry_run",
+            status=state.status,
+            source="atlas_pipeline",
+            item_id=state.current_item_id,
+            message=f"Atlas pipeline dry-run {state.status}",
+            metadata={"dry_run": True},
+        )
         updated_pool = storage.load_pool(pool.pool_id)
         summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(updated_pool, state)
         checkpoint_path = journal.write_checkpoint(
@@ -2318,6 +2462,8 @@ def get_pipeline_status(
         "pool_id": state.pool_id,
         "state": _model_dump(state),
         "events": journal.read_events(pool_id, run_id, limit=25),
+        "progress_events": journal.read_progress_events(pool_id, run_id, limit=25),
+        "latest_progress": journal.load_latest_progress(pool_id, run_id),
     }
 
 
@@ -2328,9 +2474,16 @@ def get_pipeline_events(
     request: Request,
     workspace_id: str = "default",
     limit: int = 100,
+    after_sequence: int = 0,
 ) -> dict[str, Any]:
     _, _, journal = _atlas_components(request, workspace_id=workspace_id)
-    return {"pool_id": pool_id, "run_id": run_id, "events": journal.read_events(pool_id, run_id, limit=max(1, limit))}
+    return {
+        "pool_id": pool_id,
+        "run_id": run_id,
+        "events": journal.read_events(pool_id, run_id, limit=max(1, limit)),
+        "progress_events": journal.read_progress_events(pool_id, run_id, after_sequence=max(0, after_sequence), limit=max(1, limit)),
+        "latest_progress": journal.load_latest_progress(pool_id, run_id),
+    }
 
 
 
@@ -2587,12 +2740,64 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
         route_id=ForgeRoute.DIRECT_PATCH,
         task_category="patch_proposal_generation",
     )
+    model_id = _llm_model_id(llm_json_fn)
+    _append_runtime_progress(
+        journal,
+        pool_id=req.pool_id,
+        run_id=req.run_id,
+        item_id=req.item_id,
+        event_type="atlas_run_started",
+        phase="patch_generation",
+        status="running",
+        source="atlas_patch_generation",
+        model=model_id,
+        message="Atlas patch generation started",
+    )
+    _append_runtime_progress(
+        journal,
+        pool_id=req.pool_id,
+        run_id=req.run_id,
+        item_id=req.item_id,
+        event_type="llm_started",
+        phase="patch_generation",
+        status="running",
+        source="atlas_patch_generation",
+        model=model_id,
+        message="Patch proposal LLM generation started",
+    )
+    first_token_seen = False
+    last_tokens_generated = 0
     if hasattr(llm_json_fn, "with_progress"):
+
         def _on_patchgen_progress(payload: dict) -> None:
+            nonlocal first_token_seen, last_tokens_generated
+            tokens_generated = int(payload.get("tokens_generated") or 0)
+            tokens_delta = max(0, tokens_generated - last_tokens_generated)
+            first_event = tokens_delta > 0 and not first_token_seen
+            if tokens_delta > 0:
+                first_token_seen = True
+            last_tokens_generated = max(last_tokens_generated, tokens_generated)
             _merge_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
                 "last_token_at": payload.get("last_token_at") or datetime.now(timezone.utc).isoformat(),
-                "tokens_generated": int(payload.get("tokens_generated") or 0),
+                "tokens_generated": tokens_generated,
             })
+            _append_runtime_progress(
+                journal,
+                pool_id=req.pool_id,
+                run_id=req.run_id,
+                item_id=req.item_id,
+                event_type="llm_first_token" if first_event else "llm_token_delta",
+                phase="patch_generation",
+                status="running",
+                source="atlas_patch_generation",
+                model=model_id,
+                tokens_total=tokens_generated,
+                tokens_delta=tokens_delta,
+                tokens_per_second=float(payload.get("tokens_per_second") or payload.get("tps") or 0.0),
+                first_token_seen=first_token_seen,
+                message="Patch proposal LLM token progress",
+                metadata={key: value for key, value in dict(payload or {}).items() if key not in {"tokens_generated"}},
+            )
         llm_json_fn = llm_json_fn.with_progress(_on_patchgen_progress)
     pi_service = get_project_intelligence_service(request.app)
     service = AtlasPatchProposalService(
@@ -2603,13 +2808,29 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
     )
     result = service.propose_for_item(req)
     patch_generation = (result.metadata or {}).get("patch_generation") if isinstance((result.metadata or {}).get("patch_generation"), dict) else {}
-    _write_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
+    _merge_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
         "pool_id": req.pool_id, "item_id": req.item_id, "run_id": result.run_id or req.run_id, "status": "done",
         "patch_generation": patch_generation,
         "patch_generation_state": patch_generation.get("state"),
         "patch_generation_outcome": patch_generation.get("outcome"),
         "finished_at": datetime.now(timezone.utc).isoformat(),
     })
+    generation_success = result.status in {"proposed", "approved"} and not result.errors
+    _append_runtime_progress(
+        journal,
+        pool_id=req.pool_id,
+        run_id=result.run_id or req.run_id,
+        item_id=req.item_id,
+        event_type="llm_completed" if generation_success else "llm_failed",
+        phase="patch_generation",
+        status="completed" if generation_success else "failed",
+        source="atlas_patch_generation",
+        model=model_id,
+        tokens_total=last_tokens_generated,
+        first_token_seen=first_token_seen,
+        message="Patch proposal LLM generation completed" if generation_success else "Patch proposal LLM generation failed",
+        metadata={"result_status": result.status, "patch_generation": patch_generation},
+    )
     try:
         pool = storage.load_pool(req.pool_id)
         recovery = AtlasRecoveryService(journal).recover_pool(pool.pool_id).model_dump()
@@ -2674,7 +2895,7 @@ def cancel_patch_generation(req: CancelPatchGenerationRequest, request: Request)
 def get_patchgen_status(request: Request, pool_id: str = Query(...), item_id: str = Query(...), workspace_id: str = Query("default")) -> dict[str, Any]:
     if ".." in pool_id or ".." in item_id:
         raise HTTPException(status_code=400, detail="invalid identifier")
-    ca_data_root, _storage, _journal = _atlas_components(request, workspace_id=workspace_id)
+    ca_data_root, _storage, journal = _atlas_components(request, workspace_id=workspace_id)
     path = _patchgen_jobs_dir(ca_data_root) / f"{_patchgen_job_key(pool_id, item_id)}.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail={"error": "patchgen_job_not_found", "pool_id": pool_id, "item_id": item_id})
@@ -2693,6 +2914,8 @@ def get_patchgen_status(request: Request, pool_id: str = Query(...), item_id: st
     data["seconds_since_progress"] = seconds_since
     data["is_stalled"] = False if status in {"done", "failed"} else is_stalled
     data["is_running"] = status == "running"
+    run_id = str(data.get("run_id") or "")
+    data["latest_progress"] = journal.load_latest_progress(pool_id, run_id) if run_id else {}
     if data["is_stalled"]:
         data["stalled_reason"] = f"パッチ生成LLMのheartbeatが{int(seconds_since or 0)}秒更新されていません。"
         data["suggested_action"] = "モデルが応答停止の可能性があります。少し待つか、再実行してください。"

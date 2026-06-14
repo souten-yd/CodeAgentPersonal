@@ -184,6 +184,66 @@ class AtlasJournal:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
         return path
 
+    def progress_events_path(self, pool_id: str, run_id: str) -> Path:
+        return self.pipeline_run_dir(pool_id, run_id) / "progress_events.ndjson"
+
+    def latest_progress_path(self, pool_id: str, run_id: str) -> Path:
+        return self.pipeline_run_dir(pool_id, run_id) / "latest_progress.json"
+
+    def append_progress_event(self, pool_id: str, run_id: str, event: dict[str, Any]) -> dict[str, Any]:
+        path = self.progress_events_path(pool_id, run_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        sequence = 1
+        if path.exists():
+            try:
+                sequence = len([line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]) + 1
+            except Exception:
+                sequence = 1
+        payload = {
+            "event_id": str(event.get("event_id") or f"atlas_progress_{sequence}"),
+            "sequence": int(event.get("sequence") or sequence),
+            "timestamp": str(event.get("timestamp") or _utc_now_iso()),
+            "workspace_id": self.workspace_id,
+            "pool_id": self._validate_storage_id(pool_id, "pool_id"),
+            "run_id": self._validate_storage_id(run_id, "run_id"),
+            **dict(event or {}),
+        }
+        payload["sequence"] = int(payload["sequence"])
+        payload["workspace_id"] = self.workspace_id
+        payload["pool_id"] = pool_id
+        payload["run_id"] = run_id
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        _write_json(self.latest_progress_path(pool_id, run_id), payload)
+        return payload
+
+    def read_progress_events(
+        self,
+        pool_id: str,
+        run_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        path = self.progress_events_path(pool_id, run_id)
+        if not path.exists():
+            return []
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        if after_sequence:
+            rows = [row for row in rows if int(row.get("sequence") or 0) > int(after_sequence)]
+        if limit is not None:
+            rows = rows[-max(1, int(limit)) :]
+        return rows
+
+    def load_latest_progress(self, pool_id: str, run_id: str) -> dict[str, Any]:
+        path = self.latest_progress_path(pool_id, run_id)
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
     def write_checkpoint(
         self,
         pool: AtlasPlanPool | None = None,
