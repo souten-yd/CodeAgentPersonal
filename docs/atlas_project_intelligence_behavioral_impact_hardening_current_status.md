@@ -9,7 +9,7 @@ PIBIH: Project Intelligence Behavioral Impact Hardening
 ```text
 status: in_progress
 current_package: PIBIH-3
-next_action: implement Deep Behavioral Graph V3
+next_action: complete PIBIH-3 remaining slice — import-alias call resolution + ambiguous-call uncertainty diagnostics (resource-effect direction/identity + config/env facts already landed)
 ```
 
 ## Completed Foundations
@@ -221,12 +221,65 @@ Next package: PIBIH-3 Deep Behavioral Graph V3
 Blocker: none
 ```
 
+```text
+Completed package: PIBIH-3 (slice 1 of 2) Deep Behavioral Graph V3 — resource direction + config/env
+Status: in_progress (slice landed; import-alias resolution + ambiguous-call diagnostics still pending)
+Changed modules/files:
+- agent/project_twin/behavioral_graph.py
+- tests/test_project_twin_behavioral_graph_v3.py
+- docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md
+Behavior implemented:
+- Resource effects now carry a coarse direction (read/write/mutate/delete/call/execute/render) via
+  `_resource_direction`; direction is recorded on the side_effect node properties and on the
+  `performs_side_effect` / `targets_resource` edges, and is folded into the side-effect node ref so a
+  function that both reads and writes the same resource yields two distinct, non-colliding effects.
+- Config/environment reads (`os.getenv(...)`, `os.environ.get(...)`) are modeled as a `config`
+  resource with read direction (`resource://config:<VAR>`), closing the PIBIH-2-deferred config gap so
+  impact analysis surfaces config readers when a config value changes.
+- Bumped `ANALYZER_VERSION` to `behavioral_graph.v3`.
+Focused tests:
+- `python -m pytest tests\test_project_twin_behavioral_graph_v3.py` -> 5 passed (file read/write/delete
+  direction + identity; config/env resource + read direction; config-change impact -> reader; def-use
+  edge presence + deterministic node/edge ids across rebuilds; all behavioral facts remain inferred /
+  heuristic_static / confidence < 1.0).
+Syntax checks:
+- `python -m py_compile agent\project_twin\behavioral_graph.py` -> passed.
+Affected tests:
+- `python -m pytest tests\test_project_twin_behavioral_graph.py tests\test_project_twin_behavioral_graph_v3.py tests\test_project_twin_analysis.py tests\test_project_twin_impact_analysis.py tests\test_project_twin_pir7_graphs.py tests\test_project_twin_static_graph.py tests\test_project_twin_source_adapter.py tests\test_project_twin_source_refresh_lifecycle.py tests\test_project_twin_store.py` -> 51 passed.
+Real model evidence:
+- localhost:8080 advisory review of the behavioral_graph diff returned `verdict: pass` (advisory only;
+  deterministic graph-assertion tests are authoritative).
+Project Intelligence evidence:
+- Not applicable to this slice.
+Impact analysis evidence:
+- A config-change ImpactRequest (`resource://config:APP_MODE`) returns the reader function, exercising
+  the new config resource through the PIBIH-2 impact traversal.
+Web research evidence:
+- Not applicable; external/web calls remain disabled by default.
+Runtime/Portal evidence:
+- Behavioral analysis reads source and emits a delta; no Portal/runtime paths changed.
+Unavailable checks:
+- Import-alias / from-import call resolution to canonical refs and ambiguous-call uncertainty
+  diagnostics are NOT in this slice; PIBIH-3 acceptance for those criteria is not yet met.
+- `os.environ[...]` subscript reads (non-Call) are not yet modeled.
+Safety invariants:
+- All new nodes/edges are `status=inferred`, `derivation=heuristic_static`, confidence < 1.0; never verified.
+- No Proposal / Safe Apply / Verification path touched; no external calls; no secrets.
+- `unavailable` checks are not marked as passed.
+Remaining gaps (to finish PIBIH-3):
+- Import alias + from-import resolution so calls resolve to stable canonical refs beyond name-based matching.
+- Ambiguous calls retained at lower confidence WITH uncertainty diagnostics.
+- Optional: `os.environ[...]` subscript and class/self-field deepening.
+Next package: PIBIH-3 (remaining slice) then PIBIH-4
+Blocker: none
+```
+
 ## Next Package Queue
 
 ```text
 PIBIH-1: LLM Planning Timeout and Streaming Progress Hardening  (completed)
 PIBIH-2: Impact Analysis Core  (completed)
-PIBIH-3: Deep Behavioral Graph V3
+PIBIH-3: Deep Behavioral Graph V3  (in progress — resource direction + config/env landed; alias resolution + ambiguous diagnostics pending)
 PIBIH-4: Project Intelligence Planning and Generation Injection
 PIBIH-5: Plan-Time Nexus Web Research
 PIBIH-6: Impact UI / Planner Exposure

@@ -29,7 +29,7 @@ from agent.project_twin.contracts import (
 )
 from agent.project_twin.static_graph import _iter_files, _rel, nid
 
-ANALYZER_VERSION = "behavioral_graph.v2"
+ANALYZER_VERSION = "behavioral_graph.v3"
 _DOMAIN = "behavioral"
 
 _FILE_NAMES = {"open", "read", "write", "read_text", "write_text", "read_bytes",
@@ -152,6 +152,73 @@ def _first_str_arg(call: ast.Call) -> str | None:
     return None
 
 
+def _config_identity(call: ast.Call) -> str | None:
+    """Env/config read identity for ``os.getenv(...)`` / ``os.environ.get(...)``, else None.
+
+    A configuration/environment read is a behaviorally significant input (changing it can alter
+    behavior), so model it as a `config` resource. Kept Call-based and conservative to avoid flagging
+    every ``dict.get`` — only ``environ.get`` and ``getenv`` qualify.
+    """
+    root, name = _call_root_attr(call)
+    if name == "getenv":  # os.getenv('X') or a bare getenv('X')
+        return _first_str_arg(call) or "env"
+    if name == "get" and isinstance(call.func, ast.Attribute):
+        val = call.func.value
+        if isinstance(val, ast.Attribute) and val.attr == "environ":
+            return _first_str_arg(call) or "env"
+        if isinstance(val, ast.Name) and val.id == "environ":
+            return _first_str_arg(call) or "env"
+    return None
+
+
+_FILE_READ = {"read", "read_text", "read_bytes", "listdir", "rglob", "glob"}
+_FILE_WRITE = {"write", "write_text", "write_bytes", "mkdir"}
+_FILE_DELETE = {"remove", "unlink"}
+_FILE_MUTATE = {"rename"}
+
+
+def _open_mode(call: ast.Call) -> str:
+    if len(call.args) >= 2 and isinstance(call.args[1], ast.Constant) and isinstance(call.args[1].value, str):
+        return call.args[1].value
+    for kw in call.keywords:
+        if kw.arg == "mode" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+            return kw.value.value
+    return ""
+
+
+def _resource_direction(kind: str, call: ast.Call) -> str:
+    """Coarse read/write/mutate/delete/... direction of a resource effect (heuristic)."""
+    _root, name = _call_root_attr(call)
+    n = name or ""
+    if kind == "file":
+        if n in _FILE_DELETE:
+            return "delete"
+        if n in _FILE_MUTATE:
+            return "mutate"
+        if n in _FILE_WRITE:
+            return "write"
+        if n in _FILE_READ:
+            return "read"
+        if n == "open":
+            return "write" if any(c in _open_mode(call) for c in ("w", "a", "x", "+")) else "read"
+        return "read"
+    if kind == "config":
+        return "read"
+    if kind == "database":
+        if n in {"fetchone", "fetchall"}:
+            return "read"
+        if n in {"commit", "execute", "executemany"}:
+            return "write"
+        return "mutate"
+    if kind == "network":
+        return "call"
+    if kind == "process":
+        return "execute"
+    if kind == "ui":
+        return "render"
+    return "use"
+
+
 def _classify_resource(call: ast.Call) -> tuple[str | None, str | None]:
     root, name = _call_root_attr(call)
     first = _first_str_arg(call)
@@ -166,6 +233,9 @@ def _classify_resource(call: ast.Call) -> tuple[str | None, str | None]:
         return "process", first
     if name in _UI_NAMES:
         return "ui", name
+    cfg = _config_identity(call)
+    if cfg is not None:
+        return "config", cfg
     return None, None
 
 
@@ -342,16 +412,19 @@ def _emit_behavior_facts(b: _Builder, rel: str, sym_ref: str, fn: ast.AST, local
         if isinstance(sub, ast.Call):
             kind, identity = _classify_resource(sub)
             if kind:
+                direction = _resource_direction(kind, sub)
                 res_ref = f"resource://{kind}:{identity or 'unknown'}"
-                se_ref = f"side_effect://{sym_ref}/{kind}/{identity or 'unknown'}"
+                # Direction is part of the effect identity so a function that both reads and writes the
+                # same resource produces two distinct, non-colliding side-effect nodes.
+                se_ref = f"side_effect://{sym_ref}/{kind}/{identity or 'unknown'}/{direction}"
                 b.node(node_type="resource", canonical_ref=res_ref, label=identity or kind, source_ref=rel,
                        kind=kind, confidence=0.65, properties={**_source_range(sub), "identity": identity})
-                b.node(node_type="side_effect", canonical_ref=se_ref, label=f"{kind} effect", source_ref=rel,
-                       kind=kind, confidence=0.65, properties={**_source_range(sub), "resource": identity})
+                b.node(node_type="side_effect", canonical_ref=se_ref, label=f"{kind} {direction} effect", source_ref=rel,
+                       kind=kind, confidence=0.65, properties={**_source_range(sub), "resource": identity, "direction": direction})
                 b.edge(edge_type="performs_side_effect", source_ref_node=sym_ref, target_ref_node=se_ref,
-                       source_ref=rel, confidence=0.65)
+                       source_ref=rel, confidence=0.65, properties={"direction": direction})
                 b.edge(edge_type="targets_resource", source_ref_node=se_ref, target_ref_node=res_ref,
-                       source_ref=rel, confidence=0.65)
+                       source_ref=rel, confidence=0.65, properties={"direction": direction})
                 if kind == "database" and identity:
                     b.edge(edge_type="persists_to", source_ref_node=sym_ref, target_ref_node=res_ref,
                            source_ref=rel, confidence=0.65)
