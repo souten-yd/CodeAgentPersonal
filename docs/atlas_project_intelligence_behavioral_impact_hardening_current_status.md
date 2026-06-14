@@ -8,8 +8,8 @@ PIBIH: Project Intelligence Behavioral Impact Hardening
 
 ```text
 status: in_progress
-current_package: PIBIH-2
-next_action: implement Impact Analysis Core
+current_package: PIBIH-3
+next_action: implement Deep Behavioral Graph V3
 ```
 
 ## Completed Foundations
@@ -159,11 +159,73 @@ Next package: PIBIH-2 Impact Analysis Core
 Blocker: none
 ```
 
+```text
+Completed package: PIBIH-2 Impact Analysis Core
+Status: completed
+Changed modules/files:
+- agent/project_twin/analysis.py
+- tests/test_project_twin_impact_analysis.py
+- docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md
+Behavior implemented:
+- Forward-expand impact seeds along definitional `handled_by` edges so changing an api_route surfaces
+  its backend handler (reason `implements_changed_entity`) — reverse reachability alone missed it
+  because the handler is the edge target, not a dependent. Through the handler, its callers, tests,
+  and side effects are then reached.
+- Bridge a resolved python symbol (`py://path#qual`) to its name-only alias (`pyname://short`) in both
+  directions during traversal: reverse bridging finds heuristic name-based callers (e.g. a test that
+  calls an intermediate function); forward bridging lets a name-based call reach the real symbol's
+  side effects. This recovers transitive impacts/tests/effects that previously dead-ended at the
+  shared name pseudo-node.
+- Track `path_confidence` (weakest edge confidence along the discovered path) and report any impact
+  reached only through heuristic/inferred links (< 0.7) under `uncertainty`, so inferred links are
+  never presented as verified certainty.
+- Preserved direct vs transitive separation (depth), min-confidence pruning, side-effect collection,
+  recommended tests, behavior/explanation paths, and historical-risk gating via
+  `include_historical_risks`.
+Focused tests:
+- `python -m pytest tests\test_project_twin_impact_analysis.py tests\test_project_twin_analysis.py` -> 10 passed.
+  Covers: function change -> caller + tests; route change -> handler + UI caller + tests + file side
+  effect; resource change -> writers/readers; uncertainty path_confidence on heuristic links;
+  depth + min-confidence filters; historical-risk include/exclude gating.
+Syntax checks:
+- `python -m py_compile agent\project_twin\analysis.py` -> passed.
+Affected tests:
+- `python -m pytest tests\test_project_twin_analysis.py tests\test_project_twin_impact_analysis.py tests\test_project_twin_store.py tests\test_project_twin_api.py tests\test_project_twin_behavioral_graph.py tests\test_project_twin_static_graph.py tests\test_project_twin_contracts.py` -> 65 passed.
+Real model evidence:
+- localhost:8080 `/v1/chat/completions` advisory review of the analysis.py diff returned `verdict: pass`
+  with no concerns. This is advisory evidence only; the deterministic graph-assertion tests are authoritative.
+Project Intelligence evidence:
+- Not applicable to PIBIH-2 (planning/generation injection is PIBIH-4).
+Impact analysis evidence:
+- Deterministic fixture (function A calls B; route R handled by A; JS click calls R; B touches file F;
+  test T covers A) asserts direct/transitive impacts, route->handler/UI/test/side-effect, resource
+  writers/readers, uncertainty, filters, and historical-risk gating.
+Web research evidence:
+- Not applicable; external/web calls remain disabled by default.
+Runtime/Portal evidence:
+- No Portal/runtime paths changed; analysis reads the twin snapshot and never mutates.
+Unavailable checks:
+- No live end-to-end Atlas plan-with-impact UI run was executed; PIBIH-6 owns UI/planner exposure.
+- config/env read facts are not yet modeled (PIBIH-3 owns request/session/app state and config/env),
+  so resource-impact coverage here is limited to file/db/network/process/ui resources.
+Safety invariants:
+- Proposal / Safe Apply / Verification boundaries were not bypassed.
+- Inferred/heuristic links are reported with status + path_confidence and never marked verified.
+- No external provider enabled; no secrets or generated-data persistence added.
+- `unavailable` checks are not marked as passed.
+Remaining gaps:
+- Name-alias bridging is intentionally heuristic (name collisions over-connect) and is surfaced via
+  reduced path_confidence; PIBIH-3 import/alias-aware resolution will tighten it.
+- config/env resource facts deferred to PIBIH-3.
+Next package: PIBIH-3 Deep Behavioral Graph V3
+Blocker: none
+```
+
 ## Next Package Queue
 
 ```text
 PIBIH-1: LLM Planning Timeout and Streaming Progress Hardening  (completed)
-PIBIH-2: Impact Analysis Core
+PIBIH-2: Impact Analysis Core  (completed)
 PIBIH-3: Deep Behavioral Graph V3
 PIBIH-4: Project Intelligence Planning and Generation Injection
 PIBIH-5: Plan-Time Nexus Web Research
