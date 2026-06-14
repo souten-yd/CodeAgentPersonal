@@ -22,6 +22,7 @@ from agent.project_convergence.contracts import ConvergenceDecisionRequest, Conv
 from agent.project_convergence.facade import DisabledConvergenceModule
 from agent.project_intelligence.contracts import (
     ApplyResultRequest,
+    BehaviorPathSummary,
     ContextManifest,
     GenerationContextPackage,
     GenerationContextRequest,
@@ -29,6 +30,7 @@ from agent.project_intelligence.contracts import (
     ImpactSummary,
     IntelligenceDiagnostic,
     IntelligenceErrorCode,
+    InterfaceSummary,
     PlanningContextPackage,
     PlanningContextRequest,
     PostApplyIntelligenceResult,
@@ -40,8 +42,11 @@ from agent.project_intelligence.contracts import (
     ProjectProgressResult,
     ProjectStateSummary,
     RequirementSummary,
+    SourceFileContext,
+    SymbolSummary,
     TestSummary,
     UncertaintySummary,
+    VerificationRequirement,
     VerificationResultRequest,
 )
 from agent.project_intelligence.project_mode import detect_project_mode
@@ -196,6 +201,76 @@ class ProjectIntelligenceCoordinator:
             context_manifest=twin_pkg.manifest,
         )
 
+    def _active_generation(self, request: GenerationContextRequest) -> GenerationContextPackage:
+        """Build a rich generation context from the twin instead of returning a baseline package.
+
+        Mirrors ``_active_planning``: open the project, and when the twin is ready, inject the relevant
+        symbols, interfaces, behavior paths, preserve-behaviors, convergence gaps, recommended
+        verification, and source excerpts into the package the Patch Proposal / Repair prompts consume.
+        Remains advisory only — it never decides apply/verify (ADR-PI-003).
+        """
+        phase = "generation"
+        state = self._twin.open_project(
+            OpenTwinRequest(
+                project=request.project,
+                requested_capabilities=["source_snapshot", "durable_revision", "query", "context"],
+                rollout_mode="active",
+                correlation_id=request.correlation_id,
+            )
+        )
+        readiness = str(getattr(state.readiness, "value", state.readiness))
+        if readiness == "disabled":
+            return self._baseline_generation(request, "active")
+        project = state.project
+        twin_pkg = self._twin.build_context(
+            TwinContextRequest(
+                project_id=project.project_id,
+                workspace_id=project.workspace_id,
+                objective="",
+                phase=phase,
+                target_refs=list(request.target_refs),
+                token_budget=request.token_budget,
+            )
+        )
+        twin_revision_id = twin_pkg.twin_revision_id or state.twin_revision_id
+        return GenerationContextPackage(
+            project_id=project.project_id,
+            workspace_id=project.workspace_id,
+            plan_pool_id=request.plan_pool_id,
+            plan_item_id=request.plan_item_id,
+            actual_twin_revision_id=twin_revision_id,
+            actual_symbols=[
+                SymbolSummary(ref=item.ref, name=item.summary or item.ref, kind=item.kind)
+                for item in twin_pkg.symbols
+            ],
+            required_interfaces=[
+                InterfaceSummary(ref=item.ref, name=item.summary or item.ref, signature=item.inclusion_reason)
+                for item in twin_pkg.interfaces
+            ],
+            behavior_paths=[
+                BehaviorPathSummary(path_id=item.ref, steps=list(item.source_refs), inferred=item.status != "verified")
+                for item in twin_pkg.behavior_paths
+            ],
+            preserve_behaviors=[item.ref for item in twin_pkg.preserve_behaviors],
+            convergence_gaps=[
+                GapSummary(gap_id=item.ref, description=item.summary, mandatory=False, missing_refs=list(item.source_refs))
+                for item in twin_pkg.preserve_behaviors
+                if item.status in {"missing", "contradicted"}
+            ],
+            verification_requirements=[
+                VerificationRequirement(requirement_id=item.ref, description=item.summary or item.ref, must_observe=list(item.source_refs))
+                for item in twin_pkg.tests
+            ],
+            target_files=[
+                SourceFileContext(path=excerpt.path, ref=excerpt.ref, source_revision=excerpt.source_revision, excerpts=[excerpt])
+                for excerpt in twin_pkg.source_material
+            ],
+            prohibited_divergences=[
+                item.ref for item in twin_pkg.preserve_behaviors if item.status not in {"missing", "contradicted"}
+            ],
+            context_manifest=twin_pkg.manifest,
+        )
+
     def _shadow_compute_and_record(self, request: PlanningContextRequest | GenerationContextRequest, phase: str) -> None:
         """Compute twin context for comparison and record a telemetry artifact only."""
         pid = request.project.project_id
@@ -247,13 +322,7 @@ class ProjectIntelligenceCoordinator:
     def prepare_generation_context(self, request: GenerationContextRequest) -> GenerationContextPackage:
         phase = "generation"
         if self._rollout.phase_active(phase):
-            self._twin.build_context(
-                TwinContextRequest(project_id=request.project.project_id,
-                                   workspace_id=request.project.workspace_id,
-                                   phase=phase, target_refs=list(request.target_refs),
-                                   token_budget=request.token_budget)
-            )
-            return self._baseline_generation(request, "active")
+            return self._active_generation(request)
         if self._rollout.shadow_active(phase):
             self._shadow_compute_and_record(request, phase)
             return self._baseline_generation(request, "shadow")

@@ -8,8 +8,8 @@ PIBIH: Project Intelligence Behavioral Impact Hardening
 
 ```text
 status: in_progress
-current_package: PIBIH-4
-next_action: implement Project Intelligence Planning and Generation Injection
+current_package: PIBIH-5
+next_action: implement Plan-Time Nexus Web Research
 ```
 
 ## Completed Foundations
@@ -331,13 +331,71 @@ Next package: PIBIH-4 Project Intelligence Planning and Generation Injection
 Blocker: none
 ```
 
+```text
+Completed package: PIBIH-4 Project Intelligence Planning and Generation Injection
+Status: completed
+Changed modules/files:
+- agent/project_intelligence/coordinator.py
+- tests/test_project_intelligence_rollout_generation_injection.py
+- docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md
+Behavior implemented:
+- `prepare_generation_context` active path now builds a RICH `GenerationContextPackage` from the twin
+  (new `_active_generation`, mirroring `_active_planning`) instead of building context then discarding
+  it and returning a baseline package — the actual gap called out in the plan baseline assessment.
+- Injects actual_symbols, required_interfaces, behavior_paths, preserve_behaviors, convergence_gaps
+  (only missing/contradicted preserve-behaviors), verification_requirements (from twin tests),
+  source-excerpt target_files, prohibited_divergences (present preserve-behaviors), and the twin
+  revision + manifest.
+- The existing `AtlasGeneratorBridge` already maps these fields into the active generation context
+  dict the Patch Proposal consumes; it was receiving an empty package before, so this change makes the
+  rich Project Intelligence sections actually reach generation.
+- Off/shadow unchanged (baseline + shadow telemetry); an unready/disabled twin falls back to baseline
+  tagged active (never fabricated). Planning active injection (PlanPool metadata + impact summary) was
+  already implemented in `_active_planning`.
+Focused tests:
+- `python -m pytest tests\test_project_intelligence_rollout_generation_injection.py` -> 5 passed (off
+  inert; shadow records comparison + baseline; active injects rich context; unready twin -> baseline;
+  end-to-end rich context flows through AtlasGeneratorBridge into the proposal context dict).
+Syntax checks:
+- `python -m py_compile agent\project_intelligence\coordinator.py` -> passed.
+Affected tests:
+- All `tests\test_project_intelligence*.py` -> 377 passed, 1 xfailed (no regression to rollout,
+  generator bridge, boundaries, facade conformance, production composition).
+Real model evidence:
+- localhost:8080 advisory review of the coordinator diff -> `verdict: pass` (advisory only; rollout
+  contract tests are authoritative).
+Project Intelligence evidence:
+- Rollout off/shadow/active behavior asserted for generation; active surfaces twin symbols/behavior
+  paths/preserve-behaviors/gaps/verification/excerpts.
+Impact analysis evidence:
+- behavior_paths and preserve-behavior gaps in the generation package are derived from the twin
+  context built on the PIBIH-2/PIBIH-3 graph.
+Web research evidence:
+- Not applicable; external/web calls remain disabled by default.
+Runtime/Portal evidence:
+- Coordinator is advisory; it returns a context package and never decides apply/verify (ADR-PI-003);
+  Proposal / Safe Apply / Verification boundaries unchanged.
+Unavailable checks:
+- No live LLM patch-generation run with active Project Intelligence executed end to end; the injection
+  is covered by rollout-mode contract tests plus the bridge integration test.
+Safety invariants:
+- Off mode behaviorally equivalent to baseline; shadow returns baseline + telemetry only; unavailable
+  twin never fabricated into rich context; advisory-only (no execution authority).
+- `unavailable` checks are not marked as passed.
+Remaining gaps:
+- Wiring the active generation context into the live patch-proposal LLM prompt end to end (service-level
+  plumbing) can be hardened/verified with a live model in a follow-up; the data path is complete.
+Next package: PIBIH-5 Plan-Time Nexus Web Research
+Blocker: none
+```
+
 ## Next Package Queue
 
 ```text
 PIBIH-1: LLM Planning Timeout and Streaming Progress Hardening  (completed)
 PIBIH-2: Impact Analysis Core  (completed)
 PIBIH-3: Deep Behavioral Graph V3  (completed)
-PIBIH-4: Project Intelligence Planning and Generation Injection
+PIBIH-4: Project Intelligence Planning and Generation Injection  (completed)
 PIBIH-5: Plan-Time Nexus Web Research
 PIBIH-6: Impact UI / Planner Exposure
 PIBIH-7: Runtime Evidence Promotion and Historical Risk Memory
