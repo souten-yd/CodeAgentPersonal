@@ -31,7 +31,7 @@ from agent.project_twin.contracts import (
     TwinNode,
 )
 
-PARSER_VERSION = "static_graph.v3"
+PARSER_VERSION = "static_graph.v4"
 
 _IGNORE_DIRS = {
     ".git", "__pycache__", "node_modules", "venv_sys", "tts_envs", "third_party",
@@ -83,15 +83,34 @@ def _build_module_map(root: Path) -> dict[str, str]:
     return out
 
 
-def _import_table(tree: ast.Module) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
-    """(module_aliases, from_imports) for a module.
+def _relative_base(rel: str, level: int) -> list[str] | None:
+    """Resolve a `from .[..]` level against this file to the importing package's dotted parts.
 
-    module_aliases: local name -> dotted module (`import a.b as x` -> {x: a.b}; `import a.b` -> {a: a}).
-    from_imports:   local name -> (dotted module, original symbol) for absolute `from m import f [as g]`.
-    Relative and star imports are skipped (left to name-based matching).
+    `level=1` is the package containing the module; higher levels walk up. Returns None if the level
+    walks above the project root (left to name-based matching).
+    """
+    module_dotted = _module_dotted(rel)
+    is_init = rel.endswith("__init__.py")
+    package = module_dotted if is_init else ".".join(module_dotted.split(".")[:-1])
+    parts = [p for p in package.split(".") if p]
+    drop = level - 1
+    if drop > len(parts):
+        return None
+    return parts[: len(parts) - drop]
+
+
+def _import_table(tree: ast.Module, rel: str = "") -> tuple[dict[str, str], dict[str, tuple[str, str]], list[dict]]:
+    """(module_aliases, from_imports, diagnostics) for a module.
+
+    module_aliases: local name -> dotted module (`import a.b as x` -> {x: a.b}; `import a.b` -> {a: a};
+                    `from . import mod` -> {mod: <pkg>.mod}).
+    from_imports:   local name -> (dotted module, original symbol) for absolute AND relative
+                    `from [.]m import f [as g]` (relative resolved against ``rel``).
+    diagnostics:    star-import notices (`from m import *`), which cannot bind specific names.
     """
     module_aliases: dict[str, str] = {}
     from_imports: dict[str, tuple[str, str]] = {}
+    diagnostics: list[dict] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -100,14 +119,30 @@ def _import_table(tree: ast.Module) -> tuple[dict[str, str], dict[str, tuple[str
                 else:
                     module_aliases.setdefault(alias.name.split(".")[0], alias.name.split(".")[0])
         elif isinstance(node, ast.ImportFrom):
-            if node.level and node.level > 0:
+            level = int(node.level or 0)
+            if level > 0:
+                base = _relative_base(rel, level) if rel else None
+                if base is None:
+                    continue  # un-resolvable relative import -> name-based matching
+                mod_suffix = [p for p in (node.module or "").split(".") if p]
+                for alias in node.names:
+                    if alias.name == "*":
+                        diagnostics.append({"code": "star_import_unresolved", "file": rel, "module": "." * level + (node.module or "")})
+                        continue
+                    if node.module:
+                        # from .pkg.mod import f  -> module = <base>.pkg.mod
+                        from_imports[alias.asname or alias.name] = (".".join(base + mod_suffix), alias.name)
+                    else:
+                        # from . import mod  -> mod is a submodule of <base>
+                        module_aliases[alias.asname or alias.name] = ".".join(base + [alias.name])
                 continue
             mod = node.module or ""
             for alias in node.names:
                 if alias.name == "*":
+                    diagnostics.append({"code": "star_import_unresolved", "file": rel, "module": mod})
                     continue
                 from_imports[alias.asname or alias.name] = (mod, alias.name)
-    return module_aliases, from_imports
+    return module_aliases, from_imports, diagnostics
 
 
 def _attr_chain(node: ast.AST) -> list[str] | None:
@@ -294,7 +329,8 @@ def _analyze_python(b: _Builder, root: Path, path: Path, file_ref: str, module_m
     is_test = _is_test_file(rel)
     # Import-aware call resolution: alias/from-import tables + this file's top-level function names +
     # per-class method names (so `self.m()` resolves to the concrete method on the same class).
-    module_aliases, from_imports = _import_table(tree)
+    module_aliases, from_imports, import_diagnostics = _import_table(tree, rel)
+    b.diagnostics.extend(import_diagnostics)
     local_funcs = {n.name: n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
     class_methods: dict[str, set[str]] = {
         node.name: {it.name for it in node.body if isinstance(it, (ast.FunctionDef, ast.AsyncFunctionDef))}

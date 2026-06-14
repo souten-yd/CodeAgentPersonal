@@ -84,6 +84,35 @@ def test_builtins_are_not_flagged_ambiguous(tmp_path: Path):
     assert "len" not in callees
 
 
+def test_relative_from_import_resolves_to_canonical_ref(tmp_path: Path):
+    # R/PIBIH-3 deepening: `from .util import helper` resolves within the package.
+    _write(tmp_path, "pkg/__init__.py", "")
+    _write(tmp_path, "pkg/util.py", "def helper():\n    return 1\n")
+    _write(tmp_path, "pkg/main2.py", "from .util import helper\n\ndef caller():\n    return helper()\n")
+    result = _analyze(tmp_path)
+    triples = _edge_triples(result)
+    assert ("calls", nid("py://pkg/main2.py#caller"), nid("py://pkg/util.py#helper")) in triples
+
+
+def test_relative_module_import_resolves_attr_call(tmp_path: Path):
+    # `from . import util; util.helper()` resolves the module alias to the package submodule.
+    _write(tmp_path, "pkg/__init__.py", "")
+    _write(tmp_path, "pkg/util.py", "def helper():\n    return 1\n")
+    _write(tmp_path, "pkg/aliased2.py", "from . import util\n\ndef caller():\n    return util.helper()\n")
+    result = _analyze(tmp_path)
+    triples = _edge_triples(result)
+    assert ("calls", nid("py://pkg/aliased2.py#caller"), nid("py://pkg/util.py#helper")) in triples
+
+
+def test_star_import_emits_diagnostic(tmp_path: Path):
+    _write(tmp_path, "pkg/__init__.py", "")
+    _write(tmp_path, "pkg/util.py", "def helper():\n    return 1\n")
+    _write(tmp_path, "pkg/starred.py", "from pkg.util import *\n\ndef caller():\n    return helper()\n")
+    result = _analyze(tmp_path)
+    star = [d for d in result.diagnostics if d.get("code") == "star_import_unresolved"]
+    assert any(d.get("file") == "pkg/starred.py" for d in star)
+
+
 def test_self_method_call_resolves_to_concrete_method(tmp_path: Path):
     # R3: self.m() inside a class resolves to the concrete method ref on the same class.
     _write(
