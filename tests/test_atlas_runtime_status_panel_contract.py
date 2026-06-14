@@ -55,16 +55,13 @@ def test_approve_and_run_calls_approval_endpoint_before_patch_generation():
 def test_runtime_panel_renders_required_patch_zero_states():
     body = _function_body("renderRuntimeStatusPanel")
     for token in [
-        "current phase:",
-        "pool_id:",
-        "run_id:",
-        "items:",
-        "message:",
-        "block reason:",
-        "error:",
-        "user action required:",
-        "next action:",
-        "Patch generation has not started",
+        "phase === 'patch_generation'",
+        "Patchを生成・検証しています",
+        "view.restored_progress && view.message",
+        "復元:",
+        "状態:",
+        "runtimeConnectionLabel",
+        "推奨操作:",
         "Blocked by safety gate:",
     ]:
         assert token in body
