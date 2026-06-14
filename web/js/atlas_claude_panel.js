@@ -148,6 +148,7 @@
     if (dom.transcript) dom.transcript.innerHTML = '';
     state.transcript = [];
     let restored = false;
+    let poolRestored = false;
     try {
       const resp = await fetch('/api/atlas/projects/' + encodeURIComponent(target) + '/conversation', { headers: { 'Content-Type': 'application/json' } });
       if (resp.ok) {
@@ -164,17 +165,39 @@
           // is visible — user can scroll down to reach failure recovery and execution details.
           if (dom.transcript) dom.transcript.scrollTop = 0;
           restored = true;
+          poolRestored = true;
         }
       }
     } catch (err) {
       console.warn('Atlas project restore failed', err);
     }
-    if (!restored) {
-      // The server conversation is authoritative for an explicitly loaded project. Do NOT fall back
-      // to the global localStorage pool hint here: it is not project-scoped, so after deleting or
-      // switching projects it would resurrect the previous project's pool — leaving a stale
-      // "戦略プラン — 実行ステップ 0 件 / no plan items are available" card on a fresh/empty project.
-      // Clear the stale hints so a later no-project reload cannot resurrect a deleted pool either.
+    // The conversation may not carry an active_pool_id (never persisted, or the run was started in a
+    // prior session) even when chat messages exist. Ask the SERVER for THIS project's latest pool/run,
+    // scoped by workspace, so an in-progress *or* finished run still restores its progress indicator
+    // on reload. This is project-scoped and server-authoritative — it never resurrects another (e.g.
+    // deleted) project's pool the way the old global localStorage hint did, and it is the natural
+    // extension point for fetching multiple parallel pools per project later.
+    if (!poolRestored) {
+      try {
+        const wsId = state.activeProject.workspaceId || target;
+        if (root.AtlasPipelineAPI && root.AtlasPipelineAPI.getContinuationLatest) {
+          const latest = await root.AtlasPipelineAPI.getContinuationLatest(wsId);
+          const latestPoolId = latest && latest.ok && latest.data ? String(latest.data.pool_id || '') : '';
+          if (latestPoolId) {
+            await renderPlanPoolMarkdown(latestPoolId);
+            await restoreLatestRun(latestPoolId);
+            if (dom.transcript) dom.transcript.scrollTop = 0;
+            restored = true;
+            poolRestored = true;
+          }
+        }
+      } catch (err) {
+        console.warn('Atlas latest-pool restore failed', err);
+      }
+    }
+    if (!poolRestored) {
+      // No server-side pool for this project: drop any stale global hints so a later no-project
+      // reload cannot resurrect a deleted pool, then fall through to the empty prompt.
       try {
         localStorage.removeItem(STORAGE_LAST_POOL_ID_KEY);
         localStorage.removeItem(STORAGE_LAST_RUN_ID_KEY);
