@@ -655,6 +655,11 @@ class AtlasAutonomousCodegenOrchestratorService:
                     path = change.get("path") if isinstance(change, dict) else None
                     if path:
                         changed_refs.append(str(path))
+                # Pre-flight (before generation) has no file_changes yet; fall back to the
+                # plan item's target files so impact/evidence can be derived.
+                for tf in getattr(item, "target_files", []) or []:
+                    if tf:
+                        changed_refs.append(str(tf))
             # Opt-in: reuse a persistent Project Twin built by a prior run so impact is real.
             twin_store = self.project_twin_store
             if twin_store is None and resolve_build_project_twin():
