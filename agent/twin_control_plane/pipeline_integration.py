@@ -81,9 +81,114 @@ def twin_gate_block_reason(evidence: dict) -> str:
     return ""
 
 
+BLOCK_UNVERIFIED_ENV = "ATLAS_TWIN_BLOCK_UNVERIFIED"
+
+
+def resolve_block_unverified(value: str | None = None) -> bool:
+    """Whether the post-apply gate should hard-block a completed run that has changed
+    files but NO passing verification evidence (only unavailable/missing).
+
+    Defaults to OFF: the autonomous full-auto path legitimately auto-continues some
+    unverifiable changes (e.g. a static file whose only check is "open in a browser"),
+    so this stricter block is opt-in via ``ATLAS_TWIN_BLOCK_UNVERIFIED`` in
+    {1, on, true, yes}."""
+    raw = (value if value is not None else os.environ.get(BLOCK_UNVERIFIED_ENV, "")).strip().lower()
+    return raw in {"1", "on", "true", "yes"}
+
+
 def _stable_brief_id(pool_id: str, requirement: str) -> str:
     base = f"{pool_id}:{requirement}".strip(":") or "twin_brief"
     return "twin_brief_" + base.replace(" ", "_")[:48]
+
+
+DEFAULT_PROFILE_STORE_DIR = "ca_data/model_forge/profiles"
+
+
+def resolve_capability_profile(*, model_id: str = "", provider_id: str = "", store_dir: str | None = None):
+    """Load an evidence-backed Forge capability profile for the live model, or fall back
+    to a neutral default. Returns ``(ModelCapabilityProfile, available)``.
+
+    ``available`` is False when no persisted profile exists, so a missing profile becomes
+    neither a false weakness nor a false strength — the selector simply uses neutral
+    defaults. Never raises."""
+    from agent.model_forge.execution_policy import ModelCapabilityProfile
+
+    try:
+        from agent.model_forge.capability_scoring import build_capability_profile
+        from agent.model_forge.profile_store import ProfileStore
+
+        if not model_id:
+            return ModelCapabilityProfile(model_id="atlas-codegen"), False
+        store = ProfileStore(store_dir or DEFAULT_PROFILE_STORE_DIR)
+        persisted = store.load_profile(provider_id, model_id)
+        if persisted is None:
+            return ModelCapabilityProfile(model_id=model_id, provider_id=provider_id), False
+        return build_capability_profile(persisted, model_id=model_id, provider_id=provider_id), True
+    except Exception:
+        return ModelCapabilityProfile(model_id=model_id or "atlas-codegen", provider_id=provider_id), False
+
+
+def _build_policy_and_brief(
+    *, requirement: str, pool_id: str, project_path: str, refs: list[str],
+    item_refs: Iterable[str], change_class: str, task_category: str,
+    capability_profile=None,
+):
+    """Build the ExecutionPolicy (Forge Twin route selection) and TwinBrief for a run.
+
+    Lazy imports keep model_forge out of the twin_control_plane package import graph."""
+    from agent.model_forge.execution_policy import ExecutionPolicySelector, ModelCapabilityProfile
+    from agent.model_forge.route_matrix import ChangeClass
+
+    selector = ExecutionPolicySelector()
+    policy = selector.select(
+        ChangeClass(change_class), task_category=task_category,
+        model_profile=capability_profile or ModelCapabilityProfile(model_id="atlas-codegen"),
+    )
+    brief = TwinBrief(
+        brief_id=_stable_brief_id(pool_id, requirement),
+        goal=requirement or "autonomous codegen",
+        allowed_refs=refs,
+        impacted_refs=refs,
+        hard_constraints=default_hard_constraints(),
+        source_refs=[project_path] if project_path else [],
+        metadata={"pool_id": pool_id, "item_refs": sorted({str(i) for i in item_refs if str(i).strip()})},
+    )
+    return policy, brief
+
+
+def try_project_twin_impact(
+    *, project_id: str, changed_refs: Iterable[str], store=None, change_kind: str = "modify"
+):
+    """Best-effort real Project Twin impact for the current run.
+
+    Returns an ``ImpactResult`` when a Project Twin store with a snapshot for
+    ``project_id`` is available, else ``None`` (recorded as unavailable upstream — never
+    fabricated). Never raises. There is no persistent per-project Twin store by default,
+    so the common live outcome is ``None``; when a store is supplied (tests, or a future
+    persistent Twin), real impact flows through unchanged."""
+    refs = [str(r).strip() for r in changed_refs if str(r).strip()]
+    if store is None or not project_id or not refs:
+        return None
+    try:
+        from agent.project_twin.contracts import ImpactRequest
+
+        request = ImpactRequest(project_id=project_id, changed_refs=refs, change_kind=change_kind)
+        return store.assess_impact(request)
+    except Exception:
+        return None
+
+
+def _impact_section(impact) -> dict:
+    if impact is None:
+        return {"available": False, "reason": "project_twin_impact_unavailable"}
+    return {
+        "available": True,
+        "project_id": getattr(impact, "project_id", ""),
+        "twin_revision_id": getattr(impact, "twin_revision_id", ""),
+        "direct_impacts": len(getattr(impact, "direct_impacts", []) or []),
+        "transitive_impacts": len(getattr(impact, "transitive_impacts", []) or []),
+        "recommended_tests": len(getattr(impact, "recommended_tests", []) or []),
+    }
 
 
 def build_twin_pipeline_evidence(
@@ -94,43 +199,84 @@ def build_twin_pipeline_evidence(
     project_path: str = "",
     changed_refs: Iterable[str] = (),
     item_refs: Iterable[str] = (),
+    impact=None,
+    model_id: str = "",
+    provider_id: str = "",
+    profile_store_dir: str | None = None,
+    anti_pattern_memory=None,
+    golden_index=None,
+    skill_patches=None,
     change_class: str = "medium",
     task_category: str = "autonomous_codegen",
 ) -> dict:
     """Assemble advisory Twin evidence for one autonomous run. Never raises — any internal
-    failure is reported as ``available: False`` so the legacy flow is never broken."""
+    failure is reported as ``available: False`` so the legacy flow is never broken.
+
+    When a real Project Twin ``impact`` is supplied it flows into the shadow assembly
+    (BlastMap + TwinProof) and Contract Sentinel; when absent the impact section is
+    recorded as explicitly unavailable (never fabricated). The ExecutionPolicy is driven
+    by an evidence-backed Forge capability profile when one exists, else a neutral
+    default (recorded as ``capability_profile_unavailable``)."""
     if mode == PipelineMode.OFF:
         return {"mode": PipelineMode.OFF.value, "engaged": False, "available": False,
                 "reason": "pipeline_off"}
 
     try:
-        # Lazy imports: keep model_forge out of the twin_control_plane package import graph
-        # so the seam cannot create a module-load import cycle.
-        from agent.model_forge.execution_policy import ExecutionPolicySelector, ModelCapabilityProfile
-        from agent.model_forge.route_matrix import ChangeClass
-
         refs = sorted({str(r).strip() for r in changed_refs if str(r).strip()})
-        selector = ExecutionPolicySelector()
-        policy = selector.select(
-            ChangeClass(change_class), task_category=task_category,
-            model_profile=ModelCapabilityProfile(model_id="atlas-codegen"),
+        capability_profile, profile_available = resolve_capability_profile(
+            model_id=model_id, provider_id=provider_id, store_dir=profile_store_dir,
         )
-        brief = TwinBrief(
-            brief_id=_stable_brief_id(pool_id, requirement),
-            goal=requirement or "autonomous codegen",
-            allowed_refs=refs,
-            impacted_refs=refs,
-            hard_constraints=default_hard_constraints(),
-            source_refs=[project_path] if project_path else [],
-            metadata={"pool_id": pool_id, "item_refs": sorted({str(i) for i in item_refs if str(i).strip()})},
+        policy, brief = _build_policy_and_brief(
+            requirement=requirement, pool_id=pool_id, project_path=project_path, refs=refs,
+            item_refs=item_refs, change_class=change_class, task_category=task_category,
+            capability_profile=capability_profile,
         )
         shadow_orch = TwinShadowOrchestrator(TwinShadowMode.SHADOW)
         shadow_report: TwinShadowReport | None = shadow_orch.assemble(
             requirement_ref=requirement, plan_item_ref=pool_id,
             execution_policy=policy, twin_brief=brief, changed_refs=refs,
+            impact=impact,
         )
+        # Contract Sentinel over the real BlastMap when impact evidence exists.
+        contract_section: dict | None = None
+        if impact is not None:
+            try:
+                from agent.twin_control_plane.blast_map import build_blast_map
+                from agent.twin_control_plane.contract_sentinel import evaluate_contracts
+
+                blast = build_blast_map(impact, brief=brief, changed_refs=refs)
+                sentinel = evaluate_contracts(policy, brief, blast)
+                contract_section = {
+                    "report_id": sentinel.report_id,
+                    "accepted": sentinel.accepted,
+                    "blocked": sentinel.blocked,
+                    "proof_requirements": list(sentinel.proof_requirements),
+                }
+            except Exception:
+                contract_section = {"available": False, "reason": "contract_sentinel_error"}
+
+        # Compile the deterministic model-facing instruction so the live generator can
+        # receive it as a bounded control section (advisory; never overrides authority).
+        compiled_text = ""
+        instruction_id = ""
+        try:
+            from agent.twin_control_plane.instruction_compiler import compile_model_instruction
+
+            compiled = compile_model_instruction(brief, policy)
+            compiled_text = compiled.text
+            instruction_id = compiled.instruction_id
+        except Exception:
+            compiled_text = ""
+
+        # Advisory-only context (anti-pattern guardrails / golden patches / skills).
+        advisory = build_advisory_context(
+            memory=anti_pattern_memory, golden_index=golden_index, skill_patches=skill_patches,
+            model_id=model_id, route=policy.route.value, project_ref=pool_id, changed_refs=refs,
+        )
+        if compiled_text and advisory.get("text"):
+            compiled_text = f"{compiled_text}\n\n{ADVISORY_PROMPT_HEADER}\n{advisory['text']}"
+
         has_shadow_evidence = shadow_report is not None
-        # Active requires shadow evidence; without it we record the gap, not a forced change.
         engaged = mode == PipelineMode.ACTIVE and has_shadow_evidence
         evidence = {
             "mode": mode.value,
@@ -144,6 +290,18 @@ def build_twin_pipeline_evidence(
             "twin_injection_level": int(policy.twin_injection_level),
             "required_gates": list(policy.required_gates),
             "brief_id": brief.brief_id,
+            "capability_profile_available": profile_available,
+            "capability_profile_unavailable": not profile_available,
+            "known_weaknesses": list(capability_profile.known_weaknesses),
+            "compiled_instruction": compiled_text,
+            "instruction_id": instruction_id,
+            "advisory_context": {
+                "hint_count": len(advisory.get("hints", [])),
+                "golden_patch_count": len(advisory.get("golden_patches", [])),
+                "skill_count": len(advisory.get("skills", [])),
+            },
+            "impact": _impact_section(impact),
+            "contract_sentinel": contract_section,
             "shadow_report": shadow_report.model_dump(mode="json") if shadow_report else None,
         }
         return evidence
@@ -152,12 +310,320 @@ def build_twin_pipeline_evidence(
                 "available": False, "reason": f"twin_evidence_error:{type(exc).__name__}"}
 
 
+TWIN_CONTROL_PROMPT_HEADER = (
+    "[Twin Control Plane — advisory hard constraints. These do NOT override the existing "
+    "Proposal / Safe Apply / Verification authority; honor them as bounded guidance.]"
+)
+
+
+REPAIR_COMPASS_PROMPT_HEADER = (
+    "[Twin Repair Compass — targeted repair guidance. Preserve all hard boundaries; do NOT "
+    "weaken or delete tests/gates, bypass Safe Apply, or treat unavailable evidence as passed.]"
+)
+
+
+def compose_generation_system_prompt(base_prompt: str, twin_instruction: str | None) -> str:
+    """Append the compiled Twin instruction as a bounded control section to a generation
+    system prompt. Returns the base prompt unchanged when there is no instruction (so OFF
+    mode and missing instructions never alter legacy prompt behavior)."""
+    section = (twin_instruction or "").strip()
+    if not section:
+        return base_prompt
+    return f"{base_prompt}\n\n{TWIN_CONTROL_PROMPT_HEADER}\n{section}"
+
+
+def compose_repair_system_prompt(base_prompt: str, repair_guidance: str | None) -> str:
+    """Append Repair Compass guidance as a bounded section for a repair attempt. Off-safe:
+    no guidance leaves the base prompt unchanged."""
+    section = (repair_guidance or "").strip()
+    if not section:
+        return base_prompt
+    return f"{base_prompt}\n\n{REPAIR_COMPASS_PROMPT_HEADER}\n{section}"
+
+
+def _render_repair_guidance(repair) -> str:
+    """Render a RepairCompassReport into a compact, model-facing guidance block."""
+    lines = ["# Repair Compass guidance"]
+    for instruction in repair.instructions:
+        lines.append(f"- [{instruction.category.value}] {instruction.summary}")
+        for proof in instruction.proof_requirements:
+            lines.append(f"  proof: {proof}")
+    if repair.product_regression_refs:
+        lines.append("Product regression to fix: " + ", ".join(repair.product_regression_refs))
+    if repair.environment_unavailable_refs:
+        lines.append("Environment-unavailable (keep separate, do not change product for this): "
+                     + ", ".join(repair.environment_unavailable_refs))
+    if repair.prohibited_actions:
+        lines.append("Prohibited:")
+        lines.extend(f"  - {action}" for action in repair.prohibited_actions)
+    return "\n".join(lines)
+
+
+def build_advisory_context(
+    *,
+    memory=None,
+    golden_index=None,
+    skill_patches=None,
+    model_id: str = "",
+    route: str = "",
+    project_ref: str = "",
+    changed_refs: Iterable[str] = (),
+    retrieval_enabled: bool = True,
+) -> dict:
+    """Assemble advisory-only prompt context — anti-pattern guardrails, retrieved golden
+    patches, and distilled skills. These NEVER override Twin / Contract / Schema / State /
+    Proof findings; they are examples and hints only.
+
+    Everything degrades safely to empty when its store/index is absent, and low-confidence
+    or evidence-free entries are filtered out (so they are never injected). Never raises."""
+    hints: list[dict] = []
+    golden: list[dict] = []
+    skills: list[dict] = []
+    refs = [str(r).strip() for r in changed_refs if str(r).strip()]
+    try:
+        if memory is not None:
+            from agent.twin_control_plane.anti_pattern_memory import guardrail_hints
+            for hint in guardrail_hints(memory, model_id=model_id, route=route, project_ref=project_ref):
+                hints.append({"text": hint.text, "strength": hint.strength.value,
+                              "confidence": hint.confidence, "evidence_refs": list(hint.evidence_refs)})
+    except Exception:
+        pass
+    try:
+        if golden_index is not None and retrieval_enabled:
+            from agent.model_forge.golden_patch_retrieval import RetrievalQuery
+            from agent.model_forge.route_taxonomy import ForgeRoute
+            route_enum = None
+            try:
+                route_enum = ForgeRoute(route) if route else None
+            except ValueError:
+                route_enum = None
+            query = RetrievalQuery(task_category="autonomous_codegen", route=route_enum,
+                                   model_id=model_id, affected_refs=refs)
+            for rp in golden_index.retrieve(query, enabled=retrieval_enabled):
+                golden.append({"patch_id": rp.patch.patch_id, "confidence": rp.confidence,
+                               "advisory": rp.advisory, "summary": rp.patch.summary})
+    except Exception:
+        pass
+    try:
+        if skill_patches:
+            from agent.model_forge.skill_distiller import distill_skills
+            for skill in distill_skills(list(skill_patches), enabled=retrieval_enabled):
+                skills.append({"skill_id": skill.skill_id, "hint": skill.hint,
+                               "support": skill.support, "advisory": skill.advisory})
+    except Exception:
+        pass
+
+    lines: list[str] = []
+    if hints:
+        lines.append("Anti-pattern guardrails (advisory):")
+        lines.extend(f"- {h['text']}" for h in hints)
+    if golden:
+        lines.append("Similar prior successful patches (advisory examples only):")
+        lines.extend(f"- {g['patch_id']}: {g['summary']}" for g in golden)
+    if skills:
+        lines.append("Distilled skills (advisory):")
+        lines.extend(f"- {s['hint']}" for s in skills)
+    return {"hints": hints, "golden_patches": golden, "skills": skills,
+            "text": "\n".join(lines)}
+
+
+ADVISORY_PROMPT_HEADER = (
+    "[Twin advisory context — examples and hints only. These NEVER override current Twin / "
+    "Contract / Schema / State / Proof findings or any hard constraint.]"
+)
+
+
+def _verification_evidence(verification: Iterable):
+    """Normalise (id, status) pairs or {evidence_id,status} dicts into VerificationEvidence.
+    Anything that is not an explicit passed/failed is treated as unavailable (never passed)."""
+    from agent.twin_control_plane.patch_impact_gate import VerificationEvidence
+
+    out = []
+    for idx, item in enumerate(verification or []):
+        if isinstance(item, dict):
+            ev_id = str(item.get("evidence_id") or item.get("id") or f"verify_{idx}")
+            status = str(item.get("status") or "").strip().lower()
+        else:
+            ev_id = f"verify_{idx}"
+            status = str(item).strip().lower()
+        if status not in {"passed", "failed"}:
+            status = "unavailable"
+        out.append(VerificationEvidence(evidence_id=ev_id, status=status))
+    return out
+
+
+def evaluate_twin_post_apply(
+    *,
+    mode: PipelineMode,
+    blocking: bool,
+    block_unverified: bool = False,
+    requirement: str = "",
+    pool_id: str = "",
+    project_path: str = "",
+    changed_files: Iterable[str] = (),
+    verification: Iterable = (),
+    before_twin_revision_id: str = "",
+    after_twin_revision_id: str = "",
+    git_commit_sha: str = "",
+    requirement_ref: str = "",
+    plan_item_ref: str = "",
+    model_id: str = "",
+    provider_id: str = "",
+    impact=None,
+    attempted_actions: Iterable[str] = (),
+    contract_sentinel=None,
+    schema_guardian=None,
+    state_mirror=None,
+    twinproof=None,
+    change_class: str = "medium",
+    task_category: str = "autonomous_codegen",
+) -> dict:
+    """Run the Patch Impact Gate over the autonomous run's REAL post-apply evidence and
+    return a record (plus a hard-block signal). Never raises.
+
+    Blocking is conservative:
+    - a genuine BLOCKED decision (hard contract/schema/state boundary) hard-blocks;
+    - a completed change with changed files but NO passing verification only hard-blocks
+      when ``block_unverified`` is explicitly enabled (it is otherwise recorded as an
+      advisory proof gap, so legitimate auto-continued static changes are not disrupted);
+    - ``unavailable`` evidence is never treated as passed."""
+    if mode == PipelineMode.OFF:
+        return {"mode": PipelineMode.OFF.value, "ran": False, "gate_blocked": False,
+                "block_reason": "", "reason": "pipeline_off"}
+    try:
+        from agent.twin_control_plane.patch_impact_gate import PatchGateDecision, evaluate_patch_impact
+
+        files = sorted({str(f).strip() for f in changed_files if str(f).strip()})
+        policy, brief = _build_policy_and_brief(
+            requirement=requirement, pool_id=pool_id, project_path=project_path, refs=files,
+            item_refs=(), change_class=change_class, task_category=task_category,
+        )
+        # Build real sub-gate reports from impact evidence when available. Schema Guardian
+        # and StateMirror need before/after snapshots/observations that the autonomous
+        # codegen path does not currently produce, so they stay unavailable (not fabricated).
+        sub_gate_sources: list[str] = []
+        if impact is not None:
+            try:
+                from agent.twin_control_plane.blast_map import build_blast_map
+                blast = build_blast_map(impact, brief=brief, changed_refs=files)
+                if contract_sentinel is None:
+                    from agent.twin_control_plane.contract_sentinel import evaluate_contracts
+                    contract_sentinel = evaluate_contracts(
+                        policy, brief, blast, attempted_actions=attempted_actions)
+                    sub_gate_sources.append("contract_sentinel")
+                if twinproof is None:
+                    from agent.twin_control_plane.twinproof import build_twinproof
+                    twinproof = build_twinproof(impacted_refs=blast.changed_refs)
+                    sub_gate_sources.append("twinproof")
+            except Exception:
+                pass
+
+        evidence_items = _verification_evidence(verification)
+        report = evaluate_patch_impact(
+            policy=policy, brief=brief,
+            base_ref=before_twin_revision_id, head_ref=after_twin_revision_id or "working_tree",
+            changed_files=files,
+            before_twin_revision_id=before_twin_revision_id,
+            after_twin_revision_id=after_twin_revision_id,
+            verification=evidence_items,
+            contract_sentinel=contract_sentinel, schema_guardian=schema_guardian,
+            state_mirror=state_mirror, twinproof=twinproof,
+        )
+        # Durable Proof Ledger entry describing this decision (the orchestrator persists it).
+        ledger_entry_dump = None
+        try:
+            from agent.twin_control_plane.proof_ledger import create_proof_ledger_entry
+            entry = create_proof_ledger_entry(
+                requirement_ref=requirement_ref, plan_item_ref=plan_item_ref,
+                policy=policy, brief=brief, patch_report=report,
+                model_id=model_id, provider_id=provider_id,
+            )
+            ledger_entry_dump = entry.model_dump(mode="json")
+        except Exception:
+            ledger_entry_dump = None
+
+        # Repair Compass guidance for needs_repair / blocked decisions (advisory; preserves
+        # all hard boundaries — never weakens tests/gates/Safe Apply/approval).
+        repair_section = None
+        repair_guidance = ""
+        if report.needs_repair or report.blocked:
+            try:
+                from agent.twin_control_plane.repair_compass import build_repair_compass
+                repair = build_repair_compass(policy=policy, brief=brief, patch_report=report)
+                repair_guidance = _render_repair_guidance(repair)
+                repair_section = {
+                    "report_id": repair.report_id,
+                    "prohibited_actions": list(repair.prohibited_actions),
+                    "product_regression_refs": list(repair.product_regression_refs),
+                    "environment_unavailable_refs": list(repair.environment_unavailable_refs),
+                    "instructions": [
+                        {"category": i.category.value, "summary": i.summary} for i in repair.instructions
+                    ],
+                }
+            except Exception:
+                repair_section = None
+
+        has_passed = bool(report.passed_evidence_refs)
+        unverified_change = bool(files) and not has_passed
+
+        block_reason = ""
+        if blocking and report.decision == PatchGateDecision.BLOCKED:
+            block_reason = "twin_post_apply_hard_boundary"
+        elif blocking and block_unverified and unverified_change:
+            block_reason = "twin_post_apply_unverified_change"
+
+        return {
+            "mode": mode.value,
+            "ran": True,
+            "decision": report.decision.value,
+            "accepted": report.accepted,
+            "needs_repair": report.needs_repair,
+            "blocked_decision": report.blocked,
+            "unverified_change": unverified_change,
+            "gate_blocked": bool(block_reason),
+            "block_reason": block_reason,
+            "sub_gates": {
+                "contract_sentinel": contract_sentinel is not None,
+                "schema_guardian": schema_guardian is not None,
+                "state_mirror": state_mirror is not None,
+                "twinproof": twinproof is not None,
+                "built_from_impact": sub_gate_sources,
+            },
+            "gate_refs": list(report.gate_refs),
+            "ledger_entry": ledger_entry_dump,
+            "repair_compass": repair_section,
+            "repair_guidance": repair_guidance,
+            "passed_evidence": list(report.passed_evidence_refs),
+            "failed_evidence": list(report.failed_evidence_refs),
+            "unavailable_evidence": list(report.unavailable_evidence_refs),
+            "repair_reasons": list(report.repair_reasons),
+            "blocked_reasons": list(report.blocked_reasons),
+            "proof_requirements": list(report.proof_requirements),
+            "report_id": report.report_id,
+        }
+    except Exception as exc:  # pragma: no cover - defensive: never break the legacy flow
+        return {"mode": getattr(mode, "value", str(mode)), "ran": False, "gate_blocked": False,
+                "block_reason": "", "reason": f"twin_post_apply_error:{type(exc).__name__}"}
+
+
 __all__ = [
     "PIPELINE_MODE_ENV",
     "GATE_BLOCKING_ENV",
+    "BLOCK_UNVERIFIED_ENV",
     "DEFAULT_PIPELINE_MODE",
     "resolve_pipeline_mode",
     "resolve_gate_blocking",
+    "resolve_block_unverified",
     "twin_gate_block_reason",
+    "try_project_twin_impact",
+    "resolve_capability_profile",
+    "DEFAULT_PROFILE_STORE_DIR",
+    "TWIN_CONTROL_PROMPT_HEADER",
+    "REPAIR_COMPASS_PROMPT_HEADER",
+    "compose_generation_system_prompt",
+    "compose_repair_system_prompt",
+    "build_advisory_context",
+    "ADVISORY_PROMPT_HEADER",
     "build_twin_pipeline_evidence",
+    "evaluate_twin_post_apply",
 ]

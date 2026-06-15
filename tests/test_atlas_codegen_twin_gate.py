@@ -140,3 +140,15 @@ def test_blocking_can_be_disabled_while_active(tmp_path, monkeypatch):
     # Blocking disabled: the prerequisite failure is recorded but does not stop the run.
     assert out.stop_reason != "twin_gate_requires_shadow_evidence"
     assert out.metadata["twin_control_plane"]["gate_blocked"] is False
+
+
+def test_post_apply_persists_proof_ledger_entry(tmp_path, monkeypatch):
+    monkeypatch.delenv("ATLAS_TWIN_PIPELINE_MODE", raising=False)
+    svc = _svc(tmp_path)
+    out = svc.run(_request())
+    # The post-apply gate ran and a durable ledger entry was written under data_root.
+    from agent.twin_control_plane.proof_ledger import ProofLedgerStore
+    store = ProofLedgerStore(tmp_path / "twin_control_plane" / "proof_ledger")
+    entries = store.load().entries
+    assert entries, "expected a durable proof ledger entry"
+    assert out.metadata["twin_control_plane"]["post_apply"]["ran"] is True

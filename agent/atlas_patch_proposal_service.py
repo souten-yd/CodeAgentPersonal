@@ -135,6 +135,13 @@ class AtlasPatchProposalService:
         try:
             self.persist_patch_generation_transition(pool, item, run_id=run_id, event_type="patch_generation_started", state="running", outcome="active", reason_code="patch_generation_started", retryable=True)
             payload = self.build_proposal_input(pool, item, request)
+            # Twin Control Plane: carry the compiled instruction (when shadow/active) so the
+            # generator receives it as a bounded, advisory control section.
+            twin_hints = (request.metadata or {}).get("twin_generation_hints") or {}
+            if isinstance(twin_hints, dict) and twin_hints.get("twin_instruction"):
+                payload["twin_control_section"] = str(twin_hints["twin_instruction"])
+            if isinstance(twin_hints, dict) and twin_hints.get("twin_repair_section"):
+                payload["twin_repair_section"] = str(twin_hints["twin_repair_section"])
             payload, pi_generation = self._attach_project_intelligence_generation_context(pool, item, request, payload)
             if pi_generation.get("blocked"):
                 warnings = ["project_intelligence_generation_blocked", *list(pi_generation.get("diagnostics") or [])]
@@ -859,6 +866,12 @@ class AtlasPatchProposalService:
             "You generate advisory patch proposals only. Return a single JSON object only, no prose, "
             "no markdown fences. Do not claim changes were applied."
         )
+        # Twin Control Plane bounded control sections (advisory; off by default -> no change).
+        from agent.twin_control_plane.pipeline_integration import (
+            compose_generation_system_prompt, compose_repair_system_prompt,
+        )
+        system_prompt = compose_generation_system_prompt(system_prompt, input_payload.get("twin_control_section"))
+        system_prompt = compose_repair_system_prompt(system_prompt, input_payload.get("twin_repair_section"))
         item_for_task = input_payload.get("item") or {}
         target_exists = bool(item_for_task.get("target_file_exists"))
         if str(item_for_task.get("patch_task_kind") or "") == "structural_change":
