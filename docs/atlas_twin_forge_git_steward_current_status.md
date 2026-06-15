@@ -1,6 +1,6 @@
 # Atlas Twin / Forge / Git Steward — Current Status
 
-Status: full package sequence (TFG-1..13) implemented AND wired into the live autonomous codegen orchestrator behind a config gate. User approved the active cut-over; active mode is enabled via `ATLAS_TWIN_PIPELINE_MODE=active`. The repository code default stays OFF (Must Preserve: off mode preserves current behavior), so the cut-over is reversible and a fresh checkout is unchanged.
+Status: full package sequence (TFG-1..13) implemented, wired into the live autonomous codegen orchestrator, and promoted. Per explicit user approval, the repository default is now `ATLAS_TWIN_PIPELINE_MODE=active` and the Twin gate is a blocking gate (`ATLAS_TWIN_GATE_BLOCKING`, default on). Both remain fully reversible by environment (`ATLAS_TWIN_PIPELINE_MODE=off`, `ATLAS_TWIN_GATE_BLOCKING=off`). The off-mode code path is preserved unchanged. Blocking is limited to a genuine policy prerequisite (active engaged without assembled shadow evidence) and never blocks on advisory uncertainty or infrastructure unavailability, so normal runs proceed. The seam stays advisory for execution authority — Atlas keeps Proposal / Safe Apply / Verification / Repair.
 
 This file is the mutable checkpoint for the approved integration of Project Intelligence, Project Digital Twin, Genesis/Greenfield, Forge Execution Policy, and Atlas Git Steward.
 
@@ -79,7 +79,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-9A | Anti-Pattern Memory | production_connected | anti_pattern_memory_component_complete |
 | TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | golden_patch_skill_distiller_component_complete |
 | TFG-11 | Atlas pipeline shadow integration | shadow_connected | shadow_assembler_component_complete |
-| TFG-12 | Active rollout and acceptance | acceptance_complete | live_pipeline_wired_behind_config_gate; active_enabled_via_env; repo_default_off |
+| TFG-12 | Active rollout and acceptance | acceptance_complete | active_is_default; blocking_gate_promoted; reversible_via_env; off_path_preserved |
 | TFG-13 | Real LLM and real runtime evaluation closure | real_llm_evaluated / real_runtime_evaluated | real_llm_and_real_runtime_end_to_end_acceptance_collected |
 
 ## Safety invariants
@@ -131,6 +131,45 @@ Blocker, if any:
 ```
 
 ## Initial implementation record
+
+```text
+Work package: TFG-12 promotion — default active + blocking gate (user-approved)
+Status: active is the repository default; the Twin gate is a blocking gate; both reversible by env; operational evaluation run
+Proof level: acceptance_complete for the gated active rollout with real LLM + real runtime acceptance evidence; off path preserved
+Commit/PR: local branch codex/tfg-active-default-blocking-gate; remote publication requested by user
+Changed modules/files:
+- agent/twin_control_plane/pipeline_integration.py (default ACTIVE; resolve_gate_blocking; twin_gate_block_reason)
+- agent/atlas_autonomous_codegen_orchestrator_service.py (seam returns a block reason; run() honors a Twin gate block as blocked_safety_review)
+- tests/test_twin_pipeline_integration.py
+- tests/test_atlas_codegen_twin_gate.py (new orchestrator-level gate tests)
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_twin_pipeline_integration.py` -> 10 passed in 1.10s.
+- `python -m pytest -q tests/test_atlas_codegen_twin_gate.py` -> 4 passed in 1.76s.
+- `python -m pytest -q tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_autonomous_codegen_api.py` -> 40 passed in 13.87s (default active + blocking on; normal runs not blocked).
+- `FORGE_LOCAL_MODEL=... FORGE_LOCAL_BASE_URL=http://127.0.0.1:8080 python -m pytest -q tests/test_twin_acceptance_closure.py::test_real_model_end_to_end_acceptance -m real_model` -> 1 passed in 3.46s (real LLM + real runtime acceptance under active default).
+- Full regression across twin_control_plane, model_forge, pipeline, gate, acceptance, and codegen suites -> 250 passed, 2 deselected in 60.32s.
+Real LLM evidence:
+- Re-confirmed: live Mistral-Small-3.2-24B generated add(a, b); accepted end-to-end through the gated active pipeline.
+Real runtime evidence:
+- Real pytest verification passed inside the isolated workspace; existing 40 orchestrator/API tests pass with default active + blocking enabled.
+Operational evaluation:
+- Default active attaches engaged Twin evidence to every run; normal runs proceed (gate_blocked=False).
+- The blocking gate stops a run with status=blocked_safety_review and stop_reason=twin_gate_requires_shadow_evidence only when the prerequisite genuinely fails.
+- ATLAS_TWIN_PIPELINE_MODE=off reverts the seam (mode off, engaged False, never blocks).
+- ATLAS_TWIN_GATE_BLOCKING=off keeps active evidence but disables blocking.
+Unavailable checks:
+- A long-running live autonomous run against a large real project in active mode was not executed in CI; covered by the orchestrator suite plus the real-model acceptance harness.
+Safety invariants checked:
+- Off-mode code path preserved and reachable (reversibility verified by test).
+- Blocking is conservative: only the active-without-shadow-evidence prerequisite blocks; advisory uncertainty and infra-unavailable never block (unavailable != failed).
+- Atlas retains Proposal / Safe Apply / Verification / Repair authority; the seam never applies, verifies, commits, or publishes.
+- Remote publication remains approval-bound and untouched.
+Known limitations:
+- The blocking condition is intentionally the single hard prerequisite; promoting post-apply contract/state/schema findings to hard blocks is a further, separately-tunable step.
+Next package: Optional — extend blocking to post-apply Twin gate findings (Patch Impact Gate / Contract Sentinel / StateMirror) as a separately-approved tightening.
+Blocker, if any: none; active and blocking are both reversible via environment variables.
+```
 
 ```text
 Work package: TFG-12 live-pipeline cut-over (user-approved active integration)
