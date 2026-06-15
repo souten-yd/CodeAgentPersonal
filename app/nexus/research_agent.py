@@ -1449,6 +1449,346 @@ def _init_replenishment_metrics(enabled: bool, engine_health_tracker: EngineHeal
 def _select_replenishment_candidates(ranked_candidates: list[dict], attempted: set[str], needed: int, deficits: dict) -> list[dict]:
     return _select_download_candidates(ranked_candidates, attempted, needed, {}, deficits)
 
+
+def _run_planning_phase(payload: ResearchAgentInput, *, effective_job_id: str, query: str) -> dict[str, Any]:
+    """Planning phase: intent inference, optional broad screening, focused plan, and query set.
+
+    Emits the planning_started/finished phase events and the screening events, and returns the
+    planning artifacts consumed by the retrieval phases.
+    """
+    _emit_phase(effective_job_id, "planning_started", phase="planning", message="planning started", progress=0.05)
+    _record_state(effective_job_id, "planning", message="query planning", progress=0.1)
+    depth_key = str(payload.depth or payload.mode or "standard").strip().lower()
+    intent = infer_research_intent(query, payload.source_profile, depth_key)
+    screening_settings = get_screening_settings(depth_key)
+    screening_result: dict[str, Any] = {"candidates": [], "summary": {}, "payload": {}}
+    if screening_settings.get("enabled"):
+        append_job_event(effective_job_id, "screening_started", {"status": "running", "phase": "broad_screening", **screening_settings, "updated_at": _now_iso()})
+        screening_result = run_broad_screening(
+            intent,
+            target_screening_candidates=int(screening_settings.get("target_screening_candidates") or 0),
+            max_screening_queries=int(screening_settings.get("max_screening_queries") or 1),
+            max_results_per_query=int(screening_settings.get("max_results_per_query") or 10),
+        )
+        append_job_event(effective_job_id, "screening_completed", {"status": "running", "phase": "broad_screening", **dict(screening_result.get("payload") or {}), "updated_at": _now_iso()})
+    screening_summary = dict(screening_result.get("summary") or {})
+    focused_research_plan = build_focused_research_plan(intent, screening_summary, depth=depth_key)
+    focused_queries = [str(item.get("query") or "").strip() for item in focused_research_plan.get("focused_queries") or [] if str(item.get("query") or "").strip()]
+    queries = focused_queries or plan_web_queries(
+        query,
+        mode=payload.mode,
+        depth=payload.depth,
+        max_queries=payload.max_queries,
+        scope=payload.scope,
+        language=payload.language,
+        source_profile=payload.source_profile,
+    )
+    _emit_phase(
+        effective_job_id,
+        "planning_finished",
+        phase="planning",
+        message="planning finished",
+        progress=0.2,
+        details={"queries": len(queries), "screening_candidates": int((screening_result.get("payload") or {}).get("unique_candidate_count") or 0), "focused_queries": len(focused_queries)},
+    )
+    update_job(effective_job_id, status="running", progress=0.2, message="searching web")
+    return {
+        "depth_key": depth_key,
+        "intent": intent,
+        "screening_result": screening_result,
+        "screening_summary": screening_summary,
+        "focused_research_plan": focused_research_plan,
+        "focused_queries": focused_queries,
+        "queries": queries,
+    }
+
+
+def _run_recursive_phase(
+    payload: ResearchAgentInput,
+    *,
+    effective_job_id: str,
+    query: str,
+    summary: str,
+    registered_sources: list[dict],
+    source_chunks: list[dict],
+    references: list[dict],
+    answer_payload: dict,
+    retrieval_summary: dict,
+    downloadable_sources: list[dict],
+    recursive_reserved_downloads: int,
+    max_total_download_bytes: int,
+    max_download_bytes: int,
+    download_timeout_sec: float,
+    runtime_cfg: Any,
+) -> dict[str, Any]:
+    """Recursive follow-up phase (or the single non-recursive gap analysis).
+
+    Behavior-preserving extraction of the in-line recursive block: iteratively analyzes gaps,
+    runs follow-up search/download for unresolved items, rebuilds the answer, and returns the
+    updated sources/chunks/answer plus the recursive counters consumed by finalization.
+    """
+    analysis: dict[str, Any] = {}
+    final_evidence_items: list = []
+    iterations: list[dict] = []
+    final_confidence = 0.0
+    unresolved_items: list[str] = []
+    stop_reason = "recursive_disabled"
+    cumulative_downloads = sum(
+        1 for item in downloadable_sources if str(item.get("status") or "") in {"downloaded", "degraded", "reused"}
+    )
+    cumulative_downloaded_bytes = sum(
+        max(0, int(item.get("size") or 0))
+        for item in downloadable_sources
+        if str(item.get("status") or "") in {"downloaded", "degraded", "reused"}
+    )
+    followup_search_count = 0
+    recursive_download_attempt_count = 0
+    recursive_downloaded_count = 0
+    followup_queries_count = 0
+    added_sources_total = 0
+    recursive_followup_skip_reason = ""
+    recursive_stop_reason = stop_reason
+    if payload.recursive_search:
+        recursive_stop_reason = "max_iterations_reached"
+        completed_all_iterations = True
+        for iteration in range(1, payload.max_iterations + 1):
+            append_job_event(effective_job_id, "recursive_iteration_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+            append_job_event(effective_job_id, "recursive_gap_analysis_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+            analysis = _analyze_research_gaps(sources=registered_sources, evidence_chunks=source_chunks, answer_payload=answer_payload)
+            append_job_event(
+                effective_job_id,
+                "recursive_gap_analysis_finished",
+                {"iteration": iteration, "status": "running", "analysis": analysis, "updated_at": _now_iso()},
+            )
+            try:
+                claim_summary = analysis.get("claim_analysis") or {}
+                append_job_event(
+                    effective_job_id,
+                    "claim_support_verified",
+                    {
+                        "iteration": iteration,
+                        "claim_count": int(claim_summary.get("claim_count") or 0),
+                        "supported_claim_count": int(claim_summary.get("supported_claim_count") or 0),
+                        "weakly_supported_claim_count": int(claim_summary.get("weakly_supported_claim_count") or 0),
+                        "unsupported_claim_count": int(claim_summary.get("unsupported_claim_count") or 0),
+                        "unresolved_claim_count": int(claim_summary.get("unresolved_claim_count") or 0),
+                        "average_support_score": float(claim_summary.get("average_support_score") or 0.0),
+                        "average_source_quality_score": float(claim_summary.get("average_source_quality_score") or 0.0),
+                        "high_quality_supported_claim_count": int(claim_summary.get("high_quality_supported_claim_count") or 0),
+                        "low_quality_supported_claim_count": int(claim_summary.get("low_quality_supported_claim_count") or 0),
+                        "contradiction_count": int(claim_summary.get("contradiction_count") or 0),
+                        "gaps": list(claim_summary.get("gaps") or []),
+                        "updated_at": _now_iso(),
+                    },
+                )
+            except Exception:
+                pass
+            final_confidence = float(analysis.get("confidence") or 0.0)
+            unresolved_items = list(analysis.get("unresolved_items") or [])
+            should_stop, reason = _should_stop_recursive_research(analysis=analysis, iteration=iteration, payload=payload)
+            must_attempt_followup = (
+                bool(payload.recursive_search)
+                and int(payload.max_iterations or 0) >= 2
+                and (bool(unresolved_items) or final_confidence < float(payload.confidence_threshold or 0.0))
+            )
+            stop_due_to_sufficient = reason in {"sufficient_confidence", "sufficient_evidence", "confidence_threshold_reached"}
+            if should_stop and must_attempt_followup and not stop_due_to_sufficient:
+                should_stop = False
+            if should_stop:
+                completed_all_iterations = False
+                recursive_stop_reason = reason
+                stop_reason = reason
+                iteration_payload = {"iteration": iteration, "analysis": analysis, "followup_queries": [], "followup_search_executed": False, "added_sources": 0, "stop_reason": reason}
+                iterations.append(iteration_payload)
+                append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": reason, "updated_at": _now_iso()})
+                append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
+                break
+            followup_queries = _generate_followup_queries(
+                original_query=query,
+                gaps=list(analysis.get("gaps") or []),
+                max_followup_queries=payload.max_followup_queries,
+                claim_analysis=analysis.get("claim_analysis"),
+            )
+            followup_queries_count += len(followup_queries)
+            append_job_event(effective_job_id, "recursive_followup_queries_generated", {"iteration": iteration, "queries": followup_queries, "status": "running", "updated_at": _now_iso()})
+            if not followup_queries:
+                completed_all_iterations = False
+                recursive_stop_reason = "no_followup_queries"
+                stop_reason = "no_followup_queries"
+                append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": [], "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
+                append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
+                break
+            remaining_downloads = max(0, recursive_reserved_downloads - recursive_download_attempt_count)
+            remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
+            if remaining_total_bytes <= 0:
+                completed_all_iterations = False
+                recursive_stop_reason = "download_budget_exhausted"
+                stop_reason = "download_budget_exhausted"
+                append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
+                append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
+                break
+            search_only_followup = False
+            if remaining_downloads <= 0:
+                if must_attempt_followup:
+                    search_only_followup = True
+                    recursive_followup_skip_reason = "download_budget_no_download_allowed"
+                else:
+                    completed_all_iterations = False
+                    recursive_stop_reason = "recursive_followup_skipped_due_to_budget"
+                    stop_reason = "recursive_followup_skipped_due_to_budget"
+                    recursive_followup_skip_reason = "recursive_followup_skipped_due_to_budget"
+                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
+                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
+                    break
+            append_job_event(effective_job_id, "recursive_followup_search_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
+            followup_search_count += 1
+            followup_search = run_web_search(followup_queries, mode=payload.mode, depth=payload.depth, max_results_per_query=payload.max_results_per_query, scope=payload.scope, language=payload.language)
+            followup_candidates = collect_source_candidates(search_items=list(followup_search.get("items") or []), manual_urls=[])
+            followup_ranked = rank_source_candidates(followup_candidates, prefer_pdf=payload.prefer_pdf, official_first=payload.official_first)
+            followup_ranked, followup_stub_filtered_count = _filter_stub_candidates(followup_ranked, payload)
+            if followup_stub_filtered_count:
+                append_job_event(effective_job_id, "stub_sources_filtered", {"iteration": iteration, "status": "running", "filtered_count": followup_stub_filtered_count, "updated_at": _now_iso()})
+            existing_canonicals = {
+                canonicalize_source_url(str(s.get("canonical_url") or s.get("final_url") or s.get("url") or ""))
+                for s in registered_sources
+                if str(s.get("canonical_url") or s.get("final_url") or s.get("url") or "").strip()
+            }
+            batch_canonicals: set[str] = set()
+            filtered_followup_ranked: list[dict] = []
+            for candidate in followup_ranked:
+                canonical = canonicalize_source_url(str(candidate.get("canonical_url") or candidate.get("url") or ""))
+                if not canonical:
+                    continue
+                if canonical in existing_canonicals or canonical in batch_canonicals:
+                    continue
+                batch_canonicals.add(canonical)
+                filtered_followup_ranked.append(candidate)
+            if not filtered_followup_ranked:
+                completed_all_iterations = False
+                recursive_stop_reason = "no_new_followup_sources"
+                stop_reason = "no_new_followup_sources"
+                recursive_followup_skip_reason = "duplicate_followup_sources"
+                append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": True, "added_sources": 0, "stop_reason": stop_reason})
+                append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": True, "updated_at": _now_iso()})
+                break
+            followup_downloaded: list[dict] = []
+            if not search_only_followup:
+                followup_downloaded, _ = _download_sources_parallel(
+                job_id=effective_job_id,
+                candidates=filtered_followup_ranked,
+                max_downloads=remaining_downloads,
+                max_download_bytes=max_download_bytes,
+                max_total_download_bytes=remaining_total_bytes,
+                download_timeout_sec=download_timeout_sec,
+                continue_on_download_error=payload.continue_on_download_error,
+                concurrency=runtime_cfg.download_concurrency,
+                pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
+                download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
+                download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
+                )
+            recursive_download_attempt_count += len(followup_downloaded)
+            newly_downloaded = [
+                item for item in followup_downloaded if str(item.get("status") or "") in {"downloaded", "degraded", "reused"}
+            ]
+            recursive_downloaded_count += len(newly_downloaded)
+            cumulative_downloads += len(newly_downloaded)
+            cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in newly_downloaded)
+            followup_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=followup_downloaded)
+            if search_only_followup:
+                completed_all_iterations = False
+                recursive_stop_reason = "search_only_followup"
+                stop_reason = "search_only_followup"
+                append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": True, "added_sources": 0, "stop_reason": stop_reason})
+                append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": True, "updated_at": _now_iso()})
+                break
+            if not followup_registered:
+                completed_all_iterations = False
+                recursive_stop_reason = "no_new_sources"
+                stop_reason = "no_new_sources"
+                append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
+                iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": True, "added_sources": 0, "stop_reason": stop_reason})
+                append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": True, "updated_at": _now_iso()})
+                break
+            source_index = {str(s.get("source_id") or ""): s for s in registered_sources}
+            for source in followup_registered:
+                sid = str(source.get("source_id") or "")
+                if sid and sid not in source_index:
+                    source_index[sid] = source
+            registered_sources = list(source_index.values())
+            source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
+            normalized = normalize_reference_labels(
+                references=build_citation_map(registered_sources, source_chunks),
+                evidence_json=registered_sources,
+                evidence_chunks=source_chunks,
+            )
+            references = normalized["references"]
+            registered_sources = normalized["evidence_json"]
+            source_chunks = normalized["evidence_chunks"]
+            answer_payload = build_answer_payload(
+                question=query,
+                summary=summary,
+                references=references,
+                evidence=registered_sources,
+                evidence_chunks=source_chunks,
+                job_id=effective_job_id,
+                project=payload.project,
+                retrieval_summary=retrieval_summary,
+            )
+            added_count = len(followup_registered)
+            added_sources_total += added_count
+            append_job_event(effective_job_id, "recursive_followup_search_finished", {"iteration": iteration, "status": "running", "added_sources": added_count, "updated_at": _now_iso()})
+            iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": True, "added_sources": added_count, "stop_reason": ""})
+            append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": True, "updated_at": _now_iso()})
+        if completed_all_iterations:
+            stop_reason = "max_iterations_reached"
+            append_job_event(
+                effective_job_id,
+                "recursive_stopped",
+                {
+                    "iteration": payload.max_iterations,
+                    "status": "running",
+                    "reason": "max_iterations_reached",
+                    "followup_search_count": followup_search_count,
+                    "followup_queries_count": followup_queries_count,
+                    "added_sources_total": added_sources_total,
+                    "updated_at": _now_iso(),
+                },
+            )
+            if iterations and not str(iterations[-1].get("stop_reason") or "").strip():
+                iterations[-1]["stop_reason"] = "max_iterations_reached"
+        final_evidence_items = _build_evidence_from_sources(effective_job_id, registered_sources)
+        replace_evidence_items_for_job(effective_job_id, final_evidence_items, project=payload.project)
+    else:
+        analysis = _analyze_research_gaps(sources=registered_sources, evidence_chunks=source_chunks, answer_payload=answer_payload)
+        final_confidence = float(analysis.get("confidence") or 0.0)
+        unresolved_items = list(analysis.get("unresolved_items") or [])
+        iterations = []
+    return {
+        "registered_sources": registered_sources,
+        "source_chunks": source_chunks,
+        "references": references,
+        "answer_payload": answer_payload,
+        "analysis": analysis,
+        "final_confidence": final_confidence,
+        "unresolved_items": unresolved_items,
+        "iterations": iterations,
+        "stop_reason": stop_reason,
+        "recursive_stop_reason": recursive_stop_reason,
+        "followup_search_count": followup_search_count,
+        "followup_queries_count": followup_queries_count,
+        "added_sources_total": added_sources_total,
+        "recursive_download_attempt_count": recursive_download_attempt_count,
+        "recursive_downloaded_count": recursive_downloaded_count,
+        "recursive_followup_skip_reason": recursive_followup_skip_reason,
+        "final_evidence_items": final_evidence_items,
+    }
+
+
 def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) -> dict:
     query = payload.query.strip()
     if not query:
@@ -1500,42 +1840,14 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         return _run_news_profile_research(payload, effective_job_id=effective_job_id, query=query)
 
     try:
-        _emit_phase(effective_job_id, "planning_started", phase="planning", message="planning started", progress=0.05)
-        _record_state(effective_job_id, "planning", message="query planning", progress=0.1)
-        depth_key = str(payload.depth or payload.mode or "standard").strip().lower()
-        intent = infer_research_intent(query, payload.source_profile, depth_key)
-        screening_settings = get_screening_settings(depth_key)
-        screening_result: dict[str, Any] = {"candidates": [], "summary": {}, "payload": {}}
-        if screening_settings.get("enabled"):
-            append_job_event(effective_job_id, "screening_started", {"status": "running", "phase": "broad_screening", **screening_settings, "updated_at": _now_iso()})
-            screening_result = run_broad_screening(
-                intent,
-                target_screening_candidates=int(screening_settings.get("target_screening_candidates") or 0),
-                max_screening_queries=int(screening_settings.get("max_screening_queries") or 1),
-                max_results_per_query=int(screening_settings.get("max_results_per_query") or 10),
-            )
-            append_job_event(effective_job_id, "screening_completed", {"status": "running", "phase": "broad_screening", **dict(screening_result.get("payload") or {}), "updated_at": _now_iso()})
-        screening_summary = dict(screening_result.get("summary") or {})
-        focused_research_plan = build_focused_research_plan(intent, screening_summary, depth=depth_key)
-        focused_queries = [str(item.get("query") or "").strip() for item in focused_research_plan.get("focused_queries") or [] if str(item.get("query") or "").strip()]
-        queries = focused_queries or plan_web_queries(
-            query,
-            mode=payload.mode,
-            depth=payload.depth,
-            max_queries=payload.max_queries,
-            scope=payload.scope,
-            language=payload.language,
-            source_profile=payload.source_profile,
-        )
-        _emit_phase(
-            effective_job_id,
-            "planning_finished",
-            phase="planning",
-            message="planning finished",
-            progress=0.2,
-            details={"queries": len(queries), "screening_candidates": int((screening_result.get("payload") or {}).get("unique_candidate_count") or 0), "focused_queries": len(focused_queries)},
-        )
-        update_job(effective_job_id, status="running", progress=0.2, message="searching web")
+        planning = _run_planning_phase(payload, effective_job_id=effective_job_id, query=query)
+        depth_key = planning["depth_key"]
+        intent = planning["intent"]
+        screening_result = planning["screening_result"]
+        screening_summary = planning["screening_summary"]
+        focused_research_plan = planning["focused_research_plan"]
+        focused_queries = planning["focused_queries"]
+        queries = planning["queries"]
 
         targets = build_retrieval_targets(payload)
         if depth_key == "deep" and payload.max_downloads is None:
@@ -2002,245 +2314,40 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             coverage_matrix=coverage_matrix,
             source_mix_summary=retrieval_summary.get("source_mix", {}),
         )
-        iterations: list[dict] = []
-        final_confidence = 0.0
-        unresolved_items: list[str] = []
-        stop_reason = "recursive_disabled"
-        cumulative_downloads = sum(
-            1 for item in downloadable_sources if str(item.get("status") or "") in {"downloaded", "degraded", "reused"}
+        recursive_result = _run_recursive_phase(
+            payload,
+            effective_job_id=effective_job_id,
+            query=query,
+            summary=summary,
+            registered_sources=registered_sources,
+            source_chunks=source_chunks,
+            references=references,
+            answer_payload=answer_payload,
+            retrieval_summary=retrieval_summary,
+            downloadable_sources=downloadable_sources,
+            recursive_reserved_downloads=recursive_reserved_downloads,
+            max_total_download_bytes=max_total_download_bytes,
+            max_download_bytes=max_download_bytes,
+            download_timeout_sec=download_timeout_sec,
+            runtime_cfg=runtime_cfg,
         )
-        cumulative_downloaded_bytes = sum(
-            max(0, int(item.get("size") or 0))
-            for item in downloadable_sources
-            if str(item.get("status") or "") in {"downloaded", "degraded", "reused"}
-        )
-        followup_search_count = 0
-        recursive_download_attempt_count = 0
-        recursive_downloaded_count = 0
-        followup_queries_count = 0
-        added_sources_total = 0
-        recursive_followup_skip_reason = ""
-        recursive_stop_reason = stop_reason
-        if payload.recursive_search:
-            recursive_stop_reason = "max_iterations_reached"
-            completed_all_iterations = True
-            for iteration in range(1, payload.max_iterations + 1):
-                append_job_event(effective_job_id, "recursive_iteration_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
-                append_job_event(effective_job_id, "recursive_gap_analysis_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
-                analysis = _analyze_research_gaps(sources=registered_sources, evidence_chunks=source_chunks, answer_payload=answer_payload)
-                append_job_event(
-                    effective_job_id,
-                    "recursive_gap_analysis_finished",
-                    {"iteration": iteration, "status": "running", "analysis": analysis, "updated_at": _now_iso()},
-                )
-                try:
-                    claim_summary = analysis.get("claim_analysis") or {}
-                    append_job_event(
-                        effective_job_id,
-                        "claim_support_verified",
-                        {
-                            "iteration": iteration,
-                            "claim_count": int(claim_summary.get("claim_count") or 0),
-                            "supported_claim_count": int(claim_summary.get("supported_claim_count") or 0),
-                            "weakly_supported_claim_count": int(claim_summary.get("weakly_supported_claim_count") or 0),
-                            "unsupported_claim_count": int(claim_summary.get("unsupported_claim_count") or 0),
-                            "unresolved_claim_count": int(claim_summary.get("unresolved_claim_count") or 0),
-                            "average_support_score": float(claim_summary.get("average_support_score") or 0.0),
-                            "average_source_quality_score": float(claim_summary.get("average_source_quality_score") or 0.0),
-                            "high_quality_supported_claim_count": int(claim_summary.get("high_quality_supported_claim_count") or 0),
-                            "low_quality_supported_claim_count": int(claim_summary.get("low_quality_supported_claim_count") or 0),
-                            "contradiction_count": int(claim_summary.get("contradiction_count") or 0),
-                            "gaps": list(claim_summary.get("gaps") or []),
-                            "updated_at": _now_iso(),
-                        },
-                    )
-                except Exception:
-                    pass
-                final_confidence = float(analysis.get("confidence") or 0.0)
-                unresolved_items = list(analysis.get("unresolved_items") or [])
-                should_stop, reason = _should_stop_recursive_research(analysis=analysis, iteration=iteration, payload=payload)
-                must_attempt_followup = (
-                    bool(payload.recursive_search)
-                    and int(payload.max_iterations or 0) >= 2
-                    and (bool(unresolved_items) or final_confidence < float(payload.confidence_threshold or 0.0))
-                )
-                stop_due_to_sufficient = reason in {"sufficient_confidence", "sufficient_evidence", "confidence_threshold_reached"}
-                if should_stop and must_attempt_followup and not stop_due_to_sufficient:
-                    should_stop = False
-                if should_stop:
-                    completed_all_iterations = False
-                    recursive_stop_reason = reason
-                    stop_reason = reason
-                    iteration_payload = {"iteration": iteration, "analysis": analysis, "followup_queries": [], "followup_search_executed": False, "added_sources": 0, "stop_reason": reason}
-                    iterations.append(iteration_payload)
-                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": reason, "updated_at": _now_iso()})
-                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
-                    break
-                followup_queries = _generate_followup_queries(
-                    original_query=query,
-                    gaps=list(analysis.get("gaps") or []),
-                    max_followup_queries=payload.max_followup_queries,
-                    claim_analysis=analysis.get("claim_analysis"),
-                )
-                followup_queries_count += len(followup_queries)
-                append_job_event(effective_job_id, "recursive_followup_queries_generated", {"iteration": iteration, "queries": followup_queries, "status": "running", "updated_at": _now_iso()})
-                if not followup_queries:
-                    completed_all_iterations = False
-                    recursive_stop_reason = "no_followup_queries"
-                    stop_reason = "no_followup_queries"
-                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
-                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": [], "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
-                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
-                    break
-                remaining_downloads = max(0, recursive_reserved_downloads - recursive_download_attempt_count)
-                remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
-                if remaining_total_bytes <= 0:
-                    completed_all_iterations = False
-                    recursive_stop_reason = "download_budget_exhausted"
-                    stop_reason = "download_budget_exhausted"
-                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
-                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
-                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
-                    break
-                search_only_followup = False
-                if remaining_downloads <= 0:
-                    if must_attempt_followup:
-                        search_only_followup = True
-                        recursive_followup_skip_reason = "download_budget_no_download_allowed"
-                    else:
-                        completed_all_iterations = False
-                        recursive_stop_reason = "recursive_followup_skipped_due_to_budget"
-                        stop_reason = "recursive_followup_skipped_due_to_budget"
-                        recursive_followup_skip_reason = "recursive_followup_skipped_due_to_budget"
-                        append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
-                        iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": False, "added_sources": 0, "stop_reason": stop_reason})
-                        append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": False, "updated_at": _now_iso()})
-                        break
-                append_job_event(effective_job_id, "recursive_followup_search_started", {"iteration": iteration, "status": "running", "updated_at": _now_iso()})
-                followup_search_count += 1
-                followup_search = run_web_search(followup_queries, mode=payload.mode, depth=payload.depth, max_results_per_query=payload.max_results_per_query, scope=payload.scope, language=payload.language)
-                followup_candidates = collect_source_candidates(search_items=list(followup_search.get("items") or []), manual_urls=[])
-                followup_ranked = rank_source_candidates(followup_candidates, prefer_pdf=payload.prefer_pdf, official_first=payload.official_first)
-                followup_ranked, followup_stub_filtered_count = _filter_stub_candidates(followup_ranked, payload)
-                if followup_stub_filtered_count:
-                    append_job_event(effective_job_id, "stub_sources_filtered", {"iteration": iteration, "status": "running", "filtered_count": followup_stub_filtered_count, "updated_at": _now_iso()})
-                existing_canonicals = {
-                    canonicalize_source_url(str(s.get("canonical_url") or s.get("final_url") or s.get("url") or ""))
-                    for s in registered_sources
-                    if str(s.get("canonical_url") or s.get("final_url") or s.get("url") or "").strip()
-                }
-                batch_canonicals: set[str] = set()
-                filtered_followup_ranked: list[dict] = []
-                for candidate in followup_ranked:
-                    canonical = canonicalize_source_url(str(candidate.get("canonical_url") or candidate.get("url") or ""))
-                    if not canonical:
-                        continue
-                    if canonical in existing_canonicals or canonical in batch_canonicals:
-                        continue
-                    batch_canonicals.add(canonical)
-                    filtered_followup_ranked.append(candidate)
-                if not filtered_followup_ranked:
-                    completed_all_iterations = False
-                    recursive_stop_reason = "no_new_followup_sources"
-                    stop_reason = "no_new_followup_sources"
-                    recursive_followup_skip_reason = "duplicate_followup_sources"
-                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
-                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": True, "added_sources": 0, "stop_reason": stop_reason})
-                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": True, "updated_at": _now_iso()})
-                    break
-                followup_downloaded: list[dict] = []
-                if not search_only_followup:
-                    followup_downloaded, _ = _download_sources_parallel(
-                    job_id=effective_job_id,
-                    candidates=filtered_followup_ranked,
-                    max_downloads=remaining_downloads,
-                    max_download_bytes=max_download_bytes,
-                    max_total_download_bytes=remaining_total_bytes,
-                    download_timeout_sec=download_timeout_sec,
-                    continue_on_download_error=payload.continue_on_download_error,
-                    concurrency=runtime_cfg.download_concurrency,
-                    pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
-                    download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
-                    download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
-                    )
-                recursive_download_attempt_count += len(followup_downloaded)
-                newly_downloaded = [
-                    item for item in followup_downloaded if str(item.get("status") or "") in {"downloaded", "degraded", "reused"}
-                ]
-                recursive_downloaded_count += len(newly_downloaded)
-                cumulative_downloads += len(newly_downloaded)
-                cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in newly_downloaded)
-                followup_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=followup_downloaded)
-                if search_only_followup:
-                    completed_all_iterations = False
-                    recursive_stop_reason = "search_only_followup"
-                    stop_reason = "search_only_followup"
-                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
-                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": True, "added_sources": 0, "stop_reason": stop_reason})
-                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": True, "updated_at": _now_iso()})
-                    break
-                if not followup_registered:
-                    completed_all_iterations = False
-                    recursive_stop_reason = "no_new_sources"
-                    stop_reason = "no_new_sources"
-                    append_job_event(effective_job_id, "recursive_stopped", {"iteration": iteration, "status": "running", "reason": stop_reason, "updated_at": _now_iso()})
-                    iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": True, "added_sources": 0, "stop_reason": stop_reason})
-                    append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": True, "updated_at": _now_iso()})
-                    break
-                source_index = {str(s.get("source_id") or ""): s for s in registered_sources}
-                for source in followup_registered:
-                    sid = str(source.get("source_id") or "")
-                    if sid and sid not in source_index:
-                        source_index[sid] = source
-                registered_sources = list(source_index.values())
-                source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
-                normalized = normalize_reference_labels(
-                    references=build_citation_map(registered_sources, source_chunks),
-                    evidence_json=registered_sources,
-                    evidence_chunks=source_chunks,
-                )
-                references = normalized["references"]
-                registered_sources = normalized["evidence_json"]
-                source_chunks = normalized["evidence_chunks"]
-                answer_payload = build_answer_payload(
-                    question=query,
-                    summary=summary,
-                    references=references,
-                    evidence=registered_sources,
-                    evidence_chunks=source_chunks,
-                    job_id=effective_job_id,
-                    project=payload.project,
-                    retrieval_summary=retrieval_summary,
-                )
-                added_count = len(followup_registered)
-                added_sources_total += added_count
-                append_job_event(effective_job_id, "recursive_followup_search_finished", {"iteration": iteration, "status": "running", "added_sources": added_count, "updated_at": _now_iso()})
-                iterations.append({"iteration": iteration, "analysis": analysis, "followup_queries": followup_queries, "followup_search_executed": True, "added_sources": added_count, "stop_reason": ""})
-                append_job_event(effective_job_id, "recursive_iteration_finished", {"iteration": iteration, "status": "running", "followup_search_executed": True, "updated_at": _now_iso()})
-            if completed_all_iterations:
-                stop_reason = "max_iterations_reached"
-                append_job_event(
-                    effective_job_id,
-                    "recursive_stopped",
-                    {
-                        "iteration": payload.max_iterations,
-                        "status": "running",
-                        "reason": "max_iterations_reached",
-                        "followup_search_count": followup_search_count,
-                        "followup_queries_count": followup_queries_count,
-                        "added_sources_total": added_sources_total,
-                        "updated_at": _now_iso(),
-                    },
-                )
-                if iterations and not str(iterations[-1].get("stop_reason") or "").strip():
-                    iterations[-1]["stop_reason"] = "max_iterations_reached"
-            final_evidence_items = _build_evidence_from_sources(effective_job_id, registered_sources)
-            replace_evidence_items_for_job(effective_job_id, final_evidence_items, project=payload.project)
-        else:
-            analysis = _analyze_research_gaps(sources=registered_sources, evidence_chunks=source_chunks, answer_payload=answer_payload)
-            final_confidence = float(analysis.get("confidence") or 0.0)
-            unresolved_items = list(analysis.get("unresolved_items") or [])
-            iterations = []
+        registered_sources = recursive_result["registered_sources"]
+        source_chunks = recursive_result["source_chunks"]
+        references = recursive_result["references"]
+        answer_payload = recursive_result["answer_payload"]
+        analysis = recursive_result["analysis"]
+        final_confidence = recursive_result["final_confidence"]
+        unresolved_items = recursive_result["unresolved_items"]
+        iterations = recursive_result["iterations"]
+        stop_reason = recursive_result["stop_reason"]
+        recursive_stop_reason = recursive_result["recursive_stop_reason"]
+        followup_search_count = recursive_result["followup_search_count"]
+        followup_queries_count = recursive_result["followup_queries_count"]
+        added_sources_total = recursive_result["added_sources_total"]
+        recursive_download_attempt_count = recursive_result["recursive_download_attempt_count"]
+        recursive_downloaded_count = recursive_result["recursive_downloaded_count"]
+        recursive_followup_skip_reason = recursive_result["recursive_followup_skip_reason"]
+        final_evidence_items = recursive_result["final_evidence_items"]
         if isinstance(analysis, dict) and analysis.get("claim_analysis") is not None:
             answer_payload["claim_analysis"] = analysis.get("claim_analysis")
         answer_payload["recursive_search"] = bool(payload.recursive_search)
