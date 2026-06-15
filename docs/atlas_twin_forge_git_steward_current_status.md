@@ -12,16 +12,16 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 - Blocker: real LLM and real runtime evidence not collected in this PR
 - Rollout: not connected; future implementation must use off/shadow/active semantics
 - Remote publication rule: local Git operations are autonomous; remote publication requires user approval
+- AGENTS default: Twin / Forge / Git Steward is now the active default goal; AUIR/PIBIH are reference tracks only unless explicitly requested
 
 ## Canonical read order
 
 1. `AGENTS.md`
-2. `docs/atlas_twin_forge_git_steward_master_goal.md`
-3. `docs/atlas_twin_forge_git_steward_detailed_plan.md`
-4. `docs/atlas_twin_forge_git_steward_goal_mode_execution.md`
-5. `docs/atlas_twin_forge_git_steward_agent_entrypoint.md`
-6. this file
-7. existing Project Intelligence / Twin / Greenfield / Forge files
+2. `docs/atlas_twin_forge_git_steward_goal_mode_execution.md`
+3. `docs/atlas_twin_forge_git_steward_current_status.md`
+4. `docs/atlas_twin_forge_git_steward_agent_entrypoint.md`
+5. `docs/atlas_twin_forge_git_steward_detailed_plan.md` only when more detail is needed
+6. existing Project Intelligence / Twin / Greenfield / Forge files
 
 ## Current implementation assessment
 
@@ -40,6 +40,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 - Initial tests cover route safety, model-sensitive injection, TwinBrief compilation, and Git authority boundaries.
 - Goal-mode execution instructions now define the end-to-end implementation package sequence through active rollout and real LLM/runtime closure.
 - Goal-mode instructions explicitly include No-Data Bootstrap Gate, Interface First Generator, Schema Guardian, StateMirror, Anti-Pattern Memory, Golden Patch Retrieval, and Skill Distiller.
+- AGENTS.md now starts TFG by default instead of AUIR.
 
 ### Still required
 
@@ -134,11 +135,12 @@ Blocker, if any:
 ## Initial implementation record
 
 ```text
-Work package: TFG initial contracts/policy slice + completed goal-mode handoff
+Work package: TFG initial contracts/policy slice + completed goal-mode handoff + AGENTS default switch
 Status: partial_in_pr
 Proof level: component_complete for pure contracts/policies only; contract_present for completed goal-mode instructions
-Commit/PR: PR #1859 branch atlas/twin-forge-git-steward-plan
+Commit/PR: PR #1861 branch atlas/twin-forge-git-steward-plan
 Changed modules/files:
+- AGENTS.md
 - agent/twin_control_plane/__init__.py
 - agent/twin_control_plane/contracts.py
 - agent/twin_control_plane/twin_brief.py
