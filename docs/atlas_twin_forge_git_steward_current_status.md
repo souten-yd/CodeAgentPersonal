@@ -133,6 +133,56 @@ Blocker, if any:
 ## Initial implementation record
 
 ```text
+Work package: Live control-loop deep wiring (Twin/Forge/Git Steward into the autonomous codegen path), Steps 1-10
+Status: component_complete + integration_wired for Steps 1-9; advisory where live evidence sources are absent; recorded unavailable honestly
+Proof level: deterministic integration tests + real LLM/runtime acceptance; durable proof ledger; gated/reversible
+Changed modules/files:
+- agent/twin_control_plane/pipeline_integration.py (impact connection, capability profile, compiled instruction, post-apply sub-gates, repair compass, advisory injection)
+- agent/twin_control_plane/proof_ledger.py (durable ProofLedgerStore + model/provider fields)
+- agent/git_steward/local_adapter.py (workspace scope, secret/artifact guard, safe_local_commit, git evidence)
+- agent/atlas_autonomous_codegen_orchestrator_service.py (seam: impact, profile, post-apply gate, durable ledger persistence)
+- agent/atlas_patch_proposal_service.py (compiled instruction + repair section into the generation prompt)
+- tests/test_twin_pipeline_integration.py, tests/test_atlas_codegen_twin_gate.py, tests/test_twin_proof_ledger_store.py,
+  tests/test_git_steward_hardening.py, tests/test_atlas_patch_proposal_twin_section.py, tests/test_twin_acceptance_tasks.py
+Behavior implemented:
+- Step 1 Project Twin impact -> BlastMap/Contract Sentinel/TwinProof when a Twin store exists, else recorded unavailable.
+- Step 2 evidence-backed Forge capability profile drives ExecutionPolicy; missing profile stays neutral (capability_profile_unavailable).
+- Step 3 compiled Twin instruction appended as a bounded control section to the real generation prompt; off-safe.
+- Step 4 post-apply Patch Impact Gate runs over real verification + sub-gates; hard-block on genuine boundary; unavailable never accepts.
+- Step 5 durable Proof Ledger persisted to ca_data/twin_control_plane/proof_ledger; reloadable; idempotent.
+- Step 6 Repair Compass guidance injected into the repair prompt on needs_repair; preserves hard boundaries.
+- Step 7 advisory anti-pattern/golden-patch/skill injection; low-confidence/evidence-free filtered; off-safe.
+- Step 8 Git Steward workspace scope + secret/large-artifact guard + commit evidence; remote stays approval-bound.
+- Step 9 acceptance tasks for schema/persistence, backend/UI state, feature-flag; positive + negative (gate prevents unsafe acceptance).
+Focused tests:
+- `python -m pytest -q tests/test_twin_pipeline_integration.py` -> passed (35).
+- `python -m pytest -q tests/test_atlas_codegen_twin_gate.py` -> passed (5).
+- `python -m pytest -q tests/test_twin_proof_ledger_store.py tests/test_git_steward_hardening.py` -> passed.
+- `python -m pytest -q tests/test_twin_acceptance_tasks.py` -> 6 passed (real pytest verification).
+Affected tests:
+- `python -m pytest -q <pipeline/gate/orchestrator/api/initial/ledger/git/twin_section/acceptance + all test_twin_control_plane_* + all test_model_forge_*> -m "not real_model"` -> 298 passed, 1 deselected in 91.27s.
+Real model evidence:
+- `... -m real_model` (Mistral-Small-3.2-24B via llama.cpp at 127.0.0.1:8080): acceptance closure + adversarial harness -> 2 passed in 13.36s.
+Runtime/Portal evidence:
+- Real pytest verification inside isolated temp repos for the acceptance tasks; existing 40 autonomous codegen orchestrator/API tests pass with the seam under default active.
+Unavailable checks:
+- No persistent per-project Project Twin store by default -> impact recorded unavailable in the general live run (not fabricated).
+- No persisted Forge capability profile by default -> neutral profile, capability_profile_unavailable.
+- Schema Guardian / StateMirror need before/after snapshots/observations the live codegen path does not produce -> recorded unavailable, not fabricated.
+Safety invariants:
+- Atlas retains Proposal / Safe Apply / Verification / Repair authority; the Twin seam is advisory and never applies/commits/publishes.
+- unavailable is never converted to passed; mock is never treated as live.
+- ATLAS_TWIN_PIPELINE_MODE=off and ATLAS_TWIN_GATE_BLOCKING=off remain reversible; off-mode prompt unchanged.
+- Remote publication remains approval-bound; secrets/weights/DB/runtime data are guarded from commits.
+Remaining gaps:
+- Live Project Twin store construction/refresh inside the codegen path (so impact is routinely available) is not wired; current behavior is unavailable-honest.
+- Schema/State live evidence sources (snapshots/observations) are not produced in the codegen path.
+- Repair Compass guidance currently reaches a subsequent generation request; a tighter in-autopilot retry hook is future work.
+Next package: optional — construct/refresh a Project Twin for the active project in-run; produce schema/state snapshots for live Schema Guardian/StateMirror blocking.
+Blocker: none; all changes are local commits on branch codex/tfg-live-control-loop (no push/PR/merge per instruction).
+```
+
+```text
 Work package: TFG-12 promotion — default active + blocking gate (user-approved)
 Status: active is the repository default; the Twin gate is a blocking gate; both reversible by env; operational evaluation run
 Proof level: acceptance_complete for the gated active rollout with real LLM + real runtime acceptance evidence; off path preserved
