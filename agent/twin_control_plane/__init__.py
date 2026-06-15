@@ -20,6 +20,7 @@ from agent.twin_control_plane.contracts import (
 from agent.twin_control_plane.anti_pattern_memory import (
     AntiPatternEntry,
     AntiPatternMemory,
+    AntiPatternMemoryStore,
     AntiPatternSource,
     GuardrailHint,
     GuardrailStrength,
@@ -146,6 +147,7 @@ __all__ = [
     "ATLAS_TWIN_CONTROL_PLANE_CONTRACT_VERSION",
     "AntiPatternEntry",
     "AntiPatternMemory",
+    "AntiPatternMemoryStore",
     "AntiPatternSource",
     "AssumptionBreakerBrief",
     "AssumptionBreakerCase",

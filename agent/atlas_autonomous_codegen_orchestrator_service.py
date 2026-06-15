@@ -32,7 +32,10 @@ from agent.twin_control_plane.active_integration import PipelineMode
 from agent.twin_control_plane.pipeline_integration import (
     build_twin_pipeline_evidence,
     evaluate_twin_post_apply,
+    load_project_twin_store,
+    refresh_project_twin,
     resolve_block_unverified,
+    resolve_build_project_twin,
     resolve_gate_blocking,
     resolve_pipeline_mode,
     try_project_twin_impact,
@@ -652,10 +655,22 @@ class AtlasAutonomousCodegenOrchestratorService:
                     path = change.get("path") if isinstance(change, dict) else None
                     if path:
                         changed_refs.append(str(path))
+                # Pre-flight (before generation) has no file_changes yet; fall back to the
+                # plan item's target files so impact/evidence can be derived.
+                for tf in getattr(item, "target_files", []) or []:
+                    if tf:
+                        changed_refs.append(str(tf))
+            # Opt-in: reuse a persistent Project Twin built by a prior run so impact is real.
+            twin_store = self.project_twin_store
+            if twin_store is None and resolve_build_project_twin():
+                twin_store = load_project_twin_store(
+                    data_root=str(self.data_root),
+                    project_id=str(request.pool_id or getattr(pool, "project_id", "") or ""))
+                self.project_twin_store = twin_store
             impact = try_project_twin_impact(
                 project_id=str(request.pool_id or getattr(pool, "project_id", "") or ""),
                 changed_refs=changed_refs,
-                store=self.project_twin_store,
+                store=twin_store,
             )
             req_md = request.metadata or {}
             evidence = build_twin_pipeline_evidence(
@@ -669,6 +684,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 model_id=str(req_md.get("model_id") or req_md.get("forge_model_id") or ""),
                 provider_id=str(req_md.get("provider_id") or req_md.get("forge_provider_id") or ""),
                 profile_store_dir=str(Path(self.data_root) / "model_forge" / "profiles"),
+                anti_pattern_memory=self._load_anti_pattern_memory(),
             )
             block_reason = twin_gate_block_reason(evidence) if resolve_gate_blocking() else ""
             evidence["gate_blocking_enabled"] = resolve_gate_blocking()
@@ -701,15 +717,47 @@ class AtlasAutonomousCodegenOrchestratorService:
         }
         return {"twin_generation_hints": {k: v for k, v in hints.items() if v is not None}}
 
+    def _anti_pattern_store(self):
+        from agent.twin_control_plane.anti_pattern_memory import AntiPatternMemoryStore
+        return AntiPatternMemoryStore(Path(self.data_root) / "twin_control_plane" / "anti_pattern_memory")
+
+    def _load_anti_pattern_memory(self):
+        """Load the durable Anti-Pattern memory so prior-run guardrails advise this run.
+        Returns None on any error (advisory injection then degrades to empty)."""
+        try:
+            return self._anti_pattern_store().load()
+        except Exception:  # pragma: no cover - defensive
+            return None
+
     def _persist_proof_ledger_entry(self, report: dict) -> None:
-        """Durably persist the post-apply Proof Ledger entry. Guarded — never breaks the run."""
+        """Durably persist the post-apply Proof Ledger entry and, for non-accepted
+        decisions, feed the Anti-Pattern memory so later runs receive evidence-backed
+        guardrails. Guarded — never breaks the run."""
         try:
             entry_dump = report.get("ledger_entry") if isinstance(report, dict) else None
             if not entry_dump:
                 return
             from agent.twin_control_plane.proof_ledger import ProofLedgerEntry, ProofLedgerStore
-            store = ProofLedgerStore(Path(self.data_root) / "twin_control_plane" / "proof_ledger")
-            store.append(ProofLedgerEntry.model_validate(entry_dump))
+            from agent.twin_control_plane.anti_pattern_memory import record_from_proof_ledger
+            entry = ProofLedgerEntry.model_validate(entry_dump)
+            ProofLedgerStore(Path(self.data_root) / "twin_control_plane" / "proof_ledger").append(entry)
+            # Cross-run learning: only a GENUINE product regression (failed verification) or a
+            # hard-boundary block becomes an evidence-bound anti-pattern. Pure evidence gaps
+            # (twin_revision_evidence_missing, verification_unavailable/missing) are NOT recorded
+            # — unavailable is not a failure — so accepted/evidence-thin runs add no false guardrail.
+            product_regression = "verification_failed" in entry.repair_reasons
+            hard_boundary = bool(entry.blocked_reasons)
+            if product_regression or hard_boundary:
+                reasons = entry.blocked_reasons if hard_boundary else ["verification_failed"]
+                store = self._anti_pattern_store()
+                memory = record_from_proof_ledger(
+                    store.load(), entry,
+                    pattern_id=f"apm:{'blocked' if hard_boundary else 'regression'}:{','.join(sorted(reasons))[:48]}",
+                    title=f"{'hard-boundary' if hard_boundary else 'product-regression'} pattern from autonomous run",
+                    categories=list(reasons),
+                    confidence=0.6, model_id=entry.model_id,
+                )
+                store.save(memory)
         except Exception:  # pragma: no cover - defensive
             return
 
@@ -775,6 +823,15 @@ class AtlasAutonomousCodegenOrchestratorService:
             else:
                 out.metadata["twin_control_plane"] = {"post_apply": report}
             self._persist_proof_ledger_entry(report)
+            # Opt-in: refresh the persistent Project Twin from the project so the NEXT run
+            # gets real impact/blast-map evidence (the re-run Twin effect).
+            if resolve_build_project_twin() and changed_files:
+                project_path = str(request.project_path or "")
+                store = refresh_project_twin(
+                    data_root=str(self.data_root),
+                    project_id=str(request.pool_id or ""), project_path=project_path)
+                if store is not None:
+                    self.project_twin_store = store
             return report.get("block_reason") or ""
         except Exception as exc:  # pragma: no cover - defensive: never break the legacy flow
             return ""  # a post-apply seam error is never a hard block

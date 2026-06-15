@@ -1,7 +1,9 @@
 """Evidence-bound Anti-Pattern Memory for future repair and prompt guardrails."""
 from __future__ import annotations
 
+import json
 from enum import StrEnum
+from pathlib import Path
 from typing import Iterable
 
 from pydantic import Field
@@ -204,9 +206,46 @@ def guardrail_hints(
     return sorted(hints, key=lambda hint: hint.hint_id)
 
 
+class AntiPatternMemoryStore:
+    """Durable, evidence-bound Anti-Pattern Memory persistence (one JSON file per memory).
+
+    Survives reload and merges by ``pattern_id`` (via ``record_anti_pattern``), so repeated
+    failure patterns across runs accumulate occurrences/evidence rather than duplicating.
+    Used to feed prior-run guardrails into later live runs."""
+
+    def __init__(self, store_dir: str | Path) -> None:
+        self._dir = Path(store_dir)
+
+    def _path(self, memory_id: str) -> Path:
+        safe = (memory_id or "default").replace("/", "_").replace(":", "_")
+        return self._dir / f"{safe}.json"
+
+    def load(self, memory_id: str = "default") -> AntiPatternMemory:
+        path = self._path(memory_id)
+        if path.exists():
+            try:
+                return AntiPatternMemory.model_validate_json(path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        return AntiPatternMemory(memory_id=memory_id or "default")
+
+    def save(self, memory: AntiPatternMemory) -> None:
+        self._dir.mkdir(parents=True, exist_ok=True)
+        self._path(memory.memory_id).write_text(
+            json.dumps(memory.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def record(self, entry: AntiPatternEntry, *, memory_id: str = "default") -> AntiPatternMemory:
+        memory = record_anti_pattern(self.load(memory_id), entry)
+        self.save(memory)
+        return memory
+
+
 __all__ = [
     "AntiPatternEntry",
     "AntiPatternMemory",
+    "AntiPatternMemoryStore",
     "AntiPatternSource",
     "GuardrailHint",
     "GuardrailStrength",
