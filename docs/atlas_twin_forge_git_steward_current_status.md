@@ -6,9 +6,9 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 
 ## Program state
 
-- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, and StateMirror slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B foundations
-- Current package: Package 4B StateMirror completed at component level
-- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, and StateMirror; `contract_present` for completed goal-mode execution instructions
+- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, and Assumption Breaker slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6 foundations
+- Current package: Package 5 TwinProof and Assumption Breaker completed at component level
+- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, and Assumption Breaker; `contract_present` for completed goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected for these component slices
 - Rollout: not connected; future implementation must use off/shadow/active semantics
 - Remote publication rule: local Git operations are autonomous; remote publication requires user approval
@@ -49,7 +49,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 - No-Data Bootstrap Gate component implementation now exists; shadow integration still required.
 - BlastMap and Contract Sentinel component implementation now exists; shadow integration still required.
 - Schema Guardian and StateMirror component implementations now exist; shadow integration still required.
-- TwinProof and Assumption Breaker.
+- TwinProof and Assumption Breaker component implementation now exists; shadow integration still required.
 - Git Steward concrete command adapters.
 - Patch/Integration/Flag/Merge Impact Gates.
 - Proof Ledger and Repair Compass.
@@ -73,7 +73,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-5 | BlastMap and Contract Sentinel | shadow_connected | blastmap_contract_sentinel_component_complete |
 | TFG-5A | Schema Guardian | shadow_connected | schema_guardian_component_complete |
 | TFG-5B | StateMirror | shadow_connected | state_mirror_component_complete |
-| TFG-6 | TwinProof and Assumption Breaker | shadow_connected | not_started |
+| TFG-6 | TwinProof and Assumption Breaker | shadow_connected | twinproof_assumption_breaker_component_complete |
 | TFG-7 | Git Steward MVP | shadow_connected | authority_contract_partial_in_pr |
 | TFG-8 | Patch/Integration/Flag/Merge gates | shadow_connected | not_started |
 | TFG-9 | Proof Ledger and Repair Compass | production_connected | not_started |
@@ -252,6 +252,42 @@ Known limitations:
 - Integration Impact Gate is not wired into Feature Genesis shadow mode.
 - BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Patch Impact Gate, Proof Ledger, Repair Compass, and Anti-Pattern Memory remain future packages.
 Next package: Package 4 BlastMap and Contract Sentinel.
+Blocker, if any: none for local component work; remote publication requested by user.
+```
+
+```text
+Work package: Package 5 TwinProof and Assumption Breaker
+Status: component_complete for pure TwinProof and Assumption Breaker; shadow integration not started
+Proof level: component_complete for DTO/policy test inventory, proof-gap, and assumption-brief behavior only
+Commit/PR: local branch codex/tfg-twinproof-assumption; remote publication requested by user
+Changed modules/files:
+- agent/twin_control_plane/twinproof.py
+- agent/twin_control_plane/assumption_breaker.py
+- agent/twin_control_plane/__init__.py
+- tests/test_twin_control_plane_twinproof_assumption_breaker.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_twin_control_plane_instruction_compiler.py tests/test_twin_control_plane_genesis.py tests/test_twin_control_plane_no_data_interface_first.py tests/test_twin_control_plane_integration_impact_gate.py tests/test_twin_control_plane_blast_map_contract_sentinel.py tests/test_twin_control_plane_schema_guardian.py tests/test_twin_control_plane_state_mirror.py tests/test_twin_control_plane_twinproof_assumption_breaker.py` -> 45 passed in 6.89s.
+- `python -m py_compile agent\twin_control_plane\twinproof.py agent\twin_control_plane\assumption_breaker.py agent\twin_control_plane\__init__.py` -> passed.
+Real LLM evidence:
+- Not collected for Package 5; no model-facing prompt behavior changed in this slice.
+Real runtime evidence:
+- Not collected; this package is not connected to Atlas runtime/shadow/active execution.
+Unavailable checks:
+- Real runtime/Portal evidence is unavailable/not applicable for this pure TwinProof/Assumption Breaker slice.
+Adversarial tests:
+- Test Inventory classifies impacted tests, stale candidates, flaky candidates, redundant candidates, and coverage gaps.
+- No-Data Bootstrap Gate, Schema Guardian, and StateMirror findings are consumed as TwinProof proof gaps.
+- Assumption Breaker emits no-data, reload, feature-flag, and stale-contract briefs.
+- Stale tests/contracts remain retirement candidates and are not auto-deleted.
+Safety invariants checked:
+- Runtime observations are evidence inputs only; unavailable evidence remains unavailable through StateMirror/TwinProof consumption.
+- TwinProof is pure DTO/policy code; it does not execute, apply, verify, commit, or publish.
+- Assumption Breaker generates repair/review briefs only and does not mutate tests or contracts.
+Known limitations:
+- TwinProof and Assumption Breaker are not wired into Atlas shadow mode or Patch Impact Gate consumption yet.
+- Git Steward concrete adapter, Patch Impact Gate, Proof Ledger, Repair Compass, and Anti-Pattern Memory remain future packages.
+Next package: Package 6 Git Steward concrete adapter.
 Blocker, if any: none for local component work; remote publication requested by user.
 ```
 
