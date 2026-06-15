@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from datetime import datetime, timezone
 import json
@@ -1450,6 +1450,68 @@ def _select_replenishment_candidates(ranked_candidates: list[dict], attempted: s
     return _select_download_candidates(ranked_candidates, attempted, needed, {}, deficits)
 
 
+@dataclass
+class _ResearchRunState:
+    """Shared mutable state threaded through the run_research_job phases.
+
+    Setup fields (configuration computed once) are populated before the retrieval phases; the
+    remaining fields accumulate sources/candidates/evidence/answer as each phase runs. Phase
+    functions receive this object, unpack what they need, and write back rebound values.
+    """
+
+    # --- setup / configuration (read-mostly after construction) ---
+    runtime_cfg: Any = None
+    targets: dict = field(default_factory=dict)
+    depth_key: str = "standard"
+    intent: Any = None
+    screening_result: dict = field(default_factory=dict)
+    screening_summary: dict = field(default_factory=dict)
+    focused_research_plan: dict = field(default_factory=dict)
+    focused_queries: list = field(default_factory=list)
+    queries: list = field(default_factory=list)
+    base_queries: list = field(default_factory=list)
+    query_purpose_by_query: dict = field(default_factory=dict)
+    max_sources: int = 50
+    initial_download_limit: int = 0
+    recursive_reserved_downloads: int = 0
+    adaptive_enabled: bool = True
+    max_rounds: int = 1
+    max_download_mb: int = 0
+    max_download_bytes: int = 0
+    max_total_download_bytes: int = 0
+    download_timeout_sec: float = 0.0
+    curated_direct_candidates: list = field(default_factory=list)
+    static_curated_direct_count: int = 0
+    dynamic_curated_direct_count: int = 0
+    curated_direct_domains: list = field(default_factory=list)
+    dynamic_curated_direct_domains: list = field(default_factory=list)
+    dynamic_screening_registry: Any = None
+    engine_health_tracker: Any = None
+
+    # --- accumulated across the retrieval / replenishment / answer phases ---
+    search: dict = field(default_factory=dict)
+    all_items: list = field(default_factory=list)
+    candidate_by_url: dict = field(default_factory=dict)
+    attempted_canonical_urls: set = field(default_factory=set)
+    retrieval_rounds: list = field(default_factory=list)
+    registered_sources: list = field(default_factory=list)
+    downloadable_sources: list = field(default_factory=list)
+    download_error_count: int = 0
+    cumulative_downloaded_bytes: int = 0
+    skipped_due_to_download_limit_count: int = 0
+    last_expand_reasons: list = field(default_factory=list)
+    replenishment_metrics: dict = field(default_factory=dict)
+    ranked_candidates: list = field(default_factory=list)
+    source_chunks: list = field(default_factory=list)
+    references: list = field(default_factory=list)
+    evidence_items: list = field(default_factory=list)
+    answer_payload: dict = field(default_factory=dict)
+    coverage_matrix: Any = None
+    report_outline: Any = None
+    retrieval_summary: dict = field(default_factory=dict)
+    summary: str = ""
+
+
 def _run_planning_phase(payload: ResearchAgentInput, *, effective_job_id: str, query: str) -> dict[str, Any]:
     """Planning phase: intent inference, optional broad screening, focused plan, and query set.
 
@@ -1789,6 +1851,714 @@ def _run_recursive_phase(
     }
 
 
+def _run_retrieval_rounds(payload: ResearchAgentInput, *, effective_job_id: str, query: str, state: _ResearchRunState) -> dict | None:
+    """Multi-round web search + download loop.
+
+    Reads the planning/config fields from ``state``, accumulates candidates/sources across rounds,
+    and writes the results back to ``state``. Returns a job result dict to short-circuit the whole
+    job when deep research filtered every candidate as a stub (no real sources); otherwise None.
+    """
+    runtime_cfg = state.runtime_cfg
+    targets = state.targets
+    intent = state.intent
+    screening_summary = state.screening_summary
+    focused_research_plan = state.focused_research_plan
+    focused_queries = state.focused_queries
+    base_queries = state.base_queries
+    query_purpose_by_query = state.query_purpose_by_query
+    queries = state.queries
+    max_sources = state.max_sources
+    initial_download_limit = state.initial_download_limit
+    recursive_reserved_downloads = state.recursive_reserved_downloads
+    adaptive_enabled = state.adaptive_enabled
+    max_rounds = state.max_rounds
+    max_download_bytes = state.max_download_bytes
+    max_total_download_bytes = state.max_total_download_bytes
+    download_timeout_sec = state.download_timeout_sec
+    curated_direct_candidates = state.curated_direct_candidates
+    static_curated_direct_count = state.static_curated_direct_count
+    dynamic_curated_direct_count = state.dynamic_curated_direct_count
+    curated_direct_domains = state.curated_direct_domains
+    dynamic_curated_direct_domains = state.dynamic_curated_direct_domains
+    dynamic_screening_registry = state.dynamic_screening_registry
+    engine_health_tracker = state.engine_health_tracker
+    replenishment_metrics = state.replenishment_metrics
+    search = state.search
+    all_items = state.all_items
+    candidate_by_url = state.candidate_by_url
+    attempted_canonical_urls = state.attempted_canonical_urls
+    retrieval_rounds = state.retrieval_rounds
+    registered_sources = state.registered_sources
+    downloadable_sources = state.downloadable_sources
+    download_error_count = state.download_error_count
+    cumulative_downloaded_bytes = state.cumulative_downloaded_bytes
+    skipped_due_to_download_limit_count = state.skipped_due_to_download_limit_count
+    last_expand_reasons = state.last_expand_reasons
+    ranked_candidates = state.ranked_candidates
+    source_chunks = state.source_chunks
+    answer_payload = state.answer_payload
+
+    _emit_phase(effective_job_id, "web_search_started", phase="web_search", message="web search started", progress=0.22)
+    _record_state(effective_job_id, "searching", message="running web search", progress=0.25)
+
+    for round_index in range(max_rounds):
+        strategy = build_retrieval_strategy(payload.source_profile, str(payload.depth or payload.mode or "standard"), round_index, {"reasons": last_expand_reasons})
+        if focused_queries and round_index == 0:
+            round_queries = focused_queries[: max(1, payload.max_queries or len(focused_queries))]
+        else:
+            round_queries = _retrieval_strategy_queries(base_queries, strategy, query, payload.source_profile, max(1, payload.max_queries or len(base_queries) or 1) + (round_index * 6))
+        append_job_event(
+            effective_job_id,
+            "retrieval_round_started",
+            {
+                "round": round_index + 1,
+                "strategy": strategy.get("name"),
+                "query_count": len(round_queries),
+                "expand_reasons": last_expand_reasons,
+                "status": "running",
+                "phase": "web_search",
+                "updated_at": _now_iso(),
+            },
+        )
+        round_search = run_web_search(
+            round_queries,
+            mode=payload.mode,
+            depth=payload.depth,
+            max_results_per_query=payload.max_results_per_query,
+            scope=payload.scope,
+            language=payload.language,
+            source_profile=payload.source_profile,
+            freshness="recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced",
+            engine_health_tracker=engine_health_tracker,
+        )
+        if round_index == 0:
+            search = round_search
+        else:
+            search.setdefault("retrieval_round_searches", []).append(round_search)
+        round_items = list(round_search.get("items") or [])
+        for _item in round_items:
+            _item["query_purpose"] = query_purpose_by_query.get(str(_item.get("query") or "").strip(), "")
+        all_items.extend(round_items)
+        round_candidates = collect_source_candidates(
+            search_items=all_items,
+            manual_urls=payload.manual_urls if round_index == 0 else [],
+            direct_source_candidates=curated_direct_candidates if round_index == 0 else [],
+        )
+        ranked_all = rank_source_candidates(
+            round_candidates,
+            prefer_pdf=payload.prefer_pdf,
+            official_first=payload.official_first,
+            query=query,
+            trusted_domain_hints=get_curated_domain_hints(query, payload.source_profile),
+            source_profile=payload.source_profile,
+        )
+        ranked_all, stub_filtered_count = _filter_stub_candidates(ranked_all, payload)
+        if stub_filtered_count:
+            append_job_event(
+                effective_job_id,
+                "stub_sources_filtered",
+                {
+                    "status": "running",
+                    "phase": "source_collection",
+                    "message": "stub search results filtered from deep research evidence",
+                    "filtered_count": stub_filtered_count,
+                    "updated_at": _now_iso(),
+                },
+            )
+        for candidate in ranked_all:
+            canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
+            if canonical and canonical not in candidate_by_url:
+                candidate_by_url[canonical] = candidate
+        ranked_candidates = list(candidate_by_url.values())
+        ranked_candidates = rank_source_candidates(
+            ranked_candidates,
+            prefer_pdf=payload.prefer_pdf,
+            official_first=payload.official_first,
+            query=query,
+            trusted_domain_hints=get_curated_domain_hints(query, payload.source_profile),
+            source_profile=payload.source_profile,
+        )[:max_sources]
+
+        if stub_filtered_count and not ranked_candidates and round_index == max_rounds - 1:
+            message = "Web検索 provider が有効な実ソースを返せなかったため、根拠付き回答は生成できません"
+            answer_payload = {
+                "question": query,
+                "answer": message,
+                "summary": message,
+                "answer_markdown": message,
+                "references": [],
+                "evidence": [],
+                "output_incomplete": True,
+                "generation_mode": "stub_filtered_no_real_sources",
+                "stub_sources_filtered": stub_filtered_count,
+            }
+            answer_payload["claim_analysis"] = analyze_claim_level_gaps(answer_payload, [], [])
+            save_minimal_research_answer(job_id=effective_job_id, project=payload.project, question=query, answer_payload=answer_payload)
+            update_job(effective_job_id, status="failed", progress=1.0, message="検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。")
+            no_sources_payload = {"status": "failed", "phase": "no_sources", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。", "reason": "no_sources", "filtered_count": stub_filtered_count, "source_count": 0, "evidence_count": 0, "updated_at": _now_iso()}
+            append_job_event(effective_job_id, "research_completed", no_sources_payload)
+            append_job_event(effective_job_id, "research_failed", no_sources_payload)
+            return {"job_id": effective_job_id, "queries": queries, "search": search, "sources": [], "answer": answer_payload}
+
+        remaining_downloads = max(0, initial_download_limit - len(attempted_canonical_urls))
+        to_download: list[dict] = []
+        if remaining_downloads > 0:
+            to_download = _select_download_candidates(ranked_candidates, attempted_canonical_urls, remaining_downloads, focused_research_plan.get("source_mix_targets"))
+            for candidate in to_download:
+                canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
+                if canonical:
+                    attempted_canonical_urls.add(canonical)
+        skipped_due_to_download_limit_count = max(0, len(ranked_candidates) - len(attempted_canonical_urls))
+
+        if to_download:
+            if round_index == 0:
+                _emit_phase(effective_job_id, "download_phase_started", phase="downloading", message="download phase started", progress=0.55, details={"total_candidates": len(ranked_candidates), "max_downloads": initial_download_limit, "recursive_reserved_downloads": recursive_reserved_downloads})
+            remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
+            round_downloaded, round_download_errors = _download_sources_parallel(
+                job_id=effective_job_id,
+                candidates=to_download,
+                max_downloads=len(to_download),
+                max_download_bytes=max_download_bytes,
+                max_total_download_bytes=remaining_total_bytes,
+                download_timeout_sec=download_timeout_sec,
+                continue_on_download_error=payload.continue_on_download_error,
+                concurrency=runtime_cfg.download_concurrency,
+                pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
+                download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
+                download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
+            )
+            downloadable_sources.extend(round_downloaded)
+            download_error_count += round_download_errors
+            cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in round_downloaded if str(item.get("status") or "") in {"downloaded", "degraded", "reused"})
+            round_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=round_downloaded)
+            existing = {str(item.get("source_id") or ""): item for item in registered_sources if str(item.get("source_id") or "")}
+            for item in round_registered:
+                sid = str(item.get("source_id") or "")
+                if sid:
+                    existing[sid] = item
+            registered_sources = list(existing.values())
+
+        source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
+        current_summary = _retrieval_summary(
+            targets=targets,
+            retrieval_rounds=retrieval_rounds,
+            candidate_count=len(ranked_candidates),
+            attempted_download_count=len(attempted_canonical_urls),
+            registered_sources=registered_sources,
+            evidence_chunks=source_chunks,
+            skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
+            intent=intent,
+            screening_summary=screening_summary,
+            focused_research_plan=focused_research_plan,
+            search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
+            curated_direct_candidate_count=len(curated_direct_candidates),
+            static_curated_direct_candidate_count=static_curated_direct_count,
+            dynamic_curated_direct_candidate_count=dynamic_curated_direct_count,
+            curated_direct_downloaded_count=sum(1 for item in downloadable_sources if str(item.get("origin") or "") in {"curated_direct_source", "dynamic_curated_direct_source"} and str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested"}),
+            curated_direct_domains=curated_direct_domains,
+            dynamic_curated_direct_domains=dynamic_curated_direct_domains,
+            dynamic_screening_registry=dynamic_screening_registry,
+            engine_health=engine_health_tracker.summary(),
+            engine_replenishment=replenishment_metrics,
+        )
+        expand, reasons = should_expand_retrieval(current_summary, targets, round_index + 1)
+        round_payload = {
+            "round": round_index + 1,
+            "strategy": strategy.get("name"),
+            "query_count": len(round_queries),
+            "candidate_count": len(ranked_candidates),
+            "new_candidate_count": len(to_download),
+            "attempted_download_count": len(attempted_canonical_urls),
+            "valid_source_count": current_summary.get("valid_source_count", 0),
+            "evidence_count": current_summary.get("evidence_count", 0),
+            "high_quality_source_count": current_summary.get("high_quality_source_count", 0),
+            "official_source_count": current_summary.get("official_source_count", 0),
+            "pdf_source_count": current_summary.get("pdf_source_count", 0),
+            "skipped_due_to_download_limit_count": skipped_due_to_download_limit_count,
+            "expand_reasons": reasons,
+            "status": "running",
+            "phase": "web_search",
+            "updated_at": _now_iso(),
+        }
+        retrieval_rounds.append(round_payload)
+        append_job_event(effective_job_id, "retrieval_round_completed", round_payload)
+        last_expand_reasons = reasons
+        if not adaptive_enabled or not expand:
+            break
+
+    state.search = search
+    state.all_items = all_items
+    state.candidate_by_url = candidate_by_url
+    state.attempted_canonical_urls = attempted_canonical_urls
+    state.retrieval_rounds = retrieval_rounds
+    state.registered_sources = registered_sources
+    state.downloadable_sources = downloadable_sources
+    state.download_error_count = download_error_count
+    state.cumulative_downloaded_bytes = cumulative_downloaded_bytes
+    state.skipped_due_to_download_limit_count = skipped_due_to_download_limit_count
+    state.last_expand_reasons = last_expand_reasons
+    state.ranked_candidates = ranked_candidates
+    state.source_chunks = source_chunks
+    state.replenishment_metrics = replenishment_metrics
+    state.answer_payload = answer_payload
+    return None
+
+
+def _run_replenishment_phase(payload: ResearchAgentInput, *, effective_job_id: str, query: str, state: _ResearchRunState) -> None:
+    """Replenishment loop: top up under-target source mixes with additional targeted searches."""
+    targets = state.targets
+    intent = state.intent
+    screening_result = state.screening_result
+    screening_summary = state.screening_summary
+    focused_research_plan = state.focused_research_plan
+    max_sources = state.max_sources
+    max_download_bytes = state.max_download_bytes
+    max_total_download_bytes = state.max_total_download_bytes
+    download_timeout_sec = state.download_timeout_sec
+    runtime_cfg = state.runtime_cfg
+    engine_health_tracker = state.engine_health_tracker
+    replenishment_metrics = state.replenishment_metrics
+    registered_sources = state.registered_sources
+    downloadable_sources = state.downloadable_sources
+    candidate_by_url = state.candidate_by_url
+    attempted_canonical_urls = state.attempted_canonical_urls
+    retrieval_rounds = state.retrieval_rounds
+    ranked_candidates = state.ranked_candidates
+    source_chunks = state.source_chunks
+    cumulative_downloaded_bytes = state.cumulative_downloaded_bytes
+    download_error_count = state.download_error_count
+    skipped_due_to_download_limit_count = state.skipped_due_to_download_limit_count
+
+    if bool(targets.get("replenishment_enabled", True)):
+        max_replenishment_rounds = max(0, int(targets.get("max_replenishment_rounds") or 0))
+        max_replenishment_candidates = max(0, int(targets.get("max_replenishment_candidates") or 0))
+        max_replenishment_downloads = max(0, int(targets.get("max_replenishment_downloads") or 0))
+        replacement_candidate_budget_used = 0
+        replenishment_download_attempts_used = 0
+        replenishment_metrics["max_replenishment_downloads"] = max_replenishment_downloads
+        replenishment_metrics["replenishment_download_attempts_used"] = replenishment_download_attempts_used
+        replenishment_metrics["replenishment_download_budget_remaining"] = max(0, max_replenishment_downloads - replenishment_download_attempts_used)
+        for replenishment_round_index in range(max_replenishment_rounds):
+            source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
+            failed_sources = _collect_failed_retrieval_items(ranked_candidates, downloadable_sources)
+            current_summary = _retrieval_summary(
+                targets=targets,
+                retrieval_rounds=retrieval_rounds,
+                candidate_count=len(ranked_candidates),
+                attempted_download_count=len(attempted_canonical_urls),
+                registered_sources=registered_sources,
+                evidence_chunks=source_chunks,
+                skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
+                intent=intent,
+                screening_summary=screening_summary,
+                focused_research_plan=focused_research_plan,
+                search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
+                engine_health=engine_health_tracker.summary(),
+                engine_replenishment=replenishment_metrics,
+            )
+            current_summary["failed_sources"] = failed_sources
+            deficit = compute_retrieval_deficit(current_summary, targets)
+            replenishment_metrics["failed_candidate_count"] = deficit.get("failed_candidate_count", 0)
+            replenishment_metrics["replacement_needed"] = deficit.get("replacement_needed", False)
+            replenishment_metrics["source_mix_deficits"] = deficit.get("source_mix_deficits", {})
+            if not deficit.get("replacement_needed"):
+                replenishment_metrics["stop_reason"] = "targets_satisfied"
+                break
+            remaining_replacement_budget = max(0, max_replenishment_candidates - replacement_candidate_budget_used)
+            if remaining_replacement_budget <= 0:
+                replenishment_metrics["stop_reason"] = "candidate_budget_exhausted"
+                break
+            remaining_replenishment_downloads = max(0, max_replenishment_downloads - replenishment_download_attempts_used)
+            needed = min(int(deficit.get("replacement_target_count") or 0), remaining_replacement_budget, remaining_replenishment_downloads)
+            if needed <= 0:
+                replenishment_metrics["stop_reason"] = "download_budget_exhausted"
+                break
+            suspended = list(engine_health_tracker.summary().get("suspended_engines") or [])
+            replacement_query_objs = build_replenishment_queries(query, intent, focused_research_plan, deficit, failed_sources, suspended)
+            if not replacement_query_objs:
+                replenishment_metrics["stop_reason"] = "no_replacement_queries"
+                break
+            replacement_queries = [str(item.get("query") or "").strip() for item in replacement_query_objs if str(item.get("query") or "").strip()]
+            preferred_engines: list[str] = []
+            for item in replacement_query_objs:
+                for engine in item.get("preferred_engines") or []:
+                    if str(engine).lower() not in [e.lower() for e in preferred_engines]:
+                        preferred_engines.append(str(engine))
+            if not preferred_engines:
+                preferred_engines = choose_replacement_engines(payload.source_profile, None, set(suspended))
+            append_job_event(effective_job_id, "replenishment_round_started", {"round": replenishment_round_index + 1, "status": "running", "phase": "web_search", "message": "不足分を追加検索中", "replacement_target_count": needed, "updated_at": _now_iso()})
+            _emit_phase(effective_job_id, "replenishment_search_started", phase="web_search", message="不足分を追加検索中", progress=0.33, details={"round": replenishment_round_index + 1, "needed": needed})
+            replacement_search = run_web_search(
+                replacement_queries,
+                mode=payload.mode,
+                depth=payload.depth,
+                max_results_per_query=payload.max_results_per_query,
+                scope=payload.scope,
+                language=payload.language,
+                source_profile=payload.source_profile,
+                freshness="recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced",
+                engine_health_tracker=engine_health_tracker,
+            )
+            replacement_items = list(replacement_search.get("items") or [])
+            for item in replacement_items:
+                item["query_purpose"] = "replenish_failed_sources"
+            dynamic_direct = build_dynamic_direct_source_candidates(query, payload.source_profile, list(screening_result.get("candidates") or []), intent=intent, screening_summary=screening_summary)
+            replacement_candidates = collect_source_candidates(search_items=replacement_items, manual_urls=[], direct_source_candidates=dynamic_direct)
+            for candidate in replacement_candidates:
+                canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
+                if canonical and canonical not in candidate_by_url:
+                    candidate_by_url[canonical] = candidate
+            ranked_candidates = rank_source_candidates(list(candidate_by_url.values()), prefer_pdf=payload.prefer_pdf, official_first=payload.official_first, query=query, trusted_domain_hints=get_curated_domain_hints(query, payload.source_profile), source_profile=payload.source_profile)[:max_sources]
+            selected = _select_replenishment_candidates(ranked_candidates, attempted_canonical_urls, needed, deficit)
+            if not selected:
+                replenishment_metrics["stop_reason"] = "no_new_candidates"
+                break
+            for candidate in selected:
+                canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
+                if canonical:
+                    attempted_canonical_urls.add(canonical)
+            replenishment_download_attempts_used += len(selected)
+            remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
+            downloaded_before = len(downloadable_sources)
+            valid_before = sum(1 for item in registered_sources if str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested", ""})
+            round_downloaded, round_download_errors = _download_sources_parallel(
+                job_id=effective_job_id,
+                candidates=selected,
+                max_downloads=len(selected),
+                max_download_bytes=max_download_bytes,
+                max_total_download_bytes=remaining_total_bytes,
+                download_timeout_sec=download_timeout_sec,
+                continue_on_download_error=payload.continue_on_download_error,
+                concurrency=runtime_cfg.download_concurrency,
+                pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
+                download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
+                download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
+            )
+            downloadable_sources.extend(round_downloaded)
+            download_error_count += round_download_errors
+            cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in round_downloaded if str(item.get("status") or "") in {"downloaded", "degraded", "reused"})
+            round_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=round_downloaded)
+            existing = {str(item.get("source_id") or ""): item for item in registered_sources if str(item.get("source_id") or "")}
+            for item in round_registered:
+                sid = str(item.get("source_id") or "")
+                if sid:
+                    existing[sid] = item
+            registered_sources = list(existing.values())
+            valid_after = sum(1 for item in registered_sources if str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested", ""})
+            replacement_candidate_budget_used += len(selected)
+            replenishment_metrics["attempted"] = True
+            replenishment_metrics["replacement_queries"] += len(replacement_queries)
+            replenishment_metrics["replacement_candidates"] += len(selected)
+            replenishment_metrics["replacement_downloads"] += max(0, len(downloadable_sources) - downloaded_before)
+            replenishment_metrics["replacement_valid_sources"] += max(0, valid_after - valid_before)
+            replenishment_metrics["replenishment_download_attempts_used"] = replenishment_download_attempts_used
+            replenishment_metrics["replenishment_download_budget_remaining"] = max(0, max_replenishment_downloads - replenishment_download_attempts_used)
+            health = engine_health_tracker.summary()
+            replenishment_metrics["suspended_engines"] = list(health.get("suspended_engines") or [])
+            replenishment_metrics["fallback_to_safe_engines"] = bool(health.get("fallback_to_safe_engines", False))
+            round_payload = {"round": replenishment_round_index + 1, "status": "running", "phase": "web_search", "replacement_queries": len(replacement_queries), "replacement_candidates": len(replacement_candidates), "replacement_downloads": len(round_downloaded), "replacement_valid_sources": max(0, valid_after - valid_before), "deficit": deficit, "suspended_engines": replenishment_metrics["suspended_engines"], "updated_at": _now_iso()}
+            replenishment_metrics["replenishment_rounds"].append(round_payload)
+            append_job_event(effective_job_id, "replenishment_round_completed", {**round_payload, "message": f"補充: {len(round_downloaded)}件取得 / {max(0, valid_after - valid_before)}件有効"})
+        else:
+            if max_replenishment_rounds > 0:
+                replenishment_metrics["stop_reason"] = "max_replenishment_rounds_reached"
+
+    state.registered_sources = registered_sources
+    state.downloadable_sources = downloadable_sources
+    state.candidate_by_url = candidate_by_url
+    state.attempted_canonical_urls = attempted_canonical_urls
+    state.ranked_candidates = ranked_candidates
+    state.source_chunks = source_chunks
+    state.cumulative_downloaded_bytes = cumulative_downloaded_bytes
+    state.download_error_count = download_error_count
+    state.replenishment_metrics = replenishment_metrics
+
+
+def _build_research_answer_phase(payload: ResearchAgentInput, *, effective_job_id: str, query: str, state: _ResearchRunState) -> None:
+    """Finalize sources -> evidence -> citations -> retrieval summary -> initial answer payload."""
+    targets = state.targets
+    intent = state.intent
+    screening_summary = state.screening_summary
+    focused_research_plan = state.focused_research_plan
+    max_sources = state.max_sources
+    max_download_mb = state.max_download_mb
+    max_download_bytes = state.max_download_bytes
+    curated_direct_candidates = state.curated_direct_candidates
+    static_curated_direct_count = state.static_curated_direct_count
+    dynamic_curated_direct_count = state.dynamic_curated_direct_count
+    curated_direct_domains = state.curated_direct_domains
+    dynamic_curated_direct_domains = state.dynamic_curated_direct_domains
+    dynamic_screening_registry = state.dynamic_screening_registry
+    engine_health_tracker = state.engine_health_tracker
+    replenishment_metrics = state.replenishment_metrics
+    all_items = state.all_items
+    candidate_by_url = state.candidate_by_url
+    attempted_canonical_urls = state.attempted_canonical_urls
+    retrieval_rounds = state.retrieval_rounds
+    registered_sources = state.registered_sources
+    downloadable_sources = state.downloadable_sources
+    download_error_count = state.download_error_count
+    skipped_due_to_download_limit_count = state.skipped_due_to_download_limit_count
+
+    ranked_candidates = list(candidate_by_url.values())[:max_sources]
+    _emit_phase(effective_job_id, "web_search_finished", phase="web_search", message="web search finished", progress=0.35, details={"result_count": len(all_items), "retrieval_rounds": len(retrieval_rounds), "engine_replenishment": replenishment_metrics})
+    _emit_phase(effective_job_id, "source_collection_started", phase="source_collection", message="source collection started", progress=0.36)
+    _record_state(effective_job_id, "collecting_sources", message="normalizing source candidates", progress=0.4)
+    if len(candidate_by_url) >= max_sources:
+        append_job_event(effective_job_id, "constraint_applied", {"status": "running", "progress": 0.45, "message": f"candidate limit reached: max_sources={max_sources}", "reason": "max_sources_exceeded", "max_download_mb": max_download_mb, "max_download_bytes": max_download_bytes, "max_sources": max_sources, "candidate_count": len(candidate_by_url)})
+    _emit_phase(effective_job_id, "source_collection_finished", phase="source_collection", message="source collection finished", progress=0.5, details={"candidate_count": len(ranked_candidates), "attempted_download_count": len(attempted_canonical_urls), "skipped_due_to_download_limit_count": skipped_due_to_download_limit_count})
+    _emit_phase(effective_job_id, "download_phase_finished", phase="downloading", message="download phase finished", progress=0.65, details={"download_count": sum(1 for s in downloadable_sources if str(s.get("status")) in {"downloaded", "ingested", "reused", "degraded"}), "download_errors": download_error_count, "skipped_due_to_download_limit_count": skipped_due_to_download_limit_count})
+
+    _emit_phase(effective_job_id, "source_ingest_started", phase="source_ingest", message="source ingest started", progress=0.66)
+    evidence_items = _build_evidence_from_sources(effective_job_id, registered_sources)
+    save_evidence_items(effective_job_id, evidence_items)
+    _emit_phase(effective_job_id, "source_ingest_finished", phase="source_ingest", message="source ingest finished", progress=0.69, details={"source_count": len(registered_sources)})
+
+    _emit_phase(effective_job_id, "evidence_retrieval_started", phase="evidence_retrieval", message="evidence retrieval started", progress=0.7)
+    _record_state(effective_job_id, "retrieving_evidence", message="mapping citations", progress=0.7)
+    source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
+    references = build_citation_map(registered_sources, source_chunks)
+    normalized = normalize_reference_labels(
+        references=references,
+        evidence_json=registered_sources,
+        evidence_chunks=source_chunks,
+    )
+    references = normalized["references"]
+    registered_sources = normalized["evidence_json"]
+    source_chunks = normalized["evidence_chunks"]
+    _emit_phase(
+        effective_job_id,
+        "evidence_retrieval_finished",
+        phase="evidence_retrieval",
+        message="evidence retrieval finished",
+        progress=0.77,
+        details={"chunk_count": len(source_chunks)},
+    )
+    _emit_phase(
+        effective_job_id,
+        "evidence_compression_started",
+        phase="evidence_compression",
+        message="evidence compression started",
+        progress=0.79,
+    )
+    _emit_phase(
+        effective_job_id,
+        "evidence_compression_finished",
+        phase="evidence_compression",
+        message="evidence compression finished",
+        progress=0.82,
+    )
+
+    coverage_matrix = build_coverage_matrix(focused_research_plan, source_chunks, registered_sources)
+    report_outline = build_report_outline(intent, focused_research_plan)
+    _record_state(effective_job_id, "answering", message="building answer", progress=0.85)
+    _emit_phase(
+        effective_job_id,
+        "answer_llm_request_started",
+        phase="answer_llm_generating",
+        message="answer llm request started",
+        progress=0.84,
+    )
+    retrieval_summary = _retrieval_summary(
+        targets=targets,
+        retrieval_rounds=retrieval_rounds,
+        candidate_count=len(ranked_candidates),
+        attempted_download_count=len(attempted_canonical_urls),
+        registered_sources=registered_sources,
+        evidence_chunks=source_chunks,
+        skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
+        intent=intent,
+        screening_summary=screening_summary,
+        focused_research_plan=focused_research_plan,
+        coverage_matrix=coverage_matrix,
+        search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
+        curated_direct_candidate_count=len(curated_direct_candidates),
+        static_curated_direct_candidate_count=static_curated_direct_count,
+        dynamic_curated_direct_candidate_count=dynamic_curated_direct_count,
+        curated_direct_downloaded_count=sum(1 for item in downloadable_sources if str(item.get("origin") or "") in {"curated_direct_source", "dynamic_curated_direct_source"} and str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested"}),
+        curated_direct_domains=curated_direct_domains,
+        dynamic_curated_direct_domains=dynamic_curated_direct_domains,
+        dynamic_screening_registry=dynamic_screening_registry,
+        engine_health=engine_health_tracker.summary(),
+        engine_replenishment=replenishment_metrics,
+    )
+    if references:
+        labels = [f"[S{i + 1}]" for i in range(len(references))]
+        summary = f"{query} に関する調査結果です。確認済みソース: {' '.join(labels)}"
+    else:
+        summary = f"{query} に関する根拠は未確認です。現時点では断定できません。"
+    answer_payload = build_answer_payload(
+        question=query,
+        summary=summary,
+        references=references,
+        evidence=registered_sources,
+        evidence_chunks=source_chunks,
+        job_id=effective_job_id,
+        project=payload.project,
+        retrieval_summary=retrieval_summary,
+        report_outline=report_outline,
+        coverage_matrix=coverage_matrix,
+        source_mix_summary=retrieval_summary.get("source_mix", {}),
+    )
+
+    state.ranked_candidates = ranked_candidates
+    state.evidence_items = evidence_items
+    state.source_chunks = source_chunks
+    state.references = references
+    state.registered_sources = registered_sources
+    state.coverage_matrix = coverage_matrix
+    state.report_outline = report_outline
+    state.retrieval_summary = retrieval_summary
+    state.summary = summary
+    state.answer_payload = answer_payload
+
+
+def _finalize_research_result(payload: ResearchAgentInput, *, effective_job_id: str, state: _ResearchRunState, recursive_result: dict) -> dict:
+    """Assemble the final answer metadata, persist it, emit completion events, and return the job result."""
+    registered_sources = recursive_result["registered_sources"]
+    source_chunks = recursive_result["source_chunks"]
+    references = recursive_result["references"]
+    answer_payload = recursive_result["answer_payload"]
+    analysis = recursive_result["analysis"]
+    final_confidence = recursive_result["final_confidence"]
+    unresolved_items = recursive_result["unresolved_items"]
+    iterations = recursive_result["iterations"]
+    stop_reason = recursive_result["stop_reason"]
+    recursive_stop_reason = recursive_result["recursive_stop_reason"]
+    followup_search_count = recursive_result["followup_search_count"]
+    followup_queries_count = recursive_result["followup_queries_count"]
+    added_sources_total = recursive_result["added_sources_total"]
+    recursive_download_attempt_count = recursive_result["recursive_download_attempt_count"]
+    recursive_downloaded_count = recursive_result["recursive_downloaded_count"]
+    recursive_followup_skip_reason = recursive_result["recursive_followup_skip_reason"]
+    final_evidence_items = recursive_result["final_evidence_items"]
+    retrieval_summary = state.retrieval_summary
+    evidence_items = state.evidence_items
+    download_error_count = state.download_error_count
+    recursive_reserved_downloads = state.recursive_reserved_downloads
+    queries = state.queries
+    search = state.search
+    if isinstance(analysis, dict) and analysis.get("claim_analysis") is not None:
+        answer_payload["claim_analysis"] = analysis.get("claim_analysis")
+    answer_payload["recursive_search"] = bool(payload.recursive_search)
+    answer_payload["iterations"] = iterations
+    answer_payload["confidence"] = final_confidence
+    answer_payload["unresolved_items"] = unresolved_items
+    answer_payload["stop_reason"] = stop_reason
+    answer_payload["recursive_stop_reason"] = recursive_stop_reason
+    answer_payload["followup_search_count"] = followup_search_count
+    answer_payload["followup_queries_count"] = followup_queries_count
+    answer_payload["followup_queries_generated"] = followup_queries_count
+    answer_payload["followup_searches_executed"] = followup_search_count
+    answer_payload["recursive_download_attempt_count"] = recursive_download_attempt_count
+    answer_payload["recursive_downloaded_count"] = recursive_downloaded_count
+    answer_payload["recursive_reserved_downloads"] = recursive_reserved_downloads
+    answer_payload["recursive_download_budget_remaining"] = max(0, recursive_reserved_downloads - recursive_download_attempt_count)
+    answer_payload["recursive_followup_skip_reason"] = recursive_followup_skip_reason
+    answer_payload["added_sources_total"] = added_sources_total
+    answer_payload["answer_generated"] = bool(str(answer_payload.get("answer_markdown") or answer_payload.get("answer") or "").strip())
+    answer_payload["answer_saved"] = False
+    answer_payload["citation_verification_done"] = bool(answer_payload.get("citation_verification"))
+    answer_payload["gap_analysis_done"] = bool(answer_payload.get("claim_analysis") is not None or answer_payload.get("unresolved_items") is not None)
+    answer_payload["bundle_saved"] = False
+    answer_payload["finalization_warning"] = None
+    _persist_latest_answer_json(effective_job_id, answer_payload)
+    answer_payload["answer_saved"] = True
+    _persist_latest_answer_json(effective_job_id, answer_payload)
+    generation = answer_payload.get("generation") or {}
+    generation_mode = (
+        answer_payload.get("generation_mode")
+        or generation.get("mode")
+        or ""
+    )
+    llm_event_details = {
+        "generation_mode": generation_mode,
+        "finish_reason": generation.get("finish_reason"),
+        "output_incomplete": generation.get("output_incomplete", answer_payload.get("output_incomplete")),
+        "output_truncated": generation.get("output_truncated", answer_payload.get("output_truncated")),
+        "error": generation.get("error", answer_payload.get("llm_error")),
+        "elapsed_sec": generation.get("elapsed_sec"),
+        "response_length_chars": generation.get("response_length_chars"),
+    }
+    if generation_mode in {"llm_answer", "llm_answer_truncated"} and not generation.get("error"):
+        _emit_phase(
+            effective_job_id,
+            "answer_llm_request_finished",
+            phase="answer_llm_generating",
+            message="answer llm request finished",
+            progress=0.9,
+            details=llm_event_details,
+        )
+    else:
+        failed_message = "answer llm request failed, fallback used"
+        failed_event = "answer_llm_request_failed"
+        if generation_mode in {"llm_answer_truncated", "llm_answer"}:
+            failed_event = "answer_llm_request_degraded"
+            failed_message = "answer llm request degraded"
+        _emit_phase(
+            effective_job_id,
+            failed_event,
+            phase="answer_llm_generating",
+            message=failed_message,
+            progress=0.9,
+            details=llm_event_details,
+        )
+    _emit_phase(effective_job_id, "answer_validation_started", phase="answer_validation", message="answer validation started", progress=0.9)
+    _emit_phase(effective_job_id, "answer_validation_finished", phase="answer_validation", message="answer validation finished", progress=0.92)
+    _emit_phase(effective_job_id, "answer_save_started", phase="answer_save", message="answer save started", progress=0.93)
+    _emit_phase(effective_job_id, "answer_save_finished", phase="answer_save", message="answer save finished", progress=0.94)
+
+    _record_state(effective_job_id, "reporting", message="finalizing report", progress=0.95)
+    reporting_started_at = time.time()
+    source_has_degraded_or_failed = any(
+        str(source.get("status") or "") in {"degraded", "failed"} for source in registered_sources
+    )
+    final_evidence = final_evidence_items if payload.recursive_search else evidence_items
+    final_outcome = _determine_final_research_outcome(
+        retrieval_summary=retrieval_summary,
+        registered_sources=registered_sources,
+        evidence_chunks=source_chunks,
+        answer_payload=answer_payload,
+        download_error_count=download_error_count,
+        source_has_degraded_or_failed=source_has_degraded_or_failed,
+    )
+    reporting_max = EXHAUSTIVE_REPORTING_TIMEOUT_SEC if str(payload.depth or payload.mode or "").strip().lower() == "exhaustive" else REPORTING_TIMEOUT_SEC
+    if bool(answer_payload.get("answer_generated")) and (time.time() - reporting_started_at) > reporting_max:
+        final_outcome = {"status": "degraded", "reason": "reporting_timeout_after_answer_generated", "phase": "completed", "message": "research completed with reporting timeout after answer generation"}
+        answer_payload["finalization_warning"] = "reporting_timeout_after_answer_generated"
+    answer_payload["bundle_saved"] = True
+    _persist_latest_answer_json(effective_job_id, answer_payload)
+    update_job(effective_job_id, status=final_outcome["status"], progress=1.0, message=final_outcome["message"])
+    completion_payload = {
+        "status": final_outcome["status"],
+        "phase": final_outcome["phase"],
+        "reason": final_outcome["reason"],
+        "message": final_outcome["message"],
+        "progress": 1.0,
+        "answer_exists": bool(answer_payload),
+        "source_count": len(registered_sources),
+        "evidence_count": len(final_evidence or []),
+        "updated_at": _now_iso(),
+    }
+    append_job_event(
+        effective_job_id,
+        "research_completed",
+        completion_payload,
+    )
+    if final_outcome["status"] == "failed":
+        append_job_event(effective_job_id, "research_failed", completion_payload)
+    elif final_outcome["status"] == "degraded":
+        append_job_event(effective_job_id, "research_degraded", completion_payload)
+
+    return {
+        "job_id": effective_job_id,
+        "queries": queries,
+        "search": search,
+        "sources": registered_sources,
+        "answer": answer_payload,
+    }
+
+
 def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) -> dict:
     query = payload.query.strip()
     if not query:
@@ -1892,428 +2662,82 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
         cumulative_downloaded_bytes = 0
         replenishment_metrics = _init_replenishment_metrics(bool(targets.get("replenishment_enabled", True)), engine_health_tracker)
 
-        _emit_phase(effective_job_id, "web_search_started", phase="web_search", message="web search started", progress=0.22)
-        _record_state(effective_job_id, "searching", message="running web search", progress=0.25)
-
-        for round_index in range(max_rounds):
-            strategy = build_retrieval_strategy(payload.source_profile, str(payload.depth or payload.mode or "standard"), round_index, {"reasons": last_expand_reasons})
-            if focused_queries and round_index == 0:
-                round_queries = focused_queries[: max(1, payload.max_queries or len(focused_queries))]
-            else:
-                round_queries = _retrieval_strategy_queries(base_queries, strategy, query, payload.source_profile, max(1, payload.max_queries or len(base_queries) or 1) + (round_index * 6))
-            append_job_event(
-                effective_job_id,
-                "retrieval_round_started",
-                {
-                    "round": round_index + 1,
-                    "strategy": strategy.get("name"),
-                    "query_count": len(round_queries),
-                    "expand_reasons": last_expand_reasons,
-                    "status": "running",
-                    "phase": "web_search",
-                    "updated_at": _now_iso(),
-                },
-            )
-            round_search = run_web_search(
-                round_queries,
-                mode=payload.mode,
-                depth=payload.depth,
-                max_results_per_query=payload.max_results_per_query,
-                scope=payload.scope,
-                language=payload.language,
-                source_profile=payload.source_profile,
-                freshness="recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced",
-                engine_health_tracker=engine_health_tracker,
-            )
-            if round_index == 0:
-                search = round_search
-            else:
-                search.setdefault("retrieval_round_searches", []).append(round_search)
-            round_items = list(round_search.get("items") or [])
-            for _item in round_items:
-                _item["query_purpose"] = query_purpose_by_query.get(str(_item.get("query") or "").strip(), "")
-            all_items.extend(round_items)
-            round_candidates = collect_source_candidates(
-                search_items=all_items,
-                manual_urls=payload.manual_urls if round_index == 0 else [],
-                direct_source_candidates=curated_direct_candidates if round_index == 0 else [],
-            )
-            ranked_all = rank_source_candidates(
-                round_candidates,
-                prefer_pdf=payload.prefer_pdf,
-                official_first=payload.official_first,
-                query=query,
-                trusted_domain_hints=get_curated_domain_hints(query, payload.source_profile),
-                source_profile=payload.source_profile,
-            )
-            ranked_all, stub_filtered_count = _filter_stub_candidates(ranked_all, payload)
-            if stub_filtered_count:
-                append_job_event(
-                    effective_job_id,
-                    "stub_sources_filtered",
-                    {
-                        "status": "running",
-                        "phase": "source_collection",
-                        "message": "stub search results filtered from deep research evidence",
-                        "filtered_count": stub_filtered_count,
-                        "updated_at": _now_iso(),
-                    },
-                )
-            for candidate in ranked_all:
-                canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
-                if canonical and canonical not in candidate_by_url:
-                    candidate_by_url[canonical] = candidate
-            ranked_candidates = list(candidate_by_url.values())
-            ranked_candidates = rank_source_candidates(
-                ranked_candidates,
-                prefer_pdf=payload.prefer_pdf,
-                official_first=payload.official_first,
-                query=query,
-                trusted_domain_hints=get_curated_domain_hints(query, payload.source_profile),
-                source_profile=payload.source_profile,
-            )[:max_sources]
-
-            if stub_filtered_count and not ranked_candidates and round_index == max_rounds - 1:
-                message = "Web検索 provider が有効な実ソースを返せなかったため、根拠付き回答は生成できません"
-                answer_payload = {
-                    "question": query,
-                    "answer": message,
-                    "summary": message,
-                    "answer_markdown": message,
-                    "references": [],
-                    "evidence": [],
-                    "output_incomplete": True,
-                    "generation_mode": "stub_filtered_no_real_sources",
-                    "stub_sources_filtered": stub_filtered_count,
-                }
-                answer_payload["claim_analysis"] = analyze_claim_level_gaps(answer_payload, [], [])
-                save_minimal_research_answer(job_id=effective_job_id, project=payload.project, question=query, answer_payload=answer_payload)
-                update_job(effective_job_id, status="failed", progress=1.0, message="検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。")
-                no_sources_payload = {"status": "failed", "phase": "no_sources", "message": "検索結果を取得できませんでした。検索エンジン設定、SearXNG疎通、またはクエリを確認してください。", "reason": "no_sources", "filtered_count": stub_filtered_count, "source_count": 0, "evidence_count": 0, "updated_at": _now_iso()}
-                append_job_event(effective_job_id, "research_completed", no_sources_payload)
-                append_job_event(effective_job_id, "research_failed", no_sources_payload)
-                return {"job_id": effective_job_id, "queries": queries, "search": search, "sources": [], "answer": answer_payload}
-
-            remaining_downloads = max(0, initial_download_limit - len(attempted_canonical_urls))
-            to_download: list[dict] = []
-            if remaining_downloads > 0:
-                to_download = _select_download_candidates(ranked_candidates, attempted_canonical_urls, remaining_downloads, focused_research_plan.get("source_mix_targets"))
-                for candidate in to_download:
-                    canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
-                    if canonical:
-                        attempted_canonical_urls.add(canonical)
-            skipped_due_to_download_limit_count = max(0, len(ranked_candidates) - len(attempted_canonical_urls))
-
-            if to_download:
-                if round_index == 0:
-                    _emit_phase(effective_job_id, "download_phase_started", phase="downloading", message="download phase started", progress=0.55, details={"total_candidates": len(ranked_candidates), "max_downloads": initial_download_limit, "recursive_reserved_downloads": recursive_reserved_downloads})
-                remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
-                round_downloaded, round_download_errors = _download_sources_parallel(
-                    job_id=effective_job_id,
-                    candidates=to_download,
-                    max_downloads=len(to_download),
-                    max_download_bytes=max_download_bytes,
-                    max_total_download_bytes=remaining_total_bytes,
-                    download_timeout_sec=download_timeout_sec,
-                    continue_on_download_error=payload.continue_on_download_error,
-                    concurrency=runtime_cfg.download_concurrency,
-                    pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
-                    download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
-                    download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
-                )
-                downloadable_sources.extend(round_downloaded)
-                download_error_count += round_download_errors
-                cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in round_downloaded if str(item.get("status") or "") in {"downloaded", "degraded", "reused"})
-                round_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=round_downloaded)
-                existing = {str(item.get("source_id") or ""): item for item in registered_sources if str(item.get("source_id") or "")}
-                for item in round_registered:
-                    sid = str(item.get("source_id") or "")
-                    if sid:
-                        existing[sid] = item
-                registered_sources = list(existing.values())
-
-            source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
-            current_summary = _retrieval_summary(
-                targets=targets,
-                retrieval_rounds=retrieval_rounds,
-                candidate_count=len(ranked_candidates),
-                attempted_download_count=len(attempted_canonical_urls),
-                registered_sources=registered_sources,
-                evidence_chunks=source_chunks,
-                skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
-                intent=intent,
-                screening_summary=screening_summary,
-                focused_research_plan=focused_research_plan,
-                search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
-                curated_direct_candidate_count=len(curated_direct_candidates),
-                static_curated_direct_candidate_count=static_curated_direct_count,
-                dynamic_curated_direct_candidate_count=dynamic_curated_direct_count,
-                curated_direct_downloaded_count=sum(1 for item in downloadable_sources if str(item.get("origin") or "") in {"curated_direct_source", "dynamic_curated_direct_source"} and str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested"}),
-                curated_direct_domains=curated_direct_domains,
-                dynamic_curated_direct_domains=dynamic_curated_direct_domains,
-                dynamic_screening_registry=dynamic_screening_registry,
-                engine_health=engine_health_tracker.summary(),
-                engine_replenishment=replenishment_metrics,
-            )
-            expand, reasons = should_expand_retrieval(current_summary, targets, round_index + 1)
-            round_payload = {
-                "round": round_index + 1,
-                "strategy": strategy.get("name"),
-                "query_count": len(round_queries),
-                "candidate_count": len(ranked_candidates),
-                "new_candidate_count": len(to_download),
-                "attempted_download_count": len(attempted_canonical_urls),
-                "valid_source_count": current_summary.get("valid_source_count", 0),
-                "evidence_count": current_summary.get("evidence_count", 0),
-                "high_quality_source_count": current_summary.get("high_quality_source_count", 0),
-                "official_source_count": current_summary.get("official_source_count", 0),
-                "pdf_source_count": current_summary.get("pdf_source_count", 0),
-                "skipped_due_to_download_limit_count": skipped_due_to_download_limit_count,
-                "expand_reasons": reasons,
-                "status": "running",
-                "phase": "web_search",
-                "updated_at": _now_iso(),
-            }
-            retrieval_rounds.append(round_payload)
-            append_job_event(effective_job_id, "retrieval_round_completed", round_payload)
-            last_expand_reasons = reasons
-            if not adaptive_enabled or not expand:
-                break
-
-        if bool(targets.get("replenishment_enabled", True)):
-            max_replenishment_rounds = max(0, int(targets.get("max_replenishment_rounds") or 0))
-            max_replenishment_candidates = max(0, int(targets.get("max_replenishment_candidates") or 0))
-            max_replenishment_downloads = max(0, int(targets.get("max_replenishment_downloads") or 0))
-            replacement_candidate_budget_used = 0
-            replenishment_download_attempts_used = 0
-            replenishment_metrics["max_replenishment_downloads"] = max_replenishment_downloads
-            replenishment_metrics["replenishment_download_attempts_used"] = replenishment_download_attempts_used
-            replenishment_metrics["replenishment_download_budget_remaining"] = max(0, max_replenishment_downloads - replenishment_download_attempts_used)
-            for replenishment_round_index in range(max_replenishment_rounds):
-                source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
-                failed_sources = _collect_failed_retrieval_items(ranked_candidates, downloadable_sources)
-                current_summary = _retrieval_summary(
-                    targets=targets,
-                    retrieval_rounds=retrieval_rounds,
-                    candidate_count=len(ranked_candidates),
-                    attempted_download_count=len(attempted_canonical_urls),
-                    registered_sources=registered_sources,
-                    evidence_chunks=source_chunks,
-                    skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
-                    intent=intent,
-                    screening_summary=screening_summary,
-                    focused_research_plan=focused_research_plan,
-                    search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
-                    engine_health=engine_health_tracker.summary(),
-                    engine_replenishment=replenishment_metrics,
-                )
-                current_summary["failed_sources"] = failed_sources
-                deficit = compute_retrieval_deficit(current_summary, targets)
-                replenishment_metrics["failed_candidate_count"] = deficit.get("failed_candidate_count", 0)
-                replenishment_metrics["replacement_needed"] = deficit.get("replacement_needed", False)
-                replenishment_metrics["source_mix_deficits"] = deficit.get("source_mix_deficits", {})
-                if not deficit.get("replacement_needed"):
-                    replenishment_metrics["stop_reason"] = "targets_satisfied"
-                    break
-                remaining_replacement_budget = max(0, max_replenishment_candidates - replacement_candidate_budget_used)
-                if remaining_replacement_budget <= 0:
-                    replenishment_metrics["stop_reason"] = "candidate_budget_exhausted"
-                    break
-                remaining_replenishment_downloads = max(0, max_replenishment_downloads - replenishment_download_attempts_used)
-                needed = min(int(deficit.get("replacement_target_count") or 0), remaining_replacement_budget, remaining_replenishment_downloads)
-                if needed <= 0:
-                    replenishment_metrics["stop_reason"] = "download_budget_exhausted"
-                    break
-                suspended = list(engine_health_tracker.summary().get("suspended_engines") or [])
-                replacement_query_objs = build_replenishment_queries(query, intent, focused_research_plan, deficit, failed_sources, suspended)
-                if not replacement_query_objs:
-                    replenishment_metrics["stop_reason"] = "no_replacement_queries"
-                    break
-                replacement_queries = [str(item.get("query") or "").strip() for item in replacement_query_objs if str(item.get("query") or "").strip()]
-                preferred_engines: list[str] = []
-                for item in replacement_query_objs:
-                    for engine in item.get("preferred_engines") or []:
-                        if str(engine).lower() not in [e.lower() for e in preferred_engines]:
-                            preferred_engines.append(str(engine))
-                if not preferred_engines:
-                    preferred_engines = choose_replacement_engines(payload.source_profile, None, set(suspended))
-                append_job_event(effective_job_id, "replenishment_round_started", {"round": replenishment_round_index + 1, "status": "running", "phase": "web_search", "message": "不足分を追加検索中", "replacement_target_count": needed, "updated_at": _now_iso()})
-                _emit_phase(effective_job_id, "replenishment_search_started", phase="web_search", message="不足分を追加検索中", progress=0.33, details={"round": replenishment_round_index + 1, "needed": needed})
-                replacement_search = run_web_search(
-                    replacement_queries,
-                    mode=payload.mode,
-                    depth=payload.depth,
-                    max_results_per_query=payload.max_results_per_query,
-                    scope=payload.scope,
-                    language=payload.language,
-                    source_profile=payload.source_profile,
-                    freshness="recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced",
-                    engine_health_tracker=engine_health_tracker,
-                )
-                replacement_items = list(replacement_search.get("items") or [])
-                for item in replacement_items:
-                    item["query_purpose"] = "replenish_failed_sources"
-                dynamic_direct = build_dynamic_direct_source_candidates(query, payload.source_profile, list(screening_result.get("candidates") or []), intent=intent, screening_summary=screening_summary)
-                replacement_candidates = collect_source_candidates(search_items=replacement_items, manual_urls=[], direct_source_candidates=dynamic_direct)
-                for candidate in replacement_candidates:
-                    canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
-                    if canonical and canonical not in candidate_by_url:
-                        candidate_by_url[canonical] = candidate
-                ranked_candidates = rank_source_candidates(list(candidate_by_url.values()), prefer_pdf=payload.prefer_pdf, official_first=payload.official_first, query=query, trusted_domain_hints=get_curated_domain_hints(query, payload.source_profile), source_profile=payload.source_profile)[:max_sources]
-                selected = _select_replenishment_candidates(ranked_candidates, attempted_canonical_urls, needed, deficit)
-                if not selected:
-                    replenishment_metrics["stop_reason"] = "no_new_candidates"
-                    break
-                for candidate in selected:
-                    canonical = canonicalize_source_url(str(candidate.get("url") or "")) or str(candidate.get("url") or "")
-                    if canonical:
-                        attempted_canonical_urls.add(canonical)
-                replenishment_download_attempts_used += len(selected)
-                remaining_total_bytes = max(0, max_total_download_bytes - cumulative_downloaded_bytes)
-                downloaded_before = len(downloadable_sources)
-                valid_before = sum(1 for item in registered_sources if str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested", ""})
-                round_downloaded, round_download_errors = _download_sources_parallel(
-                    job_id=effective_job_id,
-                    candidates=selected,
-                    max_downloads=len(selected),
-                    max_download_bytes=max_download_bytes,
-                    max_total_download_bytes=remaining_total_bytes,
-                    download_timeout_sec=download_timeout_sec,
-                    continue_on_download_error=payload.continue_on_download_error,
-                    concurrency=runtime_cfg.download_concurrency,
-                    pdf_extract_concurrency=runtime_cfg.pdf_extract_concurrency,
-                    download_progress_interval_sec=runtime_cfg.download_progress_interval_sec,
-                    download_stalled_after_sec=runtime_cfg.download_stalled_after_sec,
-                )
-                downloadable_sources.extend(round_downloaded)
-                download_error_count += round_download_errors
-                cumulative_downloaded_bytes += sum(max(0, int(item.get("size") or 0)) for item in round_downloaded if str(item.get("status") or "") in {"downloaded", "degraded", "reused"})
-                round_registered = register_or_update_sources(job_id=effective_job_id, project=payload.project, sources=round_downloaded)
-                existing = {str(item.get("source_id") or ""): item for item in registered_sources if str(item.get("source_id") or "")}
-                for item in round_registered:
-                    sid = str(item.get("source_id") or "")
-                    if sid:
-                        existing[sid] = item
-                registered_sources = list(existing.values())
-                valid_after = sum(1 for item in registered_sources if str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested", ""})
-                replacement_candidate_budget_used += len(selected)
-                replenishment_metrics["attempted"] = True
-                replenishment_metrics["replacement_queries"] += len(replacement_queries)
-                replenishment_metrics["replacement_candidates"] += len(selected)
-                replenishment_metrics["replacement_downloads"] += max(0, len(downloadable_sources) - downloaded_before)
-                replenishment_metrics["replacement_valid_sources"] += max(0, valid_after - valid_before)
-                replenishment_metrics["replenishment_download_attempts_used"] = replenishment_download_attempts_used
-                replenishment_metrics["replenishment_download_budget_remaining"] = max(0, max_replenishment_downloads - replenishment_download_attempts_used)
-                health = engine_health_tracker.summary()
-                replenishment_metrics["suspended_engines"] = list(health.get("suspended_engines") or [])
-                replenishment_metrics["fallback_to_safe_engines"] = bool(health.get("fallback_to_safe_engines", False))
-                round_payload = {"round": replenishment_round_index + 1, "status": "running", "phase": "web_search", "replacement_queries": len(replacement_queries), "replacement_candidates": len(replacement_candidates), "replacement_downloads": len(round_downloaded), "replacement_valid_sources": max(0, valid_after - valid_before), "deficit": deficit, "suspended_engines": replenishment_metrics["suspended_engines"], "updated_at": _now_iso()}
-                replenishment_metrics["replenishment_rounds"].append(round_payload)
-                append_job_event(effective_job_id, "replenishment_round_completed", {**round_payload, "message": f"補充: {len(round_downloaded)}件取得 / {max(0, valid_after - valid_before)}件有効"})
-            else:
-                if max_replenishment_rounds > 0:
-                    replenishment_metrics["stop_reason"] = "max_replenishment_rounds_reached"
-
-        ranked_candidates = list(candidate_by_url.values())[:max_sources]
-        _emit_phase(effective_job_id, "web_search_finished", phase="web_search", message="web search finished", progress=0.35, details={"result_count": len(all_items), "retrieval_rounds": len(retrieval_rounds), "engine_replenishment": replenishment_metrics})
-        _emit_phase(effective_job_id, "source_collection_started", phase="source_collection", message="source collection started", progress=0.36)
-        _record_state(effective_job_id, "collecting_sources", message="normalizing source candidates", progress=0.4)
-        if len(candidate_by_url) >= max_sources:
-            append_job_event(effective_job_id, "constraint_applied", {"status": "running", "progress": 0.45, "message": f"candidate limit reached: max_sources={max_sources}", "reason": "max_sources_exceeded", "max_download_mb": max_download_mb, "max_download_bytes": max_download_bytes, "max_sources": max_sources, "candidate_count": len(candidate_by_url)})
-        _emit_phase(effective_job_id, "source_collection_finished", phase="source_collection", message="source collection finished", progress=0.5, details={"candidate_count": len(ranked_candidates), "attempted_download_count": len(attempted_canonical_urls), "skipped_due_to_download_limit_count": skipped_due_to_download_limit_count})
-        _emit_phase(effective_job_id, "download_phase_finished", phase="downloading", message="download phase finished", progress=0.65, details={"download_count": sum(1 for s in downloadable_sources if str(s.get("status")) in {"downloaded", "ingested", "reused", "degraded"}), "download_errors": download_error_count, "skipped_due_to_download_limit_count": skipped_due_to_download_limit_count})
-
-        _emit_phase(effective_job_id, "source_ingest_started", phase="source_ingest", message="source ingest started", progress=0.66)
-        evidence_items = _build_evidence_from_sources(effective_job_id, registered_sources)
-        save_evidence_items(effective_job_id, evidence_items)
-        _emit_phase(effective_job_id, "source_ingest_finished", phase="source_ingest", message="source ingest finished", progress=0.69, details={"source_count": len(registered_sources)})
-
-        _emit_phase(effective_job_id, "evidence_retrieval_started", phase="evidence_retrieval", message="evidence retrieval started", progress=0.7)
-        _record_state(effective_job_id, "retrieving_evidence", message="mapping citations", progress=0.7)
-        source_chunks = _load_source_chunks([str(item.get("source_id") or "") for item in registered_sources])
-        references = build_citation_map(registered_sources, source_chunks)
-        normalized = normalize_reference_labels(
-            references=references,
-            evidence_json=registered_sources,
-            evidence_chunks=source_chunks,
-        )
-        references = normalized["references"]
-        registered_sources = normalized["evidence_json"]
-        source_chunks = normalized["evidence_chunks"]
-        _emit_phase(
-            effective_job_id,
-            "evidence_retrieval_finished",
-            phase="evidence_retrieval",
-            message="evidence retrieval finished",
-            progress=0.77,
-            details={"chunk_count": len(source_chunks)},
-        )
-        _emit_phase(
-            effective_job_id,
-            "evidence_compression_started",
-            phase="evidence_compression",
-            message="evidence compression started",
-            progress=0.79,
-        )
-        _emit_phase(
-            effective_job_id,
-            "evidence_compression_finished",
-            phase="evidence_compression",
-            message="evidence compression finished",
-            progress=0.82,
-        )
-
-        coverage_matrix = build_coverage_matrix(focused_research_plan, source_chunks, registered_sources)
-        report_outline = build_report_outline(intent, focused_research_plan)
-        _record_state(effective_job_id, "answering", message="building answer", progress=0.85)
-        _emit_phase(
-            effective_job_id,
-            "answer_llm_request_started",
-            phase="answer_llm_generating",
-            message="answer llm request started",
-            progress=0.84,
-        )
-        retrieval_summary = _retrieval_summary(
+        state = _ResearchRunState(
+            runtime_cfg=runtime_cfg,
             targets=targets,
-            retrieval_rounds=retrieval_rounds,
-            candidate_count=len(ranked_candidates),
-            attempted_download_count=len(attempted_canonical_urls),
-            registered_sources=registered_sources,
-            evidence_chunks=source_chunks,
-            skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
+            depth_key=depth_key,
             intent=intent,
+            screening_result=screening_result,
             screening_summary=screening_summary,
             focused_research_plan=focused_research_plan,
-            coverage_matrix=coverage_matrix,
-            search_policy=resolve_searxng_engines_for_profile(payload.source_profile, str(payload.depth or payload.mode or "standard"), "recent" if str(payload.source_profile or "").lower() in {"news", "market"} else "balanced"),
-            curated_direct_candidate_count=len(curated_direct_candidates),
-            static_curated_direct_candidate_count=static_curated_direct_count,
-            dynamic_curated_direct_candidate_count=dynamic_curated_direct_count,
-            curated_direct_downloaded_count=sum(1 for item in downloadable_sources if str(item.get("origin") or "") in {"curated_direct_source", "dynamic_curated_direct_source"} and str(item.get("status") or "") in {"downloaded", "degraded", "reused", "ingested"}),
+            focused_queries=focused_queries,
+            queries=queries,
+            base_queries=base_queries,
+            query_purpose_by_query=query_purpose_by_query,
+            max_sources=max_sources,
+            initial_download_limit=initial_download_limit,
+            recursive_reserved_downloads=recursive_reserved_downloads,
+            adaptive_enabled=adaptive_enabled,
+            max_rounds=max_rounds,
+            max_download_mb=max_download_mb,
+            max_download_bytes=max_download_bytes,
+            max_total_download_bytes=max_total_download_bytes,
+            download_timeout_sec=download_timeout_sec,
+            curated_direct_candidates=curated_direct_candidates,
+            static_curated_direct_count=static_curated_direct_count,
+            dynamic_curated_direct_count=dynamic_curated_direct_count,
             curated_direct_domains=curated_direct_domains,
             dynamic_curated_direct_domains=dynamic_curated_direct_domains,
             dynamic_screening_registry=dynamic_screening_registry,
-            engine_health=engine_health_tracker.summary(),
-            engine_replenishment=replenishment_metrics,
+            engine_health_tracker=engine_health_tracker,
+            search=search,
+            registered_sources=registered_sources,
+            downloadable_sources=downloadable_sources,
+            download_error_count=download_error_count,
+            cumulative_downloaded_bytes=cumulative_downloaded_bytes,
+            skipped_due_to_download_limit_count=skipped_due_to_download_limit_count,
+            last_expand_reasons=last_expand_reasons,
+            replenishment_metrics=replenishment_metrics,
+            answer_payload=answer_payload,
         )
-        if references:
-            labels = [f"[S{i + 1}]" for i in range(len(references))]
-            summary = f"{query} に関する調査結果です。確認済みソース: {' '.join(labels)}"
-        else:
-            summary = f"{query} に関する根拠は未確認です。現時点では断定できません。"
-        answer_payload = build_answer_payload(
-            question=query,
-            summary=summary,
-            references=references,
-            evidence=registered_sources,
-            evidence_chunks=source_chunks,
-            job_id=effective_job_id,
-            project=payload.project,
-            retrieval_summary=retrieval_summary,
-            report_outline=report_outline,
-            coverage_matrix=coverage_matrix,
-            source_mix_summary=retrieval_summary.get("source_mix", {}),
-        )
+
+        early_result = _run_retrieval_rounds(payload, effective_job_id=effective_job_id, query=query, state=state)
+        if early_result is not None:
+            return early_result
+        search = state.search
+        registered_sources = state.registered_sources
+        downloadable_sources = state.downloadable_sources
+        download_error_count = state.download_error_count
+        cumulative_downloaded_bytes = state.cumulative_downloaded_bytes
+        skipped_due_to_download_limit_count = state.skipped_due_to_download_limit_count
+        ranked_candidates = state.ranked_candidates
+        source_chunks = state.source_chunks
+        all_items = state.all_items
+        candidate_by_url = state.candidate_by_url
+        attempted_canonical_urls = state.attempted_canonical_urls
+        retrieval_rounds = state.retrieval_rounds
+        replenishment_metrics = state.replenishment_metrics
+
+        _run_replenishment_phase(payload, effective_job_id=effective_job_id, query=query, state=state)
+        registered_sources = state.registered_sources
+        downloadable_sources = state.downloadable_sources
+        candidate_by_url = state.candidate_by_url
+        attempted_canonical_urls = state.attempted_canonical_urls
+        ranked_candidates = state.ranked_candidates
+        source_chunks = state.source_chunks
+        cumulative_downloaded_bytes = state.cumulative_downloaded_bytes
+        download_error_count = state.download_error_count
+        replenishment_metrics = state.replenishment_metrics
+
+        _build_research_answer_phase(payload, effective_job_id=effective_job_id, query=query, state=state)
+        ranked_candidates = state.ranked_candidates
+        evidence_items = state.evidence_items
+        source_chunks = state.source_chunks
+        references = state.references
+        registered_sources = state.registered_sources
+        retrieval_summary = state.retrieval_summary
+        summary = state.summary
+        answer_payload = state.answer_payload
         recursive_result = _run_recursive_phase(
             payload,
             effective_job_id=effective_job_id,
@@ -2332,141 +2756,8 @@ def run_research_job(payload: ResearchAgentInput, *, job_id: str | None = None) 
             runtime_cfg=runtime_cfg,
         )
         registered_sources = recursive_result["registered_sources"]
-        source_chunks = recursive_result["source_chunks"]
-        references = recursive_result["references"]
         answer_payload = recursive_result["answer_payload"]
-        analysis = recursive_result["analysis"]
-        final_confidence = recursive_result["final_confidence"]
-        unresolved_items = recursive_result["unresolved_items"]
-        iterations = recursive_result["iterations"]
-        stop_reason = recursive_result["stop_reason"]
-        recursive_stop_reason = recursive_result["recursive_stop_reason"]
-        followup_search_count = recursive_result["followup_search_count"]
-        followup_queries_count = recursive_result["followup_queries_count"]
-        added_sources_total = recursive_result["added_sources_total"]
-        recursive_download_attempt_count = recursive_result["recursive_download_attempt_count"]
-        recursive_downloaded_count = recursive_result["recursive_downloaded_count"]
-        recursive_followup_skip_reason = recursive_result["recursive_followup_skip_reason"]
-        final_evidence_items = recursive_result["final_evidence_items"]
-        if isinstance(analysis, dict) and analysis.get("claim_analysis") is not None:
-            answer_payload["claim_analysis"] = analysis.get("claim_analysis")
-        answer_payload["recursive_search"] = bool(payload.recursive_search)
-        answer_payload["iterations"] = iterations
-        answer_payload["confidence"] = final_confidence
-        answer_payload["unresolved_items"] = unresolved_items
-        answer_payload["stop_reason"] = stop_reason
-        answer_payload["recursive_stop_reason"] = recursive_stop_reason
-        answer_payload["followup_search_count"] = followup_search_count
-        answer_payload["followup_queries_count"] = followup_queries_count
-        answer_payload["followup_queries_generated"] = followup_queries_count
-        answer_payload["followup_searches_executed"] = followup_search_count
-        answer_payload["recursive_download_attempt_count"] = recursive_download_attempt_count
-        answer_payload["recursive_downloaded_count"] = recursive_downloaded_count
-        answer_payload["recursive_reserved_downloads"] = recursive_reserved_downloads
-        answer_payload["recursive_download_budget_remaining"] = max(0, recursive_reserved_downloads - recursive_download_attempt_count)
-        answer_payload["recursive_followup_skip_reason"] = recursive_followup_skip_reason
-        answer_payload["added_sources_total"] = added_sources_total
-        answer_payload["answer_generated"] = bool(str(answer_payload.get("answer_markdown") or answer_payload.get("answer") or "").strip())
-        answer_payload["answer_saved"] = False
-        answer_payload["citation_verification_done"] = bool(answer_payload.get("citation_verification"))
-        answer_payload["gap_analysis_done"] = bool(answer_payload.get("claim_analysis") is not None or answer_payload.get("unresolved_items") is not None)
-        answer_payload["bundle_saved"] = False
-        answer_payload["finalization_warning"] = None
-        _persist_latest_answer_json(effective_job_id, answer_payload)
-        answer_payload["answer_saved"] = True
-        _persist_latest_answer_json(effective_job_id, answer_payload)
-        generation = answer_payload.get("generation") or {}
-        generation_mode = (
-            answer_payload.get("generation_mode")
-            or generation.get("mode")
-            or ""
-        )
-        llm_event_details = {
-            "generation_mode": generation_mode,
-            "finish_reason": generation.get("finish_reason"),
-            "output_incomplete": generation.get("output_incomplete", answer_payload.get("output_incomplete")),
-            "output_truncated": generation.get("output_truncated", answer_payload.get("output_truncated")),
-            "error": generation.get("error", answer_payload.get("llm_error")),
-            "elapsed_sec": generation.get("elapsed_sec"),
-            "response_length_chars": generation.get("response_length_chars"),
-        }
-        if generation_mode in {"llm_answer", "llm_answer_truncated"} and not generation.get("error"):
-            _emit_phase(
-                effective_job_id,
-                "answer_llm_request_finished",
-                phase="answer_llm_generating",
-                message="answer llm request finished",
-                progress=0.9,
-                details=llm_event_details,
-            )
-        else:
-            failed_message = "answer llm request failed, fallback used"
-            failed_event = "answer_llm_request_failed"
-            if generation_mode in {"llm_answer_truncated", "llm_answer"}:
-                failed_event = "answer_llm_request_degraded"
-                failed_message = "answer llm request degraded"
-            _emit_phase(
-                effective_job_id,
-                failed_event,
-                phase="answer_llm_generating",
-                message=failed_message,
-                progress=0.9,
-                details=llm_event_details,
-            )
-        _emit_phase(effective_job_id, "answer_validation_started", phase="answer_validation", message="answer validation started", progress=0.9)
-        _emit_phase(effective_job_id, "answer_validation_finished", phase="answer_validation", message="answer validation finished", progress=0.92)
-        _emit_phase(effective_job_id, "answer_save_started", phase="answer_save", message="answer save started", progress=0.93)
-        _emit_phase(effective_job_id, "answer_save_finished", phase="answer_save", message="answer save finished", progress=0.94)
-
-        _record_state(effective_job_id, "reporting", message="finalizing report", progress=0.95)
-        reporting_started_at = time.time()
-        source_has_degraded_or_failed = any(
-            str(source.get("status") or "") in {"degraded", "failed"} for source in registered_sources
-        )
-        final_evidence = final_evidence_items if payload.recursive_search else evidence_items
-        final_outcome = _determine_final_research_outcome(
-            retrieval_summary=retrieval_summary,
-            registered_sources=registered_sources,
-            evidence_chunks=source_chunks,
-            answer_payload=answer_payload,
-            download_error_count=download_error_count,
-            source_has_degraded_or_failed=source_has_degraded_or_failed,
-        )
-        reporting_max = EXHAUSTIVE_REPORTING_TIMEOUT_SEC if str(payload.depth or payload.mode or "").strip().lower() == "exhaustive" else REPORTING_TIMEOUT_SEC
-        if bool(answer_payload.get("answer_generated")) and (time.time() - reporting_started_at) > reporting_max:
-            final_outcome = {"status": "degraded", "reason": "reporting_timeout_after_answer_generated", "phase": "completed", "message": "research completed with reporting timeout after answer generation"}
-            answer_payload["finalization_warning"] = "reporting_timeout_after_answer_generated"
-        answer_payload["bundle_saved"] = True
-        _persist_latest_answer_json(effective_job_id, answer_payload)
-        update_job(effective_job_id, status=final_outcome["status"], progress=1.0, message=final_outcome["message"])
-        completion_payload = {
-            "status": final_outcome["status"],
-            "phase": final_outcome["phase"],
-            "reason": final_outcome["reason"],
-            "message": final_outcome["message"],
-            "progress": 1.0,
-            "answer_exists": bool(answer_payload),
-            "source_count": len(registered_sources),
-            "evidence_count": len(final_evidence or []),
-            "updated_at": _now_iso(),
-        }
-        append_job_event(
-            effective_job_id,
-            "research_completed",
-            completion_payload,
-        )
-        if final_outcome["status"] == "failed":
-            append_job_event(effective_job_id, "research_failed", completion_payload)
-        elif final_outcome["status"] == "degraded":
-            append_job_event(effective_job_id, "research_degraded", completion_payload)
-
-        return {
-            "job_id": effective_job_id,
-            "queries": queries,
-            "search": search,
-            "sources": registered_sources,
-            "answer": answer_payload,
-        }
+        return _finalize_research_result(payload, effective_job_id=effective_job_id, state=state, recursive_result=recursive_result)
     except Exception as exc:  # noqa: BLE001
         all_sources_degraded = bool(downloadable_sources) and not any(
             str(source.get("status") or "") in {"downloaded", "ingested"} for source in downloadable_sources
