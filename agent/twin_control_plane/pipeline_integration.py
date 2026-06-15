@@ -81,9 +81,51 @@ def twin_gate_block_reason(evidence: dict) -> str:
     return ""
 
 
+BLOCK_UNVERIFIED_ENV = "ATLAS_TWIN_BLOCK_UNVERIFIED"
+
+
+def resolve_block_unverified(value: str | None = None) -> bool:
+    """Whether the post-apply gate should hard-block a completed run that has changed
+    files but NO passing verification evidence (only unavailable/missing).
+
+    Defaults to OFF: the autonomous full-auto path legitimately auto-continues some
+    unverifiable changes (e.g. a static file whose only check is "open in a browser"),
+    so this stricter block is opt-in via ``ATLAS_TWIN_BLOCK_UNVERIFIED`` in
+    {1, on, true, yes}."""
+    raw = (value if value is not None else os.environ.get(BLOCK_UNVERIFIED_ENV, "")).strip().lower()
+    return raw in {"1", "on", "true", "yes"}
+
+
 def _stable_brief_id(pool_id: str, requirement: str) -> str:
     base = f"{pool_id}:{requirement}".strip(":") or "twin_brief"
     return "twin_brief_" + base.replace(" ", "_")[:48]
+
+
+def _build_policy_and_brief(
+    *, requirement: str, pool_id: str, project_path: str, refs: list[str],
+    item_refs: Iterable[str], change_class: str, task_category: str,
+):
+    """Build the ExecutionPolicy (Forge Twin route selection) and TwinBrief for a run.
+
+    Lazy imports keep model_forge out of the twin_control_plane package import graph."""
+    from agent.model_forge.execution_policy import ExecutionPolicySelector, ModelCapabilityProfile
+    from agent.model_forge.route_matrix import ChangeClass
+
+    selector = ExecutionPolicySelector()
+    policy = selector.select(
+        ChangeClass(change_class), task_category=task_category,
+        model_profile=ModelCapabilityProfile(model_id="atlas-codegen"),
+    )
+    brief = TwinBrief(
+        brief_id=_stable_brief_id(pool_id, requirement),
+        goal=requirement or "autonomous codegen",
+        allowed_refs=refs,
+        impacted_refs=refs,
+        hard_constraints=default_hard_constraints(),
+        source_refs=[project_path] if project_path else [],
+        metadata={"pool_id": pool_id, "item_refs": sorted({str(i) for i in item_refs if str(i).strip()})},
+    )
+    return policy, brief
 
 
 def build_twin_pipeline_evidence(
@@ -104,25 +146,10 @@ def build_twin_pipeline_evidence(
                 "reason": "pipeline_off"}
 
     try:
-        # Lazy imports: keep model_forge out of the twin_control_plane package import graph
-        # so the seam cannot create a module-load import cycle.
-        from agent.model_forge.execution_policy import ExecutionPolicySelector, ModelCapabilityProfile
-        from agent.model_forge.route_matrix import ChangeClass
-
         refs = sorted({str(r).strip() for r in changed_refs if str(r).strip()})
-        selector = ExecutionPolicySelector()
-        policy = selector.select(
-            ChangeClass(change_class), task_category=task_category,
-            model_profile=ModelCapabilityProfile(model_id="atlas-codegen"),
-        )
-        brief = TwinBrief(
-            brief_id=_stable_brief_id(pool_id, requirement),
-            goal=requirement or "autonomous codegen",
-            allowed_refs=refs,
-            impacted_refs=refs,
-            hard_constraints=default_hard_constraints(),
-            source_refs=[project_path] if project_path else [],
-            metadata={"pool_id": pool_id, "item_refs": sorted({str(i) for i in item_refs if str(i).strip()})},
+        policy, brief = _build_policy_and_brief(
+            requirement=requirement, pool_id=pool_id, project_path=project_path, refs=refs,
+            item_refs=item_refs, change_class=change_class, task_category=task_category,
         )
         shadow_orch = TwinShadowOrchestrator(TwinShadowMode.SHADOW)
         shadow_report: TwinShadowReport | None = shadow_orch.assemble(
@@ -152,12 +179,116 @@ def build_twin_pipeline_evidence(
                 "available": False, "reason": f"twin_evidence_error:{type(exc).__name__}"}
 
 
+def _verification_evidence(verification: Iterable):
+    """Normalise (id, status) pairs or {evidence_id,status} dicts into VerificationEvidence.
+    Anything that is not an explicit passed/failed is treated as unavailable (never passed)."""
+    from agent.twin_control_plane.patch_impact_gate import VerificationEvidence
+
+    out = []
+    for idx, item in enumerate(verification or []):
+        if isinstance(item, dict):
+            ev_id = str(item.get("evidence_id") or item.get("id") or f"verify_{idx}")
+            status = str(item.get("status") or "").strip().lower()
+        else:
+            ev_id = f"verify_{idx}"
+            status = str(item).strip().lower()
+        if status not in {"passed", "failed"}:
+            status = "unavailable"
+        out.append(VerificationEvidence(evidence_id=ev_id, status=status))
+    return out
+
+
+def evaluate_twin_post_apply(
+    *,
+    mode: PipelineMode,
+    blocking: bool,
+    block_unverified: bool = False,
+    requirement: str = "",
+    pool_id: str = "",
+    project_path: str = "",
+    changed_files: Iterable[str] = (),
+    verification: Iterable = (),
+    before_twin_revision_id: str = "",
+    after_twin_revision_id: str = "",
+    contract_sentinel=None,
+    schema_guardian=None,
+    state_mirror=None,
+    twinproof=None,
+    change_class: str = "medium",
+    task_category: str = "autonomous_codegen",
+) -> dict:
+    """Run the Patch Impact Gate over the autonomous run's REAL post-apply evidence and
+    return a record (plus a hard-block signal). Never raises.
+
+    Blocking is conservative:
+    - a genuine BLOCKED decision (hard contract/schema/state boundary) hard-blocks;
+    - a completed change with changed files but NO passing verification only hard-blocks
+      when ``block_unverified`` is explicitly enabled (it is otherwise recorded as an
+      advisory proof gap, so legitimate auto-continued static changes are not disrupted);
+    - ``unavailable`` evidence is never treated as passed."""
+    if mode == PipelineMode.OFF:
+        return {"mode": PipelineMode.OFF.value, "ran": False, "gate_blocked": False,
+                "block_reason": "", "reason": "pipeline_off"}
+    try:
+        from agent.twin_control_plane.patch_impact_gate import PatchGateDecision, evaluate_patch_impact
+
+        files = sorted({str(f).strip() for f in changed_files if str(f).strip()})
+        policy, brief = _build_policy_and_brief(
+            requirement=requirement, pool_id=pool_id, project_path=project_path, refs=files,
+            item_refs=(), change_class=change_class, task_category=task_category,
+        )
+        evidence_items = _verification_evidence(verification)
+        report = evaluate_patch_impact(
+            policy=policy, brief=brief,
+            base_ref=before_twin_revision_id, head_ref=after_twin_revision_id or "working_tree",
+            changed_files=files,
+            before_twin_revision_id=before_twin_revision_id,
+            after_twin_revision_id=after_twin_revision_id,
+            verification=evidence_items,
+            contract_sentinel=contract_sentinel, schema_guardian=schema_guardian,
+            state_mirror=state_mirror, twinproof=twinproof,
+        )
+        has_passed = bool(report.passed_evidence_refs)
+        unverified_change = bool(files) and not has_passed
+
+        block_reason = ""
+        if blocking and report.decision == PatchGateDecision.BLOCKED:
+            block_reason = "twin_post_apply_hard_boundary"
+        elif blocking and block_unverified and unverified_change:
+            block_reason = "twin_post_apply_unverified_change"
+
+        return {
+            "mode": mode.value,
+            "ran": True,
+            "decision": report.decision.value,
+            "accepted": report.accepted,
+            "needs_repair": report.needs_repair,
+            "blocked_decision": report.blocked,
+            "unverified_change": unverified_change,
+            "gate_blocked": bool(block_reason),
+            "block_reason": block_reason,
+            "passed_evidence": list(report.passed_evidence_refs),
+            "failed_evidence": list(report.failed_evidence_refs),
+            "unavailable_evidence": list(report.unavailable_evidence_refs),
+            "repair_reasons": list(report.repair_reasons),
+            "blocked_reasons": list(report.blocked_reasons),
+            "proof_requirements": list(report.proof_requirements),
+            "report_id": report.report_id,
+        }
+    except Exception as exc:  # pragma: no cover - defensive: never break the legacy flow
+        return {"mode": getattr(mode, "value", str(mode)), "ran": False, "gate_blocked": False,
+                "block_reason": "", "reason": f"twin_post_apply_error:{type(exc).__name__}"}
+
+
 __all__ = [
     "PIPELINE_MODE_ENV",
     "GATE_BLOCKING_ENV",
+    "BLOCK_UNVERIFIED_ENV",
     "DEFAULT_PIPELINE_MODE",
     "resolve_pipeline_mode",
     "resolve_gate_blocking",
+    "resolve_block_unverified",
     "twin_gate_block_reason",
     "build_twin_pipeline_evidence",
+    "evaluate_twin_post_apply",
 ]

@@ -28,8 +28,11 @@ from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
 from agent.atlas_plan_item_file_changes import has_file_change_content, normalize_plan_item_file_changes
 from agent.atlas_recovery_service import AtlasRecoveryService
 from agent.atlas_automation_profile_resolver import is_full_auto_context
+from agent.twin_control_plane.active_integration import PipelineMode
 from agent.twin_control_plane.pipeline_integration import (
     build_twin_pipeline_evidence,
+    evaluate_twin_post_apply,
+    resolve_block_unverified,
     resolve_gate_blocking,
     resolve_pipeline_mode,
     twin_gate_block_reason,
@@ -179,6 +182,16 @@ class AtlasAutonomousCodegenOrchestratorService:
         for w in autopilot.warnings:
             if w not in out.warnings:
                 out.warnings.append(w)
+        # Post-apply Twin gate over the run's real verification evidence and changed files.
+        # Advisory by default; a promoted hard-boundary block surfaces as blocked_safety_review.
+        twin_post_block = self._twin_post_apply_gate(out, request, autopilot)
+        if twin_post_block:
+            out.phase = "failure_analysis"
+            out.status = "blocked_safety_review"
+            out.stop_reason = twin_post_block
+            self._emit("autonomous_codegen_blocked_twin_post_apply", request.pool_id, run_id, orchestrator_run_id, status=out.status, reason=out.stop_reason)
+            self.save_result(out)
+            return out
         repair_evidence = self._build_repairable_verification_evidence(request, autopilot)
 
         # ── Phase 4: aggregate ────────────────────────────────────────────────────────────────
@@ -375,6 +388,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                         run_id=run_id,
                         workspace_id=request.workspace_id,
                         source_type="plan_item",
+                        metadata=self._twin_generation_hints(out),
                     )
                 )
                 available = is_patch_generation_success((pres.metadata or {}).get("patch_generation"))
@@ -653,6 +667,62 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "reason": f"twin_seam_error:{type(exc).__name__}",
             }
             return ""  # an internal seam error is never a hard block (unavailable != failed)
+
+    @staticmethod
+    def _twin_generation_hints(out: AtlasAutonomousCodegenResult) -> dict[str, Any]:
+        """Forge Twin route-selection hints for patch generation. Advisory: the generator
+        may use the recommended route/instruction style; it does not override Atlas's own
+        route/safety logic. Empty when the seam is off/unavailable."""
+        tcp = (out.metadata or {}).get("twin_control_plane") or {}
+        if not tcp.get("available") or tcp.get("mode") == "off":
+            return {}
+        hints = {
+            "twin_route": tcp.get("route"),
+            "twin_instruction_style": tcp.get("instruction_style"),
+            "twin_injection_level": tcp.get("twin_injection_level"),
+            "twin_policy_id": tcp.get("policy_id"),
+        }
+        return {"twin_generation_hints": {k: v for k, v in hints.items() if v is not None}}
+
+    def _twin_post_apply_gate(self, out: AtlasAutonomousCodegenResult, request: AtlasAutonomousCodegenRequest, autopilot) -> str:
+        """Run the post-apply Twin Patch Impact Gate over the run's REAL verification
+        evidence and changed files; record it and return a block reason when the
+        (promoted) blocking gate must stop acceptance, else "".
+
+        Fully guarded and advisory for execution authority: Atlas keeps Verification /
+        Repair. Blocking is conservative (genuine hard boundary, or the opt-in
+        unverified-change case)."""
+        try:
+            mode = resolve_pipeline_mode()
+            if mode == PipelineMode.OFF:
+                return ""
+            changed_files = self._changed_files_from_autopilot(autopilot)
+            verification: list[dict[str, str]] = []
+            for item in getattr(autopilot, "item_results", []) or []:
+                vr = getattr(item, "verification_result", None) or {}
+                verification.append({
+                    "evidence_id": f"verify_{getattr(item, 'item_id', '')}",
+                    "status": str(vr.get("status") or "unavailable"),
+                })
+            report = evaluate_twin_post_apply(
+                mode=mode,
+                blocking=resolve_gate_blocking(),
+                block_unverified=resolve_block_unverified(),
+                requirement=str(request.user_requirement or ""),
+                pool_id=str(request.pool_id or ""),
+                project_path=str(request.project_path or ""),
+                changed_files=changed_files,
+                verification=verification,
+                after_twin_revision_id=getattr(autopilot, "autopilot_run_id", ""),
+            )
+            tcp = out.metadata.get("twin_control_plane")
+            if isinstance(tcp, dict):
+                tcp["post_apply"] = report
+            else:
+                out.metadata["twin_control_plane"] = {"post_apply": report}
+            return report.get("block_reason") or ""
+        except Exception as exc:  # pragma: no cover - defensive: never break the legacy flow
+            return ""  # a post-apply seam error is never a hard block
 
     def _preflight(self, request: AtlasAutonomousCodegenRequest, pool: AtlasPlanPool) -> dict:
         project_path = str(request.project_path or getattr(pool, "project_path", "") or "").strip()
