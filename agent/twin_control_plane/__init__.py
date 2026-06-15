@@ -17,6 +17,12 @@ from agent.twin_control_plane.contracts import (
     TwinConstraint,
     TwinInjectionLevel,
 )
+from agent.twin_control_plane.blast_map import BlastMap, BlastMapEntry, build_blast_map
+from agent.twin_control_plane.contract_sentinel import (
+    ContractFinding,
+    ContractSentinelReport,
+    evaluate_contracts,
+)
 from agent.twin_control_plane.genesis import (
     GenesisClassification,
     GenesisKind,
@@ -44,12 +50,32 @@ from agent.twin_control_plane.no_data_bootstrap_gate import (
     NoDataBootstrapAssessment,
     evaluate_no_data_bootstrap,
 )
+from agent.twin_control_plane.schema_guardian import (
+    SchemaCompatibility,
+    SchemaField,
+    SchemaFinding,
+    SchemaGuardianReport,
+    SchemaSnapshot,
+    SchemaSurface,
+    compare_schema_snapshots,
+)
+from agent.twin_control_plane.state_mirror import (
+    StateMirrorFinding,
+    StateMirrorReport,
+    StateObservation,
+    StateSurface,
+    compare_state_mirror,
+)
 
 __all__ = [
     "ATLAS_TWIN_CONTROL_PLANE_CONTRACT_VERSION",
+    "BlastMap",
+    "BlastMapEntry",
     "BootstrapCondition",
     "BootstrapRequirement",
     "CompiledInstruction",
+    "ContractFinding",
+    "ContractSentinelReport",
     "ExecutionPolicy",
     "GenesisClassification",
     "GenesisKind",
@@ -63,15 +89,29 @@ __all__ = [
     "InterfaceSectionKind",
     "ModelCapabilityMode",
     "NoDataBootstrapAssessment",
+    "SchemaCompatibility",
+    "SchemaField",
+    "SchemaFinding",
+    "SchemaGuardianReport",
+    "SchemaSnapshot",
+    "SchemaSurface",
+    "StateMirrorFinding",
+    "StateMirrorReport",
+    "StateObservation",
+    "StateSurface",
     "TwinBrief",
     "TwinConstraint",
     "TwinInjectionLevel",
     "adapt_greenfield_session",
     "apply_interface_first_plan",
     "assess_integration_impact",
+    "build_blast_map",
     "classify_genesis",
     "compile_model_instruction",
+    "compare_schema_snapshots",
+    "compare_state_mirror",
     "evaluate_no_data_bootstrap",
+    "evaluate_contracts",
     "generate_interface_first_plan",
     "safe_apply_required_for_slice",
 ]
