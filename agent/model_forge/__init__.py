@@ -31,6 +31,25 @@ from agent.model_forge.profile_store import (
     ProfileStore,
     profile_key,
 )
+from agent.model_forge.eval_packs import (
+    CAPABILITY_DIMENSIONS,
+    CapabilityCase,
+    CapabilityEvalPack,
+    CaseResult,
+    DimensionScore,
+    get_eval_pack,
+    load_eval_packs,
+    pack_for_dimension,
+    score_pack,
+)
+from agent.model_forge.capability_scoring import (
+    WEAKNESS_THRESHOLD,
+    CapabilityScorer,
+    build_capability_profile,
+    derive_known_weaknesses,
+    load_capability_profile,
+    score_dimensions,
+)
 from agent.model_forge.forge_service import ForgeService
 from agent.model_forge.execution_bridge import ForgeModelExecutionBridge
 from agent.model_forge.preset_runner import (
@@ -248,6 +267,21 @@ __all__ = [
     "ProfileStore",
     "ProfileObservation",
     "profile_key",
+    "CAPABILITY_DIMENSIONS",
+    "CapabilityCase",
+    "CapabilityEvalPack",
+    "CaseResult",
+    "DimensionScore",
+    "score_pack",
+    "load_eval_packs",
+    "get_eval_pack",
+    "pack_for_dimension",
+    "WEAKNESS_THRESHOLD",
+    "CapabilityScorer",
+    "score_dimensions",
+    "derive_known_weaknesses",
+    "build_capability_profile",
+    "load_capability_profile",
     "StageCandidate",
     "StagePolicyEntry",
     "StageSelection",
