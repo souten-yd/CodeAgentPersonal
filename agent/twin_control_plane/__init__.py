@@ -17,6 +17,17 @@ from agent.twin_control_plane.contracts import (
     TwinConstraint,
     TwinInjectionLevel,
 )
+from agent.twin_control_plane.anti_pattern_memory import (
+    AntiPatternEntry,
+    AntiPatternMemory,
+    AntiPatternSource,
+    GuardrailHint,
+    GuardrailStrength,
+    guardrail_hints,
+    record_anti_pattern,
+    record_from_proof_ledger,
+    record_from_repair_compass,
+)
 from agent.twin_control_plane.assumption_breaker import (
     AssumptionBreakerBrief,
     AssumptionBreakerCase,
@@ -67,6 +78,12 @@ from agent.twin_control_plane.proof_ledger import (
     append_proof_entry,
     create_proof_ledger_entry,
 )
+from agent.twin_control_plane.repair_compass import (
+    RepairCategory,
+    RepairCompassReport,
+    RepairInstruction,
+    build_repair_compass,
+)
 from agent.twin_control_plane.schema_guardian import (
     SchemaCompatibility,
     SchemaField,
@@ -93,6 +110,9 @@ from agent.twin_control_plane.twinproof import (
 
 __all__ = [
     "ATLAS_TWIN_CONTROL_PLANE_CONTRACT_VERSION",
+    "AntiPatternEntry",
+    "AntiPatternMemory",
+    "AntiPatternSource",
     "AssumptionBreakerBrief",
     "AssumptionBreakerCase",
     "BlastMap",
@@ -107,6 +127,8 @@ __all__ = [
     "GenesisKind",
     "GenesisRun",
     "GitPolicy",
+    "GuardrailHint",
+    "GuardrailStrength",
     "InstructionStyle",
     "IntegrationImpactReport",
     "IntegrationPoint",
@@ -120,6 +142,9 @@ __all__ = [
     "ProofLedger",
     "ProofLedgerEntry",
     "ProofGap",
+    "RepairCategory",
+    "RepairCompassReport",
+    "RepairInstruction",
     "SchemaCompatibility",
     "SchemaField",
     "SchemaFinding",
@@ -141,11 +166,13 @@ __all__ = [
     "apply_interface_first_plan",
     "assess_integration_impact",
     "build_blast_map",
+    "build_repair_compass",
     "build_twinproof",
     "classify_genesis",
     "compile_model_instruction",
     "compare_schema_snapshots",
     "compare_state_mirror",
+    "guardrail_hints",
     "append_proof_entry",
     "create_proof_ledger_entry",
     "evaluate_no_data_bootstrap",
@@ -153,5 +180,8 @@ __all__ = [
     "evaluate_contracts",
     "generate_assumption_breaker_briefs",
     "generate_interface_first_plan",
+    "record_anti_pattern",
+    "record_from_proof_ledger",
+    "record_from_repair_compass",
     "safe_apply_required_for_slice",
 ]

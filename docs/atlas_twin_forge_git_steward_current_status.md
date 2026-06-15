@@ -6,9 +6,9 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 
 ## Program state
 
-- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward concrete adapter, Patch Impact Gate, and Proof Ledger slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7/8/9 foundations
-- Current package: Package 7 Patch Impact Gate and Proof Ledger completed at component level
-- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward local adapter, Patch Impact Gate, and Proof Ledger; `contract_present` for completed goal-mode execution instructions
+- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward concrete adapter, Patch Impact Gate, Proof Ledger, Repair Compass, and Anti-Pattern Memory slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7/8/9/9A component foundations
+- Current package: Package 8A Anti-Pattern Memory completed at component level
+- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward local adapter, Patch Impact Gate, Proof Ledger, Repair Compass, and Anti-Pattern Memory; `contract_present` for completed goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected for these component slices
 - Rollout: not connected; future implementation must use off/shadow/active semantics
 - Remote publication rule: local Git operations are autonomous; remote publication requires user approval
@@ -52,8 +52,6 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 - TwinProof and Assumption Breaker component implementation now exists; shadow integration still required.
 - Git Steward concrete command adapter component implementation now exists; shadow integration still required.
 - Integration/Flag/Merge Impact Gates.
-- Repair Compass.
-- Anti-Pattern Memory.
 - Forge model capability profile persistence/eval packs.
 - Golden Patch Retrieval and Skill Distiller.
 - Real LLM/runtime evaluation harness.
@@ -76,8 +74,8 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-6 | TwinProof and Assumption Breaker | shadow_connected | twinproof_assumption_breaker_component_complete |
 | TFG-7 | Git Steward MVP | shadow_connected | local_adapter_component_complete |
 | TFG-8 | Patch/Integration/Flag/Merge gates | shadow_connected | patch_impact_gate_component_complete |
-| TFG-9 | Proof Ledger and Repair Compass | production_connected | proof_ledger_component_complete_repair_compass_pending |
-| TFG-9A | Anti-Pattern Memory | production_connected | not_started |
+| TFG-9 | Proof Ledger and Repair Compass | production_connected | proof_ledger_repair_compass_component_complete |
+| TFG-9A | Anti-Pattern Memory | production_connected | anti_pattern_memory_component_complete |
 | TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | not_started |
 | TFG-11 | Atlas pipeline shadow integration | shadow_connected | not_started |
 | TFG-12 | Active rollout and acceptance | acceptance_complete | not_started |
@@ -252,6 +250,49 @@ Known limitations:
 - Integration Impact Gate is not wired into Feature Genesis shadow mode.
 - BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Patch Impact Gate, Proof Ledger, Repair Compass, and Anti-Pattern Memory remain future packages.
 Next package: Package 4 BlastMap and Contract Sentinel.
+Blocker, if any: none for local component work; remote publication requested by user.
+```
+
+```text
+Work package: Package 8 Repair Compass + Package 8A Anti-Pattern Memory
+Status: component_complete for pure Repair Compass and Anti-Pattern Memory; shadow integration not started
+Proof level: component_complete for DTO/policy repair-instruction, evidence-bound memory, and guardrail hint behavior only
+Commit/PR: local branch codex/tfg-repair-antipattern; remote publication requested by user
+Changed modules/files:
+- agent/twin_control_plane/repair_compass.py
+- agent/twin_control_plane/anti_pattern_memory.py
+- agent/twin_control_plane/__init__.py
+- tests/test_twin_control_plane_repair_compass.py
+- tests/test_twin_control_plane_anti_pattern_memory.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_git_steward_local_adapter.py tests/test_twin_control_plane_patch_impact_proof_ledger.py tests/test_twin_control_plane_repair_compass.py tests/test_twin_control_plane_anti_pattern_memory.py` -> 25 passed in 9.16s.
+- `python -m py_compile agent\twin_control_plane\repair_compass.py agent\twin_control_plane\anti_pattern_memory.py agent\twin_control_plane\__init__.py` -> passed.
+- `$files = Get-ChildItem tests -Filter 'test_twin_control_plane_*.py' | Sort-Object Name | ForEach-Object { $_.FullName }; python -m pytest -q tests/test_twin_forge_git_steward_initial.py @files` -> 58 passed in 8.15s.
+Real LLM evidence:
+- Not collected for Package 8/8A; no model-facing prompt behavior changed in these slices.
+Real runtime evidence:
+- Not collected; these packages are not connected to Atlas runtime/shadow/active execution.
+Unavailable checks:
+- Real Atlas shadow/runtime integration evidence is unavailable/not applicable for these pure repair/memory component slices.
+Adversarial tests:
+- Failed verification becomes targeted product-regression repair while preserving failing tests.
+- Unavailable runtime/model/environment evidence remains separate from product-regression repair and is not treated as passed.
+- Hard boundary violations create boundary-repair instructions and preserve Safe Apply / approval constraints.
+- Anti-pattern hints are included only as advisory, non-absolute hints.
+- Repeated test weakening attempts become a hard guardrail hint with confidence and evidence refs.
+- Environment issues become advisory unavailable-evidence guardrails and are not memorized as product-regression truth.
+- Low-confidence or evidence-free entries do not become prompt guardrails.
+Safety invariants checked:
+- Repair Compass and Anti-Pattern Memory are pure DTO/policy code; they do not execute, apply, verify, commit, publish, push, or create PRs.
+- Test weakening, gate weakening, missing-proof pass conversion, unavailable-as-passed conversion, Safe Apply bypass, remote publication without approval, and unrelated broad rewrites are prohibited actions in repair reports.
+- Guardrail hints require evidence refs and confidence.
+- Past patterns are scoped by model, route, and project refs when supplied and do not override current evidence.
+- Environment unavailable remains distinct from product regression.
+Known limitations:
+- Repair Compass and Anti-Pattern Memory are not wired into Atlas shadow/active repair loops, TwinBrief, or Instruction Compiler paths yet.
+- Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller, and Atlas shadow integration remain future work.
+Next package: Package 9 Forge capability profiles and eval packs.
 Blocker, if any: none for local component work; remote publication requested by user.
 ```
 
