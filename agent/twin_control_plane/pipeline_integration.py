@@ -341,6 +341,11 @@ def evaluate_twin_post_apply(
     verification: Iterable = (),
     before_twin_revision_id: str = "",
     after_twin_revision_id: str = "",
+    git_commit_sha: str = "",
+    requirement_ref: str = "",
+    plan_item_ref: str = "",
+    model_id: str = "",
+    provider_id: str = "",
     impact=None,
     attempted_actions: Iterable[str] = (),
     contract_sentinel=None,
@@ -401,6 +406,19 @@ def evaluate_twin_post_apply(
             contract_sentinel=contract_sentinel, schema_guardian=schema_guardian,
             state_mirror=state_mirror, twinproof=twinproof,
         )
+        # Durable Proof Ledger entry describing this decision (the orchestrator persists it).
+        ledger_entry_dump = None
+        try:
+            from agent.twin_control_plane.proof_ledger import create_proof_ledger_entry
+            entry = create_proof_ledger_entry(
+                requirement_ref=requirement_ref, plan_item_ref=plan_item_ref,
+                policy=policy, brief=brief, patch_report=report,
+                model_id=model_id, provider_id=provider_id,
+            )
+            ledger_entry_dump = entry.model_dump(mode="json")
+        except Exception:
+            ledger_entry_dump = None
+
         has_passed = bool(report.passed_evidence_refs)
         unverified_change = bool(files) and not has_passed
 
@@ -428,6 +446,7 @@ def evaluate_twin_post_apply(
                 "built_from_impact": sub_gate_sources,
             },
             "gate_refs": list(report.gate_refs),
+            "ledger_entry": ledger_entry_dump,
             "passed_evidence": list(report.passed_evidence_refs),
             "failed_evidence": list(report.failed_evidence_refs),
             "unavailable_evidence": list(report.unavailable_evidence_refs),

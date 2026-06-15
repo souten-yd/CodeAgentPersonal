@@ -701,6 +701,18 @@ class AtlasAutonomousCodegenOrchestratorService:
         }
         return {"twin_generation_hints": {k: v for k, v in hints.items() if v is not None}}
 
+    def _persist_proof_ledger_entry(self, report: dict) -> None:
+        """Durably persist the post-apply Proof Ledger entry. Guarded — never breaks the run."""
+        try:
+            entry_dump = report.get("ledger_entry") if isinstance(report, dict) else None
+            if not entry_dump:
+                return
+            from agent.twin_control_plane.proof_ledger import ProofLedgerEntry, ProofLedgerStore
+            store = ProofLedgerStore(Path(self.data_root) / "twin_control_plane" / "proof_ledger")
+            store.append(ProofLedgerEntry.model_validate(entry_dump))
+        except Exception:  # pragma: no cover - defensive
+            return
+
     @staticmethod
     def _twin_attempted_actions(request: AtlasAutonomousCodegenRequest) -> list[str]:
         """Map request-level signals to Contract Sentinel attempted-action tokens so the
@@ -739,6 +751,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 project_id=str(request.pool_id or ""), changed_refs=changed_files,
                 store=self.project_twin_store,
             )
+            req_md = request.metadata or {}
             report = evaluate_twin_post_apply(
                 mode=mode,
                 blocking=resolve_gate_blocking(),
@@ -751,12 +764,17 @@ class AtlasAutonomousCodegenOrchestratorService:
                 impact=impact,
                 attempted_actions=self._twin_attempted_actions(request),
                 after_twin_revision_id=getattr(autopilot, "autopilot_run_id", ""),
+                requirement_ref=str(request.pool_id or ""),
+                plan_item_ref=str(request.run_id or ""),
+                model_id=str(req_md.get("model_id") or req_md.get("forge_model_id") or ""),
+                provider_id=str(req_md.get("provider_id") or req_md.get("forge_provider_id") or ""),
             )
             tcp = out.metadata.get("twin_control_plane")
             if isinstance(tcp, dict):
                 tcp["post_apply"] = report
             else:
                 out.metadata["twin_control_plane"] = {"post_apply": report}
+            self._persist_proof_ledger_entry(report)
             return report.get("block_reason") or ""
         except Exception as exc:  # pragma: no cover - defensive: never break the legacy flow
             return ""  # a post-apply seam error is never a hard block
