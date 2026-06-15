@@ -128,6 +128,41 @@ def _build_policy_and_brief(
     return policy, brief
 
 
+def try_project_twin_impact(
+    *, project_id: str, changed_refs: Iterable[str], store=None, change_kind: str = "modify"
+):
+    """Best-effort real Project Twin impact for the current run.
+
+    Returns an ``ImpactResult`` when a Project Twin store with a snapshot for
+    ``project_id`` is available, else ``None`` (recorded as unavailable upstream — never
+    fabricated). Never raises. There is no persistent per-project Twin store by default,
+    so the common live outcome is ``None``; when a store is supplied (tests, or a future
+    persistent Twin), real impact flows through unchanged."""
+    refs = [str(r).strip() for r in changed_refs if str(r).strip()]
+    if store is None or not project_id or not refs:
+        return None
+    try:
+        from agent.project_twin.contracts import ImpactRequest
+
+        request = ImpactRequest(project_id=project_id, changed_refs=refs, change_kind=change_kind)
+        return store.assess_impact(request)
+    except Exception:
+        return None
+
+
+def _impact_section(impact) -> dict:
+    if impact is None:
+        return {"available": False, "reason": "project_twin_impact_unavailable"}
+    return {
+        "available": True,
+        "project_id": getattr(impact, "project_id", ""),
+        "twin_revision_id": getattr(impact, "twin_revision_id", ""),
+        "direct_impacts": len(getattr(impact, "direct_impacts", []) or []),
+        "transitive_impacts": len(getattr(impact, "transitive_impacts", []) or []),
+        "recommended_tests": len(getattr(impact, "recommended_tests", []) or []),
+    }
+
+
 def build_twin_pipeline_evidence(
     *,
     mode: PipelineMode,
@@ -136,11 +171,16 @@ def build_twin_pipeline_evidence(
     project_path: str = "",
     changed_refs: Iterable[str] = (),
     item_refs: Iterable[str] = (),
+    impact=None,
     change_class: str = "medium",
     task_category: str = "autonomous_codegen",
 ) -> dict:
     """Assemble advisory Twin evidence for one autonomous run. Never raises — any internal
-    failure is reported as ``available: False`` so the legacy flow is never broken."""
+    failure is reported as ``available: False`` so the legacy flow is never broken.
+
+    When a real Project Twin ``impact`` is supplied it flows into the shadow assembly
+    (BlastMap + TwinProof) and Contract Sentinel; when absent the impact section is
+    recorded as explicitly unavailable (never fabricated)."""
     if mode == PipelineMode.OFF:
         return {"mode": PipelineMode.OFF.value, "engaged": False, "available": False,
                 "reason": "pipeline_off"}
@@ -155,9 +195,27 @@ def build_twin_pipeline_evidence(
         shadow_report: TwinShadowReport | None = shadow_orch.assemble(
             requirement_ref=requirement, plan_item_ref=pool_id,
             execution_policy=policy, twin_brief=brief, changed_refs=refs,
+            impact=impact,
         )
+        # Contract Sentinel over the real BlastMap when impact evidence exists.
+        contract_section: dict | None = None
+        if impact is not None:
+            try:
+                from agent.twin_control_plane.blast_map import build_blast_map
+                from agent.twin_control_plane.contract_sentinel import evaluate_contracts
+
+                blast = build_blast_map(impact, brief=brief, changed_refs=refs)
+                sentinel = evaluate_contracts(policy, brief, blast)
+                contract_section = {
+                    "report_id": sentinel.report_id,
+                    "accepted": sentinel.accepted,
+                    "blocked": sentinel.blocked,
+                    "proof_requirements": list(sentinel.proof_requirements),
+                }
+            except Exception:
+                contract_section = {"available": False, "reason": "contract_sentinel_error"}
+
         has_shadow_evidence = shadow_report is not None
-        # Active requires shadow evidence; without it we record the gap, not a forced change.
         engaged = mode == PipelineMode.ACTIVE and has_shadow_evidence
         evidence = {
             "mode": mode.value,
@@ -171,6 +229,8 @@ def build_twin_pipeline_evidence(
             "twin_injection_level": int(policy.twin_injection_level),
             "required_gates": list(policy.required_gates),
             "brief_id": brief.brief_id,
+            "impact": _impact_section(impact),
+            "contract_sentinel": contract_section,
             "shadow_report": shadow_report.model_dump(mode="json") if shadow_report else None,
         }
         return evidence
@@ -289,6 +349,7 @@ __all__ = [
     "resolve_gate_blocking",
     "resolve_block_unverified",
     "twin_gate_block_reason",
+    "try_project_twin_impact",
     "build_twin_pipeline_evidence",
     "evaluate_twin_post_apply",
 ]

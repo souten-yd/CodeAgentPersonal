@@ -35,6 +35,7 @@ from agent.twin_control_plane.pipeline_integration import (
     resolve_block_unverified,
     resolve_gate_blocking,
     resolve_pipeline_mode,
+    try_project_twin_impact,
     twin_gate_block_reason,
 )
 
@@ -59,9 +60,12 @@ class AtlasAutonomousCodegenOrchestratorService:
     gate (Phase 1 stop) plus the pre-apply snapshot/rollback inside the multi-item engine.
     """
 
-    def __init__(self, *, storage, journal, patch_proposal_service, multi_item_autopilot_service, data_root=None, draft_pr_client: DraftPullRequestClient | None = None):
+    def __init__(self, *, storage, journal, patch_proposal_service, multi_item_autopilot_service, data_root=None, draft_pr_client: DraftPullRequestClient | None = None, project_twin_store=None):
         self.storage = storage
         self.journal = journal
+        # Optional Project Twin store for real impact evidence. Absent by default (there is
+        # no persistent per-project Twin store), so impact is recorded as unavailable.
+        self.project_twin_store = project_twin_store
         self.patch_proposal_service = patch_proposal_service
         self.multi_item_autopilot_service = multi_item_autopilot_service
         self.data_root = Path(data_root or getattr(journal, "root_dir", "ca_data"))
@@ -648,6 +652,11 @@ class AtlasAutonomousCodegenOrchestratorService:
                     path = change.get("path") if isinstance(change, dict) else None
                     if path:
                         changed_refs.append(str(path))
+            impact = try_project_twin_impact(
+                project_id=str(request.pool_id or getattr(pool, "project_id", "") or ""),
+                changed_refs=changed_refs,
+                store=self.project_twin_store,
+            )
             evidence = build_twin_pipeline_evidence(
                 mode=mode,
                 requirement=str(request.user_requirement or ""),
@@ -655,6 +664,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 project_path=str(request.project_path or getattr(pool, "project_path", "") or ""),
                 changed_refs=changed_refs,
                 item_refs=[str(getattr(item, "item_id", "")) for item in getattr(pool, "items", []) or []],
+                impact=impact,
             )
             block_reason = twin_gate_block_reason(evidence) if resolve_gate_blocking() else ""
             evidence["gate_blocking_enabled"] = resolve_gate_blocking()

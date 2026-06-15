@@ -19,6 +19,7 @@ from agent.twin_control_plane.pipeline_integration import (
     build_twin_pipeline_evidence,
     resolve_gate_blocking,
     resolve_pipeline_mode,
+    try_project_twin_impact,
     twin_gate_block_reason,
 )
 
@@ -107,3 +108,57 @@ def test_build_never_raises_on_bad_input():
     ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, change_class="not_a_class")
     assert ev["available"] is False
     assert ev["engaged"] is False
+
+
+# --- Step 1: live Project Twin impact connection ----------------------------------
+
+def _seed_twin_store():
+    """Build an in-memory Project Twin store with a small snapshot for project 'p1'."""
+    from datetime import datetime, timezone
+    from agent.project_twin.contracts import TwinDelta, TwinEdge, TwinNode
+    from agent.project_twin.store import SqliteProjectTwinStore
+
+    now = datetime(2026, 6, 15, tzinfo=timezone.utc)
+
+    def node(node_id, ref):
+        return TwinNode(node_id=node_id, project_id="p1", domain="structural",
+                        node_type="function", canonical_ref=ref, label=ref, source_kind="git",
+                        source_ref="mod.py", derivation="deterministic_static", confidence=0.9,
+                        status="declared", valid_from=now, created_at=now, updated_at=now)
+
+    store = SqliteProjectTwinStore(":memory:")
+    store.apply_delta(TwinDelta(
+        project_id="p1", idempotency_key="seed", trigger_type="workspace.changed",
+        nodes=[node("n1", "py://mod.f"), node("n2", "py://mod.caller")],
+        edges=[TwinEdge(edge_id="e1", project_id="p1", domain="structural",
+                        source_node_id="n2", target_node_id="n1", edge_type="calls",
+                        source_kind="git", source_ref="mod.py", derivation="deterministic_static",
+                        confidence=0.8, status="declared", valid_from=now, created_at=now, updated_at=now)],
+    ))
+    return store
+
+
+def test_impact_unavailable_recorded_not_crashed():
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="x",
+                                      pool_id="p1", changed_refs=["py://mod.f"], impact=None)
+    assert ev["available"] is True
+    assert ev["impact"]["available"] is False
+    assert ev["impact"]["reason"] == "project_twin_impact_unavailable"
+
+
+def test_no_store_yields_no_impact():
+    assert try_project_twin_impact(project_id="p1", changed_refs=["py://mod.f"], store=None) is None
+
+
+def test_impact_available_flows_into_blast_map():
+    store = _seed_twin_store()
+    impact = try_project_twin_impact(project_id="p1", changed_refs=["py://mod.f"], store=store)
+    assert impact is not None
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="x",
+                                      pool_id="p1", changed_refs=["py://mod.f"], impact=impact)
+    assert ev["impact"]["available"] is True
+    assert ev["impact"]["project_id"] == "p1"
+    # Real impact populates the shadow BlastMap and runs Contract Sentinel.
+    assert ev["shadow_report"]["blast_map"] is not None
+    assert ev["contract_sentinel"] is not None
+    store.close()
