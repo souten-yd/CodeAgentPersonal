@@ -7,8 +7,8 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 ## Program state
 
 - Overall: `component_complete` for the initial contracts/policy slice; broader program remains `not_started` beyond TFG-1/2/3/7 foundations
-- Current package: TFG initial implementation slice
-- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier
+- Current package: TFG initial implementation slice plus goal-mode execution handoff
+- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier; `contract_present` for goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected in this PR
 - Rollout: not connected; future implementation must use off/shadow/active semantics
 - Remote publication rule: local Git operations are autonomous; remote publication requires user approval
@@ -18,9 +18,10 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 1. `AGENTS.md`
 2. `docs/atlas_twin_forge_git_steward_master_goal.md`
 3. `docs/atlas_twin_forge_git_steward_detailed_plan.md`
-4. `docs/atlas_twin_forge_git_steward_agent_entrypoint.md`
-5. this file
-6. existing Project Intelligence / Twin / Greenfield / Forge files
+4. `docs/atlas_twin_forge_git_steward_goal_mode_execution.md`
+5. `docs/atlas_twin_forge_git_steward_agent_entrypoint.md`
+6. this file
+7. existing Project Intelligence / Twin / Greenfield / Forge files
 
 ## Current implementation assessment
 
@@ -37,6 +38,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 - Forge route selection can feed `ExecutionPolicySelector`.
 - Git local/remote authority is represented by `classify_git_operation(...)`.
 - Initial tests cover route safety, model-sensitive injection, TwinBrief compilation, and Git authority boundaries.
+- Goal-mode execution instructions now define the end-to-end implementation package sequence through active rollout and real LLM/runtime closure.
 
 ### Still required
 
@@ -117,9 +119,9 @@ Blocker, if any:
 ## Initial implementation record
 
 ```text
-Work package: TFG initial contracts/policy slice
+Work package: TFG initial contracts/policy slice + goal-mode handoff
 Status: partial_in_pr
-Proof level: component_complete for pure contracts/policies only
+Proof level: component_complete for pure contracts/policies only; contract_present for goal-mode instructions
 Commit/PR: PR #1859 branch atlas/twin-forge-git-steward-plan
 Changed modules/files:
 - agent/twin_control_plane/__init__.py
@@ -149,6 +151,6 @@ Known limitations:
 - no concrete Git command execution adapter yet
 - no real LLM/runtime evaluation yet
 - no Genesis/BlastMap/TwinProof/ProofLedger implementation yet
-Next package: TFG-3 Instruction Compiler or TFG-4 Genesis integration after reviewing this initial slice
+Next package: Package 0 in goal-mode execution instructions: verify initial slice and record exact test output
 Blocker: none
 ```
