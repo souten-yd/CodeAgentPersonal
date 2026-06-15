@@ -7,7 +7,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 ## Program state
 
 - Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward concrete adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7/8/9/9A/10 component foundations
-- Current package: Package 12 real LLM evaluation harness completed; real local LLM adversarial evidence collected
+- Current package: Package 11 active integration behind a gate completed at component level (gated/reversible orchestrator); Package 12 real LLM evaluation harness completed with real local LLM adversarial evidence
 - Current proof level: `real_llm_evaluated` for the Twin instruction adversarial harness against a live local model (Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S, llama.cpp); `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward local adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring; `contract_present` for completed goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected for these component slices
 - Rollout: not connected; future implementation must use off/shadow/active semantics
@@ -78,7 +78,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-9A | Anti-Pattern Memory | production_connected | anti_pattern_memory_component_complete |
 | TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | golden_patch_skill_distiller_component_complete |
 | TFG-11 | Atlas pipeline shadow integration | shadow_connected | shadow_assembler_component_complete |
-| TFG-12 | Active rollout and acceptance | acceptance_complete | not_started |
+| TFG-12 | Active rollout and acceptance | acceptance_complete | active_integration_orchestrator_component_complete |
 | TFG-13 | Real LLM and real runtime evaluation closure | real_llm_evaluated / real_runtime_evaluated | real_llm_instruction_adversarial_evidence_collected; real_runtime_evaluation_pending |
 
 ## Safety invariants
@@ -130,6 +130,46 @@ Blocker, if any:
 ```
 
 ## Initial implementation record
+
+```text
+Work package: Package 11 Active integration behind a gate (TFG-12)
+Status: component_complete for a gated, reversible active pipeline orchestrator; live Atlas main-pipeline wiring intentionally not flipped on
+Proof level: component_complete for off/shadow/active gating, Safe Apply boundary enforcement, and the post-apply gate/repair loop
+Commit/PR: local branch codex/tfg-active-integration; remote publication requested by user
+Changed modules/files:
+- agent/twin_control_plane/active_integration.py
+- agent/twin_control_plane/__init__.py
+- tests/test_twin_control_plane_active_integration.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_twin_control_plane_active_integration.py` -> 10 passed in 2.76s.
+- `python -m py_compile agent/twin_control_plane/active_integration.py agent/twin_control_plane/__init__.py` -> passed.
+- `python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_git_steward_local_adapter.py <all tests/test_twin_control_plane_*.py>` -> 80 passed in 20.19s.
+Real LLM evidence:
+- Not collected for Package 11; this package orchestrates gates and delegates generation/apply to hooks, so it is exercised with deterministic hooks (the real model path is covered by Package 12).
+Real runtime evidence:
+- Local Git branch preparation is exercised against real temporary Git repositories (clean-accept and dirty-block cases) via the Git Steward local adapter.
+Unavailable checks:
+- The live Atlas main pipeline default is intentionally left OFF; flipping production defaults remains a stop condition requiring explicit approval, so it is recorded as not-done rather than done.
+Adversarial tests:
+- OFF and disabled both no-op and apply nothing (legacy unchanged).
+- ACTIVE without a SHADOW TwinShadowReport is BLOCKED and generates nothing (active requires prior shadow evidence).
+- A Safe Apply bypass (applied with via_safe_apply=False) is BLOCKED as a hard boundary violation.
+- Failing verification drives a Repair Compass loop that recovers on a later attempt or exhausts after the bounded attempts; a hard-blocked gate is not retried.
+- SHADOW mode is a dry run: the Safe Apply hook is never invoked.
+- Branch prep blocks on a dirty worktree and never creates the branch; remote is never touched.
+Safety invariants checked:
+- OFF mode is the default and is unchanged; the orchestrator is opt-in with no residual global state and is reversible via OFF/disabled.
+- Safe Apply remains the only write boundary; the orchestrator never writes product files and blocks any change that bypassed Safe Apply.
+- Active mode requires prior shadow evidence (a SHADOW TwinShadowReport from Package 10).
+- Only local, Atlas-owned Git branch prep runs; remote publication is never performed.
+- Patch Impact Gate, Proof Ledger, and Repair Compass are composed (not weakened); unavailable/failed verification still blocks or repairs acceptance.
+Known limitations:
+- The orchestrator is not yet invoked from the live Atlas generation/verification entrypoint; turning that on by default is deferred pending explicit approval and acceptance evidence (Package 12 acceptance closure).
+- Generation/apply/verify are delegated hooks; real end-to-end model+runtime acceptance through this orchestrator is future closure work.
+Next package: Package 12/13 acceptance closure — wire the live pipeline behind the gate and collect end-to-end real LLM + real runtime acceptance evidence.
+Blocker, if any: flipping the live Atlas pipeline default to active is approval-bound and is intentionally not done autonomously.
+```
 
 ```text
 Work package: Package 12 Real LLM evaluation harness (TFG-13 partial: real LLM)

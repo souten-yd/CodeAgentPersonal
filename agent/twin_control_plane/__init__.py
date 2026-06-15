@@ -122,6 +122,16 @@ from agent.twin_control_plane.real_llm_eval import (
     default_adversarial_prompts,
     run_real_llm_evaluation,
 )
+from agent.twin_control_plane.active_integration import (
+    ActiveIntegrationOrchestrator,
+    ActivePipelineResult,
+    ApplyOutcome,
+    AttemptRecord,
+    PipelineHooks,
+    PipelineMode,
+    PipelineStatus,
+    ProposalDraft,
+)
 
 __all__ = [
     "ATLAS_TWIN_CONTROL_PLANE_CONTRACT_VERSION",
@@ -187,6 +197,14 @@ __all__ = [
     "build_local_model_chat",
     "default_adversarial_prompts",
     "run_real_llm_evaluation",
+    "ActiveIntegrationOrchestrator",
+    "ActivePipelineResult",
+    "ApplyOutcome",
+    "AttemptRecord",
+    "PipelineHooks",
+    "PipelineMode",
+    "PipelineStatus",
+    "ProposalDraft",
     "VerificationEvidence",
     "adapt_greenfield_session",
     "apply_interface_first_plan",
