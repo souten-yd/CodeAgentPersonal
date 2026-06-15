@@ -26,6 +26,11 @@ from agent.twin_control_plane.genesis import (
     safe_apply_required_for_slice,
 )
 from agent.twin_control_plane.instruction_compiler import CompiledInstruction, compile_model_instruction
+from agent.twin_control_plane.integration_impact_gate import (
+    IntegrationImpactReport,
+    IntegrationPoint,
+    assess_integration_impact,
+)
 from agent.twin_control_plane.interface_first_generator import (
     InterfaceFirstPlan,
     InterfaceFirstSection,
@@ -51,6 +56,8 @@ __all__ = [
     "GenesisRun",
     "GitPolicy",
     "InstructionStyle",
+    "IntegrationImpactReport",
+    "IntegrationPoint",
     "InterfaceFirstPlan",
     "InterfaceFirstSection",
     "InterfaceSectionKind",
@@ -61,6 +68,7 @@ __all__ = [
     "TwinInjectionLevel",
     "adapt_greenfield_session",
     "apply_interface_first_plan",
+    "assess_integration_impact",
     "classify_genesis",
     "compile_model_instruction",
     "evaluate_no_data_bootstrap",
