@@ -30,18 +30,55 @@ from agent.twin_control_plane.shadow_integration import (
 )
 
 PIPELINE_MODE_ENV = "ATLAS_TWIN_PIPELINE_MODE"
+GATE_BLOCKING_ENV = "ATLAS_TWIN_GATE_BLOCKING"
+
+# Default mode for the live pipeline. Active is the approved production default; it stays
+# advisory for execution authority and is fully reversible via ATLAS_TWIN_PIPELINE_MODE=off.
+DEFAULT_PIPELINE_MODE = PipelineMode.ACTIVE
 
 
 def resolve_pipeline_mode(value: str | None = None) -> PipelineMode:
     """Resolve the Twin pipeline mode from an explicit value or the environment.
 
-    Defaults to OFF and treats any unrecognised value as OFF, so the legacy flow is the
-    safe default and a misconfiguration can never silently enable active mode."""
+    Defaults to ACTIVE (the approved production default). An unrecognised value falls back
+    to the default rather than silently disabling the gate; set ``off`` explicitly to
+    return to the legacy flow."""
     raw = (value if value is not None else os.environ.get(PIPELINE_MODE_ENV, "")).strip().lower()
+    if not raw:
+        return DEFAULT_PIPELINE_MODE
     try:
         return PipelineMode(raw)
     except ValueError:
-        return PipelineMode.OFF
+        return DEFAULT_PIPELINE_MODE
+
+
+def resolve_gate_blocking(value: str | None = None) -> bool:
+    """Whether the Twin gate may BLOCK a run (promoted from advisory).
+
+    Defaults to enabled. Disable with ``ATLAS_TWIN_GATE_BLOCKING`` in
+    {0, off, false, no}. Even when enabled, blocking is limited to a genuine policy
+    prerequisite (see ``twin_gate_block_reason``); it never blocks on advisory
+    uncertainty or on infrastructure unavailability."""
+    raw = (value if value is not None else os.environ.get(GATE_BLOCKING_ENV, "")).strip().lower()
+    if raw in {"0", "off", "false", "no"}:
+        return False
+    return True
+
+
+def twin_gate_block_reason(evidence: dict) -> str:
+    """Return a block reason when the (blocking) Twin gate must stop the run, else "".
+
+    Conservative by design: it blocks ONLY when active mode is engaged but the shadow
+    evidence active requires could not be assembled. It deliberately does NOT block on:
+    advisory uncertainty, missing optional artifacts, or ``available=False`` from an
+    internal/infra error (unavailable is not a failure)."""
+    if not isinstance(evidence, dict):
+        return ""
+    if evidence.get("mode") != PipelineMode.ACTIVE.value:
+        return ""
+    if evidence.get("available") and evidence.get("requires_shadow_evidence"):
+        return "twin_gate_requires_shadow_evidence"
+    return ""
 
 
 def _stable_brief_id(pool_id: str, requirement: str) -> str:
@@ -117,6 +154,10 @@ def build_twin_pipeline_evidence(
 
 __all__ = [
     "PIPELINE_MODE_ENV",
+    "GATE_BLOCKING_ENV",
+    "DEFAULT_PIPELINE_MODE",
     "resolve_pipeline_mode",
+    "resolve_gate_blocking",
+    "twin_gate_block_reason",
     "build_twin_pipeline_evidence",
 ]
