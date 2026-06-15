@@ -701,6 +701,20 @@ class AtlasAutonomousCodegenOrchestratorService:
         }
         return {"twin_generation_hints": {k: v for k, v in hints.items() if v is not None}}
 
+    @staticmethod
+    def _twin_attempted_actions(request: AtlasAutonomousCodegenRequest) -> list[str]:
+        """Map request-level signals to Contract Sentinel attempted-action tokens so the
+        gate can hard-block genuine boundary attempts (remote publish, test weakening,
+        Safe Apply bypass). Conservative: only explicit signals are surfaced."""
+        actions: list[str] = []
+        md = request.metadata or {}
+        signal = {str(s).strip().lower() for s in (md.get("twin_attempted_actions") or [])}
+        for token in ("bypass_safe_apply", "direct_workspace_write", "remote_publish",
+                      "remote_mutation", "create_pr", "weaken_test", "delete_stale_test"):
+            if token in signal:
+                actions.append(token)
+        return actions
+
     def _twin_post_apply_gate(self, out: AtlasAutonomousCodegenResult, request: AtlasAutonomousCodegenRequest, autopilot) -> str:
         """Run the post-apply Twin Patch Impact Gate over the run's REAL verification
         evidence and changed files; record it and return a block reason when the
@@ -721,6 +735,10 @@ class AtlasAutonomousCodegenOrchestratorService:
                     "evidence_id": f"verify_{getattr(item, 'item_id', '')}",
                     "status": str(vr.get("status") or "unavailable"),
                 })
+            impact = try_project_twin_impact(
+                project_id=str(request.pool_id or ""), changed_refs=changed_files,
+                store=self.project_twin_store,
+            )
             report = evaluate_twin_post_apply(
                 mode=mode,
                 blocking=resolve_gate_blocking(),
@@ -730,6 +748,8 @@ class AtlasAutonomousCodegenOrchestratorService:
                 project_path=str(request.project_path or ""),
                 changed_files=changed_files,
                 verification=verification,
+                impact=impact,
+                attempted_actions=self._twin_attempted_actions(request),
                 after_twin_revision_id=getattr(autopilot, "autopilot_run_id", ""),
             )
             tcp = out.metadata.get("twin_control_plane")

@@ -261,3 +261,76 @@ def test_audit_only_instruction_has_no_mutation_authority():
     low = instr.text.lower()
     assert "audit only" in low
     assert "do not mutate files" in low or "do not imply direct apply authority" in low
+
+
+# --- Step 4: post-apply gates with real sub-gate evidence -------------------------
+
+from agent.twin_control_plane.pipeline_integration import evaluate_twin_post_apply
+
+
+def test_post_apply_accepted_with_passed_verification():
+    r = evaluate_twin_post_apply(
+        mode=PipelineMode.ACTIVE, blocking=True, requirement="x", pool_id="p1",
+        changed_files=["a.py"], verification=[{"evidence_id": "v1", "status": "passed"}],
+        before_twin_revision_id="b", after_twin_revision_id="a")
+    assert r["ran"] is True
+    assert r["accepted"] is True
+    assert r["gate_blocked"] is False
+    assert "v1" in r["passed_evidence"]
+
+
+def test_post_apply_needs_repair_on_failed_verification():
+    r = evaluate_twin_post_apply(
+        mode=PipelineMode.ACTIVE, blocking=True, requirement="x", pool_id="p1",
+        changed_files=["a.py"], verification=[{"evidence_id": "v1", "status": "failed"}],
+        before_twin_revision_id="b", after_twin_revision_id="a")
+    assert r["needs_repair"] is True
+    assert r["accepted"] is False
+    # A failed verification is not a hard-boundary block by itself.
+    assert r["gate_blocked"] is False
+
+
+def test_post_apply_unavailable_never_accepts():
+    r = evaluate_twin_post_apply(
+        mode=PipelineMode.ACTIVE, blocking=True, requirement="x", pool_id="p1",
+        changed_files=["a.py"], verification=[{"evidence_id": "v1", "status": "unavailable"}],
+        before_twin_revision_id="b", after_twin_revision_id="a")
+    assert r["accepted"] is False
+    assert "v1" in r["unavailable_evidence"]
+
+
+def test_post_apply_hard_boundary_blocks_via_contract_sentinel():
+    # A blocked Contract Sentinel report -> Patch Impact Gate BLOCKED -> hard block.
+    from agent.twin_control_plane.contract_sentinel import ContractFinding, ContractSentinelReport
+    sentinel = ContractSentinelReport(
+        report_id="cs1", accepted=False, blocked=True,
+        findings=[ContractFinding(finding_id="contract.remote_publication_requires_approval",
+                                  severity="hard", status="blocked",
+                                  message="Remote publication requires approval.")])
+    r = evaluate_twin_post_apply(
+        mode=PipelineMode.ACTIVE, blocking=True, requirement="x", pool_id="p1",
+        changed_files=["a.py"], verification=[{"evidence_id": "v1", "status": "passed"}],
+        before_twin_revision_id="b", after_twin_revision_id="a", contract_sentinel=sentinel)
+    assert r["blocked_decision"] is True
+    assert r["gate_blocked"] is True
+    assert r["block_reason"] == "twin_post_apply_hard_boundary"
+
+
+def test_post_apply_builds_subgates_from_impact():
+    store = _seed_twin_store()
+    impact = try_project_twin_impact(project_id="p1", changed_refs=["py://mod.f"], store=store)
+    r = evaluate_twin_post_apply(
+        mode=PipelineMode.ACTIVE, blocking=True, requirement="x", pool_id="p1",
+        changed_files=["py://mod.f"], verification=[{"evidence_id": "v1", "status": "passed"}],
+        before_twin_revision_id="b", after_twin_revision_id="a", impact=impact)
+    # Contract Sentinel + TwinProof were built from the real impact evidence.
+    assert "contract_sentinel" in r["sub_gates"]["built_from_impact"]
+    assert "twinproof" in r["sub_gates"]["built_from_impact"]
+    assert r["sub_gates"]["schema_guardian"] is False  # honestly unavailable
+    store.close()
+
+
+def test_post_apply_off_mode_does_not_run():
+    r = evaluate_twin_post_apply(mode=PipelineMode.OFF, blocking=True, changed_files=["a.py"])
+    assert r["ran"] is False
+    assert r["gate_blocked"] is False

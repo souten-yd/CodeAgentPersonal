@@ -341,6 +341,8 @@ def evaluate_twin_post_apply(
     verification: Iterable = (),
     before_twin_revision_id: str = "",
     after_twin_revision_id: str = "",
+    impact=None,
+    attempted_actions: Iterable[str] = (),
     contract_sentinel=None,
     schema_guardian=None,
     state_mirror=None,
@@ -368,6 +370,26 @@ def evaluate_twin_post_apply(
             requirement=requirement, pool_id=pool_id, project_path=project_path, refs=files,
             item_refs=(), change_class=change_class, task_category=task_category,
         )
+        # Build real sub-gate reports from impact evidence when available. Schema Guardian
+        # and StateMirror need before/after snapshots/observations that the autonomous
+        # codegen path does not currently produce, so they stay unavailable (not fabricated).
+        sub_gate_sources: list[str] = []
+        if impact is not None:
+            try:
+                from agent.twin_control_plane.blast_map import build_blast_map
+                blast = build_blast_map(impact, brief=brief, changed_refs=files)
+                if contract_sentinel is None:
+                    from agent.twin_control_plane.contract_sentinel import evaluate_contracts
+                    contract_sentinel = evaluate_contracts(
+                        policy, brief, blast, attempted_actions=attempted_actions)
+                    sub_gate_sources.append("contract_sentinel")
+                if twinproof is None:
+                    from agent.twin_control_plane.twinproof import build_twinproof
+                    twinproof = build_twinproof(impacted_refs=blast.changed_refs)
+                    sub_gate_sources.append("twinproof")
+            except Exception:
+                pass
+
         evidence_items = _verification_evidence(verification)
         report = evaluate_patch_impact(
             policy=policy, brief=brief,
@@ -398,6 +420,14 @@ def evaluate_twin_post_apply(
             "unverified_change": unverified_change,
             "gate_blocked": bool(block_reason),
             "block_reason": block_reason,
+            "sub_gates": {
+                "contract_sentinel": contract_sentinel is not None,
+                "schema_guardian": schema_guardian is not None,
+                "state_mirror": state_mirror is not None,
+                "twinproof": twinproof is not None,
+                "built_from_impact": sub_gate_sources,
+            },
+            "gate_refs": list(report.gate_refs),
             "passed_evidence": list(report.passed_evidence_refs),
             "failed_evidence": list(report.failed_evidence_refs),
             "unavailable_evidence": list(report.unavailable_evidence_refs),
