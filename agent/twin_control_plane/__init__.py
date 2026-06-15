@@ -55,6 +55,18 @@ from agent.twin_control_plane.no_data_bootstrap_gate import (
     NoDataBootstrapAssessment,
     evaluate_no_data_bootstrap,
 )
+from agent.twin_control_plane.patch_impact_gate import (
+    PatchGateDecision,
+    PatchImpactReport,
+    VerificationEvidence,
+    evaluate_patch_impact,
+)
+from agent.twin_control_plane.proof_ledger import (
+    ProofLedger,
+    ProofLedgerEntry,
+    append_proof_entry,
+    create_proof_ledger_entry,
+)
 from agent.twin_control_plane.schema_guardian import (
     SchemaCompatibility,
     SchemaField,
@@ -103,6 +115,10 @@ __all__ = [
     "InterfaceSectionKind",
     "ModelCapabilityMode",
     "NoDataBootstrapAssessment",
+    "PatchGateDecision",
+    "PatchImpactReport",
+    "ProofLedger",
+    "ProofLedgerEntry",
     "ProofGap",
     "SchemaCompatibility",
     "SchemaField",
@@ -120,6 +136,7 @@ __all__ = [
     "TwinConstraint",
     "TwinInjectionLevel",
     "TwinProofReport",
+    "VerificationEvidence",
     "adapt_greenfield_session",
     "apply_interface_first_plan",
     "assess_integration_impact",
@@ -129,7 +146,10 @@ __all__ = [
     "compile_model_instruction",
     "compare_schema_snapshots",
     "compare_state_mirror",
+    "append_proof_entry",
+    "create_proof_ledger_entry",
     "evaluate_no_data_bootstrap",
+    "evaluate_patch_impact",
     "evaluate_contracts",
     "generate_assumption_breaker_briefs",
     "generate_interface_first_plan",
