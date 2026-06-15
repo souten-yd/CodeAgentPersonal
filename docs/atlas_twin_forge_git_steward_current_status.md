@@ -6,9 +6,9 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 
 ## Program state
 
-- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward concrete adapter, Patch Impact Gate, Proof Ledger, Repair Compass, and Anti-Pattern Memory slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7/8/9/9A component foundations
-- Current package: Package 8A Anti-Pattern Memory completed at component level
-- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward local adapter, Patch Impact Gate, Proof Ledger, Repair Compass, and Anti-Pattern Memory; `contract_present` for completed goal-mode execution instructions
+- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward concrete adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7/8/9/9A/10 component foundations
+- Current package: Package 9 Forge capability profiles and eval packs completed at component level
+- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward local adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring; `contract_present` for completed goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected for these component slices
 - Rollout: not connected; future implementation must use off/shadow/active semantics
 - Remote publication rule: local Git operations are autonomous; remote publication requires user approval
@@ -76,7 +76,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-8 | Patch/Integration/Flag/Merge gates | shadow_connected | patch_impact_gate_component_complete |
 | TFG-9 | Proof Ledger and Repair Compass | production_connected | proof_ledger_repair_compass_component_complete |
 | TFG-9A | Anti-Pattern Memory | production_connected | anti_pattern_memory_component_complete |
-| TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | not_started |
+| TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | capability_eval_packs_component_complete |
 | TFG-11 | Atlas pipeline shadow integration | shadow_connected | not_started |
 | TFG-12 | Active rollout and acceptance | acceptance_complete | not_started |
 | TFG-13 | Real LLM and real runtime evaluation closure | real_llm_evaluated / real_runtime_evaluated | not_started |
@@ -130,6 +130,48 @@ Blocker, if any:
 ```
 
 ## Initial implementation record
+
+```text
+Work package: Package 9 Forge capability profiles and eval packs
+Status: component_complete for capability eval packs and capability scoring bridge; shadow integration not started
+Proof level: component_complete for DTO/policy eval-pack scoring and ExecutionPolicy capability projection only
+Commit/PR: local branch codex/tfg-forge-capability-eval-packs; remote publication requested by user
+Changed modules/files:
+- agent/model_forge/eval_packs.py
+- agent/model_forge/capability_scoring.py
+- agent/model_forge/__init__.py
+- tests/test_model_forge_capability_eval_packs.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_model_forge_capability_eval_packs.py` -> 9 passed in 1.64s.
+- `python -m py_compile agent/model_forge/eval_packs.py agent/model_forge/capability_scoring.py agent/model_forge/__init__.py` -> passed.
+- `python -m pytest -q tests/test_model_forge_profile_store.py tests/test_twin_forge_git_steward_initial.py tests/test_model_forge_schema.py` -> 24 passed in 2.32s.
+Real LLM evidence:
+- Not collected for Package 9; eval packs score supplied mechanical outcomes and do not call a model in this slice.
+Real runtime evidence:
+- Not collected; this package is not connected to Atlas runtime/shadow/active execution.
+Unavailable checks:
+- Real Atlas shadow/runtime integration evidence is unavailable/not applicable for this pure eval-pack/scoring slice.
+Adversarial tests:
+- Existing PFG-16 ProfileStore is reused rather than re-implemented; only capability eval packs and the scoring bridge are new.
+- Capability packs cover all seven control-plane dimensions (impact_analysis, contract_preservation, test_generation, stale_test_judgment, flag_reasoning, repair_discipline, evidence_discipline).
+- Adversarial cases (Safe Apply bypass, remote-without-approval, no-autodelete, missing flag baseline, unavailable-as-passed, mock-as-live) are weighted more heavily.
+- Unavailable case results are never counted as passed, never move the score, and an all-unavailable pack writes no observation.
+- Evidence refs are preserved through scoring and persistence.
+- Known weaknesses are derived from evidence-backed scores only; absent dimensions are not reported as weaknesses.
+- A flag-weak profile adds the FeatureFlagBaseline gate and multiple weak dimensions raise the Twin injection level through ExecutionPolicySelector.
+Safety invariants checked:
+- ProfileStore remains append-only and versioned; capability scoring records observations only and never rewrites earlier versions.
+- Only the seven capability dimensions are projected into ModelCapabilityProfile so Forge benchmark dimensions cannot accidentally drive injection.
+- Unavailable evidence is not converted into a passed score.
+- No model execution, external call, file mutation, commit, or publication is performed by these components.
+Known limitations:
+- Capability eval packs are not wired into Atlas shadow/active execution or a real evaluation harness yet.
+- Golden Patch Retrieval and Skill Distiller (Package 9A) and Atlas shadow integration remain future work.
+Next package: Package 9A Golden Patch Retrieval and Skill Distiller.
+Blocker, if any: none for local component work; remote publication requested by user.
+```
+
 
 ```text
 Work package: TFG initial contracts/policy slice + completed goal-mode handoff
