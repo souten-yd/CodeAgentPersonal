@@ -32,7 +32,10 @@ from agent.twin_control_plane.active_integration import PipelineMode
 from agent.twin_control_plane.pipeline_integration import (
     build_twin_pipeline_evidence,
     evaluate_twin_post_apply,
+    load_project_twin_store,
+    refresh_project_twin,
     resolve_block_unverified,
+    resolve_build_project_twin,
     resolve_gate_blocking,
     resolve_pipeline_mode,
     try_project_twin_impact,
@@ -652,10 +655,17 @@ class AtlasAutonomousCodegenOrchestratorService:
                     path = change.get("path") if isinstance(change, dict) else None
                     if path:
                         changed_refs.append(str(path))
+            # Opt-in: reuse a persistent Project Twin built by a prior run so impact is real.
+            twin_store = self.project_twin_store
+            if twin_store is None and resolve_build_project_twin():
+                twin_store = load_project_twin_store(
+                    data_root=str(self.data_root),
+                    project_id=str(request.pool_id or getattr(pool, "project_id", "") or ""))
+                self.project_twin_store = twin_store
             impact = try_project_twin_impact(
                 project_id=str(request.pool_id or getattr(pool, "project_id", "") or ""),
                 changed_refs=changed_refs,
-                store=self.project_twin_store,
+                store=twin_store,
             )
             req_md = request.metadata or {}
             evidence = build_twin_pipeline_evidence(
@@ -808,6 +818,15 @@ class AtlasAutonomousCodegenOrchestratorService:
             else:
                 out.metadata["twin_control_plane"] = {"post_apply": report}
             self._persist_proof_ledger_entry(report)
+            # Opt-in: refresh the persistent Project Twin from the project so the NEXT run
+            # gets real impact/blast-map evidence (the re-run Twin effect).
+            if resolve_build_project_twin() and changed_files:
+                project_path = str(request.project_path or "")
+                store = refresh_project_twin(
+                    data_root=str(self.data_root),
+                    project_id=str(request.pool_id or ""), project_path=project_path)
+                if store is not None:
+                    self.project_twin_store = store
             return report.get("block_reason") or ""
         except Exception as exc:  # pragma: no cover - defensive: never break the legacy flow
             return ""  # a post-apply seam error is never a hard block

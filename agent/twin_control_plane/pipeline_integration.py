@@ -156,6 +156,55 @@ def _build_policy_and_brief(
     return policy, brief
 
 
+BUILD_PROJECT_TWIN_ENV = "ATLAS_TWIN_BUILD_PROJECT"
+
+
+def resolve_build_project_twin(value: str | None = None) -> bool:
+    """Whether to build/refresh a Project Twin from the live project in-run (default OFF).
+    Enable with ``ATLAS_TWIN_BUILD_PROJECT`` in {1, on, true, yes}; reversible."""
+    raw = (value if value is not None else os.environ.get(BUILD_PROJECT_TWIN_ENV, "")).strip().lower()
+    return raw in {"1", "on", "true", "yes"}
+
+
+def _project_twin_db_path(data_root: str, project_id: str):
+    from pathlib import Path
+    safe = (project_id or "default").replace("/", "_").replace(":", "_").replace("\\", "_")
+    d = Path(data_root) / "twin_control_plane" / "project_twin"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{safe}.sqlite3"
+
+
+def load_project_twin_store(*, data_root: str, project_id: str):
+    """Load a persistent Project Twin store previously built for this project, else None.
+    Never raises."""
+    try:
+        from pathlib import Path
+        path = _project_twin_db_path(data_root, project_id)
+        if not Path(path).exists():
+            return None
+        from agent.project_twin.store import SqliteProjectTwinStore
+        return SqliteProjectTwinStore(str(path))
+    except Exception:
+        return None
+
+
+def refresh_project_twin(*, data_root: str, project_id: str, project_path: str):
+    """Build/refresh a persistent Project Twin from the project directory so later runs get
+    real impact evidence. Returns the store, or None when disabled/unavailable. Never raises."""
+    try:
+        from pathlib import Path
+        if not project_path or not Path(project_path).is_dir():
+            return None
+        from agent.project_twin.projection import StaticProjectionService
+        from agent.project_twin.store import SqliteProjectTwinStore
+        store = SqliteProjectTwinStore(str(_project_twin_db_path(data_root, project_id)))
+        StaticProjectionService(store).refresh(
+            project_id=project_id or "default", project_path=str(project_path), full_rebuild=True)
+        return store
+    except Exception:
+        return None
+
+
 def try_project_twin_impact(
     *, project_id: str, changed_refs: Iterable[str], store=None, change_kind: str = "modify"
 ):
@@ -615,6 +664,10 @@ __all__ = [
     "resolve_gate_blocking",
     "resolve_block_unverified",
     "twin_gate_block_reason",
+    "BUILD_PROJECT_TWIN_ENV",
+    "resolve_build_project_twin",
+    "load_project_twin_store",
+    "refresh_project_twin",
     "try_project_twin_impact",
     "resolve_capability_profile",
     "DEFAULT_PROFILE_STORE_DIR",
