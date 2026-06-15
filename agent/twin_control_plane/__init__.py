@@ -113,6 +113,15 @@ from agent.twin_control_plane.shadow_integration import (
     TwinShadowReport,
     TwinShadowStore,
 )
+from agent.twin_control_plane.real_llm_eval import (
+    AdversarialPrompt,
+    ModelChatResponse,
+    RealLLMCaseResult,
+    RealLLMEvaluationReport,
+    build_local_model_chat,
+    default_adversarial_prompts,
+    run_real_llm_evaluation,
+)
 
 __all__ = [
     "ATLAS_TWIN_CONTROL_PLANE_CONTRACT_VERSION",
@@ -171,6 +180,13 @@ __all__ = [
     "TwinShadowOrchestrator",
     "TwinShadowReport",
     "TwinShadowStore",
+    "AdversarialPrompt",
+    "ModelChatResponse",
+    "RealLLMCaseResult",
+    "RealLLMEvaluationReport",
+    "build_local_model_chat",
+    "default_adversarial_prompts",
+    "run_real_llm_evaluation",
     "VerificationEvidence",
     "adapt_greenfield_session",
     "apply_interface_first_plan",
