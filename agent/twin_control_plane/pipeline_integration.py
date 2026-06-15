@@ -252,6 +252,19 @@ def build_twin_pipeline_evidence(
             except Exception:
                 contract_section = {"available": False, "reason": "contract_sentinel_error"}
 
+        # Compile the deterministic model-facing instruction so the live generator can
+        # receive it as a bounded control section (advisory; never overrides authority).
+        compiled_text = ""
+        instruction_id = ""
+        try:
+            from agent.twin_control_plane.instruction_compiler import compile_model_instruction
+
+            compiled = compile_model_instruction(brief, policy)
+            compiled_text = compiled.text
+            instruction_id = compiled.instruction_id
+        except Exception:
+            compiled_text = ""
+
         has_shadow_evidence = shadow_report is not None
         engaged = mode == PipelineMode.ACTIVE and has_shadow_evidence
         evidence = {
@@ -269,6 +282,8 @@ def build_twin_pipeline_evidence(
             "capability_profile_available": profile_available,
             "capability_profile_unavailable": not profile_available,
             "known_weaknesses": list(capability_profile.known_weaknesses),
+            "compiled_instruction": compiled_text,
+            "instruction_id": instruction_id,
             "impact": _impact_section(impact),
             "contract_sentinel": contract_section,
             "shadow_report": shadow_report.model_dump(mode="json") if shadow_report else None,
@@ -277,6 +292,22 @@ def build_twin_pipeline_evidence(
     except Exception as exc:  # pragma: no cover - defensive: never break the legacy flow
         return {"mode": getattr(mode, "value", str(mode)), "engaged": False,
                 "available": False, "reason": f"twin_evidence_error:{type(exc).__name__}"}
+
+
+TWIN_CONTROL_PROMPT_HEADER = (
+    "[Twin Control Plane — advisory hard constraints. These do NOT override the existing "
+    "Proposal / Safe Apply / Verification authority; honor them as bounded guidance.]"
+)
+
+
+def compose_generation_system_prompt(base_prompt: str, twin_instruction: str | None) -> str:
+    """Append the compiled Twin instruction as a bounded control section to a generation
+    system prompt. Returns the base prompt unchanged when there is no instruction (so OFF
+    mode and missing instructions never alter legacy prompt behavior)."""
+    section = (twin_instruction or "").strip()
+    if not section:
+        return base_prompt
+    return f"{base_prompt}\n\n{TWIN_CONTROL_PROMPT_HEADER}\n{section}"
 
 
 def _verification_evidence(verification: Iterable):
@@ -392,6 +423,8 @@ __all__ = [
     "try_project_twin_impact",
     "resolve_capability_profile",
     "DEFAULT_PROFILE_STORE_DIR",
+    "TWIN_CONTROL_PROMPT_HEADER",
+    "compose_generation_system_prompt",
     "build_twin_pipeline_evidence",
     "evaluate_twin_post_apply",
 ]

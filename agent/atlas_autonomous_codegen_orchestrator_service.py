@@ -695,6 +695,9 @@ class AtlasAutonomousCodegenOrchestratorService:
             "twin_instruction_style": tcp.get("instruction_style"),
             "twin_injection_level": tcp.get("twin_injection_level"),
             "twin_policy_id": tcp.get("policy_id"),
+            # The compiled Twin instruction, used by the generator as a bounded control section.
+            "twin_instruction": tcp.get("compiled_instruction"),
+            "twin_instruction_id": tcp.get("instruction_id"),
         }
         return {"twin_generation_hints": {k: v for k, v in hints.items() if v is not None}}
 

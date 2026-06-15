@@ -209,3 +209,55 @@ def test_strong_profile_no_extra_weakness_gate(tmp_path):
                                       profile_store_dir=store_dir)
     assert ev["capability_profile_available"] is True
     assert "flag_reasoning" not in ev["known_weaknesses"]
+
+
+# --- Step 3: compiled Twin instruction in real generation -------------------------
+
+from agent.twin_control_plane.pipeline_integration import compose_generation_system_prompt
+
+
+def test_compiled_instruction_contains_hard_constraints():
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="add x",
+                                      pool_id="p1", changed_refs=["a.py"])
+    text = ev["compiled_instruction"]
+    assert text  # present in active mode
+    low = text.lower()
+    assert "safe apply" in low
+    assert "approval" in low  # remote publication requires approval
+    assert "stale test" in low
+    assert "unavailable" in low  # unavailable-not-passed obligation
+
+
+def test_off_mode_has_no_compiled_instruction():
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.OFF, requirement="x", pool_id="p1",
+                                      changed_refs=["a.py"])
+    assert "compiled_instruction" not in ev
+
+
+def test_compose_prompt_appends_section_and_is_off_safe():
+    base = "You generate advisory patch proposals only."
+    # No instruction -> unchanged (off-safe).
+    assert compose_generation_system_prompt(base, None) == base
+    assert compose_generation_system_prompt(base, "") == base
+    # With instruction -> bounded section appended, base preserved.
+    out = compose_generation_system_prompt(base, "# Atlas Implementation Instruction\nSafe Apply boundary.")
+    assert out.startswith(base)
+    assert "Twin Control Plane" in out
+    assert "Safe Apply boundary." in out
+
+
+def test_audit_only_instruction_has_no_mutation_authority():
+    from agent.model_forge.execution_policy import ExecutionPolicySelector, ModelCapabilityProfile
+    from agent.model_forge.route_matrix import ChangeClass
+    from agent.twin_control_plane.contracts import ModelCapabilityMode
+    from agent.twin_control_plane.instruction_compiler import compile_model_instruction
+    from agent.twin_control_plane.contracts import TwinBrief
+
+    policy = ExecutionPolicySelector().select(
+        ChangeClass.MEDIUM, task_category="audit",
+        model_profile=ModelCapabilityProfile(model_id="m", mode=ModelCapabilityMode.AUDIT_ONLY),
+    )
+    instr = compile_model_instruction(TwinBrief(brief_id="b", goal="review"), policy)
+    low = instr.text.lower()
+    assert "audit only" in low
+    assert "do not mutate files" in low or "do not imply direct apply authority" in low
