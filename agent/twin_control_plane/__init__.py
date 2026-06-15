@@ -17,14 +17,53 @@ from agent.twin_control_plane.contracts import (
     TwinConstraint,
     TwinInjectionLevel,
 )
+from agent.twin_control_plane.genesis import (
+    GenesisClassification,
+    GenesisKind,
+    GenesisRun,
+    adapt_greenfield_session,
+    classify_genesis,
+    safe_apply_required_for_slice,
+)
+from agent.twin_control_plane.instruction_compiler import CompiledInstruction, compile_model_instruction
+from agent.twin_control_plane.interface_first_generator import (
+    InterfaceFirstPlan,
+    InterfaceFirstSection,
+    InterfaceSectionKind,
+    apply_interface_first_plan,
+    generate_interface_first_plan,
+)
+from agent.twin_control_plane.no_data_bootstrap_gate import (
+    BootstrapCondition,
+    BootstrapRequirement,
+    NoDataBootstrapAssessment,
+    evaluate_no_data_bootstrap,
+)
 
 __all__ = [
     "ATLAS_TWIN_CONTROL_PLANE_CONTRACT_VERSION",
+    "BootstrapCondition",
+    "BootstrapRequirement",
+    "CompiledInstruction",
     "ExecutionPolicy",
+    "GenesisClassification",
+    "GenesisKind",
+    "GenesisRun",
     "GitPolicy",
     "InstructionStyle",
+    "InterfaceFirstPlan",
+    "InterfaceFirstSection",
+    "InterfaceSectionKind",
     "ModelCapabilityMode",
+    "NoDataBootstrapAssessment",
     "TwinBrief",
     "TwinConstraint",
     "TwinInjectionLevel",
+    "adapt_greenfield_session",
+    "apply_interface_first_plan",
+    "classify_genesis",
+    "compile_model_instruction",
+    "evaluate_no_data_bootstrap",
+    "generate_interface_first_plan",
+    "safe_apply_required_for_slice",
 ]

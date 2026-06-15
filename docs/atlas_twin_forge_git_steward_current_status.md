@@ -6,10 +6,10 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 
 ## Program state
 
-- Overall: `component_complete` for the initial contracts/policy slice; broader program remains `not_started` beyond TFG-1/2/3/7 foundations
-- Current package: TFG initial implementation slice plus completed goal-mode execution handoff
-- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier; `contract_present` for completed goal-mode execution instructions
-- Blocker: real LLM and real runtime evidence not collected in this PR
+- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, and Interface First Generator slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A foundations
+- Current package: Package 2A No-Data Bootstrap Gate and Interface First Generator completed at component level
+- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, and Interface First Generator; `contract_present` for completed goal-mode execution instructions
+- Blocker: real LLM and real runtime evidence not collected for these component slices
 - Rollout: not connected; future implementation must use off/shadow/active semantics
 - Remote publication rule: local Git operations are autonomous; remote publication requires user approval
 
@@ -43,10 +43,10 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 
 ### Still required
 
-- Instruction Compiler full implementation.
-- Interface First Generator.
-- Genesis taxonomy and Integration Impact Gate.
-- No-Data Bootstrap Gate.
+- Instruction Compiler component implementation now exists; shadow integration still required.
+- Interface First Generator component implementation now exists; shadow integration still required.
+- Genesis taxonomy component implementation now exists; Integration Impact Gate and broader Genesis shadow integration still required.
+- No-Data Bootstrap Gate component implementation now exists; shadow integration still required.
 - BlastMap and Contract Sentinel.
 - Schema Guardian and StateMirror.
 - TwinProof and Assumption Breaker.
@@ -66,10 +66,10 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-0 | Audit and consolidation map | contract_present | partial_in_pr |
 | TFG-1 | Twin Control Plane contracts | component_complete | partial_in_pr |
 | TFG-2 | Forge Execution Policy Matrix | component_complete | partial_in_pr |
-| TFG-3 | TwinBrief and Instruction Compiler | shadow_connected | twinbrief_partial_in_pr |
-| TFG-3A | Interface First Generator | shadow_connected | not_started |
-| TFG-4 | Genesis integration | shadow_connected | not_started |
-| TFG-4A | No-Data Bootstrap Gate | shadow_connected | not_started |
+| TFG-3 | TwinBrief and Instruction Compiler | shadow_connected | instruction_compiler_component_complete |
+| TFG-3A | Interface First Generator | shadow_connected | interface_first_component_complete |
+| TFG-4 | Genesis integration | shadow_connected | genesis_taxonomy_component_complete |
+| TFG-4A | No-Data Bootstrap Gate | shadow_connected | no_data_bootstrap_component_complete |
 | TFG-5 | BlastMap and Contract Sentinel | shadow_connected | not_started |
 | TFG-5A | Schema Guardian | shadow_connected | not_started |
 | TFG-5B | StateMirror | shadow_connected | not_started |
@@ -171,4 +171,47 @@ Known limitations:
 - no Anti-Pattern Memory/Golden Patch Retrieval/Skill Distiller implementation yet
 Next package: Package 0 in goal-mode execution instructions: verify initial slice and record exact test output
 Blocker: none
+```
+
+```text
+Work package: Package 1 Instruction Compiler + Package 2 Genesis taxonomy + Package 2A No-Data Bootstrap Gate and Interface First Generator
+Status: component_complete for pure instruction, Genesis classification, no-data bootstrap, and interface-first controls; shadow integration not started
+Proof level: component_complete for DTO/policy behavior only
+Commit/PR: local branch codex/tfg-instruction-interface; remote publication requested by user
+Changed modules/files:
+- agent/twin_control_plane/instruction_compiler.py
+- agent/twin_control_plane/genesis.py
+- agent/twin_control_plane/no_data_bootstrap_gate.py
+- agent/twin_control_plane/interface_first_generator.py
+- agent/twin_control_plane/__init__.py
+- tests/test_twin_control_plane_instruction_compiler.py
+- tests/test_twin_control_plane_genesis.py
+- tests/test_twin_control_plane_no_data_interface_first.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_twin_control_plane_instruction_compiler.py tests/test_twin_control_plane_genesis.py tests/test_twin_control_plane_no_data_interface_first.py` -> 24 passed in 3.75s.
+- `python -m py_compile agent\twin_control_plane\instruction_compiler.py agent\twin_control_plane\genesis.py agent\twin_control_plane\no_data_bootstrap_gate.py agent\twin_control_plane\interface_first_generator.py agent\twin_control_plane\__init__.py` -> passed.
+Real LLM evidence:
+- Not collected for this PR; these slices are pure component DTO/policy helpers and are not connected to Atlas runtime/shadow/active execution.
+Real runtime evidence:
+- Not collected; no Atlas runtime path is active in this PR.
+Unavailable checks:
+- Real runtime/Portal evidence is unavailable/not applicable for these pure component slices.
+- Real LLM advisory review was not collected for these non-runtime component slices.
+Adversarial tests:
+- Weak-local and frontier-assisted instructions preserve hard constraints and approval boundaries.
+- Audit-only instructions do not imply mutation authority.
+- Empty and partially-known projects require bootstrap proof instead of assuming prior data.
+- Interface-first plans emit interface/schema/state/test contracts before implementation steps.
+- Greenfield session adaptation preserves Safe Apply slice behavior.
+Safety invariants checked:
+- Project Intelligence and Project Twin remain advisory/context inputs, not execution authority.
+- Interface First Generator feeds TwinBrief and does not execute, apply, verify, commit, or publish.
+- Unavailable evidence is not converted into passed evidence.
+- Remote publication remains approval-bound and is only occurring because the user explicitly requested PR creation and merge.
+Known limitations:
+- These components are not wired into Atlas shadow/active execution.
+- Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Git Steward local adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, Forge profile store, and runtime/model closure remain future PRs.
+Next package: Package 3 Integration Impact Gate.
+Blocker, if any: none for local component work.
 ```
