@@ -7,7 +7,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 ## Program state
 
 - Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward concrete adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7/8/9/9A/10 component foundations
-- Current package: Package 9A Golden Patch Retrieval and Skill Distiller completed at component level
+- Current package: Package 10 Atlas pipeline shadow integration completed at component level (shadow assembler/recorder)
 - Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward local adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring; `contract_present` for completed goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected for these component slices
 - Rollout: not connected; future implementation must use off/shadow/active semantics
@@ -77,7 +77,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-9 | Proof Ledger and Repair Compass | production_connected | proof_ledger_repair_compass_component_complete |
 | TFG-9A | Anti-Pattern Memory | production_connected | anti_pattern_memory_component_complete |
 | TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | golden_patch_skill_distiller_component_complete |
-| TFG-11 | Atlas pipeline shadow integration | shadow_connected | not_started |
+| TFG-11 | Atlas pipeline shadow integration | shadow_connected | shadow_assembler_component_complete |
 | TFG-12 | Active rollout and acceptance | acceptance_complete | not_started |
 | TFG-13 | Real LLM and real runtime evaluation closure | real_llm_evaluated / real_runtime_evaluated | not_started |
 
@@ -130,6 +130,45 @@ Blocker, if any:
 ```
 
 ## Initial implementation record
+
+```text
+Work package: Package 10 Atlas pipeline shadow integration
+Status: component_complete for shadow assembler/recorder; active integration not started
+Proof level: component_complete for off/shadow assembly semantics and recorder only
+Commit/PR: local branch codex/tfg-atlas-shadow-integration; remote publication requested by user
+Changed modules/files:
+- agent/twin_control_plane/shadow_integration.py
+- agent/twin_control_plane/__init__.py
+- tests/test_twin_control_plane_shadow_integration.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_twin_control_plane_shadow_integration.py` -> 6 passed in 1.23s.
+- `python -m py_compile agent/twin_control_plane/shadow_integration.py agent/twin_control_plane/__init__.py` -> passed.
+- `python -m pytest -q tests/test_twin_forge_git_steward_initial.py <all tests/test_twin_control_plane_*.py>` -> 64 passed in 12.20s.
+Real LLM evidence:
+- Not collected for Package 10; the shadow assembler composes already-built component inputs and calls no model.
+Real runtime evidence:
+- Not collected; the assembler does not execute Atlas runtime, Portal, or Git operations.
+Unavailable checks:
+- Real Atlas pipeline live shadow wiring is not exercised here; the assembler is the component that the pipeline can call in shadow mode.
+Adversarial tests:
+- OFF mode returns None and assembles nothing, preserving legacy flow.
+- SHADOW mode assembles ExecutionPolicy, TwinBrief, local Git plan, BlastMap, and TwinProof where inputs allow.
+- Missing inputs (no impact/policy/brief/runtime evidence) are recorded as unavailable rather than raising, so an unavailable shadow report does not break the legacy flow.
+- The local Git plan excludes approval-bound remote operations (push, create-pr) and records them as approval_required unavailable.
+- The report never claims to change execution or production routing.
+- Reports round-trip through the shadow store.
+Safety invariants checked:
+- Off mode behavior is unchanged because the orchestrator is opt-in and OFF mode produces nothing.
+- Shadow produces evidence without taking over execution (changes_execution / changes_production_routing always False).
+- Existing Project Twin ImpactResult remains the impact authority; the assembler reuses build_blast_map/build_twinproof and does not re-run Twin analysis.
+- Remote publication remains approval-bound and is never planned autonomously.
+Known limitations:
+- The assembler is not yet invoked from the live Atlas generation/verification pipeline; that wiring is the active-integration concern of Package 11.
+- ExecutionPolicy does not yet drive instruction compilation in active mode (Package 11).
+Next package: Package 11 Active integration behind gate.
+Blocker, if any: none for local component work; remote publication requested by user.
+```
 
 ```text
 Work package: Package 9A Golden Patch Retrieval and Skill Distiller
