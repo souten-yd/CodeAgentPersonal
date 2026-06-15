@@ -6,9 +6,9 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 
 ## Program state
 
-- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, and Interface First Generator slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A foundations
-- Current package: Package 2A No-Data Bootstrap Gate and Interface First Generator completed at component level
-- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, and Interface First Generator; `contract_present` for completed goal-mode execution instructions
+- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, and Integration Impact Gate slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5 foundations
+- Current package: Package 3 Integration Impact Gate completed at component level
+- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, and Integration Impact Gate; `contract_present` for completed goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected for these component slices
 - Rollout: not connected; future implementation must use off/shadow/active semantics
 - Remote publication rule: local Git operations are autonomous; remote publication requires user approval
@@ -45,7 +45,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 
 - Instruction Compiler component implementation now exists; shadow integration still required.
 - Interface First Generator component implementation now exists; shadow integration still required.
-- Genesis taxonomy component implementation now exists; Integration Impact Gate and broader Genesis shadow integration still required.
+- Genesis taxonomy and Integration Impact Gate component implementations now exist; broader Genesis shadow integration still required.
 - No-Data Bootstrap Gate component implementation now exists; shadow integration still required.
 - BlastMap and Contract Sentinel.
 - Schema Guardian and StateMirror.
@@ -68,7 +68,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-2 | Forge Execution Policy Matrix | component_complete | partial_in_pr |
 | TFG-3 | TwinBrief and Instruction Compiler | shadow_connected | instruction_compiler_component_complete |
 | TFG-3A | Interface First Generator | shadow_connected | interface_first_component_complete |
-| TFG-4 | Genesis integration | shadow_connected | genesis_taxonomy_component_complete |
+| TFG-4 | Genesis integration | shadow_connected | genesis_taxonomy_integration_impact_component_complete |
 | TFG-4A | No-Data Bootstrap Gate | shadow_connected | no_data_bootstrap_component_complete |
 | TFG-5 | BlastMap and Contract Sentinel | shadow_connected | not_started |
 | TFG-5A | Schema Guardian | shadow_connected | not_started |
@@ -214,4 +214,43 @@ Known limitations:
 - Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Git Steward local adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, Forge profile store, and runtime/model closure remain future PRs.
 Next package: Package 3 Integration Impact Gate.
 Blocker, if any: none for local component work.
+```
+
+```text
+Work package: Package 3 Integration Impact Gate
+Status: component_complete for pure Integration Impact Gate; shadow integration not started
+Proof level: component_complete for DTO/policy behavior over existing Project Twin ImpactResult only
+Commit/PR: local branch codex/tfg-integration-impact; remote publication requested by user
+Changed modules/files:
+- agent/twin_control_plane/integration_impact_gate.py
+- agent/twin_control_plane/__init__.py
+- tests/test_twin_control_plane_integration_impact_gate.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_twin_control_plane_instruction_compiler.py tests/test_twin_control_plane_genesis.py tests/test_twin_control_plane_no_data_interface_first.py tests/test_twin_control_plane_integration_impact_gate.py` -> 28 passed in 3.70s.
+- `python -m py_compile agent\twin_control_plane\integration_impact_gate.py agent\twin_control_plane\__init__.py` -> passed.
+- `python -m pytest -q tests/test_project_twin_impact_analysis.py tests/test_project_twin_store.py` -> 20 passed in 2.28s.
+Real LLM evidence:
+- Not collected for Package 3; no model-facing prompt behavior changed in this slice.
+Real runtime evidence:
+- Not collected; this package is not connected to Atlas runtime/shadow/active execution.
+Unavailable checks:
+- Real runtime/Portal evidence is unavailable/not applicable for this pure impact-gate slice.
+Adversarial tests:
+- Existing Project Twin direct/transitive impacts become integration points.
+- Affected requirements and TwinBrief contracts are preserved as contracts_to_preserve.
+- Twin-recommended tests become explicit proof requirements.
+- Impacted integration points with no recommended or required tests block with `integration://missing_recommended_tests`.
+- Low-confidence/inferred impacts remain advisory and appear in uncertainty rather than verified fact.
+- Changed refs fall back to TwinBrief refs when not explicitly supplied.
+Safety invariants checked:
+- Existing Project Twin ImpactResult remains the impact authority; Integration Impact Gate does not re-run or replace Twin analysis.
+- Uncertain impact is advisory, not verified.
+- Missing tests are reported as proof gaps rather than ignored.
+- Gate is pure DTO/policy code; it does not execute, apply, verify, commit, or publish.
+Known limitations:
+- Integration Impact Gate is not wired into Feature Genesis shadow mode.
+- BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Patch Impact Gate, Proof Ledger, Repair Compass, and Anti-Pattern Memory remain future packages.
+Next package: Package 4 BlastMap and Contract Sentinel.
+Blocker, if any: none for local component work; remote publication requested by user.
 ```
