@@ -1,28 +1,59 @@
 # KasaneCore Agent Instructions
 
-## Active Goal
+## Default Start Point
 
-* Atlas Runtime Progress, Resume/Rehydrate, and Project Intelligence Behavioral Impact Hardening
+Start from AUIR unless the user explicitly names another track.
+
+AUIR is the current default goal:
+
 * Current status: `docs/atlas_runtime_progress_resume_hardening_current_status.md`
 * Main plan: `docs/atlas_runtime_progress_resume_hardening_plan.md`
 * Test plan: `docs/atlas_runtime_progress_resume_hardening_test_plan.md`
 * Agent entrypoint: `docs/atlas_runtime_progress_resume_hardening_agent_entrypoint.md`
-* Next track after AUIR: `docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md`
 
-### Compact Goal Override: Twin / Forge / Git Steward
+After AUIR is complete, continue PIBIH:
 
-If the user asks to start or continue the Twin / Forge / Git Steward work, keep `AGENTS.md` small and immediately delegate to the dedicated goal-mode docs:
+* `docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md`
+* `docs/atlas_project_intelligence_behavioral_impact_hardening_plan.md`
+* `docs/atlas_project_intelligence_behavioral_impact_hardening_test_plan.md`
+* `docs/atlas_project_intelligence_behavioral_impact_hardening_agent_entrypoint.md`
+
+## Compact Goal Override: Twin / Forge / Git Steward
+
+Use this only when the user explicitly asks for Twin / Forge / Git Steward work.
+
+Keep `AGENTS.md` small and delegate to:
 
 1. `docs/atlas_twin_forge_git_steward_goal_mode_execution.md`
 2. `docs/atlas_twin_forge_git_steward_current_status.md`
 3. `docs/atlas_twin_forge_git_steward_agent_entrypoint.md`
 4. `docs/atlas_twin_forge_git_steward_detailed_plan.md` only when more detail is needed
 
-Start with Package 0 from the goal-mode document. First run `python -m pytest -q tests/test_twin_forge_git_steward_initial.py`, repair type/import/pydantic/enum/module-path mismatches, record exact evidence in the current status doc, then continue the package sequence. Local Git operations are autonomous; remote publication still requires approval.
+Start from Package 0 in the goal-mode document. First run `python -m pytest -q tests/test_twin_forge_git_steward_initial.py`, repair type/import/pydantic/enum/module-path mismatches, record exact evidence in the current status doc, then continue the package sequence. Local Git operations are autonomous; remote publication still requires approval.
 
-## Track Order
+## Completed Foundations
 
-The current user-reported Atlas bug blocks safe development visibility. Therefore complete AUIR first, then continue PIBIH, unless the user explicitly invokes the Twin / Forge / Git Steward goal override above.
+PIR, PFG, Portal, Play, Capsule, Forge foundation, prior Portal/Forge hardening, and the Twin / Forge / Git Steward planning + initial policy slice are completed foundation tracks. Do not restart them from scratch.
+
+Reference these only when touching their areas:
+
+```text
+docs/atlas_project_intelligence_recovery_current_status.md
+docs/atlas_project_intelligence_recovery_master_goal.md
+docs/atlas_portal_forge_current_status.md
+docs/atlas_portal_forge_master_goal.md
+docs/atlas_portal_forge_detailed_design.md
+docs/atlas_portal_forge_implementation_plan.md
+docs/atlas_portal_forge_test_plan.md
+docs/atlas_portal_forge_hardening_current_status.md
+docs/atlas_portal_forge_hardening_plan.md
+docs/atlas_portal_forge_hardening_test_plan.md
+docs/atlas_portal_forge_hardening_agent_entrypoint.md
+docs/atlas_twin_forge_git_steward_current_status.md
+docs/atlas_twin_forge_git_steward_goal_mode_execution.md
+```
+
+## AUIR Track Order
 
 ```text
 AUIR-1: Fix LLM props initialization and token indicator safety
@@ -31,17 +62,9 @@ AUIR-3: Atlas tab reload/resume rehydration
 AUIR-4: Live indicator reconnection and stale/stalled state UX
 AUIR-5: Regression tests and mobile/browser reload smoke
 AUIR-6: Return to PIBIH-1 LLM planning timeout hardening
-
-PIBIH-1: LLM Planning Timeout and Streaming Progress Hardening
-PIBIH-2: Impact Analysis Core
-PIBIH-3: Deep Behavioral Graph V3
-PIBIH-4: Project Intelligence Planning and Generation Injection
-PIBIH-5: Plan-Time Nexus Web Research
-PIBIH-6: Impact UI / Planner Exposure
-PIBIH-7: Runtime Evidence Promotion and Historical Risk Memory
 ```
 
-## Current Blocking Bug
+## Current AUIR Bug
 
 Observed behavior:
 
@@ -58,40 +81,6 @@ Log:
 ```
 
 Treat this as a product bug, not a cosmetic issue.
-
-## Completed Foundations
-
-PIR, PFG, Portal, Play, Capsule, Forge foundation, and prior Portal/Forge hardening are completed foundation tracks. Do not restart them from scratch.
-
-Retain and reference these docs as needed:
-
-```text
-docs/atlas_project_intelligence_recovery_current_status.md
-docs/atlas_project_intelligence_recovery_master_goal.md
-docs/atlas_portal_forge_current_status.md
-docs/atlas_portal_forge_master_goal.md
-docs/atlas_portal_forge_detailed_design.md
-docs/atlas_portal_forge_implementation_plan.md
-docs/atlas_portal_forge_test_plan.md
-docs/atlas_portal_forge_hardening_current_status.md
-docs/atlas_portal_forge_hardening_plan.md
-docs/atlas_portal_forge_hardening_test_plan.md
-docs/atlas_portal_forge_hardening_agent_entrypoint.md
-```
-
-The two new handoff tracks are:
-
-```text
-docs/atlas_runtime_progress_resume_hardening_current_status.md
-docs/atlas_runtime_progress_resume_hardening_plan.md
-docs/atlas_runtime_progress_resume_hardening_test_plan.md
-docs/atlas_runtime_progress_resume_hardening_agent_entrypoint.md
-
-docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md
-docs/atlas_project_intelligence_behavioral_impact_hardening_plan.md
-docs/atlas_project_intelligence_behavioral_impact_hardening_test_plan.md
-docs/atlas_project_intelligence_behavioral_impact_hardening_agent_entrypoint.md
-```
 
 ## Must Preserve
 
@@ -113,19 +102,11 @@ docs/atlas_project_intelligence_behavioral_impact_hardening_agent_entrypoint.md
 ## Goal Mode Read Order
 
 1. `AGENTS.md`
-2. For Twin / Forge / Git Steward work, use the Compact Goal Override above.
-3. Otherwise read:
-   - `docs/atlas_runtime_progress_resume_hardening_current_status.md`
-   - `docs/atlas_runtime_progress_resume_hardening_plan.md`
-   - `docs/atlas_runtime_progress_resume_hardening_test_plan.md`
-   - `docs/atlas_runtime_progress_resume_hardening_agent_entrypoint.md`
-4. After AUIR completion, read:
-   - `docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md`
-   - `docs/atlas_project_intelligence_behavioral_impact_hardening_plan.md`
-   - `docs/atlas_project_intelligence_behavioral_impact_hardening_test_plan.md`
-   - `docs/atlas_project_intelligence_behavioral_impact_hardening_agent_entrypoint.md`
-5. Existing PIR/PFG/PFH docs when touching their areas
-6. Target code, public contracts, direct callers, dependencies, and tests
+2. If the user explicitly names Twin / Forge / Git Steward, use the compact override above.
+3. Otherwise read the AUIR docs listed in Default Start Point.
+4. After AUIR completion, read the PIBIH docs listed above.
+5. Existing PIR/PFG/PFH/TFG docs only when touching their areas.
+6. Target code, public contracts, direct callers, dependencies, and tests.
 
 ## Execution Rules
 
@@ -185,20 +166,14 @@ Implementation size alone is not a stop condition.
 
 ## Completion
 
-For Twin / Forge / Git Steward completion, use `docs/atlas_twin_forge_git_steward_goal_mode_execution.md` and `docs/atlas_twin_forge_git_steward_current_status.md`.
-
-Do not mark the AUIR / PIBIH combined track complete until:
+Do not mark AUIR complete until:
 
 * `_current_n_ctx_ui` can never throw before initialization during startup, mode switch, reload, or settings/context polling;
 * LLM progress indicators update during Plan, approved execution, patch proposal generation, repair, and verification-related LLM calls;
 * browser tab switch and reload restore the active Atlas run status from server-authoritative state;
 * a disconnected/reconnecting UI never shows an empty green frame without status;
 * stale/stalled/live/terminal states are visibly distinct;
-* slow local planning models can complete or fail with phase-specific timeout reasons;
-* Impact Analysis returns direct/transitive impacts, side effects, recommended tests, and uncertainty for realistic fixture projects;
-* Behavioral Graph V3 captures function, variable, state, resource, and UI/API paths with deterministic refs;
-* Project Intelligence active planning and active generation both use rich context;
-* Plan-time Nexus Web Research is bounded, gated, persisted, and reflected in planning when enabled;
-* UI/PlanPool artifacts show impact summaries and recommended tests;
-* runtime/verification evidence can feed future impact risk without false verification claims;
+* all focused, affected, reload/resume, and mobile/browser smoke evidence is recorded;
 * all safety boundaries remain intact.
+
+After AUIR completion, continue PIBIH. For Twin / Forge / Git Steward completion, use `docs/atlas_twin_forge_git_steward_goal_mode_execution.md` and `docs/atlas_twin_forge_git_steward_current_status.md` only when that track is explicitly selected.
