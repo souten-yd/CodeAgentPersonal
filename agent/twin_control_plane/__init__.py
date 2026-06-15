@@ -132,6 +132,10 @@ from agent.twin_control_plane.active_integration import (
     PipelineStatus,
     ProposalDraft,
 )
+from agent.twin_control_plane.acceptance_harness import (
+    LocalAcceptanceHooks,
+    extract_code_block,
+)
 
 __all__ = [
     "ATLAS_TWIN_CONTROL_PLANE_CONTRACT_VERSION",
@@ -205,6 +209,8 @@ __all__ = [
     "PipelineMode",
     "PipelineStatus",
     "ProposalDraft",
+    "LocalAcceptanceHooks",
+    "extract_code_block",
     "VerificationEvidence",
     "adapt_greenfield_session",
     "apply_interface_first_plan",

@@ -1,13 +1,14 @@
 # Atlas Twin / Forge / Git Steward — Current Status
 
-Status: initial implementation slice in progress.
+Status: full package sequence (TFG-1..13 component foundations + gated active integration + real LLM/runtime acceptance closure) implemented; live Atlas main-pipeline default remains OFF pending explicit approval.
 
 This file is the mutable checkpoint for the approved integration of Project Intelligence, Project Digital Twin, Genesis/Greenfield, Forge Execution Policy, and Atlas Git Steward.
 
 ## Program state
 
 - Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward concrete adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7/8/9/9A/10 component foundations
-- Current package: Package 11 active integration behind a gate completed at component level (gated/reversible orchestrator); Package 12 real LLM evaluation harness completed with real local LLM adversarial evidence
+- Current package: Package 12/13 acceptance closure completed — real local LLM + real runtime end-to-end acceptance through the gated active pipeline (verdict accepted)
+- End-to-end acceptance evidence: live Mistral-Small-3.2-24B generated `add(a, b)`, applied via Safe Apply into an isolated temp repo with a local commit, real pytest passed, Patch Impact Gate accepted, Proof Ledger recorded accepted=True, on local branch `atlas/acc` (remote never touched)
 - Current proof level: `real_llm_evaluated` for the Twin instruction adversarial harness against a live local model (Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S, llama.cpp); `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward local adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring; `contract_present` for completed goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected for these component slices
 - Rollout: not connected; future implementation must use off/shadow/active semantics
@@ -79,7 +80,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | golden_patch_skill_distiller_component_complete |
 | TFG-11 | Atlas pipeline shadow integration | shadow_connected | shadow_assembler_component_complete |
 | TFG-12 | Active rollout and acceptance | acceptance_complete | active_integration_orchestrator_component_complete |
-| TFG-13 | Real LLM and real runtime evaluation closure | real_llm_evaluated / real_runtime_evaluated | real_llm_instruction_adversarial_evidence_collected; real_runtime_evaluation_pending |
+| TFG-13 | Real LLM and real runtime evaluation closure | real_llm_evaluated / real_runtime_evaluated | real_llm_and_real_runtime_end_to_end_acceptance_collected |
 
 ## Safety invariants
 
@@ -130,6 +131,45 @@ Blocker, if any:
 ```
 
 ## Initial implementation record
+
+```text
+Work package: Package 12/13 Acceptance closure — real LLM + real runtime end-to-end (TFG-13)
+Status: real_llm_evaluated and real_runtime_evaluated for one representative task driven all the way through the gated active pipeline
+Proof level: real_llm_evaluated / real_runtime_evaluated for end-to-end acceptance; live Atlas main-pipeline default remains OFF (approval-bound)
+Commit/PR: local branch codex/tfg-acceptance-closure; remote publication requested by user
+Changed modules/files:
+- agent/twin_control_plane/acceptance_harness.py
+- agent/twin_control_plane/__init__.py
+- tests/test_twin_acceptance_closure.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_twin_acceptance_closure.py -m "not real_model"` -> 3 passed, 1 deselected in 6.01s.
+- `FORGE_LOCAL_MODEL="Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf" FORGE_LOCAL_BASE_URL="http://127.0.0.1:8080" python -m pytest -q tests/test_twin_acceptance_closure.py::test_real_model_end_to_end_acceptance -m real_model` -> 1 passed in 4.43s.
+- `python -m py_compile agent/twin_control_plane/acceptance_harness.py agent/twin_control_plane/__init__.py` -> passed.
+- `python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_twin_acceptance_closure.py tests/test_twin_real_llm_evaluation.py -m "not real_model" <all tests/test_twin_control_plane_*.py>` -> 80 passed, 2 deselected in 23.96s.
+Real LLM evidence:
+- Live local model Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf via llama.cpp at http://127.0.0.1:8080.
+- Generation for task "implement add(a, b)" produced `def add(a, b): return a + b` (attempt 1, latency 1109 ms).
+Real runtime evidence:
+- The generated code was written via the Safe Apply hook into an isolated temporary Git repository and committed locally; `python -m pytest -q test_solution.py` ran for real and passed (evidence id verify_1).
+- Patch Impact Gate decision: accepted; Proof Ledger entry accepted=True; local branch atlas/acc prepared; remote never touched.
+- Evidence JSON written to ca_data/model_forge/evidence/tfg_acceptance_closure_real.json (ca_data is runtime data and is not committed).
+Unavailable checks:
+- Frontier-assisted/stronger model path remains unavailable; only the configured local model was exercised.
+- The live Atlas production generation/verification entrypoint default remains OFF; flipping it is approval-bound and intentionally not done.
+Adversarial tests:
+- Deterministic end-to-end test with a correct fake patch accepts after a real pytest pass.
+- Deterministic end-to-end test with a wrong fake patch (returns a - b) fails real pytest, drives Repair Compass, and exhausts without a false acceptance.
+- Code extraction handles fenced and raw model output.
+Safety invariants checked:
+- Safe Apply remained the only write boundary; the orchestrator never wrote product files — the harness wrote into the isolated workspace through the Safe Apply hook and a local commit.
+- Active mode required a prior SHADOW report; remote publication was never performed; only local Atlas-owned branch/commit operations ran.
+- Real failing runtime evidence produced needs_repair/exhausted, never a fabricated pass; unavailable runtime stays distinct from passed.
+Known limitations:
+- One representative task and one local model; broader task/model coverage and the production default cut-over remain future, approval-bound work.
+Next package: Optional — wire the live Atlas entrypoint behind the gate (requires explicit approval to change the production default) and broaden real task/model acceptance coverage.
+Blocker, if any: changing the live Atlas pipeline default to active is approval-bound and intentionally not done autonomously.
+```
 
 ```text
 Work package: Package 11 Active integration behind a gate (TFG-12)
