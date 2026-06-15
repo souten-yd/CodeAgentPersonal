@@ -300,6 +300,12 @@ TWIN_CONTROL_PROMPT_HEADER = (
 )
 
 
+REPAIR_COMPASS_PROMPT_HEADER = (
+    "[Twin Repair Compass — targeted repair guidance. Preserve all hard boundaries; do NOT "
+    "weaken or delete tests/gates, bypass Safe Apply, or treat unavailable evidence as passed.]"
+)
+
+
 def compose_generation_system_prompt(base_prompt: str, twin_instruction: str | None) -> str:
     """Append the compiled Twin instruction as a bounded control section to a generation
     system prompt. Returns the base prompt unchanged when there is no instruction (so OFF
@@ -308,6 +314,33 @@ def compose_generation_system_prompt(base_prompt: str, twin_instruction: str | N
     if not section:
         return base_prompt
     return f"{base_prompt}\n\n{TWIN_CONTROL_PROMPT_HEADER}\n{section}"
+
+
+def compose_repair_system_prompt(base_prompt: str, repair_guidance: str | None) -> str:
+    """Append Repair Compass guidance as a bounded section for a repair attempt. Off-safe:
+    no guidance leaves the base prompt unchanged."""
+    section = (repair_guidance or "").strip()
+    if not section:
+        return base_prompt
+    return f"{base_prompt}\n\n{REPAIR_COMPASS_PROMPT_HEADER}\n{section}"
+
+
+def _render_repair_guidance(repair) -> str:
+    """Render a RepairCompassReport into a compact, model-facing guidance block."""
+    lines = ["# Repair Compass guidance"]
+    for instruction in repair.instructions:
+        lines.append(f"- [{instruction.category.value}] {instruction.summary}")
+        for proof in instruction.proof_requirements:
+            lines.append(f"  proof: {proof}")
+    if repair.product_regression_refs:
+        lines.append("Product regression to fix: " + ", ".join(repair.product_regression_refs))
+    if repair.environment_unavailable_refs:
+        lines.append("Environment-unavailable (keep separate, do not change product for this): "
+                     + ", ".join(repair.environment_unavailable_refs))
+    if repair.prohibited_actions:
+        lines.append("Prohibited:")
+        lines.extend(f"  - {action}" for action in repair.prohibited_actions)
+    return "\n".join(lines)
 
 
 def _verification_evidence(verification: Iterable):
@@ -419,6 +452,27 @@ def evaluate_twin_post_apply(
         except Exception:
             ledger_entry_dump = None
 
+        # Repair Compass guidance for needs_repair / blocked decisions (advisory; preserves
+        # all hard boundaries — never weakens tests/gates/Safe Apply/approval).
+        repair_section = None
+        repair_guidance = ""
+        if report.needs_repair or report.blocked:
+            try:
+                from agent.twin_control_plane.repair_compass import build_repair_compass
+                repair = build_repair_compass(policy=policy, brief=brief, patch_report=report)
+                repair_guidance = _render_repair_guidance(repair)
+                repair_section = {
+                    "report_id": repair.report_id,
+                    "prohibited_actions": list(repair.prohibited_actions),
+                    "product_regression_refs": list(repair.product_regression_refs),
+                    "environment_unavailable_refs": list(repair.environment_unavailable_refs),
+                    "instructions": [
+                        {"category": i.category.value, "summary": i.summary} for i in repair.instructions
+                    ],
+                }
+            except Exception:
+                repair_section = None
+
         has_passed = bool(report.passed_evidence_refs)
         unverified_change = bool(files) and not has_passed
 
@@ -447,6 +501,8 @@ def evaluate_twin_post_apply(
             },
             "gate_refs": list(report.gate_refs),
             "ledger_entry": ledger_entry_dump,
+            "repair_compass": repair_section,
+            "repair_guidance": repair_guidance,
             "passed_evidence": list(report.passed_evidence_refs),
             "failed_evidence": list(report.failed_evidence_refs),
             "unavailable_evidence": list(report.unavailable_evidence_refs),
@@ -473,7 +529,9 @@ __all__ = [
     "resolve_capability_profile",
     "DEFAULT_PROFILE_STORE_DIR",
     "TWIN_CONTROL_PROMPT_HEADER",
+    "REPAIR_COMPASS_PROMPT_HEADER",
     "compose_generation_system_prompt",
+    "compose_repair_system_prompt",
     "build_twin_pipeline_evidence",
     "evaluate_twin_post_apply",
 ]

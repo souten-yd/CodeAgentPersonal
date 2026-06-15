@@ -334,3 +334,47 @@ def test_post_apply_off_mode_does_not_run():
     r = evaluate_twin_post_apply(mode=PipelineMode.OFF, blocking=True, changed_files=["a.py"])
     assert r["ran"] is False
     assert r["gate_blocked"] is False
+
+
+# --- Step 6: Repair Compass integration -------------------------------------------
+
+from agent.twin_control_plane.pipeline_integration import compose_repair_system_prompt
+
+
+def test_needs_repair_produces_repair_compass_guidance():
+    r = evaluate_twin_post_apply(
+        mode=PipelineMode.ACTIVE, blocking=True, requirement="x", pool_id="p1",
+        changed_files=["a.py"],
+        verification=[{"evidence_id": "v_fail", "status": "failed"},
+                      {"evidence_id": "v_unavail", "status": "unavailable"}],
+        before_twin_revision_id="b", after_twin_revision_id="a")
+    assert r["needs_repair"] is True
+    rc = r["repair_compass"]
+    assert rc is not None
+    # Prohibited actions preserve hard boundaries (no test weakening, no Safe Apply bypass).
+    joined = " ".join(rc["prohibited_actions"]).lower()
+    assert "weaken or delete tests" in joined
+    assert "bypass proposal, safe apply" in joined
+    # Failed verification is product regression; unavailable is kept separate.
+    assert "v_fail" in rc["product_regression_refs"]
+    assert "v_unavail" in rc["environment_unavailable_refs"]
+    assert r["repair_guidance"]  # rendered guidance text present
+
+
+def test_accepted_run_has_no_repair_guidance():
+    r = evaluate_twin_post_apply(
+        mode=PipelineMode.ACTIVE, blocking=True, requirement="x", pool_id="p1",
+        changed_files=["a.py"], verification=[{"evidence_id": "v1", "status": "passed"}],
+        before_twin_revision_id="b", after_twin_revision_id="a")
+    assert r["accepted"] is True
+    assert r["repair_compass"] is None
+    assert r["repair_guidance"] == ""
+
+
+def test_compose_repair_prompt_is_off_safe():
+    base = "Generate a patch."
+    assert compose_repair_system_prompt(base, None) == base
+    out = compose_repair_system_prompt(base, "# Repair Compass guidance\n- fix it")
+    assert out.startswith(base)
+    assert "Repair Compass" in out
+    assert "fix it" in out
