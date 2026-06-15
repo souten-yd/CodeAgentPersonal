@@ -1,6 +1,6 @@
 # Atlas Twin / Forge / Git Steward — Current Status
 
-Status: full package sequence (TFG-1..13 component foundations + gated active integration + real LLM/runtime acceptance closure) implemented; live Atlas main-pipeline default remains OFF pending explicit approval.
+Status: full package sequence (TFG-1..13) implemented AND wired into the live autonomous codegen orchestrator behind a config gate. User approved the active cut-over; active mode is enabled via `ATLAS_TWIN_PIPELINE_MODE=active`. The repository code default stays OFF (Must Preserve: off mode preserves current behavior), so the cut-over is reversible and a fresh checkout is unchanged.
 
 This file is the mutable checkpoint for the approved integration of Project Intelligence, Project Digital Twin, Genesis/Greenfield, Forge Execution Policy, and Atlas Git Steward.
 
@@ -79,7 +79,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-9A | Anti-Pattern Memory | production_connected | anti_pattern_memory_component_complete |
 | TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | golden_patch_skill_distiller_component_complete |
 | TFG-11 | Atlas pipeline shadow integration | shadow_connected | shadow_assembler_component_complete |
-| TFG-12 | Active rollout and acceptance | acceptance_complete | active_integration_orchestrator_component_complete |
+| TFG-12 | Active rollout and acceptance | acceptance_complete | live_pipeline_wired_behind_config_gate; active_enabled_via_env; repo_default_off |
 | TFG-13 | Real LLM and real runtime evaluation closure | real_llm_evaluated / real_runtime_evaluated | real_llm_and_real_runtime_end_to_end_acceptance_collected |
 
 ## Safety invariants
@@ -131,6 +131,48 @@ Blocker, if any:
 ```
 
 ## Initial implementation record
+
+```text
+Work package: TFG-12 live-pipeline cut-over (user-approved active integration)
+Status: live autonomous codegen orchestrator now consults the Twin Control Plane behind a config gate; active enabled via ATLAS_TWIN_PIPELINE_MODE=active; repo default OFF
+Proof level: integration_wired + reversible config gate; advisory authority preserved
+Commit/PR: local branch codex/tfg-live-pipeline-cutover; remote publication requested by user
+Changed modules/files:
+- agent/twin_control_plane/pipeline_integration.py (new seam: resolve_pipeline_mode, build_twin_pipeline_evidence)
+- agent/atlas_autonomous_codegen_orchestrator_service.py (Phase 0 guarded _attach_twin_control_plane seam)
+- agent/model_forge/capability_scoring.py (lazy ModelCapabilityMode import to break a latent module-load cycle)
+- agent/twin_control_plane/__init__.py
+- tests/test_twin_pipeline_integration.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_twin_pipeline_integration.py` -> 8 passed in 1.17s.
+- `python -m pytest -q tests/test_atlas_autonomous_codegen_orchestrator_service.py tests/test_atlas_autonomous_codegen_api.py` -> 40 passed in 15.86s (live orchestrator unchanged under default OFF).
+- `python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_twin_pipeline_integration.py tests/test_twin_acceptance_closure.py tests/test_twin_real_llm_evaluation.py -m "not real_model" <all test_twin_control_plane_*.py> <all test_model_forge_*.py>` -> 204 passed, 2 deselected in 48.50s.
+- `python -m py_compile` on changed modules -> passed.
+- ACTIVE smoke (`ATLAS_TWIN_PIPELINE_MODE=active`) -> engaged=True, advisory=True, requires_shadow_evidence=False, policy route=patch_dsl, injection=3, required_gates include SafeApplyBoundary/ContractSentinel/TwinProof/FeatureFlagBaseline; shadow_report.changes_execution=False.
+Real LLM evidence:
+- Not re-collected here; the live model path is covered by the Package 12/13 harnesses. This package wires the gate, it does not change model calls.
+Real runtime evidence:
+- Existing autonomous codegen orchestrator/API suites (40 tests) pass unchanged with the seam in place under the default OFF mode.
+Unavailable checks:
+- A full live autonomous run against a real project in active mode was not executed in CI here; the seam is proven by the orchestrator suite plus the ACTIVE assembly smoke. A live active run remains an operational step in the deployment.
+Adversarial tests:
+- Mode resolves to OFF by default and for any unrecognised/garbage value (a misconfiguration can never silently enable active).
+- OFF produces inert evidence and engages nothing; the existing orchestrator behavior is byte-for-byte preserved.
+- ACTIVE engages only with assembled shadow evidence and stays advisory; it never sets changes_execution / changes_production_routing.
+- build_twin_pipeline_evidence never raises (bad change_class still yields available=False), and the orchestrator seam is wrapped so it can never break the legacy flow.
+Safety invariants checked:
+- Must Preserve honored: off mode preserves current behavior (repo default OFF), and the user approval enables active via config without baking a dangerous default into the repo.
+- Atlas keeps Proposal / Safe Apply / Verification / Repair authority; the Twin seam is advisory evidence only and never applies, verifies, commits, or publishes.
+- No authority duplication: the existing multi-item autopilot remains the execution authority; the seam only attaches metadata.
+- Remote publication remains approval-bound and untouched by the seam.
+- A latent module-load import cycle (capability_scoring -> twin_control_plane.contracts) was fixed with a lazy import; the previously-merged behavior is unchanged.
+Known limitations:
+- A full end-to-end live active autonomous run against a real project is an operational/deploy step, not exercised in CI here.
+- The seam attaches advisory evidence; making the Twin gate a hard blocking gate in production would be a further, separately-approved rollout step.
+Next package: Optional operational rollout — run a real project through active mode and, if desired, promote the advisory Twin gate to a blocking gate (separate approval).
+Blocker, if any: none; active is enabled via ATLAS_TWIN_PIPELINE_MODE and is reversible by unsetting it.
+```
 
 ```text
 Work package: Package 12/13 Acceptance closure — real LLM + real runtime end-to-end (TFG-13)
