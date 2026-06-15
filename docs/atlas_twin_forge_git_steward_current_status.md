@@ -7,8 +7,8 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 ## Program state
 
 - Overall: `component_complete` for the initial contracts/policy slice; broader program remains `not_started` beyond TFG-1/2/3/7 foundations
-- Current package: TFG initial implementation slice plus goal-mode execution handoff
-- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier; `contract_present` for goal-mode execution instructions
+- Current package: TFG initial implementation slice plus completed goal-mode execution handoff
+- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier; `contract_present` for completed goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected in this PR
 - Rollout: not connected; future implementation must use off/shadow/active semantics
 - Remote publication rule: local Git operations are autonomous; remote publication requires user approval
@@ -39,17 +39,23 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 - Git local/remote authority is represented by `classify_git_operation(...)`.
 - Initial tests cover route safety, model-sensitive injection, TwinBrief compilation, and Git authority boundaries.
 - Goal-mode execution instructions now define the end-to-end implementation package sequence through active rollout and real LLM/runtime closure.
+- Goal-mode instructions explicitly include No-Data Bootstrap Gate, Interface First Generator, Schema Guardian, StateMirror, Anti-Pattern Memory, Golden Patch Retrieval, and Skill Distiller.
 
 ### Still required
 
 - Instruction Compiler full implementation.
+- Interface First Generator.
 - Genesis taxonomy and Integration Impact Gate.
+- No-Data Bootstrap Gate.
 - BlastMap and Contract Sentinel.
+- Schema Guardian and StateMirror.
 - TwinProof and Assumption Breaker.
 - Git Steward concrete command adapters.
 - Patch/Integration/Flag/Merge Impact Gates.
 - Proof Ledger and Repair Compass.
+- Anti-Pattern Memory.
 - Forge model capability profile persistence/eval packs.
+- Golden Patch Retrieval and Skill Distiller.
 - Real LLM/runtime evaluation harness.
 - Atlas pipeline shadow/active integration.
 
@@ -61,15 +67,21 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-1 | Twin Control Plane contracts | component_complete | partial_in_pr |
 | TFG-2 | Forge Execution Policy Matrix | component_complete | partial_in_pr |
 | TFG-3 | TwinBrief and Instruction Compiler | shadow_connected | twinbrief_partial_in_pr |
+| TFG-3A | Interface First Generator | shadow_connected | not_started |
 | TFG-4 | Genesis integration | shadow_connected | not_started |
+| TFG-4A | No-Data Bootstrap Gate | shadow_connected | not_started |
 | TFG-5 | BlastMap and Contract Sentinel | shadow_connected | not_started |
+| TFG-5A | Schema Guardian | shadow_connected | not_started |
+| TFG-5B | StateMirror | shadow_connected | not_started |
 | TFG-6 | TwinProof and Assumption Breaker | shadow_connected | not_started |
 | TFG-7 | Git Steward MVP | shadow_connected | authority_contract_partial_in_pr |
 | TFG-8 | Patch/Integration/Flag/Merge gates | shadow_connected | not_started |
 | TFG-9 | Proof Ledger and Repair Compass | production_connected | not_started |
-| TFG-10 | Real LLM and real runtime evaluation | real_llm_evaluated / real_runtime_evaluated | not_started |
+| TFG-9A | Anti-Pattern Memory | production_connected | not_started |
+| TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | not_started |
 | TFG-11 | Atlas pipeline shadow integration | shadow_connected | not_started |
 | TFG-12 | Active rollout and acceptance | acceptance_complete | not_started |
+| TFG-13 | Real LLM and real runtime evaluation closure | real_llm_evaluated / real_runtime_evaluated | not_started |
 
 ## Safety invariants
 
@@ -84,6 +96,9 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 - Stale tests are not auto-deleted.
 - Tests and gates are not weakened to pass.
 - Unavailable real LLM/runtime checks are reported as unavailable.
+- Schema changes are not accepted without compatibility/migration proof.
+- Backend/UI/persistence/runtime state disagreements are not hidden.
+- Retrieved golden patches and distilled skills remain advisory and evidence-bound.
 
 ## Evidence requirements
 
@@ -119,9 +134,9 @@ Blocker, if any:
 ## Initial implementation record
 
 ```text
-Work package: TFG initial contracts/policy slice + goal-mode handoff
+Work package: TFG initial contracts/policy slice + completed goal-mode handoff
 Status: partial_in_pr
-Proof level: component_complete for pure contracts/policies only; contract_present for goal-mode instructions
+Proof level: component_complete for pure contracts/policies only; contract_present for completed goal-mode instructions
 Commit/PR: PR #1859 branch atlas/twin-forge-git-steward-plan
 Changed modules/files:
 - agent/twin_control_plane/__init__.py
@@ -141,6 +156,7 @@ Adversarial tests:
 - weak model flag reasoning weakness requires FeatureFlagBaseline
 - local Git operations allowed while remote publication requires approval
 - sensitive/large artifact ignore patterns present
+- goal-mode instructions now require schema drift, StateMirror, no-data, and retrieved-patch adversarial cases
 Safety invariants checked:
 - RouteMatrix remains the route authority
 - remote publication remains approval-bound
@@ -151,6 +167,8 @@ Known limitations:
 - no concrete Git command execution adapter yet
 - no real LLM/runtime evaluation yet
 - no Genesis/BlastMap/TwinProof/ProofLedger implementation yet
+- no Schema Guardian/StateMirror/No-Data/InterfaceFirst implementation yet
+- no Anti-Pattern Memory/Golden Patch Retrieval/Skill Distiller implementation yet
 Next package: Package 0 in goal-mode execution instructions: verify initial slice and record exact test output
 Blocker: none
 ```
