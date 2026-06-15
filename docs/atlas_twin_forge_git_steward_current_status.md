@@ -6,9 +6,9 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 
 ## Program state
 
-- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, and Git Steward concrete adapter slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7 foundations
-- Current package: Package 6 Git Steward concrete adapter completed at component level
-- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, and Git Steward local adapter; `contract_present` for completed goal-mode execution instructions
+- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward concrete adapter, Patch Impact Gate, and Proof Ledger slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7/8/9 foundations
+- Current package: Package 7 Patch Impact Gate and Proof Ledger completed at component level
+- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward local adapter, Patch Impact Gate, and Proof Ledger; `contract_present` for completed goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected for these component slices
 - Rollout: not connected; future implementation must use off/shadow/active semantics
 - Remote publication rule: local Git operations are autonomous; remote publication requires user approval
@@ -51,8 +51,8 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 - Schema Guardian and StateMirror component implementations now exist; shadow integration still required.
 - TwinProof and Assumption Breaker component implementation now exists; shadow integration still required.
 - Git Steward concrete command adapter component implementation now exists; shadow integration still required.
-- Patch/Integration/Flag/Merge Impact Gates.
-- Proof Ledger and Repair Compass.
+- Integration/Flag/Merge Impact Gates.
+- Repair Compass.
 - Anti-Pattern Memory.
 - Forge model capability profile persistence/eval packs.
 - Golden Patch Retrieval and Skill Distiller.
@@ -75,8 +75,8 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-5B | StateMirror | shadow_connected | state_mirror_component_complete |
 | TFG-6 | TwinProof and Assumption Breaker | shadow_connected | twinproof_assumption_breaker_component_complete |
 | TFG-7 | Git Steward MVP | shadow_connected | local_adapter_component_complete |
-| TFG-8 | Patch/Integration/Flag/Merge gates | shadow_connected | not_started |
-| TFG-9 | Proof Ledger and Repair Compass | production_connected | not_started |
+| TFG-8 | Patch/Integration/Flag/Merge gates | shadow_connected | patch_impact_gate_component_complete |
+| TFG-9 | Proof Ledger and Repair Compass | production_connected | proof_ledger_component_complete_repair_compass_pending |
 | TFG-9A | Anti-Pattern Memory | production_connected | not_started |
 | TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | not_started |
 | TFG-11 | Atlas pipeline shadow integration | shadow_connected | not_started |
@@ -252,6 +252,46 @@ Known limitations:
 - Integration Impact Gate is not wired into Feature Genesis shadow mode.
 - BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Patch Impact Gate, Proof Ledger, Repair Compass, and Anti-Pattern Memory remain future packages.
 Next package: Package 4 BlastMap and Contract Sentinel.
+Blocker, if any: none for local component work; remote publication requested by user.
+```
+
+```text
+Work package: Package 7 Patch Impact Gate and Proof Ledger
+Status: component_complete for pure Patch Impact Gate and Proof Ledger; shadow integration not started
+Proof level: component_complete for DTO/policy behavior only
+Commit/PR: local branch codex/tfg-patch-proof-ledger; remote publication requested by user
+Changed modules/files:
+- agent/twin_control_plane/patch_impact_gate.py
+- agent/twin_control_plane/proof_ledger.py
+- agent/twin_control_plane/__init__.py
+- tests/test_twin_control_plane_patch_impact_proof_ledger.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_git_steward_local_adapter.py tests/test_twin_control_plane_blast_map_contract_sentinel.py tests/test_twin_control_plane_schema_guardian.py tests/test_twin_control_plane_state_mirror.py tests/test_twin_control_plane_twinproof_assumption_breaker.py tests/test_twin_control_plane_patch_impact_proof_ledger.py` -> 33 passed in 9.83s.
+- `python -m py_compile agent\twin_control_plane\patch_impact_gate.py agent\twin_control_plane\proof_ledger.py agent\twin_control_plane\__init__.py` -> passed.
+Real LLM evidence:
+- Not collected for Package 7; no model-facing prompt behavior changed in this slice.
+Real runtime evidence:
+- Not collected; this package is not connected to Atlas runtime/shadow/active execution.
+Unavailable checks:
+- Real Atlas shadow/runtime integration evidence is unavailable/not applicable for this pure gate/ledger component slice.
+Adversarial tests:
+- Patch Impact Gate accepts only when required verification, Twin revisions, and hard gates pass.
+- Hard contract boundaries block acceptance.
+- Failed, unavailable, and missing verification produce `needs_repair`, not `accepted`.
+- Missing Twin revision evidence and missing proof requirements produce `needs_repair`.
+- Unavailable verification is preserved in `unavailable_evidence_refs` and is never treated as passed.
+- Proof Ledger entries link requirement, plan item, policy, Git refs, Twin refs, evidence refs, gate refs, decision, reasons, and proof requirements; append is idempotent by entry id.
+Safety invariants checked:
+- Patch Impact Gate and Proof Ledger are pure DTO/policy code; they do not execute, apply, verify, commit, publish, push, or create PRs.
+- Hard-blocked contract/schema/state gates cannot be accepted.
+- Failed and unavailable evidence remains visible and blocks or repairs acceptance.
+- Proof Ledger records decision evidence without mutating source, artifacts, or remote state.
+Known limitations:
+- Patch Impact Gate is not wired into Atlas shadow/active execution.
+- Integration, flag, and merge gates remain future work.
+- Repair Compass and Anti-Pattern Memory remain future work.
+Next package: Package 8 Repair Compass.
 Blocker, if any: none for local component work; remote publication requested by user.
 ```
 
