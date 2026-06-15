@@ -9,9 +9,20 @@
 * Agent entrypoint: `docs/atlas_runtime_progress_resume_hardening_agent_entrypoint.md`
 * Next track after AUIR: `docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md`
 
+### Compact Goal Override: Twin / Forge / Git Steward
+
+If the user asks to start or continue the Twin / Forge / Git Steward work, keep `AGENTS.md` small and immediately delegate to the dedicated goal-mode docs:
+
+1. `docs/atlas_twin_forge_git_steward_goal_mode_execution.md`
+2. `docs/atlas_twin_forge_git_steward_current_status.md`
+3. `docs/atlas_twin_forge_git_steward_agent_entrypoint.md`
+4. `docs/atlas_twin_forge_git_steward_detailed_plan.md` only when more detail is needed
+
+Start with Package 0 from the goal-mode document. First run `python -m pytest -q tests/test_twin_forge_git_steward_initial.py`, repair type/import/pydantic/enum/module-path mismatches, record exact evidence in the current status doc, then continue the package sequence. Local Git operations are autonomous; remote publication still requires approval.
+
 ## Track Order
 
-The current user-reported Atlas bug blocks safe development visibility. Therefore complete AUIR first, then continue PIBIH.
+The current user-reported Atlas bug blocks safe development visibility. Therefore complete AUIR first, then continue PIBIH, unless the user explicitly invokes the Twin / Forge / Git Steward goal override above.
 
 ```text
 AUIR-1: Fix LLM props initialization and token indicator safety
@@ -102,17 +113,19 @@ docs/atlas_project_intelligence_behavioral_impact_hardening_agent_entrypoint.md
 ## Goal Mode Read Order
 
 1. `AGENTS.md`
-2. `docs/atlas_runtime_progress_resume_hardening_current_status.md`
-3. `docs/atlas_runtime_progress_resume_hardening_plan.md`
-4. `docs/atlas_runtime_progress_resume_hardening_test_plan.md`
-5. `docs/atlas_runtime_progress_resume_hardening_agent_entrypoint.md`
-6. After AUIR completion, read:
+2. For Twin / Forge / Git Steward work, use the Compact Goal Override above.
+3. Otherwise read:
+   - `docs/atlas_runtime_progress_resume_hardening_current_status.md`
+   - `docs/atlas_runtime_progress_resume_hardening_plan.md`
+   - `docs/atlas_runtime_progress_resume_hardening_test_plan.md`
+   - `docs/atlas_runtime_progress_resume_hardening_agent_entrypoint.md`
+4. After AUIR completion, read:
    - `docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md`
    - `docs/atlas_project_intelligence_behavioral_impact_hardening_plan.md`
    - `docs/atlas_project_intelligence_behavioral_impact_hardening_test_plan.md`
    - `docs/atlas_project_intelligence_behavioral_impact_hardening_agent_entrypoint.md`
-7. Existing PIR/PFG/PFH docs when touching their areas
-8. Target code, public contracts, direct callers, dependencies, and tests
+5. Existing PIR/PFG/PFH docs when touching their areas
+6. Target code, public contracts, direct callers, dependencies, and tests
 
 ## Execution Rules
 
@@ -172,7 +185,9 @@ Implementation size alone is not a stop condition.
 
 ## Completion
 
-Do not mark the combined track complete until:
+For Twin / Forge / Git Steward completion, use `docs/atlas_twin_forge_git_steward_goal_mode_execution.md` and `docs/atlas_twin_forge_git_steward_current_status.md`.
+
+Do not mark the AUIR / PIBIH combined track complete until:
 
 * `_current_n_ctx_ui` can never throw before initialization during startup, mode switch, reload, or settings/context polling;
 * LLM progress indicators update during Plan, approved execution, patch proposal generation, repair, and verification-related LLM calls;
