@@ -1,15 +1,15 @@
 # Atlas Twin / Forge / Git Steward — Current Status
 
-Status: `not_started` for implementation, `contract_present` for planning documents.
+Status: initial implementation slice in progress.
 
 This file is the mutable checkpoint for the approved integration of Project Intelligence, Project Digital Twin, Genesis/Greenfield, Forge Execution Policy, and Atlas Git Steward.
 
 ## Program state
 
-- Overall: `not_started`
-- Current package: planning handoff
-- Current proof level: `contract_present`
-- Blocker: implementation not started
+- Overall: `component_complete` for the initial contracts/policy slice; broader program remains `not_started` beyond TFG-1/2/3/7 foundations
+- Current package: TFG initial implementation slice
+- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier
+- Blocker: real LLM and real runtime evidence not collected in this PR
 - Rollout: not connected; future implementation must use off/shadow/active semantics
 - Remote publication rule: local Git operations are autonomous; remote publication requires user approval
 
@@ -31,39 +31,38 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 - Greenfield orchestrator, state machine, and E2E harness.
 - Forge route taxonomy and route matrix.
 
-### Existing code to extend
+### Existing code now extended in this PR
 
-- Generation context should feed TwinBrief Compiler.
-- Impact query should feed BlastMap.
-- Runtime evidence should feed TwinProof and Proof Ledger.
-- Greenfield partial mode should become Feature Genesis semantics.
-- Forge route selection should feed ExecutionPolicy, not own injection policy directly.
+- Generation context can feed `compile_generation_twin_brief(...)`.
+- Forge route selection can feed `ExecutionPolicySelector`.
+- Git local/remote authority is represented by `classify_git_operation(...)`.
+- Initial tests cover route safety, model-sensitive injection, TwinBrief compilation, and Git authority boundaries.
 
-### New code required
+### Still required
 
-- Twin Control Plane contracts.
-- TwinBrief and Instruction Compiler.
+- Instruction Compiler full implementation.
 - Genesis taxonomy and Integration Impact Gate.
 - BlastMap and Contract Sentinel.
 - TwinProof and Assumption Breaker.
-- Git Steward.
+- Git Steward concrete command adapters.
 - Patch/Integration/Flag/Merge Impact Gates.
 - Proof Ledger and Repair Compass.
-- Forge Execution Policy Matrix and model capability profiler.
+- Forge model capability profile persistence/eval packs.
 - Real LLM/runtime evaluation harness.
+- Atlas pipeline shadow/active integration.
 
 ## Planned package table
 
 | Package | Title | Target proof level | Status |
 |---|---|---|---|
-| TFG-0 | Audit and consolidation map | contract_present | not_started |
-| TFG-1 | Twin Control Plane contracts | component_complete | not_started |
-| TFG-2 | Forge Execution Policy Matrix | component_complete | not_started |
-| TFG-3 | TwinBrief and Instruction Compiler | shadow_connected | not_started |
+| TFG-0 | Audit and consolidation map | contract_present | partial_in_pr |
+| TFG-1 | Twin Control Plane contracts | component_complete | partial_in_pr |
+| TFG-2 | Forge Execution Policy Matrix | component_complete | partial_in_pr |
+| TFG-3 | TwinBrief and Instruction Compiler | shadow_connected | twinbrief_partial_in_pr |
 | TFG-4 | Genesis integration | shadow_connected | not_started |
 | TFG-5 | BlastMap and Contract Sentinel | shadow_connected | not_started |
 | TFG-6 | TwinProof and Assumption Breaker | shadow_connected | not_started |
-| TFG-7 | Git Steward MVP | shadow_connected | not_started |
+| TFG-7 | Git Steward MVP | shadow_connected | authority_contract_partial_in_pr |
 | TFG-8 | Patch/Integration/Flag/Merge gates | shadow_connected | not_started |
 | TFG-9 | Proof Ledger and Repair Compass | production_connected | not_started |
 | TFG-10 | Real LLM and real runtime evaluation | real_llm_evaluated / real_runtime_evaluated | not_started |
@@ -115,25 +114,41 @@ Next package:
 Blocker, if any:
 ```
 
-## Initial planning record
+## Initial implementation record
 
 ```text
-Work package: planning handoff
-Status: proposed
-Proof level: contract_present
-Commit/PR: pending PR
+Work package: TFG initial contracts/policy slice
+Status: partial_in_pr
+Proof level: component_complete for pure contracts/policies only
+Commit/PR: PR #1859 branch atlas/twin-forge-git-steward-plan
 Changed modules/files:
-- docs/atlas_twin_forge_git_steward_master_goal.md
-- docs/atlas_twin_forge_git_steward_detailed_plan.md
-- docs/atlas_twin_forge_git_steward_agent_entrypoint.md
-- docs/atlas_twin_forge_git_steward_current_status.md
-Executed commands and exact results: documentation-only GitHub write through connector
-Real LLM evidence: not applicable for planning handoff
-Real runtime evidence: not applicable for planning handoff
-Unavailable checks: implementation not started
-Adversarial tests: specified in detailed plan, not yet implemented
-Safety invariants checked: no production code changed; no rollout changed; no remote release/merge requested
-Known limitations: this PR only records goal, plan, and implementation instructions
-Next package: TFG-0 Audit and consolidation map
+- agent/twin_control_plane/__init__.py
+- agent/twin_control_plane/contracts.py
+- agent/twin_control_plane/twin_brief.py
+- agent/model_forge/execution_policy.py
+- agent/git_steward/__init__.py
+- agent/git_steward/contracts.py
+- tests/test_twin_forge_git_steward_initial.py
+- docs/atlas_twin_forge_git_steward_*.md
+Executed commands and exact results: not run in this connector-only update; tests were authored for future CI/local execution
+Real LLM evidence: not collected in this PR
+Real runtime evidence: not collected in this PR
+Unavailable checks: real LLM/runtime evaluation intentionally remains pending until execution harness packages
+Adversarial tests:
+- unsafe micro route request for large change
+- weak model flag reasoning weakness requires FeatureFlagBaseline
+- local Git operations allowed while remote publication requires approval
+- sensitive/large artifact ignore patterns present
+Safety invariants checked:
+- RouteMatrix remains the route authority
+- remote publication remains approval-bound
+- stale-test deletion policy is represented as a hard constraint
+- Safe Apply boundary is represented as a hard constraint
+Known limitations:
+- no Atlas pipeline integration yet
+- no concrete Git command execution adapter yet
+- no real LLM/runtime evaluation yet
+- no Genesis/BlastMap/TwinProof/ProofLedger implementation yet
+Next package: TFG-3 Instruction Compiler or TFG-4 Genesis integration after reviewing this initial slice
 Blocker: none
 ```
