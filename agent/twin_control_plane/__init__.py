@@ -107,6 +107,12 @@ from agent.twin_control_plane.twinproof import (
     TwinProofReport,
     build_twinproof,
 )
+from agent.twin_control_plane.shadow_integration import (
+    TwinShadowMode,
+    TwinShadowOrchestrator,
+    TwinShadowReport,
+    TwinShadowStore,
+)
 
 __all__ = [
     "ATLAS_TWIN_CONTROL_PLANE_CONTRACT_VERSION",
@@ -161,6 +167,10 @@ __all__ = [
     "TwinConstraint",
     "TwinInjectionLevel",
     "TwinProofReport",
+    "TwinShadowMode",
+    "TwinShadowOrchestrator",
+    "TwinShadowReport",
+    "TwinShadowStore",
     "VerificationEvidence",
     "adapt_greenfield_session",
     "apply_interface_first_plan",
