@@ -17,6 +17,11 @@ from agent.twin_control_plane.contracts import (
     TwinConstraint,
     TwinInjectionLevel,
 )
+from agent.twin_control_plane.assumption_breaker import (
+    AssumptionBreakerBrief,
+    AssumptionBreakerCase,
+    generate_assumption_breaker_briefs,
+)
 from agent.twin_control_plane.blast_map import BlastMap, BlastMapEntry, build_blast_map
 from agent.twin_control_plane.contract_sentinel import (
     ContractFinding,
@@ -66,9 +71,18 @@ from agent.twin_control_plane.state_mirror import (
     StateSurface,
     compare_state_mirror,
 )
+from agent.twin_control_plane.twinproof import (
+    ProofGap,
+    TestClassification,
+    TestInventoryItem,
+    TwinProofReport,
+    build_twinproof,
+)
 
 __all__ = [
     "ATLAS_TWIN_CONTROL_PLANE_CONTRACT_VERSION",
+    "AssumptionBreakerBrief",
+    "AssumptionBreakerCase",
     "BlastMap",
     "BlastMapEntry",
     "BootstrapCondition",
@@ -89,6 +103,7 @@ __all__ = [
     "InterfaceSectionKind",
     "ModelCapabilityMode",
     "NoDataBootstrapAssessment",
+    "ProofGap",
     "SchemaCompatibility",
     "SchemaField",
     "SchemaFinding",
@@ -99,19 +114,24 @@ __all__ = [
     "StateMirrorReport",
     "StateObservation",
     "StateSurface",
+    "TestClassification",
+    "TestInventoryItem",
     "TwinBrief",
     "TwinConstraint",
     "TwinInjectionLevel",
+    "TwinProofReport",
     "adapt_greenfield_session",
     "apply_interface_first_plan",
     "assess_integration_impact",
     "build_blast_map",
+    "build_twinproof",
     "classify_genesis",
     "compile_model_instruction",
     "compare_schema_snapshots",
     "compare_state_mirror",
     "evaluate_no_data_bootstrap",
     "evaluate_contracts",
+    "generate_assumption_breaker_briefs",
     "generate_interface_first_plan",
     "safe_apply_required_for_slice",
 ]
