@@ -27,6 +27,7 @@ User task
   -> local Git branch/worktree plan
   -> Project Intelligence context
   -> TwinBrief
+  -> Interface First / Schema Guardian / StateMirror hints when applicable
   -> model-specific instruction
   -> LLM output
   -> Proposal / Safe Apply
@@ -34,7 +35,9 @@ User task
   -> Twin refresh
   -> Patch Impact Gate
   -> TwinProof
+  -> StateMirror / Schema Guardian checks
   -> Proof Ledger
+  -> Anti-Pattern Memory update
   -> optional external publication only after approval
 ```
 
@@ -109,14 +112,16 @@ Required behavior:
 - hard constraints are always visible;
 - advisory context is clearly labeled;
 - stale tests become retirement candidates;
-- external publication remains approval-bound.
+- external publication remains approval-bound;
+- `interface_first` style emits concrete interface/schema/state/test-contract steps before implementation steps.
 
 Required tests:
 
 - weak-local instruction includes refs, gates, tests, proof requirements;
 - frontier-assisted instruction supports Twin Challenge but preserves hard constraints;
 - audit-only instruction does not imply file mutation authority;
-- deterministic output for same input.
+- deterministic output for same input;
+- `interface_first` instruction includes public interfaces, persistence/schema expectations, and required tests before code-edit instructions.
 
 ### Package 2 — Genesis taxonomy and Greenfield adapter
 
@@ -135,6 +140,30 @@ Required tests:
 - existing project new feature maps to Feature Genesis;
 - new API/service/UI/test cluster maps to Module Genesis;
 - existing Greenfield Safe Apply slice behavior is preserved.
+
+### Package 2A — No-Data Bootstrap Gate and Interface First Generator
+
+Implement the no-data and interface-first controls required for empty or partially-known projects.
+
+Suggested files:
+
+- `agent/twin_control_plane/no_data_bootstrap_gate.py`
+- `agent/twin_control_plane/interface_first_generator.py`
+
+Required behavior:
+
+- treat empty stores, missing persisted state, no prior runtime evidence, and no prior tests as normal cases;
+- require bootstrap acceptance scenarios before implementation is accepted;
+- emit interface skeletons for APIs, service boundaries, artifact schemas, UI projection contracts, persistence schemas, and test fixture contracts;
+- integrate with Project/Feature/Module Genesis so new work starts from interfaces and proof requirements, not freeform code;
+- feed Instruction Compiler so weak models receive concrete skeletons and frontier-assisted models receive design constraints plus proof obligations.
+
+Required tests:
+
+- empty project creates bootstrap requirements rather than assuming initial data exists;
+- feature with new persistence requires create/read/reload proof;
+- new UI projection requires backend-state-to-UI-state proof;
+- generated instruction includes interface/schema/test-contract sections before implementation sections.
 
 ### Package 3 — Integration Impact Gate
 
@@ -160,7 +189,47 @@ Required behavior:
 - reuse existing Project Twin impact query;
 - represent direct/transitive impacts, tests, state/UI/API/persistence hints;
 - classify hard/soft/advisory constraints;
-- protect Safe Apply, approval, tests, and gates.
+- protect Safe Apply, approval, tests, and gates;
+- delegate schema compatibility findings to Schema Guardian when available;
+- delegate state/UI/persistence consistency findings to StateMirror when available.
+
+### Package 4A — Schema Guardian
+
+Implement `agent/twin_control_plane/schema_guardian.py`.
+
+Required behavior:
+
+- track API response schemas, artifact schemas, persisted JSON/SQLite/data-file shapes, event payloads, and UI projection contracts;
+- compare before/after schema snapshots using Git diff and Twin context where possible;
+- classify changes as compatible, migration-required, breaking, or unknown;
+- require migration notes and tests for migration-required or breaking changes;
+- never mark a schema-affecting patch accepted from unit tests alone.
+
+Required tests:
+
+- compatible additive schema change is allowed with proof;
+- breaking response schema change requires explicit migration/proof;
+- artifact schema drift is reported even when unit tests pass;
+- unknown schema confidence remains advisory but visible.
+
+### Package 4B — StateMirror
+
+Implement `agent/twin_control_plane/state_mirror.py`.
+
+Required behavior:
+
+- compare backend workflow state, UI projection state, persisted state, and runtime observations;
+- detect UI controls that disagree with backend authority;
+- detect reload/persistence regressions;
+- report state gaps as proof requirements for TwinProof and Patch Impact Gate;
+- support Atlas-specific state paths such as workflow_state, can_execute/can_continue, plan revision, proposal status, and Portal run/capsule state.
+
+Required tests:
+
+- backend cannot execute but UI exposes execute is flagged;
+- reload loses completed plan item count is flagged;
+- persisted artifact state differs from runtime state is flagged;
+- unavailable runtime evidence is not treated as pass.
 
 ### Package 5 — TwinProof and Assumption Breaker
 
@@ -174,7 +243,8 @@ Required behavior:
 - build Test Inventory from runtime observations and related test refs;
 - classify impacted tests, stale candidates, coverage gaps, flaky candidates, redundant candidates;
 - mark stale tests as retirement candidates;
-- generate Assumption Breaker briefs for no-data, reload, persistence, UI projection, feature flag, and stale contract cases.
+- generate Assumption Breaker briefs for no-data, reload, persistence, UI projection, feature flag, and stale contract cases;
+- consume No-Data Bootstrap Gate, StateMirror, and Schema Guardian findings when present.
 
 ### Package 6 — Git Steward concrete adapter
 
@@ -201,8 +271,9 @@ Required behavior:
 
 - compare before/after refs, Git diff, Twin revisions, tests, evidence;
 - report accepted, blocked, or needs repair;
-- record proof entries linking requirement, plan item, ExecutionPolicy, Git refs, Twin refs, test refs, and evidence refs;
-- unavailable verification must remain unavailable.
+- record proof entries linking requirement, plan item, ExecutionPolicy, Git refs, Twin refs, test refs, gate findings, and evidence refs;
+- unavailable verification must remain unavailable;
+- consume Schema Guardian, StateMirror, TwinProof, and BlastMap findings before acceptance.
 
 ### Package 8 — Repair Compass
 
@@ -213,7 +284,25 @@ Required behavior:
 - convert gate failures into targeted repair instructions;
 - preserve hard constraints;
 - prefer local/minimal repair when locality is required;
-- keep environment unavailable separate from product regression.
+- keep environment unavailable separate from product regression;
+- include anti-pattern hints from Anti-Pattern Memory when available.
+
+### Package 8A — Anti-Pattern Memory
+
+Implement `agent/twin_control_plane/anti_pattern_memory.py`.
+
+Required behavior:
+
+- record recurring failure patterns from Proof Ledger, runtime incidents, rejected patches, and Repair Compass outcomes;
+- produce short guardrail hints for future TwinBrief and Instruction Compiler prompts;
+- never treat a past failure pattern as absolute truth without confidence and evidence refs;
+- support model-specific weaknesses, route-specific mistakes, and project-specific invariants.
+
+Required tests:
+
+- repeated test weakening attempts become a future hard/soft guardrail hint;
+- environment issue is not memorized as product-regression truth;
+- memory entry round-trips with evidence refs and confidence.
 
 ### Package 9 — Forge capability profiles and eval packs
 
@@ -229,6 +318,30 @@ Required behavior:
 - update profiles from evaluation outcomes;
 - evaluate impact analysis, contract preservation, test generation, stale test judgment, flag reasoning, repair discipline, and evidence discipline;
 - feed `ExecutionPolicySelector`.
+
+### Package 9A — Golden Patch Retrieval and Skill Distiller
+
+Implement retrieval/distillation as evidence-backed optional accelerators, not as acceptance gates for P0.
+
+Suggested files:
+
+- `agent/model_forge/golden_patch_retrieval.py`
+- `agent/model_forge/skill_distiller.py`
+
+Required behavior:
+
+- retrieve prior successful patches by task category, route, model, affected refs, gate findings, and proof outcome;
+- use retrieved patches as advisory examples only;
+- distill recurring successful patterns into compact skills with evidence refs;
+- never override current Project Twin, Contract Sentinel, StateMirror, Schema Guardian, or TwinProof findings;
+- allow disabling retrieval/distillation without changing correctness.
+
+Required tests:
+
+- matching successful patch is returned as advisory context;
+- unrelated patch is not returned above confidence threshold;
+- distilled skill includes evidence refs and scope;
+- disabling retrieval leaves ExecutionPolicy correctness unchanged.
 
 ### Package 10 — Atlas pipeline shadow integration
 
@@ -277,7 +390,11 @@ At minimum, include tests/evaluations for:
 - unavailable runtime incorrectly reported as passed;
 - external publication requested without approval;
 - dirty local work before branch/worktree preparation;
-- unit tests pass but proof/gate evidence is missing.
+- unit tests pass but proof/gate evidence is missing;
+- schema drift passes unit tests but lacks migration/proof;
+- UI projection state disagrees with backend authority;
+- no-data project assumes preexisting state;
+- retrieved golden patch conflicts with current Twin/Contract findings.
 
 ## Final acceptance criteria
 
@@ -297,7 +414,12 @@ Do not mark the program complete until all are true:
 12. Forge RouteMatrix remains route authority;
 13. Project Intelligence remains contextual/advisory;
 14. local Git autonomy stays inside local/Atlas-owned boundaries;
-15. `docs/atlas_twin_forge_git_steward_current_status.md` has exact evidence.
+15. No-Data Bootstrap Gate covers empty/unknown project states;
+16. Interface First Generator emits interface/schema/test contracts before implementation;
+17. StateMirror checks backend/UI/persistence/runtime consistency;
+18. Schema Guardian checks API/artifact/persistence/event schema compatibility;
+19. Anti-Pattern Memory, Golden Patch Retrieval, and Skill Distiller are either implemented as advisory/evidence-backed features or explicitly deferred with no P0 correctness dependency;
+20. `docs/atlas_twin_forge_git_steward_current_status.md` has exact evidence.
 
 ## Stop conditions
 
@@ -308,21 +430,25 @@ Stop and update current status when:
 - Safe Apply boundary would be bypassed;
 - external publication is required but approval is not present;
 - required real LLM/runtime evidence is unavailable;
-- integration tests reveal a contract conflict.
+- integration tests reveal a contract conflict;
+- schema/state/no-data findings cannot be represented in the current contracts;
+- retrieved examples or distilled skills would override current evidence.
 
 When stopping, record package, exact failure, files changed, commands run, proposed next fix, and rollback/checkpoint information.
 
 ## Suggested PR sequence after this PR
 
 1. Contracts and policy verification.
-2. Instruction Compiler.
-3. Genesis integration.
-4. BlastMap and Contract Sentinel.
-5. TwinProof and Assumption Breaker.
-6. Git Steward concrete adapter.
-7. Patch Impact Gate and Proof Ledger.
-8. Repair Compass.
-9. Forge profile store and eval packs.
-10. Shadow integration.
-11. Active integration.
-12. Real LLM/runtime evaluation closure.
+2. Instruction Compiler and Interface First Generator.
+3. Genesis integration and No-Data Bootstrap Gate.
+4. Integration Impact Gate.
+5. BlastMap, Contract Sentinel, Schema Guardian, and StateMirror.
+6. TwinProof and Assumption Breaker.
+7. Git Steward concrete adapter.
+8. Patch Impact Gate and Proof Ledger.
+9. Repair Compass and Anti-Pattern Memory.
+10. Forge profile store and eval packs.
+11. Golden Patch Retrieval and Skill Distiller.
+12. Shadow integration.
+13. Active integration.
+14. Real LLM/runtime evaluation closure.
