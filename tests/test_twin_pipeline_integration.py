@@ -378,3 +378,77 @@ def test_compose_repair_prompt_is_off_safe():
     assert out.startswith(base)
     assert "Repair Compass" in out
     assert "fix it" in out
+
+
+# --- Step 7: advisory injection (AntiPattern / GoldenPatch / Skill) ----------------
+
+from agent.twin_control_plane.pipeline_integration import build_advisory_context
+
+
+def test_advisory_empty_when_no_stores():
+    ctx = build_advisory_context()
+    assert ctx["hints"] == [] and ctx["golden_patches"] == [] and ctx["skills"] == []
+    assert ctx["text"] == ""
+
+
+def test_evidence_free_or_low_confidence_hints_not_injected():
+    from agent.twin_control_plane.anti_pattern_memory import (
+        AntiPatternEntry, AntiPatternMemory, record_anti_pattern,
+    )
+    mem = AntiPatternMemory(memory_id="m")
+    # Evidence-free (no evidence_refs) -> excluded.
+    mem = record_anti_pattern(mem, AntiPatternEntry(
+        pattern_id="p_noevi", title="no evidence", description="d", source="proof_ledger",
+        confidence=0.9, evidence_refs=[]))
+    # Low confidence -> excluded.
+    mem = record_anti_pattern(mem, AntiPatternEntry(
+        pattern_id="p_low", title="low conf", description="d", source="proof_ledger",
+        confidence=0.2, evidence_refs=["e1"]))
+    ctx = build_advisory_context(memory=mem)
+    assert ctx["hints"] == []
+
+
+def test_evidence_backed_hint_is_injected():
+    from agent.twin_control_plane.anti_pattern_memory import (
+        AntiPatternEntry, AntiPatternMemory, record_anti_pattern,
+    )
+    mem = AntiPatternMemory(memory_id="m")
+    mem = record_anti_pattern(mem, AntiPatternEntry(
+        pattern_id="p1", title="repeated test weakening", description="d", source="proof_ledger",
+        confidence=0.9, evidence_refs=["ledger:1"], categories=["test_weakening"], occurrences=2))
+    ctx = build_advisory_context(memory=mem)
+    assert len(ctx["hints"]) == 1
+    assert "test weakening" in ctx["hints"][0]["text"].lower()
+    assert ctx["hints"][0]["evidence_refs"] == ["ledger:1"]
+
+
+def test_golden_patch_and_skill_are_advisory():
+    from agent.model_forge.golden_patch_retrieval import GoldenPatch, GoldenPatchIndex
+    from agent.model_forge.route_taxonomy import ForgeRoute
+    index = GoldenPatchIndex()
+    index.index_patch(GoldenPatch(patch_id="gp1", task_category="autonomous_codegen",
+                                  route=ForgeRoute.DIRECT_PATCH, model_id="m1",
+                                  affected_refs=["a.py"], summary="add endpoint",
+                                  evidence_refs=["ledger:gp1"]))
+    patches = [
+        GoldenPatch(patch_id="gp1", task_category="autonomous_codegen", route=ForgeRoute.DIRECT_PATCH,
+                    evidence_refs=["l1"]),
+        GoldenPatch(patch_id="gp2", task_category="autonomous_codegen", route=ForgeRoute.DIRECT_PATCH,
+                    evidence_refs=["l2"]),
+    ]
+    ctx = build_advisory_context(golden_index=index, skill_patches=patches, model_id="m1",
+                                 route="direct_patch", changed_refs=["a.py"])
+    assert ctx["golden_patches"] and ctx["golden_patches"][0]["advisory"] is True
+    assert ctx["skills"] and ctx["skills"][0]["advisory"] is True
+
+
+def test_advisory_disabled_when_retrieval_off():
+    from agent.model_forge.golden_patch_retrieval import GoldenPatch, GoldenPatchIndex
+    from agent.model_forge.route_taxonomy import ForgeRoute
+    index = GoldenPatchIndex()
+    index.index_patch(GoldenPatch(patch_id="gp1", task_category="autonomous_codegen",
+                                  route=ForgeRoute.DIRECT_PATCH, affected_refs=["a.py"],
+                                  evidence_refs=["l"]))
+    ctx = build_advisory_context(golden_index=index, model_id="m1", route="direct_patch",
+                                 changed_refs=["a.py"], retrieval_enabled=False)
+    assert ctx["golden_patches"] == []

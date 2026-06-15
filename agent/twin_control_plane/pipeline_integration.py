@@ -203,6 +203,9 @@ def build_twin_pipeline_evidence(
     model_id: str = "",
     provider_id: str = "",
     profile_store_dir: str | None = None,
+    anti_pattern_memory=None,
+    golden_index=None,
+    skill_patches=None,
     change_class: str = "medium",
     task_category: str = "autonomous_codegen",
 ) -> dict:
@@ -265,6 +268,14 @@ def build_twin_pipeline_evidence(
         except Exception:
             compiled_text = ""
 
+        # Advisory-only context (anti-pattern guardrails / golden patches / skills).
+        advisory = build_advisory_context(
+            memory=anti_pattern_memory, golden_index=golden_index, skill_patches=skill_patches,
+            model_id=model_id, route=policy.route.value, project_ref=pool_id, changed_refs=refs,
+        )
+        if compiled_text and advisory.get("text"):
+            compiled_text = f"{compiled_text}\n\n{ADVISORY_PROMPT_HEADER}\n{advisory['text']}"
+
         has_shadow_evidence = shadow_report is not None
         engaged = mode == PipelineMode.ACTIVE and has_shadow_evidence
         evidence = {
@@ -284,6 +295,11 @@ def build_twin_pipeline_evidence(
             "known_weaknesses": list(capability_profile.known_weaknesses),
             "compiled_instruction": compiled_text,
             "instruction_id": instruction_id,
+            "advisory_context": {
+                "hint_count": len(advisory.get("hints", [])),
+                "golden_patch_count": len(advisory.get("golden_patches", [])),
+                "skill_count": len(advisory.get("skills", [])),
+            },
             "impact": _impact_section(impact),
             "contract_sentinel": contract_section,
             "shadow_report": shadow_report.model_dump(mode="json") if shadow_report else None,
@@ -341,6 +357,80 @@ def _render_repair_guidance(repair) -> str:
         lines.append("Prohibited:")
         lines.extend(f"  - {action}" for action in repair.prohibited_actions)
     return "\n".join(lines)
+
+
+def build_advisory_context(
+    *,
+    memory=None,
+    golden_index=None,
+    skill_patches=None,
+    model_id: str = "",
+    route: str = "",
+    project_ref: str = "",
+    changed_refs: Iterable[str] = (),
+    retrieval_enabled: bool = True,
+) -> dict:
+    """Assemble advisory-only prompt context — anti-pattern guardrails, retrieved golden
+    patches, and distilled skills. These NEVER override Twin / Contract / Schema / State /
+    Proof findings; they are examples and hints only.
+
+    Everything degrades safely to empty when its store/index is absent, and low-confidence
+    or evidence-free entries are filtered out (so they are never injected). Never raises."""
+    hints: list[dict] = []
+    golden: list[dict] = []
+    skills: list[dict] = []
+    refs = [str(r).strip() for r in changed_refs if str(r).strip()]
+    try:
+        if memory is not None:
+            from agent.twin_control_plane.anti_pattern_memory import guardrail_hints
+            for hint in guardrail_hints(memory, model_id=model_id, route=route, project_ref=project_ref):
+                hints.append({"text": hint.text, "strength": hint.strength.value,
+                              "confidence": hint.confidence, "evidence_refs": list(hint.evidence_refs)})
+    except Exception:
+        pass
+    try:
+        if golden_index is not None and retrieval_enabled:
+            from agent.model_forge.golden_patch_retrieval import RetrievalQuery
+            from agent.model_forge.route_taxonomy import ForgeRoute
+            route_enum = None
+            try:
+                route_enum = ForgeRoute(route) if route else None
+            except ValueError:
+                route_enum = None
+            query = RetrievalQuery(task_category="autonomous_codegen", route=route_enum,
+                                   model_id=model_id, affected_refs=refs)
+            for rp in golden_index.retrieve(query, enabled=retrieval_enabled):
+                golden.append({"patch_id": rp.patch.patch_id, "confidence": rp.confidence,
+                               "advisory": rp.advisory, "summary": rp.patch.summary})
+    except Exception:
+        pass
+    try:
+        if skill_patches:
+            from agent.model_forge.skill_distiller import distill_skills
+            for skill in distill_skills(list(skill_patches), enabled=retrieval_enabled):
+                skills.append({"skill_id": skill.skill_id, "hint": skill.hint,
+                               "support": skill.support, "advisory": skill.advisory})
+    except Exception:
+        pass
+
+    lines: list[str] = []
+    if hints:
+        lines.append("Anti-pattern guardrails (advisory):")
+        lines.extend(f"- {h['text']}" for h in hints)
+    if golden:
+        lines.append("Similar prior successful patches (advisory examples only):")
+        lines.extend(f"- {g['patch_id']}: {g['summary']}" for g in golden)
+    if skills:
+        lines.append("Distilled skills (advisory):")
+        lines.extend(f"- {s['hint']}" for s in skills)
+    return {"hints": hints, "golden_patches": golden, "skills": skills,
+            "text": "\n".join(lines)}
+
+
+ADVISORY_PROMPT_HEADER = (
+    "[Twin advisory context — examples and hints only. These NEVER override current Twin / "
+    "Contract / Schema / State / Proof findings or any hard constraint.]"
+)
 
 
 def _verification_evidence(verification: Iterable):
@@ -532,6 +622,8 @@ __all__ = [
     "REPAIR_COMPASS_PROMPT_HEADER",
     "compose_generation_system_prompt",
     "compose_repair_system_prompt",
+    "build_advisory_context",
+    "ADVISORY_PROMPT_HEADER",
     "build_twin_pipeline_evidence",
     "evaluate_twin_post_apply",
 ]
