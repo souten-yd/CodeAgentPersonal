@@ -162,3 +162,50 @@ def test_impact_available_flows_into_blast_map():
     assert ev["shadow_report"]["blast_map"] is not None
     assert ev["contract_sentinel"] is not None
     store.close()
+
+
+# --- Step 2: Forge capability profile integration ---------------------------------
+
+def _seed_profile(tmp_path, dims):
+    from agent.model_forge.profile_store import ProfileStore
+    store = ProfileStore(tmp_path / "profiles")
+    store.record_observation(model_id="m1", provider_id="local", dimensions=dims,
+                             evidence_refs=["eval/run1"])
+    return str(tmp_path / "profiles")
+
+
+def test_capability_profile_unavailable_is_neutral(tmp_path):
+    # No profile persisted -> neutral, recorded unavailable, no false weakness.
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="x", pool_id="p1",
+                                      changed_refs=["a.py"], model_id="m1", provider_id="local",
+                                      profile_store_dir=str(tmp_path / "profiles"))
+    assert ev["capability_profile_available"] is False
+    assert ev["capability_profile_unavailable"] is True
+    assert ev["known_weaknesses"] == []
+
+
+def test_missing_model_id_is_neutral_not_weakness():
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="x", pool_id="p1",
+                                      changed_refs=["a.py"])  # no model_id
+    assert ev["capability_profile_available"] is False
+    assert ev["known_weaknesses"] == []
+
+
+def test_low_flag_reasoning_profile_adds_gate(tmp_path):
+    store_dir = _seed_profile(tmp_path, {"flag_reasoning": 0.2, "impact_analysis": 0.9})
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="x", pool_id="p1",
+                                      changed_refs=["a.py"], model_id="m1", provider_id="local",
+                                      profile_store_dir=store_dir)
+    assert ev["capability_profile_available"] is True
+    assert "flag_reasoning" in ev["known_weaknesses"]
+    # Evidence-backed weakness raises the policy's required gates.
+    assert "FeatureFlagBaseline" in ev["required_gates"]
+
+
+def test_strong_profile_no_extra_weakness_gate(tmp_path):
+    store_dir = _seed_profile(tmp_path, {"flag_reasoning": 0.9, "impact_analysis": 0.9})
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="x", pool_id="p1",
+                                      changed_refs=["a.py"], model_id="m1", provider_id="local",
+                                      profile_store_dir=store_dir)
+    assert ev["capability_profile_available"] is True
+    assert "flag_reasoning" not in ev["known_weaknesses"]

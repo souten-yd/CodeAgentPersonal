@@ -101,9 +101,37 @@ def _stable_brief_id(pool_id: str, requirement: str) -> str:
     return "twin_brief_" + base.replace(" ", "_")[:48]
 
 
+DEFAULT_PROFILE_STORE_DIR = "ca_data/model_forge/profiles"
+
+
+def resolve_capability_profile(*, model_id: str = "", provider_id: str = "", store_dir: str | None = None):
+    """Load an evidence-backed Forge capability profile for the live model, or fall back
+    to a neutral default. Returns ``(ModelCapabilityProfile, available)``.
+
+    ``available`` is False when no persisted profile exists, so a missing profile becomes
+    neither a false weakness nor a false strength — the selector simply uses neutral
+    defaults. Never raises."""
+    from agent.model_forge.execution_policy import ModelCapabilityProfile
+
+    try:
+        from agent.model_forge.capability_scoring import build_capability_profile
+        from agent.model_forge.profile_store import ProfileStore
+
+        if not model_id:
+            return ModelCapabilityProfile(model_id="atlas-codegen"), False
+        store = ProfileStore(store_dir or DEFAULT_PROFILE_STORE_DIR)
+        persisted = store.load_profile(provider_id, model_id)
+        if persisted is None:
+            return ModelCapabilityProfile(model_id=model_id, provider_id=provider_id), False
+        return build_capability_profile(persisted, model_id=model_id, provider_id=provider_id), True
+    except Exception:
+        return ModelCapabilityProfile(model_id=model_id or "atlas-codegen", provider_id=provider_id), False
+
+
 def _build_policy_and_brief(
     *, requirement: str, pool_id: str, project_path: str, refs: list[str],
     item_refs: Iterable[str], change_class: str, task_category: str,
+    capability_profile=None,
 ):
     """Build the ExecutionPolicy (Forge Twin route selection) and TwinBrief for a run.
 
@@ -114,7 +142,7 @@ def _build_policy_and_brief(
     selector = ExecutionPolicySelector()
     policy = selector.select(
         ChangeClass(change_class), task_category=task_category,
-        model_profile=ModelCapabilityProfile(model_id="atlas-codegen"),
+        model_profile=capability_profile or ModelCapabilityProfile(model_id="atlas-codegen"),
     )
     brief = TwinBrief(
         brief_id=_stable_brief_id(pool_id, requirement),
@@ -172,6 +200,9 @@ def build_twin_pipeline_evidence(
     changed_refs: Iterable[str] = (),
     item_refs: Iterable[str] = (),
     impact=None,
+    model_id: str = "",
+    provider_id: str = "",
+    profile_store_dir: str | None = None,
     change_class: str = "medium",
     task_category: str = "autonomous_codegen",
 ) -> dict:
@@ -180,16 +211,22 @@ def build_twin_pipeline_evidence(
 
     When a real Project Twin ``impact`` is supplied it flows into the shadow assembly
     (BlastMap + TwinProof) and Contract Sentinel; when absent the impact section is
-    recorded as explicitly unavailable (never fabricated)."""
+    recorded as explicitly unavailable (never fabricated). The ExecutionPolicy is driven
+    by an evidence-backed Forge capability profile when one exists, else a neutral
+    default (recorded as ``capability_profile_unavailable``)."""
     if mode == PipelineMode.OFF:
         return {"mode": PipelineMode.OFF.value, "engaged": False, "available": False,
                 "reason": "pipeline_off"}
 
     try:
         refs = sorted({str(r).strip() for r in changed_refs if str(r).strip()})
+        capability_profile, profile_available = resolve_capability_profile(
+            model_id=model_id, provider_id=provider_id, store_dir=profile_store_dir,
+        )
         policy, brief = _build_policy_and_brief(
             requirement=requirement, pool_id=pool_id, project_path=project_path, refs=refs,
             item_refs=item_refs, change_class=change_class, task_category=task_category,
+            capability_profile=capability_profile,
         )
         shadow_orch = TwinShadowOrchestrator(TwinShadowMode.SHADOW)
         shadow_report: TwinShadowReport | None = shadow_orch.assemble(
@@ -229,6 +266,9 @@ def build_twin_pipeline_evidence(
             "twin_injection_level": int(policy.twin_injection_level),
             "required_gates": list(policy.required_gates),
             "brief_id": brief.brief_id,
+            "capability_profile_available": profile_available,
+            "capability_profile_unavailable": not profile_available,
+            "known_weaknesses": list(capability_profile.known_weaknesses),
             "impact": _impact_section(impact),
             "contract_sentinel": contract_section,
             "shadow_report": shadow_report.model_dump(mode="json") if shadow_report else None,
@@ -350,6 +390,8 @@ __all__ = [
     "resolve_block_unverified",
     "twin_gate_block_reason",
     "try_project_twin_impact",
+    "resolve_capability_profile",
+    "DEFAULT_PROFILE_STORE_DIR",
     "build_twin_pipeline_evidence",
     "evaluate_twin_post_apply",
 ]

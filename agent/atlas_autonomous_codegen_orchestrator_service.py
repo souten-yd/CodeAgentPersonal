@@ -657,6 +657,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 changed_refs=changed_refs,
                 store=self.project_twin_store,
             )
+            req_md = request.metadata or {}
             evidence = build_twin_pipeline_evidence(
                 mode=mode,
                 requirement=str(request.user_requirement or ""),
@@ -665,6 +666,9 @@ class AtlasAutonomousCodegenOrchestratorService:
                 changed_refs=changed_refs,
                 item_refs=[str(getattr(item, "item_id", "")) for item in getattr(pool, "items", []) or []],
                 impact=impact,
+                model_id=str(req_md.get("model_id") or req_md.get("forge_model_id") or ""),
+                provider_id=str(req_md.get("provider_id") or req_md.get("forge_provider_id") or ""),
+                profile_store_dir=str(Path(self.data_root) / "model_forge" / "profiles"),
             )
             block_reason = twin_gate_block_reason(evidence) if resolve_gate_blocking() else ""
             evidence["gate_blocking_enabled"] = resolve_gate_blocking()
