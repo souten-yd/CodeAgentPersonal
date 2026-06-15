@@ -2,19 +2,20 @@
 
 Status: proposed agent execution entrypoint.
 
-Use this file when implementing the approved Twin / Forge / Git Steward integration. Follow the repository `AGENTS.md` first, then this file, then the master goal and detailed plan.
+Use this file when implementing the approved Twin / Forge / Git Steward integration. Follow the repository `AGENTS.md` first, then this file, then the master goal, detailed plan, and goal-mode execution instructions.
 
 ## Canonical read order
 
 1. `AGENTS.md`
 2. `docs/atlas_twin_forge_git_steward_master_goal.md`
 3. `docs/atlas_twin_forge_git_steward_detailed_plan.md`
-4. `docs/atlas_twin_forge_git_steward_current_status.md`
-5. Existing Project Intelligence docs and contracts
-6. Existing Project Twin modules and tests
-7. Existing Greenfield modules and tests
-8. Existing Forge route modules and tests
-9. Target code and direct callers
+4. `docs/atlas_twin_forge_git_steward_goal_mode_execution.md`
+5. `docs/atlas_twin_forge_git_steward_current_status.md`
+6. Existing Project Intelligence docs and contracts
+7. Existing Project Twin modules and tests
+8. Existing Greenfield modules and tests
+9. Existing Forge route modules and tests
+10. Target code and direct callers
 
 ## Non-negotiable rules
 
@@ -64,6 +65,8 @@ Prefer small PR-sized slices:
 - Real LLM/runtime evaluation harness.
 - Atlas pipeline shadow integration.
 - Active rollout.
+
+For the full end-to-end package sequence, use `docs/atlas_twin_forge_git_steward_goal_mode_execution.md`.
 
 ## Required integration path
 
