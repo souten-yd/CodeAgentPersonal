@@ -50,6 +50,18 @@ from agent.model_forge.capability_scoring import (
     load_capability_profile,
     score_dimensions,
 )
+from agent.model_forge.golden_patch_retrieval import (
+    DEFAULT_RETRIEVAL_THRESHOLD,
+    GoldenPatch,
+    GoldenPatchIndex,
+    RetrievalQuery,
+    RetrievedPatch,
+)
+from agent.model_forge.skill_distiller import (
+    DEFAULT_MIN_SUPPORT,
+    DistilledSkill,
+    distill_skills,
+)
 from agent.model_forge.forge_service import ForgeService
 from agent.model_forge.execution_bridge import ForgeModelExecutionBridge
 from agent.model_forge.preset_runner import (
@@ -282,6 +294,14 @@ __all__ = [
     "derive_known_weaknesses",
     "build_capability_profile",
     "load_capability_profile",
+    "DEFAULT_RETRIEVAL_THRESHOLD",
+    "GoldenPatch",
+    "GoldenPatchIndex",
+    "RetrievalQuery",
+    "RetrievedPatch",
+    "DEFAULT_MIN_SUPPORT",
+    "DistilledSkill",
+    "distill_skills",
     "StageCandidate",
     "StagePolicyEntry",
     "StageSelection",
