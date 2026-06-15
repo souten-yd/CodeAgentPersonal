@@ -7,7 +7,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 ## Program state
 
 - Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward concrete adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7/8/9/9A/10 component foundations
-- Current package: Package 9 Forge capability profiles and eval packs completed at component level
+- Current package: Package 9A Golden Patch Retrieval and Skill Distiller completed at component level
 - Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward local adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring; `contract_present` for completed goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected for these component slices
 - Rollout: not connected; future implementation must use off/shadow/active semantics
@@ -76,7 +76,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-8 | Patch/Integration/Flag/Merge gates | shadow_connected | patch_impact_gate_component_complete |
 | TFG-9 | Proof Ledger and Repair Compass | production_connected | proof_ledger_repair_compass_component_complete |
 | TFG-9A | Anti-Pattern Memory | production_connected | anti_pattern_memory_component_complete |
-| TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | capability_eval_packs_component_complete |
+| TFG-10 | Forge profile store, eval packs, Golden Patch Retrieval, Skill Distiller | real_llm_evaluated | golden_patch_skill_distiller_component_complete |
 | TFG-11 | Atlas pipeline shadow integration | shadow_connected | not_started |
 | TFG-12 | Active rollout and acceptance | acceptance_complete | not_started |
 | TFG-13 | Real LLM and real runtime evaluation closure | real_llm_evaluated / real_runtime_evaluated | not_started |
@@ -130,6 +130,44 @@ Blocker, if any:
 ```
 
 ## Initial implementation record
+
+```text
+Work package: Package 9A Golden Patch Retrieval and Skill Distiller
+Status: component_complete for advisory golden-patch retrieval and skill distillation; shadow integration not started
+Proof level: component_complete for DTO/policy retrieval/distillation behavior only
+Commit/PR: local branch codex/tfg-golden-patch-skill-distiller; remote publication requested by user
+Changed modules/files:
+- agent/model_forge/golden_patch_retrieval.py
+- agent/model_forge/skill_distiller.py
+- agent/model_forge/__init__.py
+- tests/test_model_forge_golden_patch_skill_distiller.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_model_forge_golden_patch_skill_distiller.py` -> 7 passed in 1.14s.
+- `python -m py_compile agent/model_forge/golden_patch_retrieval.py agent/model_forge/skill_distiller.py agent/model_forge/__init__.py` -> passed.
+- `python -m pytest -q tests/test_model_forge_capability_eval_packs.py tests/test_model_forge_profile_store.py tests/test_twin_forge_git_steward_initial.py` -> 20 passed in 2.29s.
+Real LLM evidence:
+- Not collected for Package 9A; retrieval/distillation operate over supplied accepted-patch records and call no model.
+Real runtime evidence:
+- Not collected; this package is not connected to Atlas runtime/shadow/active execution.
+Unavailable checks:
+- Real Atlas shadow/runtime integration evidence is unavailable/not applicable for these pure advisory accelerator slices.
+Adversarial tests:
+- A matching successful patch is returned as advisory context with confidence and match reasons.
+- An unrelated patch stays below the threshold and is not returned.
+- Only accepted patches are indexed and distilled; non-accepted outcomes are skipped.
+- A distilled skill requires recurrence (min support) and evidence refs and records its scope.
+- Disabling retrieval/distillation returns nothing and leaves ExecutionPolicy output byte-identical.
+Safety invariants checked:
+- Retrieved patches and distilled skills are always advisory and never override Project Twin, Contract Sentinel, StateMirror, Schema Guardian, or TwinProof findings.
+- Patch bodies are referenced, not inlined, so the index stays data-free.
+- No model execution, external call, file mutation, commit, or publication is performed.
+Known limitations:
+- Golden Patch Retrieval and Skill Distiller are not wired into Atlas shadow/active execution or persisted to disk yet.
+- Atlas pipeline shadow integration (Package 10) and active rollout remain future work.
+Next package: Package 10 Atlas pipeline shadow integration.
+Blocker, if any: none for local component work; remote publication requested by user.
+```
 
 ```text
 Work package: Package 9 Forge capability profiles and eval packs
