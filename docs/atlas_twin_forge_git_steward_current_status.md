@@ -6,9 +6,9 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 
 ## Program state
 
-- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, and Assumption Breaker slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6 foundations
-- Current package: Package 5 TwinProof and Assumption Breaker completed at component level
-- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, and Assumption Breaker; `contract_present` for completed goal-mode execution instructions
+- Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, and Git Steward concrete adapter slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7 foundations
+- Current package: Package 6 Git Steward concrete adapter completed at component level
+- Current proof level: `component_complete` for contracts, ExecutionPolicy selector, TwinBrief compiler, Git Steward authority classifier, Instruction Compiler, Genesis classifier/Greenfield adapter, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, and Git Steward local adapter; `contract_present` for completed goal-mode execution instructions
 - Blocker: real LLM and real runtime evidence not collected for these component slices
 - Rollout: not connected; future implementation must use off/shadow/active semantics
 - Remote publication rule: local Git operations are autonomous; remote publication requires user approval
@@ -50,7 +50,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 - BlastMap and Contract Sentinel component implementation now exists; shadow integration still required.
 - Schema Guardian and StateMirror component implementations now exist; shadow integration still required.
 - TwinProof and Assumption Breaker component implementation now exists; shadow integration still required.
-- Git Steward concrete command adapters.
+- Git Steward concrete command adapter component implementation now exists; shadow integration still required.
 - Patch/Integration/Flag/Merge Impact Gates.
 - Proof Ledger and Repair Compass.
 - Anti-Pattern Memory.
@@ -74,7 +74,7 @@ This file is the mutable checkpoint for the approved integration of Project Inte
 | TFG-5A | Schema Guardian | shadow_connected | schema_guardian_component_complete |
 | TFG-5B | StateMirror | shadow_connected | state_mirror_component_complete |
 | TFG-6 | TwinProof and Assumption Breaker | shadow_connected | twinproof_assumption_breaker_component_complete |
-| TFG-7 | Git Steward MVP | shadow_connected | authority_contract_partial_in_pr |
+| TFG-7 | Git Steward MVP | shadow_connected | local_adapter_component_complete |
 | TFG-8 | Patch/Integration/Flag/Merge gates | shadow_connected | not_started |
 | TFG-9 | Proof Ledger and Repair Compass | production_connected | not_started |
 | TFG-9A | Anti-Pattern Memory | production_connected | not_started |
@@ -252,6 +252,47 @@ Known limitations:
 - Integration Impact Gate is not wired into Feature Genesis shadow mode.
 - BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Patch Impact Gate, Proof Ledger, Repair Compass, and Anti-Pattern Memory remain future packages.
 Next package: Package 4 BlastMap and Contract Sentinel.
+Blocker, if any: none for local component work; remote publication requested by user.
+```
+
+```text
+Work package: Package 6 Git Steward concrete adapter
+Status: component_complete for local Git Steward adapter; shadow integration not started
+Proof level: component_complete for temp-repo local Git operations and remote publication approval boundary
+Commit/PR: local branch codex/tfg-git-steward-adapter; remote publication requested by user
+Changed modules/files:
+- agent/git_steward/contracts.py
+- agent/git_steward/local_adapter.py
+- agent/git_steward/__init__.py
+- tests/test_git_steward_local_adapter.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Executed commands and exact results:
+- `python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_git_steward_local_adapter.py tests/test_twin_control_plane_twinproof_assumption_breaker.py` -> 15 passed in 6.88s.
+- `python -m py_compile agent\git_steward\contracts.py agent\git_steward\local_adapter.py agent\git_steward\__init__.py` -> passed.
+Real LLM evidence:
+- Not collected for this PR; no model-facing prompt behavior changed in this slice.
+Real runtime evidence:
+- Local Git behavior is exercised in pytest temporary repositories only.
+Unavailable checks:
+- Real Atlas shadow/runtime integration evidence is not collected for this component slice.
+Adversarial tests:
+- Repository detection handles absent and initialized repositories.
+- Ignore policy adds sensitive, cache, runtime data, and large model artifact patterns.
+- Baseline commit is blocked until ignore policy exists.
+- Branch preparation blocks on dirty worktree and reports changed files.
+- Local diff and local commit operate in temp repos only.
+- External publication returns `approval_needed` without running a remote command.
+Safety invariants checked:
+- Local Git operations use subprocess argument lists without shell execution.
+- Remote publication/admin remain approval-bound and are not executed by the adapter.
+- Dirty worktree protection blocks branch preparation by default.
+- Baseline commit requires ignore policy first.
+- Adapter does not push, create PRs, merge, force-push, or mutate protected remote state.
+Known limitations:
+- Git Steward local adapter is not wired into Atlas shadow/active execution.
+- Worktree manager and rollback service are not split into dedicated modules yet; current component exposes branch/local commit/diff primitives.
+- Patch Impact Gate, Proof Ledger, Repair Compass, and Anti-Pattern Memory remain future packages.
+Next package: Package 7 Patch Impact Gate and Proof Ledger.
 Blocker, if any: none for local component work; remote publication requested by user.
 ```
 

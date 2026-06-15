@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,6 +36,33 @@ class GitOperationDecision(GitStewardModel):
     approval_required: bool
     allowed_without_approval: bool
     reasons: list[str] = Field(default_factory=list)
+
+
+class GitRepositoryState(GitStewardModel):
+    path: str
+    exists: bool
+    git_dir: str = ""
+    branch: str = ""
+    head_sha: str = ""
+    dirty: bool = False
+    untracked_files: list[str] = Field(default_factory=list)
+    changed_files: list[str] = Field(default_factory=list)
+
+
+class GitStewardResult(GitStewardModel):
+    operation: str
+    status: str = "ok"  # ok | blocked | approval_needed | unavailable
+    approval_required: bool = False
+    branch: str = ""
+    commit_sha: str = ""
+    diff_ref: str = ""
+    worktree_path: str = ""
+    changed_files: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+
+
+def normalize_repo_path(path: str | Path) -> Path:
+    return Path(path).resolve()
 
 
 _LOCAL_READ = {"status", "diff", "log", "show", "rev-parse", "branch-list"}
