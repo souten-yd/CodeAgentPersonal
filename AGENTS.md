@@ -1,43 +1,43 @@
 # KasaneCore Agent Instructions
 
-## Default Start Point
+## Active Goal
 
-Start from AUIR unless the user explicitly names another track.
+The current default development goal is **Atlas Twin / Forge / Git Steward**.
 
-AUIR is the current default goal:
-
-* Current status: `docs/atlas_runtime_progress_resume_hardening_current_status.md`
-* Main plan: `docs/atlas_runtime_progress_resume_hardening_plan.md`
-* Test plan: `docs/atlas_runtime_progress_resume_hardening_test_plan.md`
-* Agent entrypoint: `docs/atlas_runtime_progress_resume_hardening_agent_entrypoint.md`
-
-After AUIR is complete, continue PIBIH:
-
-* `docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md`
-* `docs/atlas_project_intelligence_behavioral_impact_hardening_plan.md`
-* `docs/atlas_project_intelligence_behavioral_impact_hardening_test_plan.md`
-* `docs/atlas_project_intelligence_behavioral_impact_hardening_agent_entrypoint.md`
-
-## Compact Goal Override: Twin / Forge / Git Steward
-
-Use this only when the user explicitly asks for Twin / Forge / Git Steward work.
-
-Keep `AGENTS.md` small and delegate to:
+Start here for all general implementation work unless the user explicitly asks for another track:
 
 1. `docs/atlas_twin_forge_git_steward_goal_mode_execution.md`
 2. `docs/atlas_twin_forge_git_steward_current_status.md`
 3. `docs/atlas_twin_forge_git_steward_agent_entrypoint.md`
 4. `docs/atlas_twin_forge_git_steward_detailed_plan.md` only when more detail is needed
 
-Start from Package 0 in the goal-mode document. First run `python -m pytest -q tests/test_twin_forge_git_steward_initial.py`, repair type/import/pydantic/enum/module-path mismatches, record exact evidence in the current status doc, then continue the package sequence. Local Git operations are autonomous; remote publication still requires approval.
+Begin with Package 0 from the goal-mode document:
 
-## Completed Foundations
+```bash
+python -m pytest -q tests/test_twin_forge_git_steward_initial.py
+```
 
-PIR, PFG, Portal, Play, Capsule, Forge foundation, prior Portal/Forge hardening, and the Twin / Forge / Git Steward planning + initial policy slice are completed foundation tracks. Do not restart them from scratch.
+If focused tests fail due to type, import, pydantic, enum, or module-path mismatches, repair those first, record exact evidence in the current status doc, then continue the package sequence.
 
-Reference these only when touching their areas:
+## Completed / Reference Tracks
+
+AUIR, PIBIH, PIR, PFG, Portal, Play, Capsule, Forge foundation, and prior Portal/Forge hardening are completed or reference tracks. Do not start from them by default.
+
+Use them only when touching their area or when the user explicitly asks.
+
+Reference docs include:
 
 ```text
+docs/atlas_runtime_progress_resume_hardening_current_status.md
+docs/atlas_runtime_progress_resume_hardening_plan.md
+docs/atlas_runtime_progress_resume_hardening_test_plan.md
+docs/atlas_runtime_progress_resume_hardening_agent_entrypoint.md
+
+docs/atlas_project_intelligence_behavioral_impact_hardening_current_status.md
+docs/atlas_project_intelligence_behavioral_impact_hardening_plan.md
+docs/atlas_project_intelligence_behavioral_impact_hardening_test_plan.md
+docs/atlas_project_intelligence_behavioral_impact_hardening_agent_entrypoint.md
+
 docs/atlas_project_intelligence_recovery_current_status.md
 docs/atlas_project_intelligence_recovery_master_goal.md
 docs/atlas_portal_forge_current_status.md
@@ -49,38 +49,7 @@ docs/atlas_portal_forge_hardening_current_status.md
 docs/atlas_portal_forge_hardening_plan.md
 docs/atlas_portal_forge_hardening_test_plan.md
 docs/atlas_portal_forge_hardening_agent_entrypoint.md
-docs/atlas_twin_forge_git_steward_current_status.md
-docs/atlas_twin_forge_git_steward_goal_mode_execution.md
 ```
-
-## AUIR Track Order
-
-```text
-AUIR-1: Fix LLM props initialization and token indicator safety
-AUIR-2: Durable Atlas run progress event model
-AUIR-3: Atlas tab reload/resume rehydration
-AUIR-4: Live indicator reconnection and stale/stalled state UX
-AUIR-5: Regression tests and mobile/browser reload smoke
-AUIR-6: Return to PIBIH-1 LLM planning timeout hardening
-```
-
-## Current AUIR Bug
-
-Observed behavior:
-
-```text
-Atlasでプラン生成後、承認して実行する。
-その後開発を実行するが、LLMの生成状況がインジケータに表示されない。
-インジケーターは停止している。
-
-Log:
-10:05:31 WARN [ctx] Could not fetch llm props: Cannot access '_current_n_ctx_ui' before initialization
-
-別タブ移動やブラウザリロード後にAtlasへ戻ると、緑の枠だけ出てくる。
-開発状況の表示やトークン生成のインジケータが一切表示されない。
-```
-
-Treat this as a product bug, not a cosmetic issue.
 
 ## Must Preserve
 
@@ -99,20 +68,29 @@ Treat this as a product bug, not a cosmetic issue.
 * Capsule package ZIPs must remain immutable and data-free by default.
 * Implementation size alone is not a stop condition.
 
-## Goal Mode Read Order
+## Local Git Policy
 
-1. `AGENTS.md`
-2. If the user explicitly names Twin / Forge / Git Steward, use the compact override above.
-3. Otherwise read the AUIR docs listed in Default Start Point.
-4. After AUIR completion, read the PIBIH docs listed above.
-5. Existing PIR/PFG/PFH/TFG docs only when touching their areas.
-6. Target code, public contracts, direct callers, dependencies, and tests.
+Local Git operations are allowed inside the local repository and Atlas-owned work area:
+
+* status/diff/log inspection;
+* local branch/worktree creation;
+* local commits/checkpoints;
+* fetch/pull/clone from remotes;
+* restoring Atlas-owned local changes.
+
+Remote publication or protected remote changes require user approval:
+
+* push;
+* PR creation;
+* remote branch/tag publication;
+* PR merge;
+* protected remote state changes.
 
 ## Execution Rules
 
 For each package:
 
-1. Read the selected package from the relevant current status doc.
+1. Read the active package from `docs/atlas_twin_forge_git_steward_goal_mode_execution.md` and current status.
 2. Verify the current implementation against actual code before editing.
 3. Reproduce or prove the reviewed gap with a failing or missing test where practical.
 4. Implement the smallest coherent vertical slice.
@@ -120,7 +98,7 @@ For each package:
 6. Preserve off / shadow / active rollout behavior where applicable.
 7. Run focused tests, affected tests, syntax checks, and available runtime/model evidence.
 8. Record unavailable checks truthfully.
-9. Update the relevant current status doc.
+9. Update `docs/atlas_twin_forge_git_steward_current_status.md`.
 10. Advance only when acceptance criteria pass.
 
 ## Evidence Rules
@@ -137,10 +115,7 @@ Syntax checks:
 Affected tests:
 Real model evidence:
 Atlas UI evidence:
-Reload/resume evidence:
 Project Intelligence evidence:
-Impact analysis evidence:
-Web research evidence:
 Runtime/Portal evidence:
 Unavailable checks:
 Safety invariants:
@@ -162,18 +137,13 @@ Stop only for:
 * required live model/runtime/web evidence unavailable with no truthful alternative;
 * security issue involving credentials, external providers, package import, runtime execution, or generated artifacts.
 
-Implementation size alone is not a stop condition.
-
 ## Completion
 
-Do not mark AUIR complete until:
+For Twin / Forge / Git Steward completion, use:
 
-* `_current_n_ctx_ui` can never throw before initialization during startup, mode switch, reload, or settings/context polling;
-* LLM progress indicators update during Plan, approved execution, patch proposal generation, repair, and verification-related LLM calls;
-* browser tab switch and reload restore the active Atlas run status from server-authoritative state;
-* a disconnected/reconnecting UI never shows an empty green frame without status;
-* stale/stalled/live/terminal states are visibly distinct;
-* all focused, affected, reload/resume, and mobile/browser smoke evidence is recorded;
-* all safety boundaries remain intact.
+```text
+docs/atlas_twin_forge_git_steward_goal_mode_execution.md
+docs/atlas_twin_forge_git_steward_current_status.md
+```
 
-After AUIR completion, continue PIBIH. For Twin / Forge / Git Steward completion, use `docs/atlas_twin_forge_git_steward_goal_mode_execution.md` and `docs/atlas_twin_forge_git_steward_current_status.md` only when that track is explicitly selected.
+Do not mark the active goal complete until the goal-mode final acceptance criteria pass, including contract tests, integration tests, adversarial tests, shadow evidence, active gated rollout, and real LLM/runtime evidence or truthful unavailable records.
