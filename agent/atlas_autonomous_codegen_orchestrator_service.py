@@ -28,6 +28,10 @@ from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
 from agent.atlas_plan_item_file_changes import has_file_change_content, normalize_plan_item_file_changes
 from agent.atlas_recovery_service import AtlasRecoveryService
 from agent.atlas_automation_profile_resolver import is_full_auto_context
+from agent.twin_control_plane.pipeline_integration import (
+    build_twin_pipeline_evidence,
+    resolve_pipeline_mode,
+)
 
 # Items the full-auto profile never applies; generating a patch for them is wasted work because
 # the safe-apply gate (and atlas_full_auto_gate) hard-block them downstream anyway.
@@ -84,6 +88,9 @@ class AtlasAutonomousCodegenOrchestratorService:
         ci_failure_metadata = self._ci_failure_metadata(request, pool)
         if ci_failure_metadata:
             out.metadata.update(ci_failure_metadata)
+        # Twin Control Plane advisory evidence seam (off by default; never changes the
+        # apply/verify authority). Guarded so it can never break the legacy flow.
+        self._attach_twin_control_plane(out, request, pool)
         for warning in preflight.get("warnings", []):
             if warning not in out.warnings:
                 out.warnings.append(warning)
@@ -599,6 +606,35 @@ class AtlasAutonomousCodegenOrchestratorService:
                 plan_items=plan_items,
             )
         )
+
+    def _attach_twin_control_plane(self, out: AtlasAutonomousCodegenResult, request: AtlasAutonomousCodegenRequest, pool: AtlasPlanPool) -> None:
+        """Attach advisory Twin/Forge pipeline evidence to the run metadata.
+
+        Off by default and fully guarded: it never raises, never mutates the pool, and
+        never touches Safe Apply / Verification authority. Active mode only records that
+        the Twin gate engaged; the existing autopilot remains the execution authority."""
+        try:
+            mode = resolve_pipeline_mode()
+            changed_refs: list[str] = []
+            for item in getattr(pool, "items", []) or []:
+                for change in normalize_plan_item_file_changes(item) or []:
+                    path = change.get("path") if isinstance(change, dict) else None
+                    if path:
+                        changed_refs.append(str(path))
+            evidence = build_twin_pipeline_evidence(
+                mode=mode,
+                requirement=str(request.user_requirement or ""),
+                pool_id=str(request.pool_id or ""),
+                project_path=str(request.project_path or getattr(pool, "project_path", "") or ""),
+                changed_refs=changed_refs,
+                item_refs=[str(getattr(item, "item_id", "")) for item in getattr(pool, "items", []) or []],
+            )
+            out.metadata["twin_control_plane"] = evidence
+        except Exception as exc:  # pragma: no cover - defensive: never break the legacy flow
+            out.metadata["twin_control_plane"] = {
+                "mode": "off", "engaged": False, "available": False,
+                "reason": f"twin_seam_error:{type(exc).__name__}",
+            }
 
     def _preflight(self, request: AtlasAutonomousCodegenRequest, pool: AtlasPlanPool) -> dict:
         project_path = str(request.project_path or getattr(pool, "project_path", "") or "").strip()

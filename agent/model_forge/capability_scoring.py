@@ -28,11 +28,17 @@ from agent.model_forge.eval_packs import (
 )
 from agent.model_forge.profile_store import ProfileStore
 from agent.model_forge.schema import ModelProfile
-from agent.twin_control_plane.contracts import ModelCapabilityMode
 
 # A dimension at or below this score is reported as a known weakness to the policy
 # selector, which raises injection and may add targeted gates.
 WEAKNESS_THRESHOLD = 0.55
+
+
+def _standard_mode():
+    # Lazy import to avoid a module-load import cycle with twin_control_plane.contracts.
+    from agent.twin_control_plane.contracts import ModelCapabilityMode
+
+    return ModelCapabilityMode.STANDARD
 
 
 def score_dimensions(
@@ -111,7 +117,7 @@ def build_capability_profile(
     *,
     model_id: str = "",
     provider_id: str = "",
-    mode: ModelCapabilityMode = ModelCapabilityMode.STANDARD,
+    mode: "ModelCapabilityMode | None" = None,
     threshold: float = WEAKNESS_THRESHOLD,
 ):
     """Project a persisted ModelProfile into the ``ModelCapabilityProfile`` consumed by
@@ -123,6 +129,8 @@ def build_capability_profile(
     # Imported lazily to avoid a hard import cycle at module load time.
     from agent.model_forge.execution_policy import ModelCapabilityProfile
 
+    if mode is None:
+        mode = _standard_mode()
     if profile is None:
         return ModelCapabilityProfile(
             model_id=model_id or "default", provider_id=provider_id, mode=mode,
@@ -146,7 +154,7 @@ def load_capability_profile(
     provider_id: str,
     model_id: str,
     *,
-    mode: ModelCapabilityMode = ModelCapabilityMode.STANDARD,
+    mode: "ModelCapabilityMode | None" = None,
     threshold: float = WEAKNESS_THRESHOLD,
 ):
     """Convenience: load the latest persisted profile and project it for the selector."""
