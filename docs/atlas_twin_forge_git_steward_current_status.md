@@ -133,6 +133,45 @@ Blocker, if any:
 ## Initial implementation record
 
 ```text
+Work package: Real-LLM Twin/Forge/Git usefulness evaluation + cross-run learning wiring
+Status: cross-run learning wired into the live loop (advisory, reversible); real-LLM evaluation run on two projects with content-validity
+Proof level: real_llm_evaluated + real_runtime_evaluated for the evaluation matrix; deterministic negative controls for the mechanisms
+Changed modules/files:
+- agent/twin_control_plane/anti_pattern_memory.py (AntiPatternMemoryStore durable store)
+- agent/atlas_autonomous_codegen_orchestrator_service.py (load memory in, feed memory out, opt-in Project Twin build, pre-flight changed_refs fallback)
+- agent/twin_control_plane/pipeline_integration.py (resolve_build_project_twin / load/refresh_project_twin)
+- agent/twin_control_plane/evaluation_harness.py (matrix driver + content validators + report)
+- tests/test_twin_anti_pattern_store.py, tests/test_twin_cross_run_feedback.py, tests/test_twin_build_project.py,
+  tests/test_twin_negative_controls.py, tests/test_twin_real_project_evaluation.py
+Executed commands and exact results:
+- `python -m pytest -q <pipeline/cross_run/build_project/anti_pattern_store/negative_controls/codegen_twin_gate/proof_ledger/orchestrator/api/patch_proposal_twin_section/git_hardening/acceptance_tasks + all test_twin_control_plane_* + all test_model_forge_*> -m "not real_model"` -> 299 passed in 87.56s.
+- `FORGE_LOCAL_BASE_URL=http://127.0.0.1:8080 FORGE_LOCAL_MODEL=Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf python -m pytest -q tests/test_twin_real_project_evaluation.py -m real_model` -> 2 passed (python package + FastAPI web app).
+Real LLM evidence:
+- Live Mistral-Small-3.2-24B (llama.cpp, 127.0.0.1:8080) drove plan-approval -> full automatic codegen end-to-end for both projects.
+- Pipeline coverage (both projects): generation_attempted+succeeded, verification_recorded, twin_instruction_injected, post_apply_gate_ran, repair_guidance_produced, content_validity_checked -> all True.
+- Content validity (generated code executed): every condition produced functionally-valid code (package save/load round-trip; FastAPI /health == {'status':'ok'}).
+- ACTIVE vs OFF: active adds 6 required gates and the compiled Twin instruction; OFF injects neither (instruction_only_in_active=True).
+- Forge capability profile effect: weak profile -> 6 gates with 4 detected weaknesses; strong profile -> 3 gates, none (profile genuinely drives policy).
+- Re-run Twin effect: run1 impact unavailable -> run2 impact available after the in-run Twin build (both projects).
+- Variance (2 repeats per condition): mostly stable 'completed'; web_app build-twin showed ['completed','stopped'] — real model variance captured honestly.
+- Evidence reports: ca_data/twin_control_plane/evaluation/{python_package,web_app}.json (runtime data, not committed).
+Real runtime evidence:
+- Generated code executed in subprocess validators; existing autonomous codegen orchestrator/API suites pass under default active.
+Unavailable checks:
+- Schema Guardian / StateMirror live snapshots still not produced by the codegen path -> recorded unavailable.
+Adversarial / negative controls:
+- test_twin_negative_controls: instruction present in ACTIVE / absent in OFF; passed accepts but unavailable never accepts and failed -> needs_repair; hard boundary blocks but a clean run does not; weak profile raises more gates than strong; impact available vs unavailable branches.
+- Cross-run: a failed run grows the anti-pattern memory and the next run's advisory hints reflect it; an accepted run adds no false guardrail.
+Safety invariants:
+- Cross-run learning and Twin build are advisory, gated (ATLAS_TWIN_BUILD_PROJECT default off), reversible; only product-regression/hard-boundary feed the memory (unavailable is not a failure).
+- Atlas keeps Proposal / Safe Apply / Verification / Repair authority; no apply/commit/publish from the seam.
+Remaining gaps:
+- Schema/State live evidence sources; promoting the cross-run learning beyond advisory hints.
+Next package: optional — produce schema/state snapshots in-run for Schema Guardian/StateMirror live blocking.
+Blocker: none; all changes on local branch codex/tfg-eval-and-cross-run-learning (no push/PR/merge without approval).
+```
+
+```text
 Work package: Live control-loop deep wiring (Twin/Forge/Git Steward into the autonomous codegen path), Steps 1-10
 Status: component_complete + integration_wired for Steps 1-9; advisory where live evidence sources are absent; recorded unavailable honestly
 Proof level: deterministic integration tests + real LLM/runtime acceptance; durable proof ledger; gated/reversible
