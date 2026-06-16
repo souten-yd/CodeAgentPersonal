@@ -111,3 +111,24 @@ def test_memory_is_injected_into_evidence_on_next_run(tmp_path, monkeypatch):
     tcp = out.metadata.get("twin_control_plane") or {}
     advisory = tcp.get("advisory_context") or {}
     assert advisory.get("hint_count", 0) >= 1, "prior-run guardrails must be injected into the next run"
+
+
+def test_accepted_run_persists_golden_patch_for_next_run(tmp_path, monkeypatch):
+    monkeypatch.delenv("ATLAS_TWIN_PIPELINE_MODE", raising=False)
+    # Force an accepted post-apply by supplying twin revisions via build-project Twin is heavy;
+    # instead monkeypatch the gate to report accepted so we exercise golden-patch persistence.
+    import agent.atlas_autonomous_codegen_orchestrator_service as om
+    real = om.evaluate_twin_post_apply
+
+    def accepted(**kw):
+        r = real(**kw)
+        r["decision"] = "accepted"; r["accepted"] = True
+        r["repair_reasons"] = []; r["blocked_reasons"] = []
+        return r
+
+    monkeypatch.setattr(om, "evaluate_twin_post_apply", accepted)
+    _svc(tmp_path, verification_status="passed").run(_request())
+    from agent.model_forge.golden_patch_retrieval import GoldenPatchStore
+    from pathlib import Path
+    index = GoldenPatchStore(Path(tmp_path) / "twin_control_plane" / "golden_patches").load_index()
+    assert len(index) >= 1, "an accepted run must persist a durable golden patch"

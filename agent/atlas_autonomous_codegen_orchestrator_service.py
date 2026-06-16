@@ -36,6 +36,7 @@ from agent.twin_control_plane.pipeline_integration import (
     refresh_project_twin,
     resolve_block_unverified,
     resolve_build_project_twin,
+    python_schema_snapshot,
     resolve_gate_blocking,
     resolve_pipeline_mode,
     try_project_twin_impact,
@@ -190,9 +191,25 @@ class AtlasAutonomousCodegenOrchestratorService:
             if w not in out.warnings:
                 out.warnings.append(w)
         # Post-apply Twin gate over the run's real verification evidence and changed files.
-        # Advisory by default; a promoted hard-boundary block surfaces as blocked_safety_review.
-        twin_post_block = self._twin_post_apply_gate(out, request, autopilot)
-        if twin_post_block:
+        # A NG outcome does NOT stop the run: the stop reason is fed back as Repair Compass
+        # guidance and the affected items are regenerated (bounded). Only a genuine hard
+        # boundary that persists after the bounded repair attempts is a safety stop.
+        self._twin_post_apply_gate(out, request, autopilot)
+        _post = (out.metadata.get("twin_control_plane") or {}).get("post_apply") or {}
+        _ng, _ = self._twin_genuine_ng(_post)
+        twin_post_block = ""
+        if _ng:
+            autopilot, twin_post_block = self._maybe_twin_repair(
+                out=out, request=request, run_id=run_id, orchestrator_run_id=orchestrator_run_id,
+                requested_item_ids=requested_item_ids, project_path=str(preflight.get("effective_project_path") or request.project_path),
+                autopilot=autopilot,
+                limits={"effective_max_actions": effective_max_actions,
+                        "effective_max_items": effective_max_items,
+                        "effective_max_runtime_seconds": effective_max_runtime_seconds,
+                        "effective_max_changed_files_total": effective_max_changed_files_total})
+            out.autopilot_result = autopilot.model_dump()
+            out.stop_reason = autopilot.stop_reason
+        if twin_post_block and resolve_gate_blocking():
             out.phase = "failure_analysis"
             out.status = "blocked_safety_review"
             out.stop_reason = twin_post_block
@@ -685,10 +702,19 @@ class AtlasAutonomousCodegenOrchestratorService:
                 provider_id=str(req_md.get("provider_id") or req_md.get("forge_provider_id") or ""),
                 profile_store_dir=str(Path(self.data_root) / "model_forge" / "profiles"),
                 anti_pattern_memory=self._load_anti_pattern_memory(),
+                golden_index=self._load_golden_index(),
             )
             block_reason = twin_gate_block_reason(evidence) if resolve_gate_blocking() else ""
             evidence["gate_blocking_enabled"] = resolve_gate_blocking()
             evidence["gate_blocked"] = bool(block_reason)
+            # Capture the BEFORE schema (advisory Schema Guardian) of the target files as they
+            # exist pre-generation, so a post-apply diff can be measured.
+            try:
+                project_path = str(request.project_path or getattr(pool, "project_path", "") or "")
+                before = python_schema_snapshot(project_path, changed_refs, schema_id="before")
+                self._twin_before_schema = before.model_dump(mode="json") if before is not None else None
+            except Exception:
+                self._twin_before_schema = None
             out.metadata["twin_control_plane"] = evidence
             return block_reason
         except Exception as exc:  # pragma: no cover - defensive: never break the legacy flow
@@ -728,6 +754,43 @@ class AtlasAutonomousCodegenOrchestratorService:
             return self._anti_pattern_store().load()
         except Exception:  # pragma: no cover - defensive
             return None
+
+    def _golden_patch_store(self):
+        from agent.model_forge.golden_patch_retrieval import GoldenPatchStore
+        return GoldenPatchStore(Path(self.data_root) / "twin_control_plane" / "golden_patches")
+
+    def _load_golden_index(self):
+        """Load durable accepted golden patches as an advisory retrieval index (or None)."""
+        try:
+            return self._golden_patch_store().load_index()
+        except Exception:  # pragma: no cover - defensive
+            return None
+
+    def _persist_golden_patch(self, report: dict) -> None:
+        """On an accepted decision, persist the patch as a durable golden example for later
+        advisory retrieval. Guarded; only accepted patches are stored."""
+        try:
+            if not isinstance(report, dict) or report.get("decision") != "accepted":
+                return
+            entry = report.get("ledger_entry") or {}
+            tcp = None  # route comes from the pre-flight evidence
+            from agent.model_forge.golden_patch_retrieval import GoldenPatch
+            from agent.model_forge.route_taxonomy import ForgeRoute
+            route = None
+            try:
+                route = ForgeRoute(report.get("route")) if report.get("route") else None
+            except Exception:
+                route = None
+            patch = GoldenPatch(
+                patch_id=str(entry.get("entry_id") or report.get("report_id") or "patch"),
+                task_category="autonomous_codegen", route=route,
+                model_id=str(entry.get("model_id") or ""), provider_id=str(entry.get("provider_id") or ""),
+                affected_refs=list(report.get("passed_evidence") or []),
+                proof_outcome="accepted", summary="accepted autonomous codegen patch",
+                evidence_refs=[str(entry.get("entry_id") or "")])
+            self._golden_patch_store().add(patch)
+        except Exception:  # pragma: no cover - defensive
+            return
 
     def _persist_proof_ledger_entry(self, report: dict) -> None:
         """Durably persist the post-apply Proof Ledger entry and, for non-accepted
@@ -775,6 +838,72 @@ class AtlasAutonomousCodegenOrchestratorService:
                 actions.append(token)
         return actions
 
+    def _clear_affected_items(self, pool_id: str, autopilot) -> None:
+        """Clear patch content for the items in this autopilot result so they regenerate."""
+        pool = self.storage.load_pool(pool_id)
+        changed = False
+        for it in getattr(autopilot, "item_results", []) or []:
+            item = pool.get_item(getattr(it, "item_id", ""))
+            if item is not None:
+                self._clear_patch_content(item)
+                changed = True
+        if changed:
+            self.storage.save_pool(pool)
+
+    @staticmethod
+    def _twin_genuine_ng(report: dict) -> tuple[bool, bool]:
+        """Return ``(is_ng, is_hard)`` for a post-apply report. A genuine NG is only a real
+        product regression (failed verification) or a hard-boundary block — NOT an evidence
+        gap (missing twin revision / unavailable verification). Evidence gaps never trigger
+        regeneration or a stop."""
+        hard = bool(report.get("blocked_reasons"))
+        failed = "verification_failed" in (report.get("repair_reasons") or [])
+        return (hard or failed), hard
+
+    def _maybe_twin_repair(
+        self, *, out: AtlasAutonomousCodegenResult, request: AtlasAutonomousCodegenRequest,
+        run_id: str, orchestrator_run_id: str, requested_item_ids: list[str], project_path: str,
+        autopilot, limits: dict,
+    ):
+        """Twin gate NG -> inject Repair Compass feedback and REGENERATE the affected items
+        (bounded by max_retries), re-evaluating the gate each pass. The run is NOT stopped on
+        a recoverable NG; the stop reason is fed back so the model regenerates to eliminate
+        it. Returns ``(autopilot, final_block_reason)`` where final_block_reason is non-empty
+        only when a genuine hard boundary persists after the bounded attempts."""
+        report = ((out.metadata.get("twin_control_plane") or {}).get("post_apply") or {})
+        _, hard = self._twin_genuine_ng(report)
+        guidance = report.get("repair_guidance") or ""
+        max_attempts = max(1, int(getattr(request, "max_retries", 0) or 2))
+        for attempt in range(1, max_attempts + 1):
+            if not guidance:
+                break
+            new_md = dict(request.metadata or {})
+            hints = dict(new_md.get("twin_generation_hints") or {})
+            hints["twin_repair_section"] = guidance
+            new_md["twin_generation_hints"] = hints
+            repair_request = request.model_copy(update={"metadata": new_md})
+            self._clear_affected_items(request.pool_id, autopilot)
+            self._emit("autonomous_codegen_twin_repair_started", request.pool_id, run_id,
+                       orchestrator_run_id, attempt=attempt)
+            autopilot = self._run_interleaved_items(
+                request=repair_request, out=out, run_id=run_id,
+                orchestrator_run_id=orchestrator_run_id, requested_item_ids=requested_item_ids,
+                project_path=project_path, **limits)
+            out.autopilot_result = autopilot.model_dump()
+            self._twin_post_apply_gate(out, request, autopilot)
+            report = ((out.metadata.get("twin_control_plane") or {}).get("post_apply") or {})
+            ng, hard = self._twin_genuine_ng(report)
+            guidance = report.get("repair_guidance") or ""
+            (out.metadata.setdefault("twin_repair_attempts", [])).append(
+                {"attempt": attempt, "decision": report.get("decision"), "still_ng": ng})
+            self._emit("autonomous_codegen_twin_repair_completed", request.pool_id, run_id,
+                       orchestrator_run_id, attempt=attempt, decision=report.get("decision"))
+            if not ng:
+                return autopilot, ""  # the stop reason was eliminated by regeneration
+        # Exhausted. Only a persistent genuine hard boundary remains a safety stop; a
+        # recoverable NG (needs_repair) does not halt the run.
+        return autopilot, ("twin_post_apply_hard_boundary" if hard else "")
+
     def _twin_post_apply_gate(self, out: AtlasAutonomousCodegenResult, request: AtlasAutonomousCodegenRequest, autopilot) -> str:
         """Run the post-apply Twin Patch Impact Gate over the run's REAL verification
         evidence and changed files; record it and return a block reason when the
@@ -799,6 +928,20 @@ class AtlasAutonomousCodegenOrchestratorService:
                 project_id=str(request.pool_id or ""), changed_refs=changed_files,
                 store=self.project_twin_store,
             )
+            # Capture the AFTER schema and run advisory Schema Guardian against the BEFORE
+            # snapshot captured at pre-flight. StateMirror stays unavailable (no runtime state
+            # observations are produced by the codegen path). Advisory only — never blocks.
+            after_schema = None
+            try:
+                project_path = str(request.project_path or "")
+                snap = python_schema_snapshot(project_path, changed_files, schema_id="after")
+                after_schema = snap.model_dump(mode="json") if snap is not None else None
+            except Exception:
+                after_schema = None
+            from agent.twin_control_plane.schema_guardian import SchemaSnapshot
+            before_dump = getattr(self, "_twin_before_schema", None)
+            before_schema = SchemaSnapshot.model_validate(before_dump) if before_dump else None
+            after_obj = SchemaSnapshot.model_validate(after_schema) if after_schema else None
             req_md = request.metadata or {}
             report = evaluate_twin_post_apply(
                 mode=mode,
@@ -816,13 +959,16 @@ class AtlasAutonomousCodegenOrchestratorService:
                 plan_item_ref=str(request.run_id or ""),
                 model_id=str(req_md.get("model_id") or req_md.get("forge_model_id") or ""),
                 provider_id=str(req_md.get("provider_id") or req_md.get("forge_provider_id") or ""),
+                before_schema=before_schema, after_schema=after_obj,
             )
             tcp = out.metadata.get("twin_control_plane")
             if isinstance(tcp, dict):
+                report["route"] = tcp.get("route")  # carry the selected route for golden-patch indexing
                 tcp["post_apply"] = report
             else:
                 out.metadata["twin_control_plane"] = {"post_apply": report}
             self._persist_proof_ledger_entry(report)
+            self._persist_golden_patch(report)
             # Opt-in: refresh the persistent Project Twin from the project so the NEXT run
             # gets real impact/blast-map evidence (the re-run Twin effect).
             if resolve_build_project_twin() and changed_files:

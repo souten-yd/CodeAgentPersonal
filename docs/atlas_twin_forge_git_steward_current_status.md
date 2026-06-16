@@ -133,6 +133,35 @@ Blocker, if any:
 ## Initial implementation record
 
 ```text
+Work package: Twin feedback-regeneration + advisory Schema/State wiring + golden-patch advisory
+Status: behavior changed (Twin NG -> regenerate, not stop); Schema Guardian/StateMirror wired advisory; golden-patch advisory injected
+Proof level: deterministic + real-LLM measured; advisory gates measured for false-positive before any blocking promotion
+Changed modules/files:
+- agent/atlas_autonomous_codegen_orchestrator_service.py (Twin repair loop; before/after schema capture; golden index load/persist)
+- agent/twin_control_plane/pipeline_integration.py (python_schema_snapshot; advisory schema/state sections in evaluate_twin_post_apply)
+- agent/model_forge/golden_patch_retrieval.py (GoldenPatchStore durable)
+- agent/twin_control_plane/evaluation_harness.py (advisory schema/state + false-positive proxy + repair-loop capture)
+- tests/test_twin_repair_loop.py, tests/test_twin_advisory_schema_state.py, tests/test_twin_golden_patch_store.py, tests/test_twin_cross_run_feedback.py
+Executed commands and exact results:
+- deterministic suite -> 311 passed in 90.26s.
+- `FORGE_LOCAL_BASE_URL=http://127.0.0.1:8080 FORGE_LOCAL_MODEL=Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf python -m pytest -q tests/test_twin_real_project_evaluation.py::test_real_evaluation_python_package -m real_model` -> 1 passed.
+Behavior implemented:
+- Twin gate NG (failed verification or hard-boundary block) NO LONGER stops the run: Repair Compass guidance is fed back and the affected items are regenerated (bounded by max_retries), re-evaluating the gate; only a persistent hard boundary blocks as a last resort. Evidence gaps never trigger regeneration or a stop.
+- Schema Guardian runs ADVISORY in the live path (best-effort before/after Python interface schema), recording findings + would_block_if_promoted without blocking. StateMirror wired advisory; unavailable in codegen and recorded honestly.
+- Durable golden-patch index: accepted patches persist and are injected as advisory examples on later runs.
+Real LLM / runtime evidence:
+- Live evaluation: advisory_schema_available=True, advisory_state_recorded=True (unavailable, no observations), advisory_schema_false_positive_candidates=0. Repair loop not triggered because the model produced valid code; deterministic tests prove it fires on a genuine NG and recovers.
+Unavailable checks:
+- StateMirror runtime observations not produced by the codegen path -> recorded unavailable, not fabricated.
+Safety invariants:
+- Advisory Schema/State NEVER block; promotion is gated on the measured false-positive rate (currently 0). Atlas keeps Proposal/Safe Apply/Verification/Repair authority. All reversible.
+Remaining gaps:
+- Promote Schema Guardian to blocking only after a broader false-positive sample; StateMirror needs runtime/state observation sources.
+Next package: optional gated promotion after measurement.
+Blocker: none; local branch codex/tfg-twin-repair-and-advisory-gates (no push/PR/merge without approval).
+```
+
+```text
 Work package: Real-LLM Twin/Forge/Git usefulness evaluation + cross-run learning wiring
 Status: cross-run learning wired into the live loop (advisory, reversible); real-LLM evaluation run on two projects with content-validity
 Proof level: real_llm_evaluated + real_runtime_evaluated for the evaluation matrix; deterministic negative controls for the mechanisms

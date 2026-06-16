@@ -54,6 +54,7 @@ from agent.model_forge.golden_patch_retrieval import (
     DEFAULT_RETRIEVAL_THRESHOLD,
     GoldenPatch,
     GoldenPatchIndex,
+    GoldenPatchStore,
     RetrievalQuery,
     RetrievedPatch,
 )
@@ -297,6 +298,7 @@ __all__ = [
     "DEFAULT_RETRIEVAL_THRESHOLD",
     "GoldenPatch",
     "GoldenPatchIndex",
+    "GoldenPatchStore",
     "RetrievalQuery",
     "RetrievedPatch",
     "DEFAULT_MIN_SUPPORT",

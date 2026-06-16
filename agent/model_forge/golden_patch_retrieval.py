@@ -127,9 +127,51 @@ class GoldenPatchIndex:
         return scored[:limit]
 
 
+class GoldenPatchStore:
+    """Durable, append-only store of accepted golden patches (JSONL), loadable into an
+    in-memory ``GoldenPatchIndex`` for advisory retrieval on later runs. Only accepted
+    patches are persisted; idempotent by patch_id."""
+
+    def __init__(self, store_dir) -> None:
+        from pathlib import Path
+        self._path = Path(store_dir) / "golden_patches.jsonl"
+
+    def add(self, patch: GoldenPatch) -> bool:
+        import json
+        if patch.proof_outcome != "accepted":
+            return False
+        existing = {p.patch_id: p for p in self._load()}
+        existing[patch.patch_id] = patch
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with self._path.open("w", encoding="utf-8") as fh:
+            for p in existing.values():
+                fh.write(json.dumps(p.model_dump(mode="json"), ensure_ascii=False) + "\n")
+        return True
+
+    def _load(self) -> list[GoldenPatch]:
+        if not self._path.exists():
+            return []
+        out: list[GoldenPatch] = []
+        for line in self._path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    out.append(GoldenPatch.model_validate_json(line))
+                except Exception:
+                    continue
+        return out
+
+    def load_index(self) -> GoldenPatchIndex:
+        index = GoldenPatchIndex()
+        for patch in self._load():
+            index.index_patch(patch)
+        return index
+
+
 __all__ = [
     "DEFAULT_RETRIEVAL_THRESHOLD",
     "GoldenPatch",
+    "GoldenPatchStore",
     "RetrievalQuery",
     "RetrievedPatch",
     "GoldenPatchIndex",
