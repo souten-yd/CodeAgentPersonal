@@ -133,6 +133,30 @@ Blocker, if any:
 ## Initial implementation record
 
 ```text
+Work package: Schema Guardian gated blocking promotion + StateMirror observation sources
+Status: Schema Guardian can hard-block breaking changes via ATLAS_TWIN_BLOCK_SCHEMA (default off); StateMirror now has real observation sources (advisory available)
+Proof level: deterministic + real-LLM measured; promotion gated on the measured false-positive rate (currently 0)
+Changed modules/files:
+- agent/twin_control_plane/pipeline_integration.py (resolve_block_schema; schema/state report builders; block_schema path)
+- agent/atlas_autonomous_codegen_orchestrator_service.py (_twin_state_observations; pass block_schema + state observations)
+- agent/twin_control_plane/evaluation_harness.py (advisory_state_available coverage)
+- tests/test_twin_schema_block_state_sources.py
+Executed commands and exact results:
+- deterministic suite -> 315 passed in 94.36s.
+- real_model python_package evaluation -> 1 passed; advisory_schema_available=True, advisory_state_available=True, schema false-positive candidates=0.
+Behavior implemented:
+- ATLAS_TWIN_BLOCK_SCHEMA (default off): a genuinely breaking schema change (removed/type-changed public surface) is fed into the blocking decision and drives the bounded repair loop (regenerate with feedback). Additive/new schemas never block.
+- StateMirror observation sources produced from real run data: per-item verification (runtime) + post-apply file existence (persistence). advisory StateMirror is now available/measured instead of unavailable. No fabrication.
+Real LLM / runtime evidence:
+- advisory StateMirror available/accepted/0 findings; advisory Schema Guardian available with 0 false-positive candidates -> blocking promotion is safe on this sample.
+Safety invariants:
+- Schema blocking is opt-in (default off), breaking-only, and routes through the feedback-regeneration loop rather than a terminal stop. StateMirror remains advisory. Atlas keeps Proposal/Safe Apply/Verification/Repair authority. All reversible.
+Remaining gaps:
+- Cross-run capability profile auto-update from production runs and a UI for Twin mode / capability eval are NOT wired (env-only; Forge UI covers benchmark eval + model settings only).
+Blocker: none; local branch codex/tfg-schema-block-state-sources.
+```
+
+```text
 Work package: Twin feedback-regeneration + advisory Schema/State wiring + golden-patch advisory
 Status: behavior changed (Twin NG -> regenerate, not stop); Schema Guardian/StateMirror wired advisory; golden-patch advisory injected
 Proof level: deterministic + real-LLM measured; advisory gates measured for false-positive before any blocking promotion
