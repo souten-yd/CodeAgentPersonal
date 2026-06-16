@@ -50,6 +50,7 @@ from agent.model_forge.capability_scoring import (
     load_capability_profile,
     score_dimensions,
 )
+from agent.model_forge.route_fitness import best_route, derive_route_fitness
 from agent.model_forge.golden_patch_retrieval import (
     DEFAULT_RETRIEVAL_THRESHOLD,
     GoldenPatch,
@@ -295,6 +296,8 @@ __all__ = [
     "derive_known_weaknesses",
     "build_capability_profile",
     "load_capability_profile",
+    "derive_route_fitness",
+    "best_route",
     "DEFAULT_RETRIEVAL_THRESHOLD",
     "GoldenPatch",
     "GoldenPatchIndex",

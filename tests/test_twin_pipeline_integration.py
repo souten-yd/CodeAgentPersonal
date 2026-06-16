@@ -452,3 +452,36 @@ def test_advisory_disabled_when_retrieval_off():
     ctx = build_advisory_context(golden_index=index, model_id="m1", route="direct_patch",
                                  changed_refs=["a.py"], retrieval_enabled=False)
     assert ctx["golden_patches"] == []
+
+
+# --- I3: benchmark route-fitness x injection in the live policy ---------------------
+
+def _seed_benchmark_profile(tmp_path, dims):
+    from agent.model_forge.profile_store import ProfileStore
+    store = ProfileStore(tmp_path / "profiles")
+    store.record_observation(model_id="m1", provider_id="local", dimensions=dims,
+                             evidence_refs=["bench/run1"])
+    return str(tmp_path / "profiles")
+
+
+def test_benchmark_profile_drives_route_fitness_in_evidence(tmp_path):
+    # Strong web_app/api skills -> route fitness favours web_app routes among safe candidates.
+    store_dir = _seed_benchmark_profile(tmp_path, {
+        "web_app": 0.95, "api_backend": 0.95, "multi_file": 0.9,
+        "json_dsl": 0.1, "patch_generation": 0.1, "speed": 0.1})
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="add endpoint",
+                                      pool_id="p1", changed_refs=["app/api.py"], model_id="m1",
+                                      provider_id="local", profile_store_dir=store_dir,
+                                      change_class="medium")
+    assert ev["route_fitness"]  # per-route fitness derived from benchmark dims
+    # The chosen route is a safe MEDIUM candidate.
+    from agent.model_forge.route_matrix import ChangeClass, RouteMatrix, RouteSelector
+    cands = [r.value for r in RouteSelector(RouteMatrix()).select(ChangeClass.MEDIUM).candidates_considered]
+    assert ev["route"] in cands
+
+
+def test_no_benchmark_profile_yields_empty_route_fitness(tmp_path):
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="x", pool_id="p1",
+                                      changed_refs=["a.py"])  # no model_id/profile
+    assert ev["route_fitness"] == {}
+    assert ev["benchmark_route_selected"] is False

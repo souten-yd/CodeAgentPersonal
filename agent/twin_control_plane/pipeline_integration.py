@@ -120,33 +120,37 @@ DEFAULT_PROFILE_STORE_DIR = "ca_data/model_forge/profiles"
 
 
 def resolve_capability_profile(*, model_id: str = "", provider_id: str = "", store_dir: str | None = None):
-    """Load an evidence-backed Forge capability profile for the live model, or fall back
-    to a neutral default. Returns ``(ModelCapabilityProfile, available)``.
+    """Load an evidence-backed Forge profile for the live model. Returns
+    ``(ModelCapabilityProfile, available, route_preferences)``.
 
-    ``available`` is False when no persisted profile exists, so a missing profile becomes
-    neither a false weakness nor a false strength — the selector simply uses neutral
-    defaults. Never raises."""
+    The capability profile (control-plane dimensions) drives Twin injection; the
+    ``route_preferences`` (benchmark dimensions -> per-route fitness) let the selector pick
+    the route the model performs best at — "best route x right injection". ``available`` is
+    False when no persisted profile exists (neutral, no false weakness/strength). Never raises."""
     from agent.model_forge.execution_policy import ModelCapabilityProfile
 
     try:
         from agent.model_forge.capability_scoring import build_capability_profile
         from agent.model_forge.profile_store import ProfileStore
+        from agent.model_forge.route_fitness import derive_route_fitness
 
         if not model_id:
-            return ModelCapabilityProfile(model_id="atlas-codegen"), False
+            return ModelCapabilityProfile(model_id="atlas-codegen"), False, {}
         store = ProfileStore(store_dir or DEFAULT_PROFILE_STORE_DIR)
         persisted = store.load_profile(provider_id, model_id)
         if persisted is None:
-            return ModelCapabilityProfile(model_id=model_id, provider_id=provider_id), False
-        return build_capability_profile(persisted, model_id=model_id, provider_id=provider_id), True
+            return ModelCapabilityProfile(model_id=model_id, provider_id=provider_id), False, {}
+        cap = build_capability_profile(persisted, model_id=model_id, provider_id=provider_id)
+        route_prefs = derive_route_fitness(persisted.dimension_scores)
+        return cap, True, route_prefs
     except Exception:
-        return ModelCapabilityProfile(model_id=model_id or "atlas-codegen", provider_id=provider_id), False
+        return ModelCapabilityProfile(model_id=model_id or "atlas-codegen", provider_id=provider_id), False, {}
 
 
 def _build_policy_and_brief(
     *, requirement: str, pool_id: str, project_path: str, refs: list[str],
     item_refs: Iterable[str], change_class: str, task_category: str,
-    capability_profile=None,
+    capability_profile=None, route_preferences: dict | None = None,
 ):
     """Build the ExecutionPolicy (Forge Twin route selection) and TwinBrief for a run.
 
@@ -158,6 +162,7 @@ def _build_policy_and_brief(
     policy = selector.select(
         ChangeClass(change_class), task_category=task_category,
         model_profile=capability_profile or ModelCapabilityProfile(model_id="atlas-codegen"),
+        route_preferences=route_preferences or None,
     )
     brief = TwinBrief(
         brief_id=_stable_brief_id(pool_id, requirement),
@@ -287,13 +292,13 @@ def build_twin_pipeline_evidence(
 
     try:
         refs = sorted({str(r).strip() for r in changed_refs if str(r).strip()})
-        capability_profile, profile_available = resolve_capability_profile(
+        capability_profile, profile_available, route_preferences = resolve_capability_profile(
             model_id=model_id, provider_id=provider_id, store_dir=profile_store_dir,
         )
         policy, brief = _build_policy_and_brief(
             requirement=requirement, pool_id=pool_id, project_path=project_path, refs=refs,
             item_refs=item_refs, change_class=change_class, task_category=task_category,
-            capability_profile=capability_profile,
+            capability_profile=capability_profile, route_preferences=route_preferences,
         )
         shadow_orch = TwinShadowOrchestrator(TwinShadowMode.SHADOW)
         shadow_report: TwinShadowReport | None = shadow_orch.assemble(
@@ -357,6 +362,10 @@ def build_twin_pipeline_evidence(
             "capability_profile_available": profile_available,
             "capability_profile_unavailable": not profile_available,
             "known_weaknesses": list(capability_profile.known_weaknesses),
+            # Benchmark x injection: the per-route fitness from the model's benchmark profile,
+            # and whether it informed the (safe) route choice.
+            "route_fitness": {r.value if hasattr(r, "value") else str(r): v for r, v in (route_preferences or {}).items()},
+            "benchmark_route_selected": any("benchmark_preferred_route" in r for r in policy.reasons),
             "compiled_instruction": compiled_text,
             "instruction_id": instruction_id,
             "advisory_context": {

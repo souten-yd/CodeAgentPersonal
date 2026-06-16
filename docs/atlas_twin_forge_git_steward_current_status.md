@@ -133,6 +133,27 @@ Blocker, if any:
 ## Initial implementation record
 
 ```text
+Work package: Forge benchmark x Twin injection integration (best route x right injection)
+Status: a model's benchmark profile selects the best SAFE generation route while the capability profile drives injection — combined in one ExecutionPolicy
+Proof level: deterministic + real-LLM end-to-end
+Changed modules/files:
+- agent/model_forge/route_fitness.py (derive_route_fitness / best_route)
+- agent/model_forge/execution_policy.py (ExecutionPolicySelector route_preferences)
+- agent/twin_control_plane/pipeline_integration.py (resolve_capability_profile returns route_preferences; evidence route_fitness)
+- app/api/twin_control.py (profiles expose best_route + route_fitness), ui.html (Forge Twin profiles "best route" column)
+- tests/test_model_forge_route_fitness.py, tests/test_execution_policy_route_preference.py
+Executed commands and exact results:
+- deterministic suite -> 298 passed in 68.20s.
+- Real end-to-end: seed benchmark dims (web_app strong) + real Mistral capability evaluation on ONE model profile -> route_fitness {test_first:0.879, sliced_impact:0.872, greenfield_skeleton:0.875, patch_dsl:0.737}; live MEDIUM policy selected route=test_first (benchmark_route_selected=True) with capability-driven injection. "best route x right injection" confirmed.
+Behavior implemented:
+- Benchmark profile dimensions map to per-ForgeRoute fitness (via preset recommended_routes). ExecutionPolicySelector prefers the model's strongest route AMONG the RouteMatrix safe candidates (authority preserved; critical gate + unsafe routes never overridden). The capability profile still drives injection level / instruction style / gates. One model profile holds both benchmark and capability dimensions.
+- The Forge Twin UI profiles table shows each model's best route alongside capability scores and known weaknesses.
+Safety invariants:
+- RouteMatrix stays the route authority — fitness only re-orders within the safe candidate set; no preference selects an unsafe route or overrides a critical gate. Reversible (no preference -> RouteMatrix default).
+Blocker: none; local branch codex/tfg-benchmark-route-twin-injection.
+```
+
+```text
 Work package: Capability-profile auto-update from production + Twin Control API (settings/eval/profiles)
 Status: eval->profile->injection loop closed in production; Twin mode/gates and capability evaluation are now driveable via API (UI-callable)
 Proof level: deterministic + real-LLM measured

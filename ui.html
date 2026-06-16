@@ -6926,7 +6926,7 @@ async function renderTwinPanel() {
   const rows = (profiles.profiles || []).map((p) => {
     const dims = Object.entries(p.dimension_scores || {}).map(([k, v]) => k + '=' + (Math.round(v * 100) / 100)).join(', ');
     const weak = (p.known_weaknesses || []).join(', ') || '—';
-    return '<tr><td>' + _twinEsc(p.model_id) + '</td><td>' + _twinEsc(p.provider_id) + '</td><td>' + p.sample_count + '</td><td style="font-size:12px">' + _twinEsc(dims || '—') + '</td><td style="color:#c47">' + _twinEsc(weak) + '</td></tr>';
+    return '<tr><td>' + _twinEsc(p.model_id) + '</td><td>' + _twinEsc(p.provider_id) + '</td><td>' + p.sample_count + '</td><td style="color:#5a7">' + _twinEsc(p.best_route || '—') + '</td><td style="font-size:12px">' + _twinEsc(dims || '—') + '</td><td style="color:#c47">' + _twinEsc(weak) + '</td></tr>';
   }).join('');
   body.innerHTML =
     '<div class="forge-head"><div class="forge-title">Twin Control Plane</div></div>' +
@@ -6948,7 +6948,7 @@ async function renderTwinPanel() {
       '<div id="twin-eval-result" class="forge-status" style="margin-top:6px"></div>' +
     '</fieldset>' +
     '<fieldset style="border:1px solid #333;border-radius:8px;padding:10px"><legend>Capability profiles (drive Twin injection) · ' + profiles.count + '</legend>' +
-      (rows ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th align="left">model</th><th align="left">provider</th><th align="left">samples</th><th align="left">dimensions</th><th align="left">known weaknesses</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div class="forge-status">No capability profiles yet — run an evaluation or let autonomous runs accumulate evidence.</div>') +
+      (rows ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th align="left">model</th><th align="left">provider</th><th align="left">samples</th><th align="left">best route</th><th align="left">dimensions</th><th align="left">known weaknesses</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div class="forge-status">No capability profiles yet — run an evaluation or let autonomous runs accumulate evidence.</div>') +
     '</fieldset>';
 }
 
