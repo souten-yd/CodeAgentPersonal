@@ -1647,8 +1647,32 @@
     return reasons;
   }
 
-  async function approveAndRunPipeline(poolId) {
+  // Identify plan items that are ALREADY applied (a prior run completed them), so a re-run / resume
+  // skips them instead of re-generating — which would error with patch_proposal_blocked and, worse,
+  // risk re-applying or dropping prior work. An item is applied when the pool says it is completed,
+  // lists it in completed_item_ids, or it carries a safe_apply change record.
+  function appliedItemIds(poolData) {
+    const ids = new Set();
+    const completed = (poolData && (poolData.completed_item_ids
+      || (poolData.plan_pool && poolData.plan_pool.completed_item_ids))) || [];
+    completed.forEach((id) => ids.add(String(id)));
+    const items = (poolData && (poolData.items || poolData.plan_items
+      || (poolData.plan_pool && (poolData.plan_pool.items || poolData.plan_pool.plan_items)))) || [];
+    items.forEach((it) => {
+      const id = String(it.item_id || it.id || '');
+      if (!id) return;
+      const md = it.metadata || {};
+      const changed = ((md.safe_apply || {}).changed_files) || [];
+      if (String(it.status || '').toLowerCase() === 'completed' || (Array.isArray(changed) && changed.length > 0)) {
+        ids.add(id);
+      }
+    });
+    return ids;
+  }
+
+  async function approveAndRunPipeline(poolId, opts) {
     if (!root.AtlasPipelineAPI) return;
+    const resume = !!(opts && opts.resume);
     setBusy(true);
     const stages = appendStageBlock(poolId);
     try {
@@ -1700,6 +1724,10 @@
         return;
       }
       const items = pool.data.items || pool.data.plan_items || [];
+      // Items a prior run already applied — always skipped on a re-run so we never re-generate or
+      // re-apply finished work (flag-safe resume). Populated for both an explicit "続きからリトライ"
+      // and an ordinary re-run of a partially-completed pool.
+      const alreadyApplied = appliedItemIds(pool.data);
       if (!items.length) {
         updateStage(stages, 'plan', 'failed', 'no items');
         renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
@@ -1799,10 +1827,21 @@
         const it = items[i];
         const itemId = it.item_id || it.id;
         if (!itemId) continue;
+        // Flag-safe resume: an item a prior run already applied is kept as-is — never re-generated
+        // (which would error patch_proposal_blocked) and never re-applied. We count it as completed so
+        // the summary and the "first patch" guard reflect the real progress, then move to the next.
+        if (alreadyApplied.has(String(itemId))) {
+          markStep(i, 'done', '既に反映済み(スキップ)');
+          generated += 1;
+          appliedCount += 1;
+          perItemResults.push({ item_id: itemId, status: 'completed', reason: 'already_applied' });
+          updateStage(stages, 'patch', 'running', `${i + 1}/${items.length}`);
+          continue;
+        }
         // Show that THIS item is now being generated BEFORE the (potentially long /
         // slow LLM) call returns. Without this, the panel stays frozen on the previous
         // item's "N/total" until generation completes, so a slow item looks like a hang.
-        markStep(i, 'running', '生成中');
+        markStep(i, 'running', resume ? '続きから生成中' : '生成中');
         updateStage(stages, 'patch', 'running', `${i}/${items.length} → 生成中 ${i + 1}`);
         renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
           phase: 'patch_generation',
@@ -1823,16 +1862,27 @@
         // semantic_validation_failed) even for a real implementation item. A fresh attempt usually
         // succeeds, so retry a content-required item before giving up — this is a generation
         // reliability fix, NOT a no-op: the item IS meant to produce code.
-        const GEN_MAX_ATTEMPTS = 2;
+        // GEN_MAX_ATTEMPTS = the visible per-item retry budget. Kept in step with the backend's
+        // ATLAS patch-generation attempt budget (MAX_LLM_GENERATION_ATTEMPTS = 5) so the "生成リトライ
+        // x/5" the user sees matches the configured value (previously hard-coded 2, which looked like
+        // only 2 retries even though the backend was set to 5).
+        const GEN_MAX_ATTEMPTS = 5;
         let r = null, prop = null, propMeta = {}, resultMeta = {}, patchGeneration = {}, hasContent = false;
         for (let attempt = 1; attempt <= GEN_MAX_ATTEMPTS && !hasContent; attempt += 1) {
           if (attempt > 1) markStep(i, 'running', `生成リトライ ${attempt}/${GEN_MAX_ATTEMPTS}`);
-          r = await root.AtlasPipelineAPI.generatePatchProposal({
-            pool_id: poolId,
-            item_id: itemId,
-            workspace_id: workspaceId(),
-            force_regenerate: true,
-          });
+          // A thrown error (network / backend 500 / timeout) must NOT abort the whole run and leave the
+          // remaining steps untouched. Convert it to a per-item failure result so this attempt loop and
+          // the outer item loop keep going; the item is then reported as a genuine failure.
+          try {
+            r = await root.AtlasPipelineAPI.generatePatchProposal({
+              pool_id: poolId,
+              item_id: itemId,
+              workspace_id: workspaceId(),
+              force_regenerate: true,
+            });
+          } catch (err) {
+            r = { ok: false, error: true, message: String((err && err.message) || err) };
+          }
           prop = r && r.ok && r.data ? r.data.proposal : null;
           propMeta = (prop && prop.metadata) || {};
           resultMeta = (r && r.ok && r.data && r.data.metadata) || {};
@@ -2483,6 +2533,37 @@
       hint.className = 'atlas-claude-summary-pr-hint';
       hint.textContent = 'Draft PR 未作成。変更ファイルを確認してから手動で `gh pr create --draft` を実行してください。';
       summary.appendChild(hint);
+    }
+
+    // Resume control: when a run ended with any item still unfinished (a generation failure, a
+    // verify/apply failure, no-content items, or an early stop), offer "続きからリトライ". It re-runs
+    // ONLY the un-applied items — applied ones are skipped (flag-safe), so the user can continue from
+    // where it stopped instead of restarting the whole plan. Hidden when everything completed cleanly.
+    const resumePoolId = (block.dataset && block.dataset.poolId) || '';
+    const hasUnfinished = (d.failed_count || 0) > 0
+      || (Array.isArray(d.no_content_failures) && d.no_content_failures.length > 0)
+      || (Array.isArray(d.genFailures) && d.genFailures.length > 0)
+      || d.status === 'patch_generation_failed'
+      || d.status === 'autopilot_failed'
+      || d.status === 'completed_with_failures';
+    if (resumePoolId && hasUnfinished) {
+      const resumeBox = document.createElement('div');
+      resumeBox.className = 'atlas-claude-summary-resume';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'atlas-claude-resume-btn';
+      btn.textContent = '▶ 続きからリトライ';
+      btn.title = '未適用の項目だけを再実行します（適用済みの項目はスキップ）';
+      btn.addEventListener('click', () => {
+        btn.disabled = true;
+        btn.textContent = '再実行中…';
+        Promise.resolve(approveAndRunPipeline(resumePoolId, { resume: true })).catch(() => {});
+      });
+      const note = document.createElement('div');
+      note.className = 'atlas-claude-summary-pr-hint';
+      note.textContent = '未適用の項目のみ再実行します（適用済みはスキップ）。';
+      resumeBox.append(btn, note);
+      summary.appendChild(resumeBox);
     }
 
     if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;

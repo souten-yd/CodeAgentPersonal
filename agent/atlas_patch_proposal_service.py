@@ -997,12 +997,15 @@ class AtlasPatchProposalService:
         parse_failures = 0
         empty_content_attempts = 0
         self_review_feedback: dict | None = None
+        anchor_recovery: dict | None = None
         for attempt in range(1, self.MAX_LLM_GENERATION_ATTEMPTS + 1):
             user_obj: dict = {"task": base_task, "input": input_payload}
             if clarification_directives:
                 user_obj["clarification_directives"] = clarification_directives
             if verification_feedback:
                 user_obj["fix_verification_failure"] = verification_feedback
+            if anchor_recovery:
+                user_obj["anchor_recovery"] = anchor_recovery
             if self_review_feedback:
                 user_obj["self_review_feedback"] = {
                     "instruction": (
@@ -1058,6 +1061,72 @@ class AtlasPatchProposalService:
                 parse_failures += 1
                 last_failure = f"llm_output_unparseable:{str(exc) or exc.__class__.__name__}"
                 continue
+            # Anchor recovery: a weak model often writes correct NEW code but returns it as an insertion
+            # with an EMPTY old_string and NO anchor, so it cannot be placed in the right scope (it would
+            # land after </html>). This was the live root cause of "生成失敗(content_missing)" on a step
+            # that edits an existing index.html. Re-prompt for ONLY the insert_after anchor, echoing the
+            # code back — a small, fast request that lands the code correctly (validated against the local
+            # model: anchored, unique, in-scope in ~12s). Never apply an unplaceable EOF append.
+            structured_target = self._existing_structured_target(input_payload)
+            anchorless_new_code = self._anchorless_insertion_new_code(proposal) if structured_target else []
+            if anchorless_new_code and not self._has_placeable_content(proposal):
+                last_failure = "edit_anchor_missing"
+                if attempt < self.MAX_LLM_GENERATION_ATTEMPTS:
+                    proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                        proposal.metadata.get("patch_generation") if isinstance(proposal.metadata.get("patch_generation"), dict) else default_patch_generation_state(run_id=str(input_payload.get("run_id") or "")),
+                        {
+                            "event_type": "patch_validation_failed",
+                            "run_id": str(input_payload.get("run_id") or ""),
+                            "state": "repairing",
+                            "outcome": "active",
+                            "attempt": attempt,
+                            "strategy": "anchor_recovery",
+                            "reason_code": "edit_anchor_missing",
+                            "failed_checks": ["edit_anchor_missing"],
+                            "retryable": True,
+                            "candidate_fingerprint": self._candidate_fingerprint(proposal),
+                        },
+                    )
+                    anchor_recovery = {
+                        "instruction": (
+                            "Your previous response added NEW code but returned it as an insertion with an "
+                            "EMPTY old_string and NO anchor, so it cannot be placed correctly. For EACH new "
+                            "code block in new_code_blocks below, return one edit of the form "
+                            "{\"old_string\":\"\",\"insert_after\":\"<an EXACT, UNIQUE snippet copied verbatim "
+                            "from input.item.current_file_content that this code must immediately FOLLOW — "
+                            "choose a line INSIDE the correct object/function scope so the code lands in the "
+                            "right place>\",\"new_string\":\"<the same new code>\"}. The insert_after MUST be "
+                            "copied character-for-character from the current content and match exactly once. "
+                            "NEVER return an empty old_string without an insert_after anchor. Alternatively, "
+                            "return the COMPLETE updated file as proposed_content."
+                        ),
+                        "new_code_blocks": anchorless_new_code[:8],
+                        "target_file": structured_target,
+                    }
+                    self_review_feedback = {
+                        "status": "failed",
+                        "findings": [{"type": "edit_anchor_missing", "severity": "blocking",
+                                      "message": "insertion edit had no insert_after/insert_before anchor; the new code cannot be placed"}],
+                    }
+                    continue
+                # Terminal attempt still unplaceable: fail honestly instead of appending broken code.
+                failure = self._no_content_failure_proposal(
+                    input_payload, reason=last_failure,
+                    parse_failures=parse_failures, empty_content_attempts=empty_content_attempts,
+                )
+                failure.metadata["patch_generation"] = reduce_patch_generation_state(
+                    proposal.metadata.get("patch_generation") if isinstance(proposal.metadata.get("patch_generation"), dict) else default_patch_generation_state(run_id=str(input_payload.get("run_id") or "")),
+                    {
+                        "event_type": "patch_generation_failed",
+                        "run_id": str(input_payload.get("run_id") or ""),
+                        "state": "failed", "outcome": "failure", "attempt": attempt,
+                        "strategy": "terminal_failure", "reason_code": last_failure,
+                        "failed_checks": ["edit_anchor_missing"], "retryable": False,
+                        "patch_content_available": False,
+                    },
+                )
+                failure.warnings.append("edit_anchor_missing")
+                return failure
             proposal.metadata["patch_generation"] = reduce_patch_generation_state(
                 proposal.metadata.get("patch_generation") if isinstance(proposal.metadata.get("patch_generation"), dict) else default_patch_generation_state(run_id=str(input_payload.get("run_id") or "")),
                 {
@@ -2125,6 +2194,65 @@ class AtlasPatchProposalService:
         if dropped:
             warnings.append("some_edits_dropped")
         return out
+
+    # File suffixes whose content has structure where new code must be PLACED in the right scope. An
+    # anchorless end-of-file append would land it outside that scope (e.g. a JS object-method literal
+    # appended after </html>), so for these an insertion with no anchor is a real defect, not content.
+    # Plain text / markdown can legitimately take a trailing append, so they are intentionally excluded.
+    _STRUCTURED_CODE_SUFFIXES = {
+        ".html", ".htm", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".css",
+        ".py", ".json", ".vue", ".svelte", ".php", ".rb", ".go", ".rs", ".java",
+    }
+
+    def _existing_structured_target(self, input_payload: dict) -> str:
+        """Return the single EXISTING structured-code target file (so an anchorless insertion into it
+        is a genuine placement defect), else "" (multi-file, new file, or plain-text target)."""
+        item = input_payload.get("item") or {}
+        if not item.get("target_file_exists"):
+            return ""
+        targets = [str(p).strip() for p in (item.get("target_files") or []) if str(p).strip()]
+        if len(targets) != 1:
+            return ""
+        suffix = PurePosixPath(targets[0].replace("\\", "/")).suffix.lower()
+        return targets[0] if suffix in self._STRUCTURED_CODE_SUFFIXES else ""
+
+    def _anchorless_insertion_new_code(self, proposal: AtlasPatchProposal) -> list[str]:
+        """New_string bodies of insertion edits that gave NO placement anchor (empty old_string and no
+        insert_after/insert_before). The model wrote new code but did not say WHERE it goes."""
+        out: list[str] = []
+        meta = proposal.metadata or {}
+        edit_lists = [meta.get("edits")]
+        for fc in (meta.get("file_changes") or []):
+            if isinstance(fc, dict):
+                edit_lists.append(fc.get("edits"))
+        for edits in edit_lists:
+            for e in (edits or []):
+                if not isinstance(e, dict):
+                    continue
+                if str(e.get("old_string", "")) == "" and not str(e.get("insert_after", "")) and not str(e.get("insert_before", "")):
+                    new = str(e.get("new_string", "")).strip()
+                    if new:
+                        out.append(new)
+        return out
+
+    def _has_placeable_content(self, proposal: AtlasPatchProposal) -> bool:
+        """True when the proposal carries content that can be placed deterministically: full content,
+        a unified diff, a replacement edit (non-empty old_string), or an ANCHORED insertion. False when
+        the only thing it has is anchorless insertions (new code with nowhere to go)."""
+        meta = proposal.metadata or {}
+        if str(meta.get("proposed_content") or "").strip() or str(proposal.unified_diff_preview or "").strip():
+            return True
+        edit_lists = [meta.get("edits")]
+        for fc in (meta.get("file_changes") or []):
+            if isinstance(fc, dict):
+                if str(fc.get("proposed_content") or "").strip() or str(fc.get("append_content") or "").strip():
+                    return True
+                edit_lists.append(fc.get("edits"))
+        for edits in edit_lists:
+            for e in (edits or []):
+                if isinstance(e, dict) and (str(e.get("old_string", "")) or str(e.get("insert_after", "")) or str(e.get("insert_before", ""))):
+                    return True
+        return False
 
     def _normalize_target_files(self, raw_target_files: object, fallback_target_files: list[str], warnings: list[str]) -> list[str]:
         if not isinstance(raw_target_files, list):
