@@ -31,6 +31,8 @@ from agent.atlas_automation_profile_resolver import is_full_auto_context
 from agent.twin_control_plane.active_integration import PipelineMode
 from agent.twin_control_plane.pipeline_integration import (
     build_twin_pipeline_evidence,
+    ensure_project_twin,
+    expand_changed_refs_to_symbols,
     evaluate_twin_post_apply,
     load_project_twin_store,
     refresh_project_twin,
@@ -40,6 +42,7 @@ from agent.twin_control_plane.pipeline_integration import (
     python_schema_snapshot,
     resolve_gate_blocking,
     resolve_pipeline_mode,
+    resolve_twin_autobuild,
     try_project_twin_impact,
     twin_gate_block_reason,
 )
@@ -700,16 +703,29 @@ class AtlasAutonomousCodegenOrchestratorService:
                 for tf in getattr(item, "target_files", []) or []:
                     if tf:
                         changed_refs.append(str(tf))
-            # Opt-in: reuse a persistent Project Twin built by a prior run so impact is real.
+            # Project Twin: auto-build from the live project BEFORE generation so impact / Safe-Edit
+            # Briefing (who depends on what we change) is available THIS run — the dependency-awareness
+            # that lifts a weak model on a large existing codebase. Default ON in active mode
+            # (ATLAS_TWIN_AUTOBUILD=off to disable); the explicit ATLAS_TWIN_BUILD_PROJECT flag also
+            # forces it in any mode. Built once per run and cached; never raises; falls back to the
+            # legacy load-only path when autobuild is off. Disabled-safe.
             twin_store = self.project_twin_store
-            if twin_store is None and resolve_build_project_twin():
-                twin_store = load_project_twin_store(
-                    data_root=str(self.data_root),
-                    project_id=str(request.pool_id or getattr(pool, "project_id", "") or ""))
+            if twin_store is None:
+                _twin_pid = str(request.pool_id or getattr(pool, "project_id", "") or "")
+                _twin_path = str(request.project_path or getattr(pool, "project_path", "") or "")
+                if _twin_path and (resolve_build_project_twin() or (mode == PipelineMode.ACTIVE and resolve_twin_autobuild())):
+                    twin_store = ensure_project_twin(
+                        data_root=str(self.data_root), project_id=_twin_pid, project_path=_twin_path)
+                elif resolve_build_project_twin():
+                    twin_store = load_project_twin_store(data_root=str(self.data_root), project_id=_twin_pid)
                 self.project_twin_store = twin_store
+            # Expand changed FILE paths to the Twin's symbol refs so impact (callers) is non-empty —
+            # the Twin seeds impact on symbols, not bare file paths.
+            _twin_project_id = str(request.pool_id or getattr(pool, "project_id", "") or "")
+            impact_refs = expand_changed_refs_to_symbols(twin_store, _twin_project_id, changed_refs)
             impact = try_project_twin_impact(
-                project_id=str(request.pool_id or getattr(pool, "project_id", "") or ""),
-                changed_refs=changed_refs,
+                project_id=_twin_project_id,
+                changed_refs=impact_refs,
                 store=twin_store,
             )
             req_md = request.metadata or {}
@@ -1060,9 +1076,10 @@ class AtlasAutonomousCodegenOrchestratorService:
                 out.metadata["twin_control_plane"] = {"post_apply": report}
             self._persist_proof_ledger_entry(report)
             self._persist_golden_patch(report)
-            # Opt-in: refresh the persistent Project Twin from the project so the NEXT run
-            # gets real impact/blast-map evidence (the re-run Twin effect).
-            if resolve_build_project_twin() and changed_files:
+            # Refresh the persistent Project Twin from the project after applying changes so the next
+            # item/run sees up-to-date impact/blast-map evidence. Runs when autobuild is on (active
+            # mode, default) or the explicit build flag is set; guarded and never breaks the flow.
+            if changed_files and (resolve_build_project_twin() or resolve_twin_autobuild()):
                 project_path = str(request.project_path or "")
                 store = refresh_project_twin(
                     data_root=str(self.data_root),
