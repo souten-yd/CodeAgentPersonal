@@ -302,9 +302,39 @@ def resolve_impact_depth(node_count: int) -> int:
     return 2
 
 
+def assess_impact_within_budget(
+    store, project_id: str, refs: list[str], *, change_kind: str = "modify",
+    budget: int = 60, max_depth: int = 6,
+):
+    """Grow traversal depth from 1 and keep the DEEPEST result whose dependent set still fits ``budget``.
+
+    Fan-out varies per symbol — a hub (many callers) over-expands at shallow depth, a leaf can be
+    explored deep — so a single fixed depth is wrong for both. This expands depth-by-depth (cheap: the
+    snapshot is loaded once and cached, only the traversal repeats) and stops when the next depth would
+    exceed the budget (the size of the dependent/test set we put into context) or when the result stops
+    growing (fixpoint). Returns the chosen ImpactResult, or depth-1 if even that overflows (the top-K
+    selectors then cap it)."""
+    from agent.project_twin.contracts import ImpactRequest
+
+    best = None
+    best_size = -1
+    for depth in range(1, max(1, max_depth) + 1):
+        imp = store.assess_impact(ImpactRequest(
+            project_id=project_id, changed_refs=refs, change_kind=change_kind, max_depth=depth))
+        size = len(getattr(imp, "direct_impacts", []) or []) + len(getattr(imp, "transitive_impacts", []) or [])
+        if best is not None and size > budget:
+            return best  # this depth overflows the context budget -> keep the previous (deepest fitting)
+        if best is not None and size == best_size:
+            return imp   # fixpoint: no new dependents at this depth -> done
+        best, best_size = imp, size
+        if size > budget:  # even depth 1 overflows -> return it; downstream top-K bounds the output
+            return best
+    return best
+
+
 def try_project_twin_impact(
     *, project_id: str, changed_refs: Iterable[str], store=None, change_kind: str = "modify",
-    max_depth: int | None = None,
+    max_depth: int | None = None, budget: int = 60,
 ):
     """Best-effort real Project Twin impact for the current run.
 
@@ -326,16 +356,19 @@ def try_project_twin_impact(
     try:
         from agent.project_twin.contracts import ImpactRequest
 
-        depth = max_depth
-        if depth is None:
+        if max_depth is None:
+            # Budget-based: grow depth from 1 until the dependent set would exceed the context budget,
+            # adapting per-symbol to its real fan-out. resolve_impact_depth caps the search by scale.
             node_count = 0
             try:  # the snapshot is cached (P1), so this is cheap after the first load.
                 node_count = len(getattr(store.get_snapshot(project_id), "nodes", []) or [])
             except Exception:
                 node_count = 0
-            depth = resolve_impact_depth(node_count)
+            return assess_impact_within_budget(
+                store, project_id, refs, change_kind=change_kind, budget=budget,
+                max_depth=resolve_impact_depth(node_count) + 2)
         request = ImpactRequest(project_id=project_id, changed_refs=refs, change_kind=change_kind,
-                                max_depth=depth)
+                                max_depth=max_depth)
         return store.assess_impact(request)
     except Exception:
         return None
