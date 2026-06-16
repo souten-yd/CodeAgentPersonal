@@ -90,6 +90,10 @@ class AtlasLLMJsonAdapter:
         self.model = str(model or "").strip()
         self.timeout_seconds = int(timeout_seconds or 120)
         self.on_progress = on_progress
+        # Real token usage (prompt_tokens / completion_tokens / total_tokens) captured from
+        # the last call's response. Populated when the server reports usage (llama.cpp does,
+        # and the streaming path now requests stream_options.include_usage).
+        self.last_usage: dict = {}
 
     def with_progress(self, on_progress: Callable[[dict], None] | None) -> "AtlasLLMJsonAdapter":
         clone = copy.copy(self)
@@ -376,6 +380,12 @@ class AtlasLLMJsonAdapter:
         timeout_sec = int(request.timeout_seconds or self.timeout_seconds)
         with urllib_request.urlopen(req, timeout=timeout_sec) as resp:  # noqa: S310
             body = json.loads(resp.read().decode("utf-8"))
+        if isinstance(body, dict) and isinstance(body.get("usage"), dict):
+            self.last_usage = dict(body["usage"])
+            logger.info(
+                "llm token usage: prompt=%s completion=%s total=%s (model=%s)",
+                self.last_usage.get("prompt_tokens"), self.last_usage.get("completion_tokens"),
+                self.last_usage.get("total_tokens"), payload.get("model"))
         choices = body.get("choices") if isinstance(body, dict) else None
         message = choices[0].get("message") if isinstance(choices, list) and choices else {}
         return str(message.get("content") or "")
@@ -383,6 +393,10 @@ class AtlasLLMJsonAdapter:
     def _post_chat_stream(self, request: AtlasLLMJsonRequest, *, structured: bool) -> str:
         payload = self._build_payload(request, structured=structured)
         payload["stream"] = True
+        # Ask the server to emit a final usage chunk so we can record REAL token counts
+        # (prompt + completion), not just the local content-token approximation.
+        payload["stream_options"] = {"include_usage": True}
+        self.last_usage = {}
         req = self._build_request(payload)
         # Three independent budgets so a slow local model is judged on the right axis:
         #   - first-token: how long prefill may run before any content token;
@@ -421,6 +435,9 @@ class AtlasLLMJsonAdapter:
                         event = json.loads(data)
                     except Exception:
                         continue
+                    # Final usage chunk (stream_options.include_usage): record real token counts.
+                    if isinstance(event, dict) and isinstance(event.get("usage"), dict):
+                        self.last_usage = dict(event["usage"])
                     choices = event.get("choices") if isinstance(event, dict) else None
                     choice = choices[0] if isinstance(choices, list) and choices else {}
                     delta = choice.get("delta") if isinstance(choice, dict) else {}
@@ -445,6 +462,13 @@ class AtlasLLMJsonAdapter:
                 # report: before-first-token if nothing has been generated yet, otherwise idle.
                 phase = "llm_stalled_after_progress" if saw_token else "llm_stalled_before_first_token"
                 raise _StreamTimeout(phase, tokens_generated=tokens_generated)
+        if self.last_usage:
+            logger.info(
+                "llm token usage: prompt=%s completion=%s total=%s (model=%s)",
+                self.last_usage.get("prompt_tokens"), self.last_usage.get("completion_tokens"),
+                self.last_usage.get("total_tokens"), payload.get("model"))
+            # Surface the real completion-token count as a final progress tick.
+            self._emit_progress(int(self.last_usage.get("completion_tokens") or tokens_generated))
         return "".join(chunks)
 
     def _emit_progress(self, tokens_generated: int) -> None:
