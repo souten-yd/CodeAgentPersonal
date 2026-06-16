@@ -702,6 +702,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 provider_id=str(req_md.get("provider_id") or req_md.get("forge_provider_id") or ""),
                 profile_store_dir=str(Path(self.data_root) / "model_forge" / "profiles"),
                 anti_pattern_memory=self._load_anti_pattern_memory(),
+                golden_index=self._load_golden_index(),
             )
             block_reason = twin_gate_block_reason(evidence) if resolve_gate_blocking() else ""
             evidence["gate_blocking_enabled"] = resolve_gate_blocking()
@@ -753,6 +754,43 @@ class AtlasAutonomousCodegenOrchestratorService:
             return self._anti_pattern_store().load()
         except Exception:  # pragma: no cover - defensive
             return None
+
+    def _golden_patch_store(self):
+        from agent.model_forge.golden_patch_retrieval import GoldenPatchStore
+        return GoldenPatchStore(Path(self.data_root) / "twin_control_plane" / "golden_patches")
+
+    def _load_golden_index(self):
+        """Load durable accepted golden patches as an advisory retrieval index (or None)."""
+        try:
+            return self._golden_patch_store().load_index()
+        except Exception:  # pragma: no cover - defensive
+            return None
+
+    def _persist_golden_patch(self, report: dict) -> None:
+        """On an accepted decision, persist the patch as a durable golden example for later
+        advisory retrieval. Guarded; only accepted patches are stored."""
+        try:
+            if not isinstance(report, dict) or report.get("decision") != "accepted":
+                return
+            entry = report.get("ledger_entry") or {}
+            tcp = None  # route comes from the pre-flight evidence
+            from agent.model_forge.golden_patch_retrieval import GoldenPatch
+            from agent.model_forge.route_taxonomy import ForgeRoute
+            route = None
+            try:
+                route = ForgeRoute(report.get("route")) if report.get("route") else None
+            except Exception:
+                route = None
+            patch = GoldenPatch(
+                patch_id=str(entry.get("entry_id") or report.get("report_id") or "patch"),
+                task_category="autonomous_codegen", route=route,
+                model_id=str(entry.get("model_id") or ""), provider_id=str(entry.get("provider_id") or ""),
+                affected_refs=list(report.get("passed_evidence") or []),
+                proof_outcome="accepted", summary="accepted autonomous codegen patch",
+                evidence_refs=[str(entry.get("entry_id") or "")])
+            self._golden_patch_store().add(patch)
+        except Exception:  # pragma: no cover - defensive
+            return
 
     def _persist_proof_ledger_entry(self, report: dict) -> None:
         """Durably persist the post-apply Proof Ledger entry and, for non-accepted
@@ -925,10 +963,12 @@ class AtlasAutonomousCodegenOrchestratorService:
             )
             tcp = out.metadata.get("twin_control_plane")
             if isinstance(tcp, dict):
+                report["route"] = tcp.get("route")  # carry the selected route for golden-patch indexing
                 tcp["post_apply"] = report
             else:
                 out.metadata["twin_control_plane"] = {"post_apply": report}
             self._persist_proof_ledger_entry(report)
+            self._persist_golden_patch(report)
             # Opt-in: refresh the persistent Project Twin from the project so the NEXT run
             # gets real impact/blast-map evidence (the re-run Twin effect).
             if resolve_build_project_twin() and changed_files:
