@@ -235,6 +235,8 @@ def build_report(project_name: str, condition_records: list[dict]) -> dict:
                 lambda r: bool(r.get("content", {}).get("content_valid"))),
             "advisory_schema_available": any_run(
                 lambda r: bool(r.get("advisory_schema", {}).get("available"))),
+            "advisory_state_available": any_run(
+                lambda r: bool(r.get("advisory_state", {}).get("available"))),
             "advisory_state_recorded": any_run(lambda r: "advisory_state" in r),
             "twin_repair_loop_exercised": any_run(lambda r: bool(r.get("repair", {}).get("twin_repair_attempts"))),
         },

@@ -34,6 +34,7 @@ from agent.twin_control_plane.pipeline_integration import (
     evaluate_twin_post_apply,
     load_project_twin_store,
     refresh_project_twin,
+    resolve_block_schema,
     resolve_block_unverified,
     resolve_build_project_twin,
     python_schema_snapshot,
@@ -825,6 +826,31 @@ class AtlasAutonomousCodegenOrchestratorService:
             return
 
     @staticmethod
+    def _twin_state_observations(autopilot, project_path: str, changed_files: list[str]):
+        """Produce best-effort StateMirror observations: per-item verification (runtime
+        surface) and post-apply file existence (persistence surface). Real, coarse evidence —
+        never fabricated. Returns (runtime_observations, persisted_observations)."""
+        from agent.twin_control_plane.state_mirror import StateObservation, StateSurface
+        runtime: list[StateObservation] = []
+        persisted: list[StateObservation] = []
+        try:
+            for it in getattr(autopilot, "item_results", []) or []:
+                vr = getattr(it, "verification_result", None) or {}
+                status = str(vr.get("status") or "unavailable")
+                ev_status = status if status in {"passed", "failed", "unavailable"} else "observed"
+                runtime.append(StateObservation(
+                    path=f"runtime.verification.{getattr(it, 'item_id', '')}", value=status,
+                    surface=StateSurface.RUNTIME, evidence_status=ev_status, authoritative=True))
+            for rel in changed_files or []:
+                exists = bool(project_path) and (Path(project_path) / str(rel)).exists()
+                persisted.append(StateObservation(
+                    path=f"persistence.{rel}", value=exists, surface=StateSurface.PERSISTENCE,
+                    evidence_status="passed" if exists else "failed", authoritative=True))
+        except Exception:  # pragma: no cover - defensive
+            return [], []
+        return runtime, persisted
+
+    @staticmethod
     def _twin_attempted_actions(request: AtlasAutonomousCodegenRequest) -> list[str]:
         """Map request-level signals to Contract Sentinel attempted-action tokens so the
         gate can hard-block genuine boundary attempts (remote publish, test weakening,
@@ -942,6 +968,9 @@ class AtlasAutonomousCodegenOrchestratorService:
             before_dump = getattr(self, "_twin_before_schema", None)
             before_schema = SchemaSnapshot.model_validate(before_dump) if before_dump else None
             after_obj = SchemaSnapshot.model_validate(after_schema) if after_schema else None
+            # StateMirror observation sources: per-file verification (runtime surface) and
+            # post-apply file existence (persistence surface). Coarse but real — no fabrication.
+            runtime_state, persisted_state = self._twin_state_observations(autopilot, str(request.project_path or ""), changed_files)
             req_md = request.metadata or {}
             report = evaluate_twin_post_apply(
                 mode=mode,
@@ -960,6 +989,8 @@ class AtlasAutonomousCodegenOrchestratorService:
                 model_id=str(req_md.get("model_id") or req_md.get("forge_model_id") or ""),
                 provider_id=str(req_md.get("provider_id") or req_md.get("forge_provider_id") or ""),
                 before_schema=before_schema, after_schema=after_obj,
+                runtime_state=runtime_state, persisted_state=persisted_state,
+                block_schema=resolve_block_schema(),
             )
             tcp = out.metadata.get("twin_control_plane")
             if isinstance(tcp, dict):
