@@ -79,6 +79,12 @@ class SqliteProjectTwinStore:
             except sqlite3.DatabaseError:
                 pass
         apply_migrations(self._conn, now_iso=self._now())
+        # In-process HEAD-snapshot cache, keyed by project_id -> (head_revision_id, TwinSnapshot).
+        # Materializing the full graph (deserializing every node/edge row) dominates assess_impact on a
+        # large repo (~95 s for 417k nodes / 736k edges in KasaneCore), and a single triage loads it
+        # several times (expand refs + impact, per item). Caching by head revision turns N loads into 1
+        # within a process and is invalidated automatically whenever a refresh advances the head.
+        self._head_snapshot_cache: dict[str, tuple[str | None, "TwinSnapshot"]] = {}
 
     def close(self) -> None:
         self._conn.close()
@@ -477,6 +483,10 @@ class SqliteProjectTwinStore:
             raise TwinStoreError("project_not_found", project_id)
 
         if revision_id is None:
+            head = self._project_head(project_id)
+            cached = self._head_snapshot_cache.get(project_id)
+            if cached is not None and cached[0] == head:
+                return cached[1]
             node_rows = self._conn.execute(
                 "SELECT * FROM twin_nodes WHERE project_id = ? AND valid_to IS NULL ORDER BY row_id",
                 (project_id,),
@@ -485,14 +495,15 @@ class SqliteProjectTwinStore:
                 "SELECT * FROM twin_edges WHERE project_id = ? AND valid_to IS NULL ORDER BY row_id",
                 (project_id,),
             ).fetchall()
-            head = self._project_head(project_id)
-            return TwinSnapshot(
+            snapshot = TwinSnapshot(
                 project_id=project_id,
                 twin_revision_id=head,
                 nodes=[self._node_from_row(r) for r in node_rows],
                 edges=[self._edge_from_row(r) for r in edge_rows],
                 generated_at=now,
             )
+            self._head_snapshot_cache[project_id] = (head, snapshot)
+            return snapshot
 
         rev = self._revision(revision_id)
         if rev is None or rev["project_id"] != project_id:
