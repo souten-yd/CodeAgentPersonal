@@ -186,6 +186,17 @@ def validate_protected_relative_path(rel_path: str, *, workspace_root: Path | st
         return False, "protected_path", None
     if lowered.startswith(("/etc/", "/usr/", "/bin/", "/sbin/", "/var/")):
         return False, "protected_path", None
+    # Self-modification guardrail (opt-in via ATLAS_SELF_MODIFICATION_GUARD; off by default so ordinary
+    # user projects are unaffected): an autonomous run editing this repo's OWN safety-critical control
+    # modules must not silently weaken them — block until explicitly approved.
+    try:
+        from agent.atlas_self_modification_policy import (
+            is_self_protected_path, resolve_self_modification_guard,
+        )
+        if resolve_self_modification_guard() and is_self_protected_path(value):
+            return False, "self_protected_path", None
+    except Exception:
+        pass
     if workspace_root is None:
         return True, "", None
     root = Path(workspace_root).resolve()
