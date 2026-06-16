@@ -2595,6 +2595,14 @@
     renderAutonomousList(summary, 'Changed files', evidence.changed_files || []);
     const verification = evidence.verification && evidence.verification.statuses ? evidence.verification.statuses : {};
     renderAutonomousList(summary, 'Verification', Object.keys(verification).map((key) => `${key}: ${verification[key]}`));
+    const usage = evidence.llm_usage || {};
+    if (usage.calls) {
+      const tdiv = document.createElement('div');
+      tdiv.className = 'atlas-claude-stage-detail';
+      // Token usage with a thinking-vs-output split (think = reasoning tokens, output = answer).
+      tdiv.textContent = `tokens: prompt ${usage.prompt_tokens || 0}, think ${usage.thinking_tokens || 0}, output ${usage.output_tokens || 0}, total ${usage.total_tokens || 0} (${usage.calls} call${usage.calls === 1 ? '' : 's'})`;
+      summary.appendChild(tdiv);
+    }
     renderAutonomousFailureSummary(summary, evidence.verification_failure_summary || {});
     renderAutonomousRepairPlan(summary, evidence.repair_plan || {});
     renderAutonomousCIFailure(summary, evidence.ci_failure_evidence || {}, evidence.ci_repair_plan || {});
