@@ -194,6 +194,31 @@ def _project_twin_db_path(data_root: str, project_id: str):
     return d / f"{safe}.sqlite3"
 
 
+TWIN_AUTOBUILD_ENV = "ATLAS_TWIN_AUTOBUILD"
+
+
+def resolve_twin_autobuild(value: str | None = None) -> bool:
+    """Whether the autonomous loop auto-builds the Project Twin from the live project before
+    generation so impact / Safe-Edit Briefing evidence is available THIS run (default ON). This is
+    what makes dependency-awareness work on a large existing codebase; disable with
+    ``ATLAS_TWIN_AUTOBUILD`` in {0, off, false, no}. Reversible."""
+    raw = (value if value is not None else os.environ.get(TWIN_AUTOBUILD_ENV, "")).strip().lower()
+    if raw in {"0", "off", "false", "no"}:
+        return False
+    return True
+
+
+def ensure_project_twin(*, data_root: str, project_id: str, project_path: str, force_rebuild: bool = False):
+    """Load the persistent Project Twin, BUILDING it from source when absent so real impact evidence
+    is available for the current run (not just a later one). Bounded and never raises; returns the
+    store or None when the project path is unusable."""
+    if not force_rebuild:
+        store = load_project_twin_store(data_root=data_root, project_id=project_id)
+        if store is not None:
+            return store
+    return refresh_project_twin(data_root=data_root, project_id=project_id, project_path=project_path)
+
+
 def load_project_twin_store(*, data_root: str, project_id: str):
     """Load a persistent Project Twin store previously built for this project, else None.
     Never raises."""
@@ -223,6 +248,43 @@ def refresh_project_twin(*, data_root: str, project_id: str, project_path: str):
         return store
     except Exception:
         return None
+
+
+def expand_changed_refs_to_symbols(store, project_id: str, changed_refs: Iterable[str]) -> list[str]:
+    """Map changed FILE paths to the ``py://<relpath>#<symbol>`` refs the Twin indexes, so impact
+    (callers) can actually be assessed. Twin impact seeds on symbol nodes, but the autonomous loop
+    only knows which FILES changed — a bare ``mod.py`` / ``py://mod.py`` ref yields no callers. For
+    each changed file we add every symbol the Twin defines in it; symbol-level refs pass through
+    unchanged. Best-effort, never raises; returns at least the original refs."""
+    refs = [str(r).strip() for r in changed_refs if str(r).strip()]
+    if store is None or not project_id or not refs:
+        return refs
+    file_paths: list[str] = []
+    out: list[str] = []
+    for r in refs:
+        out.append(r)
+        if "#" not in r:  # a file-level ref — record its path (strip any scheme).
+            file_paths.append(r.split("://", 1)[-1].strip("/"))
+    if not file_paths:
+        return out
+    try:
+        snapshot = store.get_snapshot(project_id)
+        for node in getattr(snapshot, "nodes", []) or []:
+            ref = str(getattr(node, "canonical_ref", ""))
+            if not ref.startswith("py://") or "#" not in ref:
+                continue
+            path = ref[len("py://"):].split("#", 1)[0]
+            if any(path == fp or path.endswith("/" + fp) or fp.endswith("/" + path) or fp.endswith(path) for fp in file_paths):
+                out.append(ref)
+    except Exception:
+        return out
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for r in out:
+        if r not in seen:
+            seen.add(r)
+            deduped.append(r)
+    return deduped
 
 
 def try_project_twin_impact(
