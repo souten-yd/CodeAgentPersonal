@@ -72,6 +72,40 @@ class TestManagementPlan(TwinControlPlaneModel):
         }
 
 
+def _is_test_ref(ref: str) -> bool:
+    r = str(ref or "")
+    return r.startswith("test://") or r.startswith("py://tests/") or "/tests/" in r or "/test_" in r
+
+
+def select_impacted_tests(impact, *, top_k: int = 50, min_confidence: float = 0.6) -> list[dict]:
+    """Prioritized, BOUNDED set of tests to re-run for a change.
+
+    The raw impact reachability over-selects on a large repo (≈34% of the suite for a leaf module,
+    because transitive heuristic links connect everything). assess_impact records each impact's path
+    confidence as the WEAKEST edge along the path, so heuristic-reached tests score low. This keeps only
+    tests at or above ``min_confidence`` and returns the top ``top_k`` by confidence — turning a
+    reachability set into an actionable selection. Returns [{"test_ref", "confidence"}], highest first."""
+    if impact is None:
+        return []
+    items = [
+        *(getattr(impact, "direct_impacts", []) or []),
+        *(getattr(impact, "transitive_impacts", []) or []),
+        *(getattr(impact, "recommended_tests", []) or []),
+    ]
+    best: dict[str, float] = {}
+    for i in items:
+        ref = str(getattr(i, "canonical_ref", ""))
+        if not _is_test_ref(ref):
+            continue
+        conf = float(getattr(i, "confidence", 0.0) or 0.0)
+        if conf < min_confidence:
+            continue
+        if ref not in best or conf > best[ref]:
+            best[ref] = conf
+    ranked = sorted(best.items(), key=lambda kv: (-kv[1], kv[0]))[: max(0, top_k)]
+    return [{"test_ref": r, "confidence": round(c, 4)} for r, c in ranked]
+
+
 def _unique(values: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []

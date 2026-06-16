@@ -6,12 +6,41 @@ and no directive; a failed impacted test moves from RERUN to UPDATE.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from agent.twin_control_plane.test_management import (
     TestAction,
     build_test_management_plan,
     render_test_management_directive,
+    select_impacted_tests,
 )
 from agent.twin_control_plane.twinproof import TwinProofReport
+
+
+def _imp(direct=(), transitive=()):
+    def mk(pairs):
+        return [SimpleNamespace(canonical_ref=r, confidence=c) for r, c in pairs]
+    return SimpleNamespace(direct_impacts=mk(direct), transitive_impacts=mk(transitive), recommended_tests=[])
+
+
+def test_select_impacted_tests_filters_ranks_and_caps():
+    impact = _imp(
+        direct=[("py://tests/test_a.py#t1", 1.0), ("py://agent/mod.py#f", 0.9)],  # non-test dropped
+        transitive=[("py://tests/test_b.py#t2", 0.7), ("py://tests/test_c.py#t3", 0.3)],  # 0.3 below floor
+    )
+    sel = select_impacted_tests(impact, top_k=10, min_confidence=0.6)
+    refs = [s["test_ref"] for s in sel]
+    assert refs == ["py://tests/test_a.py#t1", "py://tests/test_b.py#t2"]  # ranked by confidence, floor applied
+    assert all(s["confidence"] >= 0.6 for s in sel)
+
+
+def test_select_impacted_tests_top_k_bounds_output():
+    impact = _imp(direct=[(f"py://tests/test_{i}.py#t", 1.0) for i in range(100)])
+    assert len(select_impacted_tests(impact, top_k=20, min_confidence=0.0)) == 20
+
+
+def test_select_impacted_tests_empty_safe():
+    assert select_impacted_tests(None) == []
 
 
 def _report(**kw) -> TwinProofReport:
