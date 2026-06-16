@@ -3,3 +3,7 @@
 # (KASANE_DEBUG_TEST_HARNESS=1) and the Windows bootstrap venv on first creation.
 pytest
 playwright
+# Per-test coverage for the deterministic test-triage (coverage_ingest -> coverage_triage): collects
+# which source symbols each test exercises so impacted/stale/redundant/coverage-gap are deterministic.
+coverage
+pytest-cov

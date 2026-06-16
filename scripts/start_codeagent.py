@@ -501,14 +501,16 @@ def _ensure_test_harness(base_dir: Path, venv_python: Path, venv_pip: Path, env:
     dev_req = base_dir / "requirements-dev.txt"
     try:
         # 1. Python packages: install only when missing (the import probe is far cheaper than pip).
-        if _venv_has_modules(venv_python, ("pytest", "playwright")):
-            print("[Bootstrap] Test harness packages already present (pytest + playwright).")
+        # coverage + pytest_cov back the deterministic test-triage (coverage_ingest); a venv created
+        # before they were added self-heals on the next launch via the requirements-dev.txt reinstall.
+        if _venv_has_modules(venv_python, ("pytest", "playwright", "coverage", "pytest_cov")):
+            print("[Bootstrap] Test harness packages already present (pytest + playwright + coverage).")
         else:
             if dev_req.exists():
-                print("[Bootstrap] Installing test harness (pytest + playwright) into venv_sys...")
+                print("[Bootstrap] Installing test harness (pytest + playwright + coverage) into venv_sys...")
                 dev = subprocess.run([str(venv_pip), "install", "-r", str(dev_req)], cwd=base_dir, env=env, check=False)
             else:
-                dev = subprocess.run([str(venv_pip), "install", "pytest", "playwright"], cwd=base_dir, env=env, check=False)
+                dev = subprocess.run([str(venv_pip), "install", "pytest", "playwright", "coverage", "pytest-cov"], cwd=base_dir, env=env, check=False)
             if dev.returncode != 0:
                 print("[Bootstrap][WARN] Test harness install failed. Continue without it.")
                 return
