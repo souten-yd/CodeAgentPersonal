@@ -1303,6 +1303,7 @@
         <button class="nexus-subtab" id="forge-subtab-models" data-forge-tab="models" onclick="switchForgeTab('models')">Anvil</button>
         <button class="nexus-subtab" id="forge-subtab-asr" data-forge-tab="asr" onclick="switchForgeTab('asr')">ASR</button>
         <button class="nexus-subtab" id="forge-subtab-tts" data-forge-tab="tts" onclick="switchForgeTab('tts')">TTS</button>
+        <button class="nexus-subtab" id="forge-subtab-twin" data-forge-tab="twin" onclick="switchForgeTab('twin')">Twin</button>
       </div>
     </div>
     <div class="forge-shell" id="forge-shell">
@@ -1317,6 +1318,10 @@
     </div>
     <!-- Host for the relocated Models/ASR/TTS panels (filled at load from panel-col; same inner IDs + JS) -->
     <div class="forge-panel-host" id="forge-panel-host" style="display:none"></div>
+    <!-- Twin Control Plane panel (relocated into the host; rendered by renderTwinPanel via /api/twin) -->
+    <div class="tab-content" id="tab-twin" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:12px;-webkit-overflow-scrolling:touch">
+      <div id="twin-panel-body" aria-label="Twin Control Plane">Loading…</div>
+    </div>
   </div>
 
   <!-- PANEL -->
@@ -6847,14 +6852,14 @@ function showNexusTab(name) {
 function relocateForgePanels() {
   const host = document.getElementById('forge-panel-host');
   if (!host) return;
-  ['tab-models', 'tab-asr', 'tab-tts'].forEach((id) => {
+  ['tab-models', 'tab-asr', 'tab-tts', 'tab-twin'].forEach((id) => {
     const el = document.getElementById(id);
     if (el && el.parentElement !== host) host.appendChild(el);
   });
 }
 
 function switchForgeTab(name) {
-  const tabs = ['overview', 'models', 'asr', 'tts'];
+  const tabs = ['overview', 'models', 'asr', 'tts', 'twin'];
   const target = tabs.includes(name) ? name : 'overview';
   window._forgeTab = target;
   document.querySelectorAll('[data-forge-tab]').forEach((b) => {
@@ -6876,6 +6881,75 @@ function switchForgeTab(name) {
   if (target === 'models' && typeof refreshModelDb === 'function') refreshModelDb();
   if (target === 'asr' && typeof refreshAsrTab === 'function') refreshAsrTab();
   if (target === 'tts' && typeof refreshTtsTab === 'function') refreshTtsTab();
+  if (target === 'twin' && typeof renderTwinPanel === 'function') renderTwinPanel();
+}
+
+// ---- Twin Control Plane panel (/api/twin) ----------------------------------------
+async function _twinApi(path, options) {
+  const r = await fetch('/api/twin' + path, options || {});
+  if (!r.ok) throw new Error('twin api ' + path + ' -> ' + r.status);
+  return r.json();
+}
+
+function _twinEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+async function twinSetSetting(patch) {
+  try {
+    await _twinApi('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+  } catch (e) { /* surfaced on re-render */ }
+  renderTwinPanel();
+}
+
+async function twinRunEvaluation() {
+  const model = (document.getElementById('twin-eval-model') || {}).value || '';
+  const baseUrl = (document.getElementById('twin-eval-baseurl') || {}).value || '';
+  const out = document.getElementById('twin-eval-result');
+  if (!model) { if (out) out.textContent = 'Enter a model id.'; return; }
+  if (out) out.textContent = 'Running capability evaluation…';
+  try {
+    const res = await _twinApi('/evaluate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_id: model, base_url: baseUrl }) });
+    if (out) out.textContent = 'verdict=' + res.verdict + ' · recorded=' + res.recorded + ' · passed=' + res.passed + '/failed=' + res.failed + '/unavailable=' + res.unavailable;
+  } catch (e) { if (out) out.textContent = 'evaluation failed: ' + e.message; }
+  renderTwinPanel();
+}
+
+async function renderTwinPanel() {
+  const body = document.getElementById('twin-panel-body');
+  if (!body) return;
+  let settings = {}, profiles = { profiles: [], count: 0 };
+  try { settings = await _twinApi('/settings'); } catch (e) { body.innerHTML = '<div class="forge-status">Twin API unavailable: ' + _twinEsc(e.message) + '</div>'; return; }
+  try { profiles = await _twinApi('/profiles'); } catch (e) {}
+  const modeOpt = (v) => '<option value="' + v + '"' + (settings.mode === v ? ' selected' : '') + '>' + v + '</option>';
+  const toggle = (id, key, label) => '<label style="display:flex;gap:8px;align-items:center;margin:4px 0"><input type="checkbox" id="' + id + '"' + (settings[key] ? ' checked' : '') + ' onchange="twinSetSetting({' + key + ': this.checked})"> <span>' + label + '</span></label>';
+  const rows = (profiles.profiles || []).map((p) => {
+    const dims = Object.entries(p.dimension_scores || {}).map(([k, v]) => k + '=' + (Math.round(v * 100) / 100)).join(', ');
+    const weak = (p.known_weaknesses || []).join(', ') || '—';
+    return '<tr><td>' + _twinEsc(p.model_id) + '</td><td>' + _twinEsc(p.provider_id) + '</td><td>' + p.sample_count + '</td><td style="font-size:12px">' + _twinEsc(dims || '—') + '</td><td style="color:#c47">' + _twinEsc(weak) + '</td></tr>';
+  }).join('');
+  body.innerHTML =
+    '<div class="forge-head"><div class="forge-title">Twin Control Plane</div></div>' +
+    '<div class="forge-status">Mode/gates are process-scoped and reversible; they take effect on the next autonomous run. The seam stays advisory for execution authority.</div>' +
+    '<fieldset style="border:1px solid #333;border-radius:8px;padding:10px"><legend>Pipeline settings</legend>' +
+      '<label style="display:flex;gap:8px;align-items:center;margin:4px 0"><span style="min-width:140px">Pipeline mode</span>' +
+        '<select id="twin-mode" onchange="twinSetSetting({mode: this.value})">' + ['off', 'shadow', 'active'].map(modeOpt).join('') + '</select></label>' +
+      toggle('twin-gate-blocking', 'gate_blocking', 'Gate blocking (hard boundaries block)') +
+      toggle('twin-block-unverified', 'block_unverified', 'Block unverified changes (aggressive)') +
+      toggle('twin-block-schema', 'block_schema', 'Block breaking schema changes') +
+      toggle('twin-build-project', 'build_project', 'Build Project Twin in-run (re-run impact)') +
+    '</fieldset>' +
+    '<fieldset style="border:1px solid #333;border-radius:8px;padding:10px"><legend>Capability evaluation</legend>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+        '<input id="twin-eval-model" placeholder="model id" style="flex:1;min-width:200px" value="Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf">' +
+        '<input id="twin-eval-baseurl" placeholder="base url (optional)" style="flex:1;min-width:160px" value="">' +
+        '<button type="button" class="forge-action-btn" onclick="twinRunEvaluation()">Run evaluation</button>' +
+      '</div>' +
+      '<div id="twin-eval-result" class="forge-status" style="margin-top:6px"></div>' +
+    '</fieldset>' +
+    '<fieldset style="border:1px solid #333;border-radius:8px;padding:10px"><legend>Capability profiles (drive Twin injection) · ' + profiles.count + '</legend>' +
+      (rows ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th align="left">model</th><th align="left">provider</th><th align="left">samples</th><th align="left">dimensions</th><th align="left">known weaknesses</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div class="forge-status">No capability profiles yet — run an evaluation or let autonomous runs accumulate evidence.</div>') +
+    '</fieldset>';
 }
 
 
