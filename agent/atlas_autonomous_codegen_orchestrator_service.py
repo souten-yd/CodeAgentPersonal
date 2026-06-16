@@ -36,6 +36,7 @@ from agent.twin_control_plane.pipeline_integration import (
     refresh_project_twin,
     resolve_block_unverified,
     resolve_build_project_twin,
+    python_schema_snapshot,
     resolve_gate_blocking,
     resolve_pipeline_mode,
     try_project_twin_impact,
@@ -705,6 +706,14 @@ class AtlasAutonomousCodegenOrchestratorService:
             block_reason = twin_gate_block_reason(evidence) if resolve_gate_blocking() else ""
             evidence["gate_blocking_enabled"] = resolve_gate_blocking()
             evidence["gate_blocked"] = bool(block_reason)
+            # Capture the BEFORE schema (advisory Schema Guardian) of the target files as they
+            # exist pre-generation, so a post-apply diff can be measured.
+            try:
+                project_path = str(request.project_path or getattr(pool, "project_path", "") or "")
+                before = python_schema_snapshot(project_path, changed_refs, schema_id="before")
+                self._twin_before_schema = before.model_dump(mode="json") if before is not None else None
+            except Exception:
+                self._twin_before_schema = None
             out.metadata["twin_control_plane"] = evidence
             return block_reason
         except Exception as exc:  # pragma: no cover - defensive: never break the legacy flow
@@ -881,6 +890,20 @@ class AtlasAutonomousCodegenOrchestratorService:
                 project_id=str(request.pool_id or ""), changed_refs=changed_files,
                 store=self.project_twin_store,
             )
+            # Capture the AFTER schema and run advisory Schema Guardian against the BEFORE
+            # snapshot captured at pre-flight. StateMirror stays unavailable (no runtime state
+            # observations are produced by the codegen path). Advisory only — never blocks.
+            after_schema = None
+            try:
+                project_path = str(request.project_path or "")
+                snap = python_schema_snapshot(project_path, changed_files, schema_id="after")
+                after_schema = snap.model_dump(mode="json") if snap is not None else None
+            except Exception:
+                after_schema = None
+            from agent.twin_control_plane.schema_guardian import SchemaSnapshot
+            before_dump = getattr(self, "_twin_before_schema", None)
+            before_schema = SchemaSnapshot.model_validate(before_dump) if before_dump else None
+            after_obj = SchemaSnapshot.model_validate(after_schema) if after_schema else None
             req_md = request.metadata or {}
             report = evaluate_twin_post_apply(
                 mode=mode,
@@ -898,6 +921,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 plan_item_ref=str(request.run_id or ""),
                 model_id=str(req_md.get("model_id") or req_md.get("forge_model_id") or ""),
                 provider_id=str(req_md.get("provider_id") or req_md.get("forge_provider_id") or ""),
+                before_schema=before_schema, after_schema=after_obj,
             )
             tcp = out.metadata.get("twin_control_plane")
             if isinstance(tcp, dict):

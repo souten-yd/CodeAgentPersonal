@@ -114,7 +114,11 @@ def summarize_run(data: dict, project_path: str, target_files: list[str]) -> dic
             "repair_guidance_chars": len(post.get("repair_guidance") or ""),
             "bounded_retry": [_item_md(it, "bounded_retry_result") for it in item_results],
             "self_correction": [_item_md(it, "self_correction_result") for it in item_results],
+            "twin_repair_attempts": md.get("twin_repair_attempts") or [],
         },
+        # --- advisory Schema Guardian / StateMirror (measured, never blocks) ---
+        "advisory_schema": post.get("advisory_schema") or {},
+        "advisory_state": post.get("advisory_state") or {},
         "twin": {
             "mode": tcp.get("mode"),
             "engaged": tcp.get("engaged"),
@@ -229,7 +233,17 @@ def build_report(project_name: str, condition_records: list[dict]) -> dict:
             "content_validity_checked": any_run(lambda r: "content" in r),
             "valid_content_produced_at_least_once": any_run(
                 lambda r: bool(r.get("content", {}).get("content_valid"))),
+            "advisory_schema_available": any_run(
+                lambda r: bool(r.get("advisory_schema", {}).get("available"))),
+            "advisory_state_recorded": any_run(lambda r: "advisory_state" in r),
+            "twin_repair_loop_exercised": any_run(lambda r: bool(r.get("repair", {}).get("twin_repair_attempts"))),
         },
+        # False-positive proxy: an advisory schema "would_block" on a content-valid run is a
+        # candidate false positive (used to decide whether promotion to a blocking gate is safe).
+        "advisory_schema_false_positive_candidates": sum(
+            1 for r in all_runs
+            if r.get("content", {}).get("content_valid")
+            and r.get("advisory_schema", {}).get("would_block_if_promoted")),
         "content_validity": {
             name: {
                 "valid": sum(1 for r in runs if r.get("content", {}).get("content_valid")),

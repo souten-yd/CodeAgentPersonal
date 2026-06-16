@@ -482,6 +482,81 @@ ADVISORY_PROMPT_HEADER = (
 )
 
 
+def python_schema_snapshot(project_path: str, files: Iterable[str], *, schema_id: str = "artifact"):
+    """Best-effort schema snapshot of Python files: top-level public functions/classes and
+    their signatures, as an ARTIFACT schema surface. Returns None when nothing parseable is
+    found (so a missing/unparseable file is honestly unavailable, not a fabricated schema)."""
+    import ast
+    from pathlib import Path
+    from agent.twin_control_plane.schema_guardian import SchemaField, SchemaSnapshot, SchemaSurface
+
+    fields: list = []
+    refs: list[str] = []
+    for rel in files:
+        rel = str(rel).strip()
+        if not rel.endswith(".py"):
+            continue
+        path = Path(project_path) / rel
+        if not path.is_file():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        refs.append(rel)
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
+                args = ",".join(a.arg for a in node.args.args)
+                fields.append(SchemaField(name=node.name, field_type=f"function({args})", required=True))
+            elif isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
+                fields.append(SchemaField(name=node.name, field_type="class", required=True))
+    if not refs:
+        return None
+    return SchemaSnapshot(schema_id=schema_id, surface=SchemaSurface.ARTIFACT,
+                          fields=fields, evidence_refs=sorted(set(refs)))
+
+
+def _advisory_schema_section(before, after) -> dict:
+    """Run Schema Guardian in ADVISORY mode (records findings + a would-block flag; never
+    blocks the run). Unavailable when there is no after-snapshot."""
+    if after is None:
+        return {"available": False, "reason": "no_python_schema_snapshot"}
+    try:
+        from agent.twin_control_plane.schema_guardian import compare_schema_snapshots
+        report = compare_schema_snapshots(before, after)
+        return {
+            "available": True,
+            "accepted": report.accepted,
+            "migration_required": report.migration_required,
+            "would_block_if_promoted": report.blocked,
+            "finding_count": len(report.findings),
+            "proof_requirements": list(report.proof_requirements),
+        }
+    except Exception:
+        return {"available": False, "reason": "schema_guardian_error"}
+
+
+def _advisory_state_section(backend, ui, persisted, runtime) -> dict:
+    """Run StateMirror in ADVISORY mode. The codegen path produces no runtime state
+    observations by default, so this is normally unavailable (honestly recorded)."""
+    if not (backend or ui or persisted or runtime):
+        return {"available": False, "reason": "no_state_observations"}
+    try:
+        from agent.twin_control_plane.state_mirror import compare_state_mirror
+        report = compare_state_mirror(backend=backend or (), ui=ui or (),
+                                      persisted=persisted or (), runtime=runtime or ())
+        return {
+            "available": True,
+            "accepted": report.accepted,
+            "would_block_if_promoted": report.blocked,
+            "finding_count": len(report.findings),
+            "unavailable_evidence": list(report.unavailable_evidence),
+            "proof_requirements": list(report.proof_requirements),
+        }
+    except Exception:
+        return {"available": False, "reason": "state_mirror_error"}
+
+
 def _verification_evidence(verification: Iterable):
     """Normalise (id, status) pairs or {evidence_id,status} dicts into VerificationEvidence.
     Anything that is not an explicit passed/failed is treated as unavailable (never passed)."""
@@ -524,6 +599,12 @@ def evaluate_twin_post_apply(
     schema_guardian=None,
     state_mirror=None,
     twinproof=None,
+    before_schema=None,
+    after_schema=None,
+    backend_state: Iterable = (),
+    ui_state: Iterable = (),
+    persisted_state: Iterable = (),
+    runtime_state: Iterable = (),
     change_class: str = "medium",
     task_category: str = "autonomous_codegen",
 ) -> dict:
@@ -638,6 +719,9 @@ def evaluate_twin_post_apply(
                 "twinproof": twinproof is not None,
                 "built_from_impact": sub_gate_sources,
             },
+            # Advisory Schema Guardian / StateMirror: recorded for measurement, NEVER blocks.
+            "advisory_schema": _advisory_schema_section(before_schema, after_schema),
+            "advisory_state": _advisory_state_section(backend_state, ui_state, persisted_state, runtime_state),
             "gate_refs": list(report.gate_refs),
             "ledger_entry": ledger_entry_dump,
             "repair_compass": repair_section,
@@ -675,6 +759,7 @@ __all__ = [
     "REPAIR_COMPASS_PROMPT_HEADER",
     "compose_generation_system_prompt",
     "compose_repair_system_prompt",
+    "python_schema_snapshot",
     "build_advisory_context",
     "ADVISORY_PROMPT_HEADER",
     "build_twin_pipeline_evidence",
