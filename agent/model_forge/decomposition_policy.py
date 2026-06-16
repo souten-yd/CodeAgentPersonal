@@ -39,6 +39,12 @@ _SMALL_HINTS = (
 # Capability dimensions whose weakness most directly predicts trouble editing a large existing file.
 _CORE_EDIT_DIMS = frozenset({"contract_preservation", "impact_analysis", "repair_discipline"})
 
+# Dedicated measured dimension (Part B): direct evidence of large-file / long-context editing skill.
+# When present it drives the tier directly, ahead of the model-name heuristic.
+_LARGE_FILE_DIM = "large_file_editing"
+_LARGE_FILE_FRONTIER_AT = 0.7   # >= this measured score -> large files OK
+_LARGE_FILE_WEAK_AT = 0.4       # <= this measured score -> split aggressively
+
 # Long-context threshold (tokens) above which a model is treated as comfortable with large files.
 _LONG_CONTEXT_TOKENS = 100_000
 
@@ -78,9 +84,31 @@ def derive_decomposition_policy(
     Frontier: large files OK, minimal splitting. Weak: split aggressively into small files. Standard
     (default, also when nothing is known): balanced split into a few focused files."""
     mid = (model_id or "").lower()
-    strength = _capability_strength(capability_scores)
+    scores = dict(capability_scores or {})
+    strength = _capability_strength(scores)
     weaknesses = {str(w) for w in (known_weaknesses or [])}
     has_core_weakness = bool(weaknesses & _CORE_EDIT_DIMS)
+
+    # Part B: a MEASURED large-file-editing score takes precedence over the name heuristic — it is
+    # direct evidence of whether this model can edit a big file without mangling it.
+    measured = scores.get(_LARGE_FILE_DIM)
+    measured = float(measured) if isinstance(measured, (int, float)) else None
+    if measured is not None:
+        if measured >= _LARGE_FILE_FRONTIER_AT and not has_core_weakness:
+            return DecompositionPolicy(
+                tier="frontier", max_file_lines=1200, prefer_split=False, max_source_files=3,
+                rationale=f"measured large_file_editing={measured:.2f}: handles large files reliably, minimal splitting",
+            )
+        if measured <= _LARGE_FILE_WEAK_AT or has_core_weakness:
+            return DecompositionPolicy(
+                tier="weak", max_file_lines=200, prefer_split=True, max_source_files=7,
+                rationale=f"measured large_file_editing={measured:.2f}: weak at large files, split aggressively",
+            )
+        return DecompositionPolicy(
+            tier="standard", max_file_lines=_DEFAULT_MAX_FILE_LINES, prefer_split=True,
+            max_source_files=_DEFAULT_MAX_SOURCE_FILES,
+            rationale=f"measured large_file_editing={measured:.2f}: middling, balanced split",
+        )
 
     frontier = (
         any(h in mid for h in _FRONTIER_HINTS)

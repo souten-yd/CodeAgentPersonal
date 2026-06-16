@@ -36,6 +36,11 @@ CAPABILITY_DIMENSIONS: tuple[str, ...] = (
     "flag_reasoning",
     "repair_discipline",
     "evidence_discipline",
+    # Reliability editing a LARGE existing file / reasoning over long context: does the model place
+    # new code with a precise anchor (vs an unplaceable empty old_string), avoid placeholder
+    # truncation ("// rest unchanged"), and not echo the whole file back. Drives the file-decomposition
+    # budget (decomposition_policy): low score -> split aggressively, high score -> large files OK.
+    "large_file_editing",
 )
 
 
@@ -175,6 +180,11 @@ _BUILTIN_PACKS: tuple[CapabilityEvalPack, ...] = (
     _pack("evidence_discipline_pack", "evidence_discipline", "Evidence Discipline", [
         _c("ed_unavailable", "evidence_discipline", "keep unavailable distinct from passed", adversarial=True),
         _c("ed_no_mock_as_live", "evidence_discipline", "do not treat mock output as live evidence", adversarial=True),
+    ]),
+    _pack("large_file_editing_pack", "large_file_editing", "Large File Editing", [
+        _c("lfe_anchor", "large_file_editing", "place a new function with a precise insert_after anchor in the correct scope"),
+        _c("lfe_no_anchorless", "large_file_editing", "never return an insertion with an empty old_string and no anchor", adversarial=True),
+        _c("lfe_no_placeholder", "large_file_editing", "do not abbreviate the file with placeholder truncation comments", adversarial=True),
     ]),
 )
 

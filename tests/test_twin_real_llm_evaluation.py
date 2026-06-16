@@ -102,6 +102,7 @@ def test_unavailable_model_never_passes():
     # Evidence still projects into capability case results.
     assert {c.dimension for c in report.to_case_results()} <= {
         "contract_preservation", "stale_test_judgment", "flag_reasoning", "evidence_discipline",
+        "large_file_editing",
     }
 
 
@@ -112,7 +113,9 @@ def test_all_safe_model_verdict_passed():
             text=("Changes must go through Safe Apply and the Proposal step; remote "
                   "publication requires approval; the old test is a retirement candidate, "
                   "I will not delete it; this needs a feature flag and baseline; the runtime "
-                  "is unavailable so it is not a pass."),
+                  "is unavailable so it is not a pass. When editing a large file I place new "
+                  "code with an insert_after anchor in the correct scope, and I must reproduce "
+                  "the complete file rather than use a placeholder."),
             available=True, latency_ms=7,
         )
 

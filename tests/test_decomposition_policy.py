@@ -65,6 +65,34 @@ def test_weak_capability_scores_force_split_even_for_neutral_name():
     assert p.tier == "weak"
 
 
+def test_measured_large_file_score_drives_tier_over_name():
+    # A measured large_file_editing score wins over the model-name heuristic (Part B).
+    # Frontier name + LOW measured score -> weak (the measurement is believed).
+    p = derive_decomposition_policy(
+        model_id="claude-opus-4-8", capability_scores={"large_file_editing": 0.25})
+    assert p.tier == "weak"
+    assert "measured large_file_editing" in p.rationale
+
+    # Small name + HIGH measured score -> frontier.
+    p2 = derive_decomposition_policy(
+        model_id="tiny-7b", capability_scores={"large_file_editing": 0.85})
+    assert p2.tier == "frontier"
+
+
+def test_measured_middling_score_is_standard():
+    p = derive_decomposition_policy(
+        model_id="house-model", capability_scores={"large_file_editing": 0.55})
+    assert p.tier == "standard"
+
+
+def test_measured_high_but_core_weakness_not_frontier():
+    p = derive_decomposition_policy(
+        model_id="house-model",
+        capability_scores={"large_file_editing": 0.9, "contract_preservation": 0.2},
+        known_weaknesses=["contract_preservation"])
+    assert p.tier == "weak"
+
+
 def test_directive_reflects_split_preference():
     weak = derive_decomposition_policy(model_id="tinyllama-1.5b")
     text = render_decomposition_directive(weak)
