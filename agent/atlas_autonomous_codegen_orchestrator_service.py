@@ -190,9 +190,25 @@ class AtlasAutonomousCodegenOrchestratorService:
             if w not in out.warnings:
                 out.warnings.append(w)
         # Post-apply Twin gate over the run's real verification evidence and changed files.
-        # Advisory by default; a promoted hard-boundary block surfaces as blocked_safety_review.
-        twin_post_block = self._twin_post_apply_gate(out, request, autopilot)
-        if twin_post_block:
+        # A NG outcome does NOT stop the run: the stop reason is fed back as Repair Compass
+        # guidance and the affected items are regenerated (bounded). Only a genuine hard
+        # boundary that persists after the bounded repair attempts is a safety stop.
+        self._twin_post_apply_gate(out, request, autopilot)
+        _post = (out.metadata.get("twin_control_plane") or {}).get("post_apply") or {}
+        _ng, _ = self._twin_genuine_ng(_post)
+        twin_post_block = ""
+        if _ng:
+            autopilot, twin_post_block = self._maybe_twin_repair(
+                out=out, request=request, run_id=run_id, orchestrator_run_id=orchestrator_run_id,
+                requested_item_ids=requested_item_ids, project_path=str(preflight.get("effective_project_path") or request.project_path),
+                autopilot=autopilot,
+                limits={"effective_max_actions": effective_max_actions,
+                        "effective_max_items": effective_max_items,
+                        "effective_max_runtime_seconds": effective_max_runtime_seconds,
+                        "effective_max_changed_files_total": effective_max_changed_files_total})
+            out.autopilot_result = autopilot.model_dump()
+            out.stop_reason = autopilot.stop_reason
+        if twin_post_block and resolve_gate_blocking():
             out.phase = "failure_analysis"
             out.status = "blocked_safety_review"
             out.stop_reason = twin_post_block
@@ -774,6 +790,72 @@ class AtlasAutonomousCodegenOrchestratorService:
             if token in signal:
                 actions.append(token)
         return actions
+
+    def _clear_affected_items(self, pool_id: str, autopilot) -> None:
+        """Clear patch content for the items in this autopilot result so they regenerate."""
+        pool = self.storage.load_pool(pool_id)
+        changed = False
+        for it in getattr(autopilot, "item_results", []) or []:
+            item = pool.get_item(getattr(it, "item_id", ""))
+            if item is not None:
+                self._clear_patch_content(item)
+                changed = True
+        if changed:
+            self.storage.save_pool(pool)
+
+    @staticmethod
+    def _twin_genuine_ng(report: dict) -> tuple[bool, bool]:
+        """Return ``(is_ng, is_hard)`` for a post-apply report. A genuine NG is only a real
+        product regression (failed verification) or a hard-boundary block — NOT an evidence
+        gap (missing twin revision / unavailable verification). Evidence gaps never trigger
+        regeneration or a stop."""
+        hard = bool(report.get("blocked_reasons"))
+        failed = "verification_failed" in (report.get("repair_reasons") or [])
+        return (hard or failed), hard
+
+    def _maybe_twin_repair(
+        self, *, out: AtlasAutonomousCodegenResult, request: AtlasAutonomousCodegenRequest,
+        run_id: str, orchestrator_run_id: str, requested_item_ids: list[str], project_path: str,
+        autopilot, limits: dict,
+    ):
+        """Twin gate NG -> inject Repair Compass feedback and REGENERATE the affected items
+        (bounded by max_retries), re-evaluating the gate each pass. The run is NOT stopped on
+        a recoverable NG; the stop reason is fed back so the model regenerates to eliminate
+        it. Returns ``(autopilot, final_block_reason)`` where final_block_reason is non-empty
+        only when a genuine hard boundary persists after the bounded attempts."""
+        report = ((out.metadata.get("twin_control_plane") or {}).get("post_apply") or {})
+        _, hard = self._twin_genuine_ng(report)
+        guidance = report.get("repair_guidance") or ""
+        max_attempts = max(1, int(getattr(request, "max_retries", 0) or 2))
+        for attempt in range(1, max_attempts + 1):
+            if not guidance:
+                break
+            new_md = dict(request.metadata or {})
+            hints = dict(new_md.get("twin_generation_hints") or {})
+            hints["twin_repair_section"] = guidance
+            new_md["twin_generation_hints"] = hints
+            repair_request = request.model_copy(update={"metadata": new_md})
+            self._clear_affected_items(request.pool_id, autopilot)
+            self._emit("autonomous_codegen_twin_repair_started", request.pool_id, run_id,
+                       orchestrator_run_id, attempt=attempt)
+            autopilot = self._run_interleaved_items(
+                request=repair_request, out=out, run_id=run_id,
+                orchestrator_run_id=orchestrator_run_id, requested_item_ids=requested_item_ids,
+                project_path=project_path, **limits)
+            out.autopilot_result = autopilot.model_dump()
+            self._twin_post_apply_gate(out, request, autopilot)
+            report = ((out.metadata.get("twin_control_plane") or {}).get("post_apply") or {})
+            ng, hard = self._twin_genuine_ng(report)
+            guidance = report.get("repair_guidance") or ""
+            (out.metadata.setdefault("twin_repair_attempts", [])).append(
+                {"attempt": attempt, "decision": report.get("decision"), "still_ng": ng})
+            self._emit("autonomous_codegen_twin_repair_completed", request.pool_id, run_id,
+                       orchestrator_run_id, attempt=attempt, decision=report.get("decision"))
+            if not ng:
+                return autopilot, ""  # the stop reason was eliminated by regeneration
+        # Exhausted. Only a persistent genuine hard boundary remains a safety stop; a
+        # recoverable NG (needs_repair) does not halt the run.
+        return autopilot, ("twin_post_apply_hard_boundary" if hard else "")
 
     def _twin_post_apply_gate(self, out: AtlasAutonomousCodegenResult, request: AtlasAutonomousCodegenRequest, autopilot) -> str:
         """Run the post-apply Twin Patch Impact Gate over the run's REAL verification
