@@ -426,6 +426,27 @@ def build_twin_pipeline_evidence(
             except Exception:
                 safe_edit_section = {"available": False, "reason": "safe_edit_briefing_error"}
 
+        # TwinProof test-management plan: turn the test classifications (impacted / coverage-gap / stale /
+        # redundant / flaky) into an actionable, approval-gated plan — re-run impacted, add coverage,
+        # quarantine flaky, and RECOMMEND (never auto) retiring stale / consolidating redundant tests.
+        # Advisory; appended to the generation instruction so the model keeps impacted tests green and
+        # does not delete tests without approval. Empty/no-op when no TwinProof evidence exists.
+        test_management_section = {"available": False}
+        _twinproof = getattr(shadow_report, "twinproof", None) if shadow_report is not None else None
+        if _twinproof is not None:
+            try:
+                from agent.twin_control_plane.test_management import (
+                    build_test_management_plan, render_test_management_directive,
+                )
+
+                plan = build_test_management_plan(_twinproof)
+                directive = render_test_management_directive(plan)
+                if directive:
+                    compiled_text = (f"{compiled_text}\n\n{directive}" if compiled_text else directive)
+                    test_management_section = {"available": True, **plan.to_dict()}
+            except Exception:
+                test_management_section = {"available": False, "reason": "test_management_error"}
+
         has_shadow_evidence = shadow_report is not None
         engaged = mode == PipelineMode.ACTIVE and has_shadow_evidence
         evidence = {
@@ -456,6 +477,7 @@ def build_twin_pipeline_evidence(
             },
             "impact": _impact_section(impact),
             "safe_edit_briefing": safe_edit_section,
+            "test_management": test_management_section,
             "contract_sentinel": contract_section,
             "shadow_report": shadow_report.model_dump(mode="json") if shadow_report else None,
         }
