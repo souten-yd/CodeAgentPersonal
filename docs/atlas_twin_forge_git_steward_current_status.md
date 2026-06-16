@@ -133,6 +133,31 @@ Blocker, if any:
 ## Initial implementation record
 
 ```text
+Work package: Capability-profile auto-update from production + Twin Control API (settings/eval/profiles)
+Status: eval->profile->injection loop closed in production; Twin mode/gates and capability evaluation are now driveable via API (UI-callable)
+Proof level: deterministic + real-LLM measured
+Changed modules/files:
+- agent/atlas_autonomous_codegen_orchestrator_service.py (_update_capability_profile_from_run)
+- app/api/twin_control.py (new /api/twin router), app/server.py (register)
+- tests/test_twin_capability_autoupdate.py, tests/test_twin_control_api.py
+Executed commands and exact results:
+- deterministic suite -> 308 passed in 77.45s.
+- real /api/twin/evaluate against Mistral-Small-3.2-24B -> verdict=passed, recorded=True, 4 dimensions written to ProfileStore; /api/twin/profiles reflects them.
+Behavior implemented:
+- After the repair loop resolves, the orchestrator records control-plane capability evidence (contract_preservation / test_generation / repair_discipline) to the ProfileStore keyed by model_id, so accumulated production outcomes shape the next run's Twin injection (gates / injection level / instruction style). Only known-model runs contribute; evidence gaps contribute nothing.
+- /api/twin/settings GET/POST: read/change ATLAS_TWIN_PIPELINE_MODE + gate_blocking/block_unverified/block_schema/build_project (process-scoped, reversible, effective next run).
+- /api/twin/profiles GET: control-plane capability profiles (scores + known weaknesses) that drive injection.
+- /api/twin/evaluate POST: run the adversarial capability evaluation against a model and record evidence to the ProfileStore; returns unavailable (records nothing) when the model is unreachable.
+Real LLM / runtime evidence:
+- Two failed production runs accumulate test_generation low -> next run lists it as a known weakness (loop closed). Real-model API evaluation recorded 4 dimensions.
+Safety invariants:
+- Settings are advisory/reversible; unavailable is never recorded as a pass; no source mutation/apply/publish from the API. Atlas keeps Proposal/Safe Apply/Verification/Repair authority.
+Remaining gaps:
+- Front-end ui.html widgets for the new /api/twin endpoints are not added (the API is the UI-callable mechanism); a UI panel can call them.
+Blocker: none; local branch codex/tfg-profile-autoupdate-and-twin-api.
+```
+
+```text
 Work package: Schema Guardian gated blocking promotion + StateMirror observation sources
 Status: Schema Guardian can hard-block breaking changes via ATLAS_TWIN_BLOCK_SCHEMA (default off); StateMirror now has real observation sources (advisory available)
 Proof level: deterministic + real-LLM measured; promotion gated on the measured false-positive rate (currently 0)
