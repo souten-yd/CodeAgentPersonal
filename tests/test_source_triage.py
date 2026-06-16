@@ -51,3 +51,27 @@ def test_exact_body_duplicates_are_behavior_identical():
     flat = {r for g in groups for r in g}
     assert "py://a.py#utc_a" in flat and "py://b.py#utc_b" in flat
     assert "py://c.py#utc_c" not in flat  # different body -> not auto-mergeable
+
+
+def test_twin_native_duplicate_query_uses_node_fingerprints():
+    from types import SimpleNamespace
+    from agent.twin_control_plane.source_triage import find_duplicate_symbols_from_twin
+
+    def fn(ref, body_h, struct_h, nc=20, dec=False):
+        nm = ref.rsplit("#", 1)[-1]
+        return SimpleNamespace(canonical_ref=ref, node_type="function",
+                               properties={"body_hash": body_h, "structure_hash": struct_h,
+                                           "node_count": nc, "decorated": dec})
+    nodes = [
+        fn("py://a.py#f", "BODY1", "SHAPE1"),
+        fn("py://b.py#g", "BODY1", "SHAPE1"),     # identical body -> exact dup of f
+        fn("py://c.py#h", "BODY2", "SHAPE1"),     # same shape, different body
+        fn("py://d.py#__init__", "BODY1", "SHAPE1"),  # dunder -> excluded
+        fn("py://e.py#small", "BODY1", "SHAPE1", nc=4),  # below min_nodes -> excluded
+    ]
+    store = SimpleNamespace(get_snapshot=lambda pid: SimpleNamespace(nodes=nodes, edges=[]))
+
+    exact = find_duplicate_symbols_from_twin(store, "p", mode="exact", min_nodes=10)
+    assert exact == [["py://a.py#f", "py://b.py#g"]]  # only the identical-body pair, no dunder/small
+    structure = find_duplicate_symbols_from_twin(store, "p", mode="structure", min_nodes=10)
+    assert any({"py://a.py#f", "py://b.py#g", "py://c.py#h"} <= set(g) for g in structure)

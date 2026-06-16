@@ -38,6 +38,36 @@ def _structure_hash(node: ast.AST) -> tuple[str, int]:
     return digest, count
 
 
+def find_duplicate_symbols_from_twin(store, project_id: str, *, mode: str = "exact", min_nodes: int = _MIN_STRUCTURE_NODES) -> list[list[str]]:
+    """Native Twin query for duplicate functions, using the ``structure_hash`` / ``body_hash`` the static
+    analyzer now stores on each function/method node. ``mode="exact"`` (body_hash) returns
+    behavior-identical groups safe to auto-consolidate; ``mode="structure"`` (structure_hash) returns
+    same-shape candidates that need a judgment call. Dunders excluded. No source re-parsing — the Twin
+    already computed the fingerprints at build time, so this is incremental and queryable."""
+    key = "body_hash" if mode == "exact" else "structure_hash"
+    try:
+        snapshot = store.get_snapshot(project_id)
+    except Exception:
+        return []
+    by_hash: dict[str, list[str]] = {}
+    for node in getattr(snapshot, "nodes", []) or []:
+        if getattr(node, "node_type", "") not in ("function", "method"):
+            continue
+        ref = str(getattr(node, "canonical_ref", ""))
+        name = ref.rsplit("#", 1)[-1].rsplit(".", 1)[-1]
+        if name.startswith("__") and name.endswith("__"):
+            continue
+        props = getattr(node, "properties", {}) or {}
+        h = props.get(key)
+        try:
+            if not h or int(props.get("node_count", 0)) < min_nodes:
+                continue
+        except (TypeError, ValueError):
+            continue
+        by_hash.setdefault(str(h), []).append(ref)
+    return [sorted(set(g)) for g in by_hash.values() if len(set(g)) > 1]
+
+
 def _body_hash(node: ast.AST) -> tuple[str, int]:
     """(hash, node_count) of a function's EXACT body: ``ast.dump`` of the statements, identifiers and
     literals INCLUDED. Two functions with the same body hash are behavior-identical (the function name
