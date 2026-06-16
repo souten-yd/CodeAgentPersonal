@@ -29,13 +29,20 @@ def build_coverage_triage(
     *,
     existing_symbols: Iterable[str],
     changed_symbols: Iterable[str] = (),
+    redundancy_signatures: Mapping[str, frozenset] | None = None,
 ) -> TwinProofReport:
     """Classify tests from a coverage map ``{test_ref: {covered_source_symbol_ref, ...}}``.
 
     ``existing_symbols`` is the set of source symbols that currently exist (from the Twin graph);
     ``changed_symbols`` are the symbols touched by the change under consideration (optional — empty
-    means "no specific change", so nothing is IMPACTED). Returns a TwinProofReport with the
-    classifications populated; feed it to ``build_test_management_plan`` for the action plan."""
+    means "no specific change", so nothing is IMPACTED).
+
+    ``redundancy_signatures`` (optional ``{test_ref: signature}``): when given, REDUNDANT is computed
+    from these instead of the covered-symbol set. Pass the line-level coverage signature here — two
+    tests are truly redundant only if they exercise the SAME lines, not merely the same symbol (six
+    tests of one function hit different branches). Without it, redundancy falls back to symbol sets.
+
+    Returns a TwinProofReport; feed it to ``build_test_management_plan`` for the action plan."""
     existing = _norm(existing_symbols)
     changed = _norm(changed_symbols)
 
@@ -48,7 +55,7 @@ def build_coverage_triage(
     impacted: list[str] = []
     stale: list[str] = []
     redundant: list[str] = []
-    by_signature: dict[frozenset[str], list[str]] = {}
+    by_signature: dict[object, list[str]] = {}
 
     for test_ref, syms in cov.items():
         if changed and (syms & changed):
@@ -56,10 +63,14 @@ def build_coverage_triage(
         # Stale: the test covers at least one symbol, but NONE of them still exist.
         if syms and not (syms & existing):
             stale.append(test_ref)
-        if syms:
+        if redundancy_signatures is not None:
+            sig = redundancy_signatures.get(test_ref)
+            if sig:
+                by_signature.setdefault(sig, []).append(test_ref)
+        elif syms:
             by_signature.setdefault(frozenset(syms & existing or syms), []).append(test_ref)
 
-    # Redundant: identical covered-symbol set across >1 test -> keep one, the rest are candidates.
+    # Redundant: identical signature across >1 test -> keep one, the rest are candidates.
     for _sig, tests in by_signature.items():
         if len(tests) > 1:
             redundant.extend(sorted(tests)[1:])
