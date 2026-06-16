@@ -110,11 +110,24 @@ class ExecutionPolicySelector:
         task_category: str = "",
         requested_route: ForgeRoute | str | None = None,
         model_profile: ModelCapabilityProfile | None = None,
+        route_preferences: dict | None = None,
         twin_risk: str = "medium",
     ) -> ExecutionPolicy:
         change = ChangeClass(change_class)
         profile = model_profile or ModelCapabilityProfile(model_id="default")
         route_selection = self._route_selector.select(change, task_category=task_category, requested_route=requested_route)
+        # Benchmark x injection: among the RouteMatrix's SAFE candidates, prefer the route
+        # the model performs best at (route_preferences). RouteMatrix stays the authority —
+        # we only re-order within the safe set, never override safety or a critical gate.
+        benchmark_route = None
+        if (route_preferences and requested_route is None
+                and not route_selection.critical_gate_required
+                and route_selection.candidates_considered):
+            from agent.model_forge.route_fitness import best_route
+            benchmark_route = best_route(route_selection.candidates_considered, route_preferences)
+            if benchmark_route is not None and benchmark_route != route_selection.selected_route:
+                route_selection = self._route_selector.select(
+                    change, task_category=task_category, requested_route=benchmark_route)
         route = route_selection.selected_route
         weaknesses = set(profile.known_weaknesses)
         base_level = _base_injection(profile, task_category=task_category, change_class=change)
@@ -147,6 +160,8 @@ class ExecutionPolicySelector:
         reasons.append(f"model_mode={profile.mode}")
         reasons.append(f"twin_risk={twin_risk}")
         reasons.append(f"injection={int(injection)}")
+        if benchmark_route is not None:
+            reasons.append(f"benchmark_preferred_route={benchmark_route.value}:{round(route_preferences.get(benchmark_route, 0), 3)}")
         if weaknesses:
             reasons.append("known_weaknesses=" + ",".join(sorted(weaknesses)))
 
