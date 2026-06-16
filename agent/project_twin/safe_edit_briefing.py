@@ -16,6 +16,19 @@ from dataclasses import dataclass, field
 # symbol with a huge fan-in (a frequently-called helper in a large codebase).
 _MAX_PER_SECTION = 12
 
+# Twin impact traversal can surface INTERNAL graph nodes — a callee's local variables / nested defs
+# (e.g. ``var://...#caller/mode``, ``def://...#caller/L161:x``) — alongside the real symbol that
+# depends on the target. Those are noise in a "who depends on this" briefing (and an artifact observed
+# while evaluating the Twin against a frontier reading of the repo), so we keep only real source-symbol
+# refs and drop these internal-node schemes.
+_INTERNAL_REF_PREFIXES = ("var://", "def://")
+
+
+def _is_dependent_ref(ref: str) -> bool:
+    """A real source symbol/file that depends on the target — not an internal variable / nested-def
+    node of some caller."""
+    return bool(ref) and not ref.startswith(_INTERNAL_REF_PREFIXES)
+
 
 @dataclass
 class SafeEditBriefing:
@@ -56,14 +69,16 @@ def build_safe_edit_briefing(impact, *, target_refs=(), uncertain_below: float =
 
     callers: list[dict] = []
     uncertain: list[dict] = []
+    seen: set[str] = set()
     for obj in [*(getattr(impact, "direct_impacts", []) or []), *(getattr(impact, "transitive_impacts", []) or [])]:
         d = _item(obj)
-        if not d["ref"]:
+        if not _is_dependent_ref(d["ref"]) or d["ref"] in seen:
             continue
+        seen.add(d["ref"])
         (uncertain if d["confidence"] < uncertain_below else callers).append(d)
 
-    side_effects = [_item(o) for o in (getattr(impact, "side_effects", []) or []) if str(getattr(o, "canonical_ref", ""))]
-    tests = [_item(o) for o in (getattr(impact, "recommended_tests", []) or []) if str(getattr(o, "canonical_ref", ""))]
+    side_effects = [_item(o) for o in (getattr(impact, "side_effects", []) or []) if _is_dependent_ref(str(getattr(o, "canonical_ref", "")))]
+    tests = [_item(o) for o in (getattr(impact, "recommended_tests", []) or []) if _is_dependent_ref(str(getattr(o, "canonical_ref", "")))]
 
     # Most-confident dependents first; bound each section.
     callers.sort(key=lambda d: d["confidence"], reverse=True)
