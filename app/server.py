@@ -154,7 +154,9 @@ def include_routers(app: FastAPI) -> None:
     from app.api.skills import router as skills_router
     from app.api.voice import router as voice_router
     from app.api.project_twin import router as project_twin_router
+    from app.api.twin_control import router as twin_control_router
 
+    app.include_router(twin_control_router)
     app.include_router(atlas_workflow_state_router)
     app.include_router(atlas_automation_safety_profile_router)
     app.include_router(atlas_pipeline_router)
