@@ -218,6 +218,14 @@ class AtlasAutonomousCodegenOrchestratorService:
             self.save_result(out)
             return out
         repair_evidence = self._build_repairable_verification_evidence(request, autopilot)
+        # Close the eval->profile->injection loop: record this run's control-plane capability
+        # evidence (after the repair loop resolved) so future runs' Twin injection reflects it.
+        _req_md = request.metadata or {}
+        self._update_capability_profile_from_run(
+            (out.metadata.get("twin_control_plane") or {}).get("post_apply") or {},
+            model_id=str(_req_md.get("model_id") or _req_md.get("forge_model_id") or ""),
+            provider_id=str(_req_md.get("provider_id") or _req_md.get("forge_provider_id") or ""),
+            repair_attempts=out.metadata.get("twin_repair_attempts"))
 
         # ── Phase 4: aggregate ────────────────────────────────────────────────────────────────
         out.phase = "final_summary"
@@ -755,6 +763,44 @@ class AtlasAutonomousCodegenOrchestratorService:
             return self._anti_pattern_store().load()
         except Exception:  # pragma: no cover - defensive
             return None
+
+    def _update_capability_profile_from_run(self, report: dict, *, model_id: str, provider_id: str, repair_attempts=None) -> None:
+        """Close the eval->profile->injection loop: derive control-plane capability evidence
+        from THIS run's outcome and record it to the ProfileStore, keyed by the model. Only
+        runs with a known model_id contribute (no anonymous attribution). Conservative,
+        evidence-backed dimensions only:
+        - contract_preservation: a hard-boundary block lowers it, a clean run raises it;
+        - test_generation: failed verification lowers it, passed raises it;
+        - repair_discipline: a recovered repair loop raises it, an exhausted one lowers it.
+        Pure evidence gaps (unavailable) contribute nothing (unavailable != failure)."""
+        try:
+            if not model_id or not isinstance(report, dict) or not report.get("ran"):
+                return
+            dims: dict[str, float] = {}
+            repair_reasons = report.get("repair_reasons") or []
+            blocked = bool(report.get("blocked_reasons"))
+            passed = bool(report.get("passed_evidence"))
+            failed_verif = "verification_failed" in repair_reasons
+            if blocked:
+                dims["contract_preservation"] = 0.0
+            elif passed:
+                dims["contract_preservation"] = 1.0
+            if failed_verif:
+                dims["test_generation"] = 0.0
+            elif passed:
+                dims["test_generation"] = 1.0
+            if isinstance(repair_attempts, list) and repair_attempts:
+                dims["repair_discipline"] = 0.0 if repair_attempts[-1].get("still_ng") else 1.0
+            if not dims:
+                return
+            from agent.model_forge.profile_store import ProfileStore
+            store = ProfileStore(Path(self.data_root) / "model_forge" / "profiles")
+            store.record_observation(
+                model_id=model_id, provider_id=provider_id or "local", dimensions=dims,
+                source="autonomous_run",
+                evidence_refs=[str((report.get("ledger_entry") or {}).get("entry_id") or report.get("report_id") or "")])
+        except Exception:  # pragma: no cover - defensive
+            return
 
     def _golden_patch_store(self):
         from agent.model_forge.golden_patch_retrieval import GoldenPatchStore
