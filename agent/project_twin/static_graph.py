@@ -50,6 +50,27 @@ def nid(canonical_ref: str) -> str:
     return hashlib.sha1(canonical_ref.encode("utf-8")).hexdigest()[:16]
 
 
+def _function_fingerprints(fn: ast.AST) -> tuple[str, str, int]:
+    """(structure_hash, body_hash, node_count) for a function. structure_hash normalizes identifiers and
+    literal VALUES away (keeps node types + literal types) so 'same logic, different names' collides;
+    body_hash is ``ast.dump`` of the body so only behavior-identical functions collide. Stored on the
+    node so clone detection is a Twin query."""
+    shape: list[str] = []
+    count = 0
+    for n in ast.walk(fn):
+        count += 1
+        shape.append(type(n).__name__)
+        if isinstance(n, ast.Constant):
+            shape.append(type(n.value).__name__)
+    struct = hashlib.sha256("|".join(shape).encode("utf-8")).hexdigest()[:16]
+    try:
+        body = "||".join(ast.dump(s) for s in getattr(fn, "body", []))
+    except Exception:
+        body = ""
+    body_h = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    return struct, body_h, count
+
+
 def _rel(root: Path, p: Path) -> str:
     return p.relative_to(root).as_posix()
 
@@ -344,11 +365,19 @@ def _analyze_python(b: _Builder, root: Path, path: Path, file_ref: str, module_m
     def handle_function(fn: ast.FunctionDef | ast.AsyncFunctionDef, qual: str, container_ref: str) -> None:
         sym_ref = f"py://{rel}#{qual}"
         node_type = "method" if "." in qual else "function"
+        struct_hash, body_hash, node_count = _function_fingerprints(fn)
         b.node(domain="structural", node_type=node_type, canonical_ref=sym_ref, label=qual, source_ref=rel,
                properties={
                    "async": isinstance(fn, ast.AsyncFunctionDef),
                    "start_line": getattr(fn, "lineno", 1),
                    "end_line": getattr(fn, "end_lineno", getattr(fn, "lineno", 1)),
+                   # Fingerprints so duplicate/clone detection is a native Twin query (group nodes by
+                   # hash) rather than a separate AST pass. structure_hash = shape (names/literals
+                   # normalized away) -> candidates; body_hash = identical body -> safe-to-merge.
+                   "structure_hash": struct_hash,
+                   "body_hash": body_hash,
+                   "node_count": node_count,
+                   "decorated": bool(fn.decorator_list),
                })
         b.edge(domain="structural", edge_type="defines", source_ref_node=container_ref, target_ref_node=sym_ref, source_ref=rel)
 
