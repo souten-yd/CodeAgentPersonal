@@ -79,12 +79,15 @@ def get_profiles(request: Request) -> dict:
     instruction style). These accumulate from production runs and capability evaluations."""
     from agent.model_forge.capability_scoring import build_capability_profile
     from agent.model_forge.profile_store import ProfileStore
+    from agent.model_forge.route_fitness import derive_route_fitness
 
     root = resolve_atlas_ca_data_root(request)
     store = ProfileStore(Path(root) / "model_forge" / "profiles")
     out = []
     for profile in store.list_profiles():
         cap = build_capability_profile(profile, model_id=profile.model_id, provider_id=profile.provider_id)
+        fitness = derive_route_fitness(profile.dimension_scores)
+        best = max(fitness.items(), key=lambda kv: kv[1])[0].value if fitness else ""
         out.append({
             "model_id": profile.model_id,
             "provider_id": profile.provider_id,
@@ -92,6 +95,9 @@ def get_profiles(request: Request) -> dict:
             "sample_count": profile.sample_count,
             "dimension_scores": profile.dimension_scores,
             "known_weaknesses": list(cap.known_weaknesses),
+            # Benchmark x injection: the route the model performs best at + per-route fitness.
+            "best_route": best,
+            "route_fitness": {r.value: v for r, v in fitness.items()},
         })
     return {"profiles": out, "count": len(out)}
 
