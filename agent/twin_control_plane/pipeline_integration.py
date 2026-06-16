@@ -287,8 +287,24 @@ def expand_changed_refs_to_symbols(store, project_id: str, changed_refs: Iterabl
     return deduped
 
 
+def resolve_impact_depth(node_count: int) -> int:
+    """Adapt impact traversal depth to project scale. Depth — not confidence — controls how much of
+    the suite a change reaches (the KasaneCore eval: a leaf module hit 4/24/190/485 tests at depth
+    1/2/3/4). A small graph can be explored deeper without over-selecting; a large, densely connected
+    one reaches half the repo within a few hops and must stay shallow. Thresholds tuned from that eval
+    (KasaneCore ≈ 216k nodes -> depth 2 gives ~24/1027)."""
+    if node_count <= 0:
+        return 3
+    if node_count < 3_000:
+        return 4
+    if node_count < 20_000:
+        return 3
+    return 2
+
+
 def try_project_twin_impact(
-    *, project_id: str, changed_refs: Iterable[str], store=None, change_kind: str = "modify"
+    *, project_id: str, changed_refs: Iterable[str], store=None, change_kind: str = "modify",
+    max_depth: int | None = None,
 ):
     """Best-effort real Project Twin impact for the current run.
 
@@ -296,14 +312,30 @@ def try_project_twin_impact(
     ``project_id`` is available, else ``None`` (recorded as unavailable upstream — never
     fabricated). Never raises. There is no persistent per-project Twin store by default,
     so the common live outcome is ``None``; when a store is supplied (tests, or a future
-    persistent Twin), real impact flows through unchanged."""
+    persistent Twin), real impact flows through unchanged.
+
+    ``max_depth`` is SCALE-ADAPTIVE when not given (``resolve_impact_depth`` from the graph size),
+    NOT the ImpactRequest default of 5: the repo-scale evaluation found depth 4-5 reaches ~half the
+    test suite for a leaf module on a large repo (everything connects through shared modules), while a
+    scale-appropriate depth yields a precise, actionable dependent/test set (KasaneCore: 24/1027 at
+    depth 2 vs 485/1027 at depth 4). This is the precision lever for the Safe-Edit Briefing and test
+    selection — keep the dependents that really matter."""
     refs = [str(r).strip() for r in changed_refs if str(r).strip()]
     if store is None or not project_id or not refs:
         return None
     try:
         from agent.project_twin.contracts import ImpactRequest
 
-        request = ImpactRequest(project_id=project_id, changed_refs=refs, change_kind=change_kind)
+        depth = max_depth
+        if depth is None:
+            node_count = 0
+            try:  # the snapshot is cached (P1), so this is cheap after the first load.
+                node_count = len(getattr(store.get_snapshot(project_id), "nodes", []) or [])
+            except Exception:
+                node_count = 0
+            depth = resolve_impact_depth(node_count)
+        request = ImpactRequest(project_id=project_id, changed_refs=refs, change_kind=change_kind,
+                                max_depth=depth)
         return store.assess_impact(request)
     except Exception:
         return None
