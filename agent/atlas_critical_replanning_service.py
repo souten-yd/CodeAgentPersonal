@@ -11,8 +11,7 @@ from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_quality_gate import apply_plan_quality_gate
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from agent.atlas_time_utils import utc_now_iso as _utc_now_iso
 
 
 class AtlasCriticalReplanningService:

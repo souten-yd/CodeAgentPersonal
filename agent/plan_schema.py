@@ -7,8 +7,7 @@ from pydantic import BaseModel, Field
 from agent.atlas_plan_target_contract import PLAN_TARGET_CONTRACT_SCHEMA_VERSION, PlanOperation
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from agent.atlas_time_utils import utc_now_iso as _utc_now_iso
 
 
 ActionType = Literal["create", "update", "delete", "inspect", "run_command", "test"]
