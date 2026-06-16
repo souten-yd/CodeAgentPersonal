@@ -100,3 +100,15 @@ def test_expand_passes_through_symbol_refs_and_is_safe_without_store():
     # Symbol-level refs are unchanged; no store -> returns the originals (never raises).
     assert expand_changed_refs_to_symbols(None, "p", ["py://a.py#f"]) == ["py://a.py#f"]
     assert expand_changed_refs_to_symbols(None, "", ["x.py"]) == ["x.py"]
+
+
+def test_resolve_impact_depth_scales_with_project_size():
+    from agent.twin_control_plane.pipeline_integration import resolve_impact_depth
+    # Small graph -> can go deep without over-selecting; large -> must stay shallow.
+    assert resolve_impact_depth(500) == 4
+    assert resolve_impact_depth(10_000) == 3
+    assert resolve_impact_depth(216_000) == 2   # KasaneCore scale
+    assert resolve_impact_depth(0) == 3          # unknown -> middle default
+    # Monotonic non-increasing as the project grows.
+    depths = [resolve_impact_depth(n) for n in (500, 10_000, 216_000)]
+    assert depths == sorted(depths, reverse=True)
