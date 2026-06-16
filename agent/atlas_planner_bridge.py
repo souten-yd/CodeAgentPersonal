@@ -109,6 +109,12 @@ class AtlasPlannerBridge:
             progress_cb=self.progress_cb,
         )
         advisory = request.planner_context_text_v2 or request.advisory_context_text or request.planner_context_text
+        # Model-capability-driven file decomposition: a weak model gets a smaller per-file budget and
+        # is told to split more; a frontier model is allowed large / single-file deliverables. Advisory
+        # only, best-effort, disabled-safe (no-op when no profile and an unknown model).
+        decomposition = self._decomposition_directive(request)
+        if decomposition:
+            advisory = f"{advisory}\n\n{decomposition}" if advisory else decomposition
         result = runner.run(
             user_input=request.input,
             project_path=request.project_path,
@@ -121,6 +127,50 @@ class AtlasPlannerBridge:
             progress_cb=self.progress_cb,
         )
         return _as_dict(result)
+
+    def _decomposition_directive(self, request: AtlasPlannerBridgeRequest) -> str:
+        """Model-specific file-decomposition budget for the planner advisory. Best-effort: resolves the
+        active model + its Forge capability profile and renders a sizing directive. Returns "" on any
+        problem so planning is never blocked. With no profile and an unknown model this yields the
+        balanced ``standard`` tier (the same defaults the static prompt already used)."""
+        try:
+            import os
+            from pathlib import Path
+            from agent.model_forge.decomposition_policy import (
+                derive_decomposition_policy, render_decomposition_directive,
+            )
+
+            md = request.metadata if isinstance(request.metadata, dict) else {}
+            model_id = str(
+                md.get("model_id")
+                or getattr(self.llm_json_fn, "model", "")
+                or os.environ.get("CODEAGENT_MODEL")
+                or os.environ.get("OPENAI_MODEL")
+                or os.environ.get("FORGE_LOCAL_MODEL")
+                or ""
+            ).strip()
+            provider_id = str(md.get("provider_id") or "local").strip() or "local"
+            capability_scores: dict = {}
+            known_weaknesses: tuple = ()
+            if model_id:
+                try:
+                    from agent.model_forge.capability_scoring import load_capability_profile
+                    from agent.model_forge.profile_store import ProfileStore
+
+                    store = ProfileStore(Path(self.ca_data_dir) / "model_forge" / "profiles")
+                    cap = load_capability_profile(store, provider_id, model_id)
+                    capability_scores = dict(getattr(cap, "capability_scores", {}) or {})
+                    known_weaknesses = tuple(getattr(cap, "known_weaknesses", ()) or ())
+                except Exception:  # noqa: BLE001 - profile is advisory; fall back to the name heuristic.
+                    pass
+            policy = derive_decomposition_policy(
+                capability_scores=capability_scores,
+                known_weaknesses=known_weaknesses,
+                model_id=model_id,
+            )
+            return render_decomposition_directive(policy)
+        except Exception:  # noqa: BLE001 - never block planning on the advisory directive.
+            return ""
 
     def build_pool_from_planner_result(
         self,
