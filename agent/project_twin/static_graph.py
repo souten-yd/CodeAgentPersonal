@@ -36,6 +36,10 @@ PARSER_VERSION = "static_graph.v4"
 _IGNORE_DIRS = {
     ".git", "__pycache__", "node_modules", "venv_sys", "tts_envs", "third_party",
     "ca_data", ".pytest_cache", "assets", "dist", "build", ".mypy_cache",
+    # .claude/worktrees holds full COPIES of the repo (incl. tests); indexing them duplicated every
+    # symbol/test and over-connected impact (the repo-scale eval saw a leaf module reach ~900/1027
+    # tests via worktree copies). Exclude agent state and virtualenvs.
+    ".claude", ".venv", "venv", ".idea", ".vscode", "htmlcov", ".tox",
 }
 _MAX_FILE_BYTES = 400_000
 

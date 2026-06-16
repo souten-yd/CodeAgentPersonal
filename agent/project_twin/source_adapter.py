@@ -25,6 +25,18 @@ _IGNORE_NAMES = {
     "build",
     "ca_data",
     "atlas_workspace",
+    # .claude/worktrees holds full COPIES of the repo — indexing them duplicates every symbol/test and
+    # over-connects impact. Exclude agent state, virtualenvs, and IDE/coverage dirs.
+    ".claude",
+    "venv_sys",
+    ".venv",
+    "venv",
+    "tts_envs",
+    "third_party",
+    ".idea",
+    ".vscode",
+    "htmlcov",
+    ".tox",
 }
 _TEXT_SUFFIXES = {
     ".py",
