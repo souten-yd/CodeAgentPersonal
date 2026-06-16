@@ -87,6 +87,7 @@ def extract_symbols(
     target_files: list[str] | None = None,
     max_symbols: int = 60,
     relevance_terms: list[str] | None = None,
+    boost_files: list[str] | None = None,
     candidate_cap: int = 800,
 ) -> list[dict]:
     """Extract function/class symbols (AST for Python, regex for JS/TS) from target files or the project.
@@ -96,15 +97,15 @@ def extract_symbols(
 
     ``relevance_terms`` (e.g. the change goal + target-file stems): when given, the whole-project scan
     collects up to ``candidate_cap`` symbols, RANKS them by overlap with the terms (and a boost for
-    symbols in the target files), and returns the most relevant ``max_symbols`` — so on a large repo the
-    model sees the symbols it actually needs instead of an arbitrary first-N. Without terms the behavior
-    is unchanged (first-N in scan order)."""
+    symbols in ``boost_files`` — the edited files plus the Twin's dependent files), and returns the most
+    relevant ``max_symbols`` — so on a large repo the model sees the symbols it actually needs instead of
+    an arbitrary first-N. Without terms the behavior is unchanged (first-N in scan order)."""
     root = Path(project_path or "").expanduser()
     if not project_path or not root.is_dir():
         return []
     ranked = bool(relevance_terms) and not target_files
     cap = candidate_cap if ranked else max_symbols
-    target_set = {str(t).replace("\\", "/").lstrip("/") for t in (target_files or [])}
+    boost_set = {str(t).replace("\\", "/").lstrip("/") for t in (boost_files or target_files or [])}
     if target_files:
         paths = []
         for rel in target_files:
@@ -154,7 +155,7 @@ def extract_symbols(
                     break
     if not ranked:
         return out[:max_symbols]
-    return _rank_symbols_by_relevance(out, relevance_terms or [], target_set)[:max_symbols]
+    return _rank_symbols_by_relevance(out, relevance_terms or [], boost_set)[:max_symbols]
 
 
 def _rank_symbols_by_relevance(symbols: list[dict], terms: list[str], target_files: set[str]) -> list[dict]:
@@ -262,8 +263,8 @@ class ProjectIntelligenceCodeExplorerAdapter:
     def search_code_excerpts(self, project_path: str, terms: list[str], *, max_hits: int = 20, context_lines: int = 2) -> list[dict]:
         return search_code_excerpts(project_path, terms, max_hits=max_hits, context_lines=context_lines)
 
-    def extract_symbols(self, project_path: str, *, target_files: list[str] | None = None, max_symbols: int = 60, relevance_terms: list[str] | None = None) -> list[dict]:
-        return extract_symbols(project_path, target_files=target_files, max_symbols=max_symbols, relevance_terms=relevance_terms)
+    def extract_symbols(self, project_path: str, *, target_files: list[str] | None = None, max_symbols: int = 60, relevance_terms: list[str] | None = None, boost_files: list[str] | None = None) -> list[dict]:
+        return extract_symbols(project_path, target_files=target_files, max_symbols=max_symbols, relevance_terms=relevance_terms, boost_files=boost_files)
 
     def find_related_tests(self, project_path: str, target_files: list[str], *, max_tests: int = 10) -> list[str]:
         return find_related_tests(project_path, target_files, max_tests=max_tests)

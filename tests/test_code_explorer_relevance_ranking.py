@@ -43,6 +43,17 @@ def test_without_terms_behavior_unchanged(tmp_path):
     assert len(a) == 5
 
 
+def test_boost_files_surface_twin_dependents(tmp_path):
+    # A6: the Twin's dependent files get a symbol boost even with a generic term, so the model sees the
+    # dependents' API. caller_b.py depends on the change but its symbol name shares no term.
+    _mk(tmp_path)
+    (tmp_path / "caller_b.py").write_text("def consume_thing():\n    return 0\n", encoding="utf-8")
+    ranked = extract_symbols(str(tmp_path), max_symbols=3, relevance_terms=["collision"],
+                             boost_files=["caller_b.py"])
+    files = [s["file"] for s in ranked]
+    assert "caller_b.py" in files
+
+
 def test_target_files_scoping_ignores_relevance(tmp_path):
     # When target_files is given we scan only those (no whole-project ranking).
     _mk(tmp_path)
