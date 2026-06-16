@@ -72,6 +72,30 @@ def test_sections_are_bounded():
     assert len(b.callers) <= 12  # _MAX_PER_SECTION
 
 
+def test_internal_variable_and_def_nodes_are_filtered():
+    # Twin impact traversal can surface a caller's local variables / nested defs as var:// and def://
+    # nodes. Those are noise in a "who depends on this" briefing (observed while evaluating the Twin
+    # over this repo) and must be dropped — only real source symbols remain.
+    impact = _impact(direct_impacts=[
+        _item("py://capability_scoring.py#load_capability_profile", conf=0.9),
+        _item("var://py://capability_scoring.py#load_capability_profile/mode", conf=0.9),
+        _item("def://py://capability_scoring.py#load_capability_profile/L161:profile", conf=0.9),
+    ])
+    b = build_safe_edit_briefing(impact)
+    refs = {c["ref"] for c in b.callers}
+    assert refs == {"py://capability_scoring.py#load_capability_profile"}
+    assert all(not r.startswith(("var://", "def://")) for r in refs)
+
+
+def test_duplicate_refs_are_deduped():
+    impact = _impact(
+        direct_impacts=[_item("py://a.py#f", conf=0.9)],
+        transitive_impacts=[_item("py://a.py#f", conf=0.7)],
+    )
+    b = build_safe_edit_briefing(impact)
+    assert [c["ref"] for c in b.callers] == ["py://a.py#f"]
+
+
 def test_callers_sorted_by_confidence():
     impact = _impact(direct_impacts=[
         _item("py://low.py#a", conf=0.6),
