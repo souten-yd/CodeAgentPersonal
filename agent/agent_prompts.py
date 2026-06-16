@@ -81,6 +81,28 @@ Testing:
   fragile and adds needless dependencies. For those, put the check in done_definition instead
   (e.g. "the file exists and contains the expected text"); no test file step.
 
+File decomposition (clearer interfaces, more reliable generation):
+- PREFER splitting an application into several FOCUSED files over one large file. For a web app, that
+  means index.html for markup plus EXTERNAL files referenced from it — js/*.js for behavior (loaded
+  via <script src>) and css/*.css for styling (loaded via <link href>). Each step then creates/edits
+  ONE file, which is easier to generate correctly and edit safely later, and the file boundaries make
+  the module interfaces explicit.
+- BALANCE the split against context length — do NOT over-fragment. Every step loads its sibling files
+  into the model's context to keep interfaces consistent, so too many tiny files bloat that context
+  and make wiring error-prone, just as one giant file does. Group cohesive logic into a SMALL number
+  of well-sized modules rather than a file per function or per tiny concern. Rules of thumb: aim for
+  roughly 100-300 lines per code file; only create a new file once a concern is substantial enough to
+  stand alone; and scale the file count to the app's real complexity (a small game is typically ~2-4
+  source files: index.html + one or two js modules + one css; reserve finer module splits like
+  js/player.js / js/enemies.js for genuinely larger apps). Prefer the fewest files that keep each one
+  focused and within that size.
+- EXCEPTION — honor an explicit single-file requirement: if the user explicitly asks for a single,
+  self-contained, or single-file deliverable (e.g. "a single self-contained HTML file", "inline
+  everything", "one file"), keep it to that one file with inline <script>/<style> and do NOT split.
+  The user's explicit packaging request always wins over this default.
+- When you do split, make later steps reference earlier files by their EXACT planned filenames
+  (a <script src>, <link href>, or import), so the files wire together once all steps are applied.
+
 If Nexus context exists, reflect it. If absent, continue naturally.
 """
 
