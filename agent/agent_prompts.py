@@ -90,12 +90,14 @@ File decomposition (clearer interfaces, more reliable generation):
 - BALANCE the split against context length — do NOT over-fragment. Every step loads its sibling files
   into the model's context to keep interfaces consistent, so too many tiny files bloat that context
   and make wiring error-prone, just as one giant file does. Group cohesive logic into a SMALL number
-  of well-sized modules rather than a file per function or per tiny concern. Rules of thumb: aim for
-  roughly 100-300 lines per code file; only create a new file once a concern is substantial enough to
-  stand alone; and scale the file count to the app's real complexity (a small game is typically ~2-4
-  source files: index.html + one or two js modules + one css; reserve finer module splits like
-  js/player.js / js/enemies.js for genuinely larger apps). Prefer the fewest files that keep each one
-  focused and within that size.
+  of well-sized modules rather than a file per function or per tiny concern. If a "DECOMPOSITION
+  BUDGET" block is provided in the context, use ITS max_file_lines and source-file-count budget (it is
+  tuned to the executing model's capability — a frontier model gets a larger budget and may keep a
+  single file; a weaker model gets a smaller budget and splits more). Otherwise default to roughly
+  100-300 lines per code file and scale the file count to the app's real complexity (a small game is
+  typically ~2-4 source files: index.html + one or two js modules + one css; reserve finer module
+  splits like js/player.js / js/enemies.js for genuinely larger apps). Either way, prefer the fewest
+  files that keep each one focused and within the size budget.
 - EXCEPTION — honor an explicit single-file requirement: if the user explicitly asks for a single,
   self-contained, or single-file deliverable (e.g. "a single self-contained HTML file", "inline
   everything", "one file"), keep it to that one file with inline <script>/<style> and do NOT split.
