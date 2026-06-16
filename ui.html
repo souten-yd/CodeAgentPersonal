@@ -6915,6 +6915,19 @@ async function twinRunEvaluation() {
   renderTwinPanel();
 }
 
+async function twinTokenProbe() {
+  const model = (document.getElementById('twin-eval-model') || {}).value || '';
+  const baseUrl = (document.getElementById('twin-eval-baseurl') || {}).value || '';
+  const out = document.getElementById('twin-token-result');
+  if (out) out.textContent = 'Measuring token usage…';
+  try {
+    const r = await _twinApi('/token-probe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_id: model, base_url: baseUrl }) });
+    if (!r.available) { if (out) out.textContent = 'unavailable: ' + (r.reason || 'model down'); return; }
+    const kind = r.has_thinking ? 'thinking + output' : 'output only (no thinking)';
+    if (out) out.innerHTML = 'prompt: <b>' + r.prompt_tokens + '</b> · think: <b style="color:#c47">' + r.thinking_tokens + '</b> · output: <b style="color:#5a7">' + r.output_tokens + '</b> · total: <b>' + r.total_tokens + '</b> · <i>' + _twinEsc(kind) + '</i>';
+  } catch (e) { if (out) out.textContent = 'probe failed: ' + e.message; }
+}
+
 async function renderTwinPanel() {
   const body = document.getElementById('twin-panel-body');
   if (!body) return;
@@ -6946,6 +6959,11 @@ async function renderTwinPanel() {
         '<button type="button" class="forge-action-btn" onclick="twinRunEvaluation()">Run evaluation</button>' +
       '</div>' +
       '<div id="twin-eval-result" class="forge-status" style="margin-top:6px"></div>' +
+    '</fieldset>' +
+    '<fieldset style="border:1px solid #333;border-radius:8px;padding:10px"><legend>Token usage (think vs output)</legend>' +
+      '<div style="display:flex;gap:8px;align-items:center"><button type="button" class="forge-action-btn" onclick="twinTokenProbe()">Measure tokens</button>' +
+        '<span class="atlas-claude-muted-inline">one real call; shows whether tokens were reasoning or output</span></div>' +
+      '<div id="twin-token-result" class="forge-status" style="margin-top:6px"></div>' +
     '</fieldset>' +
     '<fieldset style="border:1px solid #333;border-radius:8px;padding:10px"><legend>Capability profiles (drive Twin injection) · ' + profiles.count + '</legend>' +
       (rows ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th align="left">model</th><th align="left">provider</th><th align="left">samples</th><th align="left">best route</th><th align="left">dimensions</th><th align="left">known weaknesses</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div class="forge-status">No capability profiles yet — run an evaluation or let autonomous runs accumulate evidence.</div>') +

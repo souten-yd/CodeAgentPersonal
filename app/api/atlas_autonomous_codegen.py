@@ -17,6 +17,7 @@ from agent.atlas_clarification_execution_blocker import clarification_execution_
 from agent.atlas_autonomous_codegen_orchestrator_schema import AtlasAutonomousCodegenRequest
 from agent.atlas_autonomous_codegen_orchestrator_service import AtlasAutonomousCodegenOrchestratorService
 from agent.atlas_journal import AtlasJournal
+from agent.atlas_llm_json_adapter import AtlasLLMJsonAdapter
 from agent.atlas_patch_proposal_service import AtlasPatchProposalService
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_codegen_progress import read_progress, request_stop, write_progress
@@ -31,6 +32,18 @@ def _orchestrator_service(request: Request | None, workspace_id: str, pool_id: s
     # Patch generation needs the app's LLM json fn; None in tests/offline -> the proposal yields no
     # content and Phase 3 honestly skips uncontented items rather than reporting fake success.
     llm_json_fn = getattr(getattr(getattr(request, "app", None), "state", None), "atlas_llm_json_fn", None)
+    # Per-run token accumulator: bind the adapter's on_usage so prompt/completion/total +
+    # thinking/output tokens are summed into this run's result metadata.
+    usage_acc = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+                 "thinking_tokens": 0, "output_tokens": 0, "calls": 0}
+
+    def _accumulate(u: dict) -> None:
+        for k in ("prompt_tokens", "completion_tokens", "total_tokens", "thinking_tokens", "output_tokens"):
+            usage_acc[k] = int(usage_acc.get(k, 0)) + int((u or {}).get(k) or 0)
+        usage_acc["calls"] = int(usage_acc.get("calls", 0)) + 1
+
+    if isinstance(llm_json_fn, AtlasLLMJsonAdapter):
+        llm_json_fn = llm_json_fn.with_usage(_accumulate)
     if callable(llm_json_fn) and orchestrator_run_id:
         llm_json_fn = _timeout_llm_json_fn(llm_json_fn, data_root=root, pool_id=pool_id, orchestrator_run_id=orchestrator_run_id)
     patch_proposal_service = AtlasPatchProposalService(
@@ -42,13 +55,15 @@ def _orchestrator_service(request: Request | None, workspace_id: str, pool_id: s
     # Reuse the multi-item autopilot wiring verbatim so the apply phase inherits the same executor,
     # gates and full_auto relaxation (single source of truth).
     multi_item_service = _build_multi_item_service(request, workspace_id, pool_id=pool_id)
-    return AtlasAutonomousCodegenOrchestratorService(
+    svc = AtlasAutonomousCodegenOrchestratorService(
         storage=storage,
         journal=journal,
         patch_proposal_service=patch_proposal_service,
         multi_item_autopilot_service=multi_item_service,
         data_root=root,
     )
+    svc.llm_usage = usage_acc  # the adapter accumulates into the same dict the run reports
+    return svc
 
 
 @router.post("/run")
@@ -264,6 +279,7 @@ def _normalized_status(payload: dict) -> dict:
         "decision_targets": decision_targets,
         "evidence_summary": {
             "changed_files": changed_files,
+            "llm_usage": metadata.get("llm_usage") or {},
             "verification": _verification_summary(item_results),
             "item_sub_phases": _item_sub_phases(item_results),
             "verification_failure_summary": metadata.get("verification_failure_summary") or {},
