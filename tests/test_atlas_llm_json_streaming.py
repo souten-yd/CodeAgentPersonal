@@ -128,3 +128,44 @@ def test_streaming_env_zero_uses_blocking_path(monkeypatch) -> None:
     assert result.data == {"a": 1}
     assert "stream" not in captured["payload"]
 
+
+
+def _sse_usage(prompt: int, completion: int) -> bytes:
+    return ("data: " + json.dumps({
+        "choices": [], "usage": {"prompt_tokens": prompt, "completion_tokens": completion,
+                                  "total_tokens": prompt + completion}}) + "\n\n").encode("utf-8")
+
+
+def test_streaming_captures_real_token_usage(monkeypatch) -> None:
+    captured = {}
+    progress = []
+
+    def fake_urlopen(req, timeout=0):
+        captured["payload"] = json.loads(req.data.decode("utf-8"))
+        # content chunks, then a final usage chunk (stream_options.include_usage), then DONE
+        return _StreamResp([_sse('{"a":'), _sse("1}"), _sse_usage(1784, 101), b"data: [DONE]\n\n"])
+
+    monkeypatch.setattr("agent.atlas_llm_json_adapter.urllib_request.urlopen", fake_urlopen)
+    adapter = AtlasLLMJsonAdapter(base_url="http://127.0.0.1:8080", model="m", on_progress=progress.append)
+    result = adapter.generate_json(AtlasLLMJsonRequest(system_prompt="s", user_prompt="u", stream=True))
+
+    assert result.ok is True and result.data == {"a": 1}
+    # The adapter now requests usage and records the real prompt/completion/total counts.
+    assert captured["payload"]["stream_options"] == {"include_usage": True}
+    assert adapter.last_usage == {"prompt_tokens": 1784, "completion_tokens": 101, "total_tokens": 1885}
+    # A final progress tick reports the real completion-token count.
+    assert progress[-1]["tokens_generated"] == 101
+
+
+def test_non_streaming_captures_usage(monkeypatch) -> None:
+    class _ReadRespUsage(_ReadResp):
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": '{"a":1}'}}],
+                               "usage": {"prompt_tokens": 50, "completion_tokens": 7, "total_tokens": 57}}).encode("utf-8")
+
+    monkeypatch.setattr("agent.atlas_llm_json_adapter.urllib_request.urlopen",
+                        lambda req, timeout=0: _ReadRespUsage('{"a":1}'))
+    adapter = AtlasLLMJsonAdapter(base_url="http://127.0.0.1:8080", model="m")
+    result = adapter.generate_json(AtlasLLMJsonRequest(system_prompt="s", user_prompt="u", stream=False))
+    assert result.ok is True
+    assert adapter.last_usage["total_tokens"] == 57
