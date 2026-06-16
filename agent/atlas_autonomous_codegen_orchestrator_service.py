@@ -71,10 +71,23 @@ class AtlasAutonomousCodegenOrchestratorService:
         # Optional Project Twin store for real impact evidence. Absent by default (there is
         # no persistent per-project Twin store), so impact is recorded as unavailable.
         self.project_twin_store = project_twin_store
+        # Accumulates LLM token usage (prompt / completion / total + thinking / output) across
+        # all model calls in a run, fed by the adapter's on_usage callback (wired by the API).
+        self.llm_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
+                          "thinking_tokens": 0, "output_tokens": 0, "calls": 0}
         self.patch_proposal_service = patch_proposal_service
         self.multi_item_autopilot_service = multi_item_autopilot_service
         self.data_root = Path(data_root or getattr(journal, "root_dir", "ca_data"))
         self.draft_pr_client = draft_pr_client
+
+    def accumulate_llm_usage(self, usage: dict) -> None:
+        """Add one model call's token usage into the run total (called by the adapter)."""
+        try:
+            for k in ("prompt_tokens", "completion_tokens", "total_tokens", "thinking_tokens", "output_tokens"):
+                self.llm_usage[k] = int(self.llm_usage.get(k, 0)) + int((usage or {}).get(k) or 0)
+            self.llm_usage["calls"] = int(self.llm_usage.get("calls", 0)) + 1
+        except Exception:  # pragma: no cover - defensive
+            return
 
     def run(self, request: AtlasAutonomousCodegenRequest) -> AtlasAutonomousCodegenResult:
         run_id = request.run_id or f"autocodegen_{uuid4().hex[:10]}"
@@ -251,6 +264,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "failed_count": autopilot.failed_count,
                 "blocked_count": autopilot.blocked_count,
                 "changed_files": changed_files,
+                "llm_usage": dict(self.llm_usage),
                 "draft_pr_readiness": {
                     "ready": out.status in {"completed", "partial"},
                     "direct_merge_enabled": False,

@@ -150,10 +150,14 @@ def test_streaming_captures_real_token_usage(monkeypatch) -> None:
     result = adapter.generate_json(AtlasLLMJsonRequest(system_prompt="s", user_prompt="u", stream=True))
 
     assert result.ok is True and result.data == {"a": 1}
-    # The adapter now requests usage and records the real prompt/completion/total counts.
+    # Real prompt/completion/total counts + a thinking/output split (this plain model has no
+    # thinking -> all output).
     assert captured["payload"]["stream_options"] == {"include_usage": True}
-    assert adapter.last_usage == {"prompt_tokens": 1784, "completion_tokens": 101, "total_tokens": 1885}
-    # A final progress tick reports the real completion-token count.
+    assert adapter.last_usage["prompt_tokens"] == 1784
+    assert adapter.last_usage["completion_tokens"] == 101
+    assert adapter.last_usage["thinking_tokens"] == 0
+    assert adapter.last_usage["output_tokens"] == 101
+    assert adapter.last_usage["has_thinking"] is False
     assert progress[-1]["tokens_generated"] == 101
 
 
@@ -169,3 +173,41 @@ def test_non_streaming_captures_usage(monkeypatch) -> None:
     result = adapter.generate_json(AtlasLLMJsonRequest(system_prompt="s", user_prompt="u", stream=False))
     assert result.ok is True
     assert adapter.last_usage["total_tokens"] == 57
+
+
+def _sse_reasoning(text: str) -> bytes:
+    return ("data: " + json.dumps({"choices": [{"delta": {"reasoning_content": text}}]}) + "\n\n").encode("utf-8")
+
+
+def test_thinking_split_from_reasoning_content(monkeypatch) -> None:
+    usages = []
+
+    def fake_urlopen(req, timeout=0):
+        # reasoning_content deltas (thinking) then content, then usage with completion_tokens=100
+        return _StreamResp([_sse_reasoning("let me think hard about this"),
+                            _sse('{"a":'), _sse("1}"), _sse_usage(20, 100), b"data: [DONE]\n\n"])
+
+    monkeypatch.setattr("agent.atlas_llm_json_adapter.urllib_request.urlopen", fake_urlopen)
+    adapter = AtlasLLMJsonAdapter(base_url="http://127.0.0.1:8080", model="m", on_usage=usages.append)
+    result = adapter.generate_json(AtlasLLMJsonRequest(system_prompt="s", user_prompt="u", stream=True))
+
+    assert result.ok is True and result.data == {"a": 1}  # returned content is OUTPUT only
+    u = adapter.last_usage
+    assert u["has_thinking"] is True
+    assert u["thinking_tokens"] > 0 and u["output_tokens"] < 100
+    assert u["thinking_tokens"] + u["output_tokens"] == 100
+    assert usages and usages[-1]["has_thinking"] is True  # on_usage fired
+
+
+def test_think_tag_block_is_stripped_from_output(monkeypatch) -> None:
+    def fake_urlopen(req, timeout=0):
+        return _StreamResp([_sse("<think>reasoning here</think>"), _sse('{"a":1}'),
+                            _sse_usage(10, 40), b"data: [DONE]\n\n"])
+
+    monkeypatch.setattr("agent.atlas_llm_json_adapter.urllib_request.urlopen", fake_urlopen)
+    adapter = AtlasLLMJsonAdapter(base_url="http://127.0.0.1:8080", model="m")
+    result = adapter.generate_json(AtlasLLMJsonRequest(system_prompt="s", user_prompt="u", stream=True))
+    # The <think> block is reasoning, not the answer -> stripped; JSON still parses.
+    assert result.ok is True and result.data == {"a": 1}
+    assert adapter.last_usage["has_thinking"] is True
+    assert adapter.last_usage["thinking_tokens"] > 0

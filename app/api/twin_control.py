@@ -159,3 +159,38 @@ def post_evaluate(payload: TwinEvaluateRequest, request: Request) -> dict:
         "passed": report.passed, "failed": report.failed, "unavailable": report.unavailable,
         "report_id": report.report_id,
     }
+
+
+class TwinTokenProbeRequest(BaseModel):
+    model_id: str = ""
+    base_url: str = ""
+    prompt: str = "Reply with a JSON object {\"ok\": true} and nothing else."
+
+
+@router.post("/token-probe")
+def post_token_probe(payload: TwinTokenProbeRequest) -> dict:
+    """One real model call that reports REAL token usage with a thinking/output split, so the
+    UI can show whether tokens were spent on reasoning (<think> / reasoning_content) or on the
+    actual output. Returns ``available: False`` when the model is unreachable."""
+    from agent.atlas_llm_json_adapter import AtlasLLMJsonAdapter
+
+    base_url = (payload.base_url or os.environ.get("FORGE_LOCAL_BASE_URL", "http://127.0.0.1:8080")).rstrip("/")
+    model = payload.model_id or os.environ.get("FORGE_LOCAL_MODEL", "")
+    adapter = AtlasLLMJsonAdapter(base_url=base_url, model=model, timeout_seconds=120)
+    try:
+        adapter(payload.prompt, "go")
+    except Exception as exc:
+        return {"available": False, "reason": f"{type(exc).__name__}: {exc}"[:200]}
+    u = adapter.last_usage or {}
+    if not u:
+        return {"available": False, "reason": "no_usage_reported"}
+    return {
+        "available": True,
+        "model_id": model,
+        "prompt_tokens": u.get("prompt_tokens"),
+        "completion_tokens": u.get("completion_tokens"),
+        "thinking_tokens": u.get("thinking_tokens", 0),
+        "output_tokens": u.get("output_tokens", u.get("completion_tokens")),
+        "total_tokens": u.get("total_tokens"),
+        "has_thinking": bool(u.get("has_thinking")),
+    }

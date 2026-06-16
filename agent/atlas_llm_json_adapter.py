@@ -84,12 +84,16 @@ class AtlasLLMJsonAdapter:
         model: str = "",
         timeout_seconds: int = 120,
         on_progress: Callable[[dict], None] | None = None,
+        on_usage: Callable[[dict], None] | None = None,
     ) -> None:
         self.backend_fn = backend_fn
         self.base_url = str(base_url or "").strip().rstrip("/")
         self.model = str(model or "").strip()
         self.timeout_seconds = int(timeout_seconds or 120)
         self.on_progress = on_progress
+        # Called with the enriched usage dict (prompt/completion/total + thinking/output) after
+        # each call, so the caller can accumulate token counts into the run metadata / UI.
+        self.on_usage = on_usage
         # Real token usage (prompt_tokens / completion_tokens / total_tokens) captured from
         # the last call's response. Populated when the server reports usage (llama.cpp does,
         # and the streaming path now requests stream_options.include_usage).
@@ -98,6 +102,11 @@ class AtlasLLMJsonAdapter:
     def with_progress(self, on_progress: Callable[[dict], None] | None) -> "AtlasLLMJsonAdapter":
         clone = copy.copy(self)
         clone.on_progress = on_progress
+        return clone
+
+    def with_usage(self, on_usage: Callable[[dict], None] | None) -> "AtlasLLMJsonAdapter":
+        clone = copy.copy(self)
+        clone.on_usage = on_usage
         return clone
 
     def __call__(self, system_prompt: str, user_prompt: str) -> dict | None:
@@ -380,15 +389,21 @@ class AtlasLLMJsonAdapter:
         timeout_sec = int(request.timeout_seconds or self.timeout_seconds)
         with urllib_request.urlopen(req, timeout=timeout_sec) as resp:  # noqa: S310
             body = json.loads(resp.read().decode("utf-8"))
-        if isinstance(body, dict) and isinstance(body.get("usage"), dict):
-            self.last_usage = dict(body["usage"])
-            logger.info(
-                "llm token usage: prompt=%s completion=%s total=%s (model=%s)",
-                self.last_usage.get("prompt_tokens"), self.last_usage.get("completion_tokens"),
-                self.last_usage.get("total_tokens"), payload.get("model"))
         choices = body.get("choices") if isinstance(body, dict) else None
         message = choices[0].get("message") if isinstance(choices, list) and choices else {}
-        return str(message.get("content") or "")
+        content = str(message.get("content") or "")
+        reasoning = str(message.get("reasoning_content") or "") if isinstance(message, dict) else ""
+        _thinking, output_text = split_thinking(content)
+        if isinstance(body, dict) and isinstance(body.get("usage"), dict):
+            self.last_usage = _thinking_split_usage(
+                dict(body["usage"]), content_text=content, reasoning_chars=len(reasoning))
+            logger.info(
+                "llm token usage: prompt=%s thinking=%s output=%s total=%s (model=%s)",
+                self.last_usage.get("prompt_tokens"), self.last_usage.get("thinking_tokens"),
+                self.last_usage.get("output_tokens"), self.last_usage.get("total_tokens"),
+                payload.get("model"))
+            self._emit_usage(self.last_usage)
+        return output_text
 
     def _post_chat_stream(self, request: AtlasLLMJsonRequest, *, structured: bool) -> str:
         payload = self._build_payload(request, structured=structured)
@@ -408,6 +423,7 @@ class AtlasLLMJsonAdapter:
         idle_token_sec = _resolve_timeout("ATLAS_LLM_IDLE_TOKEN_TIMEOUT_SECONDS", "ATLAS_LLM_INTER_TOKEN_SEC", 300.0)
         total_sec = _resolve_timeout("ATLAS_LLM_TOTAL_TIMEOUT_SECONDS", "", 1800.0)
         chunks: list[str] = []
+        reasoning_chars = 0  # separate reasoning_content deltas (reasoning models)
         tokens_generated = 0
         saw_token = False
         start_mono = time.monotonic()
@@ -441,6 +457,8 @@ class AtlasLLMJsonAdapter:
                     choices = event.get("choices") if isinstance(event, dict) else None
                     choice = choices[0] if isinstance(choices, list) and choices else {}
                     delta = choice.get("delta") if isinstance(choice, dict) else {}
+                    if isinstance(delta, dict) and delta.get("reasoning_content"):
+                        reasoning_chars += len(str(delta.get("reasoning_content") or ""))
                     content = ""
                     if isinstance(delta, dict):
                         content = str(delta.get("content") or "")
@@ -462,14 +480,20 @@ class AtlasLLMJsonAdapter:
                 # report: before-first-token if nothing has been generated yet, otherwise idle.
                 phase = "llm_stalled_after_progress" if saw_token else "llm_stalled_before_first_token"
                 raise _StreamTimeout(phase, tokens_generated=tokens_generated)
+        raw_text = "".join(chunks)
+        _thinking, output_text = split_thinking(raw_text)
         if self.last_usage:
+            self.last_usage = _thinking_split_usage(
+                self.last_usage, content_text=raw_text, reasoning_chars=reasoning_chars)
             logger.info(
-                "llm token usage: prompt=%s completion=%s total=%s (model=%s)",
-                self.last_usage.get("prompt_tokens"), self.last_usage.get("completion_tokens"),
+                "llm token usage: prompt=%s thinking=%s output=%s completion=%s total=%s (model=%s)",
+                self.last_usage.get("prompt_tokens"), self.last_usage.get("thinking_tokens"),
+                self.last_usage.get("output_tokens"), self.last_usage.get("completion_tokens"),
                 self.last_usage.get("total_tokens"), payload.get("model"))
-            # Surface the real completion-token count as a final progress tick.
-            self._emit_progress(int(self.last_usage.get("completion_tokens") or tokens_generated))
-        return "".join(chunks)
+            self._emit_usage(self.last_usage)
+            self._emit_progress(int(self.last_usage.get("output_tokens") or tokens_generated))
+        # Return only the model OUTPUT (any <think> block is reasoning, not the answer/JSON).
+        return output_text
 
     def _emit_progress(self, tokens_generated: int) -> None:
         if self.on_progress is None:
@@ -479,6 +503,14 @@ class AtlasLLMJsonAdapter:
                 "tokens_generated": int(tokens_generated),
                 "last_token_at": datetime.now(timezone.utc).isoformat(),
             })
+        except Exception:
+            return
+
+    def _emit_usage(self, usage: dict) -> None:
+        if self.on_usage is None:
+            return
+        try:
+            self.on_usage(dict(usage))
         except Exception:
             return
 
@@ -497,6 +529,42 @@ class AtlasLLMJsonAdapter:
                     return
             except Exception:
                 continue
+
+
+_THINK_BLOCK = re.compile(r"<think>(.*?)</think>", re.DOTALL | re.IGNORECASE)
+
+
+def split_thinking(text: str) -> tuple[str, str]:
+    """Split model output into (thinking_text, output_text) by extracting ``<think>…</think>``
+    blocks. Models that don't emit thinking yield ("", text)."""
+    if not text or "<think>" not in text.lower():
+        return "", text
+    thinking = "".join(m.group(1) for m in _THINK_BLOCK.finditer(text))
+    output = _THINK_BLOCK.sub("", text)
+    return thinking, output
+
+
+def _thinking_split_usage(usage: dict, *, content_text: str, reasoning_chars: int) -> dict:
+    """Enrich a usage dict with thinking_tokens / output_tokens / has_thinking using whichever
+    signal the server provided: usage.completion_tokens_details.reasoning_tokens, separate
+    reasoning_content deltas, or inline <think> blocks. Falls back to all-output."""
+    completion = int(usage.get("completion_tokens") or 0)
+    details = usage.get("completion_tokens_details") if isinstance(usage.get("completion_tokens_details"), dict) else {}
+    reasoning_tokens = int(details.get("reasoning_tokens") or 0)
+    thinking_text, _output = split_thinking(content_text or "")
+    tag_chars = len(thinking_text)
+    if reasoning_tokens > 0:
+        thinking = min(reasoning_tokens, completion) if completion else reasoning_tokens
+    elif completion and (reasoning_chars + len(content_text or "")) > 0:
+        total_chars = reasoning_chars + len(content_text or "")
+        thinking = round(completion * ((reasoning_chars + tag_chars) / total_chars)) if total_chars else 0
+    else:
+        thinking = 0
+    out = dict(usage)
+    out["thinking_tokens"] = int(thinking)
+    out["output_tokens"] = max(0, completion - int(thinking))
+    out["has_thinking"] = bool(reasoning_tokens or tag_chars or reasoning_chars)
+    return out
 
 
 def _env_float(name: str, default: float) -> float:

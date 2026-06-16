@@ -152,3 +152,18 @@ def test_post_apply_persists_proof_ledger_entry(tmp_path, monkeypatch):
     entries = store.load().entries
     assert entries, "expected a durable proof ledger entry"
     assert out.metadata["twin_control_plane"]["post_apply"]["ran"] is True
+
+
+def test_llm_usage_accumulates_and_is_reported(tmp_path, monkeypatch):
+    monkeypatch.delenv("ATLAS_TWIN_PIPELINE_MODE", raising=False)
+    svc = _svc(tmp_path)
+    # Simulate the adapter's on_usage callback firing for two model calls.
+    svc.accumulate_llm_usage({"prompt_tokens": 100, "completion_tokens": 40, "total_tokens": 140,
+                              "thinking_tokens": 10, "output_tokens": 30})
+    svc.accumulate_llm_usage({"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70,
+                              "thinking_tokens": 0, "output_tokens": 20})
+    out = svc.run(_request())
+    usage = out.metadata.get("llm_usage") or {}
+    assert usage["prompt_tokens"] == 150
+    assert usage["thinking_tokens"] == 10 and usage["output_tokens"] == 50
+    assert usage["total_tokens"] == 210 and usage["calls"] == 2
