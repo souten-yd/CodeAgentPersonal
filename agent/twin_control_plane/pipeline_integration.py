@@ -288,7 +288,8 @@ def expand_changed_refs_to_symbols(store, project_id: str, changed_refs: Iterabl
 
 
 def try_project_twin_impact(
-    *, project_id: str, changed_refs: Iterable[str], store=None, change_kind: str = "modify"
+    *, project_id: str, changed_refs: Iterable[str], store=None, change_kind: str = "modify",
+    max_depth: int = 2,
 ):
     """Best-effort real Project Twin impact for the current run.
 
@@ -296,14 +297,21 @@ def try_project_twin_impact(
     ``project_id`` is available, else ``None`` (recorded as unavailable upstream — never
     fabricated). Never raises. There is no persistent per-project Twin store by default,
     so the common live outcome is ``None``; when a store is supplied (tests, or a future
-    persistent Twin), real impact flows through unchanged."""
+    persistent Twin), real impact flows through unchanged.
+
+    ``max_depth`` defaults to 2 (direct dependents + one hop), NOT the ImpactRequest default of 5: the
+    repo-scale evaluation found depth 4-5 reaches ~half the test suite for a leaf module (everything
+    connects through shared modules), while depth 2 yields a precise, actionable dependent/test set
+    (e.g. 24/1027 vs 485/1027). This is the precision lever for the Safe-Edit Briefing and test
+    selection — keep the dependents that really matter."""
     refs = [str(r).strip() for r in changed_refs if str(r).strip()]
     if store is None or not project_id or not refs:
         return None
     try:
         from agent.project_twin.contracts import ImpactRequest
 
-        request = ImpactRequest(project_id=project_id, changed_refs=refs, change_kind=change_kind)
+        request = ImpactRequest(project_id=project_id, changed_refs=refs, change_kind=change_kind,
+                                max_depth=max_depth)
         return store.assess_impact(request)
     except Exception:
         return None
