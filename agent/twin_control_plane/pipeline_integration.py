@@ -345,6 +345,25 @@ def build_twin_pipeline_evidence(
         if compiled_text and advisory.get("text"):
             compiled_text = f"{compiled_text}\n\n{ADVISORY_PROMPT_HEADER}\n{advisory['text']}"
 
+        # Safe-Edit Briefing: when real Twin impact exists, tell the generator which existing callers /
+        # side effects / tests depend on what it is changing, so it preserves the public interface
+        # instead of breaking dependents — the key to safely editing a large existing codebase. Advisory
+        # only; empty (and thus a no-op) when there are no dependents or no impact evidence.
+        safe_edit_section = {"available": False}
+        if impact is not None:
+            try:
+                from agent.project_twin.safe_edit_briefing import (
+                    build_safe_edit_briefing, render_safe_edit_briefing,
+                )
+
+                briefing = build_safe_edit_briefing(impact, target_refs=refs)
+                briefing_text = render_safe_edit_briefing(briefing)
+                if briefing_text:
+                    compiled_text = (f"{compiled_text}\n\n{briefing_text}" if compiled_text else briefing_text)
+                    safe_edit_section = {"available": True, **briefing.to_dict()}
+            except Exception:
+                safe_edit_section = {"available": False, "reason": "safe_edit_briefing_error"}
+
         has_shadow_evidence = shadow_report is not None
         engaged = mode == PipelineMode.ACTIVE and has_shadow_evidence
         evidence = {
@@ -374,6 +393,7 @@ def build_twin_pipeline_evidence(
                 "skill_count": len(advisory.get("skills", [])),
             },
             "impact": _impact_section(impact),
+            "safe_edit_briefing": safe_edit_section,
             "contract_sentinel": contract_section,
             "shadow_report": shadow_report.model_dump(mode="json") if shadow_report else None,
         }
