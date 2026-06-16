@@ -1624,6 +1624,10 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .atlas-claude-summary-pr a{color:var(--accent);text-decoration:none}
 .atlas-claude-summary-pr a:hover{text-decoration:underline}
 .atlas-claude-summary-pr-hint{font-size:11px;color:var(--text3);font-family:var(--font-mono)}
+.atlas-claude-summary-resume{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.atlas-claude-resume-btn{align-self:flex-start;cursor:pointer;font-size:12.5px;font-weight:600;color:#fff;background:var(--accent);border:1px solid var(--accent);border-radius:6px;padding:6px 12px}
+.atlas-claude-resume-btn:hover{filter:brightness(1.08)}
+.atlas-claude-resume-btn:disabled{opacity:.6;cursor:default}
 .atlas-claude-header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--bg1);position:relative;z-index:20}
 .atlas-claude-titles{display:flex;flex-direction:column;gap:1px}
 .atlas-claude-title{font-size:15px;font-weight:600;color:var(--text);letter-spacing:.02em}
