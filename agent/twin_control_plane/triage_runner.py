@@ -30,6 +30,25 @@ def _existing_source_symbols(store, project_id: str, prefixes: tuple[str, ...]) 
     return out
 
 
+def _io_signatures_for_tests(test_refs: Iterable[str], repo_root: str) -> dict[str, frozenset]:
+    """Build I/O signatures for the test files referenced in the coverage map (read once each)."""
+    from agent.twin_control_plane.test_signature import io_signatures_for_files
+
+    files: dict[str, str] = {}
+    for ref in test_refs:
+        r = str(ref)
+        if not r.startswith("py://") or "#" not in r:
+            continue
+        rel = r[len("py://"):].split("#", 1)[0]
+        if rel in files:
+            continue
+        try:
+            files[rel] = (Path(repo_root) / rel).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+    return io_signatures_for_files(files)
+
+
 def run_test_triage(
     *,
     coverage_data_file: str,
@@ -47,8 +66,12 @@ def run_test_triage(
     from agent.twin_control_plane.coverage_triage import build_coverage_triage
     from agent.twin_control_plane.test_management import build_test_management_plan
 
-    symbol_map, line_sig = build_coverage_map(coverage_data_file, repo_root, include_prefixes=source_prefixes)
+    symbol_map, _line_sig = build_coverage_map(coverage_data_file, repo_root, include_prefixes=source_prefixes)
     existing = _existing_source_symbols(store, project_id, source_prefixes)
+    # REDUNDANCY by INPUT/OUTPUT signature, not line coverage: two tests are redundant only if they feed
+    # the same inputs and assert the same outputs. Line coverage over-flags parametric tests (same code
+    # path, different data); the I/O signature distinguishes them deterministically (no model).
+    io_sig = _io_signatures_for_tests(symbol_map.keys(), repo_root)
 
     changed_symbols: set[str] = set()
     files = [str(f).strip() for f in changed_files if str(f).strip()]
@@ -63,7 +86,7 @@ def run_test_triage(
 
     report = build_coverage_triage(
         symbol_map, existing_symbols=existing, changed_symbols=changed_symbols,
-        redundancy_signatures=line_sig)
+        redundancy_signatures=io_sig)
     plan = build_test_management_plan(report)
     return {
         "report": report,
