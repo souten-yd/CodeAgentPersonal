@@ -38,3 +38,16 @@ def test_dead_requires_no_caller_and_not_executed_and_not_excluded():
         excluded=["py://m.py#excluded"],
     )
     assert dead == ["py://m.py#truly_dead"]  # only the one that is none of called/ran/excluded
+
+
+def test_exact_body_duplicates_are_behavior_identical():
+    from agent.twin_control_plane.source_triage import find_exact_duplicate_functions
+    # Same body, different name -> exact duplicate (safe to merge).
+    a = "def utc_a():\n    return datetime.now(timezone.utc).isoformat() + 'x' + str(1)\n"
+    b = "def utc_b():\n    return datetime.now(timezone.utc).isoformat() + 'x' + str(1)\n"
+    # Same STRUCTURE but different body (literal differs) -> NOT an exact duplicate.
+    c = "def utc_c():\n    return datetime.now(timezone.utc).isoformat() + 'y' + str(2)\n"
+    groups = find_exact_duplicate_functions({"a.py": a, "b.py": b, "c.py": c}, min_nodes=6)
+    flat = {r for g in groups for r in g}
+    assert "py://a.py#utc_a" in flat and "py://b.py#utc_b" in flat
+    assert "py://c.py#utc_c" not in flat  # different body -> not auto-mergeable

@@ -9,8 +9,7 @@ from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_target_contract import compatibility_fill_plan_pool_payload
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from agent.atlas_time_utils import utc_now_iso as _utc_now_iso
 
 
 def _model_dump(model: Any) -> dict[str, Any]:

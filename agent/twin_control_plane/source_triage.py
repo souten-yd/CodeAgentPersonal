@@ -38,6 +38,45 @@ def _structure_hash(node: ast.AST) -> tuple[str, int]:
     return digest, count
 
 
+def _body_hash(node: ast.AST) -> tuple[str, int]:
+    """(hash, node_count) of a function's EXACT body: ``ast.dump`` of the statements, identifiers and
+    literals INCLUDED. Two functions with the same body hash are behavior-identical (the function name
+    aside), so merging them is provably safe — the only duplicates a machine may consolidate without a
+    judgment call."""
+    try:
+        dumped = "||".join(ast.dump(s) for s in getattr(node, "body", []))
+    except Exception:
+        dumped = ""
+    count = sum(1 for _ in ast.walk(node))
+    return hashlib.sha256(dumped.encode("utf-8")).hexdigest()[:16], count
+
+
+def find_exact_duplicate_functions(file_sources: Mapping[str, str], *, min_nodes: int = _MIN_STRUCTURE_NODES) -> list[list[str]]:
+    """Groups of functions with an IDENTICAL body (not just structure). Unlike find_duplicate_functions
+    (which finds candidates that may be semantically distinct, e.g. DI providers of the same shape),
+    these are behavior-identical and SAFE to consolidate mechanically — verify with tests, revert on
+    failure. Dunders excluded; trivial functions below ``min_nodes`` excluded."""
+    by_body: dict[str, list[str]] = {}
+    for rel, source in file_sources.items():
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+
+        def walk(node: ast.AST, prefix: str) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if child.name.startswith("__") and child.name.endswith("__"):
+                        continue
+                    h, count = _body_hash(child)
+                    if count >= min_nodes:
+                        by_body.setdefault(h, []).append(f"py://{rel}#{prefix}{child.name}")
+                elif isinstance(child, ast.ClassDef):
+                    walk(child, f"{child.name}.")
+        walk(tree, "")
+    return [sorted(g) for g in by_body.values() if len(g) > 1]
+
+
 def _is_excluded_from_dead(name: str, *, decorated: bool, is_protocol_method: bool) -> bool:
     if name.startswith("__") and name.endswith("__"):
         return True  # dunder: invoked implicitly

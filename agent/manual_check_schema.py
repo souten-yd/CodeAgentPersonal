@@ -5,8 +5,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from agent.atlas_time_utils import utc_now_iso as _utc_now_iso
 
 
 class ManualLLMCheckResult(BaseModel):

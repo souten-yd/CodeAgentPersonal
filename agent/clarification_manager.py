@@ -223,5 +223,4 @@ def _sort_questions(questions: list[ClarificationQuestion]) -> list[Clarificatio
     return sorted(questions, key=lambda q: (order.get(q.importance, 3), q.question_id))
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from agent.atlas_time_utils import utc_now_iso as _utc_now_iso

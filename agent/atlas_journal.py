@@ -10,8 +10,7 @@ from agent.atlas_pipeline_runner_schema import AtlasPipelineEvent, AtlasPipeline
 from agent.atlas_plan_pool_schema import AtlasPlanPool
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from agent.atlas_time_utils import utc_now_iso as _utc_now_iso
 
 
 def _model_dump(model: Any) -> dict[str, Any]:
