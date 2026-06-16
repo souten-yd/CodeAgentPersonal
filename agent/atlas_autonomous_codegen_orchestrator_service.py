@@ -771,6 +771,8 @@ class AtlasAutonomousCodegenOrchestratorService:
         tcp = (out.metadata or {}).get("twin_control_plane") or {}
         if not tcp.get("available") or tcp.get("mode") == "off":
             return {}
+        seb = tcp.get("safe_edit_briefing") or {}
+        dependent_files = list(seb.get("dependent_files") or []) if isinstance(seb, dict) else []
         hints = {
             "twin_route": tcp.get("route"),
             "twin_instruction_style": tcp.get("instruction_style"),
@@ -779,6 +781,9 @@ class AtlasAutonomousCodegenOrchestratorService:
             # The compiled Twin instruction, used by the generator as a bounded control section.
             "twin_instruction": tcp.get("compiled_instruction"),
             "twin_instruction_id": tcp.get("instruction_id"),
+            # Files the Twin found depend on this change — generation ranks/loads their symbols so the
+            # model edits with the dependents' real API in view (A6: impact-driven context selection).
+            "impacted_dependent_files": dependent_files or None,
         }
         return {"twin_generation_hints": {k: v for k, v in hints.items() if v is not None}}
 

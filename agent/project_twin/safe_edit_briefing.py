@@ -42,6 +42,21 @@ class SafeEditBriefing:
     def is_empty(self) -> bool:
         return not (self.callers or self.side_effects or self.tests)
 
+    def dependent_files(self) -> list[str]:
+        """Repo-relative file paths of the dependents (callers + side effects), so generation can load
+        and rank the symbols of the files that actually depend on the change."""
+        out: list[str] = []
+        seen: set[str] = set()
+        for d in [*self.callers, *self.side_effects]:
+            ref = str(d.get("ref", ""))
+            if not ref.startswith("py://") or "#" not in ref:
+                continue
+            path = ref[len("py://"):].split("#", 1)[0]
+            if path and path not in seen:
+                seen.add(path)
+                out.append(path)
+        return out
+
     def to_dict(self) -> dict:
         return {
             "target_refs": list(self.target_refs),
@@ -49,6 +64,7 @@ class SafeEditBriefing:
             "side_effect_count": len(self.side_effects),
             "test_count": len(self.tests),
             "uncertain_count": len(self.uncertain),
+            "dependent_files": self.dependent_files(),
         }
 
 

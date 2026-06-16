@@ -453,13 +453,20 @@ class AtlasPatchProposalService:
                 return out
             materialized = materialize_structural_targets(item)
             target_files = [str(p).strip() for p in ((materialized.patch_target_files or item.target_files) or []) if str(p).strip()]
+            # A6 (Twin impact-driven selection): files the Twin found depend on this change. Their stems
+            # become relevance terms AND their symbols are boosted like target files, so the model edits
+            # with the dependents' real API in view instead of a keyword guess.
+            twin_hints = (request.metadata or {}).get("twin_generation_hints") or {}
+            dependent_files = [str(p).strip() for p in (twin_hints.get("impacted_dependent_files") or []) if str(p).strip()]
             # Symbols across the project so the model knows what already exists to reuse (cap small for
             # weak models). On a large repo the arbitrary first-N symbols are mostly irrelevant, so RANK
-            # them by relevance to THIS change — the goal/title/description plus target-file stems — and
-            # surface the most relevant (symbols in the edited files are boosted).
-            relevance_terms = self._symbol_relevance_terms(item, target_files)
+            # them by relevance to THIS change — the goal/title/description, target-file stems, and the
+            # Twin's dependent files — and surface the most relevant (target + dependent symbols boosted).
+            relevance_terms = self._symbol_relevance_terms(item, [*target_files, *dependent_files])
             explorer = ProjectIntelligenceCodeExplorerAdapter()
-            syms = explorer.extract_symbols(project_path, max_symbols=40, relevance_terms=relevance_terms)
+            syms = explorer.extract_symbols(
+                project_path, max_symbols=40, relevance_terms=relevance_terms,
+                boost_files=[*target_files, *dependent_files])
             out["symbols"] = [f"{s['file']}:{s['line']} {s.get('signature') or s.get('name','')}" for s in syms[:40]]
             out["related_tests"] = explorer.find_related_tests(project_path, target_files, max_tests=8)
         except Exception:  # noqa: BLE001
