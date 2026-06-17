@@ -128,6 +128,38 @@ def locate_in_source(
     return origins
 
 
+_TRACE_FILE_RE = re.compile(r'File "([^"]+)", line (\d+)')
+_TRACE_SHORT_RE = re.compile(r'^\s*([\w./\\-]+\.py):(\d+):', re.M)
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
+
+
+def locate_from_traceback(
+    traceback_text: str,
+    *,
+    include: Iterable[str] = ("app/", "agent/"),
+    exclude_dirs: Iterable[str] = ("/tests/", "test_", "__pycache__", "venv", "ca_data"),
+) -> Optional[CauseOrigin]:
+    """The deepest in-project frame named by a pytest traceback — exact file:line, no grep needed.
+
+    A failure's traceback already pins the failing product line; relying only on grepping a signal string
+    leaves that on the table (it misses value/logic bugs whose symptom is not a source literal). This
+    parses both ``File "...", line N`` and ``path/x.py:N:`` frames and returns the LAST one under
+    ``include`` and not excluded — the product code that actually failed."""
+    text = _ANSI_RE.sub("", str(traceback_text or ""))   # pytest colorizes paths; strip ANSI first
+    frames = [(m.group(1), int(m.group(2))) for m in _TRACE_FILE_RE.finditer(text)]
+    frames += [(m.group(1), int(m.group(2))) for m in _TRACE_SHORT_RE.finditer(text)]
+    incl = tuple(p.replace("\\", "/") for p in include)
+    best: Optional[CauseOrigin] = None
+    for raw, line in frames:
+        rel = raw.replace("\\", "/")
+        if any(seg in rel for seg in exclude_dirs):
+            continue
+        if incl and not any(s in rel for s in incl):
+            continue
+        best = CauseOrigin("<traceback>", rel, line, f"{rel}:{line}")   # keep the last (deepest) frame
+    return best
+
+
 _SYSTEM = "You read a code check that emitted a test-failure signal and state what would satisfy it."
 _INSTRUCTION = (
     "A test failed with signal '{signal}'. Below is the product code that emits it. In one sentence, say "
@@ -174,20 +206,29 @@ def diagnose(
     failure_text: str,
     *,
     repo_root: str = ".",
+    traceback_text: str = "",
     llm_json_fn: Optional[Callable[[str, str], Optional[dict]]] = None,
     locate_fn: Optional[Callable[[str], list]] = None,
 ) -> list[Diagnosis]:
     """Full cause discovery for one failure: extract signals → locate each in product source → explain
     what satisfies it. Frontier-free (deterministic locate; weak-LLM only for the local requirement
-    read). ``locate_fn(token) -> [CauseOrigin]`` is injectable for tests."""
+    read). ``locate_fn(token) -> [CauseOrigin]`` is injectable for tests.
+
+    If ``traceback_text`` is given, the exact failing frame (file:line) is added as a high-priority
+    ``traceback`` diagnosis — this localizes value/logic bugs that have no greppable signal string."""
     loc = locate_fn or (lambda t: locate_in_source(t, repo_root=repo_root))
     out: list[Diagnosis] = []
+    tb = locate_from_traceback(traceback_text) if traceback_text else None
+    if tb is not None:
+        out.append(Diagnosis(signal=CauseSignal("traceback", tb.file, "failing frame"),
+                             origins=[tb], located=True,
+                             requirement=f"failure occurs at {tb.file}:{tb.line}"))
     for sig in extract_failure_signals(failure_text):
         origins = loc(sig.token)
         out.append(Diagnosis(
             signal=sig, origins=origins, located=bool(origins),
             requirement=explain_requirement(sig, origins, llm_json_fn)))
     # rank: located signals first, warnings/exceptions before generic mismatches
-    order = {"warning": 0, "exception": 1, "missing_value": 2, "mismatch": 3}
+    order = {"traceback": -1, "warning": 0, "exception": 1, "missing_value": 2, "mismatch": 3}
     out.sort(key=lambda d: (not d.located, order.get(d.signal.kind, 9)))
     return out
