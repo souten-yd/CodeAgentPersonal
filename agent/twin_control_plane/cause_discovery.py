@@ -208,6 +208,79 @@ def localize_from_test_calls(
     return origins
 
 
+def _functions_covering(source: str, executed_lines: set) -> list[tuple[str, int]]:
+    """Module-level functions whose body contains at least one executed line — ``[(name, lineno)]``."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    out: list[tuple[str, int]] = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            span = range(node.lineno, (node.end_lineno or node.lineno) + 1)
+            if any(ln in executed_lines for ln in span):
+                out.append((node.name, node.lineno))
+    return out
+
+
+def localize_by_coverage(
+    test_node_id: str,
+    *,
+    repo_root: str = ".",
+    include: Iterable[str] = ("app/", "agent/"),
+    exclude_dirs: Iterable[str] = ("/tests/", "test_", "__pycache__", "venv", "ca_data"),
+    run_coverage_fn: Optional[Callable[[str], dict]] = None,
+    read_fn: Optional[Callable[[str], str]] = None,
+    max_candidates: int = 8,
+) -> list[CauseOrigin]:
+    """The product functions a failing test actually EXECUTES — for layered code (test → API → service →
+    fn) where neither the traceback nor the test's static calls reach the buggy function.
+
+    Runs the one test under coverage (``run_coverage_fn(node) -> {abs_file: {lines}}``), maps executed
+    lines to the enclosing functions, and returns them ranked fewest-executed-lines first (a specific leaf
+    is a likelier bug site than a broad orchestrator). Heavier than the static localizer, so it is the
+    ESCALATION step — used only on failures the cheap path could not fix. Injectable for tests; the
+    default runs ``coverage`` in a subprocess."""
+    runner = run_coverage_fn or (lambda nid: _default_coverage(nid, repo_root))
+    read = read_fn or (lambda p: (Path(repo_root) / p).read_text(encoding="utf-8", errors="replace"))
+    try:
+        executed = runner(test_node_id) or {}
+    except Exception:
+        return []
+    incl = tuple(p.replace("\\", "/") for p in include)
+    cands: list[tuple[int, CauseOrigin]] = []
+    for abs_file, lines in executed.items():
+        rel = str(abs_file).replace("\\", "/")
+        if repo_root not in ("", ".") and rel.startswith(str(Path(repo_root).as_posix())):
+            rel = rel[len(str(Path(repo_root).as_posix())):].lstrip("/")
+        if any(seg in rel for seg in exclude_dirs):
+            continue
+        if incl and not any(s in rel for s in incl):
+            continue
+        try:
+            src = read(rel)
+        except Exception:
+            continue
+        for name, line in _functions_covering(src, set(lines)):
+            cands.append((len(lines), CauseOrigin(name, rel, line, name)))
+    cands.sort(key=lambda c: c[0])                 # fewest executed lines in the file first
+    return [o for _n, o in cands[:max_candidates]]
+
+
+def _default_coverage(test_node_id: str, repo_root: str) -> dict:
+    import subprocess
+    import sys
+    import tempfile
+    import coverage  # type: ignore
+    datafile = str(Path(tempfile.gettempdir()) / f"_cov_{abs(hash(test_node_id))}.dat")
+    subprocess.run([sys.executable, "-m", "coverage", "run", "--data-file", datafile,
+                    "-m", "pytest", test_node_id, "-p", "no:cacheprovider", "-q"],
+                   cwd=repo_root, capture_output=True, text=True)
+    data = coverage.CoverageData(basename=datafile)
+    data.read()
+    return {f: set(data.lines(f) or []) for f in data.measured_files()}
+
+
 _SYSTEM = "You read a code check that emitted a test-failure signal and state what would satisfy it."
 _INSTRUCTION = (
     "A test failed with signal '{signal}'. Below is the product code that emits it. In one sentence, say "
