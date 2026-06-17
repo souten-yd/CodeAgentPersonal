@@ -46,10 +46,50 @@ def test_low_confidence_cluster_judged_once_and_propagated():
     assert calls["n"] == 1            # judged ONE representative
     assert res.llm_calls == 1
     assert res.clusters == 1
+    assert res.propagated_clusters == 1
     # propagated to all three members
     assert all(r["category"] == ENVIRONMENT for r in res.final)
     assert all(r["source"] == "llm_cluster" for r in res.final)
-    assert len(res.reclassified) == 1
+    assert len(res.reclassified) == 3   # each member moved off the deterministic label
+
+
+def test_finer_propagation_key_separates_distinct_keys():
+    # same masked signature (KeyError: X) but DIFFERENT keys -> must NOT share a cluster
+    failures = [("t1", "KeyError: 'plan_pool'"), ("t2", "KeyError: 'other_key'")]
+    res = triage_failures(failures, judge_fn=lambda r, t: GENUINELY_BROKEN)
+    assert res.clusters == 2            # finer key keeps them apart
+
+
+def test_contested_cluster_falls_back_to_per_item():
+    # two members share a propagation key but the model gives DIFFERENT verdicts on the samples
+    failures = [("t1", "AssertionError: boom"), ("t2", "AssertionError: boom"),
+                ("t3", "AssertionError: boom")]
+    seq = iter([ENVIRONMENT, GENUINELY_BROKEN])  # first two samples disagree
+
+    def judge(reason, test_id):
+        try:
+            return next(seq)
+        except StopIteration:
+            return GENUINELY_BROKEN
+
+    res = triage_failures(failures, judge_fn=judge, samples_per_cluster=2)
+    assert res.contested_clusters == 1
+    assert res.propagated_clusters == 0
+    assert res.llm_calls == 3           # 2 samples + 1 remaining member, all judged individually
+    assert all(r["source"] == "llm_direct" for r in res.final)
+
+
+def test_full_mode_judges_every_item():
+    failures = [("t1", "KeyError: 'plan_pool'"), ("t2", "KeyError: 'plan_pool'")]
+    calls = {"n": 0}
+
+    def judge(reason, test_id):
+        calls["n"] += 1
+        return GENUINELY_BROKEN
+
+    res = triage_failures(failures, judge_fn=judge, full=True)
+    assert calls["n"] == 2             # no propagation; every item judged
+    assert all(r["source"] == "llm_direct" for r in res.final)
 
 
 def test_distinct_root_causes_form_distinct_clusters():
@@ -82,5 +122,7 @@ def test_estimate_cost_reports_reduction():
     # 80 share one cluster, the 20 env are high-confidence (not escalated) -> 1 routed call
     assert est["routed_llm_calls"] == 1
     assert est["naive_llm_calls"] == 100
+    assert est["eligible_items"] == 80      # full mode would judge all 80 low-confidence items
+    assert est["full_llm_calls"] == 80
     assert est["reduction_x"] == 100.0
     assert est["routed_secs"] == 5.0
