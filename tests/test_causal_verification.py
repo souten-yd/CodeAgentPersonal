@@ -22,6 +22,15 @@ def test_regression_1933_spurious_fix_is_rejected():
     assert "threading" in v.cause_symbols and not v.matched
 
 
+def test_rejects_symbol_mentioned_only_as_string_or_comment():
+    # the weak LLM tried to game the gate by writing the symbol as a STRING, not real code.
+    old = "def normalize(value):\n    return ''\n"
+    gamed = ("def normalize(value):\n    # handle the threading NameError\n"
+             "    if value == 'threading':\n        return 'run_command'\n    return ''\n")
+    v = verify_causal(old, gamed, "NameError: name 'threading' is not defined", target_func="normalize")
+    assert v.causal is False                       # "threading" only appears as a string/comment
+
+
 def test_genuine_fix_referencing_the_symbol_is_causal():
     old = "def run():\n    threading.Thread(target=f).start()\n"
     new = "import threading\n\ndef run():\n    threading.Thread(target=f).start()\n"

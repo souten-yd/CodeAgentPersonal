@@ -49,14 +49,23 @@ class CausalVerdict:
     changed_symbols: set = field(default_factory=set)
 
 
+_STRING_LIT_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
+_COMMENT_RE = re.compile(r"#.*$", re.M)
+
+
 def _diff_text(old_src: str, new_src: str) -> str:
-    """The added/removed lines between two versions — what the patch actually changed."""
+    """The added/removed lines between two versions, with STRING LITERALS and COMMENTS stripped — so a
+    patch that merely *mentions* the failure symbol inside a string/comment (the gaming the weak LLM tried:
+    ``if value == "threading"``) does not count as addressing it. Only the symbol as real CODE matters."""
     out = []
     for line in difflib.unified_diff(str(old_src or "").splitlines(), str(new_src or "").splitlines(),
                                      lineterm="", n=0):
         if line[:1] in "+-" and not line.startswith(("+++", "---")):
             out.append(line[1:])
-    return "\n".join(out)
+    text = "\n".join(out)
+    text = _STRING_LIT_RE.sub("''", text)        # blank out string contents
+    text = _COMMENT_RE.sub("", text)             # and comments
+    return text
 
 
 def verify_causal(
