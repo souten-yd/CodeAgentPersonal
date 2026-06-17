@@ -26,7 +26,8 @@ from agent.twin_control_plane.code_synthesis_repair import repair_file_with_synt
 from agent.twin_control_plane.improvement_loop import KEPT, NEEDS_APPROVAL, ROLLED_BACK, SKIPPED
 from agent.twin_control_plane.failure_repair_loop import _CONTROL_PREFIXES, _node_id, _test_file_of
 
-SPURIOUS = "spurious"        # passed the test but the patch did not address the failure's cause
+SPURIOUS = "spurious"            # passed the test but the patch did not address the failure's cause
+NOT_REPRODUCED = "not_reproduced"  # the test passes in isolation — failure is order/shared-state dependent
 
 
 @dataclass
@@ -86,6 +87,13 @@ def repair_one(
         test_src = read(test_file)
     except Exception as exc:  # noqa: BLE001
         return SynthResult(test_id, SKIPPED, detail=f"cannot read test: {type(exc).__name__}")
+
+    # A failure must REPRODUCE in isolation before we try to repair it. Many real failures are
+    # order/shared-state dependent and pass when run alone — then ANY edit "passes" and is kept (the
+    # false positive found verifying #1933). If the test already passes clean, there is nothing to fix.
+    if run_test(nid):
+        return SynthResult(test_id, NOT_REPRODUCED,
+                           detail="test passes in isolation; failure is order/shared-state dependent")
 
     localize = localize_fn or (lambda src, tn: localize_from_test_calls(
         src, repo_root=repo_root, include=include, only_test=tn))
