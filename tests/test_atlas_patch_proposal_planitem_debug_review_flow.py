@@ -13,7 +13,7 @@ def _client(tmp_path):
 
 
 def _create_pool(client):
-    return client.post('/api/atlas/plan-pools', json={'input': 'debug review flow'}).json()
+    return client.post('/api/atlas/plan-pools?sync=1', json={'plan_payload': {'implementation_steps': [{'step_id': 'step_001', 'title': 'Step', 'action_type': 'update', 'target_files': ['README.md']}]}, 'input': 'debug review flow'}).json()
 
 
 def _set_item_for_failed_draft_verification(client, pool_id: str, item_id: str, status: str = 'failed'):
@@ -43,7 +43,7 @@ def test_manual_debug_review_preserves_draft_source_metadata(tmp_path):
     pool = _create_pool(c)
     item = pool['plan_pool']['items'][0]
     _set_item_for_failed_draft_verification(c, pool['pool_id'], item['item_id'])
-    res = c.post('/api/atlas/debug-review/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-flow'}).json()
+    res = c.post('/api/atlas/debug-review/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-flow'}).json()
     assert res['status'] == 'analyzed'
     after = c.get(f"/api/atlas/plan-pools/{pool['pool_id']}").json()['plan_pool']
     meta = next(i for i in after['items'] if i['item_id'] == item['item_id'])['metadata']['debug_review']
@@ -59,7 +59,7 @@ def test_debug_review_blocked_for_passed_verification(tmp_path):
     pool = _create_pool(c)
     item = pool['plan_pool']['items'][0]
     _set_item_for_failed_draft_verification(c, pool['pool_id'], item['item_id'], status='passed')
-    body = c.post('/api/atlas/debug-review/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-pass'}).json()
+    body = c.post('/api/atlas/debug-review/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-pass'}).json()
     assert body['status'] == 'blocked'
     assert 'verification_not_failed' in body['warnings']
 
@@ -69,7 +69,7 @@ def test_debug_review_blocked_for_unverified_draft(tmp_path):
     pool = _create_pool(c)
     item = pool['plan_pool']['items'][0]
     _set_item_for_failed_draft_verification(c, pool['pool_id'], item['item_id'], status='')
-    body = c.post('/api/atlas/debug-review/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-unverified'}).json()
+    body = c.post('/api/atlas/debug-review/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-unverified'}).json()
     assert body['status'] == 'blocked'
     assert 'verification_not_failed' in body['warnings']
 
@@ -89,7 +89,7 @@ def test_debug_review_does_not_auto_generate_patch_proposal_event_or_metadata(tm
             saved_item.setdefault('metadata', {}).pop('patch_proposal', None)
     path.write_text(json.dumps(saved), encoding='utf-8')
 
-    res = c.post('/api/atlas/debug-review/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-no-auto'}).json()
+    res = c.post('/api/atlas/debug-review/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-no-auto'}).json()
     assert res['status'] == 'analyzed'
 
     events_path = Path(c.app.state.atlas_ca_data_dir, 'atlas', 'pipeline_runs', 'dr-no-auto', 'events.ndjson')
@@ -110,7 +110,7 @@ def test_debug_review_response_has_manual_next_step_but_no_auto_patch(tmp_path):
     item = pool['plan_pool']['items'][0]
     _set_item_for_failed_draft_verification(c, pool['pool_id'], item['item_id'])
 
-    res = c.post('/api/atlas/debug-review/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-next-step'}).json()
+    res = c.post('/api/atlas/debug-review/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-next-step'}).json()
     assert res['status'] == 'analyzed'
     joined = str(res.get('continuation_prompt', '')) + str(res.get('metadata', ''))
     assert ('patch proposal' in joined.lower()) or ('manual' in joined.lower())
@@ -125,7 +125,7 @@ def test_no_batch_debug_review_route_still_absent(tmp_path):
     pool = _create_pool(c)
     item = pool['plan_pool']['items'][0]
     _set_item_for_failed_draft_verification(c, pool['pool_id'], item['item_id'])
-    ok = c.post('/api/atlas/debug-review/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-route'})
+    ok = c.post('/api/atlas/debug-review/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'dr-route'})
     assert ok.status_code == 200
     missing = c.post('/api/atlas/debug-review/batch', json={'pool_id': pool['pool_id']})
     assert missing.status_code == 404

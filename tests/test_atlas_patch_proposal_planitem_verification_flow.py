@@ -14,7 +14,7 @@ def _client(tmp_path):
 
 
 def _seed(c):
-    pool = c.post('/api/atlas/plan-pools', json={'input': 'x'}).json()['plan_pool']
+    pool = c.post('/api/atlas/plan-pools?sync=1', json={'plan_payload': {'implementation_steps': [{'step_id': 'step_001', 'title': 'Step', 'action_type': 'update', 'target_files': ['README.md']}]}, 'input': 'x'}).json()['plan_pool']
     return pool['pool_id'], pool['items'][0]['item_id']
 
 
@@ -55,7 +55,7 @@ def test_manual_verification_failed_does_not_start_debug_loop(tmp_path):
             return _Batch()
 
     main.app.state.atlas_test_command_runner = _Runner()
-    r = c.post('/api/atlas/verification/run', json={'pool_id': pool_id, 'item_id': item_id, 'run_id': 'r1'}).json()
+    r = c.post('/api/atlas/verification/run?sync=1', json={'pool_id': pool_id, 'item_id': item_id, 'run_id': 'r1'}).json()
     assert r['status'] == 'failed'
     events = (Path(tmp_path) / 'atlas' / 'workspaces' / 'default' / 'plan_pools' / pool_id / 'pipeline_runs' / 'r1' / 'events.ndjson').read_text(encoding='utf-8')
     assert 'debug_review_manual_started' not in events
@@ -78,7 +78,7 @@ def test_verification_preserves_draft_source_metadata(tmp_path):
             return _Batch()
 
     main.app.state.atlas_test_command_runner = _Runner()
-    r = c.post('/api/atlas/verification/run', json={'pool_id': pool_id, 'item_id': item_id}).json()
+    r = c.post('/api/atlas/verification/run?sync=1', json={'pool_id': pool_id, 'item_id': item_id}).json()
     item = next(i for i in r['plan_pool']['items'] if i['item_id'] == item_id)
     v = item['metadata']['verification']
     assert v['source'] == 'patch_proposal_planitem_draft'
