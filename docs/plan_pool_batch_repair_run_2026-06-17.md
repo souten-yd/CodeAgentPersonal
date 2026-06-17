@@ -47,3 +47,23 @@ characterised follow-up, still frontier-free.
 The shared-cause loop works end-to-end and is honest: it fixed the 13 it could verify, found and fixed a
 real latent product bug, and refused the 10 it could not — all deterministically, no frontier. Files:
 `agent/twin_control_plane/plan_pool_contract_repair.py` (+ tests).
+
+## Generalized: the template was one-off; the PATTERN is not (2026-06-17, follow-up)
+
+The plan-pools template was hardcoded (one-off). But the drift KIND is generic: an endpoint that went
+async is fixed by adding `?sync=1` to the `.post` call — and `/verification/run`, `/debug-review/run`,
+`/safe-apply/execute` all expose the same `sync: int = Query(0)`. So the transform was generalized into
+`sync_contract_repair.repair_sync_contracts(src, endpoints)` — parameterized over an endpoint map, scoped
+to `.post()` calls only (never a URL inside an assertion / route-set literal). `plan_pool_contract_repair`
+is now a thin specialisation of it.
+
+Re-running the batch with the multi-endpoint transform fixed **3 more files / 15 tests**
+(`verification_gate_api` ×7, `patch_proposal_planitem_debug_review_flow` ×6, `…verification_flow` ×2)
+deterministically — no weak LLM needed, because the drift was the SAME shape. `debug_review_api` was
+correctly **assertion-gate-blocked** (the transform would have touched a route-existence assertion). The
+remaining safe-apply-flow files have further chained drift and stay rolled back.
+
+**Answer to "is the template generic?":** the specific template is one-off, but the pattern generalizes
+deterministically by parameterization. The weak LLM is only needed when a cluster's drift is NOT this
+shape (the transform changes nothing, or its change fails verification) — that is the signal to synthesize
+a new template; here it was not needed.

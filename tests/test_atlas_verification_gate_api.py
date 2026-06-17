@@ -17,7 +17,7 @@ def _clear_verification_state():
 
 
 def _create_pool(c):
-    return c.post('/api/atlas/plan-pools', json={'input': 'verification gate'}).json()
+    return c.post('/api/atlas/plan-pools?sync=1', json={'plan_payload': {'implementation_steps': [{'step_id': 'step_001', 'title': 'Step', 'action_type': 'update', 'target_files': ['README.md']}]}, 'input': 'verification gate'}).json()
 
 
 def _pool_file(tmp_path, pool_id):
@@ -40,7 +40,7 @@ def test_verification_requires_safe_apply_done(tmp_path):
     c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
     from agent.test_command_runner import TestCommandRunner
     main.app.state.atlas_test_command_runner = TestCommandRunner()
-    r = c.post('/api/atlas/verification/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id']}).json()
+    r = c.post('/api/atlas/verification/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id']}).json()
     assert r['status'] == 'blocked' and 'safe_apply_not_done' in r['warnings']
 
 
@@ -48,7 +48,7 @@ def test_verification_blocks_if_test_runner_unavailable(tmp_path):
     _clear_verification_state()
     c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
     _mutate_item(tmp_path, pool['pool_id'], item['item_id'], status='completed', metadata={'safe_apply': {'status': 'applied'}})
-    r = c.post('/api/atlas/verification/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id']}).json()
+    r = c.post('/api/atlas/verification/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id']}).json()
     assert r['status'] == 'blocked'
     assert 'test_runner_unavailable' in r['warnings']
 
@@ -77,7 +77,7 @@ def test_verification_runs_allowlisted_command_with_fake_runner(tmp_path):
             return _FakeBatch()
 
     main.app.state.atlas_test_command_runner = _FakeRunner()
-    r = c.post('/api/atlas/verification/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id']}).json()
+    r = c.post('/api/atlas/verification/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id']}).json()
     assert called['count'] == 1
     assert r['status'] == 'passed'
 
@@ -88,7 +88,7 @@ def test_verification_record_saved_and_event(tmp_path):
     _mutate_item(tmp_path, pool['pool_id'], item['item_id'], status='completed', metadata={'safe_apply': {'status': 'applied'}})
     from agent.test_command_runner import TestCommandRunner
     main.app.state.atlas_test_command_runner = TestCommandRunner()
-    r = c.post('/api/atlas/verification/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'run_1'}).json()
+    r = c.post('/api/atlas/verification/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'run_1'}).json()
     base = Path(tmp_path) / 'atlas' / 'workspaces' / 'default' / 'plan_pools' / pool['pool_id']
     assert r['status'] in {'passed', 'failed'}
     assert Path(r['metadata']['verification_record_json']).exists()
@@ -114,7 +114,7 @@ def test_failed_verification_does_not_start_debug_loop(tmp_path):
             return _FakeBatch()
 
     main.app.state.atlas_test_command_runner = _FakeRunner()
-    r = c.post('/api/atlas/verification/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'run_failed'}).json()
+    r = c.post('/api/atlas/verification/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'run_failed'}).json()
     assert r['status'] == 'failed'
     events = (Path(tmp_path) / 'atlas' / 'workspaces' / 'default' / 'plan_pools' / pool['pool_id'] / 'pipeline_runs' / 'run_failed' / 'events.ndjson').read_text(encoding='utf-8')
     assert 'verification_manual_failed' in events
@@ -152,7 +152,7 @@ def test_verification_response_includes_recovery_orchestration_and_continuation(
             return _FakeBatch()
 
     main.app.state.atlas_test_command_runner = _FakeRunner()
-    r = c.post('/api/atlas/verification/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'run_enrichment'}).json()
+    r = c.post('/api/atlas/verification/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'run_enrichment'}).json()
     assert isinstance(r['recovery_summary'], dict)
     assert isinstance(r['orchestration_summary'], dict)
     assert isinstance(r['continuation_prompt'], str)
@@ -187,7 +187,7 @@ def test_verification_enrichment_failure_is_warning_not_pass(tmp_path, monkeypat
         raise RuntimeError('boom')
 
     monkeypatch.setattr('app.api.atlas_pipeline.AtlasContinuationService.build_pool_summary', _boom)
-    r = c.post('/api/atlas/verification/run', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'run_warning'}).json()
+    r = c.post('/api/atlas/verification/run?sync=1', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'run_warning'}).json()
     assert r['status'] == 'passed'
     assert 'verification_enrichment_failed' in r['warnings']
     assert any('boom' in w or 'RuntimeError' in w for w in r['warnings'])
