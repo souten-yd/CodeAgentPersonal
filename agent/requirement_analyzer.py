@@ -203,12 +203,7 @@ def _score(value, default: float) -> float:
         return default_score
 
 
-def _as_str_list(value) -> list[str]:
-    if isinstance(value, list):
-        return [str(x).strip() for x in value if str(x).strip()]
-    if isinstance(value, str) and value.strip():
-        return [value.strip()]
-    return []
+from agent.atlas_list_utils import as_str_list as _as_str_list
 
 
 def _as_requirement_items(value) -> list[dict]:
