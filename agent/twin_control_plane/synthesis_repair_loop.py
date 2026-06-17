@@ -20,10 +20,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+from agent.twin_control_plane.causal_verification import verify_causal
 from agent.twin_control_plane.cause_discovery import localize_from_test_calls
 from agent.twin_control_plane.code_synthesis_repair import repair_file_with_synthesis
 from agent.twin_control_plane.improvement_loop import KEPT, NEEDS_APPROVAL, ROLLED_BACK, SKIPPED
 from agent.twin_control_plane.failure_repair_loop import _CONTROL_PREFIXES, _node_id, _test_file_of
+
+SPURIOUS = "spurious"        # passed the test but the patch did not address the failure's cause
 
 
 @dataclass
@@ -96,6 +99,7 @@ def repair_one(
         return SynthResult(test_id, NEEDS_APPROVAL, detail="candidate touches the control surface",
                            candidates=cand_names)
 
+    saw_spurious = False
     for o in candidates:
         try:
             src = read(o.file)
@@ -108,9 +112,20 @@ def repair_one(
             continue
         write(o.file, new_src)
         if run_test(nid):
-            return SynthResult(test_id, KEPT, func=o.token, file=o.file,
-                               detail="synthesized fix verified", candidates=cand_names)
+            # a passing test is NOT proof of a correct fix — reject a patch that does not address the
+            # failure's cause (the #1933 spurious-pass class).
+            verdict = verify_causal(src, new_src, reason, target_func=o.token, localized_func=o.token)
+            if verdict.causal:
+                return SynthResult(test_id, KEPT, func=o.token, file=o.file,
+                                   detail="synthesized fix verified (causal)", candidates=cand_names)
+            saw_spurious = True
+            git_checkout(o.file)                 # passed but spurious -> reject, try the next candidate
+            continue
         git_checkout(o.file)                     # this candidate did not fix it — revert, try the next
+    if saw_spurious:
+        return SynthResult(test_id, SPURIOUS,
+                           detail="a candidate passed the test but did not address the cause",
+                           candidates=cand_names)
     return SynthResult(test_id, ROLLED_BACK, detail="no candidate fix passed the test", candidates=cand_names)
 
 
