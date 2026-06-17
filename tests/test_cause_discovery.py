@@ -93,3 +93,16 @@ def test_diagnose_prepends_traceback_origin():
                      locate_fn=lambda t: [])
     assert diags[0].signal.kind == "traceback"
     assert diags[0].located is True and diags[0].origins[0].line == 12
+
+
+def test_localize_from_test_calls(tmp_path):
+    from agent.twin_control_plane.cause_discovery import localize_from_test_calls
+    (tmp_path / "agent").mkdir()
+    (tmp_path / "agent" / "subject.py").write_text(
+        "def f11_avg(xs):\n    return sum(xs)/len(xs)\n\ndef other():\n    return 1\n", encoding="utf-8")
+    test_src = "import subject as s\n\ndef test_f11():\n    assert s.f11_avg([2, 4]) == 3.0\n"
+    origins = localize_from_test_calls(test_src, repo_root=str(tmp_path), include=("agent/",), only_test="test_f11")
+    names = {o.token for o in origins}
+    assert "f11_avg" in names and "other" not in names      # only the called function
+    o = [x for x in origins if x.token == "f11_avg"][0]
+    assert o.file == "agent/subject.py" and o.line == 1

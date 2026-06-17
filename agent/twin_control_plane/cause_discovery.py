@@ -21,6 +21,7 @@ Pieces:
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
 from dataclasses import dataclass, field
@@ -158,6 +159,53 @@ def locate_from_traceback(
             continue
         best = CauseOrigin("<traceback>", rel, line, f"{rel}:{line}")   # keep the last (deepest) frame
     return best
+
+
+def localize_from_test_calls(
+    test_source: str,
+    *,
+    repo_root: str = ".",
+    include: Iterable[str] = ("app/", "agent/"),
+    exclude_dirs: Iterable[str] = ("/tests/", "test_", "__pycache__", "venv", "ca_data"),
+    only_test: str = "",
+) -> list[CauseOrigin]:
+    """The product functions a (failing) test EXERCISES, by static call analysis — for value/logic bugs
+    that raise nothing, so the traceback only names the test line.
+
+    Parses ``test_source``, collects the names it calls (``s.f()``, ``f()``), and locates each ``def
+    name(`` in the product source. This is the deterministic, run-free localizer that hands a function
+    name to ``code_synthesis_repair``. ``only_test`` restricts the analysis to one test function."""
+    try:
+        tree = ast.parse(test_source)
+    except SyntaxError:
+        return []
+    scope = tree
+    if only_test:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == only_test:
+                scope = node
+                break
+    names: list[str] = []
+    seen: set[str] = set()
+    for node in ast.walk(scope):
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else "")
+            if name and name not in seen and not name[0].isupper():   # skip class/constructor calls
+                seen.add(name)
+                names.append(name)
+    origins: list[CauseOrigin] = []
+    def_re = {n: re.compile(rf"^\s*(?:async\s+)?def\s+{re.escape(n)}\s*\(") for n in names}
+    for path, rel in _iter_source_files(repo_root, include, exclude_dirs):
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception:
+            continue
+        for i, line in enumerate(lines):
+            for n in names:
+                if def_re[n].match(line):
+                    origins.append(CauseOrigin(n, rel, i + 1, n))
+    return origins
 
 
 _SYSTEM = "You read a code check that emitted a test-failure signal and state what would satisfy it."
