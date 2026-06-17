@@ -168,7 +168,14 @@ def test_multi_file_update_target_missing_blocks_without_writes(tmp_path):
     assert 'update_target_missing' in out['reasons']
 
 
-def test_multi_file_no_effective_change_blocks_without_writes(tmp_path):
+def test_multi_file_no_effective_change_is_skipped_not_blocking(tmp_path):
+    """A no-op sibling (content identical to disk) must not block the rest of the batch.
+
+    Regression: a planner padded target_files with an unchanged index.html alongside a new
+    js/game.js; the no-op file used to sink the whole batch (multi_file_preflight_failed +
+    no_effective_change), so the genuinely new file was never written. It must now be created
+    while the no-op file is reported as skipped.
+    """
     (Path(tmp_path) / 'a.txt').write_text('same\n', encoding='utf-8')
     pool = AtlasPlanPool(pool_id='p1', root_goal='g')
     item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
@@ -179,9 +186,29 @@ def test_multi_file_no_effective_change_blocks_without_writes(tmp_path):
         ],
     })
     out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
+    assert out['status'] == 'applied'
+    assert out['changed_files'] == ['b.txt']
+    assert (Path(tmp_path) / 'b.txt').read_text(encoding='utf-8') == 'b\n'
+    statuses = {r.get('path'): r.get('status') for r in out['file_results']}
+    assert statuses['a.txt'] == 'skipped'
+    assert statuses['b.txt'] == 'applied'
+
+
+def test_multi_file_all_no_effective_change_blocks(tmp_path):
+    """When EVERY file in the batch is a no-op there is genuinely nothing to apply -> blocked."""
+    (Path(tmp_path) / 'a.txt').write_text('same\n', encoding='utf-8')
+    (Path(tmp_path) / 'b.txt').write_text('keep\n', encoding='utf-8')
+    pool = AtlasPlanPool(pool_id='p1', root_goal='g')
+    item = AtlasPlanItem(item_id='i1', pool_id='p1', title='t', goal='g', item_type='implementation', risk_level='low', status='ready', metadata={
+        'action_type': 'update',
+        'file_changes': [
+            {'path': 'a.txt', 'action_type': 'update', 'proposed_content': 'same\n'},
+            {'path': 'b.txt', 'action_type': 'update', 'proposed_content': 'keep\n'},
+        ],
+    })
+    out = AtlasFileSafeApplyExecutor(workspace_root=tmp_path).apply_plan_item_safe(item=item, pool=pool)
     assert out['status'] == 'blocked'
     assert 'no_effective_change' in out['reasons']
-    assert not (Path(tmp_path) / 'b.txt').exists()
 
 
 def test_multi_file_diagnoses_all_file_changes(tmp_path):
