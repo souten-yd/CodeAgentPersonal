@@ -14,7 +14,7 @@ def _client(tmp_path):
 
 
 def _create_pool(c):
-    return c.post('/api/atlas/plan-pools', json={'input': 'snapshot'}).json()
+    return c.post('/api/atlas/plan-pools?sync=1', json={'plan_payload': {'implementation_steps': [{'step_id': 'step_001', 'title': 'Step', 'action_type': 'update', 'target_files': ['README.md']}]}, 'input': 'snapshot'}).json()
 
 
 def _mutate_item(tmp_path, pool_id, item_id, **updates):

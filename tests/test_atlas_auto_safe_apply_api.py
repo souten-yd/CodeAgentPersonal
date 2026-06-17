@@ -23,7 +23,7 @@ def test_route_and_ui_contracts_present():
 
 def test_manual_only_preset_blocks_auto_safe_apply(tmp_path):
     c = _client(tmp_path)
-    created = c.post('/api/atlas/plan-pools', json={'input': 'x'}).json()['plan_pool']
+    created = c.post('/api/atlas/plan-pools?sync=1', json={'plan_payload': {'implementation_steps': [{'step_id': 'step_001', 'title': 'Step', 'action_type': 'update', 'target_files': ['README.md']}]}, 'input': 'x'}).json()['plan_pool']
     item = created['items'][0]
     res = c.post('/api/atlas/automation/safe-apply-one', json={'pool_id': created['pool_id'], 'item_id': item['item_id'], 'preset_id': 'manual_only'}).json()
     assert res['status'] in {'blocked', 'skipped'}
