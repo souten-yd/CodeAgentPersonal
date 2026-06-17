@@ -64,6 +64,23 @@ blocked on Gap B: without a synthesize step, peeling stops at the first non-temp
 (traceback location) + Gap B (weak-LLM synthesis) wired into `failure_repair_loop`, the loop would peel
 arbitrary chains frontier-free, each step verified deterministically.
 
+## Gap B closed — weak-LLM code synthesis fixes 18/20 (follow-up)
+
+`code_synthesis_repair` adds the general fixer: given the LOCALIZED function + the failing test, the local
+weak LLM (Mistral-Small @ :8080) proposes a corrected version of *that one function*, applied behind the
+deterministic gate (run the test → keep, else Git-rollback). Safety is structural — it replaces only the
+single AST-bounded function, never edits the test (the spec), and rejects any candidate that doesn't parse
+or renames the function.
+
+Re-run over the same 20 bugs (clean localization), **18/20 were fixed and verified** — T1 5/5, T2 4/5,
+T3 5/5, T4 4/5 — up from **0/20**. The 2 misses (`b10-split`, `b20-multiop`) were safely rolled back (the
+model's edit failed the test). So **given localization, the weak LLM is ~90% effective**, frontier-free,
+each fix proven by the test.
+
+This relocates the bottleneck back to **localization** (Gap A): the synthesis demo used a clean
+test→function map; in the wild, value-bug localization still needs the Twin's coverage/symbol graph. The
+fixer is no longer the gap — connecting localization to it is.
+
 ## Bottom line
 
 The frontier-free system is **strong at triage/classification (100%)**, **partial at localization (~45%
