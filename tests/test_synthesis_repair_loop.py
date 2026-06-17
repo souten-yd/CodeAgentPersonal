@@ -63,3 +63,15 @@ def test_needs_approval_for_control_surface():
                    include=("agent/",), read_fn=read, write_fn=write, run_test_fn=run_test,
                    git_checkout_fn=git_checkout, localize_fn=lambda src,tn:[CauseOrigin("run_improvement_cycle","agent/twin_control_plane/improvement_loop.py",1,"run_improvement_cycle")])
     assert r.outcome == NEEDS_APPROVAL          # never auto-edit the control surface
+
+
+def test_not_reproduced_when_test_passes_in_isolation():
+    # the #1933 false-positive class: the test passes clean -> nothing to fix, never "kept"
+    from agent.twin_control_plane.synthesis_repair_loop import NOT_REPRODUCED
+    files = {"tests/test_subject.py": _TEST, "agent/subject.py": _FIXED}   # already-correct code
+    state, read, write, run_test, gitco = _io(files, tests_pass_after_fix=True)
+    r = repair_one("tests/test_subject.py::test_add", "x", llm_json_fn=_llm_fix, include=("agent/",),
+                   read_fn=read, write_fn=write, run_test_fn=run_test, git_checkout_fn=gitco,
+                   localize_fn=lambda src, tn: [CauseOrigin("add", "agent/subject.py", 1, "add")])
+    assert r.outcome == NOT_REPRODUCED
+    assert state["w"]["agent/subject.py"] == _FIXED       # untouched
