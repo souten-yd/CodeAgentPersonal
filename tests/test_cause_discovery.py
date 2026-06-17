@@ -68,3 +68,28 @@ def test_diagnose_ranks_located_first():
     assert diags[0].signal.token == "patch_content_missing"   # located, ranked first
     assert diags[0].located is True
     assert any(not d.located for d in diags)                  # the mismatch had no origin
+
+
+def test_locate_from_traceback_picks_deepest_in_project_frame():
+    from agent.twin_control_plane.cause_discovery import locate_from_traceback
+    tb = (
+        'File "/x/tests/test_subject.py", line 5, in test_f08\n'
+        '    pool = pick(d)\n'
+        'File "/x/agent/subject.py", line 47, in f08_pick\n'
+        '    return d["plan_pool"]\n'
+    )
+    o = locate_from_traceback(tb, include=("agent/",))
+    assert o is not None and o.file.endswith("agent/subject.py") and o.line == 47
+
+
+def test_locate_from_traceback_short_form():
+    from agent.twin_control_plane.cause_discovery import locate_from_traceback
+    o = locate_from_traceback("agent/svc.py:90: KeyError", include=("agent/",))
+    assert o is not None and o.line == 90
+
+
+def test_diagnose_prepends_traceback_origin():
+    diags = diagnose("KeyError: 'plan_pool'", traceback_text='File "agent/svc.py", line 12, in f',
+                     locate_fn=lambda t: [])
+    assert diags[0].signal.kind == "traceback"
+    assert diags[0].located is True and diags[0].origins[0].line == 12
