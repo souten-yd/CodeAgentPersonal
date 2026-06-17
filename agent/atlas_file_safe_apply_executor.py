@@ -160,11 +160,26 @@ class AtlasFileSafeApplyExecutor:
                 "summary": "multi-file preflight failed",
             }
 
+        # No-op files were marked "skipped" in preflight (no write target). Drop them from the write
+        # set so an unchanged sibling cannot block the batch; only when EVERY file is a no-op is there
+        # genuinely nothing to apply.
+        effective_results = [result for result in ready_results if result.get("_target") is not None]
+        skipped_results = [self._public_file_result(result) for result in ready_results if result.get("_target") is None]
+        if not effective_results:
+            return {
+                "status": "blocked",
+                "actual_file_changed": False,
+                "changed_files": [],
+                "reasons": ["no_effective_change"],
+                "file_results": [self._public_file_result(result) for result in ready_results],
+                "summary": "blocked: no effective change (all file changes are no-ops)",
+            }
+
         # Pre-apply quality gate (block/autonomous mode): reject the whole batch if any file is incomplete.
         if _quality_block_enforced(pool):
             quality_blocks = [
                 (str(r.get("path") or ""), self._quality_block_reason(str(r.get("_content") or ""), file_path=str(r.get("path") or "")))
-                for r in ready_results
+                for r in effective_results
             ]
             quality_blocks = [(path, reason) for path, reason in quality_blocks if reason]
             if quality_blocks:
@@ -184,7 +199,7 @@ class AtlasFileSafeApplyExecutor:
         # Tracks written files with original state for rollback: {path, target, existed, original_text}
         written_entries: list[dict] = []
 
-        for ready in ready_results:
+        for ready in effective_results:
             path = str(ready.get("path") or "")
             target = ready.get("_target")
             content = str(ready.get("_content") or "")
@@ -213,8 +228,8 @@ class AtlasFileSafeApplyExecutor:
                     "unrestored_files": rb["unrestored_files"],
                     "file_results": applied_results + [
                         self._public_file_result(rest)
-                        for rest in ready_results[len(applied_results):]
-                    ],
+                        for rest in effective_results[len(applied_results):]
+                    ] + skipped_results,
                     "summary": "multi-file apply failed during write",
                 }
             result["status"] = "applied"
@@ -225,8 +240,8 @@ class AtlasFileSafeApplyExecutor:
             "status": "applied",
             "actual_file_changed": bool(changed_files),
             "changed_files": changed_files,
-            "file_results": applied_results,
-            "summary": "multi-file apply completed",
+            "file_results": applied_results + skipped_results,
+            "summary": "multi-file apply completed" + (f" ({len(skipped_results)} no-op file(s) skipped)" if skipped_results else ""),
         }
 
     def _rollback_written_files(self, written_entries: list[dict]) -> dict:
@@ -306,7 +321,13 @@ class AtlasFileSafeApplyExecutor:
                 self._mark_blocked_file(file_results, reasons, {**base_result, "content_mode": mode, "mode": mode}, "content_too_large")
                 continue
             if existed and content == current_text:
-                self._mark_blocked_file(file_results, reasons, {**base_result, "content_mode": mode, "mode": mode}, "no_effective_change")
+                # A no-op file (content identical to disk) is NOT a hard block in a multi-file batch:
+                # a planner/weak model often pads target_files with an unchanged sibling (e.g. lists
+                # index.html alongside a new js/game.js "to satisfy target_files"). Mark it "skipped"
+                # WITHOUT adding to `reasons` so it cannot sink the whole batch; the apply step drops
+                # it and writes the files that do change. (If EVERY file is a no-op the apply step
+                # still blocks with no_effective_change.)
+                file_results.append({**base_result, "content_mode": mode, "mode": mode, "status": "skipped", "reason": "no_effective_change"})
                 continue
             file_results.append({
                 **base_result,
