@@ -26,18 +26,28 @@ _IMPORT_RE = re.compile(r"cannot import name '([^']+)'")
 _UNRESOLVED_RE = re.compile(r"(?:missing_required_fields|invariant_violation)[:\s]+([A-Za-z0-9_,]+)")
 
 
-def cause_symbols(failure_reason: str) -> set[str]:
-    """The concrete symbol(s) a failure names — the thing a real fix must touch. Empty when the failure is
-    a bare value mismatch (this gate then abstains)."""
+def _classify_symbols(failure_reason: str) -> tuple[set[str], set[str]]:
+    """``(code_symbols, key_symbols)``. CODE symbols (NameError/AttributeError/import names) are
+    identifiers a real fix uses as code; KEY symbols (KeyError keys, missing field names) legitimately
+    appear as string literals (``d['plan_pool']``). They are matched differently so that stripping
+    strings to defeat gaming does not also reject a genuine KeyError fix."""
     r = str(failure_reason or "")
-    syms: set[str] = set()
-    for rx in (_NAMEERR_RE, _ATTRERR_RE, _KEYERR_RE, _MODULE_RE, _IMPORT_RE):
-        syms.update(m.group(1) for m in rx.finditer(r))
+    code: set[str] = set()
+    keys: set[str] = set()
+    for rx in (_NAMEERR_RE, _ATTRERR_RE, _MODULE_RE, _IMPORT_RE):
+        code.update(m.group(1) for m in rx.finditer(r))
+    for m in _KEYERR_RE.finditer(r):
+        keys.add(m.group(1))
     for m in _UNRESOLVED_RE.finditer(r):
-        syms.update(p for p in m.group(1).split(",") if p)
-    # a dotted module/name -> also keep the leaf, so `import threading` matches `threading`
-    leaves = {s.split(".")[-1] for s in syms}
-    return {s for s in (syms | leaves) if s and len(s) > 1}
+        keys.update(p for p in m.group(1).split(",") if p)
+    code |= {s.split(".")[-1] for s in code}        # leaf, so `import threading` matches `threading`
+    return ({s for s in code if s and len(s) > 1}, {s for s in keys if s})
+
+
+def cause_symbols(failure_reason: str) -> set[str]:
+    """All symbols a failure names — the thing a real fix must touch. Empty for a bare value mismatch."""
+    code, keys = _classify_symbols(failure_reason)
+    return code | keys
 
 
 @dataclass
@@ -68,6 +78,16 @@ def _diff_text(old_src: str, new_src: str) -> str:
     return text
 
 
+def _raw_diff_text(old_src: str, new_src: str) -> str:
+    """Added/removed lines WITHOUT stripping strings — for KeyError-style symbols that are string keys."""
+    out = []
+    for line in difflib.unified_diff(str(old_src or "").splitlines(), str(new_src or "").splitlines(),
+                                     lineterm="", n=0):
+        if line[:1] in "+-" and not line.startswith(("+++", "---")):
+            out.append(line[1:])
+    return "\n".join(out)
+
+
 def verify_causal(
     old_src: str,
     new_src: str,
@@ -84,11 +104,15 @@ def verify_causal(
     if target_func and localized_func and target_func != localized_func:
         return CausalVerdict(False, "patch target differs from the localized cause",
                              changed_symbols={target_func})
-    syms = cause_symbols(failure_reason)
+    code_syms, key_syms = _classify_symbols(failure_reason)
+    syms = code_syms | key_syms
     if not syms:
         return CausalVerdict(True, "no named symbol in the failure; causal gate abstains")
-    diff = _diff_text(old_src, new_src)
-    matched = {s for s in syms if re.search(rf"\b{re.escape(s)}\b", diff)}
+    code_diff = _diff_text(old_src, new_src)                          # strings/comments stripped
+    raw_diff = _raw_diff_text(old_src, new_src)                       # keys legitimately are strings
+    matched = {s for s in code_syms if re.search(rf"\b{re.escape(s)}\b", code_diff)}
+    matched |= {s for s in key_syms if re.search(rf"\b{re.escape(s)}\b", raw_diff)}
     if matched:
-        return CausalVerdict(True, "patch references the failure's symbol(s)", syms, matched)
-    return CausalVerdict(False, "patch does not reference the failure's symbol(s) — likely spurious", syms)
+        return CausalVerdict(True, "patch references the failure's symbol(s) as code", syms, matched)
+    return CausalVerdict(False, "patch does not reference the failure's symbol(s) as code — likely spurious",
+                         syms)
