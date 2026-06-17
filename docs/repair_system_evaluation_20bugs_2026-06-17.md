@@ -81,6 +81,22 @@ This relocates the bottleneck back to **localization** (Gap A): the synthesis de
 test→function map; in the wild, value-bug localization still needs the Twin's coverage/symbol graph. The
 fixer is no longer the gap — connecting localization to it is.
 
+## Loop closed end-to-end — localize → synthesize → verify (follow-up)
+
+`cause_discovery.localize_from_test_calls` (static call analysis: the product functions a failing test
+exercises) + `synthesis_repair_loop.repair_one` compose the full autonomous cycle. Re-run over the 20
+bugs with **real localization (no cheat) + real weak LLM + real verify**:
+
+- **localized 20/20** deterministically (the test→function map, run-free);
+- **fixed 19/20 end-to-end** (the 1 miss rolled back safely);
+
+— the complete self-heal loop, frontier-free: classify (100%) → localize → synthesize → verify/rollback.
+
+**Honest caveat:** the sandbox tests call the function directly, so static call analysis localizes 20/20.
+Real code is layered (test → API → service → fn), where the test only names the ENTRY function — there the
+Twin's per-test **coverage** is needed to reach the deep function. The loop composition is real and proven
+for direct-call (unit-style) tests; coverage-based localization extends it to layered code.
+
 ## Bottom line
 
 The frontier-free system is **strong at triage/classification (100%)**, **partial at localization (~45%
