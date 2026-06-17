@@ -14,6 +14,13 @@ def test_environment_causes_classified():
     assert classify_failure_reason("playwright: chromium executable doesn't exist") == ENVIRONMENT
 
 
+def test_test_infra_failures_are_environment():
+    # xdist worker crash and a collection failure are test-infra/env, not a code regression.
+    assert classify_failure_reason(
+        "failed on setup with \"worker 'gw3' crashed while running 'tests/test_x.py'\"") == ENVIRONMENT
+    assert classify_failure_reason("collection failure") == ENVIRONMENT
+
+
 def test_debt_and_broken():
     assert classify_failure_reason("DeprecationWarning: foo is deprecated, renamed to bar") == TEST_DEBT
     assert classify_failure_reason("AssertionError: assert 2 == 1") == GENUINELY_BROKEN

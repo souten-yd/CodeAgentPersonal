@@ -35,6 +35,8 @@ _ENV_MARKERS = (
     "address already in use", "winerror", "permissionerror",
     "\\r\\n", "line ending", "carriage return",            # CRLF vs LF on Windows
     "runpod", "'cuda'", "'cpu'", "nvidia", "gpu detect",   # platform-conditional
+    "crashed while running", "node down", "replacing crashed worker",  # xdist worker crash = infra
+    "collection failure",                                  # pytest could not collect the test = env
 )
 # A test that asserts on a rendered UI / golden snapshot whose source legitimately changed = the stored
 # expectation drifted; update the TEST, not the code.
