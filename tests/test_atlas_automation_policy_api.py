@@ -10,7 +10,7 @@ def _client(tmp_path):
 
 def test_automation_decide_api_does_not_execute_safe_apply(tmp_path):
     c = _client(tmp_path)
-    created = c.post('/api/atlas/plan-pools', json={'input': 'automation', 'project_path': str(tmp_path)}).json()['plan_pool']
+    created = c.post('/api/atlas/plan-pools?sync=1', json={'plan_payload': {'implementation_steps': [{'step_id': 'step_001', 'title': 'Step', 'action_type': 'update', 'target_files': ['README.md']}]}, 'input': 'automation', 'project_path': str(tmp_path)}).json()['plan_pool']
     item = created['items'][0]
     item.setdefault('metadata', {})
     item['metadata'].update({'approval': {'decision': 'approved'}, 'action_type': 'update', 'patch': 'x', 'source_proposal_id': 'pp1'})

@@ -26,7 +26,7 @@ def _mutate_item(tmp_path, pool_id, item_id):
 def test_auto_safe_apply_one_allows_and_changes_file(tmp_path):
     (Path(tmp_path) / 'app.py').write_text('old\n', encoding='utf-8')
     c = _client(tmp_path)
-    created = c.post('/api/atlas/plan-pools', json={'input': 'x', 'project_path': str(tmp_path)}).json()['plan_pool']
+    created = c.post('/api/atlas/plan-pools?sync=1', json={'plan_payload': {'implementation_steps': [{'step_id': 'step_001', 'title': 'Step', 'action_type': 'update', 'target_files': ['README.md']}]}, 'input': 'x', 'project_path': str(tmp_path)}).json()['plan_pool']
     item = created['items'][0]
     _mutate_item(tmp_path, created['pool_id'], item['item_id'])
     res = c.post('/api/atlas/automation/safe-apply-one', json={'pool_id': created['pool_id'], 'item_id': item['item_id'], 'preset_id': 'guarded_low_risk', 'run_id': 'run_1'}).json()
@@ -39,7 +39,7 @@ def test_auto_safe_apply_one_allows_and_changes_file(tmp_path):
 
 def test_auto_safe_apply_requires_project_path(tmp_path):
     c = _client(tmp_path)
-    created = c.post('/api/atlas/plan-pools', json={'input': 'x'}).json()['plan_pool']
+    created = c.post('/api/atlas/plan-pools?sync=1', json={'plan_payload': {'implementation_steps': [{'step_id': 'step_001', 'title': 'Step', 'action_type': 'update', 'target_files': ['README.md']}]}, 'input': 'x'}).json()['plan_pool']
     item = created['items'][0]
     res = c.post('/api/atlas/automation/safe-apply-one', json={'pool_id': created['pool_id'], 'item_id': item['item_id'], 'preset_id': 'guarded_low_risk'}).json()
     assert res['status'] in {'blocked', 'skipped'}

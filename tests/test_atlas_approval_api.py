@@ -11,7 +11,7 @@ def _client(tmp_path):
 
 
 def _create(client):
-    r = client.post('/api/atlas/plan-pools', json={'input': 'approval flow'})
+    r = client.post('/api/atlas/plan-pools?sync=1', json={'plan_payload': {'implementation_steps': [{'step_id': 'step_001', 'title': 'Step', 'action_type': 'update', 'target_files': ['README.md']}]}, 'input': 'approval flow'})
     return r.json()
 
 
