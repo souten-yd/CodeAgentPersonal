@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from agent.twin_control_plane.cause_discovery import localize_by_coverage, localize_from_test_calls
+from agent.twin_control_plane.failure_repair_loop import _node_id
 from agent.twin_control_plane.improvement_loop import KEPT
 from agent.twin_control_plane.synthesis_repair_loop import SynthResult, repair_one
 
@@ -77,9 +78,10 @@ def run_staged_repair(
         lambda nid: localize_by_coverage(nid, repo_root=repo_root, include=include))
     for r in unresolved:
         test_id = r.test_id
+        node = _node_id(test_id)            # coverage runs pytest -> needs the file::name node id
         res = repair_one(
             test_id, reason_by_id.get(test_id, ""), llm_json_fn=llm_json_fn, repo_root=repo_root,
-            include=include, localize_fn=lambda _src, _tn, _nid=test_id: cov_loc(_nid), **io)
+            include=include, localize_fn=lambda _src, _tn, _nid=node: cov_loc(_nid), **io)
         rep.stage_b.append(res)
         if res.outcome in _RESOLVED:
             rep.fixed.append(test_id)
