@@ -32,10 +32,48 @@
   function isActiveSession(session) {
     return ['starting', 'running'].includes(String(session?.state || ''));
   }
+  function replacePreviewFrame(src) {
+    if (!dom.frame) return;
+    try { dom.frame.contentWindow?.stop?.(); } catch (_e) {}
+    const next = dom.frame.cloneNode(false);
+    next.dataset.atlasPreviewUrl = src || '';
+    if (src) next.src = src;
+    dom.frame.replaceWith(next);
+    dom.frame = next;
+  }
   function clearPreviewFrame(statusText) {
     state.previewStopped = true;
-    if (dom.frame) dom.frame.src = 'about:blank';
+    replacePreviewFrame('about:blank');
     if (statusText) setStatus(statusText);
+  }
+  function isCapsuleBuildEligible(session) {
+    return !!session?.session_id
+      && session.state === 'stopped'
+      && (session.exit_code === 0 || session.exit_code == null || session.stop_reason === 'user_stop');
+  }
+  function sessionProjectId(session) {
+    return session?.project_id || state.projectId || projectId();
+  }
+  function profileFromSession(session) {
+    if (!session?.session_id || !session.launch_profile_id || !session.launch_kind) return null;
+    const adapter = session.adapter || {};
+    const argv = Array.isArray(adapter.argv) ? adapter.argv : [];
+    return {
+      profile_id: session.launch_profile_id,
+      name: session.launch_profile_id,
+      kind: session.launch_kind,
+      entrypoint: adapter.entrypoint || argv[1] || state.selectedPath || (session.launch_kind === 'static_web' ? 'index.html' : undefined),
+      working_directory: session.working_directory || '.',
+    };
+  }
+  function safePackageId(value, fallback) {
+    const normalize = (text) => String(text || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Za-z0-9_.-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 96);
+    return normalize(value) || normalize(fallback) || 'app';
   }
   function apiErrorReason(resp, fallback) {
     const detail = resp?.detail?.detail || resp?.detail || resp?.data?.detail || resp?.data || null;
@@ -46,6 +84,8 @@
       detail?.reason,
       detail?.message,
       detail?.error,
+      resp?.reason,
+      resp?.error,
       resp?.message,
       resp?.code,
     ];
@@ -165,6 +205,7 @@
     const resp = await api()?.startPlaySession?.({ project_id: state.projectId || projectId(), launch_profile: state.launchProfile });
     if (!resp || !resp.ok) { setStatus('Run failed'); return; }
     state.session = resp.data;
+    state.projectId = sessionProjectId(state.session);
     state.previewStopped = false;
     renderSession();
     startPolling();
@@ -172,10 +213,11 @@
 
   async function stopSession() {
     if (!state.session?.session_id) return;
+    stopPolling();
+    clearPreviewFrame('Stopping preview');
     const resp = await api()?.stopPlaySession?.(state.session.session_id);
     if (resp && resp.ok) {
       state.session = resp.data || { ...state.session, state: 'stopped' };
-      stopPolling();
       clearPreviewFrame('Preview stopped');
       renderSession();
       return;
@@ -210,7 +252,10 @@
     if (dom.frame && session.session_id && isActiveSession(session)) {
       const base = session.launch_kind === 'static_web' ? 'preview' : 'proxy';
       const url = `/api/atlas/play/${base}/${encodeURIComponent(session.session_id)}/`;
-      if (dom.frame.getAttribute('src') !== url) dom.frame.src = url;
+      if (dom.frame.dataset.atlasPreviewUrl !== url) {
+        dom.frame.dataset.atlasPreviewUrl = url;
+        dom.frame.src = url;
+      }
       state.previewStopped = false;
     } else if (session.session_id && !isActiveSession(session) && !state.previewStopped) {
       clearPreviewFrame(session.state === 'stopped' ? 'Preview stopped' : (session.state || 'Preview unavailable'));
@@ -360,26 +405,29 @@
 
   function capsuleProfiles() {
     // The profile the current/last Play session used is the build candidate.
+    const session = state.session || {};
     const profile = state.launchProfile;
-    if (!profile) return [];
-    return [profile];
+    if (profile && (!session.launch_profile_id || profile.profile_id === session.launch_profile_id)) return [profile];
+    const restored = profileFromSession(session);
+    if (restored) return [restored];
+    return [];
   }
 
   function showCapsuleHandoff() {
     ensureCapsuleDialog();
     const dialog = $('atlas-capsule-dialog');
     const session = state.session || {};
-    const eligible = session.session_id && (session.state === 'stopped') && (session.exit_code === 0 || session.exit_code == null);
+    const eligible = isCapsuleBuildEligible(session);
     const elig = $('atlas-capsule-eligibility');
     if (elig) {
       // 「成功」= Play セッションが state="stopped" かつ exit_code が 0 (正常終了) または
       // null (サーバ/静的プレビューを明示停止) であること。crash (exit_code≠0) は state="failed" で不成功。
       elig.textContent = eligible
         ? '対象: 成功した Play セッション (stopped / 終了コード 0 または明示停止)。ビルドした Capsule は Portal カタログへ自動登録されます。'
-        : 'Capsule には成功した Play セッションが必要です (state=stopped かつ 終了コード 0 / 明示停止)。未終了なら Stop、異常終了 (failed) なら修正後に再 Play してください。検証を省いてビルドする場合は「強制Build」を使用します。';
+        : 'Capsule には成功した Play セッションが必要です (stopped かつ exit_code 0/null または stop_reason=user_stop)。未終了なら Stop、異常終了 (failed) なら修正後に再 Play してください。検証を省いてビルドする場合は「強制Build」を使用します。';
     }
     const nameInput = $('atlas-capsule-name');
-    if (nameInput && !nameInput.value) nameInput.value = String(state.projectId || projectId() || '').replace(/[^A-Za-z0-9_.-]/g, '-') || 'app';
+    if (nameInput && !nameInput.value) nameInput.value = String(sessionProjectId(session) || 'app');
     const profiles = capsuleProfiles();
     const host = $('atlas-capsule-profiles');
     if (host) {
@@ -393,7 +441,7 @@
     if (buildBtn) buildBtn.disabled = !(eligible && profiles.length);
     // Force build only needs an existing session + a selected profile; it ignores the success gate.
     if (forceBtn) forceBtn.disabled = !(hasSession && profiles.length);
-    setCapsuleStatus(eligible ? '' : 'Play 成功セッションが必要です (強制Build で検証を省略可)', eligible ? '' : 'error');
+    setCapsuleStatus(eligible ? '' : 'Play 成功セッションが必要です (stopped + user_stop/exit_code 0/null)', eligible ? '' : 'error');
     dialog.classList.add('open');
   }
 
@@ -405,16 +453,17 @@
     if (!selectedIds.length) { setCapsuleStatus('起動プロファイルを1つ以上選択してください', 'error'); return; }
     const profiles = capsuleProfiles().filter((p) => selectedIds.includes(p.profile_id));
     const name = ($('atlas-capsule-name')?.value || '').trim();
+    const packageId = safePackageId(sessionProjectId(session), session.session_id || name || 'app');
     const version = ($('atlas-capsule-version')?.value || '0.1.0').trim();
     const persistData = !!$('atlas-capsule-persist-data')?.checked;
     setCapsuleStatus(force ? 'Force building…' : 'Building…');
     const resp = await api()?.buildCapsule?.({
-      project_id: state.projectId || projectId(),
+      project_id: sessionProjectId(session),
       play_session_id: session.session_id,
       selected_profile_ids: selectedIds,
       launch_profiles: profiles,
       default_profile_id: selectedIds[0],
-      package_id: name || undefined,
+      package_id: packageId,
       name: name || undefined,
       version: version || '0.1.0',
       require_current_hashes: !force,

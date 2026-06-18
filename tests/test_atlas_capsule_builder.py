@@ -204,6 +204,16 @@ def test_capsule_build_api_returns_record(tmp_path: Path) -> None:
     assert response.json()["status"] == "built"
 
 
+def test_capsule_build_allows_japanese_display_name_with_ascii_package_id(tmp_path: Path) -> None:
+    work = _project(tmp_path)
+    _save_success_session(tmp_path, work)
+
+    built = CapsuleBuilder(tmp_path).build(_request(package_id="demo.package.jp", name="日本語パッケージ"))
+
+    assert built["record"]["package_id"] == "demo.package.jp"
+    assert built["manifest"]["name"] == "日本語パッケージ"
+
+
 def test_capsule_build_api_returns_actionable_error_detail(tmp_path: Path) -> None:
     client = _client(tmp_path)
 
