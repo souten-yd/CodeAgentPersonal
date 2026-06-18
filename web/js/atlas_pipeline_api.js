@@ -776,6 +776,12 @@
         { method: 'POST', timeoutMs: 30000 },
       );
     },
+    updatePortalPackageDisplay(packageId, version, contentHash, payload) {
+      return atlasFetch(
+        `/api/portal/packages/${encodeURIComponent(packageId)}/${encodeURIComponent(version)}/${encodeURIComponent(contentHash)}/display`,
+        { method: 'PUT', body: JSON.stringify(payload || {}), timeoutMs: 15000 },
+      );
+    },
     preflightPortalImport(archivePath) {
       return atlasFetch('/api/portal/import/preflight', { method: 'POST', body: JSON.stringify({ archive_path: archivePath }) });
     },

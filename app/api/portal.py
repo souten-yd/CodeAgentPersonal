@@ -60,6 +60,11 @@ class PortalReconnectRequest(BaseModel):
     reconnect_token: str = Field(min_length=1)
 
 
+class PortalPackageDisplayRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    icon: str = Field(default="📦", max_length=16)
+
+
 def _catalog(request: Request) -> PortalCatalogService:
     return PortalCatalogService(resolve_atlas_ca_data_root(request))
 
@@ -242,6 +247,15 @@ def repair_package_manifest(package_id: str, version: str, content_hash: str, re
     manifest from the immutable archive; never mutates the package ZIP."""
     try:
         return _catalog(request).repair_manifest_sidecar(package_id, version, content_hash)
+    except PortalCatalogError as exc:
+        _raise_catalog_error(exc)
+
+
+@router.put("/packages/{package_id}/{version}/{content_hash}/display")
+def update_package_display(package_id: str, version: str, content_hash: str, payload: PortalPackageDisplayRequest, request: Request) -> dict:
+    """Update Portal-only display metadata. The Capsule ZIP and manifest remain immutable."""
+    try:
+        return _catalog(request).update_display_metadata(package_id, version, content_hash, name=payload.name, icon=payload.icon)
     except PortalCatalogError as exc:
         _raise_catalog_error(exc)
 
