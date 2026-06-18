@@ -54,6 +54,80 @@ def _usage_updated_at() -> str:
     return datetime.now().isoformat()
 
 
+def _gpu_util_nvidia_smi(timeout_sec: float) -> float | None:
+    """Max GPU utilisation via a single nvidia-smi query, or None. The runpod-preferred probe."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=timeout_sec)
+        vals = [
+            float(re.sub(r"[^0-9.]", "", ln) or -1)
+            for ln in (r.stdout or "").splitlines() if ln.strip()
+        ]
+        vals = [v for v in vals if v >= 0]
+        return max(vals) if vals else None
+    except Exception:  # noqa: BLE001 - probe is advisory.
+        return None
+
+
+def _gpu_util_resource_monitor() -> float | None:
+    """Max GPU utilisation via the full /system/usage resource monitor (Windows PDH + nvidia/AMD
+    shapes), or None. The Windows-preferred probe."""
+    try:
+        ports = UsageCollectorPorts(settings=_NoopSettingsPort(), diagnostics=InMemoryUsageDiagnostics())
+        payload = collect_system_usage_info(ports=ports)
+        utils = [
+            float(g.get("util_percent"))
+            for g in (payload.get("gpus") or [])
+            if isinstance(g, dict) and isinstance(g.get("util_percent"), (int, float)) and float(g.get("util_percent")) >= 0
+        ]
+        return max(utils) if utils else None
+    except Exception:  # noqa: BLE001 - probe is advisory.
+        return None
+
+
+def sample_gpu_utilization(*, timeout_sec: float = 4.0) -> float | None:
+    """Best-effort CURRENT GPU utilisation percent (max across GPUs), or ``None`` when no GPU /
+    no probe is available.
+
+    Lightweight companion to ``collect_system_usage_info`` for liveness checks (e.g. "is the model
+    still computing during a long prefill / reasoning phase?"). The probe ORDER is chosen by
+    environment detection — the same startup detection the rest of the app uses — because runpod and
+    Windows expose GPU stats through different mechanisms:
+      - runpod (Linux + NVIDIA): nvidia-smi utilisation query first.
+      - Windows: the resource monitor (Task-Manager PDH / vendor CSV) first.
+    The other probe is always tried as a fallback. Never raises — returns ``None`` so callers degrade
+    to time-only liveness."""
+    try:
+        from app.env_detection import detect_os_profile, detect_runpod
+
+        prefer_nvidia = bool(detect_runpod()) or not bool(detect_os_profile().get("is_windows"))
+    except Exception:  # noqa: BLE001 - detection is advisory; default to nvidia-first.
+        prefer_nvidia = True
+
+    probes = (
+        (_gpu_util_nvidia_smi(timeout_sec), _gpu_util_resource_monitor)
+        if prefer_nvidia
+        else (_gpu_util_resource_monitor(), lambda: _gpu_util_nvidia_smi(timeout_sec))
+    )
+    primary, secondary = probes
+    if primary is not None:
+        return primary
+    return secondary()
+
+
+class _NoopSettingsPort:
+    """Minimal SettingsPort for standalone GPU sampling (no persisted settings needed)."""
+
+    def get_setting(self, key: str) -> str | None:
+        return None
+
+    def set_setting(self, key: str, value: str) -> None:
+        return None
+
+
 def _normalize_static_gpu_usage(gpu: Mapping[str, Any]) -> dict[str, Any]:
     """Normalize a static GPU probe row into the ``/system/usage`` GPU shape."""
     return {
