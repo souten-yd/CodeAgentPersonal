@@ -157,3 +157,56 @@ def render_decomposition_directive(policy: DecompositionPolicy) -> str:
         f"- {split_line}\n"
         "- An explicit single-file / self-contained request in the user's goal still overrides this."
     )
+
+
+def resolve_size_tier(
+    *,
+    data_root: str,
+    metadata: Mapping[str, object] | None = None,
+    env: Mapping[str, str] | None = None,
+    model_id: str = "",
+    provider_id: str = "",
+) -> str:
+    """Resolve the ``frontier|standard|weak`` sizing tier for the active model — the shared
+    capability lookup behind both plan-time decomposition and patch-time output shaping.
+
+    Resolves the Forge-evaluated identity when the caller pinned none (honouring the opt-in live
+    local probe), loads its capability profile, and derives the tier. This is the single signal that
+    lets weak-model output restrictions be applied while a frontier model skips them. Best-effort and
+    disabled-safe: any problem yields the balanced ``standard`` tier (legacy neutral behaviour)."""
+    import os
+    from pathlib import Path
+
+    try:
+        env = env if env is not None else os.environ
+        md = metadata or {}
+        mid = str(model_id or md.get("model_id") or env.get("FORGE_LOCAL_MODEL") or "").strip()
+        pid = str(provider_id or md.get("provider_id") or "local").strip() or "local"
+        if not mid:
+            try:
+                from agent.model_forge.forge_service import ForgeService
+
+                probe = str(env.get("ATLAS_FORGE_PROBE_LOCAL", "")).strip().lower() in {"1", "on", "true", "yes"}
+                resolved = ForgeService(data_root, env=dict(env)).resolve_active_codegen_model(probe_live=probe)
+                mid = str(resolved.get("model_id") or "").strip()
+                pid = str(resolved.get("provider_id") or pid).strip() or pid
+            except Exception:  # noqa: BLE001 - resolution is advisory.
+                pass
+        capability_scores: dict = {}
+        known_weaknesses: tuple = ()
+        if mid:
+            try:
+                from agent.model_forge.capability_scoring import load_capability_profile
+                from agent.model_forge.profile_store import ProfileStore
+
+                store = ProfileStore(Path(data_root) / "model_forge" / "profiles")
+                cap = load_capability_profile(store, pid, mid)
+                capability_scores = dict(getattr(cap, "capability_scores", {}) or {})
+                known_weaknesses = tuple(getattr(cap, "known_weaknesses", ()) or ())
+            except Exception:  # noqa: BLE001 - profile is advisory.
+                pass
+        return derive_decomposition_policy(
+            capability_scores=capability_scores, known_weaknesses=known_weaknesses, model_id=mid,
+        ).tier
+    except Exception:  # noqa: BLE001 - never raise from an advisory tier lookup.
+        return "standard"
