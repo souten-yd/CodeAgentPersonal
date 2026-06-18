@@ -68,6 +68,19 @@ def test_play_workspace_uses_pr_ppc_api_surface() -> None:
     assert "/api/atlas/play/sessions/start" in API_JS
 
 
+def test_play_workspace_stop_does_not_refetch_stopped_preview_or_reload_iframe() -> None:
+    assert "clearPreviewFrame('Preview stopped')" in PLAY_JS
+    assert "stopPolling();" in PLAY_JS
+    assert "if (dom.frame.getAttribute('src') !== url) dom.frame.src = url;" in PLAY_JS
+    assert "session.state === 'stopped' ? 'Preview stopped'" in PLAY_JS
+
+
+def test_capsule_builder_surfaces_api_error_reason_not_generic_error() -> None:
+    assert "function apiErrorReason" in PLAY_JS
+    assert "Build failed: ${apiErrorReason(resp, 'error')}" in PLAY_JS
+    assert "resp?.data?.error || resp?.code || 'error'" not in PLAY_JS
+
+
 def test_mobile_css_compacts_header_and_uses_fullscreen_sheet() -> None:
     assert "@media(max-width:720px)" in CSS
     assert ".atlas-play-sheet{width:100vw;height:100dvh" in CSS

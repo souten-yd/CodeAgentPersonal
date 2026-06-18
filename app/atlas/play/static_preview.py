@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import mimetypes
 import os
+import threading
+import time
+import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 from urllib.parse import urlparse
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from app.atlas.play.contracts import LaunchKind, StrictContractModel
 from app.atlas.play.sessions import ACTIVE_SESSION_STATES, PlaySessionError, PlaySessionRecord, PlaySessionRepository
@@ -17,6 +23,9 @@ from app.atlas.play.workspace_policy import WorkspacePermission, decide_workspac
 
 STATIC_PREVIEW_SCHEMA_VERSION = "atlas.play.static_preview.v1"
 _ALLOWED_HOSTS = {"testserver", "localhost", "127.0.0.1", "::1"}
+_OBSERVATION_LOCK_STALE_SECONDS = 10.0
+_SERVED_PATH_DEBOUNCE_SECONDS = 2.0
+_LOGGER = logging.getLogger(__name__)
 
 
 class StaticPreviewError(RuntimeError):
@@ -156,6 +165,11 @@ def validate_preview_request_headers(headers: dict[str, str]) -> None:
 
 
 class StaticPreviewObservationStore:
+    _thread_locks: dict[str, threading.RLock] = {}
+    _thread_locks_guard = threading.Lock()
+    _served_path_seen: dict[tuple[str, str], float] = {}
+    _served_path_seen_guard = threading.Lock()
+
     def __init__(self, repository: PlaySessionRepository) -> None:
         self.repository = repository
 
@@ -163,37 +177,194 @@ class StaticPreviewObservationStore:
         return self.repository.session_dir(session_id) / "static_preview_observations.json"
 
     def load(self, session_id: str) -> StaticPreviewObservationRecord:
+        return self._load_best_effort(session_id)
+
+    def _empty_record(self, session_id: str) -> StaticPreviewObservationRecord:
+        return StaticPreviewObservationRecord(session_id=session_id, updated_at=_now_iso())
+
+    def _thread_lock(self, session_id: str) -> threading.RLock:
+        with self._thread_locks_guard:
+            lock = self._thread_locks.get(session_id)
+            if lock is None:
+                lock = threading.RLock()
+                self._thread_locks[session_id] = lock
+            return lock
+
+    @contextmanager
+    def _file_lock(self, session_id: str) -> Iterator[bool]:
+        lock_path = self.repository.session_dir(session_id) / "static_preview_observations.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        fd: int | None = None
+        acquired = False
+        try:
+            try:
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, f"{os.getpid()} {time.time()}".encode("utf-8"))
+                acquired = True
+            except FileExistsError:
+                try:
+                    age = time.time() - lock_path.stat().st_mtime
+                    if age > _OBSERVATION_LOCK_STALE_SECONDS:
+                        lock_path.unlink(missing_ok=True)
+                        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                        os.write(fd, f"{os.getpid()} {time.time()}".encode("utf-8"))
+                        acquired = True
+                except OSError as exc:
+                    _LOGGER.warning("Static preview observation lock unavailable for session %s: %s", session_id, exc)
+            except OSError as exc:
+                _LOGGER.warning("Static preview observation lock unavailable for session %s: %s", session_id, exc)
+            yield acquired
+        finally:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            if acquired:
+                try:
+                    lock_path.unlink(missing_ok=True)
+                except OSError as exc:
+                    _LOGGER.warning("Static preview observation lock cleanup failed for session %s: %s", session_id, exc)
+
+    def _load_best_effort(self, session_id: str) -> StaticPreviewObservationRecord:
         path = self.path(session_id)
+        try:
+            if not path.exists():
+                return self._empty_record(session_id)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return StaticPreviewObservationRecord.model_validate(payload)
+        except json.JSONDecodeError as exc:
+            _LOGGER.warning("Static preview observations corrupt for session %s: %s", session_id, exc)
+            self._quarantine_corrupt_file(path)
+        except (OSError, ValidationError) as exc:
+            _LOGGER.warning("Static preview observations unavailable for session %s: %s", session_id, exc)
+            if isinstance(exc, ValidationError):
+                self._quarantine_corrupt_file(path)
+        return self._empty_record(session_id)
+
+    def _quarantine_corrupt_file(self, path: Path) -> None:
         if not path.exists():
-            return StaticPreviewObservationRecord(session_id=session_id, updated_at=_now_iso())
-        return StaticPreviewObservationRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            return
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        target = path.with_name(f"static_preview_observations.corrupt-{timestamp}.json")
+        try:
+            path.replace(target)
+            _LOGGER.warning("Moved corrupt static preview observations to %s", target)
+        except OSError as exc:
+            _LOGGER.warning("Failed to move corrupt static preview observations %s: %s", path, exc)
 
     def save(self, record: StaticPreviewObservationRecord) -> None:
+        self._save_best_effort(record)
+
+    def _save_best_effort(self, record: StaticPreviewObservationRecord) -> bool:
         record.updated_at = _now_iso()
         path = self.path(record.session_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_name(f"{path.name}.tmp")
-        tmp_path.write_text(json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp_path.replace(path)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = path.with_name(
+                f"{path.stem}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}.tmp"
+            )
+            data = json.dumps(record.model_dump(mode="json"), ensure_ascii=False, indent=2)
+            with tmp_path.open("w", encoding="utf-8") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, path)
+            self._fsync_parent(path.parent)
+            return True
+        except OSError as exc:
+            _LOGGER.warning("Static preview observation save failed for session %s: %s", record.session_id, exc)
+            try:
+                if "tmp_path" in locals():
+                    tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return False
+
+    def _fsync_parent(self, path: Path) -> None:
+        try:
+            fd = os.open(str(path), os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(fd)
+        except OSError:
+            pass
+        finally:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+    def _should_skip_served_path_save(self, session_id: str, relative_path: str) -> bool:
+        key = (session_id, relative_path)
+        now = time.monotonic()
+        with self._served_path_seen_guard:
+            previous = self._served_path_seen.get(key)
+            self._served_path_seen[key] = now
+            return previous is not None and (now - previous) < _SERVED_PATH_DEBOUNCE_SECONDS
+
+    def _load_update_save(
+        self,
+        session_id: str,
+        update,
+    ) -> StaticPreviewObservationRecord:
+        with self._thread_lock(session_id):
+            with self._file_lock(session_id) as acquired:
+                record = self._load_best_effort(session_id)
+                update(record)
+                if not acquired:
+                    _LOGGER.warning("Static preview observation lock skipped for session %s", session_id)
+                    return record
+                self._save_best_effort(record)
+                return record
 
     def record_served_path(self, session_id: str, relative_path: str) -> None:
-        record = self.load(session_id)
-        record.served_paths = list(dict.fromkeys([*record.served_paths, relative_path]))[-500:]
-        self.save(record)
+        if self._should_skip_served_path_save(session_id, relative_path):
+            return
+        try:
+            self._load_update_save(
+                session_id,
+                lambda record: setattr(
+                    record,
+                    "served_paths",
+                    list(dict.fromkeys([*record.served_paths, relative_path]))[-500:],
+                ),
+            )
+        except (OSError, PermissionError, ValidationError, json.JSONDecodeError) as exc:
+            _LOGGER.warning("Static preview served-path observation skipped for session %s: %s", session_id, exc)
 
     def record_failed_request(self, session_id: str, event: StaticPreviewFailedRequest) -> StaticPreviewObservationRecord:
-        record = self.load(session_id)
-        event.created_at = event.created_at or _now_iso()
-        record.failed_requests = [*record.failed_requests, event][-500:]
-        self.save(record)
-        return record
+        try:
+            return self._load_update_save(
+                session_id,
+                lambda record: (
+                    setattr(event, "created_at", event.created_at or _now_iso()),
+                    setattr(record, "failed_requests", [*record.failed_requests, event][-500:]),
+                ),
+            )
+        except (OSError, PermissionError, ValidationError, json.JSONDecodeError) as exc:
+            _LOGGER.warning("Static preview failed-request observation skipped for session %s: %s", session_id, exc)
+            record = self._empty_record(session_id)
+            event.created_at = event.created_at or _now_iso()
+            record.failed_requests = [event]
+            return record
 
     def record_console_event(self, session_id: str, event: StaticPreviewConsoleEvent) -> StaticPreviewObservationRecord:
-        record = self.load(session_id)
-        event.created_at = event.created_at or _now_iso()
-        record.console_events = [*record.console_events, event][-500:]
-        self.save(record)
-        return record
+        try:
+            return self._load_update_save(
+                session_id,
+                lambda record: (
+                    setattr(event, "created_at", event.created_at or _now_iso()),
+                    setattr(record, "console_events", [*record.console_events, event][-500:]),
+                ),
+            )
+        except (OSError, PermissionError, ValidationError, json.JSONDecodeError) as exc:
+            _LOGGER.warning("Static preview console observation skipped for session %s: %s", session_id, exc)
+            record = self._empty_record(session_id)
+            event.created_at = event.created_at or _now_iso()
+            record.console_events = [event]
+            return record
 
 
 class StaticPreviewService:
