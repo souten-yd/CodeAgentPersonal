@@ -139,13 +139,7 @@ class AtlasPatchProposalService:
         try:
             self.persist_patch_generation_transition(pool, item, run_id=run_id, event_type="patch_generation_started", state="running", outcome="active", reason_code="patch_generation_started", retryable=True)
             payload = self.build_proposal_input(pool, item, request)
-            # Twin Control Plane: carry the compiled instruction (when shadow/active) so the
-            # generator receives it as a bounded, advisory control section.
-            twin_hints = (request.metadata or {}).get("twin_generation_hints") or {}
-            if isinstance(twin_hints, dict) and twin_hints.get("twin_instruction"):
-                payload["twin_control_section"] = str(twin_hints["twin_instruction"])
-            if isinstance(twin_hints, dict) and twin_hints.get("twin_repair_section"):
-                payload["twin_repair_section"] = str(twin_hints["twin_repair_section"])
+            payload, twin_generation = self._attach_twin_generation_context(pool, item, request, payload)
             payload, pi_generation = self._attach_project_intelligence_generation_context(pool, item, request, payload)
             if pi_generation.get("blocked"):
                 warnings = ["project_intelligence_generation_blocked", *list(pi_generation.get("diagnostics") or [])]
@@ -168,6 +162,8 @@ class AtlasPatchProposalService:
             proposal.run_id = run_id
             if pi_generation:
                 proposal.metadata["project_intelligence_generation"] = pi_generation
+            if twin_generation:
+                proposal.metadata["twin_control_plane_generation"] = twin_generation
             # Honest signal: a proposal can be "proposed" yet carry NO applicable content (weak/absent
             # LLM, or fallback). Surface that explicitly so the UI does not report fake success and the
             # autopilot does not silently skip with "missing_patch_or_content".
@@ -202,7 +198,21 @@ class AtlasPatchProposalService:
             )
             source_type = str((proposal.metadata or {}).get("source_type") or request.source_type or "")
             result_status = "proposed" if generation_success or source_type == "debug_review" else str(patch_generation.get("state") or "failed")
-            result = AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=run_id, status=result_status, proposal=proposal, proposal_json_path=json_path, proposal_md_path=md_path, metadata={"patch_content_available": has_content, "patch_generation": patch_generation})
+            result = AtlasPatchProposalResult(
+                pool_id=pool.pool_id,
+                item_id=item.item_id,
+                run_id=run_id,
+                status=result_status,
+                proposal=proposal,
+                proposal_json_path=json_path,
+                proposal_md_path=md_path,
+                metadata={
+                    "patch_content_available": has_content,
+                    "patch_generation": patch_generation,
+                    "project_intelligence_generation": pi_generation,
+                    "twin_control_plane_generation": twin_generation,
+                },
+            )
             self.mark_item_from_patch_proposal(pool, item, result)
             self.persist_patch_generation_transition(
                 pool,
@@ -226,6 +236,153 @@ class AtlasPatchProposalService:
             self.persist_patch_generation_transition(pool, item, run_id=run_id, event_type="patch_generation_failed", state="failed", outcome="failure", reason_code="patch_proposal_exception", errors=errors, retryable=True)
             self._record_trace(pool.pool_id, run_id, "failed", "patch_proposal_exception", {"llm_called": bool(self.llm_json_fn), "errors": errors})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=run_id, status="failed", errors=errors, plan_pool=pool.model_dump(), metadata={"patch_generation": (item.metadata or {}).get("patch_generation") or {}})
+
+    def _attach_twin_generation_context(
+        self,
+        pool: AtlasPlanPool,
+        item: AtlasPlanItem,
+        request: AtlasPatchProposalRequest,
+        payload: dict,
+    ) -> tuple[dict, dict]:
+        """Attach advisory Twin context for direct and orchestrated patch generation.
+
+        The autonomous orchestrator may supply preassembled hints. Direct UI/API generation
+        does not, so this method assembles the same existing Twin evidence from the persisted
+        Project Twin. It never changes Atlas execution authority and never blocks generation
+        when Twin evidence is unavailable.
+        """
+        request_metadata = request.metadata or {}
+        explicit_hints = request_metadata.get("twin_generation_hints") or {}
+        if isinstance(explicit_hints, dict) and explicit_hints:
+            instruction = str(explicit_hints.get("twin_instruction") or "").strip()
+            repair = str(explicit_hints.get("twin_repair_section") or "").strip()
+            if instruction:
+                payload["twin_control_section"] = instruction
+            if repair:
+                payload["twin_repair_section"] = repair
+            metadata = {
+                "mode": str(explicit_hints.get("mode") or "active"),
+                "source": "request_metadata",
+                "used_twin": bool(instruction),
+                "instruction_id": str(explicit_hints.get("twin_instruction_id") or ""),
+                "route": str(explicit_hints.get("twin_route") or ""),
+                "instruction_style": str(explicit_hints.get("twin_instruction_style") or ""),
+                "twin_injection_level": explicit_hints.get("twin_injection_level"),
+                "impacted_dependent_files": list(explicit_hints.get("impacted_dependent_files") or []),
+            }
+            payload["twin_control_plane_generation"] = metadata
+            return payload, metadata
+
+        twin_store = None
+        try:
+            from agent.twin_control_plane.active_integration import PipelineMode
+            from agent.twin_control_plane.pipeline_integration import (
+                build_twin_pipeline_evidence,
+                ensure_project_twin,
+                expand_changed_refs_to_symbols,
+                load_project_twin_store,
+                resolve_build_project_twin,
+                resolve_pipeline_mode,
+                resolve_twin_autobuild,
+                try_project_twin_impact,
+            )
+
+            mode = resolve_pipeline_mode()
+            if mode == PipelineMode.OFF:
+                metadata = {
+                    "mode": mode.value,
+                    "source": "service",
+                    "used_twin": False,
+                    "available": False,
+                    "reason": "pipeline_off",
+                }
+                payload["twin_control_plane_generation"] = metadata
+                return payload, metadata
+
+            data_root = str(getattr(self.storage, "root_dir", "") or "")
+            project_id = str(pool.pool_id or pool.project_name or "atlas")
+            project_path = str(pool.project_path or "")
+            target_files = [
+                str(path).strip()
+                for path in payload.get("item", {}).get("target_files") or item.target_files or []
+                if str(path).strip()
+            ]
+            if project_path and (resolve_build_project_twin() or (mode == PipelineMode.ACTIVE and resolve_twin_autobuild())):
+                twin_store = ensure_project_twin(
+                    data_root=data_root,
+                    project_id=project_id,
+                    project_path=project_path,
+                )
+            else:
+                twin_store = load_project_twin_store(data_root=data_root, project_id=project_id)
+            impact_refs = expand_changed_refs_to_symbols(twin_store, project_id, target_files)
+            impact = try_project_twin_impact(
+                project_id=project_id,
+                changed_refs=impact_refs,
+                store=twin_store,
+            )
+            change_class = {
+                "low": "small",
+                "medium": "medium",
+                "high": "large",
+                "critical": "critical",
+            }.get(str(item.risk_level or "").lower(), "medium")
+            evidence = build_twin_pipeline_evidence(
+                mode=mode,
+                requirement=str(item.goal or item.title or pool.root_goal or ""),
+                pool_id=project_id,
+                project_path=project_path,
+                changed_refs=target_files,
+                item_refs=[item.item_id],
+                impact=impact,
+                model_id=str(request_metadata.get("model_id") or request_metadata.get("forge_model_id") or ""),
+                provider_id=str(request_metadata.get("provider_id") or request_metadata.get("forge_provider_id") or ""),
+                profile_store_dir=str(Path(data_root) / "model_forge" / "profiles") if data_root else None,
+                change_class=change_class,
+                task_category="patch_proposal_generation",
+            )
+            instruction = str(evidence.get("compiled_instruction") or "").strip()
+            safe_edit = evidence.get("safe_edit_briefing") if isinstance(evidence.get("safe_edit_briefing"), dict) else {}
+            dependent_files = list(safe_edit.get("dependent_files") or [])
+            if instruction:
+                payload["twin_control_section"] = instruction
+            if dependent_files:
+                payload.setdefault("code_context", {})
+                payload["code_context"]["twin_impacted_dependent_files"] = dependent_files
+            metadata = {
+                "mode": str(evidence.get("mode") or mode.value),
+                "source": "service",
+                "used_twin": bool(instruction),
+                "available": bool(evidence.get("available")),
+                "engaged": bool(evidence.get("engaged")),
+                "project_twin_available": twin_store is not None,
+                "instruction_id": str(evidence.get("instruction_id") or ""),
+                "route": str(evidence.get("route") or ""),
+                "instruction_style": str(evidence.get("instruction_style") or ""),
+                "twin_injection_level": evidence.get("twin_injection_level"),
+                "impact": dict(evidence.get("impact") or {}),
+                "safe_edit_briefing": dict(safe_edit or {}),
+                "impacted_dependent_files": dependent_files,
+                "reason": str(evidence.get("reason") or ""),
+            }
+            payload["twin_control_plane_generation"] = metadata
+            return payload, metadata
+        except Exception as exc:  # noqa: BLE001 - Twin context is advisory and unavailable is not failure.
+            metadata = {
+                "mode": "unknown",
+                "source": "service",
+                "used_twin": False,
+                "available": False,
+                "reason": f"twin_generation_context_unavailable:{exc.__class__.__name__}",
+            }
+            payload["twin_control_plane_generation"] = metadata
+            return payload, metadata
+        finally:
+            if twin_store is not None and hasattr(twin_store, "close"):
+                try:
+                    twin_store.close()
+                except Exception:
+                    pass
 
     def _attach_project_intelligence_generation_context(
         self,
@@ -2592,12 +2749,15 @@ class AtlasPatchProposalService:
             item.status = "cancelled"
         elif state in {"queued", "running", "validating", "repairing", "retrying"}:
             item.status = "executing"
+            pool.failed_item_ids = [item_id for item_id in pool.failed_item_ids if item_id != item.item_id]
+            pool.blocked_item_ids = [item_id for item_id in pool.blocked_item_ids if item_id != item.item_id]
             pool.current_item_id = item.item_id
-            if str(pool.status or "") in {"ready", "approved", "waiting"}:
-                pool.status = "running"
+            pool.status = "running"
         elif state == "succeeded":
             if item.status == "executing":
                 item.status = "ready"
+            pool.failed_item_ids = [item_id for item_id in pool.failed_item_ids if item_id != item.item_id]
+            pool.blocked_item_ids = [item_id for item_id in pool.blocked_item_ids if item_id != item.item_id]
             pool.current_item_id = item.item_id
         pool.metadata = dict(pool.metadata or {})
         pool.metadata["latest_patch_generation"] = next_state
@@ -2607,11 +2767,57 @@ class AtlasPatchProposalService:
             "outcome": next_state.get("outcome"),
             "updated_at": next_state.get("updated_at"),
         }
+        if state in {"succeeded", "failed", "blocked", "cancelled"}:
+            self._reconcile_pool_after_patch_generation(pool)
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
         self.journal.write_checkpoint(pool=pool, next_action=self._checkpoint_next_action(next_state))
         self._append_event(pool.pool_id, run_id, event_type, item, state, warnings=warnings, errors=errors, reason_code=reason_code, patch_generation=next_state)
         return next_state
+
+    @staticmethod
+    def _reconcile_pool_after_patch_generation(pool: AtlasPlanPool) -> None:
+        """Keep PlanPool status aligned with item-level patch-generation outcomes."""
+        terminal = {"completed", "failed", "blocked", "cancelled", "skipped"}
+        active = {"executing", "testing", "debugging", "researching", "planning", "reviewing"}
+        approval = {"approval_required", "waiting_for_critical_decision", "blocked_safety_review"}
+        revision = {"needs_revision"}
+        runnable = {"queued", "ready", "approved"}
+        statuses = [str(item.status or "") for item in pool.items]
+        counts = {status: statuses.count(status) for status in sorted(set(statuses))}
+
+        if any(status in active for status in statuses):
+            pool.status = "running"
+        elif any(status in approval for status in statuses):
+            if "waiting_for_critical_decision" in statuses:
+                pool.status = "waiting_for_critical_decision"
+            elif "blocked_safety_review" in statuses:
+                pool.status = "blocked_safety_review"
+            else:
+                pool.status = "approval_required"
+        elif any(status in revision for status in statuses):
+            pool.status = "needs_revision"
+        elif any(status in runnable for status in statuses):
+            pool.status = "ready"
+            pool.current_item_id = ""
+        elif statuses and all(status in terminal for status in statuses):
+            pool.current_item_id = ""
+            if "failed" in statuses:
+                pool.status = "failed"
+            elif "blocked" in statuses:
+                pool.status = "blocked"
+            elif all(status == "cancelled" for status in statuses):
+                pool.status = "cancelled"
+            else:
+                pool.status = "completed"
+
+        pool.metadata = dict(pool.metadata or {})
+        pool.metadata["patch_generation_pool_summary"] = {
+            "status": pool.status,
+            "item_status_counts": counts,
+            "terminal": bool(statuses) and all(status in terminal for status in statuses),
+            "reconciled_at": datetime.now(timezone.utc).isoformat(),
+        }
 
     def _patch_generation_concurrency_result(self, pool: AtlasPlanPool, item: AtlasPlanItem, *, run_id: str) -> AtlasPatchProposalResult | None:
         current = (item.metadata or {}).get("patch_generation") if isinstance((item.metadata or {}).get("patch_generation"), dict) else {}

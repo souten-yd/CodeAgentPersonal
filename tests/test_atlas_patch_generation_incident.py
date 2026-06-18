@@ -279,6 +279,10 @@ def test_evidence_omitted_content_still_succeeds_via_inference(tmp_path: Path) -
     semantic = proposal_md.get("semantic_validation") or {}
     assert "semantic_evidence_missing" not in (semantic.get("reasons") or [])
     assert semantic.get("status") == "passed"
+    reloaded = storage.load_pool("pool_1")
+    assert reloaded.get_item("item_1").status == "ready"
+    assert reloaded.status == "ready"
+    assert reloaded.metadata["patch_generation_pool_summary"]["terminal"] is False
 
 
 def test_empty_generated_content_still_fails_honestly(tmp_path: Path) -> None:
@@ -295,6 +299,41 @@ def test_empty_generated_content_still_fails_honestly(tmp_path: Path) -> None:
     assert result.status != "proposed"
     assert is_patch_generation_success((result.metadata or {}).get("patch_generation")) is False
     assert (result.proposal.metadata or {}).get("patch_content_available") is False
+    reloaded = storage.load_pool("pool_1")
+    assert reloaded.get_item("item_1").status == "failed"
+    assert reloaded.status == "failed"
+    assert reloaded.current_item_id == ""
+    assert reloaded.metadata["patch_generation_pool_summary"]["terminal"] is True
+
+
+def test_patch_generation_failure_returns_pool_to_ready_when_other_items_remain(tmp_path: Path) -> None:
+    first = _item()
+    second = _item().model_copy(
+        update={
+            "item_id": "item_2",
+            "title": "Create CSS",
+            "goal": "Create styles",
+            "target_files": ["style.css"],
+            "requirement_ids": ["req_002"],
+        }
+    )
+    pool = _pool(tmp_path, first)
+    pool.items.append(second)
+    pool.requirements.append({"requirement_id": "req_002", "description": "Create styles", "required": True})
+    pool.requirement_item_map["req_002"] = ["item_2"]
+    storage, journal = _store(tmp_path, pool)
+    service = AtlasPatchProposalService(journal=journal, storage=storage, llm_json_fn=_llm_empty_content)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_1", run_id="run_1", source_type="plan_item")
+    )
+
+    assert result.status == "failed"
+    reloaded = storage.load_pool("pool_1")
+    assert reloaded.get_item("item_1").status == "failed"
+    assert reloaded.get_item("item_2").status == "ready"
+    assert reloaded.status == "ready"
+    assert reloaded.metadata["patch_generation_pool_summary"]["terminal"] is False
 
 
 def test_route1_plan_approve_patch_verify_summary_completes(tmp_path: Path) -> None:
