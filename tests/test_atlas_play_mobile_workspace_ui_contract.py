@@ -25,6 +25,7 @@ def test_play_workspace_script_loads_after_api_before_dashboard() -> None:
     dashboard = UI.index("atlas_dashboard.js")
 
     assert api < play < dashboard
+    assert "atlas_play_workspace.js?v=atlas-play-workspace-2" in UI
 
 
 def test_workspace_has_required_tabs_and_controls_without_host_shell() -> None:
@@ -69,14 +70,35 @@ def test_play_workspace_uses_pr_ppc_api_surface() -> None:
 
 
 def test_play_workspace_stop_does_not_refetch_stopped_preview_or_reload_iframe() -> None:
+    stop_fn = PLAY_JS.index("async function stopSession()")
+    stop_poll = PLAY_JS.index("stopPolling();", stop_fn)
+    clear = PLAY_JS.index("clearPreviewFrame('Stopping preview')", stop_fn)
+    stop_api = PLAY_JS.index("stopPlaySession", stop_fn)
+    assert stop_poll < stop_api
+    assert clear < stop_api
+    assert "function replacePreviewFrame" in PLAY_JS
+    assert "contentWindow?.stop?.()" in PLAY_JS
     assert "clearPreviewFrame('Preview stopped')" in PLAY_JS
     assert "stopPolling();" in PLAY_JS
-    assert "if (dom.frame.getAttribute('src') !== url) dom.frame.src = url;" in PLAY_JS
+    assert "dom.frame.dataset.atlasPreviewUrl !== url" in PLAY_JS
     assert "session.state === 'stopped' ? 'Preview stopped'" in PLAY_JS
+
+
+def test_capsule_builder_treats_user_stopped_preview_as_normal_build_candidate() -> None:
+    assert "function isCapsuleBuildEligible" in PLAY_JS
+    assert "session.stop_reason === 'user_stop'" in PLAY_JS
+    assert "project_id: sessionProjectId(session)" in PLAY_JS
+    assert "profileFromSession(session)" in PLAY_JS
+    assert "session.launch_kind === 'static_web' ? 'index.html'" in PLAY_JS
+    assert "function safePackageId" in PLAY_JS
+    assert "package_id: packageId" in PLAY_JS
+    assert "package_id: name || undefined" not in PLAY_JS
 
 
 def test_capsule_builder_surfaces_api_error_reason_not_generic_error() -> None:
     assert "function apiErrorReason" in PLAY_JS
+    assert "resp?.reason" in PLAY_JS
+    assert "resp?.error" in PLAY_JS
     assert "Build failed: ${apiErrorReason(resp, 'error')}" in PLAY_JS
     assert "resp?.data?.error || resp?.code || 'error'" not in PLAY_JS
 

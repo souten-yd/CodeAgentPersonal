@@ -74,6 +74,102 @@ Blocker:
 - none for local implementation and verification.
 ```
 
+## 2026-06-18 Play Preview / Stop / Capsule Follow-up
+
+```text
+Completed package: Atlas Play UI reload/Stop/Capsule follow-up
+Status: implemented_on_branch codex/atlas-play-stop-capsule-followup
+Changed modules/files:
+- web/js/atlas_play_workspace.js
+- ui.html
+- tests/test_atlas_play_mobile_workspace_ui_contract.py
+Behavior implemented:
+- Play iframe now uses data-atlasPreviewUrl as the single source for preview URL identity, so session polling cannot reset the same iframe src and cause preview flicker.
+- Stop now stops polling and clears the iframe before calling the backend stop API.
+- Clearing preview now calls iframe.contentWindow.stop() and replaces the iframe node with about:blank, aborting pending frame navigation/resource loads before the backend transitions to stopped.
+- Capsule UI eligibility now matches backend success semantics: stopped with exit_code 0/null or stop_reason=user_stop.
+- Capsule build payload now uses session.project_id rather than possibly stale active workspace state.
+- Capsule launch profiles can be restored from the Play session when state.launchProfile is stale or missing.
+- ui.html bumps atlas_play_workspace.js cache key from atlas-play-workspace-1 to atlas-play-workspace-2 so browsers do not keep the old flickering JS.
+Focused tests:
+- python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_capsule_builder.py tests/test_atlas_play_static_preview.py -> 34 passed, 1 skipped in 7.55s.
+- node --check web\js\atlas_play_workspace.js -> passed.
+Affected tests:
+- python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_atlas_play_static_preview.py tests/test_atlas_capsule_builder.py tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_play_portal_capsule_acceptance.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py -> 61 passed, 2 skipped in 15.58s.
+Real model evidence:
+- GET http://127.0.0.1:8080/health -> 200 {"status":"ok"}.
+- GET http://127.0.0.1:8080/props -> 200, model_alias Qwen3.6-35B-A3B-UD-IQ4_XS.gguf.
+- POST http://127.0.0.1:8080/v1/chat/completions prompt "Reply exactly: atlas-followup-ok" -> 200, content atlas-followup-ok.
+- LLM-generated static app JSON with index.html, css/style.css, js/game.js was used for API smoke.
+Atlas UI evidence:
+- Playwright UI smoke over web/js/atlas_play_workspace.js with mocked AtlasPipelineAPI:
+  - session polling ran get_session_calls=1.
+  - iframe src mutations during polling stayed at 1, proving polling did not reload the preview frame.
+  - Stop observed iframe src=about:blank before stopPlaySession API resolved.
+  - Stop with exit_code=1 and stop_reason=user_stop left normal Build enabled.
+  - normal Build payload force=false, project_id=demo-project, play_session_id=play-ui-smoke.
+  - Capsule status showed Built demo-project v0.1.0.
+Runtime/Portal evidence:
+- TestClient API smoke using the LLM-generated static app:
+  - POST /api/atlas/play/sessions/start -> 200.
+  - parallel GET preview index.html/css/style.css/js/game.js repeated 4x -> all 200.
+  - POST /api/atlas/play/sessions/{session}/stop -> 200, state=stopped, stop_reason=user_stop, exit_code=1.
+  - stopped preview URL -> 403, expected backend behavior.
+  - POST /api/atlas/capsule/build force=false after Stop -> 200, status=built, forced=false, file_count=3.
+LLM advisory review:
+- Initial review identified actionable risks around aborting pending iframe loads and profile fallback.
+- Revised patch review verdict: approved with minor deployment note; remaining note is to ensure ui.html cache key update deploys atomically with JS, which is covered by this patch and contract test.
+Unavailable checks:
+- Live http://127.0.0.1:8000 server was stopped during follow-up verification, so live-server browser smoke was not run against 8000.
+- Verification used Playwright with mocked UI API plus TestClient backend API smoke instead.
+Safety invariants:
+- Stop does not hide backend stopped-preview 403; it prevents the UI from auto-requesting stopped preview URLs and shows Preview stopped.
+- Normal Capsule build is enabled only for backend-success-equivalent stopped sessions; failed sessions remain rejected by backend.
+- Force build remains explicit.
+- Remote publication was not performed in this follow-up.
+Remaining gaps:
+- After deployment/restart, user should hard-refresh once if their browser still has atlas-play-workspace-1 cached; the new ui.html references atlas-play-workspace-2.
+Next package:
+- none for this follow-up unless live-server smoke after restart reveals another path.
+Blocker:
+- none for local implementation and verification.
+```
+
+## 2026-06-18 Capsule Japanese Name Follow-up
+
+```text
+Completed package: Capsule UI package_id/name separation for non-ASCII display names
+Status: implemented_on_branch codex/atlas-play-stop-capsule-followup
+Changed modules/files:
+- web/js/atlas_play_workspace.js
+- tests/test_atlas_play_mobile_workspace_ui_contract.py
+- tests/test_atlas_capsule_builder.py
+- docs/atlas_twin_forge_git_steward_current_status.md
+Behavior implemented:
+- Capsule UI now treats the Package name input as display name only.
+- package_id is generated separately with an ASCII-safe sanitizer from session/project identity and falls back to the Play session id when the project id is non-ASCII.
+- Japanese package display names are preserved in the manifest name while package_id remains safe for filesystem/package-store paths.
+Focused tests:
+- python -m pytest -q tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_capsule_builder.py -> 18 passed in 2.12s.
+- node --check web\js\atlas_play_workspace.js -> passed.
+Atlas UI evidence:
+- Playwright public-flow smoke with project_id=日本語プロジェクト and Package name=日本語ゲーム:
+  - normal Build payload name=日本語ゲーム.
+  - normal Build payload package_id=play-jp-smoke, ASCII-safe and not equal to the Japanese display name.
+  - force=false and Build status showed Built play-jp-smoke v0.1.0.
+Real model evidence:
+- Covered by the same 8080 live LLM checks in the preceding follow-up: /health 200, /props 200, /v1/chat/completions 200.
+Safety invariants:
+- Backend package_id restrictions remain intact for path/package-store safety.
+- Japanese text is allowed only as display metadata, not as filesystem package id.
+Remaining gaps:
+- none.
+Next package:
+- none for this follow-up unless live-server smoke after restart reveals another path.
+Blocker:
+- none for local implementation and verification.
+```
+
 ## Program state
 
 - Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward concrete adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7/8/9/9A/10 component foundations
