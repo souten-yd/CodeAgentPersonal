@@ -150,6 +150,20 @@ class AtlasPlannerBridge:
                 or ""
             ).strip()
             provider_id = str(md.get("provider_id") or "local").strip() or "local"
+            # When the request/env did not pin a model, resolve the Forge-evaluated identity (the same
+            # seam the orchestrator uses) so the planner sizes for the model that will actually run —
+            # including a live :8080 probe when opted in. Identity only; best-effort.
+            if not model_id:
+                try:
+                    from agent.model_forge.forge_service import ForgeService
+
+                    probe_live = os.environ.get("ATLAS_FORGE_PROBE_LOCAL", "").strip().lower() in {"1", "on", "true", "yes"}
+                    resolved = ForgeService(self.ca_data_dir, env=os.environ).resolve_active_codegen_model(probe_live=probe_live)
+                    model_id = str(resolved.get("model_id") or "").strip()
+                    if model_id:
+                        provider_id = str(resolved.get("provider_id") or provider_id).strip() or provider_id
+                except Exception:  # noqa: BLE001 - resolution is advisory; keep the name heuristic.
+                    pass
             capability_scores: dict = {}
             known_weaknesses: tuple = ()
             if model_id:

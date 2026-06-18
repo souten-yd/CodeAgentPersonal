@@ -314,3 +314,28 @@ def test_bridge_has_no_runtime_execution_side_effect_tokens() -> None:
         "httpx",
     ]:
         assert forbidden not in source
+
+
+def test_decomposition_directive_uses_forge_resolved_weak_model(tmp_path):
+    # Phase 2a: with no model pinned in the request, the planner resolves the Forge-evaluated
+    # identity and sizes for it. A profile that is weak at large-file editing must drive the
+    # aggressive-split (weak-tier) directive instead of the neutral standard default.
+    from agent.model_forge.forge_service import ForgeService
+
+    svc = ForgeService(tmp_path, env={})
+    svc.profiles.record_observation(
+        model_id="weak-coder", provider_id="local_openai",
+        dimensions={"patch_generation": 0.5, "large_file_editing": 0.2, "overall": 0.4},
+    )
+    bridge = AtlasPlannerBridge(ca_data_dir=str(tmp_path), llm_json_fn=_fake_llm)
+    directive = bridge._decomposition_directive(_request(metadata={}))
+    assert directive
+    assert "Split the app into focused files" in directive
+
+
+def test_decomposition_directive_safe_without_any_model(tmp_path):
+    # No profile, no configured model: resolution returns nothing and the directive falls back to
+    # the balanced standard tier (never raises, never blocks planning).
+    bridge = AtlasPlannerBridge(ca_data_dir=str(tmp_path), llm_json_fn=_fake_llm)
+    directive = bridge._decomposition_directive(_request(metadata={}))
+    assert isinstance(directive, str)
