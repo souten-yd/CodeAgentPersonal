@@ -4,6 +4,71 @@ Status: full package sequence (TFG-1..13) implemented, wired into the live auton
 
 This file is the mutable checkpoint for the approved integration of Project Intelligence, Project Digital Twin, Genesis/Greenfield, Forge Execution Policy, and Atlas Git Steward.
 
+## 2026-06-19 Direct Patchgen Twin Context + PlanPool Terminal Status
+
+```text
+Completed package: Direct patch-generation Twin injection and truthful terminal-state reconciliation
+Status: completed_and_verified
+Changed modules/files:
+- agent/atlas_patch_proposal_service.py
+- app/api/atlas_pipeline.py
+- web/js/atlas_claude_panel.js
+- tests/test_atlas_patch_generation_incident.py
+- tests/test_atlas_patch_proposal_twin_section.py
+- tests/test_atlas_patch_proposal_watchdog.py
+- tests/test_panel_shows_safety_block_reason_not_spinner_contract.py
+Behavior implemented:
+- Direct /api/atlas/patch-proposals/generate calls no longer depend on the autonomous orchestrator to supply twin_generation_hints.
+- In active mode, patch generation loads/builds the persisted Project Twin, assesses target-file impact, assembles existing Twin pipeline evidence, and injects the compiled instruction into the LLM system prompt.
+- Proposal/result metadata records mode, source, used_twin, engagement, Project Twin availability, instruction id, route, instruction style, injection level, impact revision, Safe-Edit Briefing, and impacted dependent files.
+- Direct patchgen closes its per-call Project Twin SQLite store after evidence assembly, avoiding Windows file-handle leakage.
+- ATLAS_TWIN_PIPELINE_MODE=off preserves the legacy generation prompt.
+- Patch-generation state transitions now reconcile PlanPool status: successful proposal generation returns the item/pool to ready; a single failed item makes the pool terminal failed; remaining runnable items return the pool to ready; blocked/cancelled/all-terminal states are represented truthfully.
+- Retrying a previously failed/blocked item removes stale failed/blocked indexes before the new run.
+- Patchgen job files now use status=failed when generation fails instead of always recording done.
+- Empty-patch UI failure rendering resolves planner_fallback from known metadata sources and no longer throws plannerFallback is not defined.
+Focused tests:
+- python -m pytest -q tests/test_atlas_patch_proposal_twin_section.py tests/test_atlas_patch_generation_incident.py -> 15 passed in 7.78s.
+- python -m pytest -q tests/test_atlas_patch_proposal_twin_section.py tests/test_atlas_patch_generation_incident.py tests/test_atlas_patch_proposal_watchdog.py tests/test_atlas_runtime_status_contract.py -> 33 passed in 8.79s.
+- python -m pytest -q tests/test_atlas_patch_proposal_twin_section.py tests/test_atlas_patch_generation_incident.py tests/test_atlas_patch_proposal_watchdog.py tests/test_panel_shows_safety_block_reason_not_spinner_contract.py -> 32 passed in 16.22s after explicit Twin store close.
+Syntax checks:
+- python -m py_compile agent\atlas_patch_proposal_service.py app\api\atlas_pipeline.py -> passed.
+- node --check web\js\atlas_claude_panel.js -> passed.
+Affected tests:
+- python -m pytest -q tests/test_atlas_patch_proposal_api.py tests/test_atlas_patch_proposal_approval_api.py tests/test_project_intelligence_pir11_generation_apply.py tests/test_atlas_codegen_twin_gate.py tests/test_twin_forge_git_steward_initial.py -> 45 passed in 15.34s.
+- python -m pytest -q tests/test_atlas_patch_proposal_twin_section.py tests/test_atlas_patch_generation_incident.py tests/test_atlas_patch_proposal_watchdog.py tests/test_atlas_patch_proposal_api.py tests/test_atlas_patch_proposal_approval_api.py tests/test_project_intelligence_pir11_generation_apply.py tests/test_atlas_codegen_twin_gate.py tests/test_twin_forge_git_steward_initial.py -> 72 passed in 18.94s.
+Real model evidence:
+- GET http://127.0.0.1:8080/health -> 200 {"status":"ok"}.
+- GET http://127.0.0.1:8080/v1/models -> 200, model Qwen3.6-35B-A3B-UD-IQ4_XS.gguf, n_ctx=16384.
+- Isolated js/game.js patch generation through AtlasPatchProposalService + AtlasLLMJsonAdapter -> status=proposed, patch_generation.state=succeeded, attempt=1, patch_content_available=true.
+- The live model returned one applicable file_change for js/game.js; prompt_tokens=3657, completion_tokens=552, total_tokens=4209.
+Atlas UI evidence:
+- Contract test verifies the empty-patch failure branch defines plannerFallback before reading it.
+- Full browser interaction was not run for this backend/Twin slice.
+Project Intelligence evidence:
+- Direct service smoke did not inject a Project Intelligence coordinator; project_intelligence_generation remained unavailable/empty.
+- Project Twin was independently active and used: mode=active, used_twin=true, engaged=true, project_twin_available=true.
+- Twin instruction_id=instruction_54614e804212, route=direct_patch, instruction_style=constrained_patch, twin_injection_level=3.
+- Twin impact available=true with revision 9927091a9c014af7a47564027a692ba8. No dependents or recommended tests existed in the isolated one-file project.
+Runtime/Portal evidence:
+- Not applicable; the isolated check generated a Proposal only and did not bypass Safe Apply or execute Portal runtime.
+Unavailable checks:
+- Safe-Edit Briefing had no dependent files in the isolated one-file project, so dependency guidance was unavailable rather than reported as passed.
+- Browser/Playwright UI smoke was not run.
+Safety invariants:
+- Twin remains advisory and does not apply files or bypass Proposal / Safe Apply / Verification.
+- Project Intelligence off/unavailable is not presented as used.
+- Empty patch content remains a failed generation; no success is fabricated.
+- Unavailable evidence is not recorded as passed.
+- Remote publication remains subject to the repository publication policy.
+Remaining gaps:
+- Re-run the original user PlanPool after deployment to collect impact evidence from its real multi-file project and confirm dependent-file guidance when the graph contains dependents.
+Next package:
+- none for this incident slice.
+Blocker:
+- none.
+```
+
 ## 2026-06-18 Play Preview / Stop / Capsule P0 Fix
 
 ```text
