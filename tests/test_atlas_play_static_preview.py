@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -8,8 +9,13 @@ import pytest
 from app.api.atlas_play import router as atlas_play_router
 from app.atlas.play.contracts import LaunchKind, LaunchProfile
 from app.atlas.play.environment import build_structured_launch_adapter
-from app.atlas.play.sessions import PlaySessionManager
-from app.atlas.play.static_preview import StaticPreviewError, validate_preview_request_headers
+from app.atlas.play.sessions import PlaySessionManager, PlaySessionRepository
+from app.atlas.play.static_preview import (
+    StaticPreviewError,
+    StaticPreviewObservationStore,
+    StaticPreviewService,
+    validate_preview_request_headers,
+)
 
 
 def _project(tmp_path: Path, project_id: str = "demo") -> Path:
@@ -174,3 +180,86 @@ def test_static_preview_ingests_console_and_failed_request_events(tmp_path: Path
     assert failed.status_code == 200
     assert observations["console_events"][0]["level"] == "error"
     assert observations["failed_requests"][0]["url"] == "/missing.png"
+
+
+def test_static_preview_observation_save_failure_does_not_break_asset_response(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    work = _project(tmp_path, "save-failure")
+    (work / "index.html").write_text("<script src='app.js'></script>", encoding="utf-8")
+    session = _start_static(tmp_path, work, "save-failure")
+    client = _client(tmp_path)
+
+    def fail_save(self, record):  # noqa: ANN001
+        raise PermissionError("locked by another preview request")
+
+    monkeypatch.setattr(StaticPreviewObservationStore, "_save_best_effort", fail_save)
+    response = client.get(f"/api/atlas/play/preview/{session.session_id}/index.html")
+    PlaySessionManager(tmp_path).stop_session(session.session_id)
+
+    assert response.status_code == 200
+    assert response.text == "<script src='app.js'></script>"
+
+
+def test_static_preview_corrupt_observations_are_quarantined_and_preview_continues(tmp_path: Path) -> None:
+    work = _project(tmp_path, "corrupt")
+    (work / "index.html").write_text("ok", encoding="utf-8")
+    session = _start_static(tmp_path, work, "corrupt")
+    session_dir = PlaySessionRepository(tmp_path).session_dir(session.session_id)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "static_preview_observations.json").write_text('{"bad": true}} trailing', encoding="utf-8")
+    client = _client(tmp_path)
+
+    response = client.get(f"/api/atlas/play/preview/{session.session_id}/index.html")
+    observations = client.get(f"/api/atlas/play/preview/{session.session_id}/observations")
+    PlaySessionManager(tmp_path).stop_session(session.session_id)
+
+    assert response.status_code == 200
+    assert observations.status_code == 200
+    assert observations.json()["session_id"] == session.session_id
+    assert list(session_dir.glob("static_preview_observations.corrupt-*.json"))
+
+
+def test_static_preview_concurrent_asset_resolution_is_best_effort_and_uses_unique_tmp_names(tmp_path: Path) -> None:
+    work = _project(tmp_path, "concurrent")
+    (work / "css").mkdir()
+    (work / "js").mkdir()
+    (work / "index.html").write_text("<link rel='stylesheet' href='css/style.css'><script src='js/game.js'></script>", encoding="utf-8")
+    (work / "css" / "style.css").write_text("body{color:#123}", encoding="utf-8")
+    (work / "js" / "game.js").write_text("console.log('game')", encoding="utf-8")
+    session = _start_static(tmp_path, work, "concurrent")
+    service = StaticPreviewService(tmp_path)
+    paths = ["index.html", "css/style.css", "js/game.js"] * 8
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda path: service.resolve_static_file(session.session_id, path), paths))
+
+    session_dir = PlaySessionRepository(tmp_path).session_dir(session.session_id)
+    PlaySessionManager(tmp_path).stop_session(session.session_id)
+
+    assert {served for _file, served, _content_type in results} == {"index.html", "css/style.css", "js/game.js"}
+    assert not (session_dir / "static_preview_observations.json.tmp").exists()
+    assert not list(session_dir.glob("static_preview_observations.json.*.tmp"))
+
+
+def test_static_preview_rejects_absolute_windows_and_symlink_escape_paths(tmp_path: Path) -> None:
+    work = _project(tmp_path, "path-safety")
+    (work / "index.html").write_text("ok", encoding="utf-8")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("secret", encoding="utf-8")
+    try:
+        (work / "linked-secret.txt").symlink_to(secret)
+    except OSError:
+        pytest.skip("symlink creation unavailable in this environment")
+    session = _start_static(tmp_path, work, "path-safety")
+    client = _client(tmp_path)
+
+    absolute = client.get(f"/api/atlas/play/preview/{session.session_id}/%2Fetc%2Fpasswd")
+    windows = client.get(f"/api/atlas/play/preview/{session.session_id}/C%3A%5CWindows%5Cwin.ini")
+    symlink = client.get(f"/api/atlas/play/preview/{session.session_id}/linked-secret.txt")
+    PlaySessionManager(tmp_path).stop_session(session.session_id)
+
+    assert absolute.status_code == 403
+    assert windows.status_code == 403
+    assert symlink.status_code == 403

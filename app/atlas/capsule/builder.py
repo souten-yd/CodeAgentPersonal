@@ -84,7 +84,7 @@ class CapsuleBuilder:
         # an exit code of 0 (clean self-exit) or None (a long-lived server/static preview
         # the user explicitly stopped). A crashed session is "failed" and is rejected.
         # Force build skips this gate but keeps every path-safety and exclusion guard.
-        if not request.force and (session.state != "stopped" or session.exit_code not in {0, None}):
+        if not request.force and not self._is_successful_play_session(session):
             raise CapsuleBuildError("play_session_not_successful")
         project_root = Path(session.project_root).resolve()
         profiles = self._selected_profiles(request, session)
@@ -148,6 +148,16 @@ class CapsuleBuilder:
             if not deps.issubset(selected_ids):
                 raise CapsuleBuildError("composite_dependency_not_selected")
         return selected
+
+    def _is_successful_play_session(self, session) -> bool:
+        if session.state != "stopped":
+            return False
+        if session.exit_code in {0, None}:
+            return True
+        # Long-lived static/server previews are intentionally terminated by the
+        # user. On Windows and POSIX this can leave a non-zero process return
+        # code even though the Play session completed by explicit Stop.
+        return session.stop_reason == "user_stop"
 
     def _profile_from_session(self, session) -> LaunchProfile:
         adapter = session.adapter or {}

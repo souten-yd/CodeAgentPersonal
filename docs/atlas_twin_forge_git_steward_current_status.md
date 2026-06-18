@@ -4,6 +4,76 @@ Status: full package sequence (TFG-1..13) implemented, wired into the live auton
 
 This file is the mutable checkpoint for the approved integration of Project Intelligence, Project Digital Twin, Genesis/Greenfield, Forge Execution Policy, and Atlas Git Steward.
 
+## 2026-06-18 Play Preview / Stop / Capsule P0 Fix
+
+```text
+Completed package: Atlas Play Preview observation hardening + Stop UI + Capsule build detail/success gate
+Status: implemented_on_branch codex/atlas-play-capsule-preview-fix
+Changed modules/files:
+- app/atlas/play/static_preview.py
+- app/atlas/capsule/builder.py
+- app/api/atlas_capsule.py
+- web/js/atlas_play_workspace.js
+- tests/test_atlas_play_static_preview.py
+- tests/test_atlas_capsule_builder.py
+- tests/test_atlas_play_mobile_workspace_ui_contract.py
+Behavior implemented:
+- Static preview observation persistence is best-effort. OSError/PermissionError/JSONDecodeError/pydantic ValidationError are warning-only and cannot break HTML/CSS/JS/image responses.
+- Observation writes use per-session in-process locking plus cross-process lock files, unique temp names, flush/fsync/close, and os.replace. Lock acquisition failure skips observation save only.
+- Corrupt static_preview_observations.json files are quarantined to static_preview_observations.corrupt-{timestamp}.json and preview continues with an empty observation record.
+- Served-path observation writes are debounced for repeated same-path hits.
+- Preview iframe src is no longer reset on every poll, avoiding reload flicker. Stop success clears iframe to about:blank, stops polling, and shows Preview stopped instead of refetching stopped preview URLs.
+- Capsule build API returns structured error + reason details. UI surfaces detail/reason/message/validation text instead of generic Build failed: error.
+- Normal Capsule build now accepts explicit user-stopped long-lived sessions even when OS termination leaves a non-zero exit_code; failed sessions remain rejected.
+Focused tests:
+- python -m pytest -q tests/test_atlas_play_static_preview.py tests/test_atlas_capsule_builder.py tests/test_atlas_play_mobile_workspace_ui_contract.py -> 27 passed, 1 skipped in 5.97s.
+- python -m pytest -q tests/test_atlas_capsule_builder.py tests/test_atlas_play_static_preview.py tests/test_atlas_play_mobile_workspace_ui_contract.py -> 27 passed, 1 skipped in 5.97s after Capsule gate fix.
+Syntax checks:
+- python -m py_compile app\atlas\play\static_preview.py app\api\atlas_capsule.py -> passed.
+- python -m py_compile app\atlas\capsule\builder.py app\atlas\play\static_preview.py app\api\atlas_capsule.py -> passed.
+Affected tests:
+- python -m pytest -q tests/test_twin_forge_git_steward_initial.py -> 6 passed in 4.35s.
+- python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_atlas_play_portal_capsule_acceptance.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py -> 33 passed, 1 skipped in 15.65s.
+- python -m pytest -q tests/test_twin_forge_git_steward_initial.py tests/test_atlas_play_static_preview.py tests/test_atlas_capsule_builder.py tests/test_atlas_play_mobile_workspace_ui_contract.py tests/test_atlas_play_portal_capsule_acceptance.py tests/test_atlas_play_workspace_policy.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py -> 60 passed, 2 skipped in 14.53s.
+Real model evidence:
+- GET http://127.0.0.1:8080/health -> 200 {"status":"ok"}.
+- GET http://127.0.0.1:8080/llm/props -> 404 on this llama.cpp-compatible endpoint; equivalent live state APIs used instead.
+- GET http://127.0.0.1:8080/v1/models -> 200, model Qwen3.6-35B-A3B-UD-IQ4_XS.gguf, n_ctx 8192.
+- GET http://127.0.0.1:8080/props -> 200, model_alias Qwen3.6-35B-A3B-UD-IQ4_XS.gguf, model_path C:\Users\kkens\.lmstudio\models\unsloth\Qwen3.6-35B-A3B-MTP-GGUF\Qwen3.6-35B-A3B-UD-IQ4_XS.gguf.
+- POST http://127.0.0.1:8080/v1/chat/completions prompt "Reply with exactly: atlas-play-ok" -> 200, content atlas-play-ok.
+Atlas UI evidence:
+- Static UI contract tests verify Stop success clears preview, stops polling, does not refetch stopped preview, avoids iframe reload when URL is unchanged, and Capsule build uses apiErrorReason rather than resp.data.error || resp.code || error.
+- Browser/Playwright visual smoke was not run in this slice; API smoke plus UI contract tests are the recorded equivalent.
+Project Intelligence evidence:
+- Not applicable; this incident fix did not change Project Intelligence storage or authority.
+Runtime/Portal evidence:
+- LLM-generated static app files (index.html, css/style.css, js/game.js) were written to an isolated Atlas project work root and exercised through FastAPI TestClient APIs.
+- POST /api/atlas/play/sessions/start -> 200, session_state=running.
+- Parallel GET /api/atlas/play/preview/{session}/index.html, css/style.css, js/game.js repeated 4x -> all 200.
+- GET /api/atlas/play/preview/{session}/observations -> 200, observed_paths=["css/style.css","index.html","js/game.js"].
+- POST /api/atlas/play/sessions/{session}/stop -> 200, stop_state=stopped, stop_exit_code=1, stop_reason=user_stop.
+- GET stopped preview URL -> 403 {"error":"session_not_active"}; UI treats this as Preview stopped and no longer auto-refetches after Stop.
+- POST /api/atlas/capsule/build after Stop -> 200, status=built, file_count=3, package_id=llm.play.smoke, content_hash_prefix=a218901f2396.
+LLM advisory review:
+- POST /v1/chat/completions with git diff review prompt -> 200, model Qwen3.6-35B-A3B-UD-IQ4_XS.gguf.
+- Review verdict: no actionable risks found for observation save breaking responses, Windows/Linux file safety, path traversal, Stop refetch, Capsule stopped-session dependency, or UI error detail surfacing.
+Unavailable checks:
+- /llm/props was unavailable on the live llama.cpp-compatible LLM endpoint; /props and /v1/models were used as equivalent state/readiness evidence.
+- Full browser Playwright interaction was not run; UI behavior is covered by contract tests and backend API smoke.
+Safety invariants:
+- Observation data remains auxiliary and cannot fail preview delivery.
+- Unavailable is not recorded as passed.
+- Stop does not bypass Capsule safety checks; failed Play sessions are still rejected unless force build is explicitly requested.
+- Capsule package remains data-free by default and path safety/exclusion/private finding checks remain active.
+- Remote publication was not performed.
+Remaining gaps:
+- Add full browser Playwright smoke for the Play modal when a stable local frontend server is part of the package gate.
+Next package:
+- Continue active goal sequencing only after this incident branch is reviewed/landed or explicitly deferred.
+Blocker:
+- none for local implementation and verification.
+```
+
 ## Program state
 
 - Overall: `component_complete` for the initial contracts/policy, Instruction Compiler, Genesis taxonomy, No-Data Bootstrap Gate, Interface First Generator, Integration Impact Gate, BlastMap, Contract Sentinel, Schema Guardian, StateMirror, TwinProof, Assumption Breaker, Git Steward concrete adapter, Patch Impact Gate, Proof Ledger, Repair Compass, Anti-Pattern Memory, and Forge capability eval packs/capability scoring slices; broader program remains `not_started` beyond TFG-1/2/3/3A/4/4A/5/5A/5B/6/7/8/9/9A/10 component foundations

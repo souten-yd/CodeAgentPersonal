@@ -10,6 +10,7 @@
     launchProfile: null,
     session: null,
     pollTimer: null,
+    previewStopped: false,
   };
   const dom = {};
 
@@ -27,6 +28,41 @@
   }
   function setStatus(text) {
     if (dom.status) dom.status.textContent = text || '';
+  }
+  function isActiveSession(session) {
+    return ['starting', 'running'].includes(String(session?.state || ''));
+  }
+  function clearPreviewFrame(statusText) {
+    state.previewStopped = true;
+    if (dom.frame) dom.frame.src = 'about:blank';
+    if (statusText) setStatus(statusText);
+  }
+  function apiErrorReason(resp, fallback) {
+    const detail = resp?.detail?.detail || resp?.detail || resp?.data?.detail || resp?.data || null;
+    const candidates = [
+      resp?.data?.reason,
+      resp?.data?.message,
+      resp?.data?.error,
+      detail?.reason,
+      detail?.message,
+      detail?.error,
+      resp?.message,
+      resp?.code,
+    ];
+    for (const value of candidates) {
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    const validation = Array.isArray(detail) ? detail : (Array.isArray(detail?.detail) ? detail.detail : null);
+    if (validation && validation.length) {
+      return validation.map((item) => {
+        const loc = Array.isArray(item.loc) ? item.loc.join('.') : '';
+        return [loc, item.msg].filter(Boolean).join(': ');
+      }).filter(Boolean).join('; ') || fallback;
+    }
+    if (detail && typeof detail === 'object') {
+      try { return JSON.stringify(detail); } catch (_e) {}
+    }
+    return fallback || 'error';
   }
 
   function ensureWorkspace() {
@@ -129,14 +165,22 @@
     const resp = await api()?.startPlaySession?.({ project_id: state.projectId || projectId(), launch_profile: state.launchProfile });
     if (!resp || !resp.ok) { setStatus('Run failed'); return; }
     state.session = resp.data;
+    state.previewStopped = false;
     renderSession();
     startPolling();
   }
 
   async function stopSession() {
     if (!state.session?.session_id) return;
-    await api()?.stopPlaySession?.(state.session.session_id);
-    await refreshSession();
+    const resp = await api()?.stopPlaySession?.(state.session.session_id);
+    if (resp && resp.ok) {
+      state.session = resp.data || { ...state.session, state: 'stopped' };
+      stopPolling();
+      clearPreviewFrame('Preview stopped');
+      renderSession();
+      return;
+    }
+    setStatus(`Stop failed: ${apiErrorReason(resp, 'stop_failed')}`);
   }
 
   async function restartSession() {
@@ -152,18 +196,24 @@
     if (resp && resp.ok) {
       state.session = resp.data;
       renderSession();
+      if (!isActiveSession(state.session)) stopPolling();
     }
   }
 
   function renderSession() {
     const session = state.session || {};
-    setStatus(session.state || 'Ready');
+    if (session.state === 'stopped') setStatus('Preview stopped');
+    else setStatus(session.state || 'Ready');
     const lines = session.log_tail || [];
     if (dom.logs) dom.logs.textContent = lines.join('\n');
     if (dom.console) dom.console.textContent = lines.join('\n') || 'Read-only session output';
-    if (dom.frame && session.session_id) {
+    if (dom.frame && session.session_id && isActiveSession(session)) {
       const base = session.launch_kind === 'static_web' ? 'preview' : 'proxy';
-      dom.frame.src = `/api/atlas/play/${base}/${encodeURIComponent(session.session_id)}/`;
+      const url = `/api/atlas/play/${base}/${encodeURIComponent(session.session_id)}/`;
+      if (dom.frame.getAttribute('src') !== url) dom.frame.src = url;
+      state.previewStopped = false;
+    } else if (session.session_id && !isActiveSession(session) && !state.previewStopped) {
+      clearPreviewFrame(session.state === 'stopped' ? 'Preview stopped' : (session.state || 'Preview unavailable'));
     }
   }
 
@@ -372,7 +422,7 @@
       data_policy: { persistent_data_supported: persistData, export_includes_runtime_data: false },
     });
     if (!resp || !resp.ok) {
-      setCapsuleStatus(`Build failed: ${resp?.data?.error || resp?.code || 'error'}`, 'error');
+      setCapsuleStatus(`Build failed: ${apiErrorReason(resp, 'error')}`, 'error');
       return;
     }
     const record = resp.data?.record || {};

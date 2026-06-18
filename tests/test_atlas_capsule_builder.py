@@ -114,6 +114,20 @@ def test_capsule_build_rejects_unsuccessful_play_session(tmp_path: Path) -> None
         raise AssertionError("failed play session must fail")
 
 
+def test_capsule_build_accepts_user_stopped_long_lived_session_with_signal_exit(tmp_path: Path) -> None:
+    work = _project(tmp_path)
+    record = _save_success_session(tmp_path, work)
+    record.state = "stopped"
+    record.exit_code = -15
+    record.stop_reason = "user_stop"
+    PlaySessionRepository(tmp_path).save(record)
+
+    built = CapsuleBuilder(tmp_path).build(_request())
+
+    assert built["status"] == "built"
+    assert built["forced"] is False
+
+
 def test_capsule_force_build_bypasses_unsuccessful_session_and_stale_hashes(tmp_path: Path) -> None:
     work = _project(tmp_path)
     record = _save_success_session(tmp_path, work)
@@ -188,3 +202,21 @@ def test_capsule_build_api_returns_record(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "built"
+
+
+def test_capsule_build_api_returns_actionable_error_detail(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+
+    response = client.post(
+        "/api/atlas/capsule/build",
+        json={
+            "project_id": "demo",
+            "play_session_id": "missing-session",
+            "selected_profile_ids": ["py"],
+            "package_id": "demo.package",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "session_not_found"
+    assert response.json()["detail"]["reason"] == "Play session not found."
