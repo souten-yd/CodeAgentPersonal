@@ -111,6 +111,10 @@ class AtlasAutonomousCodegenOrchestratorService:
         if self._stop_requested(request.pool_id, orchestrator_run_id):
             return self._stopped_result(out, request.pool_id, run_id, orchestrator_run_id)
         pool = self.storage.load_pool(request.pool_id)
+        # Attach a Forge-evaluated model identity (when unset) so capability-profile-driven
+        # adaptation — route selection, decomposition tier, learned evidence — is active for the
+        # whole run instead of neutral. Identity only; execution routing is unchanged.
+        request = self._ensure_forge_model_identity(request)
         preflight = self._preflight(request, pool)
         out.metadata["preflight"] = preflight
         out.metadata["workspace_evidence"] = preflight.get("workspace_evidence", {})
@@ -680,6 +684,33 @@ class AtlasAutonomousCodegenOrchestratorService:
                 plan_items=plan_items,
             )
         )
+
+    def _ensure_forge_model_identity(self, request: AtlasAutonomousCodegenRequest) -> AtlasAutonomousCodegenRequest:
+        """Attach a Forge-evaluated model identity (provider_id/model_id) to the run when the
+        caller did not supply one, so capability-profile-driven adaptation (route selection,
+        decomposition tier, learned evidence) is active instead of neutral. Identity only — this
+        never changes execution routing (an active cutover stays an explicit Stage Matrix act).
+        Guarded: any failure leaves the request unchanged (legacy neutral behaviour)."""
+        md = dict(request.metadata or {})
+        if str(md.get("model_id") or md.get("forge_model_id") or "").strip():
+            return request  # caller already pinned the model; respect it.
+        try:
+            import os
+            from agent.model_forge.forge_service import ForgeService
+
+            # Live-probe the local server (e.g. :8080) only when explicitly opted in, since it
+            # makes a network call; default runs stay fast and resolve from Forge config alone.
+            probe_live = os.environ.get("ATLAS_FORGE_PROBE_LOCAL", "").strip().lower() in {"1", "on", "true", "yes"}
+            resolved = ForgeService(self.data_root, env=os.environ).resolve_active_codegen_model(probe_live=probe_live)
+            model_id = str(resolved.get("model_id") or "").strip()
+            if not model_id:
+                return request
+            md["model_id"] = model_id
+            md["provider_id"] = str(resolved.get("provider_id") or "")
+            md["forge_model_resolution"] = resolved
+            return request.model_copy(update={"metadata": md})
+        except Exception:  # noqa: BLE001 - identity attachment is advisory; never break the run.
+            return request
 
     def _attach_twin_control_plane(self, out: AtlasAutonomousCodegenResult, request: AtlasAutonomousCodegenRequest, pool: AtlasPlanPool) -> str:
         """Attach Twin/Forge pipeline evidence to the run metadata and return a block

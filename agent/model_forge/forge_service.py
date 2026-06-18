@@ -320,6 +320,96 @@ class ForgeService:
                                       "model_id": profile.model_id, "score": score}
         return [champions[d] for d in sorted(champions)]
 
+    def _has_profile(self, provider_id: str, model_id: str) -> bool:
+        if not (provider_id and model_id):
+            return False
+        try:
+            return self.profiles.load_profile(provider_id, model_id) is not None
+        except Exception:  # noqa: BLE001 - profile availability is advisory.
+            return False
+
+    def resolve_active_codegen_model(
+        self,
+        *,
+        stage: str = "patch_generation",
+        override_provider_id: str = "",
+        override_model_id: str = "",
+        probe_live: bool = False,
+    ) -> dict:
+        """Resolve the (provider_id, model_id) whose Forge capability profile should drive
+        Atlas codegen adaptation: route selection, decomposition tier, and the evaluated/learned
+        capability evidence. This is the single seam that lets the autonomous orchestrator/planner
+        attach a *Forge-evaluated* identity to a run so ``resolve_capability_profile`` stops being
+        neutral. It selects identity only; it does NOT change execution routing on its own (an
+        active cutover stays an explicit, acknowledged Stage Matrix act).
+
+        Resolution order (first hit wins), composing existing Forge assets:
+          1. Explicit caller override (caller already knows the model).
+          2. Stage Matrix selection over profiled candidates (honours an operator fixed_model /
+             cutover; in the default shadow mode it still names the best-profiled candidate for
+             profiling purposes).
+          3. The configured local model (the live llama.cpp/LM Studio server, e.g. :8080) so a
+             cold-start model with no profile yet still gets a stable identity and begins
+             accruing capability evidence across runs.
+          4. (probe_live only) The model the running local server actually advertises — discovered
+             via /v1/models — so a server that is up but not yet registered in Forge settings still
+             yields an identity. Opt-in because it makes a network call.
+        Never raises; returns a dict the orchestrator injects into request.metadata."""
+        if override_model_id:
+            return {
+                "provider_id": override_provider_id, "model_id": override_model_id,
+                "source": "override",
+                "profile_available": self._has_profile(override_provider_id, override_model_id),
+            }
+        try:
+            from agent.model_forge.stage_matrix import StageCandidate, StageSelector
+
+            candidates = [
+                StageCandidate(provider_id=p.provider_id, model_id=p.model_id)
+                for p in self.profiles.list_profiles()
+                if p.provider_id and p.model_id
+            ]
+            selection = StageSelector(self.stage_matrix, profile_store=self.profiles).select(
+                stage, candidates=candidates)
+            if selection.selected_model_id:
+                return {
+                    "provider_id": selection.selected_provider_id,
+                    "model_id": selection.selected_model_id,
+                    "source": "stage_selection",
+                    "stage_mode": str(selection.mode),
+                    "changes_production_routing": bool(selection.changes_production_routing),
+                    "profile_available": self._has_profile(
+                        selection.selected_provider_id, selection.selected_model_id),
+                }
+        except Exception:  # noqa: BLE001 - selection is advisory; fall through to local default.
+            pass
+        local_model = (
+            self._env.get("FORGE_LOCAL_MODEL", "").strip()
+            or str(self._settings().get("local_provider", {}).get("model_id") or "").strip()
+        )
+        if local_model:
+            return {
+                "provider_id": LOCAL_OPENAI_PROVIDER_ID, "model_id": local_model,
+                "source": "configured_local",
+                "profile_available": self._has_profile(LOCAL_OPENAI_PROVIDER_ID, local_model),
+            }
+        if probe_live:
+            try:
+                catalog = self.local_catalog()
+                models = catalog.get("models") or []
+                if catalog.get("status") == "ready" and models:
+                    discovered = str(models[0].get("model_id") or "").strip()
+                    if discovered:
+                        return {
+                            "provider_id": LOCAL_OPENAI_PROVIDER_ID, "model_id": discovered,
+                            "source": "live_local_probe",
+                            "base_url": str(catalog.get("base_url") or ""),
+                            "profile_available": self._has_profile(LOCAL_OPENAI_PROVIDER_ID, discovered),
+                        }
+            except Exception:  # noqa: BLE001 - probe is best-effort; fall through to unresolved.
+                pass
+        return {"provider_id": "", "model_id": "", "source": "unresolved", "profile_available": False}
+
     def presets(self) -> list[dict]:
         return preset_listing()
 
