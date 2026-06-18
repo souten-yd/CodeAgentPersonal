@@ -74,6 +74,52 @@ Blocker:
 - none for local implementation and verification.
 ```
 
+## 2026-06-18 Portal Run Preview / Package Display Follow-up
+
+```text
+Completed package: Portal Run iframe reload guard and package display metadata
+Status: implemented_locally
+Changed modules/files:
+- app/api/portal.py
+- app/portal/catalog.py
+- web/js/atlas_pipeline_api.js
+- web/js/portal.js
+- ui.html
+- tests/test_portal_catalog.py
+- tests/test_portal_ui_contract.py
+Behavior implemented:
+- Portal Run polling now uses data-portalPreviewUrl as iframe URL identity and does not reassign the same preview/proxy URL during getPlaySession polling.
+- startPolling/stopPolling no longer clears iframe identity, fixing the automatic reload loop after Run starts.
+- Stop clears and aborts the iframe before calling the Portal stop API, preventing stopped-preview requests during backend transition.
+- Portal package display name and icon can be edited from the catalog card.
+- Package display metadata is stored as a Portal-only sidecar next to the package record; the immutable Capsule ZIP and manifest remain unchanged.
+- ui.html bumps atlas_pipeline_api.js and portal.js cache keys so browsers load the new Portal code.
+Focused tests:
+- python -m pytest -q tests/test_portal_ui_contract.py tests/test_portal_catalog.py tests/test_portal_runtime.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py -> 26 passed in 10.08s.
+- node --check web\js\portal.js -> passed.
+- node --check web\js\atlas_pipeline_api.js -> passed.
+Affected tests:
+- python -m pytest -q <all test_portal_*.py> tests/test_atlas_play_portal_capsule_acceptance.py tests/test_atlas_play_portal_capsule_ppc0_contracts.py -> 67 passed in 23.54s.
+Real model evidence:
+- not run for this UI/catalog follow-up.
+Atlas UI evidence:
+- Static UI contract tests cover Portal iframe reload prevention, Stop-before-backend ordering, display edit wiring, and cache key bumps.
+Runtime/Portal evidence:
+- Portal catalog/runtime/API tests cover package display metadata persistence, immutable archive preservation, and existing Portal run/data/import/export behavior.
+Unavailable checks:
+- Live browser smoke against a running local server was not run in this pass.
+Safety invariants:
+- Capsule ZIPs and manifests remain immutable; display edits are Portal-only metadata sidecars.
+- Portal Run still delegates execution to Atlas Play runtime and does not introduce a direct process runner.
+- Untrusted package run policy remains unchanged.
+Remaining gaps:
+- none for the reproduced reload cause and package display edit path.
+Next package:
+- none for this follow-up unless live server use reveals another Portal-specific path.
+Blocker:
+- none.
+```
+
 ## 2026-06-18 Play Preview / Stop / Capsule Follow-up
 
 ```text

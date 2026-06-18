@@ -81,6 +81,43 @@ def test_catalog_lists_capsule_builder_records_and_exports_package_only(tmp_path
         assert not any(name.startswith("data/") for name in zf.namelist())
 
 
+def test_portal_package_display_metadata_updates_without_mutating_archive(tmp_path: Path) -> None:
+    built = _package(tmp_path)
+    record = built["record"]
+    archive = Path(record["storage_path"])
+    before = archive.read_bytes()
+    service = PortalCatalogService(tmp_path)
+
+    updated = service.update_display_metadata(
+        record["package_id"],
+        record["version"],
+        record["content_hash"],
+        name="日本語ゲーム",
+        icon="🎮",
+    )
+    catalog = service.list_packages()
+
+    assert updated["display"] == {"name": "日本語ゲーム", "icon": "🎮"}
+    assert catalog["packages"][0]["display"] == {"name": "日本語ゲーム", "icon": "🎮"}
+    assert catalog["packages"][0]["manifest"]["name"] == "Demo"
+    assert archive.read_bytes() == before
+
+
+def test_portal_package_display_metadata_api(tmp_path: Path) -> None:
+    built = _package(tmp_path)
+    record = built["record"]
+    client = _client(tmp_path)
+
+    resp = client.put(
+        f"/api/portal/packages/{record['package_id']}/{record['version']}/{record['content_hash']}/display",
+        json={"name": "Renamed", "icon": "R"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["display"] == {"name": "Renamed", "icon": "R"}
+    assert client.get("/api/portal/catalog").json()["packages"][0]["display"] == {"name": "Renamed", "icon": "R"}
+
+
 def test_import_preflight_rejects_traversal_absolute_drive_and_duplicate_entries(tmp_path: Path) -> None:
     service = PortalCatalogService(tmp_path)
     for name in ["../x", "/abs", "C:/x", "a\\..\\x"]:

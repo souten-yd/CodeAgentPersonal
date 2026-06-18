@@ -60,6 +60,25 @@
     })[trust] || trust || 'unknown';
   }
 
+  function packageDisplay(pkg) {
+    const display = pkg.display || {};
+    const manifest = pkg.manifest || {};
+    return {
+      name: display.name || manifest.name || pkg.package_id,
+      icon: display.icon || manifest.icon || '📦',
+    };
+  }
+
+  function replaceRunFrame(src) {
+    const frame = $('portal-run-frame');
+    if (!frame) return;
+    try { frame.contentWindow?.stop?.(); } catch (_e) {}
+    const next = frame.cloneNode(false);
+    next.dataset.portalPreviewUrl = src || '';
+    if (src) next.src = src;
+    frame.replaceWith(next);
+  }
+
   // ---- Catalog ----
 
   async function refreshCatalog() {
@@ -90,7 +109,9 @@
   function renderCard(pkg, idx) {
     const manifest = pkg.manifest || null;
     const profiles = (manifest && manifest.launch_profiles) || [];
-    const name = (manifest && manifest.name) || pkg.package_id;
+    const display = packageDisplay(pkg);
+    const name = display.name;
+    const icon = display.icon;
     const trust = pkg.trust_state || 'unknown';
     const dataBytes = pkg.current_data_bytes || 0;
     const profileOptions = profiles.length
@@ -103,7 +124,7 @@
     return `
       <div class="portal-card" data-portal-card="${idx}">
         <div class="portal-card-top">
-          <div class="portal-card-icon">📦</div>
+          <div class="portal-card-icon">${escapeHtml(icon)}</div>
           <div style="flex:1 1 auto;min-width:0">
             <div class="portal-card-id">${escapeHtml(name)}</div>
             <div class="portal-card-meta">${escapeHtml(pkg.package_id)} · v${escapeHtml(pkg.version)}</div>
@@ -132,6 +153,7 @@
           <button type="button" class="portal-btn primary" data-portal-act="run" data-idx="${idx}"${profiles.length ? '' : ' disabled'}>Run</button>
           <button type="button" class="portal-btn" data-portal-act="data" data-idx="${idx}">Data</button>
           <button type="button" class="portal-btn" data-portal-act="export" data-idx="${idx}">Export Package</button>
+          <button type="button" class="portal-btn" data-portal-act="edit-display" data-idx="${idx}">Edit</button>
           <button type="button" class="portal-btn" data-portal-act="fork" data-idx="${idx}">Fork to Atlas</button>
           <button type="button" class="portal-btn danger" data-portal-act="uninstall" data-idx="${idx}">Uninstall</button>
           <button type="button" class="portal-btn danger" data-portal-act="delete-data" data-idx="${idx}">Delete Data</button>
@@ -406,7 +428,7 @@
       reconnectToken: data.reconnect_token || '',
       launchKind: playSession.launch_kind || 'static_web',
       runMode: (data.runtime && data.runtime.run_mode) || (modeSel ? modeSel.value : ''),
-      packageName: (pkg.manifest && pkg.manifest.name) || pkg.package_id,
+      packageName: packageDisplay(pkg).name,
     };
     cardInfo(idx, 'Running', 'ok');
     openRunSheet();
@@ -450,8 +472,7 @@
   function closeRunSheet() {
     const sheet = $('portal-run-sheet');
     if (sheet) { sheet.classList.remove('open'); sheet.setAttribute('aria-hidden', 'true'); }
-    const frame = $('portal-run-frame');
-    if (frame) frame.src = 'about:blank';
+    replaceRunFrame('about:blank');
   }
 
   function renderRun(session) {
@@ -460,10 +481,13 @@
     const logs = $('portal-run-logs');
     if (logs) logs.textContent = (session.log_tail || []).join('\n');
     const frame = $('portal-run-frame');
-    if (frame && state.run?.playSessionId && !frame.dataset.bound) {
+    if (frame && state.run?.playSessionId) {
       const base = state.run.launchKind === 'static_web' ? 'preview' : 'proxy';
-      frame.src = `/api/atlas/play/${base}/${encodeURIComponent(state.run.playSessionId)}/`;
-      frame.dataset.bound = '1';
+      const url = `/api/atlas/play/${base}/${encodeURIComponent(state.run.playSessionId)}/`;
+      if (frame.dataset.portalPreviewUrl !== url) {
+        frame.dataset.portalPreviewUrl = url;
+        frame.src = url;
+      }
     }
   }
 
@@ -478,8 +502,6 @@
   function stopPolling() {
     if (state.pollTimer) clearInterval(state.pollTimer);
     state.pollTimer = null;
-    const frame = $('portal-run-frame');
-    if (frame) delete frame.dataset.bound;
   }
 
   function startHeartbeat() {
@@ -498,8 +520,9 @@
 
   async function stopRun() {
     if (!state.run?.playSessionId) return;
-    await api()?.stopPortalRun?.(state.run.playSessionId);
     stopPolling();
+    replaceRunFrame('about:blank');
+    await api()?.stopPortalRun?.(state.run.playSessionId);
     stopHeartbeat();
     await promptDataDecision();
   }
@@ -591,6 +614,28 @@
     else cardInfo(idx, `Delete failed: ${resp?.data?.error || resp?.code || 'error'}`, 'error');
   }
 
+  async function editDisplay(idx) {
+    const pkg = state.packages[idx];
+    if (!pkg) return;
+    const current = packageDisplay(pkg);
+    const name = root.prompt('パッケージ表示名', current.name) || '';
+    if (!name.trim()) return;
+    const icon = root.prompt('アイコン (絵文字または短い文字)', current.icon) || current.icon;
+    cardInfo(idx, 'Saving display…');
+    const resp = await api()?.updatePortalPackageDisplay?.(
+      pkg.package_id,
+      pkg.version,
+      pkg.content_hash,
+      { name: name.trim(), icon: icon.trim() },
+    );
+    if (resp && resp.ok) {
+      cardInfo(idx, 'Display updated', 'ok');
+      await refreshCatalog();
+    } else {
+      cardInfo(idx, `Display update failed: ${resp?.data?.error || resp?.code || 'error'}`, 'error');
+    }
+  }
+
   // ---- Event wiring ----
 
   function onCatalogClick(ev) {
@@ -601,6 +646,7 @@
       case 'run': runPackage(idx); break;
       case 'data': showData(idx); break;
       case 'export': exportPackage(idx); break;
+      case 'edit-display': editDisplay(idx); break;
       case 'fork': forkToAtlas(idx); break;
       case 'uninstall': uninstallPackage(idx); break;
       case 'delete-data': deleteData(idx); break;
@@ -674,7 +720,7 @@
     const act = ev.target.closest('[data-portal-run]')?.dataset.portalRun;
     if (act === 'stop') stopRun();
     else if (act === 'close') { stopPolling(); stopHeartbeat(); closeRunSheet(); }
-    else if (act === 'reload') { const f = $('portal-run-frame'); if (f && f.src && f.src !== 'about:blank') f.src = f.src; }
+    else if (act === 'reload') { const f = $('portal-run-frame'); if (f && f.dataset.portalPreviewUrl && f.dataset.portalPreviewUrl !== 'about:blank') replaceRunFrame(f.dataset.portalPreviewUrl); }
     else if (act === 'external') { const f = $('portal-run-frame'); if (f && f.src && f.src !== 'about:blank') root.open(f.src, '_blank', 'noopener'); }
   }
 

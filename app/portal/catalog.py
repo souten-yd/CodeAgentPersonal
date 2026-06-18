@@ -36,6 +36,7 @@ class PortalCatalogService:
         for record in self._records():
             payload = record.model_dump(mode="json")
             payload["manifest"] = self._manifest_summary(record)
+            payload["display"] = self._display_metadata(record)
             packages.append(payload)
         return {"schema_version": PORTAL_CATALOG_SCHEMA_VERSION, "packages": packages}
 
@@ -59,6 +60,46 @@ class PortalCatalogService:
                 {"profile_id": profile.profile_id, "name": profile.name, "kind": profile.kind.value}
                 for profile in manifest.launch_profiles
             ],
+        }
+
+    def _display_metadata(self, record: CapsulePackageRecord) -> dict:
+        manifest = self._manifest_summary(record) or {}
+        default_name = manifest.get("name") or record.package_id
+        path = self._display_path(record)
+        if not path.exists():
+            return {"name": default_name, "icon": "📦"}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {"name": default_name, "icon": "📦"}
+        name = str(payload.get("name") or default_name).strip() or default_name
+        icon = str(payload.get("icon") or "📦").strip() or "📦"
+        return {"name": name[:80], "icon": icon[:16]}
+
+    def update_display_metadata(self, package_id: str, version: str, content_hash: str, *, name: str, icon: str = "") -> dict:
+        record = self._find_record(package_id, version, content_hash)
+        display_name = str(name or "").strip()
+        display_icon = str(icon or "").strip() or "📦"
+        if not display_name:
+            raise PortalCatalogError("display_name_required")
+        if len(display_name) > 80:
+            raise PortalCatalogError("display_name_too_long")
+        if len(display_icon) > 16:
+            raise PortalCatalogError("display_icon_too_long")
+        payload = {
+            "schema_version": PORTAL_CATALOG_SCHEMA_VERSION,
+            "package_id": record.package_id,
+            "version": record.version,
+            "content_hash": record.content_hash,
+            "name": display_name,
+            "icon": display_icon,
+        }
+        self._display_path(record).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {
+            "schema_version": PORTAL_CATALOG_SCHEMA_VERSION,
+            "status": "updated",
+            "record": record.model_dump(mode="json"),
+            "display": self._display_metadata(record),
         }
 
     @staticmethod
@@ -212,11 +253,10 @@ class PortalCatalogService:
         }
 
     def export_package_path(self, package_id: str, version: str, content_hash: str) -> Path:
-        for record in self._records():
-            if record.package_id == package_id and record.version == version and record.content_hash == content_hash:
-                path = Path(record.storage_path)
-                if path.exists():
-                    return path
+        record = self._find_record(package_id, version, content_hash)
+        path = Path(record.storage_path)
+        if path.exists():
+            return path
         raise PortalCatalogError("package_not_found")
 
     def uninstall_package(self, package_id: str, version: str, content_hash: str) -> dict:
@@ -269,6 +309,15 @@ class PortalCatalogService:
 
     def _record_path(self, record: CapsulePackageRecord) -> Path:
         return self.paths.package_store_root() / record.package_id / record.version / f"{record.content_hash}.record.json"
+
+    def _display_path(self, record: CapsulePackageRecord) -> Path:
+        return self.paths.package_store_root() / record.package_id / record.version / f"{record.content_hash}.display.json"
+
+    def _find_record(self, package_id: str, version: str, content_hash: str) -> CapsulePackageRecord:
+        for record in self._records():
+            if record.package_id == package_id and record.version == version and record.content_hash == content_hash:
+                return record
+        raise PortalCatalogError("package_not_found")
 
     def _safe_zip_name(self, name: str) -> str:
         text = str(name or "").replace("\\", "/")
