@@ -85,12 +85,16 @@ class AtlasLLMJsonAdapter:
         timeout_seconds: int = 120,
         on_progress: Callable[[dict], None] | None = None,
         on_usage: Callable[[dict], None] | None = None,
+        gpu_sampler: Callable[[], float | None] | None = None,
     ) -> None:
         self.backend_fn = backend_fn
         self.base_url = str(base_url or "").strip().rstrip("/")
         self.model = str(model or "").strip()
         self.timeout_seconds = int(timeout_seconds or 120)
         self.on_progress = on_progress
+        # Liveness probe for GPU-aware timeouts: returns the current GPU utilisation percent (or
+        # None when unavailable). Injectable for tests; defaults to the resource-monitor sampler.
+        self.gpu_sampler = gpu_sampler
         # Called with the enriched usage dict (prompt/completion/total + thinking/output) after
         # each call, so the caller can accumulate token counts into the run metadata / UI.
         self.on_usage = on_usage
@@ -426,60 +430,87 @@ class AtlasLLMJsonAdapter:
         reasoning_chars = 0  # separate reasoning_content deltas (reasoning models)
         tokens_generated = 0
         saw_token = False
+        # Pre-generation GPU baseline: utilisation measured BEFORE the request starts work. A gap with
+        # no tokens but GPU still clearly above this baseline means the model is computing (long
+        # prefill / "think"), not hung — so we wait instead of timing out. None when no GPU/probe.
+        gpu_baseline = self._sample_gpu()
+        # Poll the socket on a short interval so we re-evaluate liveness (tokens OR GPU) and emit a
+        # heartbeat regularly even during a long no-token phase, independent of any browser polling.
+        poll_sec = max(1.0, min(15.0, first_token_sec, idle_token_sec))
         start_mono = time.monotonic()
-        last_token_mono = start_mono
+        last_progress_mono = start_mono  # last real token, reasoning delta, OR GPU-busy poll
         with urllib_request.urlopen(req, timeout=first_token_sec) as resp:  # noqa: S310
-            self._set_response_timeout(resp, first_token_sec)
-            try:
-                for raw_line in resp:
+            self._set_response_timeout(resp, poll_sec)
+            line_iter = iter(resp)
+            while True:
+                now = time.monotonic()
+                # Absolute wall-clock ceiling: a hard stop regardless of progress or GPU state.
+                if now - start_mono > total_sec:
+                    raise _StreamTimeout("llm_total_timeout", tokens_generated=tokens_generated)
+                try:
+                    raw_line = next(line_iter)
+                except StopIteration:
+                    break
+                except socket.timeout:
+                    # No bytes for a poll interval. The simple timeout only counts up when the model
+                    # is genuinely stopped: if even "think" has ceased AND the GPU has fallen back to
+                    # ~baseline. If the GPU is still working we reset the counter and keep waiting.
                     now = time.monotonic()
-                    # Wall-clock guards run on every received line, so a server that keeps the
-                    # socket alive with heartbeats/keep-alives cannot silently dodge the budgets.
-                    if now - start_mono > total_sec:
-                        raise _StreamTimeout("llm_total_timeout", tokens_generated=tokens_generated)
-                    if not saw_token and now - start_mono > first_token_sec:
-                        raise _StreamTimeout("llm_stalled_before_first_token", tokens_generated=tokens_generated)
-                    if saw_token and now - last_token_mono > idle_token_sec:
-                        raise _StreamTimeout("llm_stalled_after_progress", tokens_generated=tokens_generated)
-                    line = raw_line.decode("utf-8", errors="replace").strip() if isinstance(raw_line, bytes) else str(raw_line).strip()
-                    if not line or not line.startswith("data:"):
+                    last_progress_mono = self._liveness_or_stall(
+                        now=now, saw_token=saw_token, last_progress_mono=last_progress_mono,
+                        first_token_sec=first_token_sec, idle_token_sec=idle_token_sec,
+                        gpu_baseline=gpu_baseline, tokens_generated=tokens_generated)
+                    continue
+                # A line arrived. Lines may be keep-alives with no real tokens, so apply the same
+                # liveness/stall rule (resets the counter on GPU activity, raises only when stopped).
+                now = time.monotonic()
+                last_progress_mono = self._liveness_or_stall(
+                    now=now, saw_token=saw_token, last_progress_mono=last_progress_mono,
+                    first_token_sec=first_token_sec, idle_token_sec=idle_token_sec,
+                    gpu_baseline=gpu_baseline, tokens_generated=tokens_generated)
+                line = raw_line.decode("utf-8", errors="replace").strip() if isinstance(raw_line, bytes) else str(raw_line).strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[len("data:"):].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    event = json.loads(data)
+                except Exception:
+                    continue
+                # Final usage chunk (stream_options.include_usage): record real token counts.
+                if isinstance(event, dict) and isinstance(event.get("usage"), dict):
+                    self.last_usage = dict(event["usage"])
+                choices = event.get("choices") if isinstance(event, dict) else None
+                choice = choices[0] if isinstance(choices, list) and choices else {}
+                delta = choice.get("delta") if isinstance(choice, dict) else {}
+                reasoning_delta = ""
+                if isinstance(delta, dict) and delta.get("reasoning_content"):
+                    reasoning_delta = str(delta.get("reasoning_content") or "")
+                    reasoning_chars += len(reasoning_delta)
+                content = ""
+                if isinstance(delta, dict):
+                    content = str(delta.get("content") or "")
+                if not content and isinstance(choice.get("message"), dict):
+                    content = str(choice["message"].get("content") or "")
+                if not content:
+                    if reasoning_delta:
+                        # Reasoning ("think") deltas are genuine model progress, not a keep-alive: a
+                        # reasoning model is actively working before it emits visible content. Count
+                        # them as liveness so neither the timeout here nor the outer heartbeat/stall
+                        # detector mistakes a long reasoning phase for a hang. They are deliberately
+                        # NOT added to tokens_generated so output-token accounting stays honest.
+                        last_progress_mono = now
+                        self._emit_progress(tokens_generated, reasoning=True)
                         continue
-                    data = line[len("data:"):].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        event = json.loads(data)
-                    except Exception:
-                        continue
-                    # Final usage chunk (stream_options.include_usage): record real token counts.
-                    if isinstance(event, dict) and isinstance(event.get("usage"), dict):
-                        self.last_usage = dict(event["usage"])
-                    choices = event.get("choices") if isinstance(event, dict) else None
-                    choice = choices[0] if isinstance(choices, list) and choices else {}
-                    delta = choice.get("delta") if isinstance(choice, dict) else {}
-                    if isinstance(delta, dict) and delta.get("reasoning_content"):
-                        reasoning_chars += len(str(delta.get("reasoning_content") or ""))
-                    content = ""
-                    if isinstance(delta, dict):
-                        content = str(delta.get("content") or "")
-                    if not content and isinstance(choice.get("message"), dict):
-                        content = str(choice["message"].get("content") or "")
-                    if not content:
-                        # A non-content chunk (role-only delta / keep-alive) proves the connection
-                        # is alive but is not a token, so it does not reset the idle-token timer.
-                        continue
-                    chunks.append(content)
-                    tokens_generated += max(1, len(content.split()))
-                    if not saw_token:
-                        saw_token = True
-                        self._set_response_timeout(resp, idle_token_sec)
-                    last_token_mono = now
-                    self._emit_progress(tokens_generated)
-            except socket.timeout:
-                # A blocking-read timeout maps to the same phase the wall-clock guards would
-                # report: before-first-token if nothing has been generated yet, otherwise idle.
-                phase = "llm_stalled_after_progress" if saw_token else "llm_stalled_before_first_token"
-                raise _StreamTimeout(phase, tokens_generated=tokens_generated)
+                    # A role-only delta / keep-alive proves the connection is alive but is not
+                    # progress, so it does not reset the timer.
+                    continue
+                chunks.append(content)
+                tokens_generated += max(1, len(content.split()))
+                saw_token = True
+                last_progress_mono = now
+                self._emit_progress(tokens_generated)
         raw_text = "".join(chunks)
         _thinking, output_text = split_thinking(raw_text)
         if self.last_usage:
@@ -495,14 +526,64 @@ class AtlasLLMJsonAdapter:
         # Return only the model OUTPUT (any <think> block is reasoning, not the answer/JSON).
         return output_text
 
-    def _emit_progress(self, tokens_generated: int) -> None:
+    def _sample_gpu(self) -> float | None:
+        """Current GPU utilisation percent (or None). Uses the injected sampler, else the
+        resource-monitor sampler (env-detection picks runpod vs Windows). Never raises."""
+        sampler = self.gpu_sampler
+        if sampler is None:
+            try:
+                from app.services.system_usage import sample_gpu_utilization
+                sampler = sample_gpu_utilization
+            except Exception:  # noqa: BLE001 - sampler optional; degrade to time-only liveness.
+                return None
+        try:
+            return sampler()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _gpu_busy(self, baseline: float | None) -> bool:
+        """True when GPU utilisation is clearly above the pre-generation baseline (baseline + margin),
+        i.e. the model is still computing. Unknown baseline/current -> False (fall back to time-only)."""
+        if baseline is None:
+            return False
+        current = self._sample_gpu()
+        if current is None:
+            return False
+        margin = _resolve_timeout("ATLAS_LLM_GPU_BUSY_MARGIN", "", 10.0)
+        return current > baseline + margin
+
+    def _liveness_or_stall(
+        self, *, now: float, saw_token: bool, last_progress_mono: float,
+        first_token_sec: float, idle_token_sec: float, gpu_baseline: float | None,
+        tokens_generated: int,
+    ) -> float:
+        """Single liveness rule shared by the poll-timeout and slow-line paths. Within the no-token
+        budget -> unchanged. Past the budget -> the timer only fires when the GPU has fallen back to
+        ~baseline (model genuinely stopped); while the GPU is still working it resets the timer and
+        emits a heartbeat (server-side, browser-independent). Raises _StreamTimeout on a real stall."""
+        budget = idle_token_sec if saw_token else first_token_sec
+        if now - last_progress_mono <= budget:
+            return last_progress_mono
+        if self._gpu_busy(gpu_baseline):
+            self._emit_progress(tokens_generated, reasoning=not saw_token)
+            return now
+        phase = "llm_stalled_after_progress" if saw_token else "llm_stalled_before_first_token"
+        raise _StreamTimeout(phase, tokens_generated=tokens_generated)
+
+    def _emit_progress(self, tokens_generated: int, *, reasoning: bool = False) -> None:
         if self.on_progress is None:
             return
         try:
-            self.on_progress({
+            progress = {
                 "tokens_generated": int(tokens_generated),
                 "last_token_at": datetime.now(timezone.utc).isoformat(),
-            })
+            }
+            if reasoning:
+                # Liveness signal emitted while the model is still in its reasoning ("think") phase
+                # and has not produced visible content yet; lets the UI/heartbeat show "thinking"
+                # rather than treating the gap as a stall.
+                progress["reasoning_active"] = True
+            self.on_progress(progress)
         except Exception:
             return
 
