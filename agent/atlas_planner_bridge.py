@@ -72,6 +72,7 @@ class AtlasPlannerBridge:
                 return AtlasPlannerBridgeResult(status="waiting_for_clarification", **common)
 
             pool = self.build_pool_from_planner_result(request, planner_result)
+            self._prime_project_twin(request, pool)
             plan_payload = self.planner_result_to_plan_payload(planner_result, request)
             return AtlasPlannerBridgeResult(
                 status="planned",
@@ -127,6 +128,32 @@ class AtlasPlannerBridge:
             progress_cb=self.progress_cb,
         )
         return _as_dict(result)
+
+    def _prime_project_twin(self, request: AtlasPlannerBridgeRequest, pool: AtlasPlanPool) -> None:
+        """Plan-time Project Twin priming: build/refresh the persistent dependency graph as soon as
+        the plan exists, keyed by the pool_id the codegen run will use, so impact / Safe-Edit
+        Briefing evidence is ready BEFORE generation — the run then reuses it via load-first instead
+        of building mid-run. This is what makes the Twin effectively "always on from plan time" on a
+        large existing codebase. Always-on for an existing project under the same active-mode +
+        autobuild defaults the orchestrator uses; a greenfield/empty path is a no-op. Best-effort and
+        disabled-safe: it never raises and never blocks planning."""
+        try:
+            from agent.twin_control_plane.pipeline_integration import (
+                PipelineMode, ensure_project_twin, resolve_build_project_twin,
+                resolve_pipeline_mode, resolve_twin_autobuild,
+            )
+
+            project_path = str(getattr(request, "project_path", "") or "")
+            project_id = str(getattr(pool, "pool_id", "") or "")
+            if not (project_path and project_id):
+                return  # greenfield / no concrete pool: nothing to map yet.
+            mode = resolve_pipeline_mode()
+            if not (resolve_build_project_twin() or (mode == PipelineMode.ACTIVE and resolve_twin_autobuild())):
+                return  # Twin autobuild disabled: stay on the legacy load-only path.
+            ensure_project_twin(
+                data_root=str(self.ca_data_dir), project_id=project_id, project_path=project_path)
+        except Exception:  # noqa: BLE001 - priming is advisory; never block planning.
+            return
 
     def _decomposition_directive(self, request: AtlasPlannerBridgeRequest) -> str:
         """Model-specific file-decomposition budget for the planner advisory. Best-effort: resolves the
