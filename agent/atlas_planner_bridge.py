@@ -72,6 +72,7 @@ class AtlasPlannerBridge:
                 return AtlasPlannerBridgeResult(status="waiting_for_clarification", **common)
 
             pool = self.build_pool_from_planner_result(request, planner_result)
+            self._prime_project_twin(request, pool)
             plan_payload = self.planner_result_to_plan_payload(planner_result, request)
             return AtlasPlannerBridgeResult(
                 status="planned",
@@ -128,6 +129,32 @@ class AtlasPlannerBridge:
         )
         return _as_dict(result)
 
+    def _prime_project_twin(self, request: AtlasPlannerBridgeRequest, pool: AtlasPlanPool) -> None:
+        """Plan-time Project Twin priming: build/refresh the persistent dependency graph as soon as
+        the plan exists, keyed by the pool_id the codegen run will use, so impact / Safe-Edit
+        Briefing evidence is ready BEFORE generation — the run then reuses it via load-first instead
+        of building mid-run. This is what makes the Twin effectively "always on from plan time" on a
+        large existing codebase. Always-on for an existing project under the same active-mode +
+        autobuild defaults the orchestrator uses; a greenfield/empty path is a no-op. Best-effort and
+        disabled-safe: it never raises and never blocks planning."""
+        try:
+            from agent.twin_control_plane.pipeline_integration import (
+                PipelineMode, ensure_project_twin, resolve_build_project_twin,
+                resolve_pipeline_mode, resolve_twin_autobuild,
+            )
+
+            project_path = str(getattr(request, "project_path", "") or "")
+            project_id = str(getattr(pool, "pool_id", "") or "")
+            if not (project_path and project_id):
+                return  # greenfield / no concrete pool: nothing to map yet.
+            mode = resolve_pipeline_mode()
+            if not (resolve_build_project_twin() or (mode == PipelineMode.ACTIVE and resolve_twin_autobuild())):
+                return  # Twin autobuild disabled: stay on the legacy load-only path.
+            ensure_project_twin(
+                data_root=str(self.ca_data_dir), project_id=project_id, project_path=project_path)
+        except Exception:  # noqa: BLE001 - priming is advisory; never block planning.
+            return
+
     def _decomposition_directive(self, request: AtlasPlannerBridgeRequest) -> str:
         """Model-specific file-decomposition budget for the planner advisory. Best-effort: resolves the
         active model + its Forge capability profile and renders a sizing directive. Returns "" on any
@@ -150,6 +177,20 @@ class AtlasPlannerBridge:
                 or ""
             ).strip()
             provider_id = str(md.get("provider_id") or "local").strip() or "local"
+            # When the request/env did not pin a model, resolve the Forge-evaluated identity (the same
+            # seam the orchestrator uses) so the planner sizes for the model that will actually run —
+            # including a live :8080 probe when opted in. Identity only; best-effort.
+            if not model_id:
+                try:
+                    from agent.model_forge.forge_service import ForgeService
+
+                    probe_live = os.environ.get("ATLAS_FORGE_PROBE_LOCAL", "").strip().lower() in {"1", "on", "true", "yes"}
+                    resolved = ForgeService(self.ca_data_dir, env=os.environ).resolve_active_codegen_model(probe_live=probe_live)
+                    model_id = str(resolved.get("model_id") or "").strip()
+                    if model_id:
+                        provider_id = str(resolved.get("provider_id") or provider_id).strip() or provider_id
+                except Exception:  # noqa: BLE001 - resolution is advisory; keep the name heuristic.
+                    pass
             capability_scores: dict = {}
             known_weaknesses: tuple = ()
             if model_id:

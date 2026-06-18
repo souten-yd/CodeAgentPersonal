@@ -49,6 +49,10 @@ class AtlasPatchProposalService:
     ALLOWED_RISK_LEVELS = {"low", "medium", "high", "critical"}
     MAX_DIFF_PREVIEW_CHARS = 12000
     MAX_PROPOSED_CONTENT_CHARS = 200000
+    # At/above this line count an EXISTING file is "large": a weak/standard model must patch it with
+    # surgical edits rather than re-emitting the whole file (output-token minimisation). Frontier-tier
+    # models are exempt. Below this, full content is cheap enough that the flexible guidance stands.
+    LARGE_EXISTING_FILE_LINES = 120
     # Read-before-edit: how much of an existing target file to feed the model as ground truth so it
     # produces a patch that CONNECTS to the current code instead of overwriting it blindly.
     MAX_EXISTING_FILE_CHARS = 60000
@@ -553,6 +557,19 @@ class AtlasPatchProposalService:
             pass
         return notes
 
+    def _resolve_size_tier(self, request: AtlasPatchProposalRequest) -> str:
+        """frontier|standard|weak sizing tier for the active model, via the shared Forge capability
+        lookup the planner also uses. Best-effort -> 'standard' (never raises)."""
+        try:
+            import os
+            from agent.model_forge.decomposition_policy import resolve_size_tier
+
+            data_root = str(getattr(self.journal, "root_dir", "") or "ca_data")
+            return resolve_size_tier(
+                data_root=data_root, metadata=getattr(request, "metadata", {}) or {}, env=os.environ)
+        except Exception:  # noqa: BLE001 - tier is advisory.
+            return "standard"
+
     def build_proposal_input(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
         source_type = self._effective_source_type(item, request)
         debug_review = (item.metadata or {}).get("debug_review") or {}
@@ -606,6 +623,10 @@ class AtlasPatchProposalService:
             "source_type": source_type,
             "requested_source_type": request.source_type,
             "proposal_mode": request.proposal_mode,
+            # Model sizing tier (frontier|standard|weak) for the active Forge-evaluated model: drives
+            # tier-gated output shaping (weak/standard get edits-first minimal output; frontier is
+            # exempt). Best-effort -> "standard".
+            "size_tier": self._resolve_size_tier(request),
             "item": {
                 "title": item.title,
                 "description": item.description,
@@ -963,6 +984,21 @@ class AtlasPatchProposalService:
                 "<body><canvas id=\\\"gameCanvas\\\"></canvas><script>/* complete working implementation */</script></body></html>\","
                 "\"implemented_symbols\":[\"index.html\"],\"behavioral_cases\":[\"renders the page\"],"
                 "\"verification_cases\":[\"open index.html in a browser\"],\"risk_level\":\"low\"}"
+            )
+        # Tier-gated output minimisation: a weak/standard model editing a LARGE EXISTING file should
+        # emit a minimal surgical patch (edits), not re-emit the whole file — re-emitting unchanged
+        # lines wastes output tokens (the bottleneck for a weak local model on a big project) and
+        # risks corrupting code it never meant to touch. A frontier-tier model is exempt; the flexible
+        # edits-or-full-content guidance above stands for it.
+        size_tier = str(input_payload.get("size_tier") or "standard").strip().lower()
+        current_lines = len(str(item_for_task.get("current_file_content") or "").splitlines())
+        if target_exists and size_tier != "frontier" and current_lines >= self.LARGE_EXISTING_FILE_LINES:
+            base_task += (
+                " OUTPUT BUDGET (this model tier MUST minimise output): the target file is large and "
+                "ALREADY EXISTS. Return ONLY surgical \"edits\" (old_string/new_string, or an insertion "
+                "edit with an anchor) for the few lines the goal requires. Do NOT return "
+                "\"proposed_content\" or re-emit the whole file — emitting unchanged lines wastes output "
+                "and risks corrupting untouched code. Keep each old_string just large enough to be unique."
             )
         # Cross-file consistency: when the plan produces several files, references between them must
         # use the plan's REAL filenames. Without this the model invents names (e.g. an index.html that
@@ -1410,6 +1446,18 @@ class AtlasPatchProposalService:
 
         # Pillar B: surgical string-replacement edits the executor can apply against the current file.
         edits = self._normalize_edits(llm_allowed.get("edits"), warnings)
+
+        # Tier-gated observability: a non-frontier tier that re-emitted a whole large existing file
+        # instead of surgical edits violated the output budget. Advisory only — never blocks (the
+        # content still applies); it surfaces wasted output for the route/profile feedback loop.
+        if (
+            str(input_payload.get("size_tier") or "").strip().lower() not in ("", "frontier")
+            and bool(item.get("target_file_exists"))
+            and proposed_content
+            and not edits
+            and len(str(item.get("current_file_content") or "").splitlines()) >= self.LARGE_EXISTING_FILE_LINES
+        ):
+            warnings.append("full_content_emitted_for_minimal_edit_tier")
 
         has_content = bool(proposed_content or diff_preview or edits or (file_changes and all(has_file_change_content(fc) for fc in file_changes)))
         metadata = {
