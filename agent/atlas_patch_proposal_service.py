@@ -107,12 +107,6 @@ class AtlasPatchProposalService:
             self._append_event(pool.pool_id, run_id, "patch_generation_blocked", None, "blocked", warnings=warnings, reason_code="item_not_found")
             self._record_trace(pool.pool_id, request.run_id, "blocked", "item_not_found", {"llm_called": False})
             return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=request.item_id, run_id=run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump(), metadata={"patch_generation": default_patch_generation_state(run_id=run_id)})
-        if bool((pool.metadata or {}).get("plan_revision_required")):
-            from agent.atlas_clarification_replanning_service import reconcile_plan_revision_block_after_clarification
-
-            if reconcile_plan_revision_block_after_clarification(pool):
-                self.storage.save_pool(pool)
-                self.journal.save_plan_pool(pool)
         # Critique gate (PR-8b): a plan flagged plan_revision_required must not generate patches
         # until the plan is revised / approved. full_auto-continuation pools never set this flag.
         if bool((pool.metadata or {}).get("plan_revision_required")):
