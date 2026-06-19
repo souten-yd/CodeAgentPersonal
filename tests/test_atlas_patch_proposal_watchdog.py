@@ -135,29 +135,6 @@ def test_patchgen_job_file_records_failed_plan_item_generation(tmp_path: Path) -
     assert job["patch_generation_outcome"] == "failure"
 
 
-def test_patchgen_job_records_policy_block_without_llm_failure(tmp_path: Path) -> None:
-    c = _client(tmp_path)
-    pool_id, item_id = _create_pool_and_item(c)
-    storage = AtlasPlanPoolStorage(Path(c.app.state.atlas_ca_data_dir))
-    pool = storage.load_pool(pool_id)
-    pool.metadata["plan_revision_required"] = True
-    storage.save_pool(pool)
-
-    resp = c.post("/api/atlas/patch-proposals/generate", json={
-        "pool_id": pool_id, "item_id": item_id, "run_id": "r_blocked",
-        "source_type": "plan_item",
-    })
-
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "blocked"
-    job_path = tmp_path / "atlas" / "patchgen_jobs" / f"{pool_id}__{item_id}.json"
-    job = json.loads(job_path.read_text(encoding="utf-8"))
-    assert job["status"] == "blocked"
-    progress = AtlasJournal(tmp_path).load_latest_progress(pool_id, "r_blocked")
-    assert progress["event_type"] == "patch_generation_blocked"
-    assert progress["status"] == "blocked"
-
-
 # ---------------------------------------------------------------------------
 # PG-A2: is_stalled 検知 — /patch-proposals/status エンドポイント
 # ---------------------------------------------------------------------------

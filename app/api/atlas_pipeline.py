@@ -2847,12 +2847,9 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
     result = service.propose_for_item(req)
     patch_generation = (result.metadata or {}).get("patch_generation") if isinstance((result.metadata or {}).get("patch_generation"), dict) else {}
     generation_success = result.status in {"proposed", "approved"} and not result.errors
-    generation_blocked = result.status == "blocked"
-    generation_cancelled = result.status == "cancelled"
-    job_status = "done" if generation_success else "blocked" if generation_blocked else "cancelled" if generation_cancelled else "failed"
     _merge_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
         "pool_id": req.pool_id, "item_id": req.item_id, "run_id": result.run_id or req.run_id,
-        "status": job_status,
+        "status": "done" if generation_success else "failed",
         "patch_generation": patch_generation,
         "patch_generation_state": patch_generation.get("state"),
         "patch_generation_outcome": patch_generation.get("outcome"),
@@ -2863,22 +2860,14 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
         pool_id=req.pool_id,
         run_id=result.run_id or req.run_id,
         item_id=req.item_id,
-        event_type="llm_completed" if generation_success else "patch_generation_blocked" if generation_blocked else "patch_generation_cancelled" if generation_cancelled else "llm_failed",
+        event_type="llm_completed" if generation_success else "llm_failed",
         phase="patch_generation",
-        status="completed" if generation_success else job_status,
+        status="completed" if generation_success else "failed",
         source="atlas_patch_generation",
         model=model_id,
         tokens_total=last_tokens_generated,
         first_token_seen=first_token_seen,
-        message=(
-            "Patch proposal LLM generation completed"
-            if generation_success
-            else "Patch proposal generation blocked before completion"
-            if generation_blocked
-            else "Patch proposal generation cancelled"
-            if generation_cancelled
-            else "Patch proposal LLM generation failed"
-        ),
+        message="Patch proposal LLM generation completed" if generation_success else "Patch proposal LLM generation failed",
         metadata={"result_status": result.status, "patch_generation": patch_generation},
     )
     try:

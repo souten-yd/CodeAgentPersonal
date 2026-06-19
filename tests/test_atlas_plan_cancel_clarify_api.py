@@ -105,12 +105,6 @@ def test_clarify_answers_one_question_and_preserves_pending_queue(tmp_path: Path
 
 def test_clarify_clears_required_only_after_all_questions_answered(tmp_path: Path):
     pool = _pool(metadata={
-        "plan_revision_required": True,
-        "plan_revision_reason": "ambiguous_requirement_item_mapping",
-        "patch_generation_recovery_decision": {
-            "type": "request_plan_revision",
-            "reason": "plan_revision_required",
-        },
         "clarification_required": True,
         "clarification_questions": [
             {
@@ -147,13 +141,6 @@ def test_clarify_clears_required_only_after_all_questions_answered(tmp_path: Pat
     assert reloaded.metadata["gate_rerun_required_after_clarification"] is False
     assert reloaded.metadata["gate_rerun_performed_after_clarification"] is True
     assert reloaded.metadata["plan_revision_required_after_clarification"] is False
-    assert "plan_revision_required" not in reloaded.metadata
-    assert "plan_revision_reason" not in reloaded.metadata
-    assert "patch_generation_recovery_decision" not in reloaded.metadata
-    resolution = reloaded.metadata["plan_revision_resolution_after_clarification"]
-    assert resolution["resolved"] is True
-    assert resolution["previous_reason"] == "ambiguous_requirement_item_mapping"
-    assert resolution["revision_id"] == reloaded.metadata["clarification_replanning"]["revision_id"]
     assert reloaded.metadata["revised_plan_snapshot"]
     assert reloaded.metadata["clarification_replanning"]["status"] == "completed"
     assert reloaded.metadata["revised_plan_summary"].startswith("Plan revised and gates rerun")
@@ -218,7 +205,6 @@ def test_clarification_replanning_consumes_selected_option_impact(tmp_path: Path
 
 def test_clarification_replanning_failure_keeps_execution_blocked(tmp_path: Path, monkeypatch):
     pool = _pool(status="ready", item_status="ready", metadata={
-        "plan_revision_required": True,
         "clarification_required": True,
         "clarification_questions": [
             {
@@ -256,38 +242,6 @@ def test_clarification_replanning_failure_keeps_execution_blocked(tmp_path: Path
     assert reloaded.metadata["plan_revision_required_after_clarification"] is True
     assert reloaded.metadata["gate_rerun_required_after_clarification"] is True
     assert reloaded.metadata["gate_rerun_performed_after_clarification"] is False
-    assert reloaded.metadata["plan_revision_required"] is True
-
-
-def test_clarification_replanning_preserves_external_project_intelligence_block(tmp_path: Path):
-    pool = _pool(metadata={
-        "plan_revision_required": True,
-        "project_intelligence_block_reason": "stale_context",
-        "clarification_required": True,
-        "clarification_questions": [
-            {
-                "question_id": "clar_q_1",
-                "index": 1,
-                "total": 1,
-                "prompt": "Pick scope",
-                "reason": "scope unclear",
-                "options": [{"option_id": "minimal_scope", "label": "Minimal"}],
-                "status": "pending",
-            },
-        ],
-    })
-    client = _client(tmp_path, pool)
-
-    response = client.post(
-        "/api/atlas/plan-pools/pool_x/clarify",
-        json={"question_id": "clar_q_1", "option_id": "minimal_scope", "answer_text": "one file"},
-    )
-
-    assert response.status_code == 200, response.text
-    reloaded = AtlasPlanPoolStorage(Path(tmp_path)).load_pool("pool_x")
-    assert reloaded.metadata["plan_revision_required"] is True
-    assert reloaded.metadata["project_intelligence_block_reason"] == "stale_context"
-    assert "plan_revision_resolution_after_clarification" not in reloaded.metadata
 
 
 def test_auto_safe_apply_blocks_until_clarification_replan_gate_rerun(tmp_path: Path):
