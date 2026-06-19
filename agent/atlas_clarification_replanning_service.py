@@ -48,6 +48,40 @@ class AtlasPlanningFailure(Exception):
 from agent.atlas_time_utils import utc_now_iso as _utc_now_iso
 
 
+def reconcile_plan_revision_block_after_clarification(pool: AtlasPlanPool) -> bool:
+    """Clear only a superseded plan-revision block backed by completed gate evidence."""
+    metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
+    if not metadata.get("plan_revision_required") or metadata.get("project_intelligence_block_reason"):
+        return False
+    replanning = metadata.get("clarification_replanning")
+    rerun_critique = metadata.get("rerun_critique_gate_after_clarification")
+    evidence_is_clean = (
+        isinstance(replanning, dict)
+        and replanning.get("status") == "completed"
+        and bool(metadata.get("gate_rerun_performed_after_clarification"))
+        and metadata.get("gate_rerun_required_after_clarification") is False
+        and metadata.get("plan_revision_required_after_clarification") is False
+        and isinstance(rerun_critique, dict)
+        and rerun_critique.get("plan_revision_required") is False
+    )
+    if not evidence_is_clean:
+        return False
+
+    previous_reason = str(metadata.pop("plan_revision_reason", "") or "")
+    metadata.pop("plan_revision_required", None)
+    recovery = metadata.get("patch_generation_recovery_decision")
+    if isinstance(recovery, dict) and recovery.get("reason") == "plan_revision_required":
+        metadata.pop("patch_generation_recovery_decision", None)
+    metadata["plan_revision_resolution_after_clarification"] = {
+        "resolved": True,
+        "previous_reason": previous_reason,
+        "revision_id": str(replanning.get("revision_id") or ""),
+        "resolved_at": _utc_now_iso(),
+    }
+    pool.metadata = metadata
+    return True
+
+
 class AtlasClarificationReplanningService:
     """Revise a PlanPool after clarification answers, then rerun gates."""
 
@@ -174,7 +208,7 @@ class AtlasClarificationReplanningService:
                 "blocked_paths_after_clarification": [],
                 "gate_rerun_required_after_clarification": False,
                 "gate_rerun_performed_after_clarification": True,
-                "plan_revision_required_after_clarification": False,
+                "plan_revision_required_after_clarification": bool(critique_gate.get("plan_revision_required")),
                 "rerun_critique_gate_after_clarification": critique_gate,
                 "rerun_safety_gate_after_clarification": safety_gate,
                 "safety_gate_block_reason_after_clarification": safety_gate_block_reason,
@@ -191,10 +225,14 @@ class AtlasClarificationReplanningService:
                 "next_required_user_action": self._next_required_user_action(next_status),
             }
         )
+        external_revision_block = bool(metadata.get("project_intelligence_block_reason"))
+        if critique_gate.get("plan_revision_required") or external_revision_block:
+            metadata["plan_revision_required"] = True
         if critique_gate.get("critical_event"):
             metadata["critical_event"] = critique_gate["critical_event"]
             metadata["critical_event_status"] = "waiting_for_critical_decision"
         pool.metadata = metadata
+        reconcile_plan_revision_block_after_clarification(pool)
         return {
             "revision_id": revision_id,
             "status": next_status,
