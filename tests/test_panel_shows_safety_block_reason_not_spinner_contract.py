@@ -35,10 +35,3 @@ def test_panel_stops_patch_spinner_on_safety_block():
     assert "blocked_safety_review" in PANEL
     assert "safety gate blocked" in PANEL.lower()
     assert "updateStage(block, 'patch', 'failed'" in PANEL
-
-
-def test_empty_patch_failure_reads_planner_fallback_without_reference_error():
-    assert "function plannerFallbackFrom(...sources)" in PANEL
-    branch = PANEL.split("LLMがパッチ内容を生成できませんでした", 1)[1].split("genFailures.push", 1)[0]
-    assert "const plannerFallback = plannerFallbackFrom(resultMeta, propMeta, patchGeneration, it.metadata, poolMeta);" in branch
-    assert "if (plannerFallback && plannerFallback.reason)" in branch

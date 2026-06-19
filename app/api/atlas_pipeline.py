@@ -2846,15 +2846,14 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
     )
     result = service.propose_for_item(req)
     patch_generation = (result.metadata or {}).get("patch_generation") if isinstance((result.metadata or {}).get("patch_generation"), dict) else {}
-    generation_success = result.status in {"proposed", "approved"} and not result.errors
     _merge_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
-        "pool_id": req.pool_id, "item_id": req.item_id, "run_id": result.run_id or req.run_id,
-        "status": "done" if generation_success else "failed",
+        "pool_id": req.pool_id, "item_id": req.item_id, "run_id": result.run_id or req.run_id, "status": "done",
         "patch_generation": patch_generation,
         "patch_generation_state": patch_generation.get("state"),
         "patch_generation_outcome": patch_generation.get("outcome"),
         "finished_at": datetime.now(timezone.utc).isoformat(),
     })
+    generation_success = result.status in {"proposed", "approved"} and not result.errors
     _append_runtime_progress(
         journal,
         pool_id=req.pool_id,

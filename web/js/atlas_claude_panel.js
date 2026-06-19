@@ -1670,17 +1670,6 @@
     return ids;
   }
 
-  function plannerFallbackFrom(...sources) {
-    for (const source of sources) {
-      if (!source || typeof source !== 'object') continue;
-      const direct = source.planner_fallback;
-      if (direct && typeof direct === 'object') return direct;
-      const nested = source.metadata && source.metadata.planner_fallback;
-      if (nested && typeof nested === 'object') return nested;
-    }
-    return null;
-  }
-
   async function approveAndRunPipeline(poolId, opts) {
     if (!root.AtlasPipelineAPI) return;
     const resume = !!(opts && opts.resume);
@@ -2009,7 +1998,6 @@
             }
             const parts = [`status=${status}`, cause];
             if (warnings.length) parts.push(`warnings=${warnings.join('; ')}`);
-            const plannerFallback = plannerFallbackFrom(resultMeta, propMeta, patchGeneration, it.metadata, poolMeta);
             if (plannerFallback && plannerFallback.reason) parts.push(`planner_fallback=${plannerFallback.reason}`);
             if (errors.length) parts.push(`errors=${errors.join('; ')}`);
             msg = parts.join(' / ');
