@@ -4,6 +4,60 @@ Status: full package sequence (TFG-1..13) implemented, wired into the live auton
 
 This file is the mutable checkpoint for the approved integration of Project Intelligence, Project Digital Twin, Genesis/Greenfield, Forge Execution Policy, and Atlas Git Steward.
 
+## 2026-06-19 Clarification Revision Block Reconciliation
+
+```text
+Completed package: Patch generation/apply-path recovery after clarification replanning
+Status: completed_and_verified_locally
+Changed modules/files:
+- agent/atlas_clarification_replanning_service.py
+- agent/atlas_patch_proposal_service.py
+- app/api/atlas_pipeline.py
+- tests/test_atlas_plan_cancel_clarify_api.py
+- tests/test_atlas_plan_revision_block_message.py
+- tests/test_atlas_patch_proposal_watchdog.py
+Behavior implemented:
+- Completed clarification replanning now synchronizes the original plan_revision_required block with the rerun critique result.
+- A clean, evidenced rerun clears the superseded block, its stale reason, and a stale request_plan_revision recovery decision while preserving an audit resolution record.
+- Existing pools self-repair at patch-generation entry when persisted clarification replanning and gate-rerun evidence prove the old block is superseded.
+- Project Intelligence revision blocks remain authoritative and are not cleared by clarification-only evidence.
+- Patchgen jobs and runtime progress record policy stops as blocked instead of failed/llm_failed; genuine empty or invalid patch generation remains failed.
+Focused tests:
+- python -m pytest -q targeted clarification, stale-block recovery, policy-block job, and genuine patch failure cases -> 7 passed in 9.66s.
+- python -m pytest -q non-live subset of tests/test_atlas_plan_cancel_clarify_api.py -> 18 passed, 8 deselected in 12.34s.
+Syntax checks:
+- python -m py_compile agent\atlas_clarification_replanning_service.py agent\atlas_patch_proposal_service.py app\api\atlas_pipeline.py -> passed.
+Affected tests:
+- python -m pytest -q patch watchdog, patch generation incident, proposal API, approval API, runtime status, stale-revision recovery, and Package 0 suites -> 68 passed in 22.02s.
+- python -m pytest -q deterministic non-live clarification API subset -> 18 passed, 8 deselected in 8.83s.
+Real model evidence:
+- GET http://127.0.0.1:8080/health -> 200 {"status":"ok"}.
+- GET http://127.0.0.1:8080/v1/models -> model Qwen3.6-35B-A3B-UD-IQ4_XS.gguf, n_ctx=16384.
+- Live generation from an isolated copy of pool_4d3e7e7b842e exceeded the 240-second command budget, so patch-generation acceptance evidence is unavailable rather than passed.
+Atlas data evidence:
+- Read-only reconciliation of deployed pool_4d3e7e7b842e -> before plan_revision_required=true, clarification status=completed, gate rerun performed=true, rerun plan_revision_required=false, reconciled=true, after=false, previous reason=ambiguous_requirement_item_mapping.
+Atlas UI evidence:
+- Runtime job/progress contract now distinguishes patch_generation_blocked from llm_failed.
+- Browser interaction was not run because the deployed process uses a separate checkout and does not contain this local fix yet.
+Project Intelligence evidence:
+- An explicit regression test proves project_intelligence_block_reason prevents stale-block reconciliation.
+Runtime/Portal evidence:
+- Not applicable; this slice stops at Proposal generation and does not execute Portal runtime.
+Unavailable checks:
+- Full tests/test_atlas_plan_cancel_clarify_api.py run entered live LLM waits and exceeded 300 seconds; the 18 deterministic non-live cases passed separately.
+- Live 8080 proposal generation timed out after 240 seconds despite healthy model endpoints.
+Safety invariants:
+- Reconciliation requires completed replanning, performed gate rerun, no pending rerun, no post-clarification revision requirement, and an explicit clean rerun critique result.
+- Missing evidence, a failed rerun, a renewed revision requirement, or a Project Intelligence block preserves plan_revision_required.
+- No path bypasses Proposal / Safe Apply / Verification.
+Remaining gaps:
+- Deploy/restart the running C:\Users\kkens\KasaneCore checkout, then retry the affected pool so patch generation can self-repair its stale block.
+Next package:
+- none for this incident slice.
+Blocker:
+- none in code; deployed runtime restart is required to exercise the fix in the live UI.
+```
+
 ## 2026-06-19 Direct Patchgen Twin Context + PlanPool Terminal Status
 
 ```text
