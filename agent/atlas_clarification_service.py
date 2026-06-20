@@ -280,6 +280,7 @@ class AtlasClarificationService:
         return AtlasClarificationSession(
             session_id=session_id,
             workspace_id=str(request_payload.get("workspace_id") or "default"),
+            original_pool_id=str(request_payload.get("pool_id") or response.get("pool_id") or ""),
             original_input=original_input,
             project_path=str(request_payload.get("project_path") or ""),
             project_name=str(request_payload.get("project_name") or "CodeAgentPersonal"),

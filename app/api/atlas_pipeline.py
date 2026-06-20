@@ -1966,9 +1966,31 @@ def submit_clarification_answers(req: AtlasClarificationSubmitRequest, request: 
         pool = result.pool
         if pool is None:
             raise RuntimeError("planner bridge did not return a plan pool")
+        # Reuse the pool_id the caller has been tracking since plan creation (the reserved id whose
+        # job is parked at waiting_for_clarification) instead of surfacing a surprise new id / dead
+        # 404. Rebind the freshly planned pool to it before the first save so there is no orphan.
+        _orig_pool_id = (req.pool_id or "").strip() or (session.original_pool_id or "").strip()
+        if _orig_pool_id and _orig_pool_id != pool.pool_id:
+            pool.pool_id = _orig_pool_id
+            for _it in (pool.items or []):
+                try:
+                    _it.pool_id = _orig_pool_id
+                except Exception:  # noqa: BLE001
+                    pass
         pool.status = "ready"
         storage.save_pool(pool)
         journal.save_plan_pool(pool)
+        # Move the parked plan-pool job to ready so a poller on the original id now sees the plan.
+        if _orig_pool_id:
+            try:
+                _write_plan_pool_job(ca_data_root, _orig_pool_id, {
+                    "pool_id": _orig_pool_id, "status": "ready",
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "last_progress_at": datetime.now(timezone.utc).isoformat(),
+                    "phase": "ready",
+                })
+            except Exception:  # noqa: BLE001
+                pass
         summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None)
         journal.write_checkpoint(pool=pool, next_action=_checkpoint_next_action(pool.status))
         session.status = "planned"
