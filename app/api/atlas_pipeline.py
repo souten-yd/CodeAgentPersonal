@@ -1382,6 +1382,24 @@ def _create_plan_pool_core(
         except Exception:
             planner_packaging_v2_payload = {"status": "missing", "advisory_only": True, "executed": False}
 
+        # Honor the automation feature clarification_mode=auto at PLANNING time: map it to the
+        # planner's requirement_mode, which ClarificationPolicy suppresses on ("auto" -> not_needed),
+        # so the planner proceeds with safe-default assumptions instead of pausing for clarification.
+        # Without this the feature only applied to a post-plan gate, while the planner runner (which a
+        # weak model over-triggers into asking) had already returned waiting_for_clarification.
+        _effective_requirement_mode = req.requirement_mode
+        try:
+            _clar_feature = str(
+                (req.automation_features or {}).get("clarification_mode")
+                or _resolve_automation_features(
+                    request_features=dict(req.automation_features or {}), ca_data_root=ca_data_root
+                ).get("clarification_mode")
+                or ""
+            ).strip().lower()
+            if _clar_feature == "auto" and str(_effective_requirement_mode or "").strip().lower() in ("", "ask_when_needed"):
+                _effective_requirement_mode = "auto"
+        except Exception:  # noqa: BLE001 - advisory; fall back to the requested mode
+            _effective_requirement_mode = req.requirement_mode
         bridge_result = bridge.create_plan_pool(
             AtlasPlannerBridgeRequest(
                 input=root_goal,
@@ -1390,7 +1408,7 @@ def _create_plan_pool_core(
                 planning_depth=req.planning_depth,
                 automation_level=req.automation_level,
                 execution_strategy=req.execution_strategy,
-                requirement_mode=req.requirement_mode,
+                requirement_mode=_effective_requirement_mode,
                 use_nexus=req.use_nexus,
                 mode=_normalize_planner_mode(req.planner_mode),
                 pool_id=req.pool_id,
