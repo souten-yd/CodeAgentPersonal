@@ -184,6 +184,9 @@
     dom.target.innerHTML = candidates.map((item) => `<option value="${escapeHtml(item.entrypoint)}">${escapeHtml(item.entrypoint)} · ${escapeHtml((item.detected_launch_kinds || [])[0] || '')}</option>`).join('');
     if (candidates.length) selectTarget(candidates[0].entrypoint);
     await loadFiles();
+    // Opening Play must reflect the LATEST state: refresh a live session and reload the preview so
+    // changes applied since it was last open (e.g. a just-applied patch) are shown, not a stale page.
+    await reloadLatest();
     setStatus(candidates.length ? 'Ready' : 'No target');
   }
 
@@ -262,6 +265,26 @@
     }
   }
 
+  // Force the preview iframe to reload its CURRENT url (re-assigning the same src reloads the
+  // frame), so reopening Play after files changed shows the latest build instead of the cached
+  // page renderSession would otherwise keep (its url-equality guard skips an unchanged src).
+  function reloadPreviewFrame() {
+    if (dom.frame && dom.frame.dataset.atlasPreviewUrl) {
+      // eslint-disable-next-line no-self-assign
+      dom.frame.src = dom.frame.dataset.atlasPreviewUrl;
+    }
+  }
+
+  // Reload Play to the latest state when it is (re)opened: refresh a live session's status/logs and
+  // force the preview to re-fetch the current files. Safe when there is no session.
+  async function reloadLatest() {
+    if (state.session?.session_id) {
+      await refreshSession();
+      reloadPreviewFrame();
+      if (isActiveSession(state.session)) startPolling();
+    }
+  }
+
   function startPolling() {
     stopPolling();
     state.pollTimer = setInterval(refreshSession, 2500);
@@ -317,7 +340,7 @@
     if (action === 'run') runSession();
     if (action === 'restart') restartSession();
     if (action === 'stop') stopSession();
-    if (action === 'reload') refreshSession();
+    if (action === 'reload') { reloadLatest(); loadFiles(); }
     if (action === 'external' && dom.frame?.src) window.open(dom.frame.src, '_blank', 'noopener');
     if (action === 'fullscreen') dom.root.querySelector('.atlas-play-sheet')?.requestFullscreen?.();
     if (action === 'close') closeWorkspace();
