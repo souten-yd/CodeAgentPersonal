@@ -2748,6 +2748,11 @@ def run_debug_review(req: AtlasDebugReviewRequest, request: Request, sync: int =
 def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) -> AtlasPatchProposalResult:
     if ".." in req.pool_id or ".." in req.item_id:
         raise HTTPException(status_code=400, detail="invalid identifier")
+    # Ensure the local LLM adapter is registered for THIS process. Resuming codegen on an existing
+    # plan after a server restart reaches here without a prior plan-pool create (which is the other
+    # place that registers it), so without this the patch generator would fall back to the no-LLM
+    # path and report llm_unavailable even though the local server is up.
+    register_atlas_llm_json_adapter(request.app)
     ca_data_root, storage, journal = _atlas_components(request, workspace_id=req.workspace_id)
     if not req.run_id:
         req = req.model_copy(update={"run_id": f"patchgen_{uuid4().hex[:10]}"})
