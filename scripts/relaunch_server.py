@@ -21,6 +21,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.request
 
 _LOG_FH = None
 
@@ -89,6 +90,36 @@ def _spawn_uvicorn(host: str, port: int, base_dir: str):
     return proc
 
 
+def _wait_for_health(port: int, timeout: float) -> bool:
+    """Wait until the freshly started server answers /health with 200."""
+    deadline = time.time() + timeout
+    url = f"http://127.0.0.1:{port}/health"
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=3) as resp:
+                if getattr(resp, "status", resp.getcode()) == 200:
+                    return True
+        except Exception:
+            pass
+        time.sleep(2)
+    return False
+
+
+def _trigger_model_autoload(port: int) -> None:
+    """Ask the new server to auto-load the default model, mirroring the launcher's post-start
+    step. Without this the lightweight restart comes up with no LLM loaded, so Atlas planning /
+    codegen (which call the local LLM) silently fail until a model is loaded by hand."""
+    url = f"http://127.0.0.1:{port}/model/auto-load"
+    body = b'{"reason":"self_update_restart"}'
+    try:
+        req = urllib.request.Request(
+            url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            _log(f"auto-load triggered: http={getattr(resp, 'status', resp.getcode())}")
+    except Exception as exc:
+        _log(f"auto-load request failed: {type(exc).__name__}: {exc}")
+
+
 def main(argv: list[str] | None = None) -> int:
     global _LOG_FH
     parser = argparse.ArgumentParser(description="Relaunch the KasaneCore FastAPI server")
@@ -98,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--parent-pid", type=int, default=0)  # accepted for compat; not used
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--log-file", default="")
+    parser.add_argument("--autoload", default="1")  # "0" to skip the post-start model auto-load
     args = parser.parse_args(argv)
 
     log_path = args.log_file or os.path.join(args.base_dir, "logs", "relaunch.log")
@@ -115,6 +147,14 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # pragma: no cover - surfaced via the log on a real failure
         _log(f"FAILED to spawn uvicorn: {type(exc).__name__}: {exc}")
         return 1
+    # Restore the LLM the way the launcher does: wait for the new server, then auto-load the
+    # default model. Skipped only when explicitly disabled (--autoload 0).
+    if str(args.autoload).strip() not in ("0", "false", "False"):
+        if _wait_for_health(args.port, timeout=max(args.timeout, 90.0)):
+            _log("server healthy -> triggering model auto-load")
+            _trigger_model_autoload(args.port)
+        else:
+            _log("server did not become healthy in time; skipping auto-load")
     _log("relaunch helper done")
     return 0
 
