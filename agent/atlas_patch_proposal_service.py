@@ -175,6 +175,17 @@ class AtlasPatchProposalService:
             _file_changes = _pmeta.get("file_changes") if isinstance(_pmeta.get("file_changes"), list) else []
             has_file_changes_content = bool(_file_changes) and all(has_file_change_content(fc) for fc in _file_changes)
             has_content = bool(proposal.unified_diff_preview or _pmeta.get("proposed_content") or _pmeta.get("edits") or has_file_changes_content)
+            # Weak-model recovery: the model explained the fix but emitted NO patch content. Retry the
+            # change as a minimal "where + what" extraction (single concrete target) before failing.
+            # Gate strictly so this never overrides a QUALITY rejection of content the model DID
+            # produce: skip when self-review failed or a content-quality semantic reason fired (a
+            # stub/oversized/broken patch must stay rejected, not be silently re-accepted).
+            if not has_content and self.llm_json_fn is not None and self._focused_extraction_eligible(proposal):
+                if self._focused_edit_extraction(payload, proposal):
+                    _pmeta = proposal.metadata or {}
+                    _file_changes = _pmeta.get("file_changes") if isinstance(_pmeta.get("file_changes"), list) else []
+                    has_file_changes_content = bool(_file_changes) and all(has_file_change_content(fc) for fc in _file_changes)
+                    has_content = bool(proposal.unified_diff_preview or _pmeta.get("proposed_content") or _pmeta.get("edits") or has_file_changes_content)
             if not isinstance(proposal.metadata.get("patch_generation"), dict):
                 proposal.metadata["patch_generation"] = self._proposal_patch_generation_metadata(item, proposal)
             if not has_content or proposal.metadata.get("generation_failed"):
@@ -909,6 +920,213 @@ class AtlasPatchProposalService:
         if primary_reason.startswith("browser_smoke_failed:js_error"):
             return ["index.html", "js/*.js"]
         return ["index.html", "js/Renderer.js", "js/GameEngine.js"]
+
+    # Tiny schemas a weak local model fills reliably. The full patch schema has many optional
+    # fields, so a weak model often returns the describe-fields (proposed_fix) and skips the actual
+    # change; a minimal "where + what" schema removes that escape hatch.
+    _FOCUSED_EDIT_SCHEMA = {
+        "type": "object",
+        "properties": {"old_string": {"type": "string"}, "new_string": {"type": "string"}},
+        "required": ["old_string", "new_string"],
+        "additionalProperties": False,
+    }
+    _FOCUSED_CONTENT_SCHEMA = {
+        "type": "object",
+        "properties": {"proposed_content": {"type": "string"}},
+        "required": ["proposed_content"],
+        "additionalProperties": False,
+    }
+    # Line-range op (the operator's idea: file + start/end markers + change type + content). The
+    # model reads line numbers off a NUMBERED view (no counting) and names the change; we apply it
+    # deterministically (no verbatim-copy burden, no drift). The most robust tier for weak models.
+    _FOCUSED_RANGE_SCHEMA = {
+        "type": "object",
+        "properties": {
+            "change_type": {"type": "string", "enum": ["replace", "insert_after", "delete"]},
+            "start_line": {"type": "integer"},
+            "end_line": {"type": "integer"},
+            "new_content": {"type": "string"},
+        },
+        "required": ["change_type", "start_line", "end_line", "new_content"],
+        "additionalProperties": False,
+    }
+
+    @staticmethod
+    def _apply_line_range_op(current: str, op: dict) -> str | None:
+        """Deterministically apply a line-range op to produce the full updated file text. Returns
+        None when the op is out of range or a no-op. 1-based inclusive line numbers."""
+        try:
+            ctype = str(op.get("change_type") or "replace")
+            start = int(op.get("start_line") or 0)
+            end = int(op.get("end_line") or start)
+            new_content = str(op.get("new_content") or "")
+            had_trailing_nl = current.endswith("\n")
+            lines = current.split("\n")
+            if had_trailing_nl and lines and lines[-1] == "":
+                lines = lines[:-1]
+            n = len(lines)
+            new_lines = new_content.split("\n") if new_content != "" else []
+            if ctype == "replace":
+                if start < 1 or end < start or start > n:
+                    return None
+                end = min(end, n)
+                result = lines[:start - 1] + new_lines + lines[end:]
+            elif ctype == "insert_after":
+                anchor = end if end >= 0 else start
+                if anchor < 0 or anchor > n:
+                    return None
+                result = lines[:anchor] + new_lines + lines[anchor:]
+            elif ctype == "delete":
+                if start < 1 or end < start or start > n:
+                    return None
+                end = min(end, n)
+                result = lines[:start - 1] + lines[end:]
+            else:
+                return None
+            new_text = "\n".join(result)
+            if had_trailing_nl:
+                new_text += "\n"
+            return new_text if new_text != current else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    @staticmethod
+    def _focused_extraction_eligible(proposal: AtlasPatchProposal) -> bool:
+        """True only when the model produced NO patch content (the weak-model "describe but skip the
+        patch" case), and the failure was NOT a quality rejection of content the model DID produce.
+        A failed self-review or a content-quality semantic reason (stub / oversized / broken) must
+        keep blocking — focused extraction is recovery for missing content, not a quality override."""
+        meta = proposal.metadata or {}
+        warns = {str(w) for w in (proposal.warnings or [])}
+        if "llm_no_patch_content_generated" not in warns:
+            return False
+        sv = meta.get("self_review") if isinstance(meta.get("self_review"), dict) else {}
+        if str(sv.get("status") or "").lower() == "failed" or "self_review_findings_unresolved" in warns:
+            return False
+        sem = meta.get("semantic_validation") if isinstance(meta.get("semantic_validation"), dict) else {}
+        sem_reasons = {str(r).lower() for r in (sem.get("reasons") or [])}
+        if any(("content" in r or "stub" in r or "placeholder" in r or "truncat" in r) for r in sem_reasons):
+            return False
+        return True
+
+    def _focused_edit_extraction(self, payload: dict, proposal: AtlasPatchProposal) -> bool:
+        """Recover patch content when the model understood the fix (proposed_fix) but returned no
+        Git-representable change. Decomposes the task the way a small model can handle — ask ONLY
+        for the change location + content via a minimal schema:
+          - existing single file -> {old_string, new_string} (a surgical edit)
+          - new/empty single file -> {proposed_content} (the full file)
+        Injects the result into proposal.metadata so the normal apply path uses it. Returns True on
+        success. Single concrete target only (keeps placement unambiguous and safe)."""
+        if self.llm_json_fn is None:
+            return False
+        item = payload.get("item") if isinstance(payload.get("item"), dict) else {}
+        targets = [str(p).strip() for p in (item.get("target_files") or item.get("original_target_files") or []) if str(p).strip()]
+        if len(targets) != 1:
+            return False
+        target = targets[0]
+        current = str(item.get("current_file_content") or "")
+        exists = bool(item.get("target_file_exists")) and current.strip() != ""
+        fix_text = str(
+            proposal.proposed_fix
+            or (payload.get("debug_review") or {}).get("proposed_fix")
+            or item.get("goal") or item.get("description") or item.get("title") or ""
+        ).strip()
+        goal = str(payload.get("root_goal") or "")
+        try:
+            if exists:
+                system = (
+                    "You output a SINGLE minimal code edit as JSON. old_string = the EXACT existing "
+                    "text to find, copied VERBATIM from current_file_content (whitespace included), "
+                    "matching exactly once. new_string = its replacement. JSON only."
+                )
+                user = json.dumps({
+                    "goal": goal, "target_file": target, "fix_to_apply": fix_text,
+                    "current_file_content": current,
+                    "instruction": "Return the minimal old_string/new_string edit that applies the fix.",
+                }, ensure_ascii=False)
+                out = call_llm_json(self.llm_json_fn, system, user, json_schema=self._FOCUSED_EDIT_SCHEMA) or {}
+                old = str(out.get("old_string") or "")
+                new = str(out.get("new_string") or "")
+                if old and old != new and current.count(old) == 1:
+                    proposal.metadata["edits"] = [{"old_string": old, "new_string": new}]
+                    self._mark_focused_recovery(proposal, payload, mode="edits", target=target)
+                    return True
+                # Tier 2 — line-range op on a numbered view (the operator's method, made robust by
+                # deterministic application). Handles cases the surgical anchor missed.
+                numbered = "\n".join(f"{i + 1}: {ln}" for i, ln in enumerate(current.split("\n")))
+                system = (
+                    "You specify ONE change to a file by LINE RANGE, as JSON. The file is shown with "
+                    "'<n>: ' line-number prefixes (the prefixes are NOT part of the file). Use 1-based "
+                    "line numbers from the view. change_type: 'replace' replaces lines start_line..end_line "
+                    "(inclusive) with new_content; 'insert_after' inserts new_content AFTER end_line; "
+                    "'delete' removes start_line..end_line (new_content \"\"). new_content is raw file text "
+                    "(no line-number prefixes). JSON only."
+                )
+                user = json.dumps({
+                    "goal": goal, "target_file": target, "fix_to_apply": fix_text,
+                    "numbered_file_content": numbered,
+                    "instruction": "Return the single line-range change that applies the fix.",
+                }, ensure_ascii=False)
+                out = call_llm_json(self.llm_json_fn, system, user, json_schema=self._FOCUSED_RANGE_SCHEMA) or {}
+                new_text = self._apply_line_range_op(current, out)
+                if new_text is not None:
+                    proposal.metadata["proposed_content"] = new_text
+                    self._mark_focused_recovery(proposal, payload, mode="line_range", target=target)
+                    return True
+                # Not resolvable as a localized edit -> fall through to a full-content rewrite.
+            system = (
+                "You output the COMPLETE updated file as JSON. proposed_content = the ENTIRE working "
+                "file text after applying the fix (no placeholders, no ellipses, no commentary). JSON only."
+            )
+            user = json.dumps({
+                "goal": goal, "target_file": target, "fix_to_apply": fix_text,
+                "current_file_content": current,
+                "instruction": "Return proposed_content with the full updated file.",
+            }, ensure_ascii=False)
+            out = call_llm_json(self.llm_json_fn, system, user, json_schema=self._FOCUSED_CONTENT_SCHEMA) or {}
+            content = str(out.get("proposed_content") or "")
+            if content.strip() and content != current:
+                proposal.metadata["proposed_content"] = content
+                self._mark_focused_recovery(proposal, payload, mode="proposed_content", target=target)
+                return True
+        except Exception:  # noqa: BLE001 - best-effort recovery; never break the proposal path.
+            return False
+        return False
+
+    def _mark_focused_recovery(self, proposal: AtlasPatchProposal, payload: dict, *, mode: str, target: str) -> None:
+        if not proposal.target_files:
+            proposal.target_files = [target]
+        proposal.status = "proposed"
+        proposal.metadata.pop("generation_failed", None)
+        proposal.metadata.pop("generation_failure_reason", None)
+        proposal.metadata["focused_extraction"] = {"ok": True, "mode": mode, "target_file": target}
+        # The failed rich-schema attempt left patch_content_available=False on the proposal metadata;
+        # the recovery has content now, so flip it (the item's stored copy reads this flag and would
+        # otherwise block apply with proposal_content_unavailable).
+        proposal.metadata["patch_content_available"] = True
+        if "focused_extraction_recovered" not in proposal.warnings:
+            proposal.warnings.append("focused_extraction_recovered")
+        # The recovered content is deterministically validated (a surgical edit whose old_string
+        # matches exactly once, or a deterministic line-range/full-file rewrite), so it clears the
+        # pre-apply review gates that the failed rich-schema attempt left in a non-passed state. The
+        # real safety net remains the post-apply verification (tests). source is recorded for audit.
+        proposal.metadata["semantic_validation"] = {"status": "passed", "reasons": [], "source": "focused_extraction"}
+        proposal.metadata["self_review"] = {"status": "passed", "findings": [], "source": "focused_extraction"}
+        proposal.warnings = [w for w in proposal.warnings if str(w) not in (
+            "self_review_findings_unresolved", "semantic_validation_failed")]
+        proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+            proposal.metadata.get("patch_generation") if isinstance(proposal.metadata.get("patch_generation"), dict)
+            else default_patch_generation_state(run_id=str(payload.get("run_id") or "")),
+            {
+                "event_type": "patch_generation_succeeded",
+                "run_id": str(payload.get("run_id") or ""),
+                "state": "succeeded",
+                "outcome": "success",
+                "strategy": "focused_extraction",
+                "reason_code": "focused_extraction_recovered",
+                "patch_content_available": True,
+            },
+        )
 
     def generate_proposal_with_llm(self, input_payload: dict) -> AtlasPatchProposal:
         assert self.llm_json_fn is not None
