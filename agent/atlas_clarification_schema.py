@@ -19,6 +19,9 @@ class AtlasClarificationAnswer(BaseModel):
 class AtlasClarificationSession(BaseModel):
     session_id: str
     workspace_id: str = "default"
+    # The pool_id the original plan-create request reserved. Reused when the answered plan is built
+    # so the pool_id the caller has been tracking stays stable (no surprise new id / dead 404).
+    original_pool_id: str = ""
     original_input: str
     project_path: str = ""
     project_name: str = "CodeAgentPersonal"
@@ -40,6 +43,7 @@ class AtlasClarificationSession(BaseModel):
 
 class AtlasClarificationSubmitRequest(BaseModel):
     session_id: str = ""
+    pool_id: str = ""  # original reserved pool_id to reuse for the answered plan (optional)
     original_input: str = ""
     answers: list[AtlasClarificationAnswer] = Field(default_factory=list)
     project_path: str = ""
