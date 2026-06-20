@@ -1082,10 +1082,30 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
 
             try:
                 result = _create_plan_pool_core(req, app_ref, forced_pool_id=pool_id, progress_cb=heartbeat)
+                _finished_iso = datetime.now(timezone.utc).isoformat()
+                # The planner may ask for clarification instead of producing a pool (no pool saved).
+                # Report THAT truthfully — not "ready" — so a poller/UI does not see "ready" then a
+                # 404 on the pool; carry the clarification session so answers can be collected.
+                if not result.pool_id and str(result.status) in {"waiting_for_clarification", "needs_scope_confirmation"}:
+                    _write_plan_pool_job(ca_data_root, pool_id, {
+                        "pool_id": pool_id, "status": str(result.status), "created_at": now,
+                        "finished_at": _finished_iso, "last_progress_at": _finished_iso,
+                        "phase": str(result.status),
+                        "clarification_session_id": str(getattr(result, "clarification_session_id", "") or ""),
+                        "questions_count": len(getattr(result, "questions", []) or []),
+                    })
+                    _append_runtime_progress(
+                        _journal, pool_id=pool_id, run_id=plan_progress_run_id,
+                        event_type="clarification_required", phase="planning", status="waiting",
+                        source="atlas_plan_pool", tokens_total=last_tokens_generated,
+                        first_token_seen=first_token_seen,
+                        message="Atlas planning needs clarification before a plan can be produced",
+                    )
+                    return
                 _write_plan_pool_job(ca_data_root, pool_id, {
                     "pool_id": result.pool_id, "status": "ready", "created_at": now,
-                    "finished_at": datetime.now(timezone.utc).isoformat(),
-                    "last_progress_at": datetime.now(timezone.utc).isoformat(),
+                    "finished_at": _finished_iso,
+                    "last_progress_at": _finished_iso,
                     "phase": "ready",
                 })
                 _append_runtime_progress(
