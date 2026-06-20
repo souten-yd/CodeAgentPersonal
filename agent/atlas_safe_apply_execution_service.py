@@ -84,6 +84,7 @@ class AtlasSafeApplyExecutionService:
         result_payload.setdefault('actual_file_changed', bool(result_payload.get('status') == 'applied'))
         result_payload.setdefault('changed_files', list(item.target_files if result_payload.get('status') == 'applied' else []))
         self.mark_item_from_result(pool, item, result_payload)
+        self._maybe_finalize_pool_status(pool)
         self.storage.save_pool(pool)
         self.journal.save_plan_pool(pool)
         result_status = str(result_payload.get('status') or '').lower()
@@ -202,6 +203,34 @@ class AtlasSafeApplyExecutionService:
         if evaluation.decision != 'allow':
             warnings.append('safe_apply_blocked')
         return len(warnings) == 0, warnings
+
+    @staticmethod
+    def _maybe_finalize_pool_status(pool) -> None:
+        """Transition the pool to completed once EVERY plan item has reached a terminal state.
+
+        Per-item manual safe-apply marks items completed but never advanced the pool status, so after
+        the last item was applied the pool stayed at running / approval_required — the run looked
+        unfinished / failed in the UI even though all the work was applied. Human-gate states
+        (clarification / safety review / cancelled) are never overridden."""
+        items = list(getattr(pool, "items", []) or [])
+        if not items:
+            return
+        statuses = [str(getattr(it, "status", "") or "").lower() for it in items]
+        terminal = {"completed", "failed", "blocked", "skipped", "cancelled"}
+        if not all(s in terminal for s in statuses):
+            return  # work still pending; leave the in-progress status
+        # Never override an active human-gate / cancelled state.
+        gate_states = {"blocked_safety_review", "needs_scope_confirmation", "waiting_for_critical_decision", "cancelled"}
+        if str(getattr(pool, "status", "") or "").lower() in gate_states:
+            return
+        completed_n = sum(1 for s in statuses if s == "completed")
+        # Use only valid AtlasPlanPool statuses (no "completed_with_failures").
+        if completed_n == len(items):
+            pool.status = "completed"
+        elif completed_n > 0:
+            pool.status = "completed_with_warnings"
+        else:
+            pool.status = "failed"
 
     def mark_item_from_result(self, pool, item, result):
         st = str(result.get('status') or '')
