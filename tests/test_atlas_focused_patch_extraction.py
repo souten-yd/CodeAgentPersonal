@@ -162,3 +162,13 @@ def test_not_eligible_when_self_review_findings_unresolved_warning():
 def test_not_eligible_when_content_quality_semantic_reason():
     p = _no_content_proposal(semantic_validation={"status": "failed", "reasons": ["content_too_large"]})
     assert AtlasPatchProposalService._focused_extraction_eligible(p) is False
+
+
+def test_eligible_when_content_missing_semantic_reason():
+    # content_missing means NO content was generated -> focused extraction MUST run. It contains the
+    # substring "content" but is NOT a quality rejection (regression: the old gate wrongly skipped it).
+    p = _no_content_proposal(semantic_validation={
+        "status": "failed",
+        "reasons": ["content_missing", "satisfied_requirement_ids_missing", "semantic_evidence_missing"],
+    })
+    assert AtlasPatchProposalService._focused_extraction_eligible(p) is True

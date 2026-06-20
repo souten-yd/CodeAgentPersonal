@@ -1005,7 +1005,13 @@ class AtlasPatchProposalService:
             return False
         sem = meta.get("semantic_validation") if isinstance(meta.get("semantic_validation"), dict) else {}
         sem_reasons = {str(r).lower() for r in (sem.get("reasons") or [])}
-        if any(("content" in r or "stub" in r or "placeholder" in r or "truncat" in r) for r in sem_reasons):
+        # Block only on a content-QUALITY rejection (the model produced content but it was bad:
+        # too large / truncated / stub / placeholder / broken). MISSING content is exactly what
+        # focused extraction recovers, so content_missing / *_missing must stay eligible — the
+        # earlier broad "content" substring wrongly excluded content_missing and killed recovery.
+        _quality_markers = ("too_large", "too_long", "oversiz", "truncat", "stub", "placeholder",
+                            "unbalanced", "malformed", "broken_html", "html_stub")
+        if any(any(m in r for m in _quality_markers) for r in sem_reasons):
             return False
         return True
 
