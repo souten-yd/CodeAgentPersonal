@@ -42,7 +42,7 @@
     // Benchmark selector state. Depth defaults to 'standard' — full/deep is never forced.
     // ctx is the context length for the chosen local/LM-Studio model (persisted to the model
     // registry for Anvil models; used at load time by the runtime manager — see enable/monitor).
-    bench: { presets: [], depth: 'standard', provider: '', model: '', ctx: '', result: null, params: {}, paramsModel: '' },
+    bench: { presets: [], depth: 'standard', provider: '', model: '', ctx: '', result: null },
   };
 
   // The benchmark "LLM management tool": Anvil surfaces the local model registry (Models DB);
@@ -96,15 +96,6 @@
     return String(raw);
   }
 
-  // Build the params object from a selected Models DB row, defaulting each field to '' (未指定).
-  function anvilParamsFromModel(model) {
-    const out = {};
-    ANVIL_PARAM_FIELDS.forEach((f) => {
-      out[f.key] = anvilParamToInput(f, model ? model[f.key] : '');
-    });
-    return out;
-  }
-
   // Convert UI input values to the PUT payload. '' -> -1 for num/tri, '' kept for text.
   function anvilParamsToPayload(params) {
     const out = {};
@@ -122,39 +113,52 @@
     return out;
   }
 
-  // Render the Anvil per-model parameter editor: a datalist combo (choices + free input) per
-  // numeric/text field and a 未指定/ON/OFF select per tri field. CTX is shown up front (always
-  // visible); the rest fold into a <details> so the benchmark panel stays compact.
-  function renderAnvilParamEditor(params, modelId) {
-    params = params || {};
-    const field = (f) => {
-      const val = params[f.key] == null ? '' : String(params[f.key]);
-      if (f.type === 'tri') {
-        const opt = (v, lbl) => '<option value="' + v + '"' + (val === v ? ' selected' : '') + '>' + lbl + '</option>';
-        return '<label class="forge-label">' + escapeHtml(f.label)
-          + '<select class="forge-select" data-anvil-param="' + f.key + '">'
-          + opt('', '未指定') + opt('1', 'ON') + opt('0', 'OFF')
-          + '</select></label>';
-      }
-      const listId = 'forge-opt-' + f.key;
-      const datalist = '<datalist id="' + listId + '">'
-        + (f.opts || []).map((o) => '<option value="' + escapeHtml(String(o)) + '"></option>').join('')
-        + '</datalist>';
-      const inputType = f.type === 'num' ? ' inputmode="decimal"' : '';
+  // One parameter field for the per-model 詳細設定 drawer. Everything is a <select> pulldown:
+  //   tri  -> 未指定/ON/OFF
+  //   num/text -> 未指定 + curated choices + "カスタム…" (reveals a free-input box).
+  // A stored value that is not among the choices preselects カスタム… with the value filled in,
+  // so custom context lengths etc. round-trip through the dropdown UI.
+  function anvilConfigFieldHtml(f, rawVal) {
+    const val = anvilParamToInput(f, rawVal); // '' (未指定) or the stored value as a string
+    if (f.type === 'tri') {
+      const opt = (v, lbl) => '<option value="' + v + '"' + (val === v ? ' selected' : '') + '>' + lbl + '</option>';
       return '<label class="forge-label">' + escapeHtml(f.label)
-        + '<input class="forge-input" list="' + listId + '"' + inputType
-        + ' data-anvil-param="' + f.key + '" placeholder="未指定"'
-        + ' value="' + escapeHtml(val) + '">' + datalist + '</label>';
-    };
-    const ctxField = ANVIL_PARAM_FIELDS.find((f) => f.key === 'ctx_size');
-    const rest = ANVIL_PARAM_FIELDS.filter((f) => f.key !== 'ctx_size');
-    return '<div class="forge-anvil-params" data-anvil-editor>'
-      + field(ctxField)
-      + '<details class="forge-more"><summary>詳細パラメータ（llama-server）</summary>'
-      + '<div class="forge-check-grid">' + rest.map(field).join('') + '</div>'
-      + '<div class="forge-hint">空欄＝未指定（起動時に省略）。値は登録モデルに保存され、ロード時に llama-server へ渡されます。</div>'
-      + '</details>'
-      + '<button type="button" class="forge-seg" data-anvil-save data-model-id="' + escapeHtml(modelId) + '">パラメータを登録に保存</button>'
+        + '<select class="forge-select" data-anvil-param="' + f.key + '">'
+        + opt('', '未指定（既定）') + opt('1', 'ON') + opt('0', 'OFF')
+        + '</select></label>';
+    }
+    const opts = (f.opts || []).map(String);
+    const isCustom = val !== '' && opts.indexOf(val) < 0;
+    const optionHtml = ['<option value=""' + (val === '' ? ' selected' : '') + '>未指定（既定）</option>']
+      .concat(opts.map((o) => '<option value="' + escapeHtml(o) + '"'
+        + (!isCustom && val === o ? ' selected' : '') + '>' + escapeHtml(o) + '</option>'))
+      .concat(['<option value="__custom__"' + (isCustom ? ' selected' : '') + '>カスタム…</option>'])
+      .join('');
+    const inputType = f.type === 'num' ? ' inputmode="decimal"' : '';
+    const customStyle = isCustom ? '' : ' style="display:none"';
+    return '<label class="forge-label">' + escapeHtml(f.label)
+      + '<select class="forge-select" data-anvil-param="' + f.key + '">' + optionHtml + '</select>'
+      + '<input class="forge-input" data-anvil-custom="' + f.key + '"' + inputType + customStyle
+      + ' placeholder="カスタム値" value="' + escapeHtml(isCustom ? val : '') + '">'
+      + '</label>';
+  }
+
+  // The full per-model parameter form (all llama-server launch params as pulldowns), grouped for
+  // scannability. Shown inside the 詳細設定 drawer; also exported for render tests.
+  function renderAnvilConfigForm(model) {
+    model = model || {};
+    const group = (keys) => '<div class="forge-check-grid">' + keys.map((k) => {
+      const f = ANVIL_PARAM_FIELDS.find((x) => x.key === k);
+      return f ? anvilConfigFieldHtml(f, model[f.key]) : '';
+    }).join('') + '</div>';
+    return '<div class="forge-anvil-config" data-anvil-config-form>'
+      + '<div class="forge-card-title">基本</div>'
+      + group(['ctx_size', 'gpu_layers', 'n_cpu_moe', 'threads', 'parallel', 'batch_size', 'ubatch_size',
+               'cache_type_k', 'cache_type_v', 'flash_attn', 'no_mmap', 'jinja'])
+      + '<div class="forge-card-title" style="margin-top:10px">思考 / 投機デコード</div>'
+      + group(['reasoning', 'spec_type', 'spec_draft_n_max', 'spec_draft_p_min'])
+      + '<div class="forge-card-title" style="margin-top:10px">サンプリング</div>'
+      + group(['temp', 'top_p', 'top_k', 'min_p', 'presence_penalty', 'repeat_penalty'])
       + '</div>';
   }
 
@@ -386,19 +390,25 @@
           return '<option value="' + escapeHtml(id) + '"' + (sel.model === id ? ' selected' : '') + '>'
             + escapeHtml(m.name || id) + (ctx ? ' · ctx ' + ctx : '') + '</option>';
         }).join('') + '</select>';
-      const selModel = models.find((m) => String(m.model_key || m.name || '') === sel.model);
-      // Initialise the editable param set from the selected model's registry row once per selection
-      // so unsaved edits survive re-renders, but switching model reloads the registered values.
-      if (selModel && sel.paramsModel !== sel.model) {
-        sel.params = anvilParamsFromModel(selModel);
-        sel.paramsModel = sel.model;
-      }
+      // Each registered model gets a 詳細設定 button that opens the per-model parameter drawer
+      // (all llama-server launch params as pulldowns). This is independent of the benchmark target
+      // selected above, so any model can be configured.
       if (!models.length) {
         ctxField = '<div class="forge-empty">登録モデルがありません。Models タブでスキャン/追加してください。</div>';
-      } else if (!selModel) {
-        ctxField = '<div class="forge-hint">登録モデルを選択するとパラメータを編集できます。</div>';
       } else {
-        ctxField = renderAnvilParamEditor(sel.params, String(selModel.id || ''));
+        ctxField = '<div class="forge-card-title" style="margin-top:8px">登録モデルの詳細設定</div>'
+          + '<div class="forge-anvil-model-list">'
+          + models.map((m) => {
+            const id = String(m.id || '');
+            const key = String(m.model_key || m.name || '');
+            const ctx = normalizeCtx(m.ctx_size);
+            return '<div class="forge-anvil-model-row">'
+              + '<span class="forge-anvil-model-name">' + escapeHtml(m.name || key)
+              + (ctx ? ' <span class="forge-anvil-model-ctx">ctx ' + ctx + '</span>' : '') + '</span>'
+              + '<button type="button" class="forge-seg" data-anvil-config data-model-id="' + escapeHtml(id) + '">⚙ 詳細設定</button>'
+              + '</div>';
+          }).join('')
+          + '</div>';
       }
     } else if (isLmStudio) {
       const lmCatalog = data.lmStudioCatalog || {};
@@ -501,15 +511,12 @@
       // never submitted. Selecting LM Studio pulls its live model list (server-side proxy).
       state.bench.model = '';
       state.bench.ctx = '';
-      state.bench.params = {};
-      state.bench.paramsModel = '';
       if (e.target.value === 'lm_studio') { loadLmStudioCatalog(); return; }
       renderActive();
     });
     content.querySelector('[data-bench-model-select]')?.addEventListener('change', (e) => {
       state.bench.model = e.target.value;
       state.bench.ctx = '';  // re-derive ctx from the newly selected model's registered value
-      state.bench.paramsModel = '';  // re-init the param editor from the newly selected model's row
       renderActive();
     });
     content.querySelector('[data-bench-model]')?.addEventListener('input', (e) => {
@@ -517,19 +524,9 @@
       const btn = content.querySelector('[data-bench-run]');
       if (btn) btn.disabled = !(state.bench.presets.length && state.bench.provider && state.bench.model);
     });
-    // Anvil per-model parameter inputs: keep state in sync without a full re-render (so focus/caret
-    // is preserved while typing). ctx_size also mirrors into state.bench.ctx for compatibility.
-    content.querySelectorAll('[data-anvil-param]').forEach((el) => {
-      const evt = el.tagName === 'SELECT' ? 'change' : 'input';
-      el.addEventListener(evt, (e) => {
-        const key = e.target.getAttribute('data-anvil-param');
-        state.bench.params = state.bench.params || {};
-        state.bench.params[key] = e.target.value;
-        if (key === 'ctx_size') state.bench.ctx = e.target.value;
-      });
-    });
-    content.querySelector('[data-anvil-save]')?.addEventListener('click', (e) => {
-      saveAnvilModelParams(e.target.getAttribute('data-model-id'), state.bench.params);
+    // Per-model 詳細設定 button: open the parameter drawer for that registered model.
+    content.querySelectorAll('[data-anvil-config]').forEach((btn) => {
+      btn.addEventListener('click', () => openAnvilConfig(btn.getAttribute('data-model-id')));
     });
     content.querySelector('[data-bench-load]')?.addEventListener('click', () => loadSelectedModel());
     content.querySelector('[data-bench-run]')?.addEventListener('click', () => runBenchmark(data));
@@ -580,15 +577,65 @@
     tick();
   }
 
-  // Persist the edited llama-server parameters back to the Models DB registry entry (Anvil). The
-  // runtime manager reads these columns when it loads the model (main.py _runtime_spec_from_row),
-  // so this is the authoritative per-model launch configuration.
-  async function saveAnvilModelParams(modelId, params) {
-    if (!modelId) { setStatus('パラメータを保存できません（モデル未選択）', 'error'); return; }
-    const payload = anvilParamsToPayload(params || {});
+  // Open the per-model 詳細設定 drawer: all llama-server launch params as pulldowns, prefilled
+  // from the model's Models DB row. Reuses the shared forge-drawer overlay.
+  function openAnvilConfig(modelId) {
+    const model = (state.data.localModels || []).find((m) => String(m.id || '') === String(modelId));
+    if (!model) { setStatus('モデルが見つかりません', 'error'); return; }
+    let drawer = $('forge-drawer');
+    if (!drawer) {
+      drawer = document.createElement('div');
+      drawer.id = 'forge-drawer';
+      drawer.className = 'forge-drawer';
+      document.body.appendChild(drawer);
+    }
+    drawer.innerHTML = (
+      '<div class="forge-drawer-inner">'
+      + '<div class="forge-drawer-head"><span>詳細設定 · ' + escapeHtml(model.name || model.model_key || String(modelId)) + '</span>'
+      + '<button type="button" class="forge-drawer-close" aria-label="Close">×</button></div>'
+      + '<div class="forge-drawer-sub">llama-server 起動パラメータ。プルダウンで選択（「カスタム…」で自由入力）。未指定の項目は起動時に省略されます。</div>'
+      + '<div class="forge-drawer-body">' + renderAnvilConfigForm(model) + '</div>'
+      + '<div class="forge-drawer-foot">'
+      + '<button type="button" class="forge-run-btn" data-anvil-save data-model-id="' + escapeHtml(String(modelId)) + '">保存</button>'
+      + '<div class="forge-hint">保存後、対象モデルを再ロードすると反映されます。</div>'
+      + '</div></div>'
+    );
+    drawer.classList.add('open');
+    drawer.querySelector('.forge-drawer-close')?.addEventListener('click', closeModelDrawer);
+    drawer.addEventListener('click', (e) => { if (e.target === drawer) closeModelDrawer(); });
+    // Reveal the free-input box only when その項目の「カスタム…」が選ばれたとき。
+    drawer.querySelectorAll('select[data-anvil-param]').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        const key = sel.getAttribute('data-anvil-param');
+        const custom = drawer.querySelector('[data-anvil-custom="' + key + '"]');
+        if (custom) custom.style.display = sel.value === '__custom__' ? '' : 'none';
+      });
+    });
+    drawer.querySelector('[data-anvil-save]')?.addEventListener('click', (e) => {
+      saveAnvilConfig(drawer, e.target.getAttribute('data-model-id'));
+    });
+  }
+
+  // Persist the drawer's parameters back to the Models DB registry entry (Anvil). The runtime
+  // manager reads these columns when it loads the model (main.py _runtime_spec_from_row), so this
+  // is the authoritative per-model launch configuration.
+  async function saveAnvilConfig(drawer, modelId) {
+    if (!modelId || !drawer) { setStatus('保存できません（モデル未選択）', 'error'); return; }
+    const params = {};
+    ANVIL_PARAM_FIELDS.forEach((f) => {
+      const sel = drawer.querySelector('select[data-anvil-param="' + f.key + '"]');
+      if (!sel) { params[f.key] = ''; return; }
+      let v = sel.value;
+      if (v === '__custom__') {
+        const custom = drawer.querySelector('[data-anvil-custom="' + f.key + '"]');
+        v = custom ? custom.value : '';
+      }
+      params[f.key] = v;
+    });
+    const payload = anvilParamsToPayload(params);
     const ctxNum = normalizeCtx(payload.ctx_size);
     if (!ctxNum) { setStatus('CTX が無効です（512 以上の数値を指定してください）', 'error'); return; }
-    setStatus('パラメータを保存中…');
+    setStatus('詳細設定を保存中…');
     try {
       const resp = await fetch('/models/db/' + encodeURIComponent(modelId), {
         method: 'PUT',
@@ -596,11 +643,11 @@
         body: JSON.stringify(payload),
       });
       if (!resp.ok) throw new Error(String(resp.status));
-      state.bench.paramsModel = '';  // force re-init from the freshly saved registry row
       await loadLocalModels();
-      setStatus('パラメータを登録に保存しました', 'ok');
+      setStatus('詳細設定を保存しました', 'ok');
+      closeModelDrawer();
     } catch (err) {
-      setStatus('パラメータ保存に失敗: ' + (err && err.message ? err.message : 'error'), 'error');
+      setStatus('詳細設定の保存に失敗: ' + (err && err.message ? err.message : 'error'), 'error');
     }
     renderActive();
   }
@@ -1168,6 +1215,7 @@
     _overviewHtml: overviewHtml,
     _skillsHtml: skillsHtml,
     _benchmarkHtml: benchmarkHtml,
+    _anvilConfigFormHtml: renderAnvilConfigForm,
     _arenaHtml: arenaHtml,
     _advancedHtml: advancedHtml,
     _loadoutsHtml: loadoutsHtml,

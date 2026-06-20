@@ -111,9 +111,9 @@ def test_openrouter_catalog_models_render_as_model_selector(tmp_path):
     assert "anthropic/claude" in html
 
 
-def test_anvil_runtime_lists_registry_models_with_ctx_and_param_editor(tmp_path):
-    # The "LLM management tool" (Anvil) offers registered models (Models DB) in a dropdown with
-    # their context length, plus a per-model parameter editor that persists back to the registry.
+def test_anvil_runtime_lists_registry_models_with_per_model_config_button(tmp_path):
+    # The "LLM management tool" (Anvil) offers registered models (Models DB) in a benchmark dropdown
+    # with their context length, plus a per-model 詳細設定 button that opens the parameter drawer.
     data = {
         "presets": _PRESETS,
         "providers": [],
@@ -125,42 +125,78 @@ def test_anvil_runtime_lists_registry_models_with_ctx_and_param_editor(tmp_path)
     # Anvil appears as a selectable provider/tool.
     opts = _render(tmp_path, {"data": data, "bench": {}})
     assert 'value="anvil"' in opts and "Anvil" in opts
-    # With Anvil selected and a model chosen, the dropdown + parameter editor render.
+    # With Anvil selected, the benchmark dropdown plus a 詳細設定 button per registered model render.
     html = _render(tmp_path, {"data": data, "bench": {"provider": "anvil", "model": "mistral-small"}})
     assert "data-bench-model-select" in html
     assert "mistral-small" in html and "Mistral Small" in html
     assert "ctx 16384" in html
-    # CTX is editable up front and the save button targets the selected model row.
-    assert 'data-anvil-param="ctx_size"' in html
-    assert 'data-anvil-save data-model-id="row1"' in html
+    assert "詳細設定" in html
+    assert 'data-anvil-config data-model-id="row1"' in html
+    assert 'data-anvil-config data-model-id="row2"' in html
 
 
-def test_anvil_param_editor_exposes_llama_launch_params(tmp_path):
-    # The Anvil editor surfaces the full llama-server launch parameter set (under a details
-    # disclosure) so a model can be configured like the pasted llama-server command.
-    data = {
-        "presets": _PRESETS,
-        "providers": [],
-        "localModels": [{
-            "id": "row1", "model_key": "qwen36", "name": "Qwen3.6",
-            "ctx_size": 16384, "n_cpu_moe": 14, "spec_type": "draft-mtp",
-            "spec_draft_n_max": 2, "spec_draft_p_min": 0.75, "temp": 0.7,
-            "top_p": 0.8, "top_k": 20, "min_p": 0.0, "presence_penalty": 1.5,
-            "repeat_penalty": 1.0, "flash_attn": 1, "jinja": 1, "no_mmap": 1,
-            "cache_type_k": "q8_0", "cache_type_v": "q8_0", "batch_size": 2048,
-            "ubatch_size": 256, "threads": 16, "parallel": 1, "gpu_layers": 999,
-        }],
+_NODE_CONFIG_FORM_TEMPLATE = r"""
+const fs = require('fs');
+const store = {};
+function mkEl(){ return { _html:'', set innerHTML(v){this._html=v;}, get innerHTML(){return this._html;},
+  textContent:'', classList:{toggle(){},add(){},remove(){}}, addEventListener(){},
+  querySelectorAll(){return [];}, querySelector(){return null;}, appendChild(){}, getAttribute(){return '';} }; }
+global.document = { getElementById:(id)=>store[id]||(store[id]=mkEl()),
+  createElement:()=>mkEl(), body:{appendChild(){}}, addEventListener(){} };
+global.window = {};
+global.fetch = () => Promise.reject(new Error('no-net'));
+eval(fs.readFileSync(process.argv[2], 'utf8'));
+const F = global.window.Forge;
+const model = JSON.parse(process.argv[3]);
+process.stdout.write(F._anvilConfigFormHtml(model));
+"""
+
+
+def _render_config_form(tmp_path, model: dict) -> str:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    script = tmp_path / "configform.js"
+    script.write_text(_NODE_CONFIG_FORM_TEMPLATE, encoding="utf-8")
+    proc = subprocess.run([node, str(script), str(FORGE_JS), json.dumps(model)],
+                          capture_output=True, text=True, timeout=30,
+                          encoding="utf-8", errors="replace")
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout
+
+
+def test_anvil_config_form_exposes_all_params_as_pulldowns(tmp_path):
+    # The 詳細設定 drawer form surfaces every llama-server launch param as a <select> pulldown,
+    # prefilled from the model's registry row, so a model can be configured like the pasted command.
+    model = {
+        "id": "row1", "model_key": "qwen36", "name": "Qwen3.6",
+        "ctx_size": 16384, "n_cpu_moe": 14, "spec_type": "draft-mtp",
+        "spec_draft_n_max": 2, "spec_draft_p_min": 0.75, "temp": 0.7,
+        "top_p": 0.8, "top_k": 20, "min_p": 0.0, "presence_penalty": 1.5,
+        "repeat_penalty": 1.0, "flash_attn": 1, "jinja": 1, "no_mmap": 1,
+        "cache_type_k": "q8_0", "cache_type_v": "q8_0", "batch_size": 2048,
+        "ubatch_size": 256, "threads": 16, "parallel": 1, "gpu_layers": 999,
     }
-    html = _render(tmp_path, {"data": data, "bench": {"provider": "anvil", "model": "qwen36"}})
-    for key in ("n_cpu_moe", "spec_type", "spec_draft_n_max", "spec_draft_p_min",
-                "temp", "top_p", "top_k", "min_p", "presence_penalty", "repeat_penalty",
-                "flash_attn", "jinja", "no_mmap", "cache_type_k", "cache_type_v",
-                "batch_size", "ubatch_size", "threads", "parallel", "gpu_layers"):
-        assert 'data-anvil-param="' + key + '"' in html
-    # Saved values are pre-filled from the registry row.
-    assert 'value="14"' in html  # n_cpu_moe
-    assert 'value="draft-mtp"' in html  # spec_type
-    assert "詳細パラメータ" in html
+    html = _render_config_form(tmp_path, model)
+    for key in ("ctx_size", "gpu_layers", "n_cpu_moe", "threads", "parallel", "batch_size",
+                "ubatch_size", "cache_type_k", "cache_type_v", "flash_attn", "no_mmap", "jinja",
+                "reasoning", "spec_type", "spec_draft_n_max", "spec_draft_p_min", "temp",
+                "top_p", "top_k", "min_p", "presence_penalty", "repeat_penalty"):
+        assert '<select class="forge-select" data-anvil-param="' + key + '">' in html
+    # Stored values preselect their option (pulldown), and a カスタム… escape hatch is present.
+    assert '<option value="14" selected>14</option>' in html
+    assert '<option value="draft-mtp" selected>draft-mtp</option>' in html
+    assert '<option value="1" selected>ON</option>' in html  # flash_attn / jinja / no_mmap
+    assert "カスタム…" in html
+
+
+def test_anvil_config_form_custom_value_selects_custom_option(tmp_path):
+    # A stored value that is not among the curated choices preselects カスタム… and fills the input.
+    model = {"id": "row9", "name": "Custom", "ctx_size": 20000}
+    html = _render_config_form(tmp_path, model)
+    assert '<option value="__custom__" selected>カスタム…</option>' in html
+    assert 'data-anvil-custom="ctx_size"' in html
+    assert 'value="20000"' in html
 
 
 def test_lm_studio_runtime_is_offered_with_model_dropdown_and_ctx(tmp_path):

@@ -1796,7 +1796,14 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .forge-drawer-close{background:transparent;border:none;color:var(--text3);font-size:18px;cursor:pointer}
 .forge-drawer-sub{color:var(--text3);font-size:11.5px;margin:2px 0 10px}
 .forge-drawer-body{display:flex;flex-direction:column;gap:2px}
+.forge-drawer-foot{margin-top:12px;border-top:1px solid var(--border);padding-top:10px}
 @media(min-width:769px){.forge-drawer{align-items:center}.forge-drawer-inner{border-radius:14px}}
+/* Anvil per-model 詳細設定 list */
+.forge-anvil-model-list{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.forge-anvil-model-row{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:6px 8px 6px 10px}
+.forge-anvil-model-name{font-size:12.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.forge-anvil-model-ctx{font-size:10.5px;color:var(--text3);border:1px solid var(--border);border-radius:6px;padding:1px 5px;margin-left:4px}
+.forge-anvil-model-row .forge-seg{border:1px solid var(--border);border-radius:7px;flex:0 0 auto}
 /* Benchmark selector (PFG-23) */
 .forge-check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px}
 .forge-check{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);cursor:pointer}
