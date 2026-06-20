@@ -77,12 +77,25 @@ def git_pull(base_dir: str, *, runner: GitRunner | None = None, timeout: float =
 
 def _default_spawn_relauncher(host: str, port: int, base_dir: str, parent_pid: int) -> subprocess.Popen:
     script = os.path.join(base_dir, "scripts", "relaunch_server.py")
+    log_path = os.path.join(base_dir, "logs", "relaunch.log")
     cmd = [
         sys.executable, script,
         "--host", host, "--port", str(port),
         "--base-dir", base_dir, "--parent-pid", str(parent_pid),
+        "--log-file", log_path,
     ]
-    kwargs: dict = {"cwd": base_dir}
+    # Detached on Windows means no console: the child's stdio handles would be invalid and its
+    # first write would crash it before it can relaunch. Redirect stdio to the log file so the
+    # relauncher (and the diagnostics it writes) always have a valid destination.
+    kwargs: dict = {"cwd": base_dir, "stdin": subprocess.DEVNULL}
+    try:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        log_fh = open(log_path, "a", encoding="utf-8", errors="replace")
+        kwargs["stdout"] = log_fh
+        kwargs["stderr"] = log_fh
+    except Exception:
+        kwargs["stdout"] = subprocess.DEVNULL
+        kwargs["stderr"] = subprocess.DEVNULL
     if os.name == "nt":
         kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     else:
