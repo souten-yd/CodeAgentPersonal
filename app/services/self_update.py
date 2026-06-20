@@ -14,6 +14,7 @@ endpoint behaviour can be tested without touching git or killing the process.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -73,6 +74,33 @@ def git_pull(base_dir: str, *, runner: GitRunner | None = None, timeout: float =
     else:
         reason = "pull_failed"
     return {"ok": False, "reason": reason, "changed": False, "stdout": out, "stderr": err}
+
+
+def sync_ui_index(base_dir: str) -> dict:
+    """Copy the tracked ``ui.html`` to the served ``ui/index.html`` (+ assets), mirroring the
+    launcher's ``copy_ui`` step (scripts/start_codeagent.py).
+
+    The root route serves ``ui/index.html`` (a gitignored copy), so without this a ``git pull`` of
+    ``ui.html`` would not change the visible UI on a lightweight self-update restart — only a full
+    launcher restart would. Running it here makes UI changes appear after a self-update. Never
+    raises; returns a status dict.
+    """
+    try:
+        src = os.path.join(base_dir, "ui.html")
+        if not os.path.exists(src):
+            return {"ok": False, "reason": "no_ui_html"}
+        dst_dir = os.path.join(base_dir, "ui")
+        os.makedirs(dst_dir, exist_ok=True)
+        shutil.copy2(src, os.path.join(dst_dir, "index.html"))
+        assets_src = os.path.join(base_dir, "assets")
+        if os.path.isdir(assets_src):
+            shutil.copytree(assets_src, os.path.join(dst_dir, "assets"), dirs_exist_ok=True)
+            logo_src = os.path.join(assets_src, "kasane-core-logo.svg")
+            if os.path.exists(logo_src):
+                shutil.copy2(logo_src, os.path.join(dst_dir, "kasane-core-logo.svg"))
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001 — UI sync is best-effort; never break the update.
+        return {"ok": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 
 def _default_spawn_relauncher(host: str, port: int, base_dir: str, parent_pid: int) -> subprocess.Popen:

@@ -99,6 +99,10 @@ def system_self_update(request: Request, body: SelfUpdateRequest) -> dict[str, A
     if not pull.get("ok"):
         return result
 
+    # Sync ui.html -> ui/index.html (served copy) so pulled UI changes are visible after the
+    # lightweight restart, matching the launcher's copy_ui step.
+    result["ui_sync"] = self_update.sync_ui_index(_REPO_ROOT)
+
     if body.restart:
         host = os.environ.get("CODEAGENT_HOST", "0.0.0.0")
         port = _resolve_restart_port(request)
