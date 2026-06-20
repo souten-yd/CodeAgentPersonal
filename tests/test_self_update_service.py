@@ -88,6 +88,21 @@ def test_schedule_restart_spawns_and_arms_terminator():
     assert terminated["called"] is True
 
 
+def test_sync_ui_index_copies_ui_html(tmp_path):
+    (tmp_path / "ui.html").write_text("<html>anvil</html>", encoding="utf-8")
+    res = self_update.sync_ui_index(str(tmp_path))
+    assert res["ok"] is True
+    dst = tmp_path / "ui" / "index.html"
+    assert dst.exists()
+    assert dst.read_text(encoding="utf-8") == "<html>anvil</html>"
+
+
+def test_sync_ui_index_missing_ui_html(tmp_path):
+    res = self_update.sync_ui_index(str(tmp_path))
+    assert res["ok"] is False
+    assert res["reason"] == "no_ui_html"
+
+
 def test_self_update_endpoint_requires_acknowledge():
     client = TestClient(create_app())
     resp = client.post("/system/self-update", json={"acknowledge": False})
@@ -110,6 +125,8 @@ def test_self_update_endpoint_pulls_and_schedules_restart(monkeypatch):
 
     monkeypatch.setattr(self_update, "git_pull", fake_pull)
     monkeypatch.setattr(self_update, "schedule_restart", fake_restart)
+    # Don't touch the real ui/index.html during the test.
+    monkeypatch.setattr(self_update, "sync_ui_index", lambda base: {"ok": True, "stub": True})
 
     client = TestClient(create_app())
     resp = client.post("/system/self-update", json={"acknowledge": True, "restart": True})
@@ -117,6 +134,7 @@ def test_self_update_endpoint_pulls_and_schedules_restart(monkeypatch):
     body = resp.json()
     assert body["ok"] is True
     assert body["stage"] == "restarting"
+    assert body["ui_sync"]["ok"] is True
     assert calls["pull_base"] == _REPO_ROOT
     assert calls["restart"]["base_dir"] == _REPO_ROOT
     assert calls["restart"]["port"] > 0

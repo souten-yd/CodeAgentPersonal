@@ -2454,6 +2454,22 @@
   </div>
 </div>
 
+<!-- ANVIL モデル詳細設定モーダル（llama-server 起動パラメータ） -->
+<div class="modal-overlay" id="anvil-param-modal" onclick="if(event.target===this)closeAnvilParamModal()">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title">⚙ 詳細設定 <span id="anvil-param-model-name" style="color:var(--text3);font-weight:400;font-size:12px"></span></span>
+      <button class="modal-close" onclick="closeAnvilParamModal()">✕</button>
+    </div>
+    <div class="modal-body" id="anvil-param-body" style="overflow-y:auto;max-height:72vh"></div>
+    <div class="modal-footer" style="display:flex;align-items:center;gap:10px">
+      <button id="anvil-param-save-btn" onclick="saveAnvilParamModal()"
+        style="padding:7px 16px;font-size:12px;font-weight:700;background:var(--accent);border:none;border-radius:6px;color:var(--bg);cursor:pointer">保存</button>
+      <span style="font-size:10px;color:var(--text3)">空欄＝未指定（起動時に省略）。保存後、対象モデルを再ロードすると反映されます。</span>
+    </div>
+  </div>
+</div>
+
 <!-- PROJECT DRAWER -->
 <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
 <div class="drawer" id="drawer">
@@ -10608,6 +10624,8 @@ function renderModelCard(m) {
             Vision ${vlmEnabled?'On':'Off'}
           </button>` : ''}
           ${benchBtn}
+          <button onclick="openAnvilParamModal('${esc(asText(m?.id))}')" title="llama-server 起動パラメータの詳細設定"
+            style="font-size:10px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">⚙ 詳細設定</button>
           <button onclick="deleteModelDb('${esc(asText(m?.id))}')"
             style="font-size:10px;padding:2px 6px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:3px;cursor:pointer">Delete</button>
         </div>
@@ -10870,6 +10888,147 @@ async function saveModelDb(mid) {
     addLog('ok','models','Saved '+mid);
   } catch (e) {
     addLog('err','models', e.message);
+  }
+}
+
+// ── Anvil モデル詳細設定（llama-server 起動パラメータ）────────────────────────
+// Models DB の各カラムに対応。type 'num'/'text' はプルダウン＋「カスタム…」で自由入力、
+// type 'tri' は 未指定/ON/OFF。未指定は起動時に省略され、main.py の _runtime_spec_from_row /
+// _try_start_once が値ありの項目だけ llama-server へ渡す。
+const ANVIL_LLAMA_PARAMS = [
+  { group: '基本', items: [
+    { key: 'ctx_size', label: 'CTX (context length)', type: 'num', opts: [4096, 8192, 16384, 32768, 65536, 131072] },
+    { key: 'gpu_layers', label: 'n-gpu-layers', type: 'num', opts: [0, 999] },
+    { key: 'n_cpu_moe', label: 'n-cpu-moe', type: 'num', opts: [0, 8, 14, 24, 36] },
+    { key: 'threads', label: 'threads', type: 'num', opts: [4, 8, 12, 16, 24] },
+    { key: 'parallel', label: 'parallel', type: 'num', opts: [1, 2, 4] },
+    { key: 'batch_size', label: 'batch-size', type: 'num', opts: [512, 1024, 2048, 4096] },
+    { key: 'ubatch_size', label: 'ubatch-size', type: 'num', opts: [128, 256, 512] },
+    { key: 'cache_type_k', label: 'cache-type-k', type: 'text', opts: ['f16', 'q8_0', 'q4_0'] },
+    { key: 'cache_type_v', label: 'cache-type-v', type: 'text', opts: ['f16', 'q8_0', 'q4_0'] },
+    { key: 'flash_attn', label: 'flash-attn', type: 'tri' },
+    { key: 'no_mmap', label: 'no-mmap', type: 'tri' },
+    { key: 'jinja', label: 'jinja', type: 'tri' },
+  ]},
+  { group: '思考 / 投機デコード', items: [
+    { key: 'reasoning', label: 'reasoning (think)', type: 'text', opts: ['off', 'on', 'auto'] },
+    { key: 'spec_type', label: 'spec-type (MTP)', type: 'text', opts: ['draft-mtp', 'draft-model'] },
+    { key: 'spec_draft_n_max', label: 'spec-draft-n-max (先読み数)', type: 'num', opts: [1, 2, 3, 4] },
+    { key: 'spec_draft_p_min', label: 'spec-draft-p-min', type: 'num', opts: [0.5, 0.75, 0.9] },
+  ]},
+  { group: 'サンプリング', items: [
+    { key: 'temp', label: 'temp', type: 'num', opts: [0, 0.3, 0.7, 1.0] },
+    { key: 'top_p', label: 'top-p', type: 'num', opts: [0.8, 0.9, 0.95, 1.0] },
+    { key: 'top_k', label: 'top-k', type: 'num', opts: [0, 20, 40] },
+    { key: 'min_p', label: 'min-p', type: 'num', opts: [0, 0.05, 0.1] },
+    { key: 'presence_penalty', label: 'presence-penalty', type: 'num', opts: [0, 1.0, 1.5] },
+    { key: 'repeat_penalty', label: 'repeat-penalty', type: 'num', opts: [1.0, 1.1] },
+  ]},
+];
+const ANVIL_PARAM_FLAT = ANVIL_LLAMA_PARAMS.reduce((a, g) => a.concat(g.items), []);
+let _anvilParamCurrentId = '';
+
+// 保存値（-1/''/null = 未指定）→ 入力欄の値（'' = 未指定）
+function _anvilStoredToInput(field, raw) {
+  if (field.type === 'text') return String(raw == null ? '' : raw);
+  if (raw == null || raw === '' || Number(raw) === -1) return '';
+  return String(raw);
+}
+
+function _anvilParamFieldHtml(f, rawVal) {
+  const val = _anvilStoredToInput(f, rawVal);
+  const labelStyle = 'display:flex;flex-direction:column;gap:3px;font-size:10px;color:var(--text2)';
+  const selStyle = 'padding:5px 7px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)';
+  if (f.type === 'tri') {
+    const opt = (v, lbl) => `<option value="${v}" ${val === v ? 'selected' : ''}>${lbl}</option>`;
+    return `<label style="${labelStyle}">${esc(f.label)}
+      <select data-anvil-p="${f.key}" style="${selStyle}">${opt('', '未指定（既定）')}${opt('1', 'ON')}${opt('0', 'OFF')}</select></label>`;
+  }
+  const opts = (f.opts || []).map(String);
+  const isCustom = val !== '' && opts.indexOf(val) < 0;
+  const optionHtml = [`<option value="" ${val === '' ? 'selected' : ''}>未指定（既定）</option>`]
+    .concat(opts.map((o) => `<option value="${esc(o)}" ${!isCustom && val === o ? 'selected' : ''}>${esc(o)}</option>`))
+    .concat([`<option value="__custom__" ${isCustom ? 'selected' : ''}>カスタム…</option>`])
+    .join('');
+  const inStyle = selStyle + (isCustom ? '' : ';display:none');
+  const inMode = f.type === 'num' ? ' inputmode="decimal"' : '';
+  return `<label style="${labelStyle}">${esc(f.label)}
+    <select data-anvil-p="${f.key}" onchange="_anvilToggleCustom(this)" style="${selStyle}">${optionHtml}</select>
+    <input data-anvil-custom="${f.key}"${inMode} placeholder="カスタム値" value="${esc(isCustom ? val : '')}" style="${inStyle}"></label>`;
+}
+
+function _anvilToggleCustom(sel) {
+  const key = sel.getAttribute('data-anvil-p');
+  const box = document.querySelector(`#anvil-param-body [data-anvil-custom="${key}"]`);
+  if (box) box.style.display = sel.value === '__custom__' ? '' : 'none';
+}
+
+function renderAnvilParamModalBody(model) {
+  const grid = (items) => `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">`
+    + items.map((f) => _anvilParamFieldHtml(f, model[f.key])).join('') + `</div>`;
+  return ANVIL_LLAMA_PARAMS.map((g) =>
+    `<div class="section-label" style="margin-top:6px">${esc(g.group)}</div>${grid(g.items)}`
+  ).join('');
+}
+
+async function openAnvilParamModal(mid) {
+  _anvilParamCurrentId = mid;
+  let model = null;
+  try {
+    const r = await fetch(API + '/models/db');
+    const d = await r.json();
+    model = (d.models || []).find((m) => String(m.id || '') === String(mid)) || null;
+  } catch (e) { /* fall through */ }
+  if (!model) { addLog('err', 'models', 'モデルが見つかりません: ' + mid); return; }
+  document.getElementById('anvil-param-model-name').textContent = '· ' + (model.name || model.model_key || mid);
+  document.getElementById('anvil-param-body').innerHTML = renderAnvilParamModalBody(model);
+  document.getElementById('anvil-param-modal').classList.add('open');
+}
+
+function closeAnvilParamModal() {
+  document.getElementById('anvil-param-modal')?.classList.remove('open');
+  _anvilParamCurrentId = '';
+}
+
+async function saveAnvilParamModal() {
+  const mid = _anvilParamCurrentId;
+  if (!mid) return;
+  const body = document.getElementById('anvil-param-body');
+  const payload = {};
+  ANVIL_PARAM_FLAT.forEach((f) => {
+    const sel = body.querySelector(`select[data-anvil-p="${f.key}"]`);
+    let v = sel ? sel.value : '';
+    if (v === '__custom__') {
+      const box = body.querySelector(`[data-anvil-custom="${f.key}"]`);
+      v = box ? box.value : '';
+    }
+    if (f.type === 'text') {
+      payload[f.key] = String(v == null ? '' : v).trim();
+    } else if (v === '' || v == null) {
+      payload[f.key] = -1;
+    } else {
+      const n = Number(v);
+      payload[f.key] = Number.isFinite(n) ? n : -1;
+    }
+  });
+  const ctxNum = normalizeCtxSize(payload.ctx_size, _settingsDefaultCtxSize);
+  if (!ctxNum || ctxNum < 512) { addLog('err', 'models', 'CTX が無効です（512 以上）'); return; }
+  payload.ctx_size = ctxNum;
+  const btn = document.getElementById('anvil-param-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  try {
+    const r = await fetch(API + '/models/db/' + mid, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'save failed');
+    await refreshModelDb();
+    addLog('ok', 'models', '詳細設定を保存しました: ' + mid);
+    closeAnvilParamModal();
+  } catch (e) {
+    addLog('err', 'models', '詳細設定の保存に失敗: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '保存'; }
   }
 }
 
