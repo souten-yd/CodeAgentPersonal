@@ -2433,6 +2433,20 @@
         </div>
       </div>
 
+      <!-- ── KasaneCore 更新（git pull + 再起動） ── -->
+      <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+        <div class="section-label">🔄 KasaneCore 更新</div>
+        <div style="padding:4px 0 8px;font-size:11px;color:var(--text3);line-height:1.7">
+          最新コードを <strong>git pull</strong>（fast-forward のみ）してから FastAPI サーバを再起動します。<br>
+          環境・LLM はそのままで、コード変更のみ反映します。再起動中は数秒接続が切れます。
+        </div>
+        <button id="self-update-btn" onclick="kasaneCoreSelfUpdate()"
+          style="padding:6px 14px;font-size:11px;border:1px solid var(--accent);border-radius:6px;background:transparent;color:var(--accent);cursor:pointer">
+          更新して再起動
+        </button>
+        <div id="self-update-status" style="margin-top:8px;font-size:11px;color:var(--text2);white-space:pre-wrap;font-family:var(--font-mono)"></div>
+      </div>
+
     </div>
     <div class="modal-footer" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">
       設定はサーバー側DBに保存されます。認証情報はローカルの .codeagent/ に保存されGitには含まれません。
@@ -5714,6 +5728,61 @@ if (window.visualViewport) {
 }
 
 // ── SETTINGS DB 連動 ──
+
+// KasaneCore 本体を git pull して FastAPI サーバを再起動する。再起動後は /health の復帰を
+// ポーリングして自動でページをリロードする（手動 pull + 再起動の手間をワンクリックに置換）。
+async function kasaneCoreSelfUpdate() {
+  const btn = document.getElementById('self-update-btn');
+  const statusEl = document.getElementById('self-update-status');
+  const setMsg = (m) => { if (statusEl) statusEl.textContent = m; };
+  if (!confirm('最新コードを pull してサーバを再起動します。再起動中は数秒接続が切れます。続行しますか？')) return;
+  if (btn) btn.disabled = true;
+  setMsg('更新を実行中…');
+  try {
+    const res = await fetch(API + '/system/self-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acknowledge: true, restart: true }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.ok) {
+      const pull = d.pull || {};
+      const reason = (pull.reason || d.reason || ('http_' + res.status));
+      setMsg('更新に失敗しました: ' + reason + (pull.stderr ? '\n' + String(pull.stderr).trim() : ''));
+      if (btn) btn.disabled = false;
+      return;
+    }
+    if (d.stage === 'restarting') {
+      setMsg((d.pull && d.pull.reason === 'already_up_to_date'
+        ? '既に最新でした。サーバを再起動します…'
+        : '更新を取得しました。サーバを再起動します…') + '\n復帰を待っています…');
+      waitForServerBack(statusEl);
+    } else {
+      setMsg(d.message || '完了しました。');
+      if (btn) btn.disabled = false;
+    }
+  } catch (err) {
+    setMsg('更新リクエストに失敗: ' + (err && err.message ? err.message : 'error'));
+    if (btn) btn.disabled = false;
+  }
+}
+
+// 再起動中はサーバが一時的に落ちるので、/health が再び 200 を返すまでポーリングしてリロード。
+async function waitForServerBack(statusEl) {
+  const setMsg = (m) => { if (statusEl) statusEl.textContent = m; };
+  const deadline = Date.now() + 90000;
+  // まずダウンを確認してから復帰を待つ（即時 200 で誤検知しないように軽く待つ）。
+  await new Promise((r) => setTimeout(r, 2500));
+  const poll = async () => {
+    try {
+      const r = await fetch(API + '/health', { cache: 'no-store' });
+      if (r.ok) { setMsg('サーバが復帰しました。リロードします…'); setTimeout(() => location.reload(), 800); return; }
+    } catch (_e) { /* まだ落ちている */ }
+    if (Date.now() > deadline) { setMsg('再起動の確認がタイムアウトしました。手動でリロードしてください。'); return; }
+    setTimeout(poll, 1500);
+  };
+  poll();
+}
 
 async function loadSettingsFromDb() {
   try {

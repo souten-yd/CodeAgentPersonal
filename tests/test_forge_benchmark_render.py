@@ -111,9 +111,9 @@ def test_openrouter_catalog_models_render_as_model_selector(tmp_path):
     assert "anthropic/claude" in html
 
 
-def test_anvil_runtime_lists_registry_models_with_ctx_and_ctx_editor(tmp_path):
+def test_anvil_runtime_lists_registry_models_with_ctx_and_param_editor(tmp_path):
     # The "LLM management tool" (Anvil) offers registered models (Models DB) in a dropdown with
-    # their context length, plus a CTX editor that persists back to the registry.
+    # their context length, plus a per-model parameter editor that persists back to the registry.
     data = {
         "presets": _PRESETS,
         "providers": [],
@@ -125,13 +125,42 @@ def test_anvil_runtime_lists_registry_models_with_ctx_and_ctx_editor(tmp_path):
     # Anvil appears as a selectable provider/tool.
     opts = _render(tmp_path, {"data": data, "bench": {}})
     assert 'value="anvil"' in opts and "Anvil" in opts
-    # With Anvil selected and a model chosen, the dropdown + ctx editor render.
+    # With Anvil selected and a model chosen, the dropdown + parameter editor render.
     html = _render(tmp_path, {"data": data, "bench": {"provider": "anvil", "model": "mistral-small"}})
     assert "data-bench-model-select" in html
     assert "mistral-small" in html and "Mistral Small" in html
     assert "ctx 16384" in html
-    assert "data-bench-ctx" in html
-    assert 'data-bench-ctx-save data-model-id="row1"' in html
+    # CTX is editable up front and the save button targets the selected model row.
+    assert 'data-anvil-param="ctx_size"' in html
+    assert 'data-anvil-save data-model-id="row1"' in html
+
+
+def test_anvil_param_editor_exposes_llama_launch_params(tmp_path):
+    # The Anvil editor surfaces the full llama-server launch parameter set (under a details
+    # disclosure) so a model can be configured like the pasted llama-server command.
+    data = {
+        "presets": _PRESETS,
+        "providers": [],
+        "localModels": [{
+            "id": "row1", "model_key": "qwen36", "name": "Qwen3.6",
+            "ctx_size": 16384, "n_cpu_moe": 14, "spec_type": "draft-mtp",
+            "spec_draft_n_max": 2, "spec_draft_p_min": 0.75, "temp": 0.7,
+            "top_p": 0.8, "top_k": 20, "min_p": 0.0, "presence_penalty": 1.5,
+            "repeat_penalty": 1.0, "flash_attn": 1, "jinja": 1, "no_mmap": 1,
+            "cache_type_k": "q8_0", "cache_type_v": "q8_0", "batch_size": 2048,
+            "ubatch_size": 256, "threads": 16, "parallel": 1, "gpu_layers": 999,
+        }],
+    }
+    html = _render(tmp_path, {"data": data, "bench": {"provider": "anvil", "model": "qwen36"}})
+    for key in ("n_cpu_moe", "spec_type", "spec_draft_n_max", "spec_draft_p_min",
+                "temp", "top_p", "top_k", "min_p", "presence_penalty", "repeat_penalty",
+                "flash_attn", "jinja", "no_mmap", "cache_type_k", "cache_type_v",
+                "batch_size", "ubatch_size", "threads", "parallel", "gpu_layers"):
+        assert 'data-anvil-param="' + key + '"' in html
+    # Saved values are pre-filled from the registry row.
+    assert 'value="14"' in html  # n_cpu_moe
+    assert 'value="draft-mtp"' in html  # spec_type
+    assert "詳細パラメータ" in html
 
 
 def test_lm_studio_runtime_is_offered_with_model_dropdown_and_ctx(tmp_path):
