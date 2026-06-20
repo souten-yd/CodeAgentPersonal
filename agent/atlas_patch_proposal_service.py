@@ -1032,22 +1032,43 @@ class AtlasPatchProposalService:
             or item.get("goal") or item.get("description") or item.get("title") or ""
         ).strip()
         goal = str(payload.get("root_goal") or "")
+        # An ADDITIVE task (add a function/class/test) needs the COMPLETE new code inserted; a weak
+        # model otherwise returns a too-minimal edit (e.g. only updating an import) that satisfies
+        # old_string/new_string but omits the actual new code. Detect it so the surgical-edit tier
+        # demands completeness and an under-complete edit is rejected instead of silently accepted.
+        _intent_text = " ".join([fix_text, goal, str(item.get("title") or ""), str(item.get("description") or "")]).lower()
+        # Curated additive phrases — deliberately NOT a bare "add " (which matches "fix the add
+        # function" / "add to") to avoid misclassifying a fix as an addition.
+        additive = any(k in _intent_text for k in (
+            "add a ", "add an ", "add new", "add the ", "add test", "add unit test", "add support",
+            "add coverage", "adds ", "create ", "creates ", "implement", "introduce", "new function",
+            "new test", "new class", "追加", "作成", "実装", "新規", "新しい"))
         try:
             if exists:
                 system = (
-                    "You output a SINGLE minimal code edit as JSON. old_string = the EXACT existing "
-                    "text to find, copied VERBATIM from current_file_content (whitespace included), "
-                    "matching exactly once. new_string = its replacement. JSON only."
+                    "You output a SINGLE code edit as JSON. old_string = the EXACT existing text to "
+                    "find, copied VERBATIM from current_file_content (whitespace included), matching "
+                    "exactly once. new_string = its replacement. If the change ADDS new code (a "
+                    "function, class, or test), you MUST INSERT the COMPLETE new code: set old_string "
+                    "to a unique existing anchor near where it belongs (e.g. the last line of the file "
+                    "or the end of a related block) and new_string to that anchor PLUS the entire new "
+                    "implementation. Do NOT only update imports or signatures — include the full new "
+                    "code body. JSON only."
                 )
                 user = json.dumps({
                     "goal": goal, "target_file": target, "fix_to_apply": fix_text,
                     "current_file_content": current,
-                    "instruction": "Return the minimal old_string/new_string edit that applies the fix.",
+                    "instruction": ("Return an old_string/new_string edit that FULLY applies the change. "
+                                    "If it adds new code, include the complete new code in new_string."),
                 }, ensure_ascii=False)
                 out = call_llm_json(self.llm_json_fn, system, user, json_schema=self._FOCUSED_EDIT_SCHEMA) or {}
                 old = str(out.get("old_string") or "")
                 new = str(out.get("new_string") or "")
-                if old and old != new and current.count(old) == 1:
+                # For an additive task, reject a non-net-additive edit (the model only tweaked a line
+                # without inserting the new code) so we fall through to the full-content rewrite.
+                net_added = new.count("\n") - old.count("\n")
+                additive_incomplete = additive and net_added < 2
+                if old and old != new and current.count(old) == 1 and not additive_incomplete:
                     proposal.metadata["edits"] = [{"old_string": old, "new_string": new}]
                     self._mark_focused_recovery(proposal, payload, mode="edits", target=target)
                     return True
