@@ -2351,9 +2351,52 @@
         div.textContent = text;
         summary.appendChild(div);
       });
+      // This panel is the authoritative final render of a failed run (it overwrites the pipeline
+      // summary), so the actionable Retry / Revise controls must live here too — otherwise a failed
+      // run shows only the "推奨操作: retry" TEXT with no clickable way to recover.
+      const _nextActions = Array.isArray(view.next_actions) ? view.next_actions : [];
+      if (view.requires_user_action && _nextActions.includes('retry')) {
+        appendRecoveryActions(summary, view.pool_id || (block && block.dataset && block.dataset.poolId));
+      }
     }
     if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;
     return panel;
+  }
+
+  // Actionable recovery controls for a failed run: a Retry (re-run, skipping already-applied items
+  // so only the failed ones regenerate) and a Revise-plan button. Previously the failure summary
+  // only printed text hints, leaving the user with no way to recover from the UI.
+  function appendRecoveryActions(parentBox, poolId) {
+    const pid = String(poolId || '').trim();
+    if (!pid || !parentBox) return;
+    const actions = document.createElement('div');
+    actions.className = 'atlas-claude-recovery-actions';
+    actions.style.display = 'flex';
+    actions.style.gap = '6px';
+    actions.style.marginTop = '8px';
+    actions.style.flexWrap = 'wrap';
+
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'atlas-claude-primary-btn';
+    retry.textContent = '生成をリトライ';
+    retry.addEventListener('click', () => {
+      Array.from(actions.querySelectorAll('button')).forEach((b) => { b.disabled = true; });
+      state.dismissedApprovalPlanKeys?.delete?.(pid);
+      approveAndRunPipeline(pid, { resume: true });
+    });
+
+    const revise = document.createElement('button');
+    revise.type = 'button';
+    revise.className = 'atlas-claude-secondary-btn';
+    revise.textContent = 'プランを改訂';
+    revise.addEventListener('click', () => {
+      const note = (root.prompt && root.prompt('改訂依頼の内容（任意）')) || '';
+      requestPlanRevision(pid, note);
+    });
+
+    actions.append(retry, revise);
+    parentBox.appendChild(actions);
   }
 
   function renderPipelineSummary(block, d) {
@@ -2416,6 +2459,7 @@
       hint.className = 'atlas-claude-summary-pr-hint';
       hint.innerHTML = '<strong>調査方法:</strong> ① LLM が起動しているか（ヘッダーの LLM ready 表示）/ ② 失敗した item の goal / target_files / description / done_definition が埋まっているか / ③ サーバ側ログで <code>patch_proposal</code> 関連スタックトレース';
       box.appendChild(hint);
+      appendRecoveryActions(box, block.dataset?.poolId || d.pool_id);
       summary.appendChild(box);
     }
 
@@ -2439,6 +2483,7 @@
       hint.className = 'atlas-claude-summary-pr-hint';
       hint.innerHTML = '<strong>対処:</strong> ① より高性能な LLM を選択 / ② item の target_files と done_definition を具体化 / ③ ゴールをファイル単位の具体タスクに分解して再実行';
       box.appendChild(hint);
+      appendRecoveryActions(box, block.dataset?.poolId || d.pool_id);
       summary.appendChild(box);
     }
 
