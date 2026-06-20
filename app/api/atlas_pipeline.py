@@ -2772,10 +2772,34 @@ def generate_patch_proposal(req: AtlasPatchProposalRequest, request: Request) ->
             metadata={"clarification_execution_blocked": True, "blocked_reasons": clarification_blocks},
             plan_pool=pool.model_dump(),
         )
+    # Twin Control Plane injection for the GENERAL/manual patch path (not just the autonomous loop):
+    # consult the Project Twin for this item and pass the compiled instruction (contracts + dependency
+    # impact + Safe-Edit Briefing, adapted to the model's known weaknesses) as twin_generation_hints.
+    # The patch service injects it into the generation system prompt. Advisory; failure -> no hints.
+    _twin_injected = False
+    _twin_level = None
+    if not (req.metadata or {}).get("twin_generation_hints"):
+        try:
+            from agent.twin_control_plane.patch_injection import build_twin_generation_hints
+
+            _twin_item = pool.get_item(req.item_id)
+            if _twin_item is not None:
+                _twin_hints = build_twin_generation_hints(
+                    data_root=ca_data_root, pool=pool, item=_twin_item, request_metadata=req.metadata)
+                _hints = _twin_hints.get("twin_generation_hints") or {}
+                if _hints.get("twin_instruction"):
+                    _merged_md = dict(req.metadata or {})
+                    _merged_md.update(_twin_hints)
+                    req = req.model_copy(update={"metadata": _merged_md})
+                    _twin_injected = True
+                    _twin_level = _hints.get("twin_injection_level")
+        except Exception:  # noqa: BLE001 - advisory; never break patch generation
+            pass
     now = datetime.now(timezone.utc).isoformat()
     _write_patchgen_job(ca_data_root, req.pool_id, req.item_id, {
         "pool_id": req.pool_id, "item_id": req.item_id, "run_id": req.run_id, "status": "running",
         "started_at": now, "last_token_at": now, "tokens_generated": 0, "phase": "generating",
+        "twin_injected": _twin_injected, "twin_injection_level": _twin_level,
     })
     llm_json_fn = _resolve_atlas_llm_json_fn(
         request,
