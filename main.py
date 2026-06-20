@@ -785,6 +785,34 @@ def _infer_parser_name(*parts) -> str:
     return "json"
 
 
+def _spec_int_or_unset(value) -> int:
+    """Parse an optional integer spec field. -1/None/'' mean "unset" (-> omit the arg).
+    0 is preserved as a real value (e.g. n_cpu_moe=0, top_k=0)."""
+    if value is None or value == "":
+        return -1
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return -1
+
+
+def _format_llama_float(value: float) -> str:
+    """Render a float for a llama-server CLI flag without spurious trailing zeros.
+    e.g. 0.75 -> "0.75", 1.0 -> "1", 0.0 -> "0"."""
+    return f"{float(value):g}"
+
+
+def _spec_float_or_unset(value) -> float:
+    """Parse an optional float spec field. -1/None/'' mean "unset" (-> omit the arg).
+    0.0 is preserved as a real value (e.g. temp=0.0, min_p=0.0)."""
+    if value is None or value == "":
+        return -1.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return -1.0
+
+
 def _runtime_spec_from_row(row: dict) -> dict:
     vram_mb = row.get("vram_mb", -1)
     try:
@@ -824,6 +852,22 @@ def _runtime_spec_from_row(row: dict) -> dict:
         "ubatch_size": int(row.get("ubatch_size", -1) or -1),
         "cache_type_k": row.get("cache_type_k", "") or "",
         "cache_type_v": row.get("cache_type_v", "") or "",
+        # llama-server 追加パラメータ。-1/None/'' は「未指定 → 引数省略」を表すセンチネル。
+        # temp/min_p 等は 0.0 が有効値なので `or` ではなく明示的に None 判定する。
+        "n_cpu_moe": _spec_int_or_unset(row.get("n_cpu_moe")),
+        "flash_attn": _spec_int_or_unset(row.get("flash_attn")),
+        "no_mmap": _spec_int_or_unset(row.get("no_mmap")),
+        "jinja": _spec_int_or_unset(row.get("jinja")),
+        "reasoning": str(row.get("reasoning", "") or "").strip(),
+        "spec_type": str(row.get("spec_type", "") or "").strip(),
+        "spec_draft_n_max": _spec_int_or_unset(row.get("spec_draft_n_max")),
+        "spec_draft_p_min": _spec_float_or_unset(row.get("spec_draft_p_min")),
+        "temp": _spec_float_or_unset(row.get("temp")),
+        "top_p": _spec_float_or_unset(row.get("top_p")),
+        "top_k": _spec_int_or_unset(row.get("top_k")),
+        "min_p": _spec_float_or_unset(row.get("min_p")),
+        "presence_penalty": _spec_float_or_unset(row.get("presence_penalty")),
+        "repeat_penalty": _spec_float_or_unset(row.get("repeat_penalty")),
         "extra_args": _parse_extra_args(row.get("extra_args", "")),
         "auto_roles": auto_roles,
         "file_size_mb": int(row.get("file_size_mb", 0) or 0),
@@ -2451,10 +2495,17 @@ class ModelManager:
             "--host",     "0.0.0.0",
             "--ctx-size", str(spec["ctx"]),
             "--threads",  str(spec["threads"]),
-            "--no-mmap",
         ]
+        # --no-mmap: 既定（センチネル -1）と明示 ON(1) で付与、明示 OFF(0) で省略（後方互換）。
+        # spec 値は _spec_int_or_unset で正規化済み（-1/0/1）。0 を潰さないため `or` は使わない。
+        if _spec_int_or_unset(spec.get("no_mmap")) != 0:
+            cmd += ["--no-mmap"]
         if gpu_layers is not None:
             cmd += ["-ngl", str(gpu_layers)]
+        # MoE レイヤーの CPU オフロード（--n-cpu-moe）。未指定(-1)なら省略。
+        _n_cpu_moe = _spec_int_or_unset(spec.get("n_cpu_moe"))
+        if _n_cpu_moe >= 0:
+            cmd += ["--n-cpu-moe", str(_n_cpu_moe)]
         ngl_display = str(gpu_layers) if gpu_layers is not None else "auto(fit)"
         if spec.get("is_vlm") and spec.get("vlm_enabled", True):
             mmproj = str(spec.get("mmproj_path", "") or "").strip()
@@ -2467,7 +2518,13 @@ class ModelManager:
                 cmd += ["--mmproj", mmproj]
             else:
                 print(f"[ModelManager] is_vlm=True but mmproj_path not set, starting without --mmproj")
-        if gpu_vendor == "nvidia":
+        # --flash-attn: 明示設定(1=on/0=off)を優先し、未指定(-1)は従来の GPU ベンダー判定。
+        _flash_attn = _spec_int_or_unset(spec.get("flash_attn"))
+        if _flash_attn == 1:
+            cmd += ["--flash-attn", "on"]
+        elif _flash_attn == 0:
+            cmd += ["--flash-attn", "off"]
+        elif gpu_vendor == "nvidia":
             cmd += ["--flash-attn", "on"]
         elif gpu_vendor == "amd":
             print(f"[ModelManager] flash-attn skipped (AMD GPU)")
@@ -2477,6 +2534,36 @@ class ModelManager:
             cmd += ["--batch-size", str(spec["batch_size"])]
         if spec.get("ubatch_size", -1) and spec.get("ubatch_size", -1) > 0:
             cmd += ["--ubatch-size", str(spec["ubatch_size"])]
+        # 投機的デコード（MTP draft）/ Jinja / reasoning などの追加 llama-server 引数。
+        # いずれも未指定（センチネル）のときは省略する。
+        if _spec_int_or_unset(spec.get("jinja")) == 1:
+            cmd += ["--jinja"]
+        _reasoning = str(spec.get("reasoning", "") or "").strip()
+        if _reasoning:
+            cmd += ["--reasoning", _reasoning]
+        _spec_type = str(spec.get("spec_type", "") or "").strip()
+        if _spec_type:
+            cmd += ["--spec-type", _spec_type]
+        _spec_n_max = _spec_int_or_unset(spec.get("spec_draft_n_max"))
+        if _spec_n_max >= 0:
+            cmd += ["--spec-draft-n-max", str(_spec_n_max)]
+        _spec_p_min = _spec_float_or_unset(spec.get("spec_draft_p_min"))
+        if _spec_p_min >= 0:
+            cmd += ["--spec-draft-p-min", _format_llama_float(_spec_p_min)]
+        # サンプリング系（サーバ既定値）。0.0 が有効値なので >= 0 で判定する。
+        for flag, key in (
+            ("--temp", "temp"),
+            ("--top-p", "top_p"),
+            ("--min-p", "min_p"),
+            ("--presence-penalty", "presence_penalty"),
+            ("--repeat-penalty", "repeat_penalty"),
+        ):
+            _val = _spec_float_or_unset(spec.get(key))
+            if _val >= 0:
+                cmd += [flag, _format_llama_float(_val)]
+        _top_k = _spec_int_or_unset(spec.get("top_k"))
+        if _top_k >= 0:
+            cmd += ["--top-k", str(_top_k)]
         for arg in spec.get("extra_args", []):
             cmd.append(arg)
         cmd = append_llama_kv_cache_args(cmd, eff_ck or "q8_0", eff_cv or "q8_0")
@@ -5730,6 +5817,20 @@ def _get_model_db(create_if_missing: bool = True):
             ubatch_size INTEGER DEFAULT -1,
             cache_type_k TEXT DEFAULT '',
             cache_type_v TEXT DEFAULT '',
+            n_cpu_moe INTEGER DEFAULT -1,
+            flash_attn INTEGER DEFAULT -1,
+            no_mmap INTEGER DEFAULT -1,
+            jinja INTEGER DEFAULT -1,
+            reasoning TEXT DEFAULT '',
+            spec_type TEXT DEFAULT '',
+            spec_draft_n_max INTEGER DEFAULT -1,
+            spec_draft_p_min REAL DEFAULT -1,
+            temp REAL DEFAULT -1,
+            top_p REAL DEFAULT -1,
+            top_k INTEGER DEFAULT -1,
+            min_p REAL DEFAULT -1,
+            presence_penalty REAL DEFAULT -1,
+            repeat_penalty REAL DEFAULT -1,
             extra_args TEXT DEFAULT '',
             auto_roles TEXT DEFAULT '',
             benchmark_profiles TEXT DEFAULT '',
@@ -5757,6 +5858,20 @@ def _get_model_db(create_if_missing: bool = True):
         "ALTER TABLE models ADD COLUMN ubatch_size INTEGER DEFAULT -1",
         "ALTER TABLE models ADD COLUMN cache_type_k TEXT DEFAULT ''",
         "ALTER TABLE models ADD COLUMN cache_type_v TEXT DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN n_cpu_moe INTEGER DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN flash_attn INTEGER DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN no_mmap INTEGER DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN jinja INTEGER DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN reasoning TEXT DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN spec_type TEXT DEFAULT ''",
+        "ALTER TABLE models ADD COLUMN spec_draft_n_max INTEGER DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN spec_draft_p_min REAL DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN temp REAL DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN top_p REAL DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN top_k INTEGER DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN min_p REAL DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN presence_penalty REAL DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN repeat_penalty REAL DEFAULT -1",
         "ALTER TABLE models ADD COLUMN extra_args TEXT DEFAULT ''",
         "ALTER TABLE models ADD COLUMN auto_roles TEXT DEFAULT ''",
         "ALTER TABLE models ADD COLUMN benchmark_profiles TEXT DEFAULT ''",
@@ -5912,10 +6027,13 @@ def model_db_add(info: dict) -> str:
                 INSERT OR REPLACE INTO models
                 (id, model_key, name, path, is_vlm, vlm_enabled, enabled, vram_mb, ram_mb, load_sec, tok_per_sec,
                  llm_url, ctx_size, gpu_layers, threads, parser, description,
-                 parallel, batch_size, ubatch_size, cache_type_k, cache_type_v, extra_args,
+                 parallel, batch_size, ubatch_size, cache_type_k, cache_type_v,
+                 n_cpu_moe, flash_attn, no_mmap, jinja, reasoning, spec_type,
+                 spec_draft_n_max, spec_draft_p_min, temp, top_p, top_k, min_p,
+                 presence_penalty, repeat_penalty, extra_args,
                  benchmark_profiles,
                  auto_roles, has_mmproj, mmproj_path, quantization, file_size_mb, notes, benchmarked_at, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 mid,
                 info.get("model_key", ""),
@@ -5939,6 +6057,20 @@ def model_db_add(info: dict) -> str:
                 info.get("ubatch_size", -1),
                 info.get("cache_type_k", ""),
                 info.get("cache_type_v", ""),
+                info.get("n_cpu_moe", -1),
+                info.get("flash_attn", -1),
+                info.get("no_mmap", -1),
+                info.get("jinja", -1),
+                info.get("reasoning", ""),
+                info.get("spec_type", ""),
+                info.get("spec_draft_n_max", -1),
+                info.get("spec_draft_p_min", -1),
+                info.get("temp", -1),
+                info.get("top_p", -1),
+                info.get("top_k", -1),
+                info.get("min_p", -1),
+                info.get("presence_penalty", -1),
+                info.get("repeat_penalty", -1),
                 info.get("extra_args", ""),
                 info.get("benchmark_profiles", ""),
                 info.get("auto_roles", ""),
@@ -5972,7 +6104,10 @@ def model_db_update(mid: str, updates: dict):
     allowed = {"model_key", "name", "path", "is_vlm", "vlm_enabled", "enabled", "vram_mb", "ram_mb", "load_sec",
                "tok_per_sec", "llm_url", "ctx_size", "gpu_layers", "threads", "parser",
                "description", "parallel", "batch_size", "ubatch_size", "cache_type_k",
-               "cache_type_v", "extra_args", "auto_roles", "benchmark_profiles", "has_mmproj", "mmproj_path", "quantization", "file_size_mb",
+               "cache_type_v", "n_cpu_moe", "flash_attn", "no_mmap", "jinja", "reasoning",
+               "spec_type", "spec_draft_n_max", "spec_draft_p_min", "temp", "top_p", "top_k",
+               "min_p", "presence_penalty", "repeat_penalty",
+               "extra_args", "auto_roles", "benchmark_profiles", "has_mmproj", "mmproj_path", "quantization", "file_size_mb",
                "notes", "benchmarked_at", "proven_ngl", "ngl_ctx_profiles"}
     sets = {k: v for k, v in updates.items() if k in allowed}
     if "ctx_size" in sets:
