@@ -85,6 +85,28 @@ def test_tier2_line_range_when_anchor_fails():
     assert p.metadata["focused_extraction"]["mode"] == "line_range"
 
 
+def test_additive_task_rejects_underbuilt_edit_and_falls_through():
+    """An ADD task whose tier-1 edit only tweaks one line (e.g. updates an import) must be rejected
+    as under-complete so a tier that inserts the full new code is used instead."""
+    seq = [
+        # tier 1: an import-only "edit" that does NOT add the new test body (net_added ~0).
+        {"old_string": "from calc import add", "new_string": "from calc import add, power"},
+        # tier 2: a line-range insert that appends the full new test (deterministically applied).
+        {"change_type": "insert_after", "start_line": 1, "end_line": 1,
+         "new_content": "def test_power():\n    assert power(2, 3) == 8"},
+    ]
+    svc = _svc(lambda system, user: seq.pop(0))
+    p = AtlasPatchProposal(proposal_id="p1", pool_id="pool", item_id="step_2",
+                           proposed_fix="Add tests for the power function")
+    payload = {"run_id": "r", "root_goal": "add tests for power",
+               "item": {"target_files": ["test_calc.py"], "target_file_exists": True,
+                        "current_file_content": "from calc import add\n", "title": "Add unit tests for power"}}
+    assert svc._focused_edit_extraction(payload, p) is True
+    # tier-1 import-only edit was rejected; tier-2 inserted the full test body.
+    assert "test_power" in p.metadata.get("proposed_content", "")
+    assert p.metadata["focused_extraction"]["mode"] == "line_range"
+
+
 def test_new_file_uses_proposed_content():
     svc = _svc(lambda system, user: {"proposed_content": "print('hi')\n"})
     payload = {"run_id": "r",
