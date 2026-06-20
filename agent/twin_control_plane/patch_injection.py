@@ -24,15 +24,77 @@ from typing import Any
 from agent.atlas_plan_item_file_changes import normalize_plan_item_file_changes
 from agent.twin_control_plane.pipeline_integration import (
     PipelineMode,
+    _project_twin_db_path,
     build_twin_pipeline_evidence,
-    ensure_project_twin,
     expand_changed_refs_to_symbols,
     load_project_twin_store,
+    refresh_project_twin,
     resolve_build_project_twin,
     resolve_pipeline_mode,
     resolve_twin_autobuild,
     try_project_twin_impact,
 )
+
+# Source extensions whose mtime indicates the project changed since the Twin was last built. The
+# Twin's static projection indexes these; a change to any means the cached Twin is stale.
+_TWIN_SOURCE_EXTS = (".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".vue", ".json", ".go", ".rs", ".java")
+# Skip heavy/irrelevant trees so the staleness scan stays cheap on a real repo.
+_TWIN_SKIP_DIRS = {".git", "node_modules", "venv", "venv_sys", "__pycache__", ".pytest_cache", "dist", "build", ".venv"}
+
+
+def _newest_source_mtime(project_path: str) -> float:
+    """Newest mtime among the project's source files (bounded walk). 0.0 when none/unreadable.
+    Used to decide whether a cached Project Twin is stale and must be refreshed."""
+    import os
+
+    newest = 0.0
+    scanned = 0
+    try:
+        for root, dirs, files in os.walk(project_path):
+            dirs[:] = [d for d in dirs if d not in _TWIN_SKIP_DIRS]
+            for name in files:
+                if not name.endswith(_TWIN_SOURCE_EXTS):
+                    continue
+                try:
+                    m = os.path.getmtime(os.path.join(root, name))
+                    if m > newest:
+                        newest = m
+                except OSError:
+                    continue
+                scanned += 1
+                if scanned >= 5000:  # bound the scan on a very large tree
+                    return newest
+    except Exception:  # noqa: BLE001
+        return newest
+    return newest
+
+
+def fresh_project_twin(*, data_root, project_id: str, project_path: str):
+    """Return a Project Twin that reflects the CURRENT project state.
+
+    Builds when no Twin exists yet (first encounter of an existing project), and REFRESHES when the
+    project changed since the cached Twin was built (e.g. a greenfield project after earlier items
+    created files, an existing project being revised, or a plan reloaded from history after edits).
+    Otherwise reuses the cached Twin (cheap). This fixes the staleness in ``ensure_project_twin``,
+    which returns the cached Twin unconditionally when its DB exists. Never raises -> None."""
+    try:
+        from pathlib import Path
+
+        if not project_path or not Path(project_path).is_dir():
+            return None
+        db_path = Path(_project_twin_db_path(str(data_root), project_id))
+        if not db_path.exists():
+            return refresh_project_twin(data_root=str(data_root), project_id=project_id, project_path=project_path)
+        newest_src = _newest_source_mtime(project_path)
+        try:
+            twin_mtime = db_path.stat().st_mtime
+        except OSError:
+            twin_mtime = 0.0
+        if newest_src > twin_mtime:
+            return refresh_project_twin(data_root=str(data_root), project_id=project_id, project_path=project_path)
+        return load_project_twin_store(data_root=str(data_root), project_id=project_id)
+    except Exception:  # noqa: BLE001 - advisory; degrade to no twin
+        return None
 
 
 def _load_anti_pattern_memory(data_root: Any):
@@ -103,12 +165,15 @@ def build_twin_generation_hints(*, data_root: Any, pool: Any, item: Any, request
         except Exception:  # noqa: BLE001 - file_changes optional pre-generation
             pass
 
-        # Build/refresh the Project Twin from the live project so impact / Safe-Edit Briefing reflect
-        # the current code (the dependency-awareness that lifts a weak model). Active mode autobuilds
-        # by default; the explicit build flag forces it in any mode.
+        # Build/refresh the Project Twin so impact / Safe-Edit Briefing reflect the CURRENT code
+        # (the dependency-awareness that lifts a weak model). Active mode autobuilds by default; the
+        # explicit build flag forces it in any mode. fresh_project_twin refreshes when the project
+        # changed since the last build, so every condition stays correct — first read of an existing
+        # project, a greenfield project after earlier items created files, a plan reloaded from
+        # history, or an existing project being revised.
         store = None
         if project_path and (resolve_build_project_twin() or (mode == PipelineMode.ACTIVE and resolve_twin_autobuild())):
-            store = ensure_project_twin(data_root=str(data_root), project_id=project_id, project_path=project_path)
+            store = fresh_project_twin(data_root=str(data_root), project_id=project_id, project_path=project_path)
         elif resolve_build_project_twin():
             store = load_project_twin_store(data_root=str(data_root), project_id=project_id)
 

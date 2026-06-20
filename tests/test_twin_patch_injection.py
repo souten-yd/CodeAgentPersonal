@@ -71,6 +71,46 @@ def test_build_hints_consults_twin_and_returns_hints(monkeypatch):
     assert captured.get("model_id") == "qwen"
 
 
+def test_fresh_project_twin_builds_when_absent_and_refreshes_when_stale(tmp_path, monkeypatch):
+    """fresh_project_twin builds on first encounter and refreshes when the project changed since the
+    cached Twin was built — the staleness fix for greenfield-then-revise / existing-project revise."""
+    import os
+    import agent.twin_control_plane.patch_injection as mod
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "a.py").write_text("x = 1\n", encoding="utf-8")
+    db = tmp_path / "twin.sqlite3"
+    refreshed = {"n": 0}
+    loaded = {"n": 0}
+
+    monkeypatch.setattr(mod, "_project_twin_db_path", lambda data_root, project_id: db)
+    monkeypatch.setattr(mod, "refresh_project_twin",
+                        lambda **k: (db.write_text("built", encoding="utf-8"), refreshed.__setitem__("n", refreshed["n"] + 1), "STORE")[-1])
+    monkeypatch.setattr(mod, "load_project_twin_store",
+                        lambda **k: (loaded.__setitem__("n", loaded["n"] + 1), "STORE")[-1])
+
+    # 1) No DB yet -> build (refresh).
+    assert mod.fresh_project_twin(data_root=str(tmp_path), project_id="p", project_path=str(proj)) == "STORE"
+    assert refreshed["n"] == 1 and loaded["n"] == 0
+
+    # 2) DB now older than a newly written source file -> refresh again.
+    os.utime(db, (1, 1))  # make the twin DB ancient
+    (proj / "b.py").write_text("y = 2\n", encoding="utf-8")
+    mod.fresh_project_twin(data_root=str(tmp_path), project_id="p", project_path=str(proj))
+    assert refreshed["n"] == 2
+
+    # 3) DB newer than all sources -> reuse cached (load, no refresh).
+    os.utime(db, None)  # bump twin DB mtime to now
+    mod.fresh_project_twin(data_root=str(tmp_path), project_id="p", project_path=str(proj))
+    assert refreshed["n"] == 2 and loaded["n"] == 1
+
+
+def test_fresh_project_twin_none_for_missing_dir():
+    from agent.twin_control_plane.patch_injection import fresh_project_twin
+    assert fresh_project_twin(data_root="x", project_id="p", project_path="/no/such/dir") is None
+
+
 def test_build_hints_never_raises_on_error(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("twin store unavailable")
