@@ -10,10 +10,11 @@ The current active track is **Forge Twin Assist Evaluation — Atlas実生成補
 docs/forge_twin_arena_anvil_integration_agent_entrypoint.md
 ```
 
-That entrypoint now routes the implementation to the post-H4 continuation plan:
+That entrypoint routes the implementation to the active continuation plans:
 
 ```text
 docs/forge_twin_assist_evaluation_plan.md
+docs/forge_twin_assist_readiness_extension_plan.md
 ```
 
 ## Current State
@@ -28,11 +29,12 @@ The next gap is not another model-only benchmark. The next gap is to evaluate th
 - record model-specific recommended Twin assist mode, injection level, avoided methods, and fallback chain;
 - wire recommendations into ProfileStore, MethodRouter, and ExecutionPolicy without changing production routing automatically.
 
-The authoritative plan for this continuation is:
+After TA1–TA8, continue into TA9–TA12 to evaluate the **Twin implementation readiness**, route/method/assist matrix, slot quality gates, and post-apply E2E behavior.
 
-```text
-docs/forge_twin_assist_evaluation_plan.md
-```
+## Authoritative Plans
+
+1. `docs/forge_twin_assist_evaluation_plan.md` — TA1–TA8: baseline vs assisted Twin Assist evaluation.
+2. `docs/forge_twin_assist_readiness_extension_plan.md` — TA9–TA12: Twin readiness, route-method-assist matrix, slot quality gates, post-apply E2E.
 
 Supporting historical docs:
 
@@ -54,10 +56,14 @@ Execute the following packages in order, one coherent PR per item unless the use
 | TA6 | `feat/forge-twin-assist-api` | Add `/api/forge/twin-assist/*` APIs | pending |
 | TA7 | `feat/forge-twin-assist-ui` | Add Forge UI Twin Assist tab / result drawer / profile recommendation | pending |
 | TA8 | `feat/forge-twin-assist-real-eval` | Run 8080 real-model evaluation and record evidence | pending |
+| TA9 | `feat/forge-twin-readiness-score` | Evaluate Twin snapshot/freshness/symbol/impact/Safe-Edit/prompt delivery readiness | pending |
+| TA10 | `feat/forge-route-method-assist-matrix` | Evaluate route × method × assist × fallback matrix | pending |
+| TA11 | `feat/forge-twin-slot-quality-gates` | Add slot/anchor/range quality gates and confidence calibration | pending |
+| TA12 | `feat/forge-twin-assist-postapply-e2e` | Evaluate proposal→Safe Apply dry-run→focused tests→post-apply Twin gate | pending |
 
 ## Standing Authorization
 
-The user has explicitly authorized writing this plan into the project and continuing from the current plan state. For implementation PRs, keep the existing per-item workflow unless the user explicitly asks for a direct commit. Remote publication / PR creation / merge remain approval-bound outside the already-authorized track.
+The user has explicitly authorized writing these plans into the project and continuing from the current plan state. For implementation PRs, keep the existing per-item workflow unless the user explicitly asks for a direct commit. Remote publication / PR creation / merge remain approval-bound outside the already-authorized track.
 
 ## Must Preserve
 
@@ -78,6 +84,9 @@ The user has explicitly authorized writing this plan into the project and contin
 * Implementation size alone is not a stop condition.
 * Twin-assist recommendations are observations/recommendations only; active routing still goes through the existing gated activation/cutover policy.
 * Twin injection harm must be recorded honestly when assisted generation is worse than baseline.
+* Twin readiness must cap advanced assist modes when the Project Twin is stale, unavailable, or low-confidence.
+* Slot-based assist must never use non-unique anchors, forbidden refs, broad ranges, or direct apply.
+* Post-apply E2E evaluation must run only in isolated workspace / dry-run / rollback-capable flows.
 
 ## Local Git Policy
 
@@ -101,7 +110,7 @@ Remote publication or protected remote changes require user approval:
 
 For each package:
 
-1. Read the active package from `docs/forge_twin_assist_evaluation_plan.md` and current status.
+1. Read the active package from `docs/forge_twin_assist_evaluation_plan.md` for TA1–TA8 or `docs/forge_twin_assist_readiness_extension_plan.md` for TA9–TA12.
 2. Verify the current implementation against actual code before editing.
 3. Reproduce or prove the gap with a failing or missing test where practical.
 4. Implement the smallest coherent vertical slice.
@@ -109,7 +118,7 @@ For each package:
 6. Preserve off / shadow / active rollout behavior where applicable.
 7. Run focused tests, affected tests, syntax checks, and available runtime/model evidence.
 8. Record unavailable checks truthfully.
-9. Update `docs/forge_twin_assist_evaluation_plan.md` and `docs/forge_twin_arena_anvil_integration_current_status.md` when a package completes.
+9. Update the active plan doc and `docs/forge_twin_arena_anvil_integration_current_status.md` when a package completes.
 10. Advance only when acceptance criteria pass.
 
 ## Evidence Rules
@@ -130,6 +139,22 @@ Assisted score:
 Lift:
 Harm cases:
 Best assist mode:
+Twin readiness score:
+Readiness level:
+Symbol resolution rate:
+Impact precision:
+Safe-Edit Briefing availability:
+Prompt delivery audit:
+Route-method-assist matrix best candidate:
+Slot quality score:
+Slot blocked reasons:
+Post-apply apply status:
+Focused tests:
+Post-apply Twin gate:
+Proof ledger ref:
+Rollback evidence:
+E2E lift:
+E2E harm:
 Profile recommendation:
 Atlas UI evidence:
 Project Intelligence evidence:
@@ -153,7 +178,12 @@ Stop only for:
 * deleting legacy model execution paths;
 * safety or authority conflict with Proposal / Safe Apply / Verification;
 * required live model/runtime/web evidence unavailable with no truthful alternative;
-* security issue involving credentials, external providers, package import, runtime execution, or generated artifacts.
+* security issue involving credentials, external providers, package import, runtime execution, or generated artifacts;
+* readiness unavailable being treated as trusted;
+* non-unique anchor being accepted for slot assist;
+* direct workspace apply during evaluation;
+* focused tests unavailable being marked passed;
+* RouteMatrix-unsafe candidate being selected as matrix winner.
 
 ## Completion
 
@@ -161,7 +191,8 @@ For the active Twin Assist Evaluation goal, use:
 
 ```text
 docs/forge_twin_assist_evaluation_plan.md
+docs/forge_twin_assist_readiness_extension_plan.md
 docs/forge_twin_arena_anvil_integration_current_status.md
 ```
 
-Do not mark the active goal complete until the plan's final acceptance criteria pass, including baseline/assisted comparison, lift/harm recording, ProfileStore recommendation, MethodRouter/ExecutionPolicy integration, UI evidence, and real 8080 model evidence or truthful unavailable records.
+Do not mark the active goal complete until the final acceptance criteria pass, including baseline/assisted comparison, lift/harm recording, Twin readiness scoring, route-method-assist matrix, slot quality gates, ProfileStore recommendation, MethodRouter/ExecutionPolicy integration, UI evidence, post-apply E2E evidence, and real 8080 model evidence or truthful unavailable records.
