@@ -1773,6 +1773,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .forge-tab{background:transparent;border:1px solid transparent;border-radius:8px;color:var(--text2);font-size:12px;padding:5px 12px;cursor:pointer}
 .forge-tab:hover{background:var(--bg2);color:var(--text)}
 .forge-tab.active{background:var(--bg2);border-color:var(--border);color:var(--accent)}
+.forge-subnav{display:flex;gap:4px;flex-wrap:wrap;margin:6px 0 12px}
+.forge-section-title{font-size:15px;margin-bottom:4px}
 .forge-content{display:flex;flex-direction:column;gap:14px}
 /* Skills (PFG-22) */
 .forge-champ-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
