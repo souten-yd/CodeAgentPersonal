@@ -758,6 +758,23 @@ Proof level: `component_complete`
 
 ---
 
+## 40. TA6 Twin Assist API completion proof
+
+Completed package: TA6 `feat/forge-twin-assist-api`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `app/api/forge.py`, Twin Assist API tests, plan/entrypoint/status docs
+Behavior implemented: cases/packs listing, synchronous run, durable run lookup, and observation-only profile recording. Run IDs are validated and missing reports remain 404.
+Focused tests: `pytest -q tests/test_forge_twin_assist_api.py tests/test_forge_evaluation_api.py` -> 9 passed, 1 upstream deprecation warning
+Syntax checks: compileall before publication
+Real model evidence: API delegates to the TA3 runner; no extra call needed for endpoint contract tests
+Safety invariants: record-profile reports `production_routing_changed=False`; no apply/cutover endpoint; local-only policy remains runner-authoritative
+Remaining gaps: UI, full live eval, readiness/matrix/slot gates/post-apply E2E
+Next package: TA7 `feat/forge-twin-assist-ui`
+Blocker: none
+Proof level: `component_complete`
+
+---
+
 ## 39. TA5 Twin Assist policy completion proof
 
 Completed package: TA5 `feat/forge-twin-assist-policy`
