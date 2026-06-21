@@ -63,6 +63,7 @@ class RealMethodRunner:
         source_mode: str = "local_only",
         credential_env: str = "",
         timeout_seconds: float = 120.0,
+        system_directive: str = "",
     ) -> list[CaseResult]:
         if provider_id in _EXTERNAL_PROVIDERS and source_mode == "local_only":
             return [self._unavailable(case, "external_provider_blocked_in_local_only") for case in cases]
@@ -94,6 +95,7 @@ class RealMethodRunner:
                 verification_contract="No file is applied; output is contract-evaluated only.",
             )
             prompt = adapter.prepare_prompt(request)
+            system_text = f"{system_directive}\n\n{prompt.system_text}" if system_directive else prompt.system_text
             started = time.monotonic()
             raw = ""
             usage: dict = {}
@@ -103,7 +105,7 @@ class RealMethodRunner:
                 status, body = self._http_post(endpoint, {
                     "model": model_id,
                     "messages": [
-                        {"role": "system", "content": prompt.system_text},
+                        {"role": "system", "content": system_text},
                         {"role": "user", "content": prompt.prompt_text},
                     ],
                     "temperature": 0,
