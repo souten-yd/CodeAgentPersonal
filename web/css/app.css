@@ -1846,6 +1846,19 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .forge-radar-label.is-unavailable{fill:var(--text3);font-style:italic}
 .forge-radar-unavailable{font-size:11px;color:var(--text3);margin-top:4px}
 @media(max-width:600px){.forge-radar-svg{min-height:220px}.forge-radar-label{font-size:6px}}
+.forge-fallback-graph{margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
+.forge-fallback-chain{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:8px}
+.forge-fallback-node{display:flex;flex-direction:column;gap:2px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);padding:6px 9px;font-family:var(--font-mono);font-size:11px}
+.forge-fallback-node small{font-family:var(--font);font-size:9px;color:var(--text3)}
+.forge-fallback-node.is-attempted{border-color:var(--accent)}
+.forge-fallback-node.is-unavailable{border-style:dashed;color:var(--text3)}
+.forge-fallback-arrow{color:var(--text3)}
+.forge-table-wrap{overflow-x:auto;margin-top:8px}
+.forge-method-comparison table{width:100%;border-collapse:collapse;font-size:11px;text-align:left}
+.forge-method-comparison th,.forge-method-comparison td{border-bottom:1px solid var(--border);padding:7px 8px;white-space:nowrap}
+.forge-method-comparison th{color:var(--text3);font-weight:600}
+.forge-policy-recommendation .forge-kv b{overflow-wrap:anywhere;text-align:right}
+@media(max-width:600px){.forge-fallback-chain{align-items:stretch;flex-direction:column}.forge-fallback-arrow{transform:rotate(90deg);align-self:center}}
 .forge-adopt-card .forge-adopt-note{font-size:11.5px;color:var(--text3);line-height:1.45}
 .forge-adopt-btn{background:var(--accent);border:1px solid var(--accent);border-radius:8px;color:#fff;font-size:12.5px;padding:8px 12px;cursor:pointer}
 .forge-adopt-btn:disabled{background:var(--bg3,#2a2a2a);border-color:var(--border);color:var(--text3);cursor:not-allowed}

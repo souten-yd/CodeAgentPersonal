@@ -415,3 +415,25 @@ Remaining gaps: fallback graph/method comparison, Advanced Twin UI, runtime shad
 Next package: PR13 `feat/forge-ui-fallback-graph`
 Blocker: none
 Proof level: `real_llm_evaluated`
+
+---
+
+## 20. PR13 fallback graph / method comparison 完了証跡
+
+Completed package: PR13 `feat/forge-ui-fallback-graph`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `web/js/forge.js`, `web/css/app.css`, `tests/test_forge_ui_method_comparison.py`, integration plan/status docs
+Behavior implemented: candidate drawer fallback graph with primary/configured/attempted states, Benchmark method comparison table, policy recommendation drawer with explicit advisory/non-applying status
+Focused tests: `python -m pytest -q tests/test_forge_ui_method_comparison.py tests/test_forge_ui_radar.py tests/test_forge_arena_ui.py tests/test_forge_ui_shell.py` -> 15 passed
+Syntax checks: Node evaluation through render tests and `git diff --check` -> passed
+Affected tests: `python -m pytest -q tests/test_forge_api.py tests/test_forge_optimizer_loadout.py` -> 23 passed
+Real model evidence: existing localhost:8080 evaluation candidate DTOs supply method/fallback/score fields; PR13 performs no model call
+Atlas UI evidence: Node render confirms fallback states, comparison values, advisory status, Safe Apply gating, and policy action; in-app browser tooling unavailable, so live click/layout evidence is unavailable
+Project Intelligence evidence: unavailable; PR13 is Forge UI only
+Runtime/Portal evidence: unavailable; fallback graph is observational and executes no method
+Unavailable checks: interactive browser drawer/mobile screenshot verification
+Safety invariants: recommendation is `advisory_not_applied`; no routing mutation; fallback graph does not execute; Proposal/Safe Apply/Verification remain mandatory; unavailable fallback evidence is not presented as success
+Remaining gaps: Advanced Twin UI, runtime shadow integration, and formal Anvil acceptance remain pending
+Next package: PR14 `feat/forge-ui-advanced-twin`
+Blocker: none
+Proof level: `real_llm_evaluated`

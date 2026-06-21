@@ -489,6 +489,7 @@
       + '<button type="button" class="forge-run-btn" data-bench-run' + (canRun ? '' : ' disabled') + '>Run benchmark</button>'
       + result
       + '</div>'
+      + methodComparisonHtml(data)
     );
   }
 
@@ -762,6 +763,8 @@
       + '<div class="forge-cand-actions">'
       + '<button type="button" class="forge-detail-btn" data-candidate-detail="'
       + escapeHtml(c.candidate_id) + '">Details</button>'
+      + '<button type="button" class="forge-detail-btn" data-policy-recommendation="'
+      + escapeHtml(c.candidate_id) + '">Policy</button>'
       + '<button type="button" class="forge-adopt-btn" data-candidate-proposal="'
       + escapeHtml(c.candidate_id) + '"' + (eligible ? '' : ' disabled')
       + ' title="' + escapeHtml(btnTitle) + '">' + escapeHtml(btnLabel) + '</button>'
@@ -844,12 +847,82 @@
       + escapeHtml(candidate.model_id) + '</span><button type="button" class="forge-drawer-close">×</button></div>'
       + '<div class="forge-drawer-sub">' + escapeHtml(candidate.route_id) + ' · '
       + escapeHtml(candidate.method_variant || 'method unavailable') + '</div><div class="forge-drawer-body">'
-      + radarHtml(candidate, filterName || 'All') + '</div></div>';
+      + radarHtml(candidate, filterName || 'All') + fallbackGraphHtml(candidate) + '</div></div>';
     drawer.classList.add('open');
     drawer.querySelector('.forge-drawer-close')?.addEventListener('click', closeModelDrawer);
     drawer.querySelectorAll('[data-radar-filter]').forEach((button) => button.addEventListener('click', () => (
       openCandidateDrawer(candidateId, button.getAttribute('data-radar-filter'))
     )));
+  }
+
+  function fallbackGraphHtml(candidate) {
+    const primary = candidate.method_variant || 'method unavailable';
+    const configured = candidate.method_fallbacks || [];
+    const attempted = ((candidate.result || {}).fallback_attempts || []).map(String);
+    const nodes = [primary].concat(configured).map((method, index) => {
+      const used = index > 0 && attempted.indexOf(String(method)) >= 0;
+      const label = index === 0 ? 'primary' : (used ? 'attempted' : 'available');
+      return '<div class="forge-fallback-node' + (used ? ' is-attempted' : '') + '"><span>'
+        + escapeHtml(method) + '</span><small>' + label + '</small></div>';
+    });
+    if (!configured.length) {
+      nodes.push('<div class="forge-fallback-node is-unavailable"><span>fallback unavailable</span>'
+        + '<small>no configured evidence</small></div>');
+    }
+    return '<section class="forge-fallback-graph"><div class="forge-card-title">Fallback graph</div>'
+      + '<div class="forge-fallback-chain">' + nodes.join('<span class="forge-fallback-arrow">→</span>')
+      + '</div><div class="forge-hint">Graph is observational; it does not execute or apply a method.</div></section>';
+  }
+
+  function methodComparisonHtml(data) {
+    const candidates = ((data || {}).arena || {}).candidates || [];
+    if (!candidates.length) return '';
+    const rows = candidates.map((candidate) => {
+      const result = candidate.result || {};
+      const score = candidate.evaluator_score || {};
+      const fallbacks = candidate.method_fallbacks || [];
+      const contract = result.contract_valid === true ? 'valid'
+        : (result.contract_valid === false ? 'invalid' : 'unavailable');
+      return '<tr><td>' + escapeHtml(candidate.model_id) + '</td><td>'
+        + escapeHtml(candidate.method_variant || 'unavailable') + '</td><td>'
+        + escapeHtml(fallbacks.length ? fallbacks.join(' → ') : 'unavailable') + '</td><td>'
+        + contract + '</td><td>' + escapeHtml(score.final_score ?? 'unavailable') + '</td></tr>';
+    }).join('');
+    return '<div class="forge-card forge-method-comparison"><div class="forge-card-title">Method comparison</div>'
+      + '<div class="forge-table-wrap"><table><thead><tr><th>Model</th><th>Primary method</th>'
+      + '<th>Fallbacks</th><th>Contract</th><th>Score</th></tr></thead><tbody>' + rows
+      + '</tbody></table></div></div>';
+  }
+
+  function policyRecommendationHtml(candidate) {
+    const score = candidate.evaluator_score || {};
+    const contractValid = (candidate.result || {}).contract_valid === true;
+    const blocked = candidate.blocked_reasons || [];
+    const recommendation = contractValid && !blocked.length ? 'eligible_for_proposal_review' : 'retain_current_policy';
+    return '<div class="forge-policy-recommendation"><div class="forge-card-title">Policy recommendation</div>'
+      + '<div class="forge-kv"><span>Status</span><b>advisory_not_applied</b></div>'
+      + '<div class="forge-kv"><span>Recommendation</span><b>' + recommendation + '</b></div>'
+      + '<div class="forge-kv"><span>Primary method</span><b>'
+      + escapeHtml(candidate.method_variant || 'unavailable') + '</b></div>'
+      + '<div class="forge-kv"><span>Score evidence</span><b>'
+      + escapeHtml(score.final_score ?? 'unavailable') + '</b></div>'
+      + (blocked.length ? '<div class="forge-cand-blocked">Blocked: ' + escapeHtml(blocked.join('; ')) + '</div>' : '')
+      + '<div class="forge-warn">Recommendation cannot change routing. Proposal, Safe Apply, and Verification remain required.</div></div>';
+  }
+
+  function openPolicyRecommendationDrawer(candidateId) {
+    const candidate = ((state.data.arena || {}).candidates || []).find((item) => item.candidate_id === candidateId);
+    if (!candidate) return;
+    let drawer = $('forge-drawer');
+    if (!drawer) {
+      drawer = document.createElement('div'); drawer.id = 'forge-drawer'; drawer.className = 'forge-drawer';
+      document.body.appendChild(drawer);
+    }
+    drawer.innerHTML = '<div class="forge-drawer-inner"><div class="forge-drawer-head"><span>Policy recommendation</span>'
+      + '<button type="button" class="forge-drawer-close">×</button></div><div class="forge-drawer-body">'
+      + policyRecommendationHtml(candidate) + '</div></div>';
+    drawer.classList.add('open');
+    drawer.querySelector('.forge-drawer-close')?.addEventListener('click', closeModelDrawer);
   }
 
   function arenaHtml(data) {
@@ -1220,6 +1293,9 @@
       content.querySelectorAll('[data-candidate-detail]').forEach((btn) => {
         btn.addEventListener('click', () => openCandidateDrawer(btn.getAttribute('data-candidate-detail'), 'All'));
       });
+      content.querySelectorAll('[data-policy-recommendation]').forEach((btn) => {
+        btn.addEventListener('click', () => openPolicyRecommendationDrawer(btn.getAttribute('data-policy-recommendation')));
+      });
       content.querySelectorAll('[data-candidate-proposal]').forEach((btn) => {
         btn.addEventListener('click', () => createProposalDraft(btn.getAttribute('data-candidate-proposal')));
       });
@@ -1304,6 +1380,9 @@
     _anvilConfigFormHtml: renderAnvilConfigForm,
     _arenaHtml: arenaHtml,
     _radarHtml: radarHtml,
+    _fallbackGraphHtml: fallbackGraphHtml,
+    _methodComparisonHtml: methodComparisonHtml,
+    _policyRecommendationHtml: policyRecommendationHtml,
     _advancedHtml: advancedHtml,
     _loadoutsHtml: loadoutsHtml,
     _settingsHtml: settingsHtml,
