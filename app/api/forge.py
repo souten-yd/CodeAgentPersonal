@@ -11,6 +11,16 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent.model_forge.eval_packs import CaseResult
+from agent.project_twin.context_broker import TwinContextBroker
+from agent.project_twin.contracts import ImpactRequest, TwinContextRequest
+from agent.project_twin.store import TwinStoreError
+from app.api.project_twin import _get_store as _project_twin_store
+from app.api.twin_control import (
+    TwinSettingsUpdate,
+    get_profiles as get_twin_profiles,
+    get_settings as get_twin_settings,
+    post_settings as post_twin_settings,
+)
 from agent.model_forge.forge_service import ForgeService
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
@@ -89,6 +99,18 @@ class EvaluationModelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider_id: str = Field(min_length=1)
     model_id: str = Field(min_length=1)
+
+
+class ForgeTwinSettingsUpdate(TwinSettingsUpdate):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ForgeTwinContextRequest(TwinContextRequest):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ForgeTwinImpactRequest(ImpactRequest):
+    model_config = ConfigDict(extra="forbid")
 
 
 @router.get("/status")
@@ -183,6 +205,36 @@ def post_evaluation_optimize(request: Request, body: EvaluationModelRequest) -> 
 @router.get("/evaluation/model-profile")
 def get_evaluation_model_profile(request: Request, provider_id: str, model_id: str) -> dict:
     return _service(request).evaluation_model_profile(provider_id, model_id)
+
+
+@router.get("/twin/settings")
+def get_forge_twin_settings() -> dict:
+    return {"settings": get_twin_settings(), "reversible": True}
+
+
+@router.post("/twin/settings")
+def post_forge_twin_settings(body: ForgeTwinSettingsUpdate) -> dict:
+    return {"settings": post_twin_settings(body), "reversible": True}
+
+
+@router.get("/twin/profiles")
+def get_forge_twin_profiles(request: Request) -> dict:
+    return get_twin_profiles(request)
+
+
+@router.post("/twin/inspect/context")
+def post_forge_twin_context(request: Request, body: ForgeTwinContextRequest) -> dict:
+    try:
+        result = TwinContextBroker(_project_twin_store(request)).build_slice(body)
+    except TwinStoreError as exc:
+        raise HTTPException(status_code=400, detail={"error": exc.code}) from exc
+    return {"read_only": True, "context": result.model_dump(mode="json")}
+
+
+@router.post("/twin/inspect/impact")
+def post_forge_twin_impact(request: Request, body: ForgeTwinImpactRequest) -> dict:
+    result = _project_twin_store(request).assess_impact(body)
+    return {"read_only": True, "impact": result.model_dump(mode="json")}
 
 
 @router.get("/leaderboard")

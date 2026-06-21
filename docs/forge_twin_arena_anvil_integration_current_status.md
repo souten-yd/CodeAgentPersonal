@@ -327,3 +327,25 @@ Remaining gaps: Twin facade, real runner, optimizer/loadout, UI, runtime shadow 
 Next package: PR9 `feat/forge-twin-facade-api`
 Blocker: none
 Proof level: `method_router_shadow_connected`
+
+---
+
+## 16. PR9 Twin facade API 完了証跡
+
+Completed package: PR9 `feat/forge-twin-facade-api`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `app/api/forge.py`, `tests/test_forge_twin_facade_api.py`, integration plan/status docs
+Behavior implemented: Forge-prefixed Twin settings/profiles facade and strict read-only Project Twin context/impact inspectors using existing stores and brokers
+Focused tests: `python -m pytest -q tests/test_forge_twin_facade_api.py tests/test_project_twin_api.py` -> 11 passed
+Syntax checks: `python -m py_compile app/api/forge.py tests/test_forge_twin_facade_api.py` -> passed
+Affected tests: `python -m pytest -q tests/test_forge_api.py tests/test_forge_evaluation_api.py tests/test_twin_forge_git_steward_initial.py` -> 32 passed
+Real model evidence: localhost:8080 advisory review response `chatcmpl-YrjB63J7F1sWONJcPrRTExlfmMvAL6Tx` -> `VERDICT: PASS` after clarifying that reversible settings update is required while inspect endpoints remain read-only
+Atlas UI evidence: unavailable; Advanced UI integration is PR14
+Project Intelligence evidence: in-memory Project Twin deterministic graph exercised through facade; context and reverse impact returned existing verified refs without mutation
+Runtime/Portal evidence: unavailable; facade does not execute runtime or Portal operations
+Unavailable checks: live project database inspection was not required; deterministic injected store was used
+Safety invariants: inspect endpoints expose no apply/execute/mutate route; strict bodies reject hidden apply fields; settings delegates only to existing reversible process-scoped configuration; no source mutation authority added
+Remaining gaps: real runner, optimizer/loadout, UI, runtime shadow integration and Anvil acceptance remain pending
+Next package: PR10 `feat/forge-real-llm-runner`
+Blocker: none
+Proof level: `method_router_shadow_connected`

@@ -32,7 +32,7 @@
 | 6 | feat/forge-method-router | MethodRouter + Policy 統合 | profile→MethodChain/abstraction/decomposition/context/verification。ExecutionPolicySelector へ method 添付（safe 候補内のみ・route override 禁止）+ tests | 2,5 | ☑ merged |
 | 7 | feat/forge-eval-dimensions | 新評価軸 + ケース | capability dimension 追加（structured_output_fidelity, patch_protocol_fidelity, edit_intent_quality, anchor_selection_quality, abstraction_tolerance, fallback_recovery, scope_boundary_discipline, context_overload_sensitivity 等）+ eval packs（output_protocol/patch_construction/abstraction/fallback/weak_local/frontier/safety_adversarial）+ tests | 1,2 | ☑ merged |
 | 8 | feat/forge-evaluation-api | 評価 API | `/api/forge/evaluation/{cases,run,rerun,optimize,model-profile}` + tests | 6,7 | ☑ merged |
-| 9 | feat/forge-twin-facade-api | Twin facade API | `/api/forge/twin/{settings,profiles,inspect/context,inspect/impact}`（read-only inspector 再利用）+ tests | — | ☐ pending |
+| 9 | feat/forge-twin-facade-api | Twin facade API | `/api/forge/twin/{settings,profiles,inspect/context,inspect/impact}`（read-only inspector 再利用）+ tests | — | ☑ merged |
 | 10 | feat/forge-real-llm-runner | 実 LLM runner 接続 | Anvil / local OpenAI compat / LM Studio / OpenRouter 実行、unavailable handling、evidence/token/latency。evaluation/run と接続 + tests | 8 | ☐ pending |
 | 11 | feat/forge-optimizer-loadout | optimizer / role / loadout | route/method/injection/style fitness → RoleAssignment → Loadout 生成。Loadout に method preference/fallback 保存 + tests | 6,7 | ☐ pending |
 | 12 | feat/forge-ui-radar | Arena radar + drawer | SVG radar（外部ライブラリ無し、Capability/Method/Safety/Speed/All、unavailable≠0）+ candidate drawer + render test | 8,11 | ☐ pending |
@@ -79,3 +79,4 @@
 - 2026-06-21: PR6 MethodRouterをExecutionPolicySelectorへ添付。RouteMatrix権限を維持し、弱点・失敗回数に応じたmethod/policyを選択（focused 23 passed、回帰50 passed）。localhost:8080実モデルでweak-profile route→method→pipeline成功。
 - 2026-06-21: PR7 method/abstraction/fallback/safety評価8軸と通常/adversarialケースを追加。focused 19 passed、回帰34 passed。localhost:8080単一structured fidelityケースはsemantic不一致でfailed（正式dimension scoreは未算出）。
 - 2026-06-21: PR8 evaluation cases/run/rerun/optimize/model-profile APIとrun永続化を実装。focused 18 passed、回帰40 passed。PR7のlocalhost:8080実case failureをAPI投入し、failed profileと非適用method previewを確認。
+- 2026-06-21: PR9 Forge Twin facadeを追加。既存reversible settings/profileとread-only context/impact inspectorを再利用（focused 11 passed、回帰32 passed）。localhost:8080 advisory reviewは境界明示後 `VERDICT: PASS`。
