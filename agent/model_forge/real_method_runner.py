@@ -26,6 +26,12 @@ _METHOD_BY_DIMENSION = {
     "patch_protocol_fidelity": MethodVariant.PATCH_DSL_JSON,
     "edit_intent_quality": MethodVariant.EDIT_INTENT_LIST,
     "anchor_selection_quality": MethodVariant.ANCHORED_EDIT_BLOCK,
+    # PR19: extend live coverage to method-backed dimensions. Dimensions without a
+    # mechanical method adapter (abstraction_tolerance, scope_boundary_discipline,
+    # context_overload_sensitivity, fallback_recovery) stay mechanical_evaluator_unavailable.
+    "large_file_editing": MethodVariant.ANCHORED_EDIT_BLOCK,
+    "evidence_discipline": MethodVariant.REVIEW_ONLY,
+    "repair_discipline": MethodVariant.REPAIR_COMPASS_STEPS,
 }
 _EXTERNAL_PROVIDERS = {"openrouter", "openrouter_api"}
 
@@ -155,6 +161,8 @@ class RealMethodRunner:
             MethodVariant.PATCH_DSL_JSON: "Write eval_target.txt with content exactly ok using one patch DSL operation.",
             MethodVariant.EDIT_INTENT_LIST: "In eval_target.txt replace the exact anchor old with new.",
             MethodVariant.ANCHORED_EDIT_BLOCK: "In eval_target.txt replace the exact anchor old with new.",
+            MethodVariant.REVIEW_ONLY: "Review eval_target.txt for risk and report findings with severity and evidence; do not produce a patch.",
+            MethodVariant.REPAIR_COMPASS_STEPS: "Return a JSON object with a non-empty steps array describing how to repair the failing change in eval_target.txt.",
         }[method]
         return f"Evaluation case: {case.prompt}. {concrete}"
 
