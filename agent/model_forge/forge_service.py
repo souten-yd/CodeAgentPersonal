@@ -31,6 +31,7 @@ from agent.model_forge.candidate_evaluator import (
     VERDICT_ELIGIBLE,
 )
 from agent.model_forge.loadouts import LoadoutStore
+from agent.model_forge.evaluation_service import ForgeEvaluationService
 from agent.model_forge.portal_evidence import PortalRunEvidence, ingest_portal_evidence
 from agent.model_forge.profile_store import ProfileStore
 from agent.model_forge.provider_registry import ProviderRegistry
@@ -93,6 +94,22 @@ class ForgeService:
         self.shadow = ShadowStore(self._root / "shadow")
         self.cutover_controller = CutoverController(
             self.stage_matrix, self.shadow, store_dir=self._root / "cutover")
+        self.evaluation = ForgeEvaluationService(self._root, self.profiles)
+
+    def evaluation_cases(self, dimension: str = "") -> dict:
+        return self.evaluation.cases(dimension)
+
+    def run_evaluation(self, **payload) -> dict:
+        return self.evaluation.run(**payload)
+
+    def rerun_evaluation(self, run_id: str, **payload) -> dict:
+        return self.evaluation.rerun(run_id, **payload)
+
+    def evaluation_model_profile(self, provider_id: str, model_id: str) -> dict:
+        return self.evaluation.model_profile(provider_id, model_id)
+
+    def optimize_evaluation_preview(self, provider_id: str, model_id: str) -> dict:
+        return self.evaluation.optimize_preview(provider_id, model_id)
 
     # ----- composition -----
 

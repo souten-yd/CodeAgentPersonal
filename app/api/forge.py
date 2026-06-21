@@ -8,8 +8,9 @@ bypass Safe Apply and never auto-cut-over production routing.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from agent.model_forge.eval_packs import CaseResult
 from agent.model_forge.forge_service import ForgeService
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
@@ -69,6 +70,27 @@ class ForgeSettingsRequest(BaseModel):
     runtime_management: dict = Field(default_factory=dict)
 
 
+class EvaluationRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    results: list[CaseResult] = Field(default_factory=list)
+    dimensions: list[str] = Field(default_factory=list)
+
+
+class EvaluationRerunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    run_id: str = Field(min_length=1)
+    results: list[CaseResult] = Field(default_factory=list)
+    dimensions: list[str] = Field(default_factory=list)
+
+
+class EvaluationModelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+
+
 @router.get("/status")
 def get_status(request: Request) -> dict:
     return _service(request).status()
@@ -123,6 +145,44 @@ def get_local_catalog(request: Request, base_url: str = "", runtime_kind: str = 
 @router.get("/profiles")
 def get_profiles(request: Request) -> dict:
     return {"profiles": _service(request).profiles_list()}
+
+
+@router.get("/evaluation/cases")
+def get_evaluation_cases(request: Request, dimension: str = "") -> dict:
+    return _service(request).evaluation_cases(dimension)
+
+
+@router.post("/evaluation/run")
+def post_evaluation_run(request: Request, body: EvaluationRunRequest) -> dict:
+    try:
+        return _service(request).run_evaluation(
+            provider_id=body.provider_id,
+            model_id=body.model_id,
+            results=body.results,
+            dimensions=body.dimensions,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/evaluation/rerun")
+def post_evaluation_rerun(request: Request, body: EvaluationRerunRequest) -> dict:
+    try:
+        return _service(request).rerun_evaluation(body.run_id, results=body.results, dimensions=body.dimensions)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/evaluation/optimize")
+def post_evaluation_optimize(request: Request, body: EvaluationModelRequest) -> dict:
+    return _service(request).optimize_evaluation_preview(body.provider_id, body.model_id)
+
+
+@router.get("/evaluation/model-profile")
+def get_evaluation_model_profile(request: Request, provider_id: str, model_id: str) -> dict:
+    return _service(request).evaluation_model_profile(provider_id, model_id)
 
 
 @router.get("/leaderboard")
