@@ -758,6 +758,24 @@ Proof level: `component_complete`
 
 ---
 
+## 44. TA10 Route-Method-Assist Matrix completion proof
+
+Completed package: TA10 `feat/forge-route-method-assist-matrix`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `assist_matrix.py`, profile schema/store, matrix tests, plan/entrypoint/status docs
+Behavior implemented: enumerates RouteMatrix-safe route × MethodRouter method × readiness-allowed assist candidates with fallback chains; local-only excludes external providers; harmful/blocked candidates cannot win; recommendation stored by task_category:change_class.
+Focused tests: matrix/router/route preference -> 14 passed
+Syntax checks: compileall and diff check passed
+Route-method-assist matrix best candidate: deterministic test winner is non-harmful and its route is a RouteMatrix candidate
+Profile recommendation: versioned `assist_matrix_recommendations[task:change_class]`; advisory only
+Safety invariants: no unsafe route invention; low readiness excludes slot modes; large/critical candidates include review-only fallback; harm cannot win
+Remaining gaps: formal slot gates and isolated post-apply E2E
+Next package: TA11 `feat/forge-twin-slot-quality-gates`
+Blocker: none
+Proof level: `component_complete`
+
+---
+
 ## 42. TA8 8080 real Twin Assist evaluation completion proof
 
 Completed package: TA8 `feat/forge-twin-assist-real-eval`

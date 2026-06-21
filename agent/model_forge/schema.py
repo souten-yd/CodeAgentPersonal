@@ -103,6 +103,7 @@ class ModelProfile(ForgeModel):
     recommended_twin_assist_mode: str = ""
     recommended_twin_injection_level: int | None = Field(default=None, ge=0, le=4)
     twin_assist_evidence_refs: list[str] = Field(default_factory=list)
+    assist_matrix_recommendations: dict[str, dict] = Field(default_factory=dict)
 
 
 class BenchmarkPreset(ForgeModel):
