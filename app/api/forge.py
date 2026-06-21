@@ -136,6 +136,15 @@ class EvaluationModelRequest(BaseModel):
     model_id: str = Field(min_length=1)
 
 
+class GenerationPolicyPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_id: str = ""
+    model_id: str = ""
+    change_class: str = "medium"
+    task_category: str = "autonomous_codegen"
+    optimal_routing: bool | None = None
+
+
 class ForgeTwinSettingsUpdate(TwinSettingsUpdate):
     model_config = ConfigDict(extra="forbid")
 
@@ -298,6 +307,28 @@ def post_evaluation_optimize(request: Request, body: EvaluationModelRequest) -> 
 @router.get("/evaluation/model-profile")
 def get_evaluation_model_profile(request: Request, provider_id: str, model_id: str) -> dict:
     return _service(request).evaluation_model_profile(provider_id, model_id)
+
+
+@router.post("/atlas-generation-policy/preview")
+def post_atlas_generation_policy_preview(request: Request, body: GenerationPolicyPreviewRequest) -> dict:
+    """TA14: preview WHY a model/task/change-class would get a route/method/Twin-injection,
+    without running generation. Advisory; never changes production routing."""
+    from agent.model_forge.atlas_generation_policy import resolve_atlas_generation_policy
+    from agent.model_forge.route_matrix import ChangeClass
+
+    try:
+        change = ChangeClass(body.change_class)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid_change_class") from exc
+    resolution = resolve_atlas_generation_policy(
+        change_class=change,
+        task_category=body.task_category,
+        provider_id=body.provider_id,
+        model_id=body.model_id,
+        profile_store_dir=str(resolve_atlas_ca_data_root(request) / "model_forge" / "profiles"),
+        optimal_routing=body.optimal_routing,
+    )
+    return resolution.model_dump(mode="json")
 
 
 @router.get("/twin/settings")

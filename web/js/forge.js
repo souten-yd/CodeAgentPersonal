@@ -1292,6 +1292,7 @@
   function twinAssistHtml() {
     const report = state.twinAssist.result;
     const readiness = state.twinAssist.readiness;
+    const rtpolicy = state.twinAssist.runtimePolicy;
     const rows = report ? (report.comparisons || []).map((item, index) => {
       const baseline = item.baseline && item.baseline.score != null ? item.baseline.score : 'unavailable';
       const best = item.best_score != null ? item.best_score : 'unavailable';
@@ -1313,6 +1314,22 @@
       + (report ? '<div class="forge-card"><div class="forge-card-title">Results</div><div class="forge-kv"><span>Run</span><b>' + escapeHtml(report.run_id) + '</b></div>'
         + '<div class="forge-table-wrap"><table><thead><tr><th>case</th><th>baseline</th><th>assisted</th><th>lift</th><th>best mode</th><th>harm</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' : '')
       + (readiness ? '<div class="forge-card"><div class="forge-card-title">Twin Readiness</div><div class="forge-kv"><span>score</span><b>' + escapeHtml(readiness.overall_score == null ? 'unavailable' : readiness.overall_score) + '</b></div><div class="forge-kv"><span>level</span><b>' + escapeHtml(readiness.readiness_level) + '</b></div><div class="forge-kv"><span>max assist</span><b>' + escapeHtml(readiness.recommended_max_assist_mode) + '</b></div></div>' : '')
+      + '<div class="forge-card"><div class="forge-card-title">Runtime Policy Preview</div>'
+      + '<div class="forge-hint">Preview why this model/task/change-class would get a route/method/Twin injection. Advisory; does not change production routing.</div>'
+      + '<label class="forge-label">Change class<select id="forge-rtpolicy-change" class="forge-select">' + ['trivial','micro','small','medium','large','critical','greenfield'].map((c) => '<option value="' + c + '"' + (c === 'medium' ? ' selected' : '') + '>' + c + '</option>').join('') + '</select></label>'
+      + '<label class="forge-check"><input type="checkbox" id="forge-rtpolicy-optimal" checked>optimal routing enabled</label>'
+      + '<button id="forge-rtpolicy-run" class="forge-run-btn">Preview Runtime Policy</button>'
+      + (rtpolicy ? '<div class="forge-kv"><span>selection mode</span><b>' + escapeHtml(rtpolicy.selection_mode) + '</b></div>'
+        + '<div class="forge-kv"><span>optimal routing enabled</span><b>' + escapeHtml(String(rtpolicy.optimal_routing_enabled)) + '</b></div>'
+        + '<div class="forge-kv"><span>profile available</span><b>' + escapeHtml(String(rtpolicy.profile_available)) + '</b></div>'
+        + '<div class="forge-kv"><span>route fitness applied</span><b>' + escapeHtml(String(rtpolicy.route_fitness_applied)) + '</b></div>'
+        + '<div class="forge-kv"><span>route</span><b>' + escapeHtml(rtpolicy.fallback_recommendation.route) + '</b></div>'
+        + '<div class="forge-kv"><span>method variant</span><b>' + escapeHtml(rtpolicy.fallback_recommendation.method_variant) + '</b></div>'
+        + '<div class="forge-kv"><span>method fallbacks</span><b>' + escapeHtml((rtpolicy.fallback_recommendation.method_fallbacks || []).join(', ')) + '</b></div>'
+        + '<div class="forge-kv"><span>twin injection level</span><b>' + escapeHtml(String(rtpolicy.fallback_recommendation.twin_injection_level)) + '</b></div>'
+        + '<div class="forge-kv"><span>instruction style</span><b>' + escapeHtml(rtpolicy.fallback_recommendation.instruction_style) + '</b></div>'
+        + '<div class="forge-kv"><span>why selected</span><b>' + escapeHtml(rtpolicy.fallback_recommendation.reason) + '</b></div>' : '')
+      + '</div>'
       + '<div id="forge-twin-detail" class="forge-twin-result" style="display:none"></div>';
   }
 
@@ -1327,8 +1344,22 @@
     renderActive();
   }
 
+  async function previewRuntimePolicy() {
+    const body = {
+      provider_id: $('forge-twin-provider').value,
+      model_id: $('forge-twin-model').value,
+      change_class: $('forge-rtpolicy-change').value,
+      optimal_routing: $('forge-rtpolicy-optimal').checked,
+    };
+    setStatus('Previewing runtime generation policy…');
+    state.twinAssist.runtimePolicy = await api('/atlas-generation-policy/preview', { method: 'POST', body: JSON.stringify(body) });
+    setStatus('Runtime policy preview ready', 'ok');
+    renderActive();
+  }
+
   function wireTwinAssist(content) {
     content.querySelector('#forge-twin-run')?.addEventListener('click', () => runTwinAssist().catch((err) => setStatus('Twin Assist failed: ' + err.message, 'error')));
+    content.querySelector('#forge-rtpolicy-run')?.addEventListener('click', () => previewRuntimePolicy().catch((err) => setStatus('Runtime policy preview failed: ' + err.message, 'error')));
     content.querySelectorAll('[data-twin-detail]').forEach((button) => button.addEventListener('click', () => {
       const detail = $('forge-twin-detail');
       detail.style.display = 'block';
