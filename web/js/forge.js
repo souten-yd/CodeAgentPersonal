@@ -44,7 +44,7 @@
     // ctx is the context length for the chosen local/LM-Studio model (persisted to the model
     // registry for Anvil models; used at load time by the runtime manager — see enable/monitor).
     bench: { presets: [], depth: 'standard', provider: '', model: '', ctx: '', result: null },
-    twinAssist: { cases: [], result: null },
+    twinAssist: { cases: [], result: null, subtab: 'evaluation' },
   };
 
   // The benchmark "LLM management tool": Anvil surfaces the local model registry (Models DB);
@@ -1302,7 +1302,10 @@
         + '</td><td>' + (item.harm_detected ? '<span class="forge-warn-pill">harm</span>' : 'no')
         + '</td><td><button class="forge-probe-btn" data-twin-detail="' + index + '">Detail</button></td></tr>';
     }).join('') : '';
-    return '<div class="forge-card"><div class="forge-card-title">Twin Assist Evaluation</div>'
+    const subtab = state.twinAssist.subtab || 'evaluation';
+
+    // Sub-section 1: Evaluation (run form + results + detail drawer).
+    const evaluationSection = '<div class="forge-card"><div class="forge-card-title">Twin Assist Evaluation</div>'
       + '<div class="forge-hint">Compares Atlas proposal generation without and with Twin guidance. Evaluation does not apply files or change production routing.</div>'
       + '<label class="forge-label">Provider<input id="forge-twin-provider" class="forge-input" value="local-8080"></label>'
       + '<label class="forge-label">Model<input id="forge-twin-model" class="forge-input" placeholder="model id"></label>'
@@ -1312,9 +1315,16 @@
       + ['constraints_and_refs','impact_and_safe_edit','strict_twin_brief','twin_localized_slot','twin_deterministic_anchor'].map((mode) => '<label class="forge-check"><input type="checkbox" value="' + mode + '" checked>' + mode + '</label>').join('') + '</div>'
       + '<button id="forge-twin-run" class="forge-run-btn">Run Twin Assist Eval</button></div>'
       + (report ? '<div class="forge-card"><div class="forge-card-title">Results</div><div class="forge-kv"><span>Run</span><b>' + escapeHtml(report.run_id) + '</b></div>'
-        + '<div class="forge-table-wrap"><table><thead><tr><th>case</th><th>baseline</th><th>assisted</th><th>lift</th><th>best mode</th><th>harm</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' : '')
-      + (readiness ? '<div class="forge-card"><div class="forge-card-title">Twin Readiness</div><div class="forge-kv"><span>score</span><b>' + escapeHtml(readiness.overall_score == null ? 'unavailable' : readiness.overall_score) + '</b></div><div class="forge-kv"><span>level</span><b>' + escapeHtml(readiness.readiness_level) + '</b></div><div class="forge-kv"><span>max assist</span><b>' + escapeHtml(readiness.recommended_max_assist_mode) + '</b></div></div>' : '')
-      + '<div class="forge-card"><div class="forge-card-title">Runtime Policy Preview</div>'
+        + '<div class="forge-table-wrap"><table><thead><tr><th>case</th><th>baseline</th><th>assisted</th><th>lift</th><th>best mode</th><th>harm</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>'
+        : '<div class="forge-card"><div class="forge-empty">No evaluation yet. Run an evaluation to see baseline vs assisted lift and harm.</div></div>')
+      + '<div id="forge-twin-detail" class="forge-twin-result" style="display:none"></div>';
+
+    // Sub-section 2: Readiness.
+    const readinessSection = (readiness ? '<div class="forge-card"><div class="forge-card-title">Twin Readiness</div><div class="forge-kv"><span>score</span><b>' + escapeHtml(readiness.overall_score == null ? 'unavailable' : readiness.overall_score) + '</b></div><div class="forge-kv"><span>level</span><b>' + escapeHtml(readiness.readiness_level) + '</b></div><div class="forge-kv"><span>max assist</span><b>' + escapeHtml(readiness.recommended_max_assist_mode) + '</b></div></div>'
+      : '<div class="forge-card"><div class="forge-card-title">Twin Readiness</div><div class="forge-empty">Run a Twin Assist evaluation to populate Twin readiness.</div></div>');
+
+    // Sub-section 3: Runtime Policy Preview.
+    const runtimePolicySection = '<div class="forge-card"><div class="forge-card-title">Runtime Policy Preview</div>'
       + '<div class="forge-hint">Preview why this model/task/change-class would get a route/method/Twin injection. Advisory; does not change production routing.</div>'
       + '<label class="forge-label">Change class<select id="forge-rtpolicy-change" class="forge-select">' + ['trivial','micro','small','medium','large','critical','greenfield'].map((c) => '<option value="' + c + '"' + (c === 'medium' ? ' selected' : '') + '>' + c + '</option>').join('') + '</select></label>'
       + '<label class="forge-check"><input type="checkbox" id="forge-rtpolicy-optimal" checked>optimal routing enabled</label>'
@@ -1329,8 +1339,16 @@
         + '<div class="forge-kv"><span>twin injection level</span><b>' + escapeHtml(String(rtpolicy.fallback_recommendation.twin_injection_level)) + '</b></div>'
         + '<div class="forge-kv"><span>instruction style</span><b>' + escapeHtml(rtpolicy.fallback_recommendation.instruction_style) + '</b></div>'
         + '<div class="forge-kv"><span>why selected</span><b>' + escapeHtml(rtpolicy.fallback_recommendation.reason) + '</b></div>' : '')
-      + '</div>'
-      + '<div id="forge-twin-detail" class="forge-twin-result" style="display:none"></div>';
+      + '</div>';
+
+    // One coherent Twin Assist tab with a sub-navigation instead of a long card stack.
+    const subtabs = [['evaluation', 'Evaluation'], ['readiness', 'Readiness'], ['runtime-policy', 'Runtime Policy']];
+    const subnav = '<div class="forge-subnav">' + subtabs.map(([id, label]) =>
+      '<button type="button" class="forge-tab' + (id === subtab ? ' active' : '') + '" data-twin-subtab="' + id + '">' + label + '</button>'
+    ).join('') + '</div>';
+    const activeSection = subtab === 'readiness' ? readinessSection
+      : subtab === 'runtime-policy' ? runtimePolicySection : evaluationSection;
+    return '<div class="forge-card-title forge-section-title">Twin Assist</div>' + subnav + activeSection;
   }
 
   async function runTwinAssist() {
@@ -1358,6 +1376,10 @@
   }
 
   function wireTwinAssist(content) {
+    content.querySelectorAll('[data-twin-subtab]').forEach((btn) => btn.addEventListener('click', () => {
+      state.twinAssist.subtab = btn.getAttribute('data-twin-subtab');
+      renderActive();
+    }));
     content.querySelector('#forge-twin-run')?.addEventListener('click', () => runTwinAssist().catch((err) => setStatus('Twin Assist failed: ' + err.message, 'error')));
     content.querySelector('#forge-rtpolicy-run')?.addEventListener('click', () => previewRuntimePolicy().catch((err) => setStatus('Runtime policy preview failed: ' + err.message, 'error')));
     content.querySelectorAll('[data-twin-detail]').forEach((button) => button.addEventListener('click', () => {
