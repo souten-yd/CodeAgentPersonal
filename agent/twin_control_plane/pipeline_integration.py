@@ -176,6 +176,43 @@ def _build_policy_and_brief(
     return policy, brief
 
 
+def _build_policy_brief_and_resolution(
+    *, requirement: str, pool_id: str, project_path: str, refs: list[str],
+    item_refs: Iterable[str], change_class: str, task_category: str,
+    capability_profile=None, profile_available: bool = False, route_preferences: dict | None = None,
+):
+    """Like ``_build_policy_and_brief`` but routes policy selection through
+    ``resolve_atlas_generation_policy`` so the runtime records WHY this route/method/Twin
+    injection was chosen (benchmark-optimized vs safe default vs optimal-routing-off).
+
+    Returns ``(policy, brief, resolution)``. RouteMatrix stays the authority; this only
+    attaches an auditable resolution and never changes production routing."""
+    from agent.model_forge.atlas_generation_policy import resolve_atlas_generation_policy
+    from agent.model_forge.execution_policy import ModelCapabilityProfile
+    from agent.model_forge.route_matrix import ChangeClass
+
+    profile = capability_profile or ModelCapabilityProfile(model_id="atlas-codegen")
+    resolution = resolve_atlas_generation_policy(
+        change_class=ChangeClass(change_class),
+        task_category=task_category,
+        provider_id=getattr(profile, "provider_id", ""),
+        model_id=getattr(profile, "model_id", ""),
+        capability_profile=profile,
+        profile_available=profile_available,
+        route_preferences=route_preferences or {},
+    )
+    brief = TwinBrief(
+        brief_id=_stable_brief_id(pool_id, requirement),
+        goal=requirement or "autonomous codegen",
+        allowed_refs=refs,
+        impacted_refs=refs,
+        hard_constraints=default_hard_constraints(),
+        source_refs=[project_path] if project_path else [],
+        metadata={"pool_id": pool_id, "item_refs": sorted({str(i) for i in item_refs if str(i).strip()})},
+    )
+    return resolution.policy, brief, resolution
+
+
 BUILD_PROJECT_TWIN_ENV = "ATLAS_TWIN_BUILD_PROJECT"
 
 
@@ -422,10 +459,11 @@ def build_twin_pipeline_evidence(
         capability_profile, profile_available, route_preferences = resolve_capability_profile(
             model_id=model_id, provider_id=provider_id, store_dir=profile_store_dir,
         )
-        policy, brief = _build_policy_and_brief(
+        policy, brief, resolution = _build_policy_brief_and_resolution(
             requirement=requirement, pool_id=pool_id, project_path=project_path, refs=refs,
             item_refs=item_refs, change_class=change_class, task_category=task_category,
-            capability_profile=capability_profile, route_preferences=route_preferences,
+            capability_profile=capability_profile, profile_available=profile_available,
+            route_preferences=route_preferences,
         )
         shadow_orch = TwinShadowOrchestrator(TwinShadowMode.SHADOW)
         shadow_report: TwinShadowReport | None = shadow_orch.assemble(
@@ -533,6 +571,14 @@ def build_twin_pipeline_evidence(
             # and whether it informed the (safe) route choice.
             "route_fitness": {r.value if hasattr(r, "value") else str(r): v for r, v in (route_preferences or {}).items()},
             "benchmark_route_selected": any("benchmark_preferred_route" in r for r in policy.reasons),
+            # TA13: auditable runtime policy resolution — why this route/method/injection was
+            # chosen (benchmark-optimized vs safe default vs optimal-routing-off). Advisory;
+            # production routing is never changed by this.
+            "atlas_generation_policy": resolution.model_dump(mode="json"),
+            "selection_mode": resolution.selection_mode,
+            "optimal_routing_enabled": resolution.optimal_routing_enabled,
+            "route_fitness_applied": resolution.route_fitness_applied,
+            "fallback_recommendation": resolution.fallback_recommendation,
             "compiled_instruction": compiled_text,
             "instruction_id": instruction_id,
             "advisory_context": {

@@ -60,11 +60,11 @@ Execute the following packages in order, one coherent PR per item unless the use
 | TA6 | `feat/forge-twin-assist-api` | Add `/api/forge/twin-assist/*` APIs | pending |
 | TA7 | `feat/forge-twin-assist-ui` | Add Forge UI Twin Assist tab / result drawer / profile recommendation | pending |
 | TA8 | `feat/forge-twin-assist-real-eval` | Run 8080 real-model evaluation and record evidence | pending |
-| TA9 | `feat/forge-twin-readiness-score` | Evaluate Twin snapshot/freshness/symbol/impact/Safe-Edit/prompt delivery readiness | pending |
-| TA10 | `feat/forge-route-method-assist-matrix` | Evaluate route × method × assist × fallback matrix | pending |
-| TA11 | `feat/forge-twin-slot-quality-gates` | Add slot/anchor/range quality gates and confidence calibration | pending |
-| TA12 | `feat/forge-twin-assist-postapply-e2e` | Evaluate proposal→Safe Apply dry-run→focused tests→post-apply Twin gate | pending |
-| TA13 | `feat/forge-runtime-policy-wiring` | Wire `atlas_generation_policy` into `pipeline_integration` runtime evidence | pending |
+| TA9 | `feat/forge-twin-readiness-score` | Evaluate Twin snapshot/freshness/symbol/impact/Safe-Edit/prompt delivery readiness | done |
+| TA10 | `feat/forge-route-method-assist-matrix` | Evaluate route × method × assist × fallback matrix | done |
+| TA11 | `feat/forge-twin-slot-quality-gates` | Add slot/anchor/range quality gates and confidence calibration | done |
+| TA12 | `feat/forge-twin-assist-postapply-e2e` | Evaluate proposal→Safe Apply dry-run→focused tests→post-apply Twin gate | done |
+| TA13 | `feat/forge-runtime-policy-wiring` | Wire `atlas_generation_policy` into `pipeline_integration` runtime evidence | done |
 | TA14 | `feat/forge-runtime-policy-preview-api` | Add runtime generation policy preview API/UI | pending |
 | TA15 | `feat/forge-default-routing-presets` | Define unbenchmarked/OFF safe default routing presets | pending |
 | TA16 | `feat/forge-runtime-policy-e2e-proof` | Prove route/method/injection reach patch proposal payload | pending |
