@@ -26,7 +26,7 @@
 |---|---|---|---|---|---|
 | 1 | feat/forge-method-contracts | Method 中核契約（DTO） | `method_taxonomy.py`(MethodVariant) / `method_contracts.py`(MethodRequest, MethodResult, MethodAdapter(Protocol), MethodRegistry, FallbackStep, MethodChain, MethodPipelineResult) + tests | — | ☑ merged |
 | 2 | feat/forge-method-schema-ext | 既存 schema の後方互換拡張 | ExecutionPolicy / ForgeExecutionRequest / ForgeExecutionResult / ArenaCandidate / CandidateScore に method/fallback/radar フィールド追加。`ModelOptimizationProfile` / `RoleAssignment` 追加。補助 enum（TaskDecompositionPolicy, InstructionAbstractionLevel, ContextPackageMode, OutputProtocol, PatchConstructionMode, VerificationMode, RepairMode）。schema_version migration + 互換テスト | 1 | ☑ merged |
-| 3 | feat/forge-adapters-structured | MethodRegistry + 構造化系 adapter | StructuredPatchJsonAdapter / PatchDslJsonAdapter / EditIntentListAdapter + edit_intent→Safe Apply deterministic compiler + tests | 1,2 | ☐ pending |
+| 3 | feat/forge-adapters-structured | MethodRegistry + 構造化系 adapter | StructuredPatchJsonAdapter / PatchDslJsonAdapter / EditIntentListAdapter + edit_intent→Safe Apply deterministic compiler + tests | 1,2 | ☑ merged |
 | 4 | feat/forge-adapters-anchored | 残り adapter | AnchoredEditBlock / UnifiedDiff / DeterministicTextPatch / ReviewOnly / RepairCompass + tests | 3 | ☐ pending |
 | 5 | feat/forge-method-pipeline | MethodPipeline | primary→fallback 実行、trigger 判定（schema_invalid / anchor_not_found 等）、hard_fail（Safe Apply bypass 等）、attempts 記録 + tests | 3,4 | ☐ pending |
 | 6 | feat/forge-method-router | MethodRouter + Policy 統合 | profile→MethodChain/abstraction/decomposition/context/verification。ExecutionPolicySelector へ method 添付（safe 候補内のみ・route override 禁止）+ tests | 2,5 | ☐ pending |
@@ -73,3 +73,4 @@
 - 2026-06-21: Phase 0 棚卸し完了（current_status.md）。本計画策定。実装は PR1 から着手予定（ユーザー指示によりここで一旦停止）。
 - 2026-06-21: PR1 Method 中核契約を実装。focused 9 passed、既存回帰 25 passed、syntax 成功。localhost:8080 の Qwen3.6-35B-A3B による契約レビューは `VERDICT: PASS`。proof level は `method_contract_present`。
 - 2026-06-21: PR2 Method schema をadditive拡張。旧 `forge.v1` payload互換、strict DTO、新radar表現を検証（focused 28 passed、回帰31 passed、syntax成功）。localhost:8080 LLMレビューは `VERDICT: PASS`。
+- 2026-06-21: PR3 構造化adapter 3種とcontent-addressed artifact store、deterministic `atlas_file_changes.v1` compilerを実装。focused 27 passed、Safe Apply/Forge回帰60 passed。localhost:8080実モデル出力をedit intentから安全な非適用patchへ変換成功。
