@@ -28,6 +28,7 @@ class CapabilityProfile(Protocol):
     known_weaknesses: list[str]
     mode: ModelCapabilityMode
     recommended_twin_assist_mode: str
+    slot_quality_accepted: bool | None
 
 
 # PR18: the real failure vocabulary the structured/edit/anchored adapters actually
@@ -97,15 +98,16 @@ class MethodRouter:
             reasons = ["repeated_failure_review_only" if consecutive_failures >= 2 else "audit_only_profile"]
         elif large_edit_weak:
             recommendation = str(getattr(profile, "recommended_twin_assist_mode", "") or "")
-            if recommendation == "twin_localized_slot":
+            slot_allowed = getattr(profile, "slot_quality_accepted", None) is not False
+            if recommendation == "twin_localized_slot" and slot_allowed:
                 primary = MethodVariant.TWIN_LOCALIZED_SLOT_PATCH
                 reasons = ["measured_large_edit_weakness_uses_recommended_twin_slot"]
-            elif recommendation == "twin_deterministic_anchor":
+            elif recommendation == "twin_deterministic_anchor" and slot_allowed:
                 primary = MethodVariant.TWIN_DETERMINISTIC_ANCHOR_PATCH
                 reasons = ["measured_large_edit_weakness_uses_recommended_twin_anchor"]
             else:
                 primary = MethodVariant.ANCHORED_EDIT_BLOCK
-                reasons = ["large_editing_weakness_uses_anchors"]
+                reasons = ["slot_quality_blocked_uses_anchors" if recommendation and not slot_allowed else "large_editing_weakness_uses_anchors"]
         elif structured_weak:
             primary = MethodVariant.EDIT_INTENT_LIST
             reasons = ["structured_output_weakness_uses_edit_intents"]

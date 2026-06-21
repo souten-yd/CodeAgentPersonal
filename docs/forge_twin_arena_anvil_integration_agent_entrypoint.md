@@ -57,7 +57,7 @@
 | TA8 | `feat/forge-twin-assist-real-eval` | 8080実モデル評価・evidence保存・status更新 | completed |
 | TA9 | `feat/forge-twin-readiness-score` | Twin snapshot/freshness/symbol/impact/Safe-Edit/prompt delivery readiness | completed |
 | TA10 | `feat/forge-route-method-assist-matrix` | route × method × assist × fallback matrix | completed |
-| TA11 | `feat/forge-twin-slot-quality-gates` | slot/anchor/range quality gates and confidence calibration | pending |
+| TA11 | `feat/forge-twin-slot-quality-gates` | slot/anchor/range quality gates and confidence calibration | completed |
 | TA12 | `feat/forge-twin-assist-postapply-e2e` | proposal→Safe Apply dry-run→focused tests→post-apply Twin gate | pending |
 
 ## 4. 作業フロー（項目=1PR）

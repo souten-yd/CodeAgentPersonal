@@ -28,6 +28,7 @@ from agent.model_forge.twin_assist_eval_packs import TWIN_ASSIST_PACKS, load_twi
 from agent.model_forge.twin_assist_runner import TwinAssistRunner
 from agent.model_forge.twin_readiness import TwinReadinessEvaluator
 from agent.model_forge.twin_readiness_contracts import TwinReadinessRequest
+from agent.model_forge.twin_slot_quality import TwinSlotQualityGate, TwinSlotQualityRequest
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/forge", tags=["forge"])
@@ -185,6 +186,11 @@ def post_twin_assist_readiness(request: Request, body: TwinReadinessRequest) -> 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
     return report.model_dump(mode="json")
+
+
+@router.post("/twin-assist/slots/evaluate")
+def post_twin_assist_slot_quality(body: TwinSlotQualityRequest) -> dict:
+    return TwinSlotQualityGate().evaluate(slot=body.slot, project_root=body.project_root, forbidden_refs=body.forbidden_refs).model_dump(mode="json")
 
 
 @router.get("/providers")
