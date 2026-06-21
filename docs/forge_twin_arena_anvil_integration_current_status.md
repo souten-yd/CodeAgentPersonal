@@ -702,3 +702,31 @@ Remaining gaps (track-level, recorded honestly): active-gate wiring into the Atl
 Next package: none — Phase 2 (PR16-22) and Phase 3 P0 hardening (H1-H3) are complete; the remaining gaps above are P1/P2 integration/UI items.
 Blocker: none
 Proof level: `frontier_verification_passed` (all 11 live axes; anchor over_claim resolved end-to-end)
+
+---
+
+## 33. Current 8080 model evaluation snapshot
+
+Run `forge_eval_ce8ef28d3fb0` (localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, 11 live dimensions): **9/11 dimensions passed, 2 failed.**
+- Strong (1.0): structured_output_fidelity, patch_protocol_fidelity, anchor_selection_quality, abstraction_tolerance, context_overload_sensitivity, scope_boundary_discipline, repair_discipline, evidence_discipline, fallback_recovery.
+- Weak: **edit_intent_quality 0.0** (empty old/new anchors, empty intent list) and **large_file_editing 0.4** (anchor_not_found on 2/3). The model is reliable at strict JSON/DSL, anchor selection, and judgment, but unreliable at producing exact existing-text edit anchors. This is the classic weak-LLM failure the Method layer is designed to route around (edit_intent -> anchored -> review_only natural fallback).
+
+## 34. H4 Capability rescue policy 完了証跡 (rescue / fallback for all-NG)
+
+Completed package: H4 `feat/forge-capability-rescue` (responds to: "全部NGだった場合は、救出するための手法もしくはフォールバックが必要")
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/capability_rescue.py`, `tests/test_forge_capability_rescue.py`, integration plan/status docs
+Behavior implemented: `CapabilityRescuePlanner.plan` reads a model's measured capability and produces a rescue ladder when construction methods fail: (1) a direct construction method is viable -> `none`; (2) only edit-intent viable -> `deterministic_compile`; (3) all construction methods fail but a capable fallback model exists -> `escalate_fallback_model`; (4) all fail, change is mechanically expressible -> `deterministic_text_patch` (system builds the patch); (5) otherwise -> `review_only` with requires_human_review. Every rescue chain ends in review_only and hard-fails Safe Apply / proposal / verification bypass. Unmeasured dimensions are never treated as competence; AUDIT_ONLY always degrades to review_only; a fallback model that is itself incapable is not escalated to.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_capability_rescue.py` -> 9 passed
+Syntax checks: `py_compile agent/model_forge/capability_rescue.py tests/test_forge_capability_rescue.py` -> passed
+Affected tests: additive module; method_router/pipeline suites unaffected
+Real model evidence: using the real snapshot profile (run `forge_eval_ce8ef28d3fb0`) the planner returns `none` (direct construction viable: structured/patch/anchored). Synthetic all-NG profiles return `deterministic_text_patch` (no fallback, mechanically feasible), `review_only` (not feasible -> human applies), and `escalate_fallback_model` (a capable fallback present) — demonstrating the rescue path for the degenerate all-fail case.
+Atlas UI evidence: unavailable; planning policy
+Project Intelligence evidence: unavailable
+Runtime/Portal evidence: rescue is a planning decision over the benchmark profile; no model call required
+Unavailable checks: wiring the rescue plan into the live ExecutionPolicy/Atlas path (so a rescued chain actually runs) is a follow-up; the planner currently produces the chain/decision
+Safety invariants: rescue never bypasses Safe Apply/Proposal/Verification; review_only never auto-applies; weak/unmeasured never counted as competence
+Remaining gaps: connect rescue plan into ExecutionPolicySelector so a failing model is rescued at execution time; surface rescue level in UI
+Next package: P1 active-gate / rescue wiring into the execution path
+Blocker: none
+Proof level: `component_complete` (rescue ladder implemented + demonstrated; execution wiring pending)
