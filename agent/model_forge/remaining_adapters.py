@@ -12,6 +12,7 @@ from agent.model_forge.structured_adapters import (
     _extract_json_object,
     build_structured_method_registry,
 )
+from agent.model_forge.twin_slot_adapter import TwinLocalizedSlotPatchAdapter
 
 
 _NO_APPLY_SYSTEM = (
@@ -213,4 +214,5 @@ def build_method_registry(artifact_store: MethodArtifactStore | None = None) -> 
     registry.register(DeterministicTextPatchAdapter(store))
     registry.register(ReviewOnlyAdapter(store))
     registry.register(RepairCompassAdapter(store))
+    registry.register(TwinLocalizedSlotPatchAdapter(store))
     return registry
