@@ -2,7 +2,7 @@
 
 ## Active Goal
 
-The current active track is **Forge / Twin / Arena / Anvil 統合改修** (Method layer: MethodVariant / MethodAdapter / MethodRouter / MethodPipeline + Arena radar + weak-LLM reinforcement).
+The current active track is **Forge / Twin / Arena / Anvil 統合改修 — Phase 2: 弱 LLM 補強の完成形** (Method layer is in place; remaining work hardens it to real-model maturity).
 
 **START HERE — read this one file first, it is self-sufficient to begin:**
 
@@ -10,12 +10,26 @@ The current active track is **Forge / Twin / Arena / Anvil 統合改修** (Metho
 docs/forge_twin_arena_anvil_integration_agent_entrypoint.md
 ```
 
-It contains: the read order, the per-item PR workflow, the verified test command, the hard invariants, the `decomposition_policy.py` naming-collision warning, the existing foundation to reuse, the full 16-PR list, and an unambiguous PR1 spec to start from. Supporting docs:
+It contains: the read order, the per-item PR workflow, the verified test command, the hard invariants, the `decomposition_policy.py` naming-collision warning, and the existing foundation to reuse. Supporting docs:
 
-1. `docs/forge_twin_arena_anvil_integration_plan.md` — living plan + 16-PR breakdown + progress tracker (update before/after each item)
-2. `docs/forge_twin_arena_anvil_integration_current_status.md` — Phase 0 inventory / component classification
+1. `docs/forge_twin_arena_anvil_integration_plan.md` — living plan + PR breakdown + progress tracker (update before/after each item). **The extended "Phase 2" PR table (PR16–PR22) is the authoritative remaining-work list.**
+2. `docs/forge_twin_arena_anvil_integration_current_status.md` — Phase 0 inventory / component classification + per-PR completion proofs.
 
-Work item = 1 PR. The user has explicitly authorized creating and merging a PR per item for this track (2026-06-21; the plan itself merged as PR #1960). Branch per item (`feat/forge-method-*`), implement + test, then PR + merge. Do not replace existing modules — integrate/extend. **Next to start: PR1 (feat/forge-method-contracts).** Test command: `venv_sys/Scripts/python.exe -m pytest -q tests/<file>.py`.
+**Current state (HEAD `91e07e32`):** PR1–PR15 are merged (MethodVariant / MethodAdapter / MethodRegistry / MethodPipeline / MethodRouter, schema ext, adapters, eval dimensions, evaluation + twin-facade API, real LLM runner, optimizer/loadout, Arena radar / fallback graph / method comparison UI, Advanced Twin inspector, Atlas method shadow). The Method-layer skeleton exists but is **not yet the "weak-LLM reinforcement completed form."**
+
+**Remaining work (each item = 1 PR, branch + implement + test + PR + merge):**
+
+- **PR16 `feat/forge-anvil-real-eval` (P0, NEXT):** formal Anvil acceptance — start Anvil, `/models/db` → `/model/switch` → `/model/status` ready → `/v1/models`, run `/api/forge/evaluation/run-live`, exercise structured/edit-intent/anchor/fallback/evidence cases, capture **natural** fallback evidence. Add proof level `anvil_real_eval_passed`; until then `anvil_real_eval_pending`, never `acceptance_complete`.
+- **PR17 `feat/forge-natural-fallback-pack` (P0):** real-model natural fallback cases (schema_invalid / patch_apply_failure / anchor_not_found / content_missing / file_changes_missing / unsafe_path / provider_unavailable) — not forced.
+- **PR18 `feat/forge-method-router-v2` (P1):** expand MethodRouter rules + policy enums (still never overrides RouteMatrix).
+- **PR19 `feat/forge-multimodel-roleassignment` (P1):** multi-model planner/implementer/verifier/repairer/reviewer/fallback assignment + live eval-dimension expansion.
+- **PR20 `feat/forge-active-execution-gated` (P1):** gated active execution behind explicit confirmation; Proposal / Safe Apply / Verification always preserved; active automation default OFF.
+- **PR21 `feat/forge-frontier-eval-verification` (verification):** for **all** benchmark dimensions, verify the **8080 weak-LLM (Qwen3.6-35B-A3B)** evaluation output with a **frontier model**; mismatches recorded as `frontier_verification_mismatch` (never upgraded to passed). Then run the benchmark end-to-end to confirm the evaluation path is sound.
+- **PR22 `feat/forge-atlas-route-validation` (verification):** using the optimal route + Twin injection level derived from Forge model-benchmark results, validate Atlas planning / code development / completion in shadow without changing production routing.
+
+**Standing authorization:** the user has explicitly authorized creating and merging a PR per item for this track (2026-06-21; reaffirmed for Phase 2). Do not replace existing modules — integrate/extend. Test command: `venv_sys/Scripts/python.exe -m pytest -q tests/<file>.py`.
+
+**Evaluation policy for this track:** run evaluations against the local **8080 weak LLM**; treat weak-LLM judgments as advisory and verify them with a frontier model (PR21). `unavailable` is never `passed`; mock/synthetic is never real evidence. Focused tests alone do not justify `acceptance_complete`.
 
 The prior default development goal is **Atlas Twin / Forge / Git Steward**.
 
