@@ -503,3 +503,25 @@ Remaining gaps: router fallback triggers do not yet cover the full real failure 
 Next package: PR17 `feat/forge-natural-fallback-pack`
 Blocker: none
 Proof level: `anvil_real_eval_passed` (natural fallback recovered on real model)
+
+---
+
+## 24. PR17 Natural fallback pack 完了証跡
+
+Completed package: PR17 `feat/forge-natural-fallback-pack`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/natural_fallback_pack.py`, `tests/test_forge_natural_fallback_pack.py`, integration plan/status docs
+Behavior implemented: a case per real failure mode (schema_invalid / content_missing / file_changes_missing / anchor_not_found / unsafe_target_path / provider_unavailable). Each sends a genuine prompt; the real model's failing output is classified by the mechanical adapters and `MethodPipeline` falls back naturally. A clean primary success is recorded as a safe outcome (failure simply not induced this run); an unreachable provider is recorded `unavailable` and never upgraded to passed. No file is applied.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_natural_fallback_pack.py` -> 5 passed
+Syntax checks: `py_compile agent/model_forge/natural_fallback_pack.py tests/test_forge_natural_fallback_pack.py` -> passed
+Affected tests: covered together with PR16 acceptance + pipeline suites (23 passed) on the merged base
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, run `fallback_pack_4fb0e81b8664`: 6/6 modes handled, proof `natural_fallback_real_eval_passed`. `file_changes_missing` / `anchor_not_found` / `unsafe_target_path` were genuinely induced and recovered through natural fallback to edit-intent or review-only; `provider_unavailable` surfaced `transport_error:URLError` -> final `unavailable` (not passed); `content_missing` was not induced because the model succeeded on the first attempt and was recorded honestly as a safe outcome.
+Atlas UI evidence: unavailable; backend tooling
+Project Intelligence evidence: unavailable
+Runtime/Portal evidence: real local provider calls across all induced modes plus a deliberate unreachable-endpoint transport failure
+Unavailable checks: `content_missing` could not be induced this run (model succeeded); `patch_apply_failure` is represented through the compile/verify failure reasons (content_missing/file_changes_missing/anchor_not_found) rather than a post-apply failure, because Safe Apply is never executed in evaluation
+Safety invariants: no file applied; a passed terminal is always review-only (no patch); `unavailable` never upgraded to passed; RouteMatrix not overridden
+Remaining gaps: the production MethodRouter still does not trigger fallback on content_missing / file_changes_missing (PR18); frontier verification of weak-LLM evaluations across all dimensions (PR21)
+Next package: PR18 `feat/forge-method-router-v2`
+Blocker: none
+Proof level: `natural_fallback_real_eval_passed`
