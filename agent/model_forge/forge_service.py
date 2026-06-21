@@ -108,6 +108,9 @@ class ForgeService:
     def assist_capability_profile(self, **payload) -> dict:
         return self.evaluation.assist_capability_profile(**payload)
 
+    def injection_sweep_profile(self, **payload) -> dict:
+        return self.evaluation.injection_sweep_profile(**payload)
+
     def rerun_evaluation(self, run_id: str, **payload) -> dict:
         return self.evaluation.rerun(run_id, **payload)
 
