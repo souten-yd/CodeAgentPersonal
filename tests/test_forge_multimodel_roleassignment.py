@@ -103,10 +103,14 @@ def test_no_eligible_models_is_honest():
 
 
 def test_live_eval_dimension_expansion_added_method_backed_axes():
-    # PR19 expands live coverage to method-backed dimensions.
+    # PR19 expanded live coverage to method-backed dimensions; H2 then moved
+    # evidence_discipline / repair_discipline to the semantic evaluator.
     assert _METHOD_BY_DIMENSION["large_file_editing"] == MethodVariant.ANCHORED_EDIT_BLOCK
-    assert _METHOD_BY_DIMENSION["evidence_discipline"] == MethodVariant.REVIEW_ONLY
-    assert _METHOD_BY_DIMENSION["repair_discipline"] == MethodVariant.REPAIR_COMPASS_STEPS
-    # Non-method dimensions remain unmapped (honestly unavailable for live mechanical eval).
+    assert _METHOD_BY_DIMENSION["edit_intent_quality"] == MethodVariant.EDIT_INTENT_LIST
+    # Moved to the semantic LiveCapabilityEvaluator (H2) — no longer format-only method cases.
+    assert "anchor_selection_quality" not in _METHOD_BY_DIMENSION
+    assert "evidence_discipline" not in _METHOD_BY_DIMENSION
+    assert "repair_discipline" not in _METHOD_BY_DIMENSION
+    # Non-method dimensions remain unmapped in the method runner.
     assert "abstraction_tolerance" not in _METHOD_BY_DIMENSION
     assert "fallback_recovery" not in _METHOD_BY_DIMENSION
