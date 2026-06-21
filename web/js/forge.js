@@ -829,10 +829,25 @@
         + escapeHtml(entry.key) + ' · ' + value + '</text>';
     }).join('');
     const missing = entries.filter((entry) => entry.unavailable).length;
-    return '<div class="forge-radar"><div class="forge-radar-filters">' + filters + '</div>'
+    // Optional "without assist" baseline overlay (補助有無). When the candidate score carries
+    // baseline_radar_scores, draw a second dashed polygon + legend so the Twin effect is visible.
+    const baselineMap = (candidate.evaluator_score || {}).baseline_radar_scores || {};
+    const hasBaseline = entries.some((entry) => typeof baselineMap[entry.key] === 'number');
+    const baselinePoints = entries.map((entry, index) => {
+      const angle = (-Math.PI / 2) + (Math.PI * 2 * index / entries.length);
+      const raw = baselineMap[entry.key];
+      const distance = typeof raw === 'number' ? radius * Math.max(0, Math.min(1, raw)) : 0;
+      return (cx + distance * Math.cos(angle)).toFixed(1) + ',' + (cy + distance * Math.sin(angle)).toFixed(1);
+    }).join(' ');
+    const legend = hasBaseline
+      ? '<div class="forge-radar-legend"><span class="forge-radar-key forge-radar-key--assisted">with assist (補助あり)</span>'
+        + '<span class="forge-radar-key forge-radar-key--baseline">without assist (補助なし)</span></div>'
+      : '';
+    return '<div class="forge-radar"><div class="forge-radar-filters">' + filters + '</div>' + legend
       + '<svg class="forge-radar-svg" viewBox="0 0 240 220" role="img" aria-label="Candidate radar">'
       + '<polygon class="forge-radar-grid" points="' + outer + '"></polygon>'
-      + '<polygon class="forge-radar-shape" points="' + points + '"></polygon>' + labels + '</svg>'
+      + (hasBaseline ? '<polygon class="forge-radar-shape forge-radar-shape--baseline" points="' + baselinePoints + '"></polygon>' : '')
+      + '<polygon class="forge-radar-shape' + (hasBaseline ? ' forge-radar-shape--assisted' : '') + '" points="' + points + '"></polygon>' + labels + '</svg>'
       + (missing ? '<div class="forge-radar-unavailable">Unavailable is missing evidence, not a zero score.</div>' : '')
       + '</div>';
   }
