@@ -195,3 +195,25 @@ Remaining gaps: adapters, pipeline, router, evaluation/runtime/UI integration an
 Next package: PR3 `feat/forge-adapters-structured`
 Blocker: none
 Proof level: `method_contract_present`
+
+---
+
+## 10. PR3 構造化 Method adapters 完了証跡
+
+Completed package: PR3 `feat/forge-adapters-structured`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/method_artifacts.py`, `agent/model_forge/structured_adapters.py`, `tests/test_forge_structured_adapters.py`, integration plan/status docs
+Behavior implemented: StructuredPatchJson, PatchDslJson, EditIntentList adapters; content-addressed artifact refs; deterministic normalization to Atlas `file_changes[]`; registry builder; unsafe path and forbidden action blocking
+Focused tests: `python -m pytest -q tests/test_forge_structured_adapters.py tests/test_forge_method_contracts.py tests/test_forge_method_schema_extension.py` -> 27 passed
+Syntax checks: `python -m py_compile agent/model_forge/method_artifacts.py agent/model_forge/structured_adapters.py tests/test_forge_structured_adapters.py` -> passed
+Affected tests: `python -m pytest -q tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_edit_primitives.py tests/test_forge_api.py` -> 60 passed
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, response `chatcmpl-v2ZcNxhAlwtNktwKyF5oaSY1GWsc1y6m` (215 tokens), produced an anchored `edit_intent_list`; adapter parse/compile/verify returned passed and contract_valid with an `atlas_file_changes.v1` artifact
+Atlas UI evidence: unavailable; PR3 has no UI change
+Project Intelligence evidence: unavailable; PR3 prompt accepts refs but does not wire Project Intelligence
+Runtime/Portal evidence: unavailable; adapter component is not connected to runtime in this PR
+Unavailable checks: `tests/test_atlas_patch_proposal_to_safe_apply_e2e.py` has 4 stale failures because it expects synchronous `/api/atlas/plan-pools` response field `plan_pool`, while the current endpoint returns queued `{pool_id,status}`; no stale test was removed or weakened
+Safety invariants: compilation never applies files; generated artifacts require approval and keep `safe_apply_ready=false`; unsafe/protected paths and delete/command actions are blocked; `unavailable` is not converted to passed
+Remaining gaps: remaining adapters, pipeline, router, evaluation/runtime/UI integration and Anvil acceptance remain pending
+Next package: PR4 `feat/forge-adapters-anchored`
+Blocker: none
+Proof level: `method_contract_present`
