@@ -19,6 +19,7 @@ workspace/**/*.log
 
 # ========== ランタイム生成データ（リサーチ/パイプライン出力は管理対象外） ==========
 nexus/
+model_forge/twin_assist_runs/
 
 # ========== DB ジャーナルファイル ==========
 *.db-journal

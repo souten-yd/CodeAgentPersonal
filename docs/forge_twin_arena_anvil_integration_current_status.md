@@ -758,6 +758,31 @@ Proof level: `component_complete`
 
 ---
 
+## 37. TA3 Atlas-path Twin Assist runner completion proof
+
+Completed package: TA3 `feat/forge-twin-assist-runner`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/model_forge/twin_assist_compiler.py`, `agent/model_forge/twin_assist_runner.py`, `tests/test_forge_twin_assist_runner.py`, Twin Assist plan/entrypoint/status docs
+Behavior implemented: copies each fixture to an isolated evidence workspace; creates an Atlas PlanPool/PlanItem; compiles bounded metadata per assist mode; invokes `AtlasPatchProposalService.propose_for_item` for baseline and assisted attempts; scores proposal content, target scope, forbidden refs, symbols, and verification selection; persists the report and Atlas proposal refs. Evaluation never applies the proposal. Local-only blocks external providers before service construction.
+Focused tests: `C:/Users/kkens/KasaneCore/venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_twin_assist_runner.py` -> 3 passed
+Syntax checks: `compileall -q agent/model_forge/twin_assist_compiler.py agent/model_forge/twin_assist_runner.py` -> passed
+Affected tests: contracts/packs/runner plus Atlas Twin prompt integration -> 24 passed
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, run `twin_assist_103e10be9bb4`, `public_contract_preservation`, through `AtlasPatchProposalService.propose_for_item`; durable report `ca_data/model_forge/twin_assist_runs/twin_assist_103e10be9bb4/report.json`
+Baseline score: 0.8; proposal content, target scope, forbidden-ref safety, and `parse_token` symbol passed; verification plan missing
+Assisted score: 0.8 with `constraints_and_refs`; same four signals passed; verification plan missing
+Lift: 0.0
+Harm cases: none in this minimum live run
+Best assist mode: `constraints_and_refs` for the selected run, tied with baseline; broader recommendation awaits TA8 full live evaluation
+Atlas UI evidence: unavailable; UI is TA7
+Unavailable checks: token usage was not exposed by `AtlasPatchProposalService` result; semantic grading is deterministic proposal inspection, not post-apply runtime evidence; no focused test was run against generated code in TA3
+Safety invariants: isolated copied workspace; Proposal path used; no Safe Apply or direct write to project; external provider blocked in local-only; unavailable remains unavailable; report does not change production routing
+Remaining gaps: localized slots, policy/ProfileStore, API/UI, full 8080 case pack, readiness/matrix/slot gates/post-apply E2E
+Next package: TA4 `feat/forge-twin-localized-slot`
+Blocker: none
+Proof level: `real_runtime_evaluated`
+
+---
+
 ## 36. TA2 Twin Assist packs completion proof
 
 Completed package: TA2 `feat/forge-twin-assist-packs`
