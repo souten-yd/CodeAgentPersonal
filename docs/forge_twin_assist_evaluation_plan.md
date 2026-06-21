@@ -558,7 +558,7 @@ Recommended Twin Assist:
 | TA4 | feat/forge-twin-localized-slot | TwinEditSlot / resolver / slot patch adapter MVP | ☑ completed |
 | TA5 | feat/forge-twin-assist-policy | MethodRouter / ExecutionPolicy / ProfileStore連携 | ☑ completed |
 | TA6 | feat/forge-twin-assist-api | `/api/forge/twin-assist/*` API | ☑ completed |
-| TA7 | feat/forge-twin-assist-ui | Forge UI: Twin Assist tab / result table / drawer / profile recommendation | ☐ pending |
+| TA7 | feat/forge-twin-assist-ui | Forge UI: Twin Assist tab / result table / drawer / profile recommendation | ☑ completed |
 | TA8 | feat/forge-twin-assist-real-eval | 8080実モデルで最低4ケース評価、evidence保存、current_status更新 | ☐ pending |
 
 ---

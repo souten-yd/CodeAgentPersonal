@@ -25,6 +25,7 @@
     { id: 'skills', label: 'Skills' },
     { id: 'benchmark', label: 'Benchmark' },
     { id: 'arena', label: 'Arena' },
+    { id: 'twin-assist', label: 'Twin Assist' },
     { id: 'loadouts', label: 'Loadouts' },
     { id: 'settings', label: 'Settings' },
     { id: 'advanced', label: 'Advanced' },
@@ -43,6 +44,7 @@
     // ctx is the context length for the chosen local/LM-Studio model (persisted to the model
     // registry for Anvil models; used at load time by the runtime manager — see enable/monitor).
     bench: { presets: [], depth: 'standard', provider: '', model: '', ctx: '', result: null },
+    twinAssist: { cases: [], result: null },
   };
 
   // The benchmark "LLM management tool": Anvil surfaces the local model registry (Models DB);
@@ -1287,9 +1289,54 @@
     renderActive();
   }
 
+  function twinAssistHtml() {
+    const report = state.twinAssist.result;
+    const rows = report ? (report.comparisons || []).map((item, index) => {
+      const baseline = item.baseline && item.baseline.score != null ? item.baseline.score : 'unavailable';
+      const best = item.best_score != null ? item.best_score : 'unavailable';
+      const lift = item.lift != null ? item.lift : 'unavailable';
+      return '<tr><td>' + escapeHtml(item.case_id) + '</td><td>' + escapeHtml(baseline) + '</td><td>' + escapeHtml(best)
+        + '</td><td>' + escapeHtml(lift) + '</td><td>' + escapeHtml(item.best_assist_mode || 'unavailable')
+        + '</td><td>' + (item.harm_detected ? '<span class="forge-warn-pill">harm</span>' : 'no')
+        + '</td><td><button class="forge-probe-btn" data-twin-detail="' + index + '">Detail</button></td></tr>';
+    }).join('') : '';
+    return '<div class="forge-card"><div class="forge-card-title">Twin Assist Evaluation</div>'
+      + '<div class="forge-hint">Compares Atlas proposal generation without and with Twin guidance. Evaluation does not apply files or change production routing.</div>'
+      + '<label class="forge-label">Provider<input id="forge-twin-provider" class="forge-input" value="local-8080"></label>'
+      + '<label class="forge-label">Model<input id="forge-twin-model" class="forge-input" placeholder="model id"></label>'
+      + '<label class="forge-label">Base URL<input id="forge-twin-base-url" class="forge-input" value="http://127.0.0.1:8080"></label>'
+      + '<label class="forge-label">Case pack<select id="forge-twin-pack" class="forge-select"><option value="quick">Quick</option><option value="large_file">Large-file</option><option value="cross_file">Cross-file</option><option value="contract">Contract</option><option value="full">Full</option></select></label>'
+      + '<div class="forge-check-grid" id="forge-twin-modes">'
+      + ['constraints_and_refs','impact_and_safe_edit','strict_twin_brief','twin_localized_slot','twin_deterministic_anchor'].map((mode) => '<label class="forge-check"><input type="checkbox" value="' + mode + '" checked>' + mode + '</label>').join('') + '</div>'
+      + '<button id="forge-twin-run" class="forge-run-btn">Run Twin Assist Eval</button></div>'
+      + (report ? '<div class="forge-card"><div class="forge-card-title">Results</div><div class="forge-kv"><span>Run</span><b>' + escapeHtml(report.run_id) + '</b></div>'
+        + '<div class="forge-table-wrap"><table><thead><tr><th>case</th><th>baseline</th><th>assisted</th><th>lift</th><th>best mode</th><th>harm</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' : '')
+      + '<div id="forge-twin-detail" class="forge-twin-result" style="display:none"></div>';
+  }
+
+  async function runTwinAssist() {
+    const pack = $('forge-twin-pack').value;
+    const cases = await api('/twin-assist/cases?pack_id=' + encodeURIComponent(pack));
+    const modes = Array.from(document.querySelectorAll('#forge-twin-modes input:checked')).map((node) => node.value);
+    const body = { provider_id: $('forge-twin-provider').value, model_id: $('forge-twin-model').value, base_url: $('forge-twin-base-url').value, case_ids: cases.cases.map((item) => item.case_id), assist_modes: modes, run_baseline: true };
+    setStatus('Running Twin Assist evaluation…');
+    state.twinAssist.result = await api('/twin-assist/run', { method: 'POST', body: JSON.stringify(body) });
+    setStatus('Twin Assist evaluation complete', 'ok');
+    renderActive();
+  }
+
+  function wireTwinAssist(content) {
+    content.querySelector('#forge-twin-run')?.addEventListener('click', () => runTwinAssist().catch((err) => setStatus('Twin Assist failed: ' + err.message, 'error')));
+    content.querySelectorAll('[data-twin-detail]').forEach((button) => button.addEventListener('click', () => {
+      const detail = $('forge-twin-detail');
+      detail.style.display = 'block';
+      detail.textContent = JSON.stringify(state.twinAssist.result.comparisons[Number(button.getAttribute('data-twin-detail'))], null, 2);
+    }));
+  }
+
   const VIEWS = {
     overview: overviewHtml, skills: skillsHtml, benchmark: benchmarkHtml,
-    arena: arenaHtml, loadouts: loadoutsHtml, settings: settingsHtml, advanced: advancedHtml,
+    arena: arenaHtml, 'twin-assist': twinAssistHtml, loadouts: loadoutsHtml, settings: settingsHtml, advanced: advancedHtml,
   };
 
   // ----- model detail drawer (Skills) -----
@@ -1316,7 +1363,11 @@
       + '<button type="button" class="forge-drawer-close" aria-label="Close">×</button></div>'
       + '<div class="forge-drawer-sub">' + escapeHtml(profile.provider_id)
       + ' · ' + escapeHtml(String(profile.sample_count || 0)) + ' samples</div>'
-      + '<div class="forge-drawer-body">' + rows + '</div>'
+      + '<div class="forge-drawer-body">' + rows
+      + '<div class="forge-card-title forge-twin-subtitle">Recommended Twin Assist</div>'
+      + '<div class="forge-kv"><span>mode</span><b>' + escapeHtml(profile.recommended_twin_assist_mode || 'unavailable') + '</b></div>'
+      + '<div class="forge-kv"><span>injection level</span><b>' + escapeHtml(profile.recommended_twin_injection_level == null ? 'unavailable' : profile.recommended_twin_injection_level) + '</b></div>'
+      + '</div>'
       + '</div>'
     );
     drawer.classList.add('open');
@@ -1372,6 +1423,8 @@
       content.querySelectorAll('[data-candidate-proposal]').forEach((btn) => {
         btn.addEventListener('click', () => createProposalDraft(btn.getAttribute('data-candidate-proposal')));
       });
+    } else if (state.tab === 'twin-assist') {
+      wireTwinAssist(content);
     } else if (state.tab === 'advanced') {
       wireAdvanced(content);
     } else if (state.tab === 'loadouts') {
@@ -1454,6 +1507,7 @@
     _benchmarkHtml: benchmarkHtml,
     _anvilConfigFormHtml: renderAnvilConfigForm,
     _arenaHtml: arenaHtml,
+    _twinAssistHtml: twinAssistHtml,
     _radarHtml: radarHtml,
     _fallbackGraphHtml: fallbackGraphHtml,
     _methodComparisonHtml: methodComparisonHtml,

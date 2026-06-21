@@ -1854,6 +1854,8 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .forge-fallback-node.is-unavailable{border-style:dashed;color:var(--text3)}
 .forge-fallback-arrow{color:var(--text3)}
 .forge-table-wrap{overflow-x:auto;margin-top:8px}
+.forge-table-wrap table{width:100%;border-collapse:collapse;font-size:11px;text-align:left}
+.forge-table-wrap th,.forge-table-wrap td{border-bottom:1px solid var(--border);padding:7px 8px;white-space:nowrap}
 .forge-method-comparison table{width:100%;border-collapse:collapse;font-size:11px;text-align:left}
 .forge-method-comparison th,.forge-method-comparison td{border-bottom:1px solid var(--border);padding:7px 8px;white-space:nowrap}
 .forge-method-comparison th{color:var(--text3);font-weight:600}

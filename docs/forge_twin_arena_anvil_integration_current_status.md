@@ -758,6 +758,24 @@ Proof level: `component_complete`
 
 ---
 
+## 41. TA7 Twin Assist UI completion proof
+
+Completed package: TA7 `feat/forge-twin-assist-ui`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `web/js/forge.js`, `web/css/app.css`, UI render tests, plan/entrypoint/status docs
+Behavior implemented: Twin Assist tab with provider/model/base URL, pack and assist-mode controls; baseline/assisted/lift/harm table; detail evidence JSON; read-only profile recommendation display; explicit no-apply/no-routing-change copy.
+Focused tests: selected Forge UI suites -> 16 passed, 1 upstream deprecation warning
+Syntax checks: `node --check web/js/forge.js` passed; diff check passed
+Real model evidence: UI delegates to TA6/TA3; no provider call needed for rendering
+Atlas UI evidence: unavailable. Port 8000 served another checkout's stale UI; current checkout server reached startup but `/ui/` was 404 because gitignored UI build assets are absent. Stale UI was not counted as evidence; temporary server stopped.
+Safety invariants: values escaped; detail uses textContent; UI does not expose apply/cutover; profile recommendation is display-only
+Remaining gaps: full live eval, readiness/matrix/slot gates/post-apply E2E; browser verification after current UI assets are built
+Next package: TA8 `feat/forge-twin-assist-real-eval`
+Blocker: none
+Proof level: `render_verified`; browser evidence unavailable
+
+---
+
 ## 40. TA6 Twin Assist API completion proof
 
 Completed package: TA6 `feat/forge-twin-assist-api`
