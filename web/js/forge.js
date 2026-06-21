@@ -1331,6 +1331,7 @@
     const report = state.twinAssist.result;
     const readiness = state.twinAssist.readiness;
     const rtpolicy = state.twinAssist.runtimePolicy;
+    const modelProfile = state.twinAssist.modelProfile;
     const rows = report ? (report.comparisons || []).map((item, index) => {
       const baseline = item.baseline && item.baseline.score != null ? item.baseline.score : 'unavailable';
       const best = item.best_score != null ? item.best_score : 'unavailable';
@@ -1380,6 +1381,19 @@
         + '<div class="forge-kv"><span>twin injection level</span><b>' + escapeHtml(String(rtpolicy.fallback_recommendation.twin_injection_level)) + '</b></div>'
         + '<div class="forge-kv"><span>instruction style</span><b>' + escapeHtml(rtpolicy.fallback_recommendation.instruction_style) + '</b></div>'
         + '<div class="forge-kv"><span>why selected</span><b>' + escapeHtml(rtpolicy.fallback_recommendation.reason) + '</b></div>' : '')
+      + '</div>'
+      // Benchmark capability that drives the route/method/injection above — shown together
+      // so "benchmark -> Twin injection / route / method" is one consolidated view.
+      + '<div class="forge-card"><div class="forge-card-title">Benchmark capability</div>'
+      + '<div class="forge-hint">The benchmark profile these route/method/injection recommendations are derived from.</div>'
+      + ((modelProfile && modelProfile.available && modelProfile.capability_profile)
+        ? '<div class="forge-kv"><span>mode</span><b>' + escapeHtml(modelProfile.capability_profile.mode) + '</b></div>'
+          + Object.keys(modelProfile.capability_profile.capability_scores || {}).sort().map((dim) =>
+              '<div class="forge-kv"><span>' + escapeHtml(dim) + '</span><b>' + scoreBar(modelProfile.capability_profile.capability_scores[dim]) + '</b></div>'
+            ).join('')
+          + (((modelProfile.capability_profile.known_weaknesses || []).length)
+              ? '<div class="forge-kv"><span>known weaknesses</span><b>' + escapeHtml(modelProfile.capability_profile.known_weaknesses.join(', ')) + '</b></div>' : '')
+        : '<div class="forge-empty">No benchmark profile for this model yet. Run a benchmark, then preview to see the derived route/method/injection.</div>')
       + '</div>';
 
     // One coherent Twin Assist tab with a sub-navigation instead of a long card stack.
@@ -1412,6 +1426,11 @@
     };
     setStatus('Previewing runtime generation policy…');
     state.twinAssist.runtimePolicy = await api('/atlas-generation-policy/preview', { method: 'POST', body: JSON.stringify(body) });
+    // Pull the benchmark capability the policy derives from, so both are shown together.
+    try {
+      state.twinAssist.modelProfile = await api('/evaluation/model-profile?provider_id='
+        + encodeURIComponent(body.provider_id) + '&model_id=' + encodeURIComponent(body.model_id));
+    } catch (_e) { state.twinAssist.modelProfile = null; }
     setStatus('Runtime policy preview ready', 'ok');
     renderActive();
   }
