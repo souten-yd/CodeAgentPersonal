@@ -481,3 +481,25 @@ Remaining gaps: formal Anvil fallback evaluation and final acceptance remain pen
 Next package: PR16 `feat/forge-anvil-real-eval`
 Blocker: none
 Proof level: `real_llm_evaluated` (`shadow_connected` acceptance also satisfied)
+
+---
+
+## 23. PR16 Anvil real-eval acceptance 完了証跡
+
+Completed package: PR16 `feat/forge-anvil-real-eval`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/anvil_acceptance.py`, `tests/test_forge_anvil_acceptance.py`, integration plan/status docs
+Behavior implemented: `check_anvil_ready` confirms the model is served at `/v1/models` (Anvil ready state after `/model/switch` -> `/model/status`); `make_live_invoker` drives `MethodPipeline` against the OpenAI-compatible `/v1/chat/completions`; `benchmark_scenarios` builds acceptance flows from the real Forge benchmark cases so any fallback is genuine, not forced; the runner persists a truthful report (readiness, per-attempt status/reasons, fallback_reasons, natural_fallback flags) and never applies a file or grants Safe Apply readiness. When the model is not served the run is recorded `anvil_real_eval_pending` and is not upgraded to passed.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_anvil_acceptance.py` -> 6 passed
+Syntax checks: `py_compile agent/model_forge/anvil_acceptance.py tests/test_forge_anvil_acceptance.py` -> passed
+Affected tests: `pytest -q tests/test_forge_anvil_acceptance.py tests/test_forge_real_method_runner.py tests/test_forge_method_pipeline.py tests/test_forge_evaluation_api.py` -> 23 passed
+Real model evidence: localhost:8080 served `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. Run `anvil_eval_2113a25c169c` over benchmark dimension `edit_intent_quality` produced a **natural** fallback chain on real output: `edit_intent_list` blocked (`content_missing` / `file_changes_missing`) -> `anchored_edit_block` failed (`anchor_not_found`) -> `review_only` passed, recovering without applying a file. `natural_fallback_observed=true`, `natural_fallback_recovered=true`. A control run with simple unambiguous goals (`anvil_eval_8b641ee43df7`) passed the primary methods on the first attempt with no fallback, recorded honestly as `anvil_real_eval_pending` — fallback is observed only when the model genuinely fails.
+Atlas UI evidence: unavailable; PR16 is backend acceptance tooling with no UI change
+Project Intelligence evidence: unavailable; PR16 does not consume Project Intelligence
+Runtime/Portal evidence: real local provider calls proven across primary + fallback methods; Portal not involved
+Unavailable checks: the KasaneCore app (Anvil control-plane HTTP surface `/models/db`, `/model/switch`, `/model/status`) was not running during this run; the model was already loaded and served directly on the 8080 backend, so readiness was confirmed via `/v1/models` and the `/model/switch` -> `/model/status` HTTP transitions were not exercised in this run
+Safety invariants: no file applied; `safe_apply_ready` never set without a proposal (pipeline hard-fails `safe_apply_bypass`); `unavailable`/`pending` never upgraded to `passed`; RouteMatrix not overridden; remote publication gated by the item PR workflow
+Remaining gaps: router fallback triggers do not yet cover the full real failure vocabulary (`content_missing` / `file_changes_missing`) — to be fixed in PR18 (MethodRouter v2); a dedicated natural-fallback pack across all failure modes is PR17; frontier verification of weak-LLM evaluations across all dimensions is PR21
+Next package: PR17 `feat/forge-natural-fallback-pack`
+Blocker: none
+Proof level: `anvil_real_eval_passed` (natural fallback recovered on real model)
