@@ -151,3 +151,25 @@ Anvil 実起動評価 gate（acceptance条件）。
 ## 7. Proof level（このドキュメント）
 
 `contract_present` — 実コードを読んで分類した棚卸し。コード変更なし。次フェーズ（Phase 1+A）でDTO追加から着手する。
+
+---
+
+## 8. PR1 Method 中核契約 完了証跡
+
+Completed package: PR1 `feat/forge-method-contracts`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/method_taxonomy.py`, `agent/model_forge/method_contracts.py`, `tests/test_forge_method_contracts.py`, integration plan/status docs
+Behavior implemented: 11 MethodVariant values, strict Method DTOs, MethodAdapter Protocol, MethodRegistry dispatch, fallback chain/result contracts
+Focused tests: `python -m pytest -q tests/test_forge_method_contracts.py` -> 9 passed
+Syntax checks: `python -m py_compile agent/model_forge/method_taxonomy.py agent/model_forge/method_contracts.py tests/test_forge_method_contracts.py` -> passed
+Affected tests: `python -m pytest -q tests/test_forge_api.py tests/test_execution_policy_route_preference.py` -> 25 passed
+Real model evidence: localhost:8080 `/v1/models` reported `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`; contract review response `chatcmpl-owUbo9qOtwR2wgv0yX72znbn85D6Jr1i` -> `VERDICT: PASS` (204 tokens)
+Atlas UI evidence: unavailable; PR1 is a pure contract slice with no UI change
+Project Intelligence evidence: unavailable; PR1 does not consume Project Intelligence
+Runtime/Portal evidence: unavailable; PR1 has no runtime or Portal wiring
+Unavailable checks: repository-local `venv_sys` was absent; equivalent system Python 3.11.9 with pytest 9.0.3 and pydantic 2.13.4 was used
+Safety invariants: `unavailable` remains distinct from `passed`; strict `extra="forbid"` inherited from ForgeModel; no Proposal/Safe Apply/Verification bypass or route override introduced
+Remaining gaps: schema integration, adapters, pipeline, router, evaluation/runtime/UI integration and Anvil acceptance remain pending
+Next package: PR2 `feat/forge-method-schema-ext`
+Blocker: none
+Proof level: `method_contract_present`
