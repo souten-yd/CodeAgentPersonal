@@ -9,6 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from hashlib import sha1
 
+from agent.model_forge.capability_rescue import (
+    CapabilityRescuePlanner,
+    FallbackModelRef,
+    RescueLevel,
+)
+from agent.model_forge.method_policy import PatchConstructionMode
 from agent.model_forge.route_matrix import ChangeClass, RouteMatrix, RouteSelector
 from agent.model_forge.route_taxonomy import ForgeRoute
 from agent.model_forge.method_router import MethodRouter
@@ -124,6 +130,7 @@ class ExecutionPolicySelector:
         route_preferences: dict | None = None,
         twin_risk: str = "medium",
         consecutive_method_failures: int = 0,
+        rescue_fallback_model: FallbackModelRef | None = None,
     ) -> ExecutionPolicy:
         change = ChangeClass(change_class)
         profile = model_profile or ModelCapabilityProfile(model_id="default")
@@ -147,6 +154,33 @@ class ExecutionPolicySelector:
             profile=profile,
             consecutive_failures=consecutive_method_failures,
         )
+        # Method selection from the router.
+        method_primary = method_decision.chain.primary
+        method_fallbacks = [step.method_variant for step in method_decision.chain.fallbacks]
+        patch_construction_mode = method_decision.patch_construction_mode
+        rescue_reason = ""
+        # Capability rescue: only when all four construction dimensions are measured and
+        # all fail. Partial/unmeasured profiles defer to the router defaults (no override).
+        _CONSTRUCTION_DIMS = {
+            "structured_output_fidelity", "patch_protocol_fidelity",
+            "edit_intent_quality", "anchor_selection_quality",
+        }
+        if _CONSTRUCTION_DIMS <= set(profile.capability_scores):
+            rescue = CapabilityRescuePlanner().plan(profile, fallback_model=rescue_fallback_model)
+            if rescue.rescue_level in {
+                RescueLevel.DETERMINISTIC_TEXT_PATCH,
+                RescueLevel.REVIEW_ONLY,
+                RescueLevel.ESCALATE_FALLBACK_MODEL,
+            }:
+                method_primary = rescue.primary_method
+                method_fallbacks = [step.method_variant for step in rescue.chain.fallbacks]
+                rescue_reason = f"capability_rescue={rescue.rescue_level.value}"
+                if rescue.rescue_level == RescueLevel.REVIEW_ONLY:
+                    patch_construction_mode = PatchConstructionMode.NONE
+                elif rescue.rescue_level == RescueLevel.DETERMINISTIC_TEXT_PATCH:
+                    patch_construction_mode = PatchConstructionMode.DETERMINISTIC_TEXT
+                if rescue.escalate_to_model:
+                    rescue_reason += f":to={rescue.escalate_to_provider}:{rescue.escalate_to_model}"
         weaknesses = set(profile.known_weaknesses)
         base_level = _base_injection(profile, task_category=task_category, change_class=change)
         if twin_risk == "high":
@@ -187,24 +221,26 @@ class ExecutionPolicySelector:
         if weaknesses:
             reasons.append("known_weaknesses=" + ",".join(sorted(weaknesses)))
         reasons.extend(method_decision.reasons)
+        if rescue_reason:
+            reasons.append(rescue_reason)
 
         return ExecutionPolicy(
             policy_id=_policy_id([
                 str(change), task_category, str(route), profile.model_id, str(injection), style.value,
-                method_decision.chain.primary.value,
+                method_primary.value,
             ]),
             route=route,
             model_id=profile.model_id,
             model_role="reviewer" if profile.mode == ModelCapabilityMode.AUDIT_ONLY else "coder",
             instruction_style=style,
             model_capability_mode=profile.mode,
-            method_variant=method_decision.chain.primary,
-            method_fallbacks=[step.method_variant for step in method_decision.chain.fallbacks],
+            method_variant=method_primary,
+            method_fallbacks=method_fallbacks,
             instruction_abstraction_level=method_decision.instruction_abstraction_level,
             task_decomposition_policy=method_decision.task_decomposition_policy,
             context_package_mode=method_decision.context_package_mode,
             output_protocol=method_decision.output_protocol,
-            patch_construction_mode=method_decision.patch_construction_mode,
+            patch_construction_mode=patch_construction_mode,
             verification_mode=method_decision.verification_mode,
             repair_mode=method_decision.repair_mode,
             twin_injection_level=injection,

@@ -987,3 +987,25 @@ Remaining gaps: Atlas proposal runner, localized slots, policy/ProfileStore, API
 Next package: TA3 `feat/forge-twin-assist-runner`
 Blocker: none
 Proof level: `component_complete`
+
+---
+
+## 40. H5 Rescue wiring into ExecutionPolicySelector 完了証跡
+
+Completed package: H5 `feat/forge-rescue-execution-wiring` (re-applied after syncing origin/main Twin Assist track #1989-2000)
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/execution_policy.py`, `tests/test_forge_execution_rescue_wiring.py`, integration plan/status docs
+Behavior implemented: `ExecutionPolicySelector.select` consults `CapabilityRescuePlanner` and, only when all four construction dimensions (structured/patch/edit/anchor) are measured and the rescue level is deterministic_text_patch / review_only / escalate_fallback_model, overrides `method_variant`, `method_fallbacks`, and `patch_construction_mode` with the rescue plan and appends `capability_rescue=<level>` (with `:to=<provider>:<model>` for escalation). Partial/unmeasured profiles defer to router defaults. New optional `rescue_fallback_model` parameter supplies the escalation target. Re-applied cleanly on top of the Twin Assist execution_policy changes (twin_assist_mode / avoid_method_variants etc.) — the two are independent and coexist.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_execution_rescue_wiring.py` -> 5 passed
+Syntax checks: `py_compile agent/model_forge/execution_policy.py` -> passed
+Affected tests: rescue_wiring + execution_policy_route_preference + method_router + method_router_v2 + capability_rescue -> 35 passed; atlas_execution_shadow + atlas_route_validation + evaluation_api + all Twin Assist suites -> 69 passed (no TA regression)
+Real model evidence: policy wiring (no model call). The trigger condition (all four construction dimensions measured) is what a full live benchmark produces, so a genuinely all-failing model is rescued at execution-policy time.
+Atlas UI evidence: unavailable; rescue level is surfaced in policy reasons
+Project Intelligence evidence: unavailable
+Runtime/Portal evidence: not applicable
+Unavailable checks: executing the escalated fallback model end-to-end and surfacing the rescue level in the Forge UI remain follow-ups; active-gate wiring into Atlas remains
+Safety invariants: Safe Apply / RemotePublish gates always present; review_only terminal always reachable; rescue fires only on measured all-fail evidence; RouteMatrix authority unchanged; Twin Assist behaviour preserved
+Remaining gaps: surface rescue level in UI; run the escalated fallback model; active-gate wiring into Atlas execution
+Next package: P1/P2 integration + UI items
+Blocker: none
+Proof level: `production_connected` (rescue applied at execution-policy time on measured all-fail evidence; safe defaults preserved; coexists with Twin Assist)
