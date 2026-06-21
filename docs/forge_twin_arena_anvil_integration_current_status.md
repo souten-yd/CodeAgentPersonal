@@ -783,6 +783,28 @@ Proof level: `real_runtime_evaluated`
 
 ---
 
+## 43. TA9 Twin Readiness completion proof
+
+Completed package: TA9 `feat/forge-twin-readiness-score`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: readiness contracts/evaluator, Forge readiness API, read-only UI card, focused tests, plan/entrypoint/status docs
+Behavior implemented: evidence-backed snapshot availability/freshness, symbol resolution, impact precision/budget, Safe-Edit briefing, prompt delivery audit, and harm-rate signals; computes unavailable/low/medium/high/trusted and caps slot assist when unavailable/low.
+Focused tests: readiness/API/UI selected suite -> 9 passed, 1 upstream deprecation warning
+Syntax checks: compileall and node check passed
+Twin readiness score: unavailable when snapshot is missing; deterministic complete fixture reaches trusted
+Readiness level: never trusted with stale/budget/harm warnings
+Symbol resolution rate: explicit resolved/changed ratio only
+Impact precision: explicit expected-hit/impacted ratio; budget overflow warning
+Safe-Edit Briefing availability: missing remains unavailable
+Prompt delivery audit: requires instruction_id, brief_id, policy_id, and prompt section hash
+Safety invariants: low/unavailable caps at constraints_and_refs; no inferred evidence promoted to verified
+Remaining gaps: matrix, formal slot gates, isolated post-apply E2E
+Next package: TA10 `feat/forge-route-method-assist-matrix`
+Blocker: none
+Proof level: `component_complete`
+
+---
+
 ## 41. TA7 Twin Assist UI completion proof
 
 Completed package: TA7 `feat/forge-twin-assist-ui`

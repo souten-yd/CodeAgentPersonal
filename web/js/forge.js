@@ -1291,6 +1291,7 @@
 
   function twinAssistHtml() {
     const report = state.twinAssist.result;
+    const readiness = state.twinAssist.readiness;
     const rows = report ? (report.comparisons || []).map((item, index) => {
       const baseline = item.baseline && item.baseline.score != null ? item.baseline.score : 'unavailable';
       const best = item.best_score != null ? item.best_score : 'unavailable';
@@ -1311,6 +1312,7 @@
       + '<button id="forge-twin-run" class="forge-run-btn">Run Twin Assist Eval</button></div>'
       + (report ? '<div class="forge-card"><div class="forge-card-title">Results</div><div class="forge-kv"><span>Run</span><b>' + escapeHtml(report.run_id) + '</b></div>'
         + '<div class="forge-table-wrap"><table><thead><tr><th>case</th><th>baseline</th><th>assisted</th><th>lift</th><th>best mode</th><th>harm</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' : '')
+      + (readiness ? '<div class="forge-card"><div class="forge-card-title">Twin Readiness</div><div class="forge-kv"><span>score</span><b>' + escapeHtml(readiness.overall_score == null ? 'unavailable' : readiness.overall_score) + '</b></div><div class="forge-kv"><span>level</span><b>' + escapeHtml(readiness.readiness_level) + '</b></div><div class="forge-kv"><span>max assist</span><b>' + escapeHtml(readiness.recommended_max_assist_mode) + '</b></div></div>' : '')
       + '<div id="forge-twin-detail" class="forge-twin-result" style="display:none"></div>';
   }
 
