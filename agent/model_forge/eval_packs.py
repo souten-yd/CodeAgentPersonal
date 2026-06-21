@@ -41,6 +41,14 @@ CAPABILITY_DIMENSIONS: tuple[str, ...] = (
     # truncation ("// rest unchanged"), and not echo the whole file back. Drives the file-decomposition
     # budget (decomposition_policy): low score -> split aggressively, high score -> large files OK.
     "large_file_editing",
+    "structured_output_fidelity",
+    "patch_protocol_fidelity",
+    "edit_intent_quality",
+    "anchor_selection_quality",
+    "abstraction_tolerance",
+    "fallback_recovery",
+    "scope_boundary_discipline",
+    "context_overload_sensitivity",
 )
 
 
@@ -185,6 +193,38 @@ _BUILTIN_PACKS: tuple[CapabilityEvalPack, ...] = (
         _c("lfe_anchor", "large_file_editing", "place a new function with a precise insert_after anchor in the correct scope"),
         _c("lfe_no_anchorless", "large_file_editing", "never return an insertion with an empty old_string and no anchor", adversarial=True),
         _c("lfe_no_placeholder", "large_file_editing", "do not abbreviate the file with placeholder truncation comments", adversarial=True),
+    ]),
+    _pack("structured_output_fidelity_pack", "structured_output_fidelity", "Structured Output Fidelity", [
+        _c("sof_schema", "structured_output_fidelity", "return exactly the requested JSON object and required fields"),
+        _c("sof_no_prose", "structured_output_fidelity", "do not wrap strict JSON in prose or an incompatible shape", adversarial=True),
+    ]),
+    _pack("patch_protocol_fidelity_pack", "patch_protocol_fidelity", "Patch Protocol Fidelity", [
+        _c("ppf_shape", "patch_protocol_fidelity", "follow the selected patch protocol without mixing formats"),
+        _c("ppf_no_bypass", "patch_protocol_fidelity", "never claim a generated patch was already applied", adversarial=True),
+    ]),
+    _pack("edit_intent_quality_pack", "edit_intent_quality", "Edit Intent Quality", [
+        _c("ei_precise", "edit_intent_quality", "produce a bounded path and exact old/new edit intent"),
+        _c("ei_no_empty_anchor", "edit_intent_quality", "reject an edit intent with an empty old-text anchor", adversarial=True),
+    ]),
+    _pack("anchor_selection_quality_pack", "anchor_selection_quality", "Anchor Selection Quality", [
+        _c("asq_unique", "anchor_selection_quality", "select a unique stable anchor in the intended scope"),
+        _c("asq_ambiguous", "anchor_selection_quality", "do not select an ambiguous repeated anchor", adversarial=True),
+    ]),
+    _pack("abstraction_tolerance_pack", "abstraction_tolerance", "Abstraction Tolerance", [
+        _c("at_concrete", "abstraction_tolerance", "execute concrete steps without dropping constraints"),
+        _c("at_template", "abstraction_tolerance", "follow an explicit weak-model template without echoing it", adversarial=True),
+    ]),
+    _pack("fallback_recovery_pack", "fallback_recovery", "Fallback Recovery", [
+        _c("fb_recover", "fallback_recovery", "recover from schema failure using the requested fallback method"),
+        _c("fb_no_false_pass", "fallback_recovery", "do not report the failed primary attempt as passed", adversarial=True),
+    ]),
+    _pack("scope_boundary_discipline_pack", "scope_boundary_discipline", "Scope Boundary Discipline", [
+        _c("sbd_allowed", "scope_boundary_discipline", "edit only allowed relative paths"),
+        _c("sbd_forbidden", "scope_boundary_discipline", "refuse protected, forbidden, or out-of-scope paths", adversarial=True),
+    ]),
+    _pack("context_overload_sensitivity_pack", "context_overload_sensitivity", "Context Overload Sensitivity", [
+        _c("cos_focus", "context_overload_sensitivity", "retain the target contract in a focused impact slice"),
+        _c("cos_distractor", "context_overload_sensitivity", "ignore unrelated context distractors", adversarial=True),
     ]),
 )
 

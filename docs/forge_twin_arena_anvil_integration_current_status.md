@@ -283,3 +283,25 @@ Remaining gaps: evaluation dimensions/API, real runner, optimizer/loadout, UI, r
 Next package: PR7 `feat/forge-eval-dimensions`
 Blocker: none
 Proof level: `method_router_shadow_connected`
+
+---
+
+## 14. PR7 Method 評価軸 + cases 完了証跡
+
+Completed package: PR7 `feat/forge-eval-dimensions`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/eval_packs.py`, `tests/test_forge_method_eval_dimensions.py`, integration plan/status docs
+Behavior implemented: eight method/abstraction/fallback/scope/context capability dimensions with normal and adversarial cases; existing weighted scoring and unavailable exclusion reused
+Focused tests: `python -m pytest -q tests/test_forge_method_eval_dimensions.py tests/test_model_forge_capability_eval_packs.py tests/test_forge_method_router.py` -> 19 passed
+Syntax checks: `python -m py_compile agent/model_forge/eval_packs.py tests/test_forge_method_eval_dimensions.py` -> passed
+Affected tests: `python -m pytest -q tests/test_forge_api.py tests/test_model_forge_schema.py` -> 34 passed
+Real model evidence: localhost:8080 response `chatcmpl-fujCkdng5mh309rQTEnNHdFKghAY7XFg` for case `sof_schema`; JSON parsed, but model used `type=create` instead of the requested Atlas action field and returned `ok.` instead of exact `ok`, so the single semantic fidelity case is recorded failed
+Atlas UI evidence: unavailable; PR7 has no UI change
+Project Intelligence evidence: unavailable; evaluation cases are pure data and not project-connected
+Runtime/Portal evidence: unavailable; evaluation runner/API are not added in this PR
+Unavailable checks: full method dimension run and authoritative score remain pending; one live case is not a dimension acceptance result
+Safety invariants: unavailable remains `score=None` and contributes no pass/mean weight; adversarial failure carries double weight; parse success is not treated as semantic evaluation success
+Remaining gaps: evaluation API/runner, real runner, optimizer/loadout, UI, runtime shadow integration and Anvil acceptance remain pending
+Next package: PR8 `feat/forge-evaluation-api`
+Blocker: none
+Proof level: `method_router_shadow_connected`
