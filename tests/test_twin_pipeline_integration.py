@@ -485,3 +485,68 @@ def test_no_benchmark_profile_yields_empty_route_fitness(tmp_path):
                                       changed_refs=["a.py"])  # no model_id/profile
     assert ev["route_fitness"] == {}
     assert ev["benchmark_route_selected"] is False
+
+
+# --- TA13: runtime policy wiring (atlas_generation_policy -> pipeline evidence) ---
+
+def test_runtime_policy_evidence_present():
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="r", pool_id="p")
+    assert ev["available"] is True
+    agp = ev["atlas_generation_policy"]
+    assert isinstance(agp, dict) and agp.get("selection_mode")
+    assert ev["selection_mode"] == agp["selection_mode"]
+    assert "optimal_routing_enabled" in ev and "route_fitness_applied" in ev
+    rec = ev["fallback_recommendation"]
+    for key in ("route", "method_variant", "method_fallbacks", "twin_injection_level"):
+        assert key in rec
+
+
+def test_unbenchmarked_generation_policy_uses_default_route():
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="r", pool_id="p",
+                                      change_class="medium")  # no model_id -> no profile
+    assert ev["selection_mode"] == "unbenchmarked_default"
+    assert ev["capability_profile_available"] is False
+    assert ev["fallback_recommendation"]["route"] == "patch_dsl"
+
+
+def test_optimal_routing_off_is_recorded_in_pipeline_evidence(monkeypatch):
+    monkeypatch.setenv("ATLAS_FORGE_OPTIMAL_ROUTING", "off")
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="r", pool_id="p",
+                                      change_class="medium")
+    assert ev["optimal_routing_enabled"] is False
+    assert ev["route_fitness_applied"] is False
+    assert ev["selection_mode"] == "forge_optimal_routing_off"
+
+
+def test_benchmark_optimized_policy_flows_via_resolution():
+    from agent.model_forge.execution_policy import ModelCapabilityProfile
+    from agent.model_forge.route_taxonomy import ForgeRoute
+    from agent.twin_control_plane.pipeline_integration import _build_policy_brief_and_resolution
+
+    profile = ModelCapabilityProfile(
+        model_id="bench-m", provider_id="local",
+        capability_scores={"structured_output_fidelity": 1.0, "patch_protocol_fidelity": 1.0},
+    )
+    _policy, _brief, resolution = _build_policy_brief_and_resolution(
+        requirement="r", pool_id="p", project_path="", refs=[], item_refs=(),
+        change_class="medium", task_category="autonomous_codegen",
+        capability_profile=profile, profile_available=True,
+        route_preferences={ForgeRoute.SLICED_IMPACT: 0.95, ForgeRoute.PATCH_DSL: 0.1},
+    )
+    assert resolution.selection_mode == "benchmark_optimized"
+    assert resolution.route_fitness_applied is True
+    assert resolution.policy.route == ForgeRoute.SLICED_IMPACT
+
+
+def test_critical_change_keeps_critical_gate():
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="r", pool_id="p",
+                                      change_class="critical")
+    assert ev["route"] == "critical_gate"
+    assert ev["fallback_recommendation"]["route"] == "critical_gate"
+
+
+def test_policy_resolution_never_changes_execution_authority():
+    ev = build_twin_pipeline_evidence(mode=PipelineMode.ACTIVE, requirement="r", pool_id="p")
+    assert ev["advisory"] is True
+    assert ev["fallback_recommendation"]["production_routing_changed"] is False
+    assert any("RouteMatrix remains authority" in r for r in ev["atlas_generation_policy"]["reasons"])

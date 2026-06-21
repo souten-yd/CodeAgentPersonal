@@ -57,7 +57,7 @@ docs/forge_twin_assist_readiness_extension_plan.md # TA9〜TA12
 
 | # | ブランチ | 内容 | 依存 | 状態 |
 |---|---|---|---|---|
-| TA13 | `feat/forge-runtime-policy-wiring` | `atlas_generation_policy` resolverを `pipeline_integration` に本接続 | `atlas_generation_policy.py` | ☐ pending |
+| TA13 | `feat/forge-runtime-policy-wiring` | `atlas_generation_policy` resolverを `pipeline_integration` に本接続 | `atlas_generation_policy.py` | ☑ completed |
 | TA14 | `feat/forge-runtime-policy-preview-api` | 実生成policy preview API / evidence schema / UI表示 | TA13 | ☐ pending |
 | TA15 | `feat/forge-default-routing-presets` | 未ベンチ・OFF時の推奨fallback presetsを明文化/設定化 | TA13 | ☐ pending |
 | TA16 | `feat/forge-runtime-policy-e2e-proof` | 実patch生成payloadまで route/method/injection が届くE2E証跡 | TA13〜TA15 | ☐ pending |
@@ -503,3 +503,21 @@ runtime_policy_delivery evidence
 5. optimal routing OFF時はベンチ結果を無視したか。
 6. criticalではbenchmark preferenceを無視してcritical_gateになったか。
 7. その判断理由がevidenceに残ったか。
+
+---
+
+## 完了証跡
+
+### TA13 — Runtime Policy Wiring (completed 2026-06-21)
+
+Completed package: TA13 `feat/forge-runtime-policy-wiring`
+Status: completed; per-item PR workflow
+Changed modules/files: `agent/twin_control_plane/pipeline_integration.py`, `tests/test_twin_pipeline_integration.py`, this plan + `AGENTS.md`
+Behavior implemented: added `_build_policy_brief_and_resolution()` which routes policy selection through `resolve_atlas_generation_policy()` and returns `(policy, brief, resolution)`. `build_twin_pipeline_evidence()` now uses it and emits `atlas_generation_policy` (full resolution dump), `selection_mode`, `optimal_routing_enabled`, `route_fitness_applied`, and `fallback_recommendation` while keeping the existing `route` / `instruction_style` / `twin_injection_level` / `route_fitness` / `benchmark_route_selected` fields. `_build_policy_and_brief()` retained for `evaluate_twin_post_apply` compatibility. RouteMatrix remains the authority; production routing is never changed.
+Focused tests: 6 TA13 tests appended to `tests/test_twin_pipeline_integration.py` — runtime policy evidence present; unbenchmarked → `unbenchmarked_default` route=patch_dsl; optimal routing OFF recorded (`forge_optimal_routing_off`, route_fitness_applied=False); benchmark_optimized flows via the resolution (route=sliced_impact); critical change keeps critical_gate; resolution never changes execution authority (advisory, production_routing_changed=False, RouteMatrix authority reason present).
+Affected tests: `pytest -q test_forge_atlas_generation_policy + test_twin_pipeline_integration + test_forge_atlas_execution_shadow + test_execution_policy_route_preference + test_forge_execution_rescue_wiring + all twin assist suites` -> 115 passed.
+Note: the pre-existing import-order fragility means `tests/test_twin_pipeline_integration.py` must be collected alongside a module that imports `execution_policy` first (e.g. `test_forge_atlas_generation_policy.py`); it passes in-suite (this predates TA13).
+Real model evidence: not required — TA13 is policy-resolution wiring into advisory evidence, not a model call. TA16 covers the end-to-end patch-payload delivery proof.
+Safety invariants: advisory only; `production_routing_changed=False`; RouteMatrix authority preserved; Twin Assist attachment and capability-rescue wiring both preserved.
+Remaining: TA14 (preview API/UI), TA15 (default routing presets), TA16 (patch-payload delivery E2E proof).
+Proof level: `component_complete` (runtime policy resolution now recorded in pipeline evidence)
