@@ -195,6 +195,10 @@ class ForgeService:
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return str(path)
 
+    def record_atlas_execution_shadow(self, **payload) -> str:
+        from agent.model_forge.atlas_shadow import record_atlas_execution_shadow
+        return record_atlas_execution_shadow(self, **payload)
+
     # ----- read endpoints -----
 
     def status(self) -> dict:

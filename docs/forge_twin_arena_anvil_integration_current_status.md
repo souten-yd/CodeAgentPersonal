@@ -459,3 +459,25 @@ Remaining gaps: runtime shadow integration and formal Anvil acceptance remain pe
 Next package: PR15 `feat/forge-execution-shadow`
 Blocker: none
 Proof level: `real_llm_evaluated`
+
+---
+
+## 22. PR15 Atlas execution shadow 統合完了証跡
+
+Completed package: PR15 `feat/forge-execution-shadow`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/atlas_shadow.py`, execution bridge/service/stage defaults, Proof Ledger schema, `app/api/atlas_pipeline.py`, shadow integration tests, integration plan/status docs
+Behavior implemented: plan/patch bridge and verification/repair API hooks record result digest/status, evidence-backed method policy, fallback chain and evaluation refs; per-phase local artifacts connect to idempotent `forge_shadow` Proof Ledger entries; Atlas output remains authoritative and unchanged
+Focused tests: `python -m pytest -q tests/test_forge_atlas_execution_shadow.py tests/test_forge_execution_bridge.py tests/test_model_forge_stage_matrix.py tests/test_twin_proof_ledger_store.py tests/test_twin_control_plane_patch_impact_proof_ledger.py` -> 24 passed
+Syntax checks: focused `py_compile` and `git diff --check` -> passed
+Affected tests: verification/Safe Apply/self-correction/method suites -> 53 passed, 1 failed; failing `test_safe_apply_one_and_verify_success` was separately reproduced unchanged on detached `origin/main` because requirement coverage remains partial despite pytest passing, so it is a known baseline failure and not counted as passed
+Real model evidence: localhost:8080 model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`; `test_real_stage_shadow_four_stages` passed; patch_generation/test_generation/failure_classification/repair all legacy score 1.0 and Forge score 1.0, winner tie, regression false; Forge latencies 2719/2953/2688/2655 ms
+Atlas UI evidence: unavailable; PR15 is backend integration
+Project Intelligence evidence: evaluation refs and method policy are advisory inputs; missing profile records `model_evaluation_profile:unavailable` rather than passed
+Runtime/Portal evidence: real local provider calls proven for four shadow stages; Portal is not involved
+Unavailable checks: known baseline Atlas success-test assertion remains inconsistent with current requirement coverage gate; no active/cutover runtime test is performed because this PR is shadow-only
+Safety invariants: result payload content is not persisted, only SHA-256 digest/status; `changes_production_routing=false`; `active_auto_enabled=false`; non-shadow stage creates no artifact; recorder failures cannot change legacy output; Proposal/Safe Apply/Verification authority remains
+Remaining gaps: formal Anvil fallback evaluation and final acceptance remain pending
+Next package: PR16 `feat/forge-anvil-real-eval`
+Blocker: none
+Proof level: `real_llm_evaluated` (`shadow_connected` acceptance also satisfied)

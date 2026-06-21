@@ -488,6 +488,29 @@ def _resolve_atlas_test_command_runner(request: Request) -> Any:
     return runner
 
 
+def _record_forge_phase_shadow(
+    data_root: str | Path,
+    *,
+    stage: ForgeStage,
+    request_id: str,
+    task_category: str,
+    result: Any,
+) -> str:
+    """Best-effort shadow observation; it must never alter the Atlas result."""
+    try:
+        payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
+        status = str(payload.get("status") or "") if isinstance(payload, dict) else ""
+        return ForgeService(data_root).record_atlas_execution_shadow(
+            stage=stage,
+            request_id=request_id,
+            task_category=task_category,
+            result_payload=payload,
+            result_status=status,
+        )
+    except Exception:  # noqa: BLE001 - shadow evidence cannot break Atlas authority.
+        return ""
+
+
 def _normalize_planner_mode(value: str) -> str:
     candidate = str(value or "auto").strip().lower()
     return candidate if candidate in {"auto", "real_planner", "fallback_only"} else "auto"
@@ -2650,6 +2673,13 @@ def _do_verification(pool_id: str, req: "AtlasVerificationRequest", app: Any, *,
     except Exception as exc:
         result.warnings.append("verification_enrichment_failed")
         result.warnings.append(str(exc) or exc.__class__.__name__)
+    _record_forge_phase_shadow(
+        ca_data_root,
+        stage=ForgeStage.VERIFICATION_INTERPRETATION,
+        request_id=f"{req.run_id}:{req.item_id}",
+        task_category="atlas_verification",
+        result=result,
+    )
     return result
 
 
@@ -3965,7 +3995,7 @@ def atlas_automation_safe_apply_one_and_verify(request_body: AtlasAutoSafeApplyA
     elif verify.status == "passed":
         status = "applied_and_verified"
     elif verify.status == "failed":
-        _, storage, journal = _atlas_components(request, workspace_id=request_body.workspace_id)
+        ca_data_root, storage, journal = _atlas_components(request, workspace_id=request_body.workspace_id)
         workspace_root = _resolve_pool_workspace_root(
             storage=storage,
             ca_data_root=Path(getattr(request.app.state, "atlas_ca_data_dir", "./ca_data")),
@@ -4030,6 +4060,15 @@ def atlas_automation_safe_apply_one_and_verify(request_body: AtlasAutoSafeApplyA
                     suggestion_payload["metadata"]["self_correction"] = "skipped:no_llm"
                 failure_stop_suggestion = suggestion_payload
                 continuation_prompt = (continuation_prompt + "\n\nManual next steps: Review verification failure. Inspect changed files. Restore from Change Snapshot manually if needed. Run Debug Review manually if restore is not desired.").strip()
+        _record_forge_phase_shadow(
+            ca_data_root,
+            stage=ForgeStage.REPAIR,
+            request_id=f"{request_body.run_id}:{request_body.item_id}",
+            task_category="atlas_self_correction",
+            result=(self_correction_result if self_correction_result is not None else {
+                "status": "unavailable", "reason": "self_correction_not_run",
+            }),
+        )
     elif verify.status == "blocked":
         status = "verification_blocked"
     return AtlasAutoSafeApplyAndVerifyResult(auto_safe_apply_result=safe.model_dump(), auto_verification_result=verify.model_dump(), status=status, failure_stop_suggestion=failure_stop_suggestion, continuation_prompt=continuation_prompt)
