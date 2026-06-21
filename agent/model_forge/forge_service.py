@@ -700,13 +700,38 @@ class ForgeService:
         raw = self._candidate_raw_output(cand, run_dir)
         privacy_mode = str(record.get("privacy_mode") or "")
         privacy_penalty = 0.0 if privacy_mode == "no_external_code" else None
-        return CandidateEvaluator().evaluate(CandidateEvaluationInput(
+        evaluation = CandidateEvaluator().evaluate(CandidateEvaluationInput(
             candidate_id=str(cand.get("candidate_id") or ""),
             execution_result=result,
             output_contract="text",
             raw_output=raw,
             privacy_penalty=privacy_penalty,
         ))
+        return self._attach_candidate_radar(cand, evaluation)
+
+    def _attach_candidate_radar(self, cand: dict, evaluation: CandidateEvaluation) -> CandidateEvaluation:
+        """Populate the candidate radar from the model's real benchmark capability profile.
+
+        Empty when the model has no persisted profile (never fabricated). baseline_radar_scores
+        stays empty until an assist-on/off profile pair exists; the radar overlay activates then."""
+        try:
+            from agent.model_forge.capability_scoring import build_capability_profile
+
+            provider_id = str(cand.get("provider_id") or "")
+            model_id = str(cand.get("model_id") or "")
+            if not model_id:
+                return evaluation
+            profile = self.profiles.load_profile(provider_id, model_id)
+            if profile is None:
+                return evaluation
+            capability = build_capability_profile(profile, provider_id=provider_id, model_id=model_id)
+            radar = {dim: float(score) for dim, score in capability.capability_scores.items()}
+            if not radar:
+                return evaluation
+            updated_score = evaluation.score.model_copy(update={"radar_scores": radar})
+            return evaluation.model_copy(update={"score": updated_score})
+        except Exception:  # noqa: BLE001 - radar enrichment is advisory; never break scoring.
+            return evaluation
 
     @staticmethod
     def _candidate_execution_result(cand: dict, run_dir: Path) -> ForgeExecutionResult:
