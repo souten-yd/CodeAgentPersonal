@@ -28,9 +28,16 @@ class TwinEditSlot(ForgeModel):
 
 
 class TwinEditSlotResolver:
+    def __init__(self, quality_gate=None) -> None:
+        if quality_gate is None:
+            from agent.model_forge.twin_slot_quality import TwinSlotQualityGate
+            quality_gate = TwinSlotQualityGate()
+        self.quality_gate = quality_gate
+
     def resolve(
         self, *, project_root: str | Path, target_file: str, goal: str,
         expected_symbols: list[str] | None = None, required_tests: list[str] | None = None,
+        forbidden_refs: list[str] | None = None,
     ) -> TwinEditSlot | None:
         root = Path(project_root).resolve()
         path = (root / target_file).resolve()
@@ -43,7 +50,7 @@ class TwinEditSlotResolver:
             if found:
                 name, start, end, anchor = found
                 occurrences = content.count(anchor)
-                return TwinEditSlot(
+                slot = TwinEditSlot(
                     slot_id=f"slot:{target_file}:{name}", file=target_file,
                     symbol_ref=name, operation="replace_symbol_body", start_line=start,
                     end_line=end, anchor_text=anchor if occurrences == 1 else "",
@@ -51,17 +58,19 @@ class TwinEditSlotResolver:
                     required_tests=required_tests or [], confidence=0.95 if occurrences == 1 else 0.65,
                     evidence_refs=[f"ast:{target_file}:{start}-{end}"],
                 )
+                return slot if self.quality_gate.evaluate(slot=slot, project_root=root, forbidden_refs=forbidden_refs).accepted else None
         anchor = self._unique_insertion_anchor(content)
         if not anchor:
             return None
         line = content[:content.index(anchor)].count("\n") + 1
-        return TwinEditSlot(
+        slot = TwinEditSlot(
             slot_id=f"slot:{target_file}:insertion", file=target_file,
             operation="insert_after", start_line=line, end_line=line,
             anchor_text=anchor, anchor_occurrences=1, required_behavior=goal,
             required_tests=required_tests or [], confidence=0.75,
             evidence_refs=[f"unique_anchor:{target_file}:{line}"],
         )
+        return slot if self.quality_gate.evaluate(slot=slot, project_root=root, forbidden_refs=forbidden_refs).accepted else None
 
     @staticmethod
     def _python_symbol(content: str, symbols: list[str]):

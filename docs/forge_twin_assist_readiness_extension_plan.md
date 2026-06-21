@@ -41,7 +41,7 @@ docs/forge_twin_assist_evaluation_plan.md
 |---|---|---|---|---|
 | TA9 | `feat/forge-twin-readiness-score` | Twin本体の実装度・信頼度を評価する Readiness Score | TA1〜TA8 | ☑ completed |
 | TA10 | `feat/forge-route-method-assist-matrix` | route × method × assist × fallback の組み合わせ評価 | TA1〜TA9 | ☑ completed |
-| TA11 | `feat/forge-twin-slot-quality-gates` | Twin slot / deterministic anchor の品質ゲート・confidence calibration | TA4, TA9 | ☐ pending |
+| TA11 | `feat/forge-twin-slot-quality-gates` | Twin slot / deterministic anchor の品質ゲート・confidence calibration | TA4, TA9 | ☑ completed |
 | TA12 | `feat/forge-twin-assist-postapply-e2e` | proposal→Safe Apply dry-run→focused tests→post-apply Twin gate のE2E評価 | TA1〜TA11 | ☐ pending |
 
 ---

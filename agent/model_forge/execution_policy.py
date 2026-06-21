@@ -33,6 +33,7 @@ class ModelCapabilityProfile:
     recommended_twin_assist_mode: str = ""
     recommended_twin_injection_level: int | None = None
     twin_assist_lift: dict[str, float] = field(default_factory=dict)
+    slot_quality_accepted: bool | None = None
 
     def score(self, dimension: str, default: float = 0.5) -> float:
         value = self.capability_scores.get(dimension, default)
