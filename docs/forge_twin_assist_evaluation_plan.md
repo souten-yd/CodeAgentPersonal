@@ -553,7 +553,7 @@ Recommended Twin Assist:
 | # | ブランチ | 内容 | 状態 |
 |---|---|---|---|
 | TA1 | feat/forge-twin-assist-contracts | taxonomy / DTO / strict schema tests | ☑ completed |
-| TA2 | feat/forge-twin-assist-packs | case packs / fixtures / scoring | ☐ pending |
+| TA2 | feat/forge-twin-assist-packs | case packs / fixtures / scoring | ☑ completed |
 | TA3 | feat/forge-twin-assist-runner | AtlasPatchProposalService実経路を使うbaseline vs assisted runner | ☐ pending |
 | TA4 | feat/forge-twin-localized-slot | TwinEditSlot / resolver / slot patch adapter MVP | ☐ pending |
 | TA5 | feat/forge-twin-assist-policy | MethodRouter / ExecutionPolicy / ProfileStore連携 | ☐ pending |
