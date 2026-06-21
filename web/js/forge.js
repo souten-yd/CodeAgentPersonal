@@ -21,11 +21,9 @@
   }
 
   const TABS = [
-    { id: 'overview', label: 'Overview' },
     { id: 'skills', label: 'Skills' },
     { id: 'benchmark', label: 'Benchmark' },
     { id: 'arena', label: 'Arena' },
-    { id: 'twin-assist', label: 'Twin Assist' },
     { id: 'loadouts', label: 'Loadouts' },
     { id: 'settings', label: 'Settings' },
     { id: 'advanced', label: 'Advanced' },
@@ -38,12 +36,12 @@
   const state = {
     activated: false,
     loading: false,
-    tab: 'overview',
+    tab: 'benchmark',
     data: { status: {}, providers: [], loadouts: [], profiles: [], leaderboard: [], presets: [], settings: {}, openrouterCatalog: null },
     // Benchmark selector state. Depth defaults to 'standard' — full/deep is never forced.
     // ctx is the context length for the chosen local/LM-Studio model (persisted to the model
     // registry for Anvil models; used at load time by the runtime manager — see enable/monitor).
-    bench: { presets: [], depth: 'standard', provider: '', model: '', ctx: '', result: null },
+    bench: { presets: [], depth: 'standard', provider: '', model: '', ctx: '', result: null, subtab: 'benchmark' },
     twinAssist: { cases: [], result: null, subtab: 'evaluation' },
   };
 
@@ -349,6 +347,17 @@
   }
 
   function benchmarkHtml(data) {
+    // Evaluation hub: capability Benchmark + Twin Assist (run as a section here, not a tab).
+    const subtab = state.bench.subtab || 'benchmark';
+    const subnav = '<div class="forge-card-title forge-section-title">Evaluation</div>'
+      + '<div class="forge-subnav">'
+      + '<button type="button" class="forge-tab' + (subtab === 'benchmark' ? ' active' : '') + '" data-bench-subtab="benchmark">Benchmark</button>'
+      + '<button type="button" class="forge-tab' + (subtab === 'twin-assist' ? ' active' : '') + '" data-bench-subtab="twin-assist">Twin Assist</button>'
+      + '</div>';
+    return subnav + (subtab === 'twin-assist' ? twinAssistHtml() : _benchmarkBody(data));
+  }
+
+  function _benchmarkBody(data) {
     const presets = data.presets || [];
     const sel = state.bench;
     const primaries = primaryPresets(presets);
@@ -1294,11 +1303,22 @@
       + '<div class="forge-kv"><span>Catalog</span><b>' + escapeHtml(catalog.status || 'disabled') + '</b></div>'
       + '<button type="button" class="forge-run-btn" data-settings-save>Save settings</button>'
       + '</div>'
+      // Providers & status moved here from the removed Overview tab (config is the natural home).
+      + '<div class="forge-card">'
+      + '<div class="forge-card-title">Providers & status</div>'
+      + '<div class="forge-kv"><span>Forge</span><b>' + escapeHtml((data.status && data.status.forge_enabled) ? 'On' : 'Off (legacy primary)') + '</b></div>'
+      + '<div class="forge-kv"><span>Source mode</span><b>' + escapeHtml((data.status || {}).source_mode || '') + '</b></div>'
+      + '<div class="forge-kv"><span>Profiles</span><b>' + escapeHtml(String((data.status || {}).profile_count || 0)) + '</b></div>'
+      + ((data.providers || []).map(providerCard).join('') || '<div class="forge-empty">No providers registered.</div>')
+      + '</div>'
     );
   }
 
   function wireSettings(content) {
     content.querySelector('[data-settings-save]')?.addEventListener('click', () => saveSettings(content));
+    content.querySelectorAll('[data-provider-probe]').forEach((btn) => {
+      btn.addEventListener('click', () => probeProvider(btn.getAttribute('data-provider-probe')));
+    });
     // Base URL quick-fill presets. Selecting a runtime also nudges the matching default port so the
     // two stay consistent without forcing it (an explicit URL the user typed is never overwritten on save).
     content.querySelectorAll('[data-local-base-preset]').forEach((btn) => {
@@ -1464,9 +1484,11 @@
     }));
   }
 
+  // Overview and the standalone Twin Assist tab were removed: status/providers live in
+  // Settings, and Twin Assist now runs as a section inside Benchmark (the evaluation hub).
   const VIEWS = {
-    overview: overviewHtml, skills: skillsHtml, benchmark: benchmarkHtml,
-    arena: arenaHtml, 'twin-assist': twinAssistHtml, loadouts: loadoutsHtml, settings: settingsHtml, advanced: advancedHtml,
+    skills: skillsHtml, benchmark: benchmarkHtml,
+    arena: arenaHtml, loadouts: loadoutsHtml, settings: settingsHtml, advanced: advancedHtml,
   };
 
   // ----- model detail drawer (Skills) -----
@@ -1531,18 +1553,24 @@
   function renderActive() {
     const content = $('forge-content');
     if (!content) return;
-    const builder = VIEWS[state.tab] || overviewHtml;
+    const builder = VIEWS[state.tab] || benchmarkHtml;
     content.innerHTML = builder(state.data);
     if (state.tab === 'skills') {
       content.querySelectorAll('[data-model]').forEach((row) => {
         row.addEventListener('click', () => openModelDrawer(row.getAttribute('data-model')));
       });
-    } else if (state.tab === 'overview') {
-      content.querySelectorAll('[data-provider-probe]').forEach((btn) => {
-        btn.addEventListener('click', () => probeProvider(btn.getAttribute('data-provider-probe')));
-      });
     } else if (state.tab === 'benchmark') {
-      wireBenchmark(content, state.data);
+      // Benchmark is the evaluation hub: a sub-nav switches between capability Benchmark and
+      // Twin Assist (which runs as a section here, not a standalone tab).
+      content.querySelectorAll('[data-bench-subtab]').forEach((btn) => btn.addEventListener('click', () => {
+        state.bench.subtab = btn.getAttribute('data-bench-subtab');
+        renderActive();
+      }));
+      if ((state.bench.subtab || 'benchmark') === 'twin-assist') {
+        wireTwinAssist(content);
+      } else {
+        wireBenchmark(content, state.data);
+      }
     } else if (state.tab === 'arena') {
       content.querySelectorAll('[data-candidate-detail]').forEach((btn) => {
         btn.addEventListener('click', () => openCandidateDrawer(btn.getAttribute('data-candidate-detail'), 'All'));
@@ -1553,8 +1581,6 @@
       content.querySelectorAll('[data-candidate-proposal]').forEach((btn) => {
         btn.addEventListener('click', () => createProposalDraft(btn.getAttribute('data-candidate-proposal')));
       });
-    } else if (state.tab === 'twin-assist') {
-      wireTwinAssist(content);
     } else if (state.tab === 'advanced') {
       wireAdvanced(content);
     } else if (state.tab === 'loadouts') {
