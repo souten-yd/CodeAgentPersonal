@@ -29,7 +29,7 @@
 | 3 | feat/forge-adapters-structured | MethodRegistry + 構造化系 adapter | StructuredPatchJsonAdapter / PatchDslJsonAdapter / EditIntentListAdapter + edit_intent→Safe Apply deterministic compiler + tests | 1,2 | ☑ merged |
 | 4 | feat/forge-adapters-anchored | 残り adapter | AnchoredEditBlock / UnifiedDiff / DeterministicTextPatch / ReviewOnly / RepairCompass + tests | 3 | ☑ merged |
 | 5 | feat/forge-method-pipeline | MethodPipeline | primary→fallback 実行、trigger 判定（schema_invalid / anchor_not_found 等）、hard_fail（Safe Apply bypass 等）、attempts 記録 + tests | 3,4 | ☑ merged |
-| 6 | feat/forge-method-router | MethodRouter + Policy 統合 | profile→MethodChain/abstraction/decomposition/context/verification。ExecutionPolicySelector へ method 添付（safe 候補内のみ・route override 禁止）+ tests | 2,5 | ☐ pending |
+| 6 | feat/forge-method-router | MethodRouter + Policy 統合 | profile→MethodChain/abstraction/decomposition/context/verification。ExecutionPolicySelector へ method 添付（safe 候補内のみ・route override 禁止）+ tests | 2,5 | ☑ merged |
 | 7 | feat/forge-eval-dimensions | 新評価軸 + ケース | capability dimension 追加（structured_output_fidelity, patch_protocol_fidelity, edit_intent_quality, anchor_selection_quality, abstraction_tolerance, fallback_recovery, scope_boundary_discipline, context_overload_sensitivity 等）+ eval packs（output_protocol/patch_construction/abstraction/fallback/weak_local/frontier/safety_adversarial）+ tests | 1,2 | ☐ pending |
 | 8 | feat/forge-evaluation-api | 評価 API | `/api/forge/evaluation/{cases,run,rerun,optimize,model-profile}` + tests | 6,7 | ☐ pending |
 | 9 | feat/forge-twin-facade-api | Twin facade API | `/api/forge/twin/{settings,profiles,inspect/context,inspect/impact}`（read-only inspector 再利用）+ tests | — | ☐ pending |
@@ -76,3 +76,4 @@
 - 2026-06-21: PR3 構造化adapter 3種とcontent-addressed artifact store、deterministic `atlas_file_changes.v1` compilerを実装。focused 27 passed、Safe Apply/Forge回帰60 passed。localhost:8080実モデル出力をedit intentから安全な非適用patchへ変換成功。
 - 2026-06-21: PR4 AnchoredEditBlock / UnifiedDiff / DeterministicTextPatch / ReviewOnly / RepairCompass adaptersを実装。focused 36 passed、回帰60 passed。localhost:8080実モデルのanchored blockを非適用patchへ変換成功。
 - 2026-06-21: PR5 MethodPipelineを実装。trigger fallback、attempt履歴、unavailable、bounded retry、authority hard-failを検証（focused 34 passed、回帰49 passed）。forced schema failureからlocalhost:8080実モデルedit intentへのfallback成功。
+- 2026-06-21: PR6 MethodRouterをExecutionPolicySelectorへ添付。RouteMatrix権限を維持し、弱点・失敗回数に応じたmethod/policyを選択（focused 23 passed、回帰50 passed）。localhost:8080実モデルでweak-profile route→method→pipeline成功。
