@@ -110,3 +110,18 @@ def test_unknown_dimension_and_missing_rerun_are_errors(tmp_path):
         "run_id": "forge_eval_missing", "results": []
     })
     assert missing.status_code == 404
+
+
+def test_live_run_unreachable_is_unavailable_and_unscored(tmp_path):
+    client = _client(tmp_path)
+    response = client.post("/api/forge/evaluation/run-live", json={
+        "provider_id": "anvil",
+        "model_id": "missing",
+        "base_url": "http://127.0.0.1:1",
+        "dimensions": ["structured_output_fidelity"],
+        "timeout_seconds": 0.2,
+    })
+    assert response.status_code == 200
+    scores = response.json()["scores"]["structured_output_fidelity"]
+    assert scores["outcome"] == "unavailable"
+    assert scores["score"] is None

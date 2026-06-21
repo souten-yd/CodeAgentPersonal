@@ -349,3 +349,25 @@ Remaining gaps: real runner, optimizer/loadout, UI, runtime shadow integration a
 Next package: PR10 `feat/forge-real-llm-runner`
 Blocker: none
 Proof level: `method_router_shadow_connected`
+
+---
+
+## 17. PR10 Real LLM runner 完了証跡
+
+Completed package: PR10 `feat/forge-real-llm-runner`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/real_method_runner.py`, `agent/model_forge/evaluation_service.py`, `agent/model_forge/forge_service.py`, `app/api/forge.py`, real-runner/evaluation tests, integration plan/status docs
+Behavior implemented: OpenAI-compatible live Method evaluation for Anvil/local/LM Studio/OpenRouter; durable raw/output metadata; token/latency/response ID/base URL evidence; run-live API; unavailable and Local Only gates
+Focused tests: `python -m pytest -q tests/test_forge_real_method_runner.py tests/test_forge_evaluation_api.py tests/test_forge_method_pipeline.py` -> 17 passed
+Syntax checks: focused `py_compile` for runner/evaluation/service/API/tests -> passed
+Affected tests: `python -m pytest -q tests/test_forge_api.py tests/test_model_forge_local_openai.py tests/test_model_forge_openrouter_client.py tests/test_model_forge_provider_policy.py tests/test_forge_method_eval_dimensions.py` -> 49 passed
+Real model evidence: localhost:8080, model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, provider label `anvil`, evaluation run `forge_eval_ad0e5883f8ce`; two edit-intent cases executed with durable evidence and both failed contract compilation (`content_missing`, `file_changes_missing`), producing score 0.0/failed rather than a false pass
+Atlas UI evidence: unavailable; PR10 has no UI change
+Project Intelligence evidence: unavailable; real runner uses bounded synthetic evaluation targets, not project source
+Runtime/Portal evidence: unavailable; provider execution is proven but Portal runtime is not involved
+Unavailable checks: only four mechanically checkable method dimensions are live-enabled; semantic-only dimensions return unavailable; formal Anvil pass/fallback proof remains PR16
+Safety invariants: external provider blocked in Local Only; missing credential/transport failure is unavailable; secrets are read from env and never persisted; no output is applied; failed model output remains failed
+Remaining gaps: optimizer/loadout, UI, runtime shadow integration and formal Anvil/fallback acceptance remain pending
+Next package: PR11 `feat/forge-optimizer-loadout`
+Blocker: none
+Proof level: `real_llm_evaluated`

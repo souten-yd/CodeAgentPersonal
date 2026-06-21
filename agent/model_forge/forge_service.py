@@ -102,6 +102,9 @@ class ForgeService:
     def run_evaluation(self, **payload) -> dict:
         return self.evaluation.run(**payload)
 
+    def run_live_evaluation(self, **payload) -> dict:
+        return self.evaluation.run_live(**payload)
+
     def rerun_evaluation(self, run_id: str, **payload) -> dict:
         return self.evaluation.rerun(run_id, **payload)
 
