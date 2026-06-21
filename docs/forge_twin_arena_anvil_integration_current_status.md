@@ -305,3 +305,25 @@ Remaining gaps: evaluation API/runner, real runner, optimizer/loadout, UI, runti
 Next package: PR8 `feat/forge-evaluation-api`
 Blocker: none
 Proof level: `method_router_shadow_connected`
+
+---
+
+## 15. PR8 Evaluation API 完了証跡
+
+Completed package: PR8 `feat/forge-evaluation-api`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/evaluation_service.py`, `agent/model_forge/forge_service.py`, `app/api/forge.py`, `tests/test_forge_evaluation_api.py`, integration plan/status docs
+Behavior implemented: cases/run/rerun/optimize-preview/model-profile endpoints; strict requests; mechanical score persistence; append-only profile evidence; unavailable no-score behavior
+Focused tests: `python -m pytest -q tests/test_forge_evaluation_api.py tests/test_forge_method_eval_dimensions.py tests/test_model_forge_capability_eval_packs.py` -> 18 passed
+Syntax checks: `python -m py_compile agent/model_forge/evaluation_service.py agent/model_forge/forge_service.py app/api/forge.py tests/test_forge_evaluation_api.py` -> passed
+Affected tests: `python -m pytest -q tests/test_forge_api.py tests/test_model_forge_schema.py tests/test_forge_method_router.py` -> 40 passed
+Real model evidence: PR7 live response `chatcmpl-fujCkdng5mh309rQTEnNHdFKghAY7XFg` was submitted as failed case evidence; API run `forge_eval_877db954dcd1` produced score 0.0/failed, persisted the weakness, and returned a `preview_not_applied` edit-intent recommendation
+Atlas UI evidence: unavailable; PR8 has no UI change
+Project Intelligence evidence: unavailable; evaluation API does not inspect projects
+Runtime/Portal evidence: unavailable; real provider runner is PR10 and this API accepts mechanical CaseResult input only
+Unavailable checks: full live evaluation run remains pending; optimization is preview only and does not create/apply a loadout
+Safety invariants: unavailable-only runs create no scored profile; weak feedback is not used; preview is not applied; strict bodies reject hidden apply fields
+Remaining gaps: Twin facade, real runner, optimizer/loadout, UI, runtime shadow integration and Anvil acceptance remain pending
+Next package: PR9 `feat/forge-twin-facade-api`
+Blocker: none
+Proof level: `method_router_shadow_connected`
