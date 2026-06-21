@@ -59,7 +59,7 @@ docs/forge_twin_assist_readiness_extension_plan.md # TA9〜TA12
 |---|---|---|---|---|
 | TA13 | `feat/forge-runtime-policy-wiring` | `atlas_generation_policy` resolverを `pipeline_integration` に本接続 | `atlas_generation_policy.py` | ☑ completed |
 | TA14 | `feat/forge-runtime-policy-preview-api` | 実生成policy preview API / evidence schema / UI表示 | TA13 | ☑ completed |
-| TA15 | `feat/forge-default-routing-presets` | 未ベンチ・OFF時の推奨fallback presetsを明文化/設定化 | TA13 | ☐ pending |
+| TA15 | `feat/forge-default-routing-presets` | 未ベンチ・OFF時の推奨fallback presetsを明文化/設定化 | TA13 | ☑ completed |
 | TA16 | `feat/forge-runtime-policy-e2e-proof` | 実patch生成payloadまで route/method/injection が届くE2E証跡 | TA13〜TA15 | ☐ pending |
 
 ---
@@ -533,3 +533,12 @@ Affected tests: forge evaluation/api + twin assist + atlas generation policy sui
 Real model evidence: not required (preview is a policy-resolution read; no model call). Live-browser UI verification remains unavailable (asserted via source-render test, consistent with the track).
 Safety invariants: advisory; production routing never changed; RouteMatrix authority preserved; strict request schema.
 Proof level: `component_complete` (preview API + UI render; browser interaction unavailable)
+
+### TA15 — Default Routing Presets (completed 2026-06-21)
+
+Completed package: TA15 `feat/forge-default-routing-presets`
+Changed modules/files: `agent/model_forge/default_generation_presets.py`, `app/api/forge.py`, `tests/test_forge_default_generation_presets.py`, this plan
+Behavior implemented: explicit `DEFAULT_GENERATION_PRESETS` (unbenchmarked_safe: route/method/injection per change class) + `validate_presets_against_route_matrix()` proving the presets never use a forbidden/unsafe route or a non-safe-candidate route, and that critical uses critical_gate. `GET /api/forge/atlas-generation-policy/default-presets` returns the presets, the optimal-routing-off note, `route_matrix_consistent`, and any `violations`. Descriptive/preview only — RouteMatrix/ExecutionPolicySelector keep authority. **No UI change in this PR.**
+Focused tests: `pytest -q tests/test_forge_default_generation_presets.py` -> 5 passed (route-matrix consistency, critical→critical_gate, large/critical avoid unsafe micro routes, every class has a preset, API).
+Safety invariants: presets are advisory; validated against RouteMatrix; no production routing change.
+Proof level: `component_complete`

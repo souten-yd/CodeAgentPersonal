@@ -331,6 +331,23 @@ def post_atlas_generation_policy_preview(request: Request, body: GenerationPolic
     return resolution.model_dump(mode="json")
 
 
+@router.get("/atlas-generation-policy/default-presets")
+def get_atlas_generation_policy_default_presets() -> dict:
+    """TA15: explicit safe-default routing presets for unbenchmarked / optimal-routing-off
+    runs, plus a check that they never contradict the RouteMatrix safe candidate set."""
+    from agent.model_forge.default_generation_presets import (
+        default_generation_presets,
+        validate_presets_against_route_matrix,
+    )
+
+    violations = validate_presets_against_route_matrix()
+    return {
+        **default_generation_presets(),
+        "route_matrix_consistent": not violations,
+        "violations": violations,
+    }
+
+
 @router.get("/twin/settings")
 def get_forge_twin_settings() -> dict:
     return {"settings": get_twin_settings(), "reversible": True}
