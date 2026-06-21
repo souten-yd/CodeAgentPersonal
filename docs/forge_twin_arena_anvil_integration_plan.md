@@ -34,7 +34,7 @@
 | 8 | feat/forge-evaluation-api | 評価 API | `/api/forge/evaluation/{cases,run,rerun,optimize,model-profile}` + tests | 6,7 | ☑ merged |
 | 9 | feat/forge-twin-facade-api | Twin facade API | `/api/forge/twin/{settings,profiles,inspect/context,inspect/impact}`（read-only inspector 再利用）+ tests | — | ☑ merged |
 | 10 | feat/forge-real-llm-runner | 実 LLM runner 接続 | Anvil / local OpenAI compat / LM Studio / OpenRouter 実行、unavailable handling、evidence/token/latency。evaluation/run と接続 + tests | 8 | ☑ merged |
-| 11 | feat/forge-optimizer-loadout | optimizer / role / loadout | route/method/injection/style fitness → RoleAssignment → Loadout 生成。Loadout に method preference/fallback 保存 + tests | 6,7 | ☐ pending |
+| 11 | feat/forge-optimizer-loadout | optimizer / role / loadout | route/method/injection/style fitness → RoleAssignment → Loadout 生成。Loadout に method preference/fallback 保存 + tests | 6,7 | ☑ merged |
 | 12 | feat/forge-ui-radar | Arena radar + drawer | SVG radar（外部ライブラリ無し、Capability/Method/Safety/Speed/All、unavailable≠0）+ candidate drawer + render test | 8,11 | ☐ pending |
 | 13 | feat/forge-ui-fallback-graph | fallback graph + method 比較 | candidate drawer に fallback graph、Benchmark に method 比較表、policy recommendation drawer + render test | 12 | ☐ pending |
 | 14 | feat/forge-ui-advanced-twin | Advanced への Twin 統合 | Forge Advanced に Twin Settings + read-only Twin Inspector。独立 Twin タブ非表示。mobile 崩れ無し + test | 9,13 | ☐ pending |
@@ -81,3 +81,4 @@
 - 2026-06-21: PR8 evaluation cases/run/rerun/optimize/model-profile APIとrun永続化を実装。focused 18 passed、回帰40 passed。PR7のlocalhost:8080実case failureをAPI投入し、failed profileと非適用method previewを確認。
 - 2026-06-21: PR9 Forge Twin facadeを追加。既存reversible settings/profileとread-only context/impact inspectorを再利用（focused 11 passed、回帰32 passed）。localhost:8080 advisory reviewは境界明示後 `VERDICT: PASS`。
 - 2026-06-21: PR10 OpenAI-compatible real Method runnerと`evaluation/run-live`を追加。focused 17 passed、provider/API回帰49 passed。localhost:8080 run `forge_eval_ad0e5883f8ce` は実行・証跡保存に成功し、edit-intent品質2ケースはfailed/score 0.0と正直に記録。
+- 2026-06-21: PR11 evidence-backed optimizerとRoleAssignment、method-aware Loadoutを追加。focused 14 passed、回帰32 passed。実run profileからedit-intent/anchored/review-only構成の非適用previewを生成。

@@ -15,6 +15,8 @@ from pathlib import Path
 from pydantic import Field
 
 from agent.model_forge.schema import FORGE_SCHEMA_VERSION, ForgeModel
+from agent.model_forge.schema import RoleAssignment
+from agent.model_forge.method_taxonomy import MethodVariant
 from agent.model_forge.source_policy import SourceMode
 
 
@@ -27,6 +29,9 @@ class Loadout(ForgeModel):
     # stage value -> stage mode value (applied in PFG-26).
     stage_overrides: dict[str, str] = Field(default_factory=dict)
     provider_preferences: list[str] = Field(default_factory=list)
+    method_preferences: dict[str, list[MethodVariant]] = Field(default_factory=dict)
+    method_fallbacks: dict[str, list[MethodVariant]] = Field(default_factory=dict)
+    role_assignments: list[RoleAssignment] = Field(default_factory=list)
     # True when applying this loadout would change production routing (needs confirmation).
     risky: bool = False
     builtin: bool = False
