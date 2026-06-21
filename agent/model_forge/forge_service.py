@@ -964,6 +964,15 @@ class ForgeService:
             "loadout_id": loadout.loadout_id,
             "source_mode": loadout.source_mode.value,
             "provider_preferences": loadout.provider_preferences,
+            "method_preferences": {
+                role: [method.value for method in methods]
+                for role, methods in loadout.method_preferences.items()
+            },
+            "method_fallbacks": {
+                role: [method.value for method in methods]
+                for role, methods in loadout.method_fallbacks.items()
+            },
+            "role_assignments": [assignment.model_dump(mode="json") for assignment in loadout.role_assignments],
             "applied_stages": applied,
         }
         self._active_loadout_path.parent.mkdir(parents=True, exist_ok=True)

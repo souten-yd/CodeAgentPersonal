@@ -371,3 +371,25 @@ Remaining gaps: optimizer/loadout, UI, runtime shadow integration and formal Anv
 Next package: PR11 `feat/forge-optimizer-loadout`
 Blocker: none
 Proof level: `real_llm_evaluated`
+
+---
+
+## 18. PR11 Optimizer / Role / Loadout 完了証跡
+
+Completed package: PR11 `feat/forge-optimizer-loadout`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/optimizer.py`, `agent/model_forge/loadouts.py`, evaluation/service/API integration, optimizer/loadout tests, integration plan/status docs
+Behavior implemented: evidence-backed ModelOptimizationProfile, coder/reviewer RoleAssignments, method preference/fallback persistence in Loadout, non-applying optimize preview, existing gated apply marker integration
+Focused tests: `python -m pytest -q tests/test_forge_optimizer_loadout.py tests/test_forge_evaluation_api.py tests/test_forge_method_router.py` -> 14 passed
+Syntax checks: focused optimizer/loadout/evaluation/service/API `py_compile` -> passed
+Affected tests: `python -m pytest -q tests/test_forge_api.py tests/test_forge_loadouts.py tests/test_forge_method_schema_extension.py` -> 32 passed
+Real model evidence: profile derived from localhost:8080 run `forge_eval_ad0e5883f8ce` generated coder `edit_intent_list`, fallback `anchored_edit_block`, reviewer `review_only`, confidence 0.6, and a `preview_not_applied` loadout carrying the real run evidence ref
+Atlas UI evidence: unavailable; loadout UI changes begin PR12
+Project Intelligence evidence: unavailable; optimizer consumes Forge evidence profiles only
+Runtime/Portal evidence: unavailable; generated loadout is not automatically applied
+Unavailable checks: role fitness across multiple models remains limited by available evidence; single-model preview does not prove optimality
+Safety invariants: optimizer never applies; save and apply remain separate existing APIs; risky stage overrides still require acknowledgement/cutover gates; reviewer assignment constructs no patch
+Remaining gaps: UI radar/fallback/Advanced, runtime shadow integration and formal Anvil acceptance remain pending
+Next package: PR12 `feat/forge-ui-radar`
+Blocker: none
+Proof level: `real_llm_evaluated`

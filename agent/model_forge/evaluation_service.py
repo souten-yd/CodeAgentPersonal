@@ -12,6 +12,7 @@ from agent.model_forge.method_router import MethodRouter
 from agent.model_forge.method_taxonomy import MethodVariant
 from agent.model_forge.profile_store import ProfileStore
 from agent.model_forge.real_method_runner import RealMethodRunner
+from agent.model_forge.optimizer import ForgeOptimizer
 from agent.model_forge.route_matrix import ChangeClass
 from agent.model_forge.route_taxonomy import ForgeRoute
 from agent.model_forge.schema import ModelOptimizationProfile
@@ -125,33 +126,9 @@ class ForgeEvaluationService:
 
     def optimize_preview(self, provider_id: str, model_id: str) -> dict:
         profile = self._profiles.load_profile(provider_id, model_id)
-        capability = build_capability_profile(profile, provider_id=provider_id, model_id=model_id)
-        decision = MethodRouter().select(
-            route=ForgeRoute.PATCH_DSL,
-            change_class=ChangeClass.MEDIUM,
-            profile=capability,
-        )
-        scores = capability.capability_scores
-        fitness = {
-            MethodVariant.STRUCTURED_PATCH_JSON: scores.get("structured_output_fidelity", 0.5),
-            MethodVariant.PATCH_DSL_JSON: scores.get("patch_protocol_fidelity", 0.5),
-            MethodVariant.EDIT_INTENT_LIST: scores.get("edit_intent_quality", 0.5),
-            MethodVariant.ANCHORED_EDIT_BLOCK: scores.get("anchor_selection_quality", 0.5),
-        }
-        preview = ModelOptimizationProfile(
-            profile_id=f"optimization-preview:{provider_id}:{model_id}",
-            provider_id=provider_id,
-            model_id=model_id,
-            method_fitness=fitness,
-            preferred_methods=[decision.chain.primary],
-            fallback_methods=[step.method_variant for step in decision.chain.fallbacks],
-            instruction_abstraction_level=decision.instruction_abstraction_level,
-            task_decomposition_policy=decision.task_decomposition_policy,
-            context_package_mode=decision.context_package_mode,
-            verification_mode=decision.verification_mode,
-            evidence_refs=list(profile.evidence_refs) if profile else [],
-        )
-        return {"status": "preview_not_applied", "optimization_profile": preview.model_dump(mode="json")}
+        return ForgeOptimizer().optimize(
+            profile, provider_id=provider_id, model_id=model_id,
+        ).model_dump(mode="json")
 
     def get_run(self, run_id: str) -> dict | None:
         path = self._runs / f"{self._safe_id(run_id)}.json"

@@ -95,6 +95,8 @@ def test_optimize_is_preview_only_and_strict_requests_reject_extras(tmp_path):
     })
     assert preview.status_code == 200
     assert preview.json()["status"] == "preview_not_applied"
+    assert preview.json()["loadout"]["method_preferences"]
+    assert preview.json()["role_assignments"]
     assert client.post("/api/forge/evaluation/optimize", json={
         "provider_id": "local", "model_id": "model", "apply": True
     }).status_code == 422

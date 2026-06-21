@@ -71,6 +71,9 @@ class LoadoutRequest(BaseModel):
     source_mode: str = "local_only"
     stage_overrides: dict[str, str] = Field(default_factory=dict)
     provider_preferences: list[str] = Field(default_factory=list)
+    method_preferences: dict[str, list[str]] = Field(default_factory=dict)
+    method_fallbacks: dict[str, list[str]] = Field(default_factory=dict)
+    role_assignments: list[dict] = Field(default_factory=list)
     risky: bool = False
 
 
