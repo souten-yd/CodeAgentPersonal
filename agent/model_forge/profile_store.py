@@ -57,6 +57,7 @@ class ProfileObservation(ForgeModel):
     recorded_at: str = ""
     twin_assist: dict = Field(default_factory=dict)
     assist_matrix: dict = Field(default_factory=dict)
+    injection_sweep: dict = Field(default_factory=dict)
 
 
 class ProfileStore:
@@ -101,6 +102,7 @@ class ProfileStore:
         evidence_refs: Iterable[str] | None = None,
         twin_assist: dict | None = None,
         assist_matrix: dict | None = None,
+        injection_sweep: dict | None = None,
     ) -> ModelProfile:
         obs = ProfileObservation(
             observation_id=self._id_factory(),
@@ -114,6 +116,7 @@ class ProfileStore:
             recorded_at=self._clock().isoformat(),
             twin_assist=dict(twin_assist or {}),
             assist_matrix=dict(assist_matrix or {}),
+            injection_sweep=dict(injection_sweep or {}),
         )
         # Append-only: never rewrite earlier lines.
         with self._obs_path(provider_id, model_id).open("a", encoding="utf-8") as fh:
@@ -131,6 +134,29 @@ class ProfileStore:
             source="twin_assist_evaluation",
             evidence_refs=report.evidence_refs,
             twin_assist={"scores": scores, "lift": lifts, "mode": mode, "injection_level": report.recommended_twin_injection_level},
+        )
+
+    def record_injection_sweep_report(self, record: dict) -> ModelProfile:
+        """Persist an injection-sweep result so the MEASURED optimal injection level flows into
+        the model profile (and thence ``ExecutionPolicySelector``). The sweep carries no
+        per-dimension capability scores of its own (those live in the standard benchmark), so it
+        records an empty ``dimensions`` map and only the injection optimum + provenance."""
+        return self.record_observation(
+            model_id=record["model_id"],
+            provider_id=record["provider_id"],
+            dimensions={},
+            source="injection_sweep",
+            evidence_refs=[],
+            injection_sweep={
+                "objective": record.get("objective"),
+                "selected_injection_level": record.get("selected_injection_level"),
+                "recommended_injection_level": record.get("recommended_injection_level"),
+                "min_sufficient_injection_level": record.get("min_sufficient_injection_level"),
+                "tolerance": record.get("tolerance"),
+                "per_dimension_optimal": dict(record.get("per_dimension_optimal") or {}),
+                "per_dimension_min_sufficient_level": dict(record.get("per_dimension_min_sufficient_level") or {}),
+                "levels": list(record.get("levels") or []),
+            },
         )
 
     def record_assist_matrix_report(self, report) -> ModelProfile:
@@ -199,6 +225,7 @@ class ProfileStore:
         evidence: list[str] = []
         primary_samples = 0
         latest_twin: dict = {}
+        latest_sweep: dict = {}
         matrix_recommendations: dict[str, dict] = {}
         for obs in observations:
             if obs.weak_feedback and not include_weak:
@@ -207,6 +234,8 @@ class ProfileStore:
                 continue
             if obs.twin_assist:
                 latest_twin = dict(obs.twin_assist)
+            if obs.injection_sweep:
+                latest_sweep = dict(obs.injection_sweep)
             if obs.assist_matrix:
                 matrix_recommendations.update(obs.assist_matrix)
             w = obs.sample_weight * (self._weak_weight if obs.weak_feedback else 1.0)
@@ -232,6 +261,15 @@ class ProfileStore:
             twin_assist_lift=dict(latest_twin.get("lift") or {}),
             recommended_twin_assist_mode=str(latest_twin.get("mode") or ""),
             recommended_twin_injection_level=latest_twin.get("injection_level"),
+            # The level ExecutionPolicy acts on, chosen by the sweep objective (min_sufficient ->
+            # ceiling; max_score -> floor). Falls back across the available readings.
+            measured_optimal_injection_level=(
+                latest_sweep.get("selected_injection_level")
+                if latest_sweep.get("selected_injection_level") is not None
+                else latest_sweep.get("min_sufficient_injection_level")
+                if latest_sweep.get("min_sufficient_injection_level") is not None
+                else latest_sweep.get("recommended_injection_level")),
+            injection_objective=str(latest_sweep.get("objective") or ""),
             twin_assist_evidence_refs=ev_refs if latest_twin else [],
             assist_matrix_recommendations=matrix_recommendations,
         )

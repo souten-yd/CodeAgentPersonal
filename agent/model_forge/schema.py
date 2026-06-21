@@ -102,6 +102,11 @@ class ModelProfile(ForgeModel):
     twin_assist_lift: dict[str, float] = Field(default_factory=dict)
     recommended_twin_assist_mode: str = ""
     recommended_twin_injection_level: int | None = Field(default=None, ge=0, le=4)
+    # The injection level a sweep selected for this model, per its objective. With
+    # ``injection_objective == "max_score"`` it is the PEAK level (ExecutionPolicy floor); otherwise
+    # the LOWEST sufficient level (ExecutionPolicy ceiling — how far injection can be lowered).
+    measured_optimal_injection_level: int | None = Field(default=None, ge=0, le=4)
+    injection_objective: str = ""  # "min_sufficient" | "max_score" | "" (defaults to min_sufficient)
     twin_assist_evidence_refs: list[str] = Field(default_factory=list)
     assist_matrix_recommendations: dict[str, dict] = Field(default_factory=dict)
 

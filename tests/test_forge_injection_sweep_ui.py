@@ -1,0 +1,89 @@
+"""Source-render checks for the Benchmark injection-sweep curve UI (B)."""
+from pathlib import Path
+
+
+def _forge_js() -> str:
+    return Path("web/js/forge.js").read_text(encoding="utf-8")
+
+
+def test_injection_sweep_card_and_controls_present():
+    src = _forge_js()
+    assert "Twin injection sweep" in src
+    assert "Run injection sweep" in src
+    assert "data-injection-sweep-run" in src
+    # Advisory framing — never changes routing directly from the UI.
+    assert "does not change production routing" in src
+
+
+def test_injection_sweep_calls_forge_api_with_dimensions():
+    src = _forge_js()
+    assert "api('/evaluation/injection-sweep'" in src
+    assert "INJECTION_SWEEP_DIMENSIONS" in src
+    assert "structured_output_fidelity" in src and "edit_intent_quality" in src
+
+
+def test_injection_sweep_renders_curve_from_level_means():
+    src = _forge_js()
+    # The curve is an inline SVG polyline over level_means (no chart library).
+    assert "injectionSweepChart" in src
+    assert "level_means" in src
+    assert "<polyline" in src
+    assert "recommended_injection_level" in src
+    assert "per_dimension_optimal" in src
+
+
+def test_injection_sweep_surfaces_min_sufficient_level():
+    src = _forge_js()
+    # The headline for a weak LLM is how far injection can be lowered.
+    assert "min sufficient injection level" in src
+    assert "min_sufficient_injection_level" in src
+    assert "per_dimension_min_sufficient_level" in src
+    # Sufficiency threshold band on the chart (peak - tolerance).
+    assert "forge-chart-threshold" in src
+    assert "best_mean_score" in src
+
+
+def test_injection_sweep_chart_css_present():
+    css = Path("web/css/app.css").read_text(encoding="utf-8")
+    assert ".forge-chart" in css
+    assert ".forge-chart-line" in css
+    assert ".is-recommended" in css
+
+
+def test_injection_sweep_escapes_rendered_dimension_keys():
+    src = _forge_js()
+    assert "escapeHtml(dim)" in src
+
+
+def test_injection_sweep_objective_switch_present():
+    src = _forge_js()
+    # Switchable strategy: min injection vs max score.
+    assert "data-injection-objective" in src
+    assert "INJECTION_OBJECTIVES" in src
+    assert "Max score" in src and "Min injection" in src
+    assert "objective: sel.injectionObjective" in src
+    assert "selected injection level" in src
+    assert "selected_injection_level" in src
+
+
+def test_benchmark_button_runs_all_three_in_one_go():
+    src = _forge_js()
+    # The single Benchmark action orchestrates benchmark + injection sweep + Twin eval.
+    assert "runArenaCore" in src
+    assert "runInjectionSweepCore" in src
+    assert "runTwinAssistCore" in src
+    assert "api('/twin-assist/run'" in src
+    assert "api('/arena/run'" in src
+    # Twin result surfaced inline in the Benchmark tab.
+    assert "twinAssistInlineHtml" in src
+    assert "Twin assist 評価" in src
+
+
+def test_local_server_port_option_present():
+    src = _forge_js()
+    # An already-running local model addressed by port (default 8080), no Anvil registry needed.
+    assert "ローカルサーバ（ポート指定）" in src
+    assert "data-bench-port" in src
+    assert "localPortBaseUrl" in src
+    assert "loadLocalPortCatalog" in src
+    assert "127.0.0.1:" in src

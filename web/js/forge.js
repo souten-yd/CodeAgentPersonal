@@ -41,7 +41,7 @@
     // Benchmark selector state. Depth defaults to 'standard' — full/deep is never forced.
     // ctx is the context length for the chosen local/LM-Studio model (persisted to the model
     // registry for Anvil models; used at load time by the runtime manager — see enable/monitor).
-    bench: { presets: [], depth: 'standard', provider: '', model: '', ctx: '', result: null, subtab: 'benchmark' },
+    bench: { presets: [], depth: 'standard', provider: '', model: '', ctx: '', result: null, subtab: 'benchmark', injectionSweep: null, injectionObjective: 'min_sufficient', port: '8080', twinResult: null, running: false },
     twinAssist: { cases: [], result: null, subtab: 'evaluation' },
   };
 
@@ -50,6 +50,7 @@
   // OpenAI-compatible provider, so they are offered as provider choices alongside the backend ones.
   const LOCAL_RUNTIME_PROVIDERS = [
     { provider_id: 'anvil', label: 'Anvil（ローカルモデル管理）' },
+    { provider_id: 'local_openai_compatible', label: 'ローカルサーバ（ポート指定）' },
     { provider_id: 'lm_studio', label: 'LM Studio' },
   ];
 
@@ -387,10 +388,35 @@
     const prov = selectedProvider(data);
     const isAnvil = sel.provider === 'anvil';
     const isLmStudio = sel.provider === 'lm_studio';
+    const isLocalPort = sel.provider === 'local_openai_compatible';
     let modelSelect = '';
     let modelNote = '';
     let ctxField = '';
-    if (isAnvil) {
+    if (isLocalPort) {
+      // An already-running local OpenAI-compatible server (llama.cpp etc.) addressed by port.
+      // Fetch /v1/models from that port to populate the model list; no Forge registry needed.
+      const cat = data.localPortCatalog || {};
+      const models = cat.models || [];
+      ctxField = '<label class="forge-label">ポート (localhost)'
+        + '<input class="forge-input" type="number" min="1" max="65535" data-bench-port value="'
+        + escapeHtml(String(sel.port || '8080')) + '"></label>'
+        + '<button type="button" class="forge-seg" data-bench-fetch-local>モデル一覧を取得</button>';
+      modelSelect = '<select class="forge-select" data-bench-model-select>'
+        + '<option value="">起動中モデルを選択…</option>'
+        + models.map((m) => {
+          const id = String(m.model_id || m.id || m.name || '');
+          return '<option value="' + escapeHtml(id) + '"' + (sel.model === id ? ' selected' : '') + '>'
+            + escapeHtml(id) + '</option>';
+        }).join('') + '</select>';
+      const st = String(cat.status || '');
+      if (st && st !== 'ready') {
+        modelNote = '<div class="forge-hint">ローカルサーバ（127.0.0.1:' + escapeHtml(String(sel.port || '8080'))
+          + '）に接続できません（' + escapeHtml(st) + '）。起動状態とポートを確認してください。</div>';
+      } else if (!models.length) {
+        modelNote = '<div class="forge-hint">「モデル一覧を取得」を押すと、127.0.0.1:'
+          + escapeHtml(String(sel.port || '8080')) + ' の起動中モデルを読み込みます。</div>';
+      }
+    } else if (isAnvil) {
       // Anvil = the local model registry (Models DB). Each option carries its registered ctx_size;
       // the CTX editor below persists a change back to the registry so model load uses it later.
       const models = data.localModels || [];
@@ -447,7 +473,7 @@
     }
     // Free-text model id stays for backend providers that have no dropdown; the managed-runtime
     // dropdowns (Anvil / LM Studio) are authoritative, so the free input is hidden for them.
-    const freeTextModel = (isAnvil || isLmStudio)
+    const freeTextModel = (isAnvil || isLmStudio || isLocalPort)
       ? ''
       : '<input class="forge-input" data-bench-model placeholder="provider model id" value="' + escapeHtml(sel.model) + '">';
     // Runtime management (the "Forge management feature"): when enabled in Settings, expose a Load
@@ -472,10 +498,11 @@
       ? '<div class="forge-warn">External provider selected. Source/privacy policy applies; '
         + 'this is blocked under Local Only and may send context to a cloud model.</div>'
       : '';
-    const canRun = sel.presets.length > 0 && sel.provider && sel.model;
+    const canRun = sel.presets.length > 0 && sel.provider && sel.model && !sel.running;
     const result = sel.result
       ? '<div class="forge-bench-result">' + escapeHtml(sel.result) + '</div>'
       : '';
+    const runLabel = sel.running ? '実行中…' : 'Run benchmark + 注入スイープ + Twin評価';
     return (
       '<div class="forge-card">'
       + '<div class="forge-card-title">Benchmark presets</div>'
@@ -497,10 +524,155 @@
       + modelNote
       + runtimeLoadBlock
       + externalWarning
-      + '<button type="button" class="forge-run-btn" data-bench-run' + (canRun ? '' : ' disabled') + '>Run benchmark</button>'
+      + '<div class="forge-hint">1回の実行でベンチマーク・注入スイープ・Twin評価をまとめて行います。</div>'
+      + '<button type="button" class="forge-run-btn" data-bench-run' + (canRun ? '' : ' disabled') + '>'
+      + escapeHtml(runLabel) + '</button>'
       + result
+      + twinAssistInlineHtml()
       + '</div>'
+      + injectionSweepCard(data)
       + methodComparisonHtml(data)
+    );
+  }
+
+  // Compact Twin-assist summary shown inline in the Benchmark tab (the full breakdown still lives
+  // in the Twin Assist subtab). Rendered from the combined run's result so everything is in one place.
+  function twinAssistInlineHtml() {
+    const rep = state.bench.twinResult;
+    if (!rep) return '';
+    const agg = rep.aggregate_scores || {};
+    const fmt = (v) => escapeHtml(v == null ? 'unavailable' : (typeof v === 'number' ? v.toFixed(3) : String(v)));
+    const modes = (rep.recommended_assist_modes || []).join(', ');
+    return (
+      '<div class="forge-card">'
+      + '<div class="forge-card-title">Twin assist 評価（今回の実行）</div>'
+      + '<div class="forge-kv"><span>mean best score</span><b>' + fmt(agg.mean_best_score) + '</b></div>'
+      + '<div class="forge-kv"><span>mean lift</span><b>' + fmt(agg.mean_lift) + '</b></div>'
+      + '<div class="forge-kv"><span>harm rate</span><b>' + fmt(agg.harm_rate) + '</b></div>'
+      + '<div class="forge-kv"><span>recommended assist</span><b>' + escapeHtml(modes || 'none') + '</b></div>'
+      + '<div class="forge-kv"><span>recommended injection level</span><b>'
+      + fmt(rep.recommended_twin_injection_level) + '</b></div>'
+      + '<div class="forge-hint">評価のみ。ファイル適用や本番ルーティングは変更しません。</div>'
+      + '</div>'
+    );
+  }
+
+  // Twin injection sweep: benchmark capability across injection levels 0..4 and plot the curve so
+  // the optimal injection amount is visible. Advisory — the measured optimum feeds ExecutionPolicy
+  // as a CEILING (never below a route's safety floor); it never changes routing directly here.
+  const INJECTION_SWEEP_DIMENSIONS = [
+    'structured_output_fidelity', 'patch_protocol_fidelity', 'edit_intent_quality', 'anchor_selection_quality',
+  ];
+
+  const INJECTION_OBJECTIVES = [
+    ['min_sufficient', 'Min injection'],
+    ['max_score', 'Max score'],
+  ];
+
+  function injectionSweepCard(data) {
+    const sel = state.bench;
+    const canRun = !!(sel.provider && sel.model);
+    const rec = sel.injectionSweep;
+    const objective = sel.injectionObjective || 'min_sufficient';
+    const objBtns = INJECTION_OBJECTIVES.map(([id, label]) => (
+      '<button type="button" class="forge-seg' + (objective === id ? ' active' : '')
+      + '" data-injection-objective="' + id + '">' + escapeHtml(label) + '</button>'
+    )).join('');
+    return (
+      '<div class="forge-card">'
+      + '<div class="forge-card-title">Twin injection sweep</div>'
+      + '<div class="forge-hint">Run the capability benchmark at each Twin injection level (0–4). '
+      + 'Choose the objective: <b>Min injection</b> = lowest level still within tolerance of the peak '
+      + '(cheapest guidance for a weak model → applied as a ceiling); <b>Max score</b> = the '
+      + 'peak-scoring level (→ applied as a floor). Advisory; does not change production routing.</div>'
+      + '<div class="forge-seg-row">' + objBtns + '</div>'
+      + '<button type="button" class="forge-run-btn" data-injection-sweep-run' + (canRun ? '' : ' disabled')
+      + '>Run injection sweep</button>'
+      + (rec ? injectionSweepResult(rec) : '')
+      + '</div>'
+    );
+  }
+
+  function injectionSweepResult(rec) {
+    const fmt = (v) => escapeHtml(v == null ? 'unavailable' : String(v));
+    const peak = rec.per_dimension_optimal || {};
+    const minSuf = rec.per_dimension_min_sufficient_level || {};
+    const dims = Object.keys(peak).sort();
+    const dimRows = dims.map((dim) => (
+      '<div class="forge-kv"><span>' + escapeHtml(dim) + '</span><b>'
+      + fmt(minSuf[dim]) + ' <span class="forge-dim-peak">(peak ' + fmt(peak[dim]) + ')</span></b></div>'
+    )).join('');
+    return (
+      '<div class="forge-injection-sweep">'
+      + '<div class="forge-kv"><span>objective</span><b>' + fmt(rec.objective) + '</b></div>'
+      + '<div class="forge-kv"><span>selected injection level</span><b>'
+      + fmt(rec.selected_injection_level) + '</b></div>'
+      // Both readings shown regardless of objective.
+      + '<div class="forge-kv"><span>min sufficient injection level</span><b>'
+      + fmt(rec.min_sufficient_injection_level) + '</b></div>'
+      + '<div class="forge-kv"><span>peak (max-score) level</span><b>'
+      + fmt(rec.recommended_injection_level) + '</b></div>'
+      + '<div class="forge-kv"><span>tolerance</span><b>' + fmt(rec.tolerance) + '</b></div>'
+      + injectionSweepChart(rec)
+      + '<div class="forge-card-title" style="margin-top:8px">Per-dimension min sufficient level</div>'
+      + (dimRows || '<div class="forge-empty">No measured dimensions.</div>')
+      + '</div>'
+    );
+  }
+
+  // Inline SVG line chart of the mean dimension score per injection level (no chart library).
+  // X = injection level, Y = mean score 0..1. Null means (only unavailable evidence) are gaps.
+  function injectionSweepChart(rec) {
+    const levels = (rec.levels || []).slice().sort((a, b) => a - b);
+    const means = rec.level_means || {};
+    if (!levels.length) return '';
+    const W = 320, H = 160, padL = 32, padR = 12, padT = 12, padB = 24;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const xAt = (i) => padL + (levels.length === 1 ? plotW / 2 : (plotW * i) / (levels.length - 1));
+    const yAt = (v) => padT + (1 - Math.max(0, Math.min(1, v))) * plotH;
+    // Emphasise the level the chosen objective selected; fall back to min-sufficient, then peak.
+    const highlight = rec.selected_injection_level != null ? rec.selected_injection_level
+      : (rec.min_sufficient_injection_level != null
+        ? rec.min_sufficient_injection_level : rec.recommended_injection_level);
+    // Y gridlines + labels at 0, 0.5, 1.
+    const grid = [0, 0.5, 1].map((v) => (
+      '<line x1="' + padL + '" y1="' + yAt(v).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + yAt(v).toFixed(1)
+      + '" class="forge-chart-grid"></line>'
+      + '<text x="' + (padL - 4) + '" y="' + (yAt(v) + 3).toFixed(1) + '" class="forge-chart-axis" text-anchor="end">'
+      + v.toFixed(1) + '</text>'
+    )).join('');
+    // Sufficiency threshold = peak mean - tolerance. Levels whose mean sits on/above it are "enough".
+    let threshold = '';
+    if (typeof rec.best_mean_score === 'number' && typeof rec.tolerance === 'number') {
+      const ty = yAt(rec.best_mean_score - rec.tolerance);
+      threshold = '<line x1="' + padL + '" y1="' + ty.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + ty.toFixed(1)
+        + '" class="forge-chart-threshold"><title>sufficiency threshold (peak − tolerance)</title></line>';
+    }
+    const pts = [];
+    const dots = [];
+    const xLabels = [];
+    levels.forEach((lvl, i) => {
+      const m = means[String(lvl)];
+      const x = xAt(i);
+      xLabels.push('<text x="' + x.toFixed(1) + '" y="' + (H - 6) + '" class="forge-chart-axis" text-anchor="middle">'
+        + escapeHtml(String(lvl)) + '</text>');
+      if (typeof m === 'number') {
+        const y = yAt(m);
+        pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+        const isRec = lvl === highlight;
+        dots.push('<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + (isRec ? 5 : 3)
+          + '" class="forge-chart-dot' + (isRec ? ' is-recommended' : '') + '">'
+          + '<title>level ' + escapeHtml(String(lvl)) + ': mean ' + m.toFixed(3) + '</title></circle>');
+      }
+    });
+    const line = pts.length > 1
+      ? '<polyline points="' + pts.join(' ') + '" class="forge-chart-line" fill="none"></polyline>' : '';
+    return (
+      '<svg class="forge-chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" '
+      + 'aria-label="Mean capability score per Twin injection level">'
+      + grid + threshold + line + dots.join('') + xLabels.join('')
+      + '<text x="' + (W / 2) + '" y="' + H + '" class="forge-chart-axis" text-anchor="middle">injection level</text>'
+      + '</svg>'
     );
   }
 
@@ -526,6 +698,10 @@
       if (e.target.value === 'lm_studio') { loadLmStudioCatalog(); return; }
       renderActive();
     });
+    content.querySelector('[data-bench-port]')?.addEventListener('input', (e) => {
+      state.bench.port = e.target.value;
+    });
+    content.querySelector('[data-bench-fetch-local]')?.addEventListener('click', () => loadLocalPortCatalog());
     content.querySelector('[data-bench-model-select]')?.addEventListener('change', (e) => {
       state.bench.model = e.target.value;
       state.bench.ctx = '';  // re-derive ctx from the newly selected model's registered value
@@ -542,6 +718,13 @@
     });
     content.querySelector('[data-bench-load]')?.addEventListener('click', () => loadSelectedModel());
     content.querySelector('[data-bench-run]')?.addEventListener('click', () => runBenchmark(data));
+    content.querySelector('[data-injection-sweep-run]')?.addEventListener('click', () => runInjectionSweep(data));
+    content.querySelectorAll('[data-injection-objective]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.bench.injectionObjective = btn.getAttribute('data-injection-objective');
+        renderActive();
+      });
+    });
   }
 
   // Ask the local runtime (llama-server) to load the selected registry model, then watch the load
@@ -683,22 +866,76 @@
     renderActive();
   }
 
+  function localPortBaseUrl() {
+    const port = String(state.bench.port || '8080').trim() || '8080';
+    return 'http://127.0.0.1:' + port;
+  }
+
+  // Models advertised by an already-running local server at the chosen port (no Forge registry).
+  async function loadLocalPortCatalog() {
+    setStatus('ローカルサーバのモデルを取得中…');
+    try {
+      state.data.localPortCatalog = await api(
+        '/local-catalog?runtime_kind=llama_cpp&base_url=' + encodeURIComponent(localPortBaseUrl()));
+      const st = String(state.data.localPortCatalog.status || '');
+      setStatus(st === 'ready' ? 'モデル一覧を取得しました' : ('取得結果: ' + st), st === 'ready' ? 'ok' : 'error');
+    } catch (err) {
+      state.data.localPortCatalog = { status: 'error', models: [] };
+      setStatus('モデル取得に失敗: ' + (err && err.message ? err.message : 'error'), 'error');
+    }
+    renderActive();
+  }
+
+  // Anvil and LM Studio both execute through the local OpenAI-compatible provider; map the
+  // UI-level runtime choice to that real provider id. local_openai_compatible passes through.
+  function runtimeProviderId() {
+    const p = state.bench.provider;
+    return (p === 'anvil' || p === 'lm_studio') ? 'local_openai_compatible' : p;
+  }
+
+  function injectionSweepBaseUrl(data) {
+    const sel = state.bench;
+    const settings = data.settings || {};
+    if (sel.provider === 'openrouter') return (settings.openrouter || {}).base_url || '';
+    // Local server addressed by port: build the URL directly from the chosen port.
+    if (sel.provider === 'local_openai_compatible') return localPortBaseUrl();
+    // Anvil / LM Studio fall back to the configured local base URL (server resolves when blank).
+    return (settings.local_provider || {}).base_url || '';
+  }
+
+  // The single Benchmark action: run the capability benchmark, the injection sweep, and the Twin
+  // assist evaluation in one go, all against the same provider/model/base_url. Each step is
+  // independent — a failure in one is reported but does not abort the others.
   async function runBenchmark(data) {
+    const sel = state.bench;
+    if (!sel.presets.length || !sel.provider || !sel.model) {
+      setStatus('プリセット・プロバイダ・モデルを選択してください', 'error'); return;
+    }
+    sel.running = true; renderActive();
+    setStatus('実行中: ベンチマーク…');
+    const notes = [];
+    notes.push(await runArenaCore(data));
+    setStatus('実行中: 注入スイープ…');
+    notes.push(await runInjectionSweepCore(data));
+    setStatus('実行中: Twin評価…');
+    notes.push(await runTwinAssistCore(data));
+    sel.running = false;
+    const failed = notes.filter((n) => !n.ok);
+    setStatus(failed.length ? ('一部失敗: ' + failed.map((n) => n.msg).join(' / '))
+      : 'ベンチマーク＋注入スイープ＋Twin評価 完了', failed.length ? 'error' : 'ok');
+    renderActive();
+  }
+
+  async function runArenaCore(data) {
     const sel = state.bench;
     const preset = (data.presets || []).find((p) => p.preset_id === sel.presets[0]);
     const route = (preset && preset.recommended_routes && preset.recommended_routes[0]) || 'direct_patch';
-    const stage = 'patch_generation';
-    // Anvil and LM Studio both execute through the local OpenAI-compatible provider; map the
-    // UI-level runtime choice to that real provider id for the arena run.
-    const runtimeProviderId = (sel.provider === 'anvil' || sel.provider === 'lm_studio')
-      ? 'local_openai_compatible' : sel.provider;
-    setStatus('Running benchmark…');
     try {
       const record = await api('/arena/run', {
         method: 'POST',
         body: JSON.stringify({
-          stage,
-          specs: [{ provider_id: runtimeProviderId, model_id: sel.model, route_id: route }],
+          stage: 'patch_generation',
+          specs: [{ provider_id: runtimeProviderId(), model_id: sel.model, route_id: route }],
           preset_id: sel.presets[0],
           preset_ids: sel.presets.slice(),
           depth: sel.depth,
@@ -707,14 +944,63 @@
       const cand = (record.candidates || [])[0] || {};
       sel.result = 'Arena run ' + record.arena_run_id + ' — candidate ' + (cand.adoption_state || 'not_applied')
         + ' (Safe Apply required before any adoption). See the Arena tab for candidates.';
-      // Fetch the enriched run (per-candidate metadata) for the Arena tab.
       try { state.data.arena = await api('/arena/runs/' + record.arena_run_id); }
       catch (_e) { state.data.arena = record; }
-      setStatus('Benchmark recorded (no model adopted)', 'ok');
+      return { ok: true, msg: 'benchmark' };
     } catch (err) {
       sel.result = 'Run failed: ' + (err && err.message ? err.message : 'error');
-      setStatus('Benchmark run failed', 'error');
+      return { ok: false, msg: 'ベンチマーク' };
     }
+  }
+
+  async function runInjectionSweepCore(data) {
+    const sel = state.bench;
+    try {
+      sel.injectionSweep = await api('/evaluation/injection-sweep', {
+        method: 'POST',
+        body: JSON.stringify({
+          provider_id: runtimeProviderId(),
+          model_id: sel.model,
+          base_url: injectionSweepBaseUrl(data),
+          dimensions: INJECTION_SWEEP_DIMENSIONS,
+          objective: sel.injectionObjective || 'min_sufficient',
+        }),
+      });
+      return { ok: true, msg: 'injection_sweep' };
+    } catch (err) {
+      return { ok: false, msg: '注入スイープ(' + (err && err.message ? err.message : 'error') + ')' };
+    }
+  }
+
+  async function runTwinAssistCore(data) {
+    const sel = state.bench;
+    try {
+      const cases = await api('/twin-assist/cases?pack_id=quick');
+      sel.twinResult = await api('/twin-assist/run', {
+        method: 'POST',
+        body: JSON.stringify({
+          provider_id: runtimeProviderId(),
+          model_id: sel.model,
+          base_url: injectionSweepBaseUrl(data),
+          case_ids: (cases.cases || []).map((item) => item.case_id),
+          assist_modes: ['twin_localized_slot', 'twin_deterministic_anchor'],
+          run_baseline: true,
+        }),
+      });
+      return { ok: true, msg: 'twin_assist' };
+    } catch (err) {
+      return { ok: false, msg: 'Twin評価(' + (err && err.message ? err.message : 'error') + ')' };
+    }
+  }
+
+  // Standalone injection-sweep button (still available inside the sweep card).
+  async function runInjectionSweep(data) {
+    const sel = state.bench;
+    if (!sel.provider || !sel.model) { setStatus('プロバイダとモデルを選択してください', 'error'); return; }
+    setStatus('Running injection sweep…');
+    const n = await runInjectionSweepCore(data);
+    setStatus(n.ok ? 'Injection sweep recorded (advisory)' : ('Injection sweep failed: ' + n.msg),
+      n.ok ? 'ok' : 'error');
     renderActive();
   }
 
@@ -1614,7 +1900,7 @@
     setStatus('Loading…');
     try {
       const status = await api('/status');
-      const data = { status, providers: [], loadouts: [], profiles: [], leaderboard: [], settings: {}, openrouterCatalog: null, localModels: [], lmStudioCatalog: null, twinSettings: {}, twinProfiles: { profiles: [], count: 0 } };
+      const data = { status, providers: [], loadouts: [], profiles: [], leaderboard: [], settings: {}, openrouterCatalog: null, localModels: [], lmStudioCatalog: null, localPortCatalog: null, twinSettings: {}, twinProfiles: { profiles: [], count: 0 } };
       // Anvil (local model registry) is the core app's Models DB, not a /api/forge endpoint.
       try { data.localModels = ((await (await fetch('/models/db')).json()).models) || []; } catch (_e) {}
       try { data.providers = (await api('/providers')).providers || []; } catch (_e) {}

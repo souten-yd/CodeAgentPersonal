@@ -38,6 +38,8 @@ class ModelCapabilityProfile:
     mode: ModelCapabilityMode = ModelCapabilityMode.STANDARD
     recommended_twin_assist_mode: str = ""
     recommended_twin_injection_level: int | None = None
+    measured_optimal_injection_level: int | None = None
+    injection_objective: str = "min_sufficient"  # "min_sufficient" (ceiling) | "max_score" (floor)
     twin_assist_lift: dict[str, float] = field(default_factory=dict)
     slot_quality_accepted: bool | None = None
 
@@ -188,8 +190,41 @@ class ExecutionPolicySelector:
         elif twin_risk == "low":
             base_level -= 1
         injection = _clamp_injection(route, base_level)
+        injection_reasons: list[str] = []
+        # Injection-sweep: apply the measured level per the chosen OBJECTIVE.
+        #   max_score      -> start at the PEAK level: raise injection up to it (floor).
+        #   min_sufficient -> start at the LOWEST sufficient level: cap injection down to it
+        #                     (ceiling), never below the route's safety floor — so a weak model is
+        #                     not over-injected beyond what it needs.
+        if profile.measured_optimal_injection_level is not None:
+            target = _clamp_injection(route, int(profile.measured_optimal_injection_level))
+            if profile.injection_objective == "max_score":
+                if int(target) > int(injection):
+                    injection = target
+                    injection_reasons.append(
+                        f"injection_sweep_max_score={int(profile.measured_optimal_injection_level)}")
+            else:
+                if int(target) < int(injection):
+                    injection = target
+                    injection_reasons.append(
+                        f"injection_sweep_min_sufficient={int(profile.measured_optimal_injection_level)}")
+        # Twin-assist: a measured NEED for help is a floor that wins over the sweep cap — never
+        # starve a model that demonstrably benefits from more injection.
         if profile.recommended_twin_injection_level is not None:
-            injection = _clamp_injection(route, max(int(injection), profile.recommended_twin_injection_level))
+            raised = _clamp_injection(route, max(int(injection), profile.recommended_twin_injection_level))
+            if int(raised) != int(injection):
+                injection_reasons.append(
+                    f"twin_assist_injection_floor={profile.recommended_twin_injection_level}")
+            injection = raised
+        # Real-dev escalation ladder: start at the minimum sufficient injection (above) and raise it
+        # one level per consecutive method failure — the "try cheap, tighten on failure" loop. The
+        # route range caps how far injection can climb; the loop then narrows scope (the method_router
+        # drops to REVIEW_ONLY at >=2 failures) rather than over-injecting indefinitely.
+        if consecutive_method_failures > 0:
+            escalated = _clamp_injection(route, int(injection) + consecutive_method_failures)
+            if int(escalated) != int(injection):
+                injection_reasons.append(f"failure_escalation+{consecutive_method_failures}")
+                injection = escalated
         style = _style_for_route(route, profile.mode, weaknesses)
 
         required_modules = ["TwinBrief"]
@@ -214,6 +249,7 @@ class ExecutionPolicySelector:
         reasons.append(f"model_mode={profile.mode}")
         reasons.append(f"twin_risk={twin_risk}")
         reasons.append(f"injection={int(injection)}")
+        reasons.extend(injection_reasons)
         if profile.recommended_twin_assist_mode:
             reasons.append(f"twin_assist_recommendation={profile.recommended_twin_assist_mode}")
         if benchmark_route is not None:

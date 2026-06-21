@@ -146,6 +146,12 @@ def build_capability_profile(
         capability_scores=capability_scores,
         known_weaknesses=derive_known_weaknesses(capability_scores, threshold=threshold),
         mode=mode,
+        # Carry the injection recommendations so ExecutionPolicySelector can apply them: the
+        # twin-assist floor (min help the model needs) and the injection-sweep level interpreted
+        # per its objective (min_sufficient -> ceiling; max_score -> floor).
+        recommended_twin_injection_level=profile.recommended_twin_injection_level,
+        measured_optimal_injection_level=profile.measured_optimal_injection_level,
+        injection_objective=profile.injection_objective or "min_sufficient",
     )
 
 

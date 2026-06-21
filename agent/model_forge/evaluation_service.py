@@ -215,10 +215,26 @@ class ForgeEvaluationService:
         source_mode: str = "local_only",
         credential_env: str = "",
         timeout_seconds: float = 120.0,
+        tolerance: float = 0.05,
+        objective: str = "min_sufficient",
     ) -> dict:
-        """Benchmark capability across VARYING Twin injection levels (0..4) and determine the
-        optimal injection amount per dimension and overall. Real measurement (one pass per
-        level); scores are None when a dimension had only unavailable evidence (never faked)."""
+        """Benchmark capability across VARYING Twin injection levels (0..4). Real measurement (one
+        pass per level); scores are None when a dimension had only unavailable evidence (never faked).
+
+        Two readings are always computed:
+        - ``recommended_injection_level`` / ``per_dimension_optimal``: the PEAK level (max score;
+          tie -> least injection).
+        - ``min_sufficient_injection_level`` / ``per_dimension_min_sufficient_level``: the LOWEST
+          level whose score stays within ``tolerance`` of that peak — the cheapest guidance that
+          still works.
+
+        ``objective`` switches WHICH reading drives ExecutionPolicy via ``selected_injection_level``:
+        - ``"min_sufficient"`` (default): minimise injection — the weak-LLM cost-efficient strategy
+          (ExecutionPolicy treats it as a CEILING).
+        - ``"max_score"``: maximise capability — start at the peak-scoring level (ExecutionPolicy
+          treats it as a FLOOR)."""
+        if objective not in ("min_sufficient", "max_score"):
+            raise ValueError("invalid_objective")
         selected = set(dimensions)
         packs = [pack for pack in load_eval_packs() if pack.dimension in selected]
         if not packs or selected.difference(pack.dimension for pack in packs):
@@ -226,6 +242,9 @@ class ForgeEvaluationService:
         levels = sorted({int(lvl) for lvl in (levels or [0, 1, 2, 3, 4])})
         if any(lvl not in self.INJECTION_DIRECTIVES for lvl in levels):
             raise ValueError("invalid_injection_level")
+        if not 0.0 <= float(tolerance) <= 1.0:
+            raise ValueError("invalid_tolerance")
+        tolerance = float(tolerance)
 
         scores_by_level: dict[str, dict[str, float | None]] = {}
         for lvl in levels:
@@ -236,9 +255,22 @@ class ForgeEvaluationService:
             )
             scores_by_level[str(lvl)] = {p.dimension: score_pack(p, results).score for p in packs}
 
-        # Per-dimension optimal level: highest score; ties resolve to the LOWEST level (least
-        # injection that achieves the best result).
+        def _min_sufficient(score_at, best: float | None) -> int | None:
+            """Lowest level (levels are ascending) whose score stays within ``tolerance`` of
+            ``best`` — i.e. how far injection can be lowered before capability drops too far."""
+            if best is None:
+                return None
+            threshold = best - tolerance
+            for lvl in levels:
+                s = score_at(lvl)
+                if isinstance(s, (int, float)) and s >= threshold - 1e-9:
+                    return lvl
+            return None
+
+        # Per-dimension PEAK level: highest score; ties resolve to the LOWEST level.
         per_dimension_optimal: dict[str, int | None] = {}
+        # Per-dimension MIN-SUFFICIENT level: lowest level within tolerance of that peak.
+        per_dimension_min_sufficient: dict[str, int | None] = {}
         for pack in packs:
             dim = pack.dimension
             best: tuple[int, float] | None = None
@@ -249,8 +281,10 @@ class ForgeEvaluationService:
                 if best is None or score > best[1] + 1e-9:
                     best = (lvl, float(score))
             per_dimension_optimal[dim] = best[0] if best else None
+            per_dimension_min_sufficient[dim] = _min_sufficient(
+                lambda lvl, d=dim: scores_by_level[str(lvl)][d], best[1] if best else None)
 
-        # Overall recommended injection: level maximizing the mean dimension score (tie -> lowest).
+        # Overall: peak mean (tie -> lowest) AND the lowest level within tolerance of that peak.
         level_means: dict[str, float | None] = {}
         recommended: tuple[int, float] | None = None
         for lvl in levels:
@@ -260,19 +294,35 @@ class ForgeEvaluationService:
             if mean is not None and (recommended is None or mean > recommended[1] + 1e-9):
                 recommended = (lvl, mean)
         recommended_injection_level = recommended[0] if recommended else None
+        best_mean_score = recommended[1] if recommended else None
+        min_sufficient_injection_level = _min_sufficient(
+            lambda lvl: level_means[str(lvl)], best_mean_score)
+
+        # The objective selects which level ExecutionPolicy acts on.
+        selected_injection_level = (
+            recommended_injection_level if objective == "max_score"
+            else min_sufficient_injection_level)
 
         record = {
             "provider_id": provider_id,
             "model_id": model_id,
             "dimensions": sorted(selected),
             "levels": levels,
+            "tolerance": tolerance,
+            "objective": objective,
             "scores_by_level": scores_by_level,
             "level_means": level_means,
+            "best_mean_score": best_mean_score,
             "per_dimension_optimal": per_dimension_optimal,
+            "per_dimension_min_sufficient_level": per_dimension_min_sufficient,
             "recommended_injection_level": recommended_injection_level,
+            "min_sufficient_injection_level": min_sufficient_injection_level,
+            "selected_injection_level": selected_injection_level,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         self._write_injection_sweep(provider_id, model_id, record)
+        # Auto-reflect into the model profile so the measured optimum reaches ExecutionPolicy.
+        self._profiles.record_injection_sweep_report(record)
         return record
 
     def _injection_sweep_path(self, provider_id: str, model_id: str) -> Path:

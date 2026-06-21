@@ -138,12 +138,19 @@ class InjectionSweepRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider_id: str = Field(min_length=1)
     model_id: str = Field(min_length=1)
-    base_url: str = Field(min_length=1)
+    # Optional: when blank the server resolves the local runtime base URL (env / settings / the
+    # llama.cpp 8080 / LM Studio 1234 default), so an already-running local model "just works".
+    base_url: str = ""
+    runtime_kind: str = ""
     dimensions: list[str] = Field(min_length=1)
     levels: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
     source_mode: str = "local_only"
     credential_env: str = ""
     timeout_seconds: float = Field(default=120.0, gt=0.0, le=600.0)
+    # How far below the peak score still counts as "sufficient" when finding the lowest level.
+    tolerance: float = Field(default=0.05, ge=0.0, le=1.0)
+    # Strategy switch: "min_sufficient" (minimise injection) or "max_score" (maximise capability).
+    objective: str = "min_sufficient"
 
 
 class EvaluationRerunRequest(BaseModel):
