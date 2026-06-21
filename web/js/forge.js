@@ -760,6 +760,8 @@
       + '</div>'
       + reasonHtml
       + '<div class="forge-cand-actions">'
+      + '<button type="button" class="forge-detail-btn" data-candidate-detail="'
+      + escapeHtml(c.candidate_id) + '">Details</button>'
       + '<button type="button" class="forge-adopt-btn" data-candidate-proposal="'
       + escapeHtml(c.candidate_id) + '"' + (eligible ? '' : ' disabled')
       + ' title="' + escapeHtml(btnTitle) + '">' + escapeHtml(btnLabel) + '</button>'
@@ -767,6 +769,87 @@
       + '</div>'
       + '</div>'
     );
+  }
+
+  const RADAR_GROUPS = {
+    Capability: ['impact_analysis', 'contract_preservation', 'test_generation'],
+    Method: ['structured_output_fidelity', 'patch_protocol_fidelity', 'fallback_recovery'],
+    Safety: ['scope_boundary_discipline', 'evidence_discipline', 'repair_discipline'],
+    Speed: ['speed', 'latency_efficiency'],
+  };
+
+  function radarEntries(candidate, filterName) {
+    const score = candidate.evaluator_score || {};
+    const values = score.radar_scores || {};
+    const unavailable = new Set(score.unavailable_dimensions || []);
+    let keys = filterName === 'All'
+      ? Object.keys(values)
+      : (RADAR_GROUPS[filterName] || []);
+    keys = keys.filter((key) => Object.prototype.hasOwnProperty.call(values, key) || unavailable.has(key));
+    return keys.map((key) => ({
+      key,
+      unavailable: unavailable.has(key) || values[key] === null || values[key] === undefined,
+      value: typeof values[key] === 'number' ? Math.max(0, Math.min(1, values[key])) : null,
+    }));
+  }
+
+  function radarHtml(candidate, filterName) {
+    const active = filterName || 'All';
+    const entries = radarEntries(candidate, active);
+    const filters = ['Capability', 'Method', 'Safety', 'Speed', 'All'].map((name) => (
+      '<button type="button" class="forge-radar-filter' + (name === active ? ' active' : '')
+      + '" data-radar-filter="' + name + '">' + name + '</button>'
+    )).join('');
+    if (!entries.length) {
+      return '<div class="forge-radar"><div class="forge-radar-filters">' + filters + '</div>'
+        + '<div class="forge-empty">No radar evidence for this filter.</div></div>';
+    }
+    const cx = 120; const cy = 110; const radius = 76;
+    const outer = entries.map((_entry, index) => {
+      const angle = (-Math.PI / 2) + (Math.PI * 2 * index / entries.length);
+      return (cx + radius * Math.cos(angle)).toFixed(1) + ',' + (cy + radius * Math.sin(angle)).toFixed(1);
+    }).join(' ');
+    const points = entries.map((entry, index) => {
+      const angle = (-Math.PI / 2) + (Math.PI * 2 * index / entries.length);
+      const distance = entry.unavailable ? 0 : radius * entry.value;
+      return (cx + distance * Math.cos(angle)).toFixed(1) + ',' + (cy + distance * Math.sin(angle)).toFixed(1);
+    }).join(' ');
+    const labels = entries.map((entry, index) => {
+      const angle = (-Math.PI / 2) + (Math.PI * 2 * index / entries.length);
+      const x = cx + (radius + 22) * Math.cos(angle);
+      const y = cy + (radius + 22) * Math.sin(angle);
+      const value = entry.unavailable ? 'unavailable' : Math.round(entry.value * 100) + '%';
+      return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1)
+        + '" class="forge-radar-label' + (entry.unavailable ? ' is-unavailable' : '') + '">'
+        + escapeHtml(entry.key) + ' · ' + value + '</text>';
+    }).join('');
+    const missing = entries.filter((entry) => entry.unavailable).length;
+    return '<div class="forge-radar"><div class="forge-radar-filters">' + filters + '</div>'
+      + '<svg class="forge-radar-svg" viewBox="0 0 240 220" role="img" aria-label="Candidate radar">'
+      + '<polygon class="forge-radar-grid" points="' + outer + '"></polygon>'
+      + '<polygon class="forge-radar-shape" points="' + points + '"></polygon>' + labels + '</svg>'
+      + (missing ? '<div class="forge-radar-unavailable">Unavailable is missing evidence, not a zero score.</div>' : '')
+      + '</div>';
+  }
+
+  function openCandidateDrawer(candidateId, filterName) {
+    const candidate = ((state.data.arena || {}).candidates || []).find((item) => item.candidate_id === candidateId);
+    if (!candidate) return;
+    let drawer = $('forge-drawer');
+    if (!drawer) {
+      drawer = document.createElement('div'); drawer.id = 'forge-drawer'; drawer.className = 'forge-drawer';
+      document.body.appendChild(drawer);
+    }
+    drawer.innerHTML = '<div class="forge-drawer-inner"><div class="forge-drawer-head"><span>'
+      + escapeHtml(candidate.model_id) + '</span><button type="button" class="forge-drawer-close">×</button></div>'
+      + '<div class="forge-drawer-sub">' + escapeHtml(candidate.route_id) + ' · '
+      + escapeHtml(candidate.method_variant || 'method unavailable') + '</div><div class="forge-drawer-body">'
+      + radarHtml(candidate, filterName || 'All') + '</div></div>';
+    drawer.classList.add('open');
+    drawer.querySelector('.forge-drawer-close')?.addEventListener('click', closeModelDrawer);
+    drawer.querySelectorAll('[data-radar-filter]').forEach((button) => button.addEventListener('click', () => (
+      openCandidateDrawer(candidateId, button.getAttribute('data-radar-filter'))
+    )));
   }
 
   function arenaHtml(data) {
@@ -1134,6 +1217,9 @@
     } else if (state.tab === 'benchmark') {
       wireBenchmark(content, state.data);
     } else if (state.tab === 'arena') {
+      content.querySelectorAll('[data-candidate-detail]').forEach((btn) => {
+        btn.addEventListener('click', () => openCandidateDrawer(btn.getAttribute('data-candidate-detail'), 'All'));
+      });
       content.querySelectorAll('[data-candidate-proposal]').forEach((btn) => {
         btn.addEventListener('click', () => createProposalDraft(btn.getAttribute('data-candidate-proposal')));
       });
@@ -1217,6 +1303,7 @@
     _benchmarkHtml: benchmarkHtml,
     _anvilConfigFormHtml: renderAnvilConfigForm,
     _arenaHtml: arenaHtml,
+    _radarHtml: radarHtml,
     _advancedHtml: advancedHtml,
     _loadoutsHtml: loadoutsHtml,
     _settingsHtml: settingsHtml,
