@@ -190,6 +190,104 @@ class ForgeEvaluationService:
         self._write_assist_capability(provider_id, model_id, record)
         return record
 
+    # Cumulative Twin guidance per injection level (0..4), mirroring TwinInjectionLevel:
+    # NONE / SUMMARY / CONTRACTS_AND_IMPACT / CONSTRAINED_WITH_TESTS / STRICT_INTERFACE_AND_REPAIR.
+    INJECTION_DIRECTIVES = {
+        0: "",
+        1: "Twin (summary): follow the requested output contract exactly.",
+        2: ("Twin (contracts+impact): follow the output contract exactly; preserve interface/schema "
+            "contracts and account for dependency impact."),
+        3: ("Twin (constrained+tests): follow the output contract exactly; preserve contracts and impact; "
+            "keep impacted tests green; keep unavailable distinct from passed; never weaken tests."),
+        4: ("Twin (strict interface+repair): follow the output contract exactly; preserve contracts and "
+            "impact; keep tests green and unavailable distinct from passed; use exact unique anchors; stay "
+            "strictly within allowed paths; make minimal targeted repairs and no broad rewrites."),
+    }
+
+    def injection_sweep_profile(
+        self,
+        *,
+        provider_id: str,
+        model_id: str,
+        base_url: str,
+        dimensions: list[str],
+        levels: list[int] | None = None,
+        source_mode: str = "local_only",
+        credential_env: str = "",
+        timeout_seconds: float = 120.0,
+    ) -> dict:
+        """Benchmark capability across VARYING Twin injection levels (0..4) and determine the
+        optimal injection amount per dimension and overall. Real measurement (one pass per
+        level); scores are None when a dimension had only unavailable evidence (never faked)."""
+        selected = set(dimensions)
+        packs = [pack for pack in load_eval_packs() if pack.dimension in selected]
+        if not packs or selected.difference(pack.dimension for pack in packs):
+            raise ValueError("unknown_evaluation_dimension")
+        levels = sorted({int(lvl) for lvl in (levels or [0, 1, 2, 3, 4])})
+        if any(lvl not in self.INJECTION_DIRECTIVES for lvl in levels):
+            raise ValueError("invalid_injection_level")
+
+        scores_by_level: dict[str, dict[str, float | None]] = {}
+        for lvl in levels:
+            results = self._run_capability_cases(
+                provider_id=provider_id, model_id=model_id, base_url=base_url, selected=selected,
+                source_mode=source_mode, credential_env=credential_env,
+                timeout_seconds=timeout_seconds, system_directive=self.INJECTION_DIRECTIVES[lvl],
+            )
+            scores_by_level[str(lvl)] = {p.dimension: score_pack(p, results).score for p in packs}
+
+        # Per-dimension optimal level: highest score; ties resolve to the LOWEST level (least
+        # injection that achieves the best result).
+        per_dimension_optimal: dict[str, int | None] = {}
+        for pack in packs:
+            dim = pack.dimension
+            best: tuple[int, float] | None = None
+            for lvl in levels:
+                score = scores_by_level[str(lvl)][dim]
+                if not isinstance(score, (int, float)):
+                    continue
+                if best is None or score > best[1] + 1e-9:
+                    best = (lvl, float(score))
+            per_dimension_optimal[dim] = best[0] if best else None
+
+        # Overall recommended injection: level maximizing the mean dimension score (tie -> lowest).
+        level_means: dict[str, float | None] = {}
+        recommended: tuple[int, float] | None = None
+        for lvl in levels:
+            vals = [v for v in scores_by_level[str(lvl)].values() if isinstance(v, (int, float))]
+            mean = round(sum(vals) / len(vals), 4) if vals else None
+            level_means[str(lvl)] = mean
+            if mean is not None and (recommended is None or mean > recommended[1] + 1e-9):
+                recommended = (lvl, mean)
+        recommended_injection_level = recommended[0] if recommended else None
+
+        record = {
+            "provider_id": provider_id,
+            "model_id": model_id,
+            "dimensions": sorted(selected),
+            "levels": levels,
+            "scores_by_level": scores_by_level,
+            "level_means": level_means,
+            "per_dimension_optimal": per_dimension_optimal,
+            "recommended_injection_level": recommended_injection_level,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._write_injection_sweep(provider_id, model_id, record)
+        return record
+
+    def _injection_sweep_path(self, provider_id: str, model_id: str) -> Path:
+        safe = f"{provider_id}_{model_id}".replace("/", "_").replace(":", "_").replace("\\", "_")
+        return self._root / "injection_sweep" / f"{safe}.json"
+
+    def _write_injection_sweep(self, provider_id: str, model_id: str, record: dict) -> None:
+        path = self._injection_sweep_path(provider_id, model_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def load_injection_sweep(self, provider_id: str, model_id: str) -> dict | None:
+        path = self._injection_sweep_path(provider_id, model_id)
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
     def _assist_capability_path(self, provider_id: str, model_id: str) -> Path:
         safe = f"{provider_id}_{model_id}".replace("/", "_").replace(":", "_").replace("\\", "_")
         return self._root / "assist_capability" / f"{safe}.json"

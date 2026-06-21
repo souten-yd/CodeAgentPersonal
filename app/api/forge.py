@@ -134,6 +134,18 @@ class AssistCapabilityRequest(BaseModel):
     timeout_seconds: float = Field(default=120.0, gt=0.0, le=600.0)
 
 
+class InjectionSweepRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    base_url: str = Field(min_length=1)
+    dimensions: list[str] = Field(min_length=1)
+    levels: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+    source_mode: str = "local_only"
+    credential_env: str = ""
+    timeout_seconds: float = Field(default=120.0, gt=0.0, le=600.0)
+
+
 class EvaluationRerunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_id: str = Field(min_length=1)
@@ -306,6 +318,16 @@ def post_assist_capability(request: Request, body: AssistCapabilityRequest) -> d
     and persist it so the Arena radar can overlay the Twin effect from real data."""
     try:
         return _service(request).assist_capability_profile(**body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/evaluation/injection-sweep")
+def post_injection_sweep(request: Request, body: InjectionSweepRequest) -> dict:
+    """Benchmark capability across varying Twin injection levels (0..4) and return the
+    optimal injection amount per dimension and overall. Advisory; never changes routing."""
+    try:
+        return _service(request).injection_sweep_profile(**body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
