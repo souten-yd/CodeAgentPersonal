@@ -525,3 +525,26 @@ Remaining gaps: the production MethodRouter still does not trigger fallback on c
 Next package: PR18 `feat/forge-method-router-v2`
 Blocker: none
 Proof level: `natural_fallback_real_eval_passed`
+
+---
+
+## 25. PR21 Frontier verification of weak-LLM evaluation 完了証跡
+
+Completed package: PR21 `feat/forge-frontier-eval-verification` (brought forward at user request: "弱LLMの評価終わったら、フロンティアモデルで想定通りそもそも評価できるのか確認して欲しい")
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/frontier_verification.py`, `tests/test_forge_frontier_verification.py`, integration plan/status docs
+Behavior implemented: `FrontierVerificationHarness` pairs each weak-LLM/mechanical result with a frontier verdict (`confirms_pass` / `confirms_fail` / `over_claim` / `under_claim` / `cannot_assess` / `unavailable`); `over_claim`/`under_claim` are recorded as mismatches and the weak-LLM result is never upgraded; with no judge configured every verdict is `unavailable` (not passed). `StaticFrontierJudge` replays a frontier model's recorded verdicts deterministically.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_frontier_verification.py` -> 6 passed
+Syntax checks: `py_compile agent/model_forge/frontier_verification.py tests/test_forge_frontier_verification.py` -> passed
+Affected tests: evaluation service/runner suites unaffected (harness is additive, advisory-only)
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. Live benchmark run over 4 method dimensions, then frontier (Claude Opus 4.8) independently inspected the raw outputs. Verification run `forge_eval_7c0f35514120`: 8 cases assessed, **6 agreements, 2 mismatches**. Agreements: structured_output_fidelity (strict JSON), patch_protocol_fidelity (valid DSL, no Safe-Apply bypass), edit_intent_quality (empty anchors / empty list = genuine failure). Mismatches: `anchor_selection_quality:asq_unique` and `:asq_ambiguous` flagged `over_claim` because the mechanical adapter only checks that the anchored block parses with a non-empty anchor and never verifies anchor uniqueness / ambiguity avoidance against file content — so the "passed" over-claims that capability. Proof `frontier_verification_mismatch`.
+Benchmark soundness: the live evaluation path (run_live -> RealMethodRunner -> mechanical scoring -> evidence) executed end-to-end without error; the only issue is semantic under-coverage in anchor selection, recorded above (not a path failure).
+Atlas UI evidence: unavailable; backend verification tooling
+Project Intelligence evidence: unavailable
+Runtime/Portal evidence: real local provider calls across all 4 method dimensions
+Unavailable checks: only the 4 mechanically-evaluable method dimensions were verifiable end-to-end; the remaining benchmark dimensions need the live eval-dimension expansion in PR19 before frontier verification can cover all axes. No frontier API is wired in product; the frontier verdict here is the session frontier model's recorded assessment via StaticFrontierJudge, which is honest (advisory, replayable) rather than an algorithm imitating a frontier model.
+Safety invariants: weak-LLM results never upgraded by frontier verdicts; `unavailable`/mismatch never counted as passed; no routing or Safe Apply change
+Remaining gaps: extend live evaluation to all dimensions (PR19) then re-run full-coverage frontier verification; the anchor-selection evaluator should additionally verify uniqueness/ambiguity against file content (future eval-pack hardening)
+Next package: PR18 `feat/forge-method-router-v2`
+Blocker: none
+Proof level: `frontier_verification_mismatch` (harness `component_complete`; 6/8 weak verdicts confirmed, 2 over-claims surfaced and not upgraded)
