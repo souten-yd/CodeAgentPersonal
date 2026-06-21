@@ -36,7 +36,7 @@
 | 10 | feat/forge-real-llm-runner | 実 LLM runner 接続 | Anvil / local OpenAI compat / LM Studio / OpenRouter 実行、unavailable handling、evidence/token/latency。evaluation/run と接続 + tests | 8 | ☑ merged |
 | 11 | feat/forge-optimizer-loadout | optimizer / role / loadout | route/method/injection/style fitness → RoleAssignment → Loadout 生成。Loadout に method preference/fallback 保存 + tests | 6,7 | ☑ merged |
 | 12 | feat/forge-ui-radar | Arena radar + drawer | SVG radar（外部ライブラリ無し、Capability/Method/Safety/Speed/All、unavailable≠0）+ candidate drawer + render test | 8,11 | ☑ merged |
-| 13 | feat/forge-ui-fallback-graph | fallback graph + method 比較 | candidate drawer に fallback graph、Benchmark に method 比較表、policy recommendation drawer + render test | 12 | ☐ pending |
+| 13 | feat/forge-ui-fallback-graph | fallback graph + method 比較 | candidate drawer に fallback graph、Benchmark に method 比較表、policy recommendation drawer + render test | 12 | ☑ merged |
 | 14 | feat/forge-ui-advanced-twin | Advanced への Twin 統合 | Forge Advanced に Twin Settings + read-only Twin Inspector。独立 Twin タブ非表示。mobile 崩れ無し + test | 9,13 | ☐ pending |
 | 15 | feat/forge-execution-shadow | 実行統合（shadow） | Atlas plan/patch/verify/repair に評価結果を渡す。shadow mode で記録のみ。active は明示確認後（このトラックでは shadow まで）+ tests | 6,10 | ☐ pending |
 | 16 | feat/forge-anvil-real-eval | Anvil 実評価 + 仕上げ | Anvil 起動→実モデル評価で fallback 実証。全テスト（unit/integration/adversarial/UI/real-gated）。docs/rollback/proof levels 更新 | 10,12,13,14,15 | ☐ pending |
@@ -69,6 +69,8 @@
 ---
 
 ## 進捗ログ
+
+- 2026-06-21: PR13 fallback graph / Benchmark method comparison / policy recommendation drawer を実装。Node render 15 passed、Forge API/optimizer 回帰 23 passed。recommendation は `advisory_not_applied` で routing を変更せず、ブラウザ実機確認は tooling unavailable と記録。
 
 - 2026-06-21: Phase 0 棚卸し完了（current_status.md）。本計画策定。実装は PR1 から着手予定（ユーザー指示によりここで一旦停止）。
 - 2026-06-21: PR1 Method 中核契約を実装。focused 9 passed、既存回帰 25 passed、syntax 成功。localhost:8080 の Qwen3.6-35B-A3B による契約レビューは `VERDICT: PASS`。proof level は `method_contract_present`。
