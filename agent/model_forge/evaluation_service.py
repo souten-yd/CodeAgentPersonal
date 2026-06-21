@@ -11,6 +11,7 @@ from agent.model_forge.eval_packs import CaseResult, load_eval_packs
 from agent.model_forge.method_router import MethodRouter
 from agent.model_forge.method_taxonomy import MethodVariant
 from agent.model_forge.profile_store import ProfileStore
+from agent.model_forge.real_method_runner import RealMethodRunner
 from agent.model_forge.route_matrix import ChangeClass
 from agent.model_forge.route_taxonomy import ForgeRoute
 from agent.model_forge.schema import ModelOptimizationProfile
@@ -73,6 +74,38 @@ class ForgeEvaluationService:
             results=results,
             dimensions=dimensions,
             rerun_of=run_id,
+        )
+
+    def run_live(
+        self,
+        *,
+        provider_id: str,
+        model_id: str,
+        base_url: str,
+        dimensions: list[str],
+        source_mode: str = "local_only",
+        credential_env: str = "",
+        timeout_seconds: float = 120.0,
+    ) -> dict:
+        selected = set(dimensions)
+        packs = [pack for pack in load_eval_packs() if pack.dimension in selected]
+        if not packs or selected.difference(pack.dimension for pack in packs):
+            raise ValueError("unknown_evaluation_dimension")
+        cases = [case for pack in packs for case in pack.cases]
+        results = RealMethodRunner(self._root / "real_evidence").run_cases(
+            provider_id=provider_id,
+            model_id=model_id,
+            base_url=base_url,
+            cases=cases,
+            source_mode=source_mode,
+            credential_env=credential_env,
+            timeout_seconds=timeout_seconds,
+        )
+        return self.run(
+            provider_id=provider_id,
+            model_id=model_id,
+            results=results,
+            dimensions=dimensions,
         )
 
     def model_profile(self, provider_id: str, model_id: str) -> dict:

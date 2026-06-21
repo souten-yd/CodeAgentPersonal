@@ -88,6 +88,17 @@ class EvaluationRunRequest(BaseModel):
     dimensions: list[str] = Field(default_factory=list)
 
 
+class RealEvaluationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    base_url: str = Field(min_length=1)
+    dimensions: list[str] = Field(min_length=1)
+    source_mode: str = "local_only"
+    credential_env: str = ""
+    timeout_seconds: float = Field(default=120.0, gt=0.0, le=600.0)
+
+
 class EvaluationRerunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_id: str = Field(min_length=1)
@@ -183,6 +194,14 @@ def post_evaluation_run(request: Request, body: EvaluationRunRequest) -> dict:
             results=body.results,
             dimensions=body.dimensions,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/evaluation/run-live")
+def post_live_evaluation_run(request: Request, body: RealEvaluationRequest) -> dict:
+    try:
+        return _service(request).run_live_evaluation(**body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
