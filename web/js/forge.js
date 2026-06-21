@@ -837,6 +837,44 @@
       + '</div>';
   }
 
+  function assistEffectRadarHtml(comparisons) {
+    // Overlay radar that visualizes the Twin assist effect: one polygon WITHOUT assist
+    // (baseline) and one WITH assist (best assisted score), per evaluated case.
+    const entries = (comparisons || []).filter((c) => c && c.case_id).slice(0, 8).map((c) => ({
+      key: c.case_id,
+      baseline: (c.baseline && typeof c.baseline.score === 'number') ? Math.max(0, Math.min(1, c.baseline.score)) : null,
+      assisted: typeof c.best_score === 'number' ? Math.max(0, Math.min(1, c.best_score)) : null,
+    }));
+    if (entries.length < 3) {
+      return '<div class="forge-empty">Need at least 3 evaluated cases to draw the assist-effect radar.</div>';
+    }
+    const cx = 120; const cy = 110; const radius = 76;
+    const ring = (series) => entries.map((entry, index) => {
+      const angle = (-Math.PI / 2) + (Math.PI * 2 * index / entries.length);
+      const value = entry[series];
+      const distance = typeof value === 'number' ? radius * value : 0;
+      return (cx + distance * Math.cos(angle)).toFixed(1) + ',' + (cy + distance * Math.sin(angle)).toFixed(1);
+    }).join(' ');
+    const outer = entries.map((_entry, index) => {
+      const angle = (-Math.PI / 2) + (Math.PI * 2 * index / entries.length);
+      return (cx + radius * Math.cos(angle)).toFixed(1) + ',' + (cy + radius * Math.sin(angle)).toFixed(1);
+    }).join(' ');
+    const labels = entries.map((entry, index) => {
+      const angle = (-Math.PI / 2) + (Math.PI * 2 * index / entries.length);
+      const x = cx + (radius + 20) * Math.cos(angle);
+      const y = cy + (radius + 20) * Math.sin(angle);
+      return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" class="forge-radar-label">' + escapeHtml(entry.key) + '</text>';
+    }).join('');
+    return '<div class="forge-radar">'
+      + '<div class="forge-radar-legend"><span class="forge-radar-key forge-radar-key--assisted">with assist (補助あり)</span>'
+      + '<span class="forge-radar-key forge-radar-key--baseline">without assist (補助なし)</span></div>'
+      + '<svg class="forge-radar-svg" viewBox="0 0 240 220" role="img" aria-label="Assist effect radar (with vs without Twin)">'
+      + '<polygon class="forge-radar-grid" points="' + outer + '"></polygon>'
+      + '<polygon class="forge-radar-shape forge-radar-shape--baseline" points="' + ring('baseline') + '"></polygon>'
+      + '<polygon class="forge-radar-shape forge-radar-shape--assisted" points="' + ring('assisted') + '"></polygon>'
+      + labels + '</svg></div>';
+  }
+
   function openCandidateDrawer(candidateId, filterName) {
     const candidate = ((state.data.arena || {}).candidates || []).find((item) => item.candidate_id === candidateId);
     if (!candidate) return;
@@ -1316,6 +1354,9 @@
       + '<button id="forge-twin-run" class="forge-run-btn">Run Twin Assist Eval</button></div>'
       + (report ? '<div class="forge-card"><div class="forge-card-title">Results</div><div class="forge-kv"><span>Run</span><b>' + escapeHtml(report.run_id) + '</b></div>'
         + '<div class="forge-table-wrap"><table><thead><tr><th>case</th><th>baseline</th><th>assisted</th><th>lift</th><th>best mode</th><th>harm</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>'
+        + '<div class="forge-card"><div class="forge-card-title">Assist Effect (補助有無)</div>'
+        + '<div class="forge-hint">Baseline vs Twin-assisted score per case — the visible Twin effect.</div>'
+        + assistEffectRadarHtml(report.comparisons) + '</div>'
         : '<div class="forge-card"><div class="forge-empty">No evaluation yet. Run an evaluation to see baseline vs assisted lift and harm.</div></div>')
       + '<div id="forge-twin-detail" class="forge-twin-result" style="display:none"></div>';
 
