@@ -2,7 +2,14 @@
 
 ## Active Goal
 
-The current default development goal is **Atlas Twin / Forge / Git Steward**.
+The current active track is **Forge / Twin / Arena / Anvil 統合改修** (Method layer: MethodVariant / MethodAdapter / MethodRouter / MethodPipeline + Arena radar + weak-LLM reinforcement). Manage it from:
+
+1. `docs/forge_twin_arena_anvil_integration_plan.md` — living plan + per-PR breakdown + progress tracker
+2. `docs/forge_twin_arena_anvil_integration_current_status.md` — Phase 0 inventory / component classification
+
+Work item = 1 PR. For this track the user has explicitly authorized creating and merging a PR per item (2026-06-21); branch per item (`feat/forge-method-*`), implement + test, then PR + merge. Do not replace existing modules — integrate/extend. Watch the `decomposition_policy.py` naming collision (see plan §運用ルール).
+
+The prior default development goal is **Atlas Twin / Forge / Git Steward**.
 
 Start here for all general implementation work unless the user explicitly asks for another track:
 
