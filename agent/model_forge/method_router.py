@@ -1,7 +1,7 @@
 """Profile-aware Method selection that never owns or overrides Forge routes."""
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import Field
 
@@ -19,7 +19,12 @@ from agent.model_forge.method_taxonomy import MethodVariant
 from agent.model_forge.route_matrix import ChangeClass
 from agent.model_forge.route_taxonomy import ForgeRoute
 from agent.model_forge.schema import ForgeModel
-from agent.twin_control_plane.contracts import ModelCapabilityMode
+
+if TYPE_CHECKING:
+    # Imported lazily inside ``select`` at runtime to break the
+    # contracts <-> model_forge import cycle (contracts imports method_policy,
+    # which eagerly loads this module). See repo note on order-dependent ImportError.
+    from agent.twin_control_plane.contracts import ModelCapabilityMode
 
 
 class CapabilityProfile(Protocol):
@@ -79,6 +84,8 @@ class MethodRouter:
         profile: CapabilityProfile,
         consecutive_failures: int = 0,
     ) -> MethodRoutingDecision:
+        from agent.twin_control_plane.contracts import ModelCapabilityMode
+
         weaknesses = set(profile.known_weaknesses)
         structured_weak = (
             "structured_output_fidelity" in weaknesses

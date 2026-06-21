@@ -108,8 +108,29 @@ class ForgeService:
     def assist_capability_profile(self, **payload) -> dict:
         return self.evaluation.assist_capability_profile(**payload)
 
-    def injection_sweep_profile(self, **payload) -> dict:
-        return self.evaluation.injection_sweep_profile(**payload)
+    def _resolve_local_base_url(self, base_url: str = "", runtime_kind: str = "") -> str:
+        """Resolve the local runtime base URL: an explicit value wins, else env / settings, else the
+        per-runtime default (llama.cpp 8080 / LM Studio 1234). Lets an already-running local model be
+        evaluated by port without any prior Forge settings."""
+        local_settings = self._settings().get("local_provider", {})
+        if not isinstance(local_settings, dict):
+            local_settings = {}
+        kind = str(runtime_kind or local_settings.get("runtime_kind") or "llama_cpp").strip().lower()
+        if kind not in {"llama_cpp", "lm_studio"}:
+            kind = "llama_cpp"
+        resolved = str(
+            base_url
+            or self._env.get("FORGE_LOCAL_BASE_URL", "").strip()
+            or local_settings.get("base_url")
+            or ""
+        ).rstrip("/")
+        if not resolved:
+            resolved = "http://127.0.0.1:1234" if kind == "lm_studio" else "http://127.0.0.1:8080"
+        return resolved
+
+    def injection_sweep_profile(self, *, runtime_kind: str = "", base_url: str = "", **payload) -> dict:
+        base_url = self._resolve_local_base_url(base_url, runtime_kind)
+        return self.evaluation.injection_sweep_profile(base_url=base_url, **payload)
 
     def rerun_evaluation(self, run_id: str, **payload) -> dict:
         return self.evaluation.rerun(run_id, **payload)
