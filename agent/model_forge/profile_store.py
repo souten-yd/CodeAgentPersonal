@@ -56,6 +56,7 @@ class ProfileObservation(ForgeModel):
     evidence_refs: list[str] = Field(default_factory=list)
     recorded_at: str = ""
     twin_assist: dict = Field(default_factory=dict)
+    assist_matrix: dict = Field(default_factory=dict)
 
 
 class ProfileStore:
@@ -99,6 +100,7 @@ class ProfileStore:
         source: str = "",
         evidence_refs: Iterable[str] | None = None,
         twin_assist: dict | None = None,
+        assist_matrix: dict | None = None,
     ) -> ModelProfile:
         obs = ProfileObservation(
             observation_id=self._id_factory(),
@@ -111,6 +113,7 @@ class ProfileStore:
             evidence_refs=list(evidence_refs or []),
             recorded_at=self._clock().isoformat(),
             twin_assist=dict(twin_assist or {}),
+            assist_matrix=dict(assist_matrix or {}),
         )
         # Append-only: never rewrite earlier lines.
         with self._obs_path(provider_id, model_id).open("a", encoding="utf-8") as fh:
@@ -129,6 +132,10 @@ class ProfileStore:
             evidence_refs=report.evidence_refs,
             twin_assist={"scores": scores, "lift": lifts, "mode": mode, "injection_level": report.recommended_twin_injection_level},
         )
+
+    def record_assist_matrix_report(self, report) -> ModelProfile:
+        key = f"{report.task_category}:{report.change_class}"
+        return self.record_observation(model_id=report.model_id, provider_id=report.provider_id, dimensions={}, source="assist_matrix", evidence_refs=report.evidence_refs, assist_matrix={key: report.recommended_policy_patch})
 
     def update_from_candidate_score(
         self,
@@ -192,6 +199,7 @@ class ProfileStore:
         evidence: list[str] = []
         primary_samples = 0
         latest_twin: dict = {}
+        matrix_recommendations: dict[str, dict] = {}
         for obs in observations:
             if obs.weak_feedback and not include_weak:
                 # Preserve the evidence ref but do not let it move the score.
@@ -199,6 +207,8 @@ class ProfileStore:
                 continue
             if obs.twin_assist:
                 latest_twin = dict(obs.twin_assist)
+            if obs.assist_matrix:
+                matrix_recommendations.update(obs.assist_matrix)
             w = obs.sample_weight * (self._weak_weight if obs.weak_feedback else 1.0)
             if not obs.weak_feedback:
                 primary_samples += 1
@@ -223,6 +233,7 @@ class ProfileStore:
             recommended_twin_assist_mode=str(latest_twin.get("mode") or ""),
             recommended_twin_injection_level=latest_twin.get("injection_level"),
             twin_assist_evidence_refs=ev_refs if latest_twin else [],
+            assist_matrix_recommendations=matrix_recommendations,
         )
 
     def _next_version(self, provider_id: str, model_id: str) -> int:
