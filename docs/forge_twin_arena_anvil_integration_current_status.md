@@ -636,3 +636,25 @@ Remaining gaps: harvest phase observations from real Atlas execution artifacts; 
 Next package: none in the Phase 2 plan — PR16-22 are all merged. Full acceptance still depends on the recorded remaining gaps (non-method mechanical evaluators, semantic vs format-only checks, active-gate wiring into Atlas, real-browser UI verification).
 Blocker: none
 Proof level: `atlas_route_validation_passed` (real benchmark -> optimal route + injection -> Atlas phase validation)
+
+---
+
+## 30. H1 Non-method live capability evaluators 完了証跡 (Phase 3 / P0-1)
+
+Completed package: H1 `feat/forge-nonmethod-live-evaluators`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/live_capability_eval.py`, `agent/model_forge/evaluation_service.py`, `tests/test_forge_live_capability_eval.py`, integration plan/status docs
+Behavior implemented: `LiveCapabilityEvaluator` scores the four non-method dimensions that previously returned `mechanical_evaluator_unavailable`. scope_boundary_discipline / context_overload_sensitivity / abstraction_tolerance use concrete prompts with deterministic checkers (allowed vs forbidden path, relevant token vs distractor, constraint retention vs template echo). fallback_recovery runs the real MethodPipeline and asserts both natural recovery and that a failed primary attempt is never reported as passed. `run_live` now splits dimensions: method-backed -> RealMethodRunner, non-method -> LiveCapabilityEvaluator. Transport failures and unparseable answers are `unavailable`, never passed.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_live_capability_eval.py` -> 9 passed
+Syntax checks: `py_compile agent/model_forge/live_capability_eval.py agent/model_forge/evaluation_service.py tests/test_forge_live_capability_eval.py` -> passed
+Affected tests: `pytest -q tests/test_forge_live_capability_eval.py tests/test_forge_evaluation_api.py tests/test_forge_real_method_runner.py` -> 19 passed
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, run `forge_eval_50d47ff13bd2`: scope_boundary_discipline 1.0, context_overload_sensitivity 1.0, abstraction_tolerance 1.0, fallback_recovery 1.0 (fb_recover recovered via fallback from a blocked primary; fb_no_false_pass confirmed primary_status=blocked, not passed). Live evaluation coverage is now 11/16 dimensions (7 method-backed + 4 non-method).
+Atlas UI evidence: unavailable; backend evaluator
+Project Intelligence evidence: unavailable
+Runtime/Portal evidence: real local provider calls across all four non-method dimensions plus a live fallback pipeline run
+Unavailable checks: the remaining 5 dimensions (impact_analysis, contract_preservation, test_generation, stale_test_judgment, flag_reasoning) are the original control-plane judgment dimensions scored from supplied outcomes, not live-model cases; out of scope for this live-runner expansion. The prompt-based checkers are still partly format/string oriented and will be hardened toward deeper semantics in H2.
+Safety invariants: `unavailable` never upgraded to passed; fallback_recovery explicitly guards against a false pass; no file applied; no routing change
+Remaining gaps: H2 semantic hardening (anchor uniqueness/ambiguity vs file content, review/repair content quality); H3 full-axis frontier re-verification
+Next package: H2 `feat/forge-semantic-eval-hardening`
+Blocker: none
+Proof level: `real_runtime_evaluated` (11/16 live dimensions; non-method evaluators component_complete)

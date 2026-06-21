@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from agent.model_forge.capability_scoring import CapabilityScorer, build_capability_profile
 from agent.model_forge.eval_packs import CaseResult, load_eval_packs
+from agent.model_forge.live_capability_eval import LIVE_CAPABILITY_DIMENSIONS, LiveCapabilityEvaluator
 from agent.model_forge.method_router import MethodRouter
 from agent.model_forge.method_taxonomy import MethodVariant
 from agent.model_forge.profile_store import ProfileStore
@@ -92,16 +93,34 @@ class ForgeEvaluationService:
         packs = [pack for pack in load_eval_packs() if pack.dimension in selected]
         if not packs or selected.difference(pack.dimension for pack in packs):
             raise ValueError("unknown_evaluation_dimension")
-        cases = [case for pack in packs for case in pack.cases]
-        results = RealMethodRunner(self._root / "real_evidence").run_cases(
-            provider_id=provider_id,
-            model_id=model_id,
-            base_url=base_url,
-            cases=cases,
-            source_mode=source_mode,
-            credential_env=credential_env,
-            timeout_seconds=timeout_seconds,
-        )
+        # Method-backed dimensions go through the adapter runner; the non-method
+        # capability dimensions (scope/context/abstraction/fallback) go through the live
+        # capability evaluator. Together they cover the full benchmark surface.
+        method_cases = [
+            case for pack in packs for case in pack.cases
+            if pack.dimension not in LIVE_CAPABILITY_DIMENSIONS
+        ]
+        results: list[CaseResult] = []
+        if method_cases:
+            results.extend(RealMethodRunner(self._root / "real_evidence").run_cases(
+                provider_id=provider_id,
+                model_id=model_id,
+                base_url=base_url,
+                cases=method_cases,
+                source_mode=source_mode,
+                credential_env=credential_env,
+                timeout_seconds=timeout_seconds,
+            ))
+        live_dims = [d for d in selected if d in LIVE_CAPABILITY_DIMENSIONS]
+        if live_dims:
+            results.extend(LiveCapabilityEvaluator(self._root / "real_evidence").evaluate(
+                provider_id=provider_id,
+                model_id=model_id,
+                base_url=base_url,
+                dimensions=live_dims,
+                source_mode=source_mode,
+                timeout_seconds=timeout_seconds,
+            ))
         return self.run(
             provider_id=provider_id,
             model_id=model_id,
