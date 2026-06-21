@@ -548,3 +548,25 @@ Remaining gaps: extend live evaluation to all dimensions (PR19) then re-run full
 Next package: PR18 `feat/forge-method-router-v2`
 Blocker: none
 Proof level: `frontier_verification_mismatch` (harness `component_complete`; 6/8 weak verdicts confirmed, 2 over-claims surfaced and not upgraded)
+
+---
+
+## 26. PR18 MethodRouter v2 完了証跡
+
+Completed package: PR18 `feat/forge-method-router-v2`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/method_policy.py`, `agent/model_forge/method_router.py`, `tests/test_forge_method_router_v2.py`, integration plan/status docs
+Behavior implemented: (1) **fixed the PR16 trigger gap** — all fallback steps now trigger on `RECOVERABLE_TRIGGERS` (schema_invalid / content_missing / file_changes_missing / missing_edit_anchor / invalid_edit_intent / anchor_not_found / empty_output / unsafe_target_path / forbidden_action_type / failed / blocked) and every method chain ends in a review-only terminal; (2) capability-aware refinements applied only from measured dimensions: abstraction weak -> fill_in_template (severe -> yes_no_gate), context_overload weak -> minimal refs, test_generation strong -> test_first_slice + focused tests, repair strong -> repair_compass, evidence weak -> verifier separation + full gate, structured weak + edit_intent strong -> deterministic compile path, frontier_assisted -> lower injection; (3) policy enums expanded (TaskDecompositionPolicy +5, InstructionAbstractionLevel +5). MethodRouter still never overrides RouteMatrix.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_method_router_v2.py` -> 11 passed
+Syntax checks: `py_compile agent/model_forge/method_policy.py agent/model_forge/method_router.py` -> passed
+Affected tests: `pytest -q tests/test_forge_method_router.py tests/test_forge_method_router_v2.py tests/test_forge_method_pipeline.py tests/test_execution_policy_route_preference.py tests/test_forge_method_schema_extension.py tests/test_forge_anvil_acceptance.py` -> 40 passed
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. A weak-structured profile's router-generated chain run through MethodPipeline naturally fell back: edit_intent_list -> blocked (file_changes_missing) -> anchored_edit_block -> failed (anchor_not_found) -> review_only -> passed. The old narrow triggers would have ignored file_changes_missing; the production router now recovers.
+Atlas UI evidence: unavailable; routing logic change only
+Project Intelligence evidence: unavailable
+Runtime/Portal evidence: real local provider calls across the router-derived fallback chain
+Unavailable checks: tool_call_patch routing for tool-calling-capable providers is not yet wired (no tool-calling provider profile available locally); recorded as future work rather than claimed
+Safety invariants: RouteMatrix authority preserved (route never overridden); strong/weak derived only from measured scores so legacy profiles are non-regressed; new enum values are additive; review-only decisions are never refined; no Safe Apply / Proposal / Verification change
+Remaining gaps: tool_call_patch + provider-capability gating; full-axis live evaluation (PR19) then full-coverage frontier re-verification (PR21)
+Next package: PR19 `feat/forge-multimodel-roleassignment`
+Blocker: none
+Proof level: `method_router_shadow_connected` (v2 rules + real fallback verified)
