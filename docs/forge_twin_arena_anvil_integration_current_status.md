@@ -614,3 +614,25 @@ Remaining gaps: connect `is_active` into the Atlas pre-execution method selectio
 Next package: PR22 `feat/forge-atlas-route-validation`
 Blocker: none
 Proof level: `active_gated_ready` (gate component_complete; default off, no automation)
+
+---
+
+## 29. PR22 Atlas route validation 完了証跡
+
+Completed package: PR22 `feat/forge-atlas-route-validation`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/atlas_route_validation.py`, `tests/test_forge_atlas_route_validation.py`, integration plan/status docs
+Behavior implemented: `AtlasRouteValidator` derives the benchmark-optimal route + Twin injection level from a model's evaluation profile (via `ExecutionPolicySelector`) and validates the Atlas planning / code_development / completion phases: each phase's route must be within RouteMatrix safe candidates (no override), code_development must align with the benchmark-optimal route, evidence must be present, and completion must carry verification + Safe Apply proof. The verdict is shadow-only (`changes_production_routing=False`), honouring the PR20 gate. Missing phases yield `atlas_route_validation_pending`; phase failures yield `atlas_route_validation_mismatch`.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_atlas_route_validation.py` -> 6 passed
+Syntax checks: `py_compile agent/model_forge/atlas_route_validation.py tests/test_forge_atlas_route_validation.py` -> passed
+Affected tests: route_matrix / execution_policy suites unaffected (validator is additive, read-only)
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. A real benchmark (structured_output_fidelity 1.0, patch_protocol_fidelity 1.0, edit_intent_quality 0.0) yielded optimal route `patch_dsl` + Twin injection 3 + method `patch_dsl_json`; a representative Atlas run (planning=sliced_impact, code_development=patch_dsl, completion=critical_gate with verification + Safe Apply proof) validated overall_valid with proof `atlas_route_validation_passed`.
+Atlas UI evidence: unavailable; backend validator
+Project Intelligence evidence: unavailable
+Runtime/Portal evidence: real benchmark profile feeding the route/injection derivation
+Unavailable checks: phase observations are supplied to the validator rather than harvested live from a running Atlas execution; wiring the validator to consume real Atlas plan/patch/verify artifacts is the next integration step. Validation is shadow-only and does not change routing.
+Safety invariants: shadow-only; RouteMatrix authority enforced (unsafe routes flagged); completion requires verification + Safe Apply proof; production routing unchanged; honours the PR20 active gate
+Remaining gaps: harvest phase observations from real Atlas execution artifacts; the deeper integration/UI items noted across PR16-21 proofs
+Next package: none in the Phase 2 plan — PR16-22 are all merged. Full acceptance still depends on the recorded remaining gaps (non-method mechanical evaluators, semantic vs format-only checks, active-gate wiring into Atlas, real-browser UI verification).
+Blocker: none
+Proof level: `atlas_route_validation_passed` (real benchmark -> optimal route + injection -> Atlas phase validation)
