@@ -41,7 +41,30 @@
 | 15 | feat/forge-execution-shadow | 実行統合（shadow） | Atlas plan/patch/verify/repair に評価結果を渡す。shadow mode で記録のみ。active は明示確認後（このトラックでは shadow まで）+ tests | 6,10 | ☑ merged |
 | 16 | feat/forge-anvil-real-eval | Anvil 実評価 + 仕上げ | Anvil 起動→実モデル評価で fallback 実証。全テスト（unit/integration/adversarial/UI/real-gated）。docs/rollback/proof levels 更新 | 10,12,13,14,15 | ☐ pending |
 
+---
+
+## 拡張 PR 一覧（弱 LLM 補強の完成形 — Phase 2）
+
+PR1〜15 がマージされ Method 層の骨格は揃ったが、レビュー指摘（2026-06-21）により「弱 LLM 補強の完成形」にはまだ届いていない。残る P0/P1/P2 を以下の追加 PR として実装する。各項目=1PR・マージはこれまで同様。
+
+| # | ブランチ | 内容 | 主な追加/変更 | 依存 | 状態 |
+|---|---|---|---|---|---|
+| 16 | feat/forge-anvil-real-eval | **(P0)** Anvil 正式 acceptance | Anvil 起動コマンド記録 / `/models/db` 読取 / `/model/switch` ロード / `/model/status` ready / `/v1/models` 確認 / `/api/forge/evaluation/run-live` 実評価 / structured・edit_intent・anchor・fallback・evidence ケース実行 / **自然発生 fallback 証跡** / `raw_output_ref`・`parsed_output_ref`・`evidence_refs` 保存 / proof level `anvil_real_eval_passed` 追加。Anvil 未達なら `anvil_real_eval_pending`、`acceptance_complete` にしない | 10,12,13,14,15 | ☐ pending |
+| 17 | feat/forge-natural-fallback-pack | **(P0)** 自然発生 fallback パック | 強制証跡でなく実モデルで自然に失敗→fallback する評価ケース群: schema_invalid / patch_apply_failure / anchor_not_found / content_missing / file_changes_missing / unsafe_path / provider_unavailable。MethodPipeline が自然に fallback する証跡を保存 + tests | 5,7,10,16 | ☐ pending |
+| 18 | feat/forge-method-router-v2 | **(P1)** MethodRouter v2（分岐拡充） | 追加ルール: evidence weak→verifier分離 / test_generation strong→test_first / repair strong→repair_loop / abstraction weak→explicit_template・yes_no_gate / context overload weak→minimal/focused refs / frontier strong→blueprint_slice・低注入 / tool_call strong→tool_call_patch / structured weak+edit_intent strong→deterministic compile path / provider capability(structured/tool 対応)考慮。policy enum 拡充（TaskDecompositionPolicy に one_failure_at_a_time/test_first_slice/contract_first_slice/one_file_one_change/one_contract_one_patch、InstructionAbstractionLevel に guided_goal/checklist_steps/fill_in_template/constrained_slots/yes_no_gate）。RouteMatrix は引き続き override しない + tests | 6,7 | ☐ pending |
+| 19 | feat/forge-multimodel-roleassignment | **(P1)** Multi-model RoleAssignment | 複数モデル同時評価→ planner/implementer/verifier/repairer/reviewer/fallback の多モデル最適割当。latency/cost/local_only/privacy を含む組合せ最適化。role ごとの必須証跡。RealMethodRunner の live 評価軸拡張（fallback_recovery / abstraction_tolerance / scope_boundary_discipline / context_overload_sensitivity / evidence_discipline / repair_discipline / large_file_editing） + tests | 7,10,11,16 | ☐ pending |
+| 20 | feat/forge-active-execution-gated | **(P1)** Active 実行 gated 統合 | shadow evidence 蓄積→cutover 条件明確化→明示確認後のみ active で MethodRouter を実行前 policy として使用。Proposal/Safe Apply/Verification は絶対維持。active 自動化はデフォルト OFF。既存 cutover/shadow gate を通す + tests | 15,16,18,19 | ☐ pending |
+| 21 | feat/forge-frontier-eval-verification | **(検証)** 全評価軸の弱 LLM 結果をフロンティアで検証 | Forge ベンチマークの**全評価項目**について、8080(弱 LLM)が生成した評価内容（score/judgment/evidence）の妥当性を**フロンティアモデルで検証**する verification harness。不一致は `frontier_verification_mismatch` として記録（弱 LLM 結果を passed に格上げしない）。完成後にベンチマークを実行し評価経路の健全性を確認 + tests | 7,8,10,16,17,19 | ☐ pending |
+| 22 | feat/forge-atlas-route-validation | **(検証)** Atlas 計画/コード/完了の妥当性確認 | Forge モデルベンチマーク結果から決定した**最適経路 + Twin 注入量**の経路を用いて、Atlas の計画・コード開発・完了までの妥当性を検証。shadow 証跡で記録し production routing は変更しない（PR20 の active gate を尊重） + tests | 19,20,21 | ☐ pending |
+
 状態凡例: ☐ pending / ◐ in_progress / ☑ merged
+
+### 横断的な検証要件（ユーザー指示 2026-06-21）
+
+1. **評価は 8080 ポートの LLM（弱 LLM, Qwen3.6-35B-A3B）で実行する**。
+2. **全評価項目について、弱 LLM が生成した評価結果の妥当性をフロンティアモデルで検証する**（PR21）。弱 LLM の評価は advisory。フロンティア検証で不一致なら `frontier_verification_mismatch`、`unavailable≠passed` を厳守。
+3. **完成後にベンチマークを実行し、評価経路に問題がないことを確認する**（PR21 末尾）。
+4. **Forge ベンチマーク結果から最適経路と Twin 注入量を決定し、その経路で Atlas の計画・コード開発・完了の妥当性を確認する**（PR22）。production routing は変更せず shadow/gated で行う。
 
 ---
 
@@ -59,17 +82,24 @@
 - **PR12-14**: radar が unavailable を 0 と区別。fallback graph 描画。Advanced で Twin read-only。mobile 崩れ無し。
 - **PR15**: shadow 記録のみ。Safe Apply/verification/proof ledger 接続。active 自動切替なし。
 - **PR16**: Anvil 実評価の証跡（起動コマンド/model_id/base_url/`/v1/models`/run_id/raw refs/score/fallback 実証）。Anvil 未評価なら `anvil_real_eval_pending`、`acceptance_complete` にしない。
+- **PR17**: 実モデルに対し schema_invalid / anchor_not_found / content_missing / file_changes_missing / unsafe_path / provider_unavailable を実際に誘発し、MethodPipeline が**自然に** fallback する証跡を保存。強制注入でないこと。
+- **PR18**: 追加ルールが profile の弱点に応じて発火し、対応する method/policy を選ぶ。新 enum 値が schema を破らず後方互換。RouteMatrix を override しない。
+- **PR19**: 複数モデルから planner/implementer/verifier/repairer/reviewer/fallback が証跡付きで割り当てられ、適用は既存 cutover/confirmation を通る。live 評価軸の拡張が `unavailable≠passed` を守る。
+- **PR20**: shadow evidence が十分な場合のみ明示確認で active 化でき、Proposal/Safe Apply/Verification を維持。active 自動化はデフォルト OFF。off/shadow/active のロールアウトが既存 gate を通る。
+- **PR21**: 全評価軸について 8080 弱 LLM の評価結果をフロンティアが検証し、一致/不一致を記録。不一致を passed に格上げしない。ベンチマーク end-to-end 実行で評価経路の健全性を確認。
+- **PR22**: 最適経路+Twin 注入量で Atlas 計画/コード/完了の妥当性を shadow 検証し、production routing を変更しない。
 
 ---
 
 ## Proof level（このトラック共通）
 
-`contract_present` → `component_complete` → `method_contract_present` → `method_pipeline_component_complete` → `method_router_shadow_connected` → `shadow_connected` → `real_llm_evaluated` → `real_runtime_evaluated` → `anvil_real_eval_passed` → `fallback_real_eval_passed` → `production_connected` → `acceptance_complete`
+`contract_present` → `component_complete` → `method_contract_present` → `method_pipeline_component_complete` → `method_router_shadow_connected` → `shadow_connected` → `real_llm_evaluated` → `real_runtime_evaluated` → `anvil_real_eval_passed` → `natural_fallback_real_eval_passed` → `frontier_verification_passed` → `atlas_route_validation_passed` → `active_gated_ready` → `production_connected` → `acceptance_complete`
 
 ---
 
 ## 進捗ログ
 
+- 2026-06-21: **Phase 2 拡張計画を策定**。PR1〜15 マージ済みを確認（HEAD `91e07e32`、`feat/forge-execution-shadow`）。レビュー指摘を踏まえ残作業を PR16(Anvil 正式 acceptance)/PR17(自然 fallback パック)/PR18(MethodRouter v2)/PR19(Multi-model RoleAssignment)/PR20(Active gated)/PR21(フロンティア検証+ベンチマーク健全性)/PR22(Atlas 経路妥当性) として定義。8080 弱 LLM（Qwen3.6-35B-A3B）到達確認済み。AGENTS.md の Active Goal を本拡張計画に同期。
 - 2026-06-21: PR15 Atlas plan/patch/verify/repairへmethod/evaluation shadow artifact + Proof Ledger接続を追加。focused 24 passed、8080 real 4-stage比較1 passed（全stage score 1.0 tie、routing変更なし）。Atlas回帰は53 passed / 1 known baseline failure（origin/mainでも再現）を正直に記録。
 - 2026-06-21: PR14 Forge Advanced にTwin settings/profile snapshotとread-only context/impact inspectorを統合。旧Twin panel/APIは保持し独立subtabのみ非表示。focused 22 passed、回帰30 passed、ブラウザ実機確認は unavailable。
 - 2026-06-21: PR13 fallback graph / Benchmark method comparison / policy recommendation drawer を実装。Node render 15 passed、Forge API/optimizer 回帰 23 passed。recommendation は `advisory_not_applied` で routing を変更せず、ブラウザ実機確認は tooling unavailable と記録。

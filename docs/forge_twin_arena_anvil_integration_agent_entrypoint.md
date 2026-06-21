@@ -72,11 +72,13 @@ venv_sys/Scripts/python.exe -m pytest -q tests/<file>.py
 
 capability 既存8軸: impact_analysis, contract_preservation, test_generation, stale_test_judgment, flag_reasoning, repair_discipline, evidence_discipline, large_file_editing。
 
-## 7. PR 一覧（plan.md と同期。次の着手 = PR1）
+## 7. PR 一覧（plan.md と同期。PR1〜15 マージ済み。次の着手 = PR16）
 
-1. method 契約 DTO → 2. schema 拡張 → 3/4. adapters → 5. MethodPipeline → 6. MethodRouter 統合 → 7. 評価軸/ケース → 8. 評価 API → 9. Twin facade → 10. 実 LLM runner → 11. optimizer/loadout → 12-14. UI(radar/fallback/Advanced) → 15. 実行統合(shadow) → 16. Anvil 実評価+仕上げ。
+1〜15 はマージ済み: method 契約 DTO → schema 拡張 → adapters → MethodPipeline → MethodRouter 統合 → 評価軸/ケース → 評価 API → Twin facade → 実 LLM runner → optimizer/loadout → UI(radar/fallback/Advanced) → 実行統合(shadow)。
 
-依存・受け入れ基準は `plan.md` 参照。
+**Phase 2（残作業、次の着手 = PR16）**: 16. Anvil 正式 acceptance → 17. 自然 fallback パック → 18. MethodRouter v2 → 19. Multi-model RoleAssignment → 20. Active gated 統合 → 21. 全評価軸の弱 LLM 結果をフロンティア検証 + ベンチマーク健全性 → 22. Atlas 経路妥当性検証。
+
+依存・受け入れ基準・詳細は `plan.md` の「拡張 PR 一覧（弱 LLM 補強の完成形 — Phase 2）」参照。§8 は PR1 の歴史的スペック（着手済み）。
 
 ## 8. PR1 着手スペック（feat/forge-method-contracts）
 
