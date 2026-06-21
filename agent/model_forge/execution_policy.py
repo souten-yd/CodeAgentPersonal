@@ -12,6 +12,7 @@ from hashlib import sha1
 from agent.model_forge.route_matrix import ChangeClass, RouteMatrix, RouteSelector
 from agent.model_forge.route_taxonomy import ForgeRoute
 from agent.model_forge.method_router import MethodRouter
+from agent.model_forge.method_taxonomy import MethodVariant
 from agent.twin_control_plane.contracts import (
     ExecutionPolicy,
     GitPolicy,
@@ -29,6 +30,9 @@ class ModelCapabilityProfile:
     capability_scores: dict[str, float] = field(default_factory=dict)
     known_weaknesses: list[str] = field(default_factory=list)
     mode: ModelCapabilityMode = ModelCapabilityMode.STANDARD
+    recommended_twin_assist_mode: str = ""
+    recommended_twin_injection_level: int | None = None
+    twin_assist_lift: dict[str, float] = field(default_factory=dict)
 
     def score(self, dimension: str, default: float = 0.5) -> float:
         value = self.capability_scores.get(dimension, default)
@@ -149,6 +153,8 @@ class ExecutionPolicySelector:
         elif twin_risk == "low":
             base_level -= 1
         injection = _clamp_injection(route, base_level)
+        if profile.recommended_twin_injection_level is not None:
+            injection = _clamp_injection(route, max(int(injection), profile.recommended_twin_injection_level))
         style = _style_for_route(route, profile.mode, weaknesses)
 
         required_modules = ["TwinBrief"]
@@ -173,6 +179,8 @@ class ExecutionPolicySelector:
         reasons.append(f"model_mode={profile.mode}")
         reasons.append(f"twin_risk={twin_risk}")
         reasons.append(f"injection={int(injection)}")
+        if profile.recommended_twin_assist_mode:
+            reasons.append(f"twin_assist_recommendation={profile.recommended_twin_assist_mode}")
         if benchmark_route is not None:
             reasons.append(f"benchmark_preferred_route={benchmark_route.value}:{round(route_preferences.get(benchmark_route, 0), 3)}")
         if weaknesses:
@@ -199,6 +207,11 @@ class ExecutionPolicySelector:
             verification_mode=method_decision.verification_mode,
             repair_mode=method_decision.repair_mode,
             twin_injection_level=injection,
+            twin_assist_mode=profile.recommended_twin_assist_mode,
+            twin_assist_expected_lift=(max(profile.twin_assist_lift.values()) if profile.twin_assist_lift else None),
+            twin_slot_required=profile.recommended_twin_assist_mode == "twin_localized_slot",
+            deterministic_anchor_required=profile.recommended_twin_assist_mode == "twin_deterministic_anchor",
+            avoid_method_variants=([MethodVariant.EDIT_INTENT_LIST] if profile.score("edit_intent_quality") < 0.55 else []),
             required_twin_modules=sorted(set(required_modules)),
             required_gates=sorted(set(gates)),
             git_policy=GitPolicy(

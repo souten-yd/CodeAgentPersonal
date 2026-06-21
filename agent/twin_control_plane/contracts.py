@@ -132,6 +132,11 @@ class ExecutionPolicy(TwinControlPlaneModel):
     verification_mode: VerificationMode = VerificationMode.FOCUSED_TESTS
     repair_mode: RepairMode = RepairMode.FALLBACK_METHOD
     twin_injection_level: TwinInjectionLevel = TwinInjectionLevel.CONTRACTS_AND_IMPACT
+    twin_assist_mode: str = ""
+    twin_assist_expected_lift: float | None = None
+    twin_slot_required: bool = False
+    deterministic_anchor_required: bool = False
+    avoid_method_variants: list[MethodVariant] = Field(default_factory=list)
     required_twin_modules: list[str] = Field(default_factory=list)
     required_gates: list[str] = Field(default_factory=list)
     git_policy: GitPolicy = Field(default_factory=GitPolicy)

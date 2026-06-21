@@ -27,6 +27,7 @@ class CapabilityProfile(Protocol):
     capability_scores: dict[str, float]
     known_weaknesses: list[str]
     mode: ModelCapabilityMode
+    recommended_twin_assist_mode: str
 
 
 # PR18: the real failure vocabulary the structured/edit/anchored adapters actually
@@ -95,8 +96,16 @@ class MethodRouter:
             primary = MethodVariant.REVIEW_ONLY
             reasons = ["repeated_failure_review_only" if consecutive_failures >= 2 else "audit_only_profile"]
         elif large_edit_weak:
-            primary = MethodVariant.ANCHORED_EDIT_BLOCK
-            reasons = ["large_editing_weakness_uses_anchors"]
+            recommendation = str(getattr(profile, "recommended_twin_assist_mode", "") or "")
+            if recommendation == "twin_localized_slot":
+                primary = MethodVariant.TWIN_LOCALIZED_SLOT_PATCH
+                reasons = ["measured_large_edit_weakness_uses_recommended_twin_slot"]
+            elif recommendation == "twin_deterministic_anchor":
+                primary = MethodVariant.TWIN_DETERMINISTIC_ANCHOR_PATCH
+                reasons = ["measured_large_edit_weakness_uses_recommended_twin_anchor"]
+            else:
+                primary = MethodVariant.ANCHORED_EDIT_BLOCK
+                reasons = ["large_editing_weakness_uses_anchors"]
         elif structured_weak:
             primary = MethodVariant.EDIT_INTENT_LIST
             reasons = ["structured_output_weakness_uses_edit_intents"]
@@ -262,6 +271,10 @@ class MethodRouter:
                     reason="degrade to review when no method applies",
                     trigger_on=list(RECOVERABLE_TRIGGERS),
                 ),
+            ]
+        if primary in {MethodVariant.TWIN_LOCALIZED_SLOT_PATCH, MethodVariant.TWIN_DETERMINISTIC_ANCHOR_PATCH}:
+            return [
+                FallbackStep(method_variant=MethodVariant.REVIEW_ONLY, reason="unsafe or unavailable Twin slot", trigger_on=list(RECOVERABLE_TRIGGERS)),
             ]
         if primary == MethodVariant.REPAIR_COMPASS_STEPS:
             return [FallbackStep(
