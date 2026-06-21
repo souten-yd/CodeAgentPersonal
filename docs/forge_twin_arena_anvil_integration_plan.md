@@ -30,7 +30,7 @@
 | 4 | feat/forge-adapters-anchored | 残り adapter | AnchoredEditBlock / UnifiedDiff / DeterministicTextPatch / ReviewOnly / RepairCompass + tests | 3 | ☑ merged |
 | 5 | feat/forge-method-pipeline | MethodPipeline | primary→fallback 実行、trigger 判定（schema_invalid / anchor_not_found 等）、hard_fail（Safe Apply bypass 等）、attempts 記録 + tests | 3,4 | ☑ merged |
 | 6 | feat/forge-method-router | MethodRouter + Policy 統合 | profile→MethodChain/abstraction/decomposition/context/verification。ExecutionPolicySelector へ method 添付（safe 候補内のみ・route override 禁止）+ tests | 2,5 | ☑ merged |
-| 7 | feat/forge-eval-dimensions | 新評価軸 + ケース | capability dimension 追加（structured_output_fidelity, patch_protocol_fidelity, edit_intent_quality, anchor_selection_quality, abstraction_tolerance, fallback_recovery, scope_boundary_discipline, context_overload_sensitivity 等）+ eval packs（output_protocol/patch_construction/abstraction/fallback/weak_local/frontier/safety_adversarial）+ tests | 1,2 | ☐ pending |
+| 7 | feat/forge-eval-dimensions | 新評価軸 + ケース | capability dimension 追加（structured_output_fidelity, patch_protocol_fidelity, edit_intent_quality, anchor_selection_quality, abstraction_tolerance, fallback_recovery, scope_boundary_discipline, context_overload_sensitivity 等）+ eval packs（output_protocol/patch_construction/abstraction/fallback/weak_local/frontier/safety_adversarial）+ tests | 1,2 | ☑ merged |
 | 8 | feat/forge-evaluation-api | 評価 API | `/api/forge/evaluation/{cases,run,rerun,optimize,model-profile}` + tests | 6,7 | ☐ pending |
 | 9 | feat/forge-twin-facade-api | Twin facade API | `/api/forge/twin/{settings,profiles,inspect/context,inspect/impact}`（read-only inspector 再利用）+ tests | — | ☐ pending |
 | 10 | feat/forge-real-llm-runner | 実 LLM runner 接続 | Anvil / local OpenAI compat / LM Studio / OpenRouter 実行、unavailable handling、evidence/token/latency。evaluation/run と接続 + tests | 8 | ☐ pending |
@@ -77,3 +77,4 @@
 - 2026-06-21: PR4 AnchoredEditBlock / UnifiedDiff / DeterministicTextPatch / ReviewOnly / RepairCompass adaptersを実装。focused 36 passed、回帰60 passed。localhost:8080実モデルのanchored blockを非適用patchへ変換成功。
 - 2026-06-21: PR5 MethodPipelineを実装。trigger fallback、attempt履歴、unavailable、bounded retry、authority hard-failを検証（focused 34 passed、回帰49 passed）。forced schema failureからlocalhost:8080実モデルedit intentへのfallback成功。
 - 2026-06-21: PR6 MethodRouterをExecutionPolicySelectorへ添付。RouteMatrix権限を維持し、弱点・失敗回数に応じたmethod/policyを選択（focused 23 passed、回帰50 passed）。localhost:8080実モデルでweak-profile route→method→pipeline成功。
+- 2026-06-21: PR7 method/abstraction/fallback/safety評価8軸と通常/adversarialケースを追加。focused 19 passed、回帰34 passed。localhost:8080単一structured fidelityケースはsemantic不一致でfailed（正式dimension scoreは未算出）。
