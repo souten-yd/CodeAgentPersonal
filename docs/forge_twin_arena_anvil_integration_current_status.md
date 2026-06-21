@@ -730,3 +730,28 @@ Remaining gaps: connect rescue plan into ExecutionPolicySelector so a failing mo
 Next package: P1 active-gate / rescue wiring into the execution path
 Blocker: none
 Proof level: `component_complete` (rescue ladder implemented + demonstrated; execution wiring pending)
+
+---
+
+## 35. TA1 Twin Assist contracts completion proof
+
+Completed package: TA1 `feat/forge-twin-assist-contracts`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/model_forge/twin_assist_taxonomy.py`, `agent/model_forge/twin_assist_contracts.py`, `tests/test_forge_twin_assist_contracts.py`, Twin Assist plan/entrypoint/status docs
+Behavior implemented: added the seven stable `TwinAssistMode` values and strict Forge DTOs for cases, run requests, attempts, baseline-vs-assisted comparisons, and evaluation reports. Status is a closed passed/failed/unavailable/blocked contract; scores, latency, timeout, and injection level are bounded; mutable collections use isolated default factories.
+Focused tests: `C:/Users/kkens/KasaneCore/venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_twin_assist_contracts.py` -> 12 passed
+Syntax checks: `compileall -q agent/model_forge/twin_assist_taxonomy.py agent/model_forge/twin_assist_contracts.py` -> passed
+Affected tests: Twin Assist contracts focused suite covers taxonomy stability, strict extra-field rejection, non-shared defaults, status closure, unavailable honesty, and numeric bounds
+Real model evidence: localhost:8080 `/v1/models` responded with `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`; no inference was required for this pure-contract package
+Baseline score: unavailable; runner begins in TA3
+Assisted score: unavailable; runner begins in TA3
+Lift: unavailable; runner begins in TA3
+Harm cases: unavailable; scoring begins in TA2/TA3
+Best assist mode: unavailable; evaluation begins in TA3
+Atlas UI evidence: unavailable; UI is TA7
+Unavailable checks: repository-local `venv_sys` is absent; the configured interpreter exists at `C:/Users/kkens/KasaneCore/venv_sys`. Live generation, proposal, Safe Apply, Portal, and browser evidence are not applicable to a pure-contract package.
+Safety invariants: `unavailable` is distinct from `passed`; contracts are additive; no file apply, production routing change, provider execution, Proposal bypass, or Safe Apply bypass
+Remaining gaps: case packs/scoring, Atlas proposal runner, localized slots, policy/ProfileStore, API/UI, readiness/matrix/slot gates/post-apply E2E, and real 8080 comparison evidence
+Next package: TA2 `feat/forge-twin-assist-packs`
+Blocker: none
+Proof level: `component_complete`

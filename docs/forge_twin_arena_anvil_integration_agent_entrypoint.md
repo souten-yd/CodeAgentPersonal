@@ -47,7 +47,7 @@
 
 | # | Branch | Goal | Status |
 |---|---|---|---|
-| TA1 | `feat/forge-twin-assist-contracts` | TwinAssistMode taxonomy, DTO, strict schema tests | pending |
+| TA1 | `feat/forge-twin-assist-contracts` | TwinAssistMode taxonomy, DTO, strict schema tests | completed |
 | TA2 | `feat/forge-twin-assist-packs` | case packs, fixtures, scoring, harm detection | pending |
 | TA3 | `feat/forge-twin-assist-runner` | `AtlasPatchProposalService.propose_for_item` 実経路でbaseline vs assisted評価 | pending |
 | TA4 | `feat/forge-twin-localized-slot` | TwinEditSlot resolver / slot patch adapter MVP | pending |
