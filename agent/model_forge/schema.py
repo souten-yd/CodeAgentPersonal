@@ -197,6 +197,9 @@ class CandidateScore(ForgeModel):
     blocked_reasons: list[str] = Field(default_factory=list)
     method_scores: dict[str, float] = Field(default_factory=dict)
     radar_scores: dict[str, float | None] = Field(default_factory=dict)
+    # Optional "without assist" baseline per dimension so the Arena radar can overlay
+    # with-vs-without-assist (補助有無) and make the Twin effect visible. Empty == single series.
+    baseline_radar_scores: dict[str, float | None] = Field(default_factory=dict)
     unavailable_dimensions: list[str] = Field(default_factory=list)
 
 
