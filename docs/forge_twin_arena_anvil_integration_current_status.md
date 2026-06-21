@@ -755,3 +755,28 @@ Remaining gaps: case packs/scoring, Atlas proposal runner, localized slots, poli
 Next package: TA2 `feat/forge-twin-assist-packs`
 Blocker: none
 Proof level: `component_complete`
+
+---
+
+## 36. TA2 Twin Assist packs completion proof
+
+Completed package: TA2 `feat/forge-twin-assist-packs`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/model_forge/twin_assist_eval_packs.py`, `tests/test_forge_twin_assist_packs.py`, five fixture projects under `tests/fixtures/twin_assist`, Twin Assist plan/entrypoint/status docs
+Behavior implemented: added ten Twin Assist dimensions, five minimum cases, Quick/Large-file/Cross-file/Contract/Full packs, deep-copy loading, unknown-case rejection, fixture validation, deterministic best-assisted/lift/harm comparison, and aggregate mean-score/lift/harm reporting. The large-file fixture is over 200 lines and carries a unique utility boundary. Unavailable or unscored attempts cannot become the best result or contribute invented lift.
+Focused tests: `C:/Users/kkens/KasaneCore/venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_twin_assist_packs.py tests/test_forge_twin_assist_contracts.py tests/fixtures/twin_assist` -> 24 passed
+Syntax checks: `compileall -q agent/model_forge/twin_assist_eval_packs.py tests/fixtures/twin_assist` -> passed
+Affected tests: contracts + packs + direct fixture collection passed; comparison tests cover positive lift, negative lift, per-mode harm, unavailable evidence, aggregation, fixture presence, and 200-line minimum
+Real model evidence: not required for deterministic packs/scoring; localhost:8080 availability was proven in TA1 and live A/B calls begin in TA3/TA8
+Baseline score: synthetic comparison test 0.6 / 0.8 cases; not live evidence
+Assisted score: synthetic comparison test best 0.9; not live evidence
+Lift: synthetic assertions +0.3 and -0.1; not live evidence
+Harm cases: strict_twin_brief below baseline is explicitly detected in deterministic tests
+Best assist mode: synthetic best `twin_localized_slot`; not a profile recommendation
+Atlas UI evidence: unavailable; UI is TA7
+Unavailable checks: Atlas proposal runner and live 8080 A/B evidence are TA3/TA8; no mock/synthetic score is represented as live evidence
+Safety invariants: unavailable is never scored as passed; fixtures are isolated test data; scoring does not apply files or change production routing; harm is retained rather than hidden by the best score
+Remaining gaps: Atlas proposal runner, localized slots, policy/ProfileStore, API/UI, readiness/matrix/slot gates/post-apply E2E, and real 8080 comparison evidence
+Next package: TA3 `feat/forge-twin-assist-runner`
+Blocker: none
+Proof level: `component_complete`
