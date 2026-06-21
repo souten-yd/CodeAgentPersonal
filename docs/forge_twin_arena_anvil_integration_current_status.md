@@ -239,3 +239,25 @@ Remaining gaps: pipeline, router, evaluation/runtime/UI integration and Anvil ac
 Next package: PR5 `feat/forge-method-pipeline`
 Blocker: none
 Proof level: `method_contract_present`
+
+---
+
+## 12. PR5 MethodPipeline 完了証跡
+
+Completed package: PR5 `feat/forge-method-pipeline`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/method_pipeline.py`, `tests/test_forge_method_pipeline.py`, integration plan/status docs
+Behavior implemented: primary-to-fallback execution, trigger matching, bounded attempts, unavailable classification, attempt/evidence aggregation, authority bypass hard-fail, strict fallback request modification allow-list
+Focused tests: `python -m pytest -q tests/test_forge_method_pipeline.py tests/test_forge_remaining_adapters.py tests/test_forge_structured_adapters.py` -> 34 passed
+Syntax checks: `python -m py_compile agent/model_forge/method_pipeline.py tests/test_forge_method_pipeline.py` -> passed
+Affected tests: `python -m pytest -q tests/test_forge_api.py tests/test_execution_policy_route_preference.py tests/test_atlas_file_safe_apply_executor.py` -> 49 passed
+Real model evidence: forced `schema_invalid` primary followed by localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf` fallback response `chatcmpl-q3YNlOI0NpBNLspTbUTpjqyQ6QcDvJUQ`; final status passed with selected method `edit_intent_list` and two recorded attempts
+Atlas UI evidence: unavailable; PR5 has no UI change
+Project Intelligence evidence: unavailable; pipeline is not connected to Project Intelligence in this PR
+Runtime/Portal evidence: unavailable; invoker is injected and production runtime connection remains pending
+Unavailable checks: fallback evidence uses an intentionally forced schema failure, not a naturally occurring real-model failure; natural fallback proof remains pending for PR16
+Safety invariants: provider unavailable is never passed; Safe Apply readiness without Proposal is blocked; fallback cannot modify route/provider/ref authority fields; no file is applied
+Remaining gaps: router, evaluation/runtime/UI integration, natural real-model fallback and Anvil acceptance remain pending
+Next package: PR6 `feat/forge-method-router`
+Blocker: none
+Proof level: `method_pipeline_component_complete`

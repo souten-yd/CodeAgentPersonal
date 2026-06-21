@@ -28,7 +28,7 @@
 | 2 | feat/forge-method-schema-ext | 既存 schema の後方互換拡張 | ExecutionPolicy / ForgeExecutionRequest / ForgeExecutionResult / ArenaCandidate / CandidateScore に method/fallback/radar フィールド追加。`ModelOptimizationProfile` / `RoleAssignment` 追加。補助 enum（TaskDecompositionPolicy, InstructionAbstractionLevel, ContextPackageMode, OutputProtocol, PatchConstructionMode, VerificationMode, RepairMode）。schema_version migration + 互換テスト | 1 | ☑ merged |
 | 3 | feat/forge-adapters-structured | MethodRegistry + 構造化系 adapter | StructuredPatchJsonAdapter / PatchDslJsonAdapter / EditIntentListAdapter + edit_intent→Safe Apply deterministic compiler + tests | 1,2 | ☑ merged |
 | 4 | feat/forge-adapters-anchored | 残り adapter | AnchoredEditBlock / UnifiedDiff / DeterministicTextPatch / ReviewOnly / RepairCompass + tests | 3 | ☑ merged |
-| 5 | feat/forge-method-pipeline | MethodPipeline | primary→fallback 実行、trigger 判定（schema_invalid / anchor_not_found 等）、hard_fail（Safe Apply bypass 等）、attempts 記録 + tests | 3,4 | ☐ pending |
+| 5 | feat/forge-method-pipeline | MethodPipeline | primary→fallback 実行、trigger 判定（schema_invalid / anchor_not_found 等）、hard_fail（Safe Apply bypass 等）、attempts 記録 + tests | 3,4 | ☑ merged |
 | 6 | feat/forge-method-router | MethodRouter + Policy 統合 | profile→MethodChain/abstraction/decomposition/context/verification。ExecutionPolicySelector へ method 添付（safe 候補内のみ・route override 禁止）+ tests | 2,5 | ☐ pending |
 | 7 | feat/forge-eval-dimensions | 新評価軸 + ケース | capability dimension 追加（structured_output_fidelity, patch_protocol_fidelity, edit_intent_quality, anchor_selection_quality, abstraction_tolerance, fallback_recovery, scope_boundary_discipline, context_overload_sensitivity 等）+ eval packs（output_protocol/patch_construction/abstraction/fallback/weak_local/frontier/safety_adversarial）+ tests | 1,2 | ☐ pending |
 | 8 | feat/forge-evaluation-api | 評価 API | `/api/forge/evaluation/{cases,run,rerun,optimize,model-profile}` + tests | 6,7 | ☐ pending |
@@ -75,3 +75,4 @@
 - 2026-06-21: PR2 Method schema をadditive拡張。旧 `forge.v1` payload互換、strict DTO、新radar表現を検証（focused 28 passed、回帰31 passed、syntax成功）。localhost:8080 LLMレビューは `VERDICT: PASS`。
 - 2026-06-21: PR3 構造化adapter 3種とcontent-addressed artifact store、deterministic `atlas_file_changes.v1` compilerを実装。focused 27 passed、Safe Apply/Forge回帰60 passed。localhost:8080実モデル出力をedit intentから安全な非適用patchへ変換成功。
 - 2026-06-21: PR4 AnchoredEditBlock / UnifiedDiff / DeterministicTextPatch / ReviewOnly / RepairCompass adaptersを実装。focused 36 passed、回帰60 passed。localhost:8080実モデルのanchored blockを非適用patchへ変換成功。
+- 2026-06-21: PR5 MethodPipelineを実装。trigger fallback、attempt履歴、unavailable、bounded retry、authority hard-failを検証（focused 34 passed、回帰49 passed）。forced schema failureからlocalhost:8080実モデルedit intentへのfallback成功。
