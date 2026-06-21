@@ -13,6 +13,16 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from agent.model_forge.method_policy import (
+    ContextPackageMode,
+    InstructionAbstractionLevel,
+    OutputProtocol,
+    PatchConstructionMode,
+    RepairMode,
+    TaskDecompositionPolicy,
+    VerificationMode,
+)
+from agent.model_forge.method_taxonomy import MethodVariant
 from agent.model_forge.route_taxonomy import ForgeRoute
 
 ATLAS_TWIN_CONTROL_PLANE_CONTRACT_VERSION = "atlas.twin_control_plane.v1"
@@ -112,6 +122,15 @@ class ExecutionPolicy(TwinControlPlaneModel):
     model_role: str = ""
     instruction_style: InstructionStyle = InstructionStyle.CONSTRAINED_PATCH
     model_capability_mode: ModelCapabilityMode = ModelCapabilityMode.STANDARD
+    method_variant: MethodVariant | None = None
+    method_fallbacks: list[MethodVariant] = Field(default_factory=list)
+    instruction_abstraction_level: InstructionAbstractionLevel = InstructionAbstractionLevel.CONCRETE_STEPS
+    task_decomposition_policy: TaskDecompositionPolicy = TaskDecompositionPolicy.NARROW_SLICE
+    context_package_mode: ContextPackageMode = ContextPackageMode.TWIN_BRIEF
+    output_protocol: OutputProtocol = OutputProtocol.STRUCTURED_JSON
+    patch_construction_mode: PatchConstructionMode = PatchConstructionMode.MODEL_GENERATED
+    verification_mode: VerificationMode = VerificationMode.FOCUSED_TESTS
+    repair_mode: RepairMode = RepairMode.FALLBACK_METHOD
     twin_injection_level: TwinInjectionLevel = TwinInjectionLevel.CONTRACTS_AND_IMPACT
     required_twin_modules: list[str] = Field(default_factory=list)
     required_gates: list[str] = Field(default_factory=list)

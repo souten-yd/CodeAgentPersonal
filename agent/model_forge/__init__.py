@@ -160,6 +160,16 @@ from agent.model_forge.providers.openrouter_catalog import (
     OpenRouterCatalogResult,
 )
 from agent.model_forge.route_taxonomy import ForgeRoute, all_routes, is_valid_route
+from agent.model_forge.method_taxonomy import MethodVariant
+from agent.model_forge.method_policy import (
+    ContextPackageMode,
+    InstructionAbstractionLevel,
+    OutputProtocol,
+    PatchConstructionMode,
+    RepairMode,
+    TaskDecompositionPolicy,
+    VerificationMode,
+)
 from agent.model_forge.schema import (
     FORGE_SCHEMA_VERSION,
     AdoptionState,
@@ -171,9 +181,11 @@ from agent.model_forge.schema import (
     ForgeExecutionResult,
     ForgeUsage,
     ModelDescriptor,
+    ModelOptimizationProfile,
     ModelProfile,
     ProviderDescriptor,
     ProviderSupport,
+    RoleAssignment,
     SourceClass,
 )
 from agent.model_forge.source_policy import (
@@ -207,9 +219,11 @@ __all__ = [
     "ForgeExecutionResult",
     "ForgeUsage",
     "ModelDescriptor",
+    "ModelOptimizationProfile",
     "ModelProfile",
     "ProviderDescriptor",
     "ProviderSupport",
+    "RoleAssignment",
     "SourceClass",
     "PrivacyMode",
     "SourceMode",
@@ -227,6 +241,14 @@ __all__ = [
     "is_valid_stage",
     "is_valid_stage_mode",
     "ForgeRoute",
+    "MethodVariant",
+    "TaskDecompositionPolicy",
+    "InstructionAbstractionLevel",
+    "ContextPackageMode",
+    "OutputProtocol",
+    "PatchConstructionMode",
+    "VerificationMode",
+    "RepairMode",
     "all_routes",
     "is_valid_route",
     "ForgeProvider",

@@ -173,3 +173,25 @@ Remaining gaps: schema integration, adapters, pipeline, router, evaluation/runti
 Next package: PR2 `feat/forge-method-schema-ext`
 Blocker: none
 Proof level: `method_contract_present`
+
+---
+
+## 9. PR2 Method schema 後方互換拡張 完了証跡
+
+Completed package: PR2 `feat/forge-method-schema-ext`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/method_policy.py`, `agent/model_forge/schema.py`, `agent/model_forge/__init__.py`, `agent/twin_control_plane/contracts.py`, `tests/test_forge_method_schema_extension.py`, integration plan/status docs
+Behavior implemented: method/fallback policy fields on ExecutionPolicy and Forge execution DTOs; Arena method/fallback/radar fields; ModelOptimizationProfile and RoleAssignment; separate task-decomposition and method policy enums
+Focused tests: `python -m pytest -q tests/test_forge_method_schema_extension.py tests/test_model_forge_schema.py tests/test_forge_method_contracts.py` -> 28 passed
+Syntax checks: `python -m py_compile agent/model_forge/method_policy.py agent/model_forge/schema.py agent/twin_control_plane/contracts.py agent/model_forge/__init__.py tests/test_forge_method_schema_extension.py` -> passed
+Affected tests: `python -m pytest -q tests/test_execution_policy_route_preference.py tests/test_forge_api.py tests/test_twin_forge_git_steward_initial.py` -> 31 passed
+Real model evidence: localhost:8080 model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`; schema compatibility review response `chatcmpl-8hbRsrg5APZSU9bkRRDg1KcufvarndOu` -> `VERDICT: PASS` (395 tokens)
+Atlas UI evidence: unavailable; PR2 has no UI change
+Project Intelligence evidence: unavailable; PR2 adds contracts only
+Runtime/Portal evidence: unavailable; no execution wiring was added
+Unavailable checks: repository-local `venv_sys` remains absent; system Python 3.11.9 was used
+Safety invariants: old `forge.v1` payloads remain readable; unknown fields remain rejected; radar `None` remains distinct from numeric zero; existing file-size decomposition policy was untouched; no route or Safe Apply authority changed
+Remaining gaps: adapters, pipeline, router, evaluation/runtime/UI integration and Anvil acceptance remain pending
+Next package: PR3 `feat/forge-adapters-structured`
+Blocker: none
+Proof level: `method_contract_present`

@@ -11,6 +11,16 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agent.model_forge.method_policy import (
+    ContextPackageMode,
+    InstructionAbstractionLevel,
+    OutputProtocol,
+    PatchConstructionMode,
+    RepairMode,
+    TaskDecompositionPolicy,
+    VerificationMode,
+)
+from agent.model_forge.method_taxonomy import MethodVariant
 from agent.model_forge.route_taxonomy import ForgeRoute
 from agent.model_forge.source_policy import PrivacyMode, SourceMode
 from agent.model_forge.stage_taxonomy import ForgeStage
@@ -123,6 +133,15 @@ class ForgeExecutionRequest(ForgeModel):
     context_package_ref: str = ""
     output_contract: str = ""
     verification_contract: str = ""
+    method_variant: MethodVariant | None = None
+    method_fallbacks: list[MethodVariant] = Field(default_factory=list)
+    instruction_abstraction_level: InstructionAbstractionLevel = InstructionAbstractionLevel.CONCRETE_STEPS
+    task_decomposition_policy: TaskDecompositionPolicy = TaskDecompositionPolicy.NARROW_SLICE
+    context_package_mode: ContextPackageMode = ContextPackageMode.TWIN_BRIEF
+    output_protocol: OutputProtocol = OutputProtocol.STRUCTURED_JSON
+    patch_construction_mode: PatchConstructionMode = PatchConstructionMode.MODEL_GENERATED
+    verification_mode: VerificationMode = VerificationMode.FOCUSED_TESTS
+    repair_mode: RepairMode = RepairMode.FALLBACK_METHOD
 
 
 class ForgeExecutionResult(ForgeModel):
@@ -139,6 +158,10 @@ class ForgeExecutionResult(ForgeModel):
     usage: ForgeUsage = Field(default_factory=ForgeUsage)
     errors: list[str] = Field(default_factory=list)
     evidence_refs: list[str] = Field(default_factory=list)
+    method_variant: MethodVariant | None = None
+    method_status: str = ""
+    fallback_attempts: list[MethodVariant] = Field(default_factory=list)
+    fallback_reasons: list[str] = Field(default_factory=list)
 
 
 class ArenaCandidate(ForgeModel):
@@ -152,6 +175,9 @@ class ArenaCandidate(ForgeModel):
     task_id: str = ""
     execution_result_ref: str = ""
     score_ref: str = ""
+    method_variant: MethodVariant | None = None
+    method_fallbacks: list[MethodVariant] = Field(default_factory=list)
+    fallback_evidence_refs: list[str] = Field(default_factory=list)
     # Arena output never skips Proposal/Safe Apply: it starts un-applied.
     adoption_state: AdoptionState = AdoptionState.NOT_APPLIED
 
@@ -163,6 +189,42 @@ class CandidateScore(ForgeModel):
     final_score: float = 0.0
     verdict: str = ""
     blocked_reasons: list[str] = Field(default_factory=list)
+    method_scores: dict[str, float] = Field(default_factory=dict)
+    radar_scores: dict[str, float | None] = Field(default_factory=dict)
+    unavailable_dimensions: list[str] = Field(default_factory=list)
+
+
+class ModelOptimizationProfile(ForgeModel):
+    schema_version: str = FORGE_SCHEMA_VERSION
+    profile_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    provider_id: str = Field(min_length=1)
+    route_fitness: dict[ForgeRoute, float] = Field(default_factory=dict)
+    method_fitness: dict[MethodVariant, float] = Field(default_factory=dict)
+    preferred_methods: list[MethodVariant] = Field(default_factory=list)
+    fallback_methods: list[MethodVariant] = Field(default_factory=list)
+    instruction_abstraction_level: InstructionAbstractionLevel = InstructionAbstractionLevel.CONCRETE_STEPS
+    task_decomposition_policy: TaskDecompositionPolicy = TaskDecompositionPolicy.NARROW_SLICE
+    context_package_mode: ContextPackageMode = ContextPackageMode.TWIN_BRIEF
+    verification_mode: VerificationMode = VerificationMode.FOCUSED_TESTS
+    evidence_refs: list[str] = Field(default_factory=list)
+    unavailable_dimensions: list[str] = Field(default_factory=list)
+
+
+class RoleAssignment(ForgeModel):
+    schema_version: str = FORGE_SCHEMA_VERSION
+    assignment_id: str = Field(min_length=1)
+    role: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    provider_id: str = Field(min_length=1)
+    route: ForgeRoute
+    method_variant: MethodVariant
+    fallback_methods: list[MethodVariant] = Field(default_factory=list)
+    twin_injection_level: int = Field(default=2, ge=0, le=4)
+    instruction_abstraction_level: InstructionAbstractionLevel = InstructionAbstractionLevel.CONCRETE_STEPS
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    evidence_refs: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
 
 
 class CandidateProposalDraft(ForgeModel):
