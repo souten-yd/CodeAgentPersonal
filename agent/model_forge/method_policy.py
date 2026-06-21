@@ -10,12 +10,24 @@ class TaskDecompositionPolicy(StrEnum):
     NARROW_SLICE = "narrow_slice"
     MICRO_PATCH_ONLY = "micro_patch_only"
     ONE_ANCHOR_AT_A_TIME = "one_anchor_at_a_time"
+    # PR18: finer-grained weak-model decomposition strategies.
+    ONE_FAILURE_AT_A_TIME = "one_failure_at_a_time"
+    TEST_FIRST_SLICE = "test_first_slice"
+    CONTRACT_FIRST_SLICE = "contract_first_slice"
+    ONE_FILE_ONE_CHANGE = "one_file_one_change"
+    ONE_CONTRACT_ONE_PATCH = "one_contract_one_patch"
 
 
 class InstructionAbstractionLevel(StrEnum):
     OUTCOME_ONLY = "outcome_only"
     CONCRETE_STEPS = "concrete_steps"
     EXPLICIT_TEMPLATE = "explicit_template"
+    # PR18: graded abstraction for weak models (more guidance toward yes/no gating).
+    GUIDED_GOAL = "guided_goal"
+    CHECKLIST_STEPS = "checklist_steps"
+    FILL_IN_TEMPLATE = "fill_in_template"
+    CONSTRAINED_SLOTS = "constrained_slots"
+    YES_NO_GATE = "yes_no_gate"
 
 
 class ContextPackageMode(StrEnum):

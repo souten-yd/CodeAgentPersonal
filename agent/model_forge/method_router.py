@@ -29,6 +29,29 @@ class CapabilityProfile(Protocol):
     mode: ModelCapabilityMode
 
 
+# PR18: the real failure vocabulary the structured/edit/anchored adapters actually
+# emit. The original chains only triggered on a subset (schema_invalid /
+# missing_edit_anchor / anchor_not_found), so a weak model failing with
+# content_missing / file_changes_missing would never fall back. Fallback steps now
+# trigger on the full recoverable set.
+RECOVERABLE_TRIGGERS: list[str] = [
+    "schema_invalid",
+    "content_missing",
+    "file_changes_missing",
+    "missing_edit_anchor",
+    "invalid_edit_intent",
+    "anchor_not_found",
+    "empty_output",
+    "unsafe_target_path",
+    "forbidden_action_type",
+    "failed",
+    "blocked",
+]
+
+_STRONG_THRESHOLD = 0.7
+_WEAK_THRESHOLD = 0.55
+
+
 class MethodRoutingDecision(ForgeModel):
     chain: MethodChain
     instruction_abstraction_level: InstructionAbstractionLevel
@@ -38,6 +61,10 @@ class MethodRoutingDecision(ForgeModel):
     patch_construction_mode: PatchConstructionMode
     verification_mode: VerificationMode
     repair_mode: RepairMode
+    # PR18: refinement signals derived from measured capability strengths/weaknesses.
+    verifier_separation: bool = False
+    lower_injection: bool = False
+    deterministic_compile: bool = False
     reasons: list[str] = Field(default_factory=list)
 
 
@@ -85,29 +112,93 @@ class MethodRouter:
         )
         weak_mode = profile.mode == ModelCapabilityMode.WEAK_LOCAL or structured_weak or large_edit_weak
         review_mode = primary == MethodVariant.REVIEW_ONLY
+
+        abstraction = (
+            InstructionAbstractionLevel.EXPLICIT_TEMPLATE if weak_mode
+            else InstructionAbstractionLevel.CONCRETE_STEPS
+        )
+        decomposition = (
+            TaskDecompositionPolicy.MICRO_PATCH_ONLY if weak_mode
+            else TaskDecompositionPolicy.NARROW_SLICE
+        )
+        context_mode = ContextPackageMode.IMPACT_SLICE if weak_mode else ContextPackageMode.TWIN_BRIEF
+        verification = (
+            VerificationMode.FULL_GATE if review_mode or change_class == ChangeClass.CRITICAL
+            else VerificationMode.AFFECTED_TESTS
+        )
+        repair = RepairMode.HUMAN_REVIEW if review_mode else RepairMode.FALLBACK_METHOD
+        patch_mode = self._patch_mode(primary)
+        verifier_separation = False
+        lower_injection = False
+        deterministic_compile = False
+
+        # ---- PR18 v2 refinements (measured strengths/weaknesses only; never for review) ----
+        if not review_mode:
+            if self._weak(profile, "abstraction_tolerance"):
+                very_weak = self._score(profile, "abstraction_tolerance") < 0.4
+                abstraction = (
+                    InstructionAbstractionLevel.YES_NO_GATE if very_weak
+                    else InstructionAbstractionLevel.FILL_IN_TEMPLATE
+                )
+                reasons.append("abstraction_weakness_uses_template")
+            if self._weak(profile, "context_overload_sensitivity"):
+                context_mode = ContextPackageMode.MINIMAL
+                reasons.append("context_overload_uses_minimal_refs")
+            if self._strong(profile, "test_generation"):
+                decomposition = TaskDecompositionPolicy.TEST_FIRST_SLICE
+                verification = (
+                    VerificationMode.FULL_GATE if change_class == ChangeClass.CRITICAL
+                    else VerificationMode.FOCUSED_TESTS
+                )
+                reasons.append("test_generation_strength_uses_test_first")
+            if self._strong(profile, "repair_discipline"):
+                repair = RepairMode.REPAIR_COMPASS
+                reasons.append("repair_strength_uses_repair_loop")
+            if self._weak(profile, "evidence_discipline"):
+                verifier_separation = True
+                verification = VerificationMode.FULL_GATE
+                reasons.append("evidence_weakness_separates_verifier")
+            if self._weak(profile, "structured_output_fidelity") and self._strong(profile, "edit_intent_quality"):
+                deterministic_compile = True
+                patch_mode = PatchConstructionMode.DETERMINISTIC_TEXT
+                reasons.append("structured_weak_edit_strong_uses_deterministic_compile")
+            if profile.mode == ModelCapabilityMode.FRONTIER_ASSISTED:
+                lower_injection = True
+                abstraction = InstructionAbstractionLevel.GUIDED_GOAL
+                decomposition = TaskDecompositionPolicy.LIGHT
+                context_mode = ContextPackageMode.TWIN_BRIEF
+                reasons.append("frontier_assisted_lowers_injection")
+
         return MethodRoutingDecision(
             chain=chain,
-            instruction_abstraction_level=(
-                InstructionAbstractionLevel.EXPLICIT_TEMPLATE if weak_mode
-                else InstructionAbstractionLevel.CONCRETE_STEPS
-            ),
-            task_decomposition_policy=(
-                TaskDecompositionPolicy.MICRO_PATCH_ONLY if weak_mode
-                else TaskDecompositionPolicy.NARROW_SLICE
-            ),
-            context_package_mode=(
-                ContextPackageMode.IMPACT_SLICE if weak_mode
-                else ContextPackageMode.TWIN_BRIEF
-            ),
+            instruction_abstraction_level=abstraction,
+            task_decomposition_policy=decomposition,
+            context_package_mode=context_mode,
             output_protocol=self._output_protocol(primary),
-            patch_construction_mode=self._patch_mode(primary),
-            verification_mode=(
-                VerificationMode.FULL_GATE if review_mode or change_class == ChangeClass.CRITICAL
-                else VerificationMode.AFFECTED_TESTS
-            ),
-            repair_mode=(RepairMode.HUMAN_REVIEW if review_mode else RepairMode.FALLBACK_METHOD),
+            patch_construction_mode=patch_mode,
+            verification_mode=verification,
+            repair_mode=repair,
+            verifier_separation=verifier_separation,
+            lower_injection=lower_injection,
+            deterministic_compile=deterministic_compile,
             reasons=reasons,
         )
+
+    @staticmethod
+    def _measured(profile: CapabilityProfile, dimension: str) -> bool:
+        return dimension in profile.capability_scores
+
+    def _strong(self, profile: CapabilityProfile, dimension: str) -> bool:
+        return self._measured(profile, dimension) and float(
+            profile.capability_scores[dimension]
+        ) >= _STRONG_THRESHOLD
+
+    def _weak(self, profile: CapabilityProfile, dimension: str) -> bool:
+        if dimension in profile.known_weaknesses:
+            return True
+        return self._measured(profile, dimension) and float(
+            profile.capability_scores[dimension]
+        ) < _WEAK_THRESHOLD
 
     @staticmethod
     def _score(profile: CapabilityProfile, dimension: str) -> float:
@@ -125,29 +216,58 @@ class MethodRouter:
 
     @staticmethod
     def _fallbacks_for(primary: MethodVariant) -> list[FallbackStep]:
+        # PR18: every fallback triggers on the full recoverable failure vocabulary so a
+        # real weak model that fails with content_missing / file_changes_missing (not just
+        # schema_invalid) still degrades. A review-only terminal guarantees recovery.
         if primary in {MethodVariant.STRUCTURED_PATCH_JSON, MethodVariant.PATCH_DSL_JSON}:
-            return [FallbackStep(
-                method_variant=MethodVariant.EDIT_INTENT_LIST,
-                reason="structured output recovery",
-                trigger_on=["schema_invalid"],
-            )]
+            return [
+                FallbackStep(
+                    method_variant=MethodVariant.EDIT_INTENT_LIST,
+                    reason="structured output recovery",
+                    trigger_on=list(RECOVERABLE_TRIGGERS),
+                ),
+                FallbackStep(
+                    method_variant=MethodVariant.ANCHORED_EDIT_BLOCK,
+                    reason="edit intent recovery",
+                    trigger_on=list(RECOVERABLE_TRIGGERS),
+                ),
+                FallbackStep(
+                    method_variant=MethodVariant.REVIEW_ONLY,
+                    reason="degrade to review when no method applies",
+                    trigger_on=list(RECOVERABLE_TRIGGERS),
+                ),
+            ]
         if primary == MethodVariant.EDIT_INTENT_LIST:
-            return [FallbackStep(
-                method_variant=MethodVariant.ANCHORED_EDIT_BLOCK,
-                reason="edit intent recovery",
-                trigger_on=["schema_invalid", "missing_edit_anchor"],
-            )]
+            return [
+                FallbackStep(
+                    method_variant=MethodVariant.ANCHORED_EDIT_BLOCK,
+                    reason="edit intent recovery",
+                    trigger_on=list(RECOVERABLE_TRIGGERS),
+                ),
+                FallbackStep(
+                    method_variant=MethodVariant.REVIEW_ONLY,
+                    reason="degrade to review when no method applies",
+                    trigger_on=list(RECOVERABLE_TRIGGERS),
+                ),
+            ]
         if primary == MethodVariant.ANCHORED_EDIT_BLOCK:
-            return [FallbackStep(
-                method_variant=MethodVariant.UNIFIED_DIFF,
-                reason="anchor recovery",
-                trigger_on=["anchor_not_found"],
-            )]
+            return [
+                FallbackStep(
+                    method_variant=MethodVariant.UNIFIED_DIFF,
+                    reason="anchor recovery",
+                    trigger_on=list(RECOVERABLE_TRIGGERS),
+                ),
+                FallbackStep(
+                    method_variant=MethodVariant.REVIEW_ONLY,
+                    reason="degrade to review when no method applies",
+                    trigger_on=list(RECOVERABLE_TRIGGERS),
+                ),
+            ]
         if primary == MethodVariant.REPAIR_COMPASS_STEPS:
             return [FallbackStep(
                 method_variant=MethodVariant.REVIEW_ONLY,
                 reason="repair analysis recovery",
-                trigger_on=["schema_invalid"],
+                trigger_on=list(RECOVERABLE_TRIGGERS),
             )]
         return []
 
