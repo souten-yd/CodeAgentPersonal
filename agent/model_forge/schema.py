@@ -98,6 +98,11 @@ class ModelProfile(ForgeModel):
     sample_count: int = 0
     updated_at: str = ""
     evidence_refs: list[str] = Field(default_factory=list)
+    twin_assist_scores: dict[str, float] = Field(default_factory=dict)
+    twin_assist_lift: dict[str, float] = Field(default_factory=dict)
+    recommended_twin_assist_mode: str = ""
+    recommended_twin_injection_level: int | None = Field(default=None, ge=0, le=4)
+    twin_assist_evidence_refs: list[str] = Field(default_factory=list)
 
 
 class BenchmarkPreset(ForgeModel):

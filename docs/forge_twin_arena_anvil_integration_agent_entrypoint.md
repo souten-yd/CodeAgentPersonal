@@ -51,7 +51,7 @@
 | TA2 | `feat/forge-twin-assist-packs` | case packs, fixtures, scoring, harm detection | completed |
 | TA3 | `feat/forge-twin-assist-runner` | `AtlasPatchProposalService.propose_for_item` 実経路でbaseline vs assisted評価 | completed |
 | TA4 | `feat/forge-twin-localized-slot` | TwinEditSlot resolver / slot patch adapter MVP | completed |
-| TA5 | `feat/forge-twin-assist-policy` | MethodRouter / ExecutionPolicy / ProfileStore接続 | pending |
+| TA5 | `feat/forge-twin-assist-policy` | MethodRouter / ExecutionPolicy / ProfileStore接続 | completed |
 | TA6 | `feat/forge-twin-assist-api` | `/api/forge/twin-assist/*` API | pending |
 | TA7 | `feat/forge-twin-assist-ui` | Forge UI Twin Assist tab / result drawer / profile recommendation | pending |
 | TA8 | `feat/forge-twin-assist-real-eval` | 8080実モデル評価・evidence保存・status更新 | pending |

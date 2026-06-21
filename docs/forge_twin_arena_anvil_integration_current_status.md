@@ -758,6 +758,25 @@ Proof level: `component_complete`
 
 ---
 
+## 39. TA5 Twin Assist policy completion proof
+
+Completed package: TA5 `feat/forge-twin-assist-policy`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: Forge profile schema/store, MethodRouter, ExecutionPolicy, Twin policy contract, focused tests, plan/entrypoint/status docs
+Behavior implemented: persists Twin Assist reports as append-only evidence-backed observations; reconstructs scores/lift/mode/injection in versioned profiles; routes measured large-file weakness to a recommended Twin slot/anchor method; clamps recommended injection to RouteMatrix-safe route range; exposes assist requirements without automatic production activation.
+Focused tests: Twin Assist policy suite included in 29 passed affected tests
+Syntax checks: compileall before publication
+Affected tests: profile store, MethodRouter v1/v2, route preference, Twin Assist policy -> 29 passed
+Real model evidence: consumes TA3 run evidence; no additional provider call required for policy wiring
+Profile recommendation: `twin_localized_slot`, injection 4, evidence ref retained; synthetic focused contract, not a new live recommendation
+Safety invariants: append-only/versioned; RouteMatrix cap authoritative; Safe Apply gate retained; review-only fallback; no production activation
+Remaining gaps: API/UI, full live eval, readiness/matrix/slot gates/post-apply E2E
+Next package: TA6 `feat/forge-twin-assist-api`
+Blocker: none
+Proof level: `component_complete`
+
+---
+
 ## 38. TA4 Twin localized slot completion proof
 
 Completed package: TA4 `feat/forge-twin-localized-slot`
