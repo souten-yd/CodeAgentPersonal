@@ -758,6 +758,31 @@ Proof level: `component_complete`
 
 ---
 
+## 42. TA8 8080 real Twin Assist evaluation completion proof
+
+Completed package: TA8 `feat/forge-twin-assist-real-eval`
+Status: completed; ready for evidence-only item PR publication and merge
+Changed modules/files: Twin Assist evaluation plan/entrypoint/current-status docs; runtime report and versioned profile remain under local `ca_data/model_forge`
+Behavior implemented: executed four minimum cases through `AtlasPatchProposalService.propose_for_item`, each with baseline plus constraints, strict brief, localized slot, and deterministic anchor where allowed (20 attempts total); persisted report and recorded it into ProfileStore.
+Focused tests: TA1-TA7 deterministic suites and CI were green before this live run
+Syntax checks: not applicable; evidence/status-only PR
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`; run `twin_assist_288549d09838`; elapsed 286.2s; report `ca_data/model_forge/twin_assist_runs/twin_assist_288549d09838/report.json`
+Baseline score: large insert 0.8; cross-file 0.6; contract 0.8; edit-intent rescue 0.6
+Assisted score: best values 0.8, 0.6, 0.8, 0.6 respectively
+Lift: all four best lifts 0.0; aggregate mean lift 0.0
+Harm cases: `public_contract_preservation` with `twin_localized_slot` scored 0.6 vs baseline 0.8; aggregate harm rate 0.25
+Best assist mode: per-case ties selected localized slot (large/cross-file/edit-intent) and deterministic anchor (contract); no measured positive lift
+Profile recommendation: recorded observation version 1, deterministic anchor/injection 4, mean_best_score 0.7, mean_lift 0.0, harm_rate 0.25. This is advisory and does not activate production routing.
+Atlas UI evidence: unavailable as recorded in TA7
+Unavailable checks: generated proposals were not applied or runtime-tested in TA8; slot modes in this phase measure prompt/proposal behavior, while formal slot gate and post-apply proof are TA11/TA12
+Safety invariants: evaluation-only isolated workspaces; no project apply; no remote mutation by runner; harm preserved; missing verification lowers score; profile record is observation only
+Remaining gaps: TA9 readiness, TA10 route-method-assist matrix, TA11 slot quality gates, TA12 isolated post-apply E2E
+Next package: TA9 `feat/forge-twin-readiness-score`
+Blocker: none
+Proof level: `real_runtime_evaluated`
+
+---
+
 ## 41. TA7 Twin Assist UI completion proof
 
 Completed package: TA7 `feat/forge-twin-assist-ui`
