@@ -55,7 +55,7 @@
 | TA6 | `feat/forge-twin-assist-api` | `/api/forge/twin-assist/*` API | completed |
 | TA7 | `feat/forge-twin-assist-ui` | Forge UI Twin Assist tab / result drawer / profile recommendation | completed |
 | TA8 | `feat/forge-twin-assist-real-eval` | 8080実モデル評価・evidence保存・status更新 | completed |
-| TA9 | `feat/forge-twin-readiness-score` | Twin snapshot/freshness/symbol/impact/Safe-Edit/prompt delivery readiness | pending |
+| TA9 | `feat/forge-twin-readiness-score` | Twin snapshot/freshness/symbol/impact/Safe-Edit/prompt delivery readiness | completed |
 | TA10 | `feat/forge-route-method-assist-matrix` | route × method × assist × fallback matrix | pending |
 | TA11 | `feat/forge-twin-slot-quality-gates` | slot/anchor/range quality gates and confidence calibration | pending |
 | TA12 | `feat/forge-twin-assist-postapply-e2e` | proposal→Safe Apply dry-run→focused tests→post-apply Twin gate | pending |

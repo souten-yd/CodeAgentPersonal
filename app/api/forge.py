@@ -26,6 +26,8 @@ from agent.model_forge.profile_store import ProfileStore
 from agent.model_forge.twin_assist_contracts import TwinAssistEvaluationReport, TwinAssistRunRequest
 from agent.model_forge.twin_assist_eval_packs import TWIN_ASSIST_PACKS, load_twin_assist_pack
 from agent.model_forge.twin_assist_runner import TwinAssistRunner
+from agent.model_forge.twin_readiness import TwinReadinessEvaluator
+from agent.model_forge.twin_readiness_contracts import TwinReadinessRequest
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/forge", tags=["forge"])
@@ -174,6 +176,15 @@ def post_twin_assist_record_profile(request: Request, run_id: str) -> dict:
     report = _load_twin_assist_report(request, run_id)
     profile = ProfileStore(resolve_atlas_ca_data_root(request) / "model_forge" / "profiles").record_twin_assist_report(report)
     return {"status": "observation_recorded", "production_routing_changed": False, "profile": profile.model_dump(mode="json")}
+
+
+@router.post("/twin-assist/readiness")
+def post_twin_assist_readiness(request: Request, body: TwinReadinessRequest) -> dict:
+    report = TwinReadinessEvaluator().evaluate(body)
+    path = _twin_assist_root(request) / "readiness" / f"{report.report_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    return report.model_dump(mode="json")
 
 
 @router.get("/providers")
