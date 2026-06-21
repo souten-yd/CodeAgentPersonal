@@ -146,6 +146,10 @@ class AtlasPatchProposalService:
                 payload["twin_control_section"] = str(twin_hints["twin_instruction"])
             if isinstance(twin_hints, dict) and twin_hints.get("twin_repair_section"):
                 payload["twin_repair_section"] = str(twin_hints["twin_repair_section"])
+            # TA16: carry the runtime generation policy so route/method/injection delivery
+            # is auditable on the proposal (advisory; never changes production routing).
+            if isinstance(twin_hints, dict) and isinstance(twin_hints.get("atlas_generation_policy"), dict):
+                payload["runtime_policy"] = twin_hints["atlas_generation_policy"]
             payload, pi_generation = self._attach_project_intelligence_generation_context(pool, item, request, payload)
             if pi_generation.get("blocked"):
                 warnings = ["project_intelligence_generation_blocked", *list(pi_generation.get("diagnostics") or [])]
@@ -1156,6 +1160,35 @@ class AtlasPatchProposalService:
         )
 
     def generate_proposal_with_llm(self, input_payload: dict) -> AtlasPatchProposal:
+        """Generate a proposal and attach the TA16 runtime-policy delivery audit.
+
+        Thin wrapper over the core generator so the runtime policy (route/method/injection/
+        selection_mode) that reached this generation is recorded on the proposal regardless of
+        which internal return path produced it. Advisory only; nothing is applied here."""
+        proposal = self._generate_proposal_with_llm_core(input_payload)
+        self._attach_runtime_policy_delivery(proposal, input_payload)
+        return proposal
+
+    @staticmethod
+    def _attach_runtime_policy_delivery(proposal: "AtlasPatchProposal", input_payload: dict) -> None:
+        rp = input_payload.get("runtime_policy")
+        if not isinstance(rp, dict) or proposal is None:
+            return
+        rec = rp.get("fallback_recommendation") or {}
+        policy = rp.get("policy") or {}
+        proposal.metadata["runtime_policy_delivery"] = {
+            "policy_id": str(policy.get("policy_id") or ""),
+            "selection_mode": rp.get("selection_mode", ""),
+            "route": rec.get("route", ""),
+            "method_variant": rec.get("method_variant", ""),
+            "method_fallbacks": rec.get("method_fallbacks", []),
+            "twin_injection_level": rec.get("twin_injection_level"),
+            "optimal_routing_enabled": rp.get("optimal_routing_enabled"),
+            "compiled_instruction_present": bool(input_payload.get("twin_control_section")),
+            "production_routing_changed": False,
+        }
+
+    def _generate_proposal_with_llm_core(self, input_payload: dict) -> AtlasPatchProposal:
         assert self.llm_json_fn is not None
         system_prompt = (
             "You generate advisory patch proposals only. Return a single JSON object only, no prose, "

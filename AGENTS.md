@@ -67,7 +67,7 @@ Execute the following packages in order, one coherent PR per item unless the use
 | TA13 | `feat/forge-runtime-policy-wiring` | Wire `atlas_generation_policy` into `pipeline_integration` runtime evidence | done |
 | TA14 | `feat/forge-runtime-policy-preview-api` | Add runtime generation policy preview API/UI | pending |
 | TA15 | `feat/forge-default-routing-presets` | Define unbenchmarked/OFF safe default routing presets | pending |
-| TA16 | `feat/forge-runtime-policy-e2e-proof` | Prove route/method/injection reach patch proposal payload | pending |
+| TA16 | `feat/forge-runtime-policy-e2e-proof` | Prove route/method/injection reach patch proposal payload | done |
 
 ## Standing Authorization
 
