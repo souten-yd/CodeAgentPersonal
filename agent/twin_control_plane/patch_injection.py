@@ -132,6 +132,9 @@ def hints_from_evidence(evidence: dict) -> dict:
         # The compiled Twin instruction — the bounded control section injected into the system prompt.
         "twin_instruction": evidence.get("compiled_instruction"),
         "twin_instruction_id": evidence.get("instruction_id"),
+        # TA13/TA16: the auditable runtime policy resolution (selection_mode / route /
+        # method / fallback / injection) so it can reach the patch proposal payload.
+        "atlas_generation_policy": evidence.get("atlas_generation_policy"),
         # Files the Twin found depend on this change — generation ranks/loads their symbols so the
         # model edits with the dependents' real API in view (impact-driven context selection).
         "impacted_dependent_files": dependent_files or None,

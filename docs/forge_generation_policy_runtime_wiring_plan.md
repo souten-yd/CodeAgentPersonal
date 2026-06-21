@@ -60,7 +60,7 @@ docs/forge_twin_assist_readiness_extension_plan.md # TA9〜TA12
 | TA13 | `feat/forge-runtime-policy-wiring` | `atlas_generation_policy` resolverを `pipeline_integration` に本接続 | `atlas_generation_policy.py` | ☑ completed |
 | TA14 | `feat/forge-runtime-policy-preview-api` | 実生成policy preview API / evidence schema / UI表示 | TA13 | ☑ completed |
 | TA15 | `feat/forge-default-routing-presets` | 未ベンチ・OFF時の推奨fallback presetsを明文化/設定化 | TA13 | ☑ completed |
-| TA16 | `feat/forge-runtime-policy-e2e-proof` | 実patch生成payloadまで route/method/injection が届くE2E証跡 | TA13〜TA15 | ☐ pending |
+| TA16 | `feat/forge-runtime-policy-e2e-proof` | 実patch生成payloadまで route/method/injection が届くE2E証跡 | TA13〜TA15 | ☑ completed |
 
 ---
 
@@ -542,3 +542,14 @@ Behavior implemented: explicit `DEFAULT_GENERATION_PRESETS` (unbenchmarked_safe:
 Focused tests: `pytest -q tests/test_forge_default_generation_presets.py` -> 5 passed (route-matrix consistency, critical→critical_gate, large/critical avoid unsafe micro routes, every class has a preset, API).
 Safety invariants: presets are advisory; validated against RouteMatrix; no production routing change.
 Proof level: `component_complete`
+
+### TA16 — Runtime Policy E2E Proof (completed 2026-06-21)
+
+Completed package: TA16 `feat/forge-runtime-policy-e2e-proof`
+Changed modules/files: `agent/twin_control_plane/patch_injection.py`, `agent/atlas_patch_proposal_service.py`, `tests/test_atlas_patch_proposal_twin_policy_injection.py`, this plan + `AGENTS.md`
+Behavior implemented: `hints_from_evidence` now carries `atlas_generation_policy` into `twin_generation_hints`. `propose_for_item` sets `payload["runtime_policy"]` from those hints. `generate_proposal_with_llm` is wrapped to attach a `runtime_policy_delivery` audit (`policy_id`, `selection_mode`, `route`, `method_variant`, `method_fallbacks`, `twin_injection_level`, `optimal_routing_enabled`, `compiled_instruction_present`, `production_routing_changed=false`) to the proposal regardless of the internal return path; the compiled Twin instruction still reaches the system prompt via `twin_control_section`. No file is applied.
+Focused tests: `pytest -q tests/test_atlas_patch_proposal_twin_policy_injection.py` -> 6 passed (policy reaches payload; compiled instruction in prompt; OFF does not claim benchmark; unbenchmarked_default recorded; no policy -> no record; hints carry generation policy).
+Affected tests: with import order established, gen-policy/pipeline/twin-section/feedback/codegen-contract suites -> 65 + 33 passed. (Pre-existing: `test_twin_patch_injection.py` / `test_twin_pipeline_integration.py` must be collected in-suite due to a method_router<->contracts import-order fragility that predates TA16.)
+Real model evidence: not required — this is policy delivery/audit wiring into proposal generation; no model call. The audit records `compiled_instruction_present` and selection_mode so a real run is auditable.
+Safety invariants: advisory; `production_routing_changed=false`; nothing applied; Safe Apply / Proposal / Verification authority unchanged.
+Proof level: `component_complete` (route/method/injection/selection_mode reach the patch proposal payload + audit). TA13–TA16 are all complete.
