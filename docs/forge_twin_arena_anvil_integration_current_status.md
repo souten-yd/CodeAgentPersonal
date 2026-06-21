@@ -393,3 +393,25 @@ Remaining gaps: UI radar/fallback/Advanced, runtime shadow integration and forma
 Next package: PR12 `feat/forge-ui-radar`
 Blocker: none
 Proof level: `real_llm_evaluated`
+
+---
+
+## 19. PR12 Arena radar + candidate drawer 完了証跡
+
+Completed package: PR12 `feat/forge-ui-radar`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `web/js/forge.js`, `web/css/app.css`, `tests/test_forge_ui_radar.py`, integration plan/status docs
+Behavior implemented: candidate detail drawer, dependency-free SVG radar, Capability/Method/Safety/Speed/All filters, explicit unavailable labels and mobile sizing
+Focused tests: `python -m pytest -q tests/test_forge_ui_radar.py tests/test_forge_arena_ui.py tests/test_forge_ui_shell.py` -> 11 passed
+Syntax checks: Node evaluation through render tests -> passed
+Affected tests: `python -m pytest -q tests/test_forge_api.py tests/test_forge_optimizer_loadout.py` -> 23 passed
+Real model evidence: existing localhost:8080 evaluation profile/radar DTO fields are render inputs; PR12 performs no model call
+Atlas UI evidence: Node DOM render confirms detail action, SVG/filter markup, zero score, unavailable label, and Safe Apply-only adoption text; in-app browser tooling unavailable in this session, so live visual layout evidence is unavailable
+Project Intelligence evidence: unavailable; PR12 is Arena UI only
+Runtime/Portal evidence: unavailable; UI does not execute runtime
+Unavailable checks: interactive browser click/layout/mobile screenshot verification
+Safety invariants: unavailable is labeled missing evidence rather than numeric zero; candidate detail adds no direct apply action; Proposal/Safe Apply/Verification wording remains
+Remaining gaps: fallback graph/method comparison, Advanced Twin UI, runtime shadow integration and formal Anvil acceptance remain pending
+Next package: PR13 `feat/forge-ui-fallback-graph`
+Blocker: none
+Proof level: `real_llm_evaluated`
