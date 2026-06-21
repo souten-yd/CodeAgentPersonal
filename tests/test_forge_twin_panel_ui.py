@@ -6,9 +6,11 @@ from pathlib import Path
 UI = Path(__file__).resolve().parents[1] / "ui.html"
 
 
-def test_twin_subtab_and_panel_present():
+def test_legacy_twin_panel_is_preserved_but_independent_subtab_is_hidden():
     html = UI.read_text(encoding="utf-8")
-    assert 'data-forge-tab="twin"' in html          # sub-tab button
+    assert 'data-forge-tab="twin"' in html          # legacy navigation target remains
+    assert 'id="forge-subtab-twin"' in html
+    assert 'data-forge-tab="twin" onclick="switchForgeTab(\'twin\')" hidden aria-hidden="true"' in html
     assert 'id="tab-twin"' in html                   # panel container
     assert "function renderTwinPanel" in html        # renderer
     # switchForgeTab and relocateForgePanels include 'twin'

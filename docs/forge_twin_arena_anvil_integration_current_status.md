@@ -437,3 +437,25 @@ Remaining gaps: Advanced Twin UI, runtime shadow integration, and formal Anvil a
 Next package: PR14 `feat/forge-ui-advanced-twin`
 Blocker: none
 Proof level: `real_llm_evaluated`
+
+---
+
+## 21. PR14 Forge Advanced Twin 統合完了証跡
+
+Completed package: PR14 `feat/forge-ui-advanced-twin`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `ui.html`, `web/js/forge.js`, `web/css/app.css`, `tests/test_forge_ui_advanced_twin.py`, `tests/test_forge_twin_panel_ui.py`, integration plan/status docs
+Behavior implemented: Forge Advanced read-only Twin settings/profile snapshot, context slice and impact inspectors through PR9 facade, independent Twin subtab hidden while legacy panel implementation remains intact, responsive single-column mobile inspector
+Focused tests: `python -m pytest -q tests/test_forge_ui_advanced_twin.py tests/test_forge_twin_panel_ui.py tests/test_forge_twin_facade_api.py tests/test_forge_ui_method_comparison.py tests/test_forge_ui_radar.py tests/test_forge_ui_shell.py` -> 22 passed
+Syntax checks: Node evaluation through render tests and `git diff --check` -> passed
+Affected tests: `python -m pytest -q tests/test_forge_api.py tests/test_twin_control_api.py tests/test_project_twin_analysis.py` -> 30 passed
+Real model evidence: existing localhost:8080 model profile can be displayed; PR14 performs no model call
+Atlas UI evidence: Node/static render confirms settings/profile snapshot, both inspector forms, no apply/execute endpoint, hidden independent tab, preserved legacy panel, and mobile one-column rule; live browser tooling unavailable
+Project Intelligence evidence: facade-backed context and impact are read-only Project Twin evidence; no inferred item is promoted to verified by the UI
+Runtime/Portal evidence: unavailable; inspector performs no runtime execution
+Unavailable checks: interactive browser layout/click/mobile screenshot verification
+Safety invariants: Twin inspector exposes no apply/execute action; settings are read-only in the consolidated UI; existing Project Twin inspection code is preserved; hidden navigation does not delete capability; evidence remains advisory
+Remaining gaps: runtime shadow integration and formal Anvil acceptance remain pending
+Next package: PR15 `feat/forge-execution-shadow`
+Blocker: none
+Proof level: `real_llm_evaluated`

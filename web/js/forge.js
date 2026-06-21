@@ -1021,13 +1021,86 @@
       + '<div class="forge-matrix">' + stageRows + '</div></details>'
       + '<details class="forge-adv"><summary>Route Matrix</summary>'
       + '<div class="forge-matrix">' + routeRows + '</div></details>'
+      + twinAdvancedHtml(data)
     );
+  }
+
+  function twinAdvancedHtml(data) {
+    const payload = data.twinSettings || {};
+    const settings = payload.settings || {};
+    const profiles = (data.twinProfiles || {}).profiles || [];
+    const settingRows = Object.keys(settings).sort().map((key) => (
+      '<div class="forge-kv"><span>' + escapeHtml(key) + '</span><b>'
+      + escapeHtml(String(settings[key])) + '</b></div>'
+    )).join('');
+    const profileRows = profiles.map((profile) => (
+      '<div class="forge-twin-profile"><b>' + escapeHtml(profile.model_id || 'unknown') + '</b><span>'
+      + escapeHtml(profile.provider_id || 'unknown') + ' · samples ' + escapeHtml(profile.sample_count ?? 0)
+      + '</span></div>'
+    )).join('');
+    return '<details class="forge-adv" open><summary>Twin Settings</summary>'
+      + '<div class="forge-hint">Read-only snapshot through the Forge Twin facade. Reversible: '
+      + escapeHtml(String(payload.reversible === true)) + '.</div>'
+      + (settingRows || '<div class="forge-empty">Twin settings unavailable.</div>')
+      + '<div class="forge-card-title forge-twin-subtitle">Capability profiles</div>'
+      + (profileRows || '<div class="forge-empty">No Twin profiles.</div>') + '</details>'
+      + '<details class="forge-adv" open><summary>Read-only Twin Inspector</summary>'
+      + '<div class="forge-twin-inspector-grid">'
+      + '<form data-twin-context-form><div class="forge-card-title">Context slice</div>'
+      + '<input class="forge-input" name="project_id" placeholder="project id" required>'
+      + '<input class="forge-input" name="objective" placeholder="objective" required>'
+      + '<select class="forge-select" name="phase"><option>planning</option><option>generation</option>'
+      + '<option>verification</option><option>repair</option></select>'
+      + '<input class="forge-input" name="target_refs" placeholder="target refs (comma separated)">'
+      + '<button class="forge-run-btn" type="submit">Inspect context</button></form>'
+      + '<form data-twin-impact-form><div class="forge-card-title">Impact</div>'
+      + '<input class="forge-input" name="project_id" placeholder="project id" required>'
+      + '<input class="forge-input" name="changed_refs" placeholder="changed refs (comma separated)" required>'
+      + '<input class="forge-input" name="change_kind" value="edit" placeholder="change kind" required>'
+      + '<button class="forge-run-btn" type="submit">Inspect impact</button></form></div>'
+      + '<pre class="forge-twin-result" data-twin-result>Inspector has not run. No apply or execute action is exposed.</pre>'
+      + '</details>';
   }
 
   function wireAdvanced(content) {
     content.querySelectorAll('[data-stage]').forEach((sel) => {
       sel.addEventListener('change', () => changeStageMode(sel.getAttribute('data-stage'), sel.value));
     });
+    content.querySelector('[data-twin-context-form]')?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      runTwinInspection(content, '/twin/inspect/context', {
+        project_id: form.elements.project_id.value,
+        objective: form.elements.objective.value,
+        phase: form.elements.phase.value,
+        target_refs: commaValues(form.elements.target_refs.value),
+        token_budget: 4000,
+      });
+    });
+    content.querySelector('[data-twin-impact-form]')?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      runTwinInspection(content, '/twin/inspect/impact', {
+        project_id: form.elements.project_id.value,
+        changed_refs: commaValues(form.elements.changed_refs.value),
+        change_kind: form.elements.change_kind.value,
+      });
+    });
+  }
+
+  function commaValues(value) {
+    return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+  }
+
+  async function runTwinInspection(content, path, payload) {
+    const output = content.querySelector('[data-twin-result]');
+    if (output) output.textContent = 'Inspecting read-only Twin evidence...';
+    try {
+      const result = await api(path, { method: 'POST', body: JSON.stringify(payload) });
+      if (output) output.textContent = JSON.stringify(result, null, 2);
+    } catch (err) {
+      if (output) output.textContent = 'Twin inspection unavailable: ' + (err && err.message ? err.message : 'error');
+    }
   }
 
   async function changeStageMode(stage, mode) {
@@ -1332,7 +1405,7 @@
     setStatus('Loading…');
     try {
       const status = await api('/status');
-      const data = { status, providers: [], loadouts: [], profiles: [], leaderboard: [], settings: {}, openrouterCatalog: null, localModels: [], lmStudioCatalog: null };
+      const data = { status, providers: [], loadouts: [], profiles: [], leaderboard: [], settings: {}, openrouterCatalog: null, localModels: [], lmStudioCatalog: null, twinSettings: {}, twinProfiles: { profiles: [], count: 0 } };
       // Anvil (local model registry) is the core app's Models DB, not a /api/forge endpoint.
       try { data.localModels = ((await (await fetch('/models/db')).json()).models) || []; } catch (_e) {}
       try { data.providers = (await api('/providers')).providers || []; } catch (_e) {}
@@ -1344,6 +1417,8 @@
       try { data.presets = (await api('/presets')).presets || []; } catch (_e) {}
       try { data.stagePolicy = (await api('/stage-policy')).stage_policy || []; } catch (_e) {}
       try { data.routePolicy = (await api('/route-policy')).route_policy || []; } catch (_e) {}
+      try { data.twinSettings = await api('/twin/settings'); } catch (_e) {}
+      try { data.twinProfiles = await api('/twin/profiles'); } catch (_e) {}
       state.data = data;
       renderShell();
       setStatus(status.forge_enabled ? 'Forge enabled' : 'Forge off — legacy model execution primary', 'ok');
@@ -1384,6 +1459,7 @@
     _methodComparisonHtml: methodComparisonHtml,
     _policyRecommendationHtml: policyRecommendationHtml,
     _advancedHtml: advancedHtml,
+    _twinAdvancedHtml: twinAdvancedHtml,
     _loadoutsHtml: loadoutsHtml,
     _settingsHtml: settingsHtml,
     _runBenchmark: runBenchmark,
