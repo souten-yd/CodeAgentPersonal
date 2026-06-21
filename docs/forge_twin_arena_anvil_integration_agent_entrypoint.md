@@ -58,7 +58,7 @@
 | TA9 | `feat/forge-twin-readiness-score` | Twin snapshot/freshness/symbol/impact/Safe-Edit/prompt delivery readiness | completed |
 | TA10 | `feat/forge-route-method-assist-matrix` | route × method × assist × fallback matrix | completed |
 | TA11 | `feat/forge-twin-slot-quality-gates` | slot/anchor/range quality gates and confidence calibration | completed |
-| TA12 | `feat/forge-twin-assist-postapply-e2e` | proposal→Safe Apply dry-run→focused tests→post-apply Twin gate | pending |
+| TA12 | `feat/forge-twin-assist-postapply-e2e` | proposal→Safe Apply dry-run→focused tests→post-apply Twin gate | completed |
 
 ## 4. 作業フロー（項目=1PR）
 

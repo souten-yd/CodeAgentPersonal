@@ -758,6 +758,31 @@ Proof level: `component_complete`
 
 ---
 
+## 46. TA12 Post-Apply E2E completion proof
+
+Completed package: TA12 `feat/forge-twin-assist-postapply-e2e`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: isolated post-apply runner/contracts, Forge E2E API, focused tests, plan/entrypoint/status docs
+Behavior implemented: reads durable Atlas proposals; requires atomic preflight-all Safe Apply contract; copies fixtures to isolated workspace; snapshots rollback hashes; applies only allowlisted target files; runs focused pytest; calls real `evaluate_twin_post_apply`; persists Proof Ledger and E2E report; compares baseline/assisted pass outcomes.
+Focused tests: post-apply + Proof Ledger + Twin pipeline -> 43 passed
+Syntax checks: compileall and diff check passed
+Real model evidence: consumes TA8 live proposal run `twin_assist_288549d09838`; E2E report `postapply_3d972bb0d598`
+Post-apply apply status: 2/8 isolated_applied; 6/8 blocked before apply because proposal lacked required Safe Apply atomic contract
+Focused tests: both applied cross-file attempts passed their fixture test
+Post-apply Twin gate: both applied attempts `needs_repair`; not promoted to passed
+Proof ledger ref: durable entry for both applied attempts under each isolated evidence directory
+Rollback evidence: snapshot available for both applied attempts; blocked attempts never mutated
+E2E lift: 0.0
+E2E harm: 0.0
+Unavailable checks: 6 blocked proposals have no post-apply runtime/test evidence by design; Project Twin revision/impact evidence was insufficient for gate acceptance
+Safety invariants: isolated mode only; direct workspace apply rejected; Safe Apply contract required; unavailable tests not passed; target allowlist/preflight before any write; real project untouched
+Remaining gaps: accumulate real runs with complete atomic Safe Apply and Twin revision/impact evidence; browser verification remains unavailable from TA7
+Next package: none; TA1-TA12 complete
+Blocker: none
+Proof level: `real_isolated_e2e_evaluated`
+
+---
+
 ## 45. TA11 Twin Slot Quality Gates completion proof
 
 Completed package: TA11 `feat/forge-twin-slot-quality-gates`

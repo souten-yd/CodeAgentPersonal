@@ -29,6 +29,7 @@ from agent.model_forge.twin_assist_runner import TwinAssistRunner
 from agent.model_forge.twin_readiness import TwinReadinessEvaluator
 from agent.model_forge.twin_readiness_contracts import TwinReadinessRequest
 from agent.model_forge.twin_slot_quality import TwinSlotQualityGate, TwinSlotQualityRequest
+from agent.model_forge.twin_assist_postapply import PostApplyE2ERequest, PostApplyE2ERunner
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/forge", tags=["forge"])
@@ -191,6 +192,15 @@ def post_twin_assist_readiness(request: Request, body: TwinReadinessRequest) -> 
 @router.post("/twin-assist/slots/evaluate")
 def post_twin_assist_slot_quality(body: TwinSlotQualityRequest) -> dict:
     return TwinSlotQualityGate().evaluate(slot=body.slot, project_root=body.project_root, forbidden_refs=body.forbidden_refs).model_dump(mode="json")
+
+
+@router.post("/twin-assist/e2e/run")
+def post_twin_assist_e2e(request: Request, body: PostApplyE2ERequest) -> dict:
+    try:
+        report = PostApplyE2ERunner(_twin_assist_root(request) / "postapply").run(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return report.model_dump(mode="json")
 
 
 @router.get("/providers")
