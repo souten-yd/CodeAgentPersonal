@@ -592,3 +592,25 @@ Remaining gaps: mechanical evaluators for non-method dimensions; semantic (not f
 Next package: PR20 `feat/forge-active-execution-gated`
 Blocker: none
 Proof level: `real_runtime_evaluated` (7 live dimensions; multi-model assignment component_complete)
+
+---
+
+## 28. PR20 Gated active method execution 完了証跡
+
+Completed package: PR20 `feat/forge-active-execution-gated`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/method_activation.py`, `tests/test_forge_method_activation.py`, integration plan/status docs
+Behavior implemented: `MethodActivationGate` reads the PR15 atlas_shadow records for a stage and computes readiness (>= min_samples, a stable dominant method recommendation, model-evaluation evidence present, and all records shadow-only). `activate` requires both an explicit `acknowledge=True` and readiness, writes an activation record with `active_method_enabled=True` and `active_auto_enabled=False` (invariant), and records proof_requirements stating Proposal/Safe Apply/Verification and RouteMatrix authority remain. `deactivate` reverts to shadow with no acknowledgement so recovery is always one call away. This is the cutover-equivalent gate for using the MethodRouter decision as active pre-execution policy.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_method_activation.py` -> 9 passed
+Syntax checks: `py_compile agent/model_forge/method_activation.py tests/test_forge_method_activation.py` -> passed
+Affected tests: `pytest -q tests/test_forge_method_activation.py tests/test_forge_atlas_execution_shadow.py` -> 15 passed
+Real model evidence: not applicable — this is a control-plane gating decision over accumulated shadow evidence, not a model call. The shadow evidence it consumes is produced by PR15/PR16/PR19 real runs.
+Atlas UI evidence: unavailable; backend gate
+Project Intelligence evidence: unavailable
+Runtime/Portal evidence: not applicable
+Unavailable checks: no active rollout was executed end-to-end against Atlas in this PR; the gate only authorises activation. Wiring the gate's `is_active` into the Atlas execution path (so an active stage actually uses the Forge method policy) is the next integration step and is intentionally not enabled by default.
+Safety invariants: automation never enabled (`active_auto_enabled` always False); activation requires explicit acknowledgement and sufficient stable shadow evidence; deactivation needs no acknowledgement; Proposal/Safe Apply/Verification and RouteMatrix authority preserved and asserted in proof_requirements; non-shadow records block activation
+Remaining gaps: connect `is_active` into the Atlas pre-execution method selection (still gated, default off); operator UI for activation/rollback
+Next package: PR22 `feat/forge-atlas-route-validation`
+Blocker: none
+Proof level: `active_gated_ready` (gate component_complete; default off, no automation)
