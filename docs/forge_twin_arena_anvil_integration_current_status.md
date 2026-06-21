@@ -217,3 +217,25 @@ Remaining gaps: remaining adapters, pipeline, router, evaluation/runtime/UI inte
 Next package: PR4 `feat/forge-adapters-anchored`
 Blocker: none
 Proof level: `method_contract_present`
+
+---
+
+## 11. PR4 残り Method adapters 完了証跡
+
+Completed package: PR4 `feat/forge-adapters-anchored`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/remaining_adapters.py`, `tests/test_forge_remaining_adapters.py`, integration plan/status docs
+Behavior implemented: anchored edit block, multi-file unified diff, deterministic text replacement, review-only, and RepairCompass adapters; combined registry for all implemented adapters
+Focused tests: `python -m pytest -q tests/test_forge_remaining_adapters.py tests/test_forge_structured_adapters.py tests/test_forge_method_contracts.py` -> 36 passed
+Syntax checks: `python -m py_compile agent/model_forge/remaining_adapters.py tests/test_forge_remaining_adapters.py` -> passed
+Affected tests: `python -m pytest -q tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_edit_primitives.py tests/test_forge_api.py` -> 60 passed
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, response `chatcmpl-2eWEUks1G7FkadoHju29DOrSvid1Ws5h` (202 tokens), produced a valid AnchoredEditBlock; adapter parse/compile/verify returned passed and contract_valid
+Atlas UI evidence: unavailable; PR4 has no UI change
+Project Intelligence evidence: unavailable; PR4 is an adapter component slice
+Runtime/Portal evidence: unavailable; adapters are not runtime-connected in this PR
+Unavailable checks: repository-local `venv_sys` remains absent; system Python 3.11.9 was used
+Safety invariants: patch-producing adapters retain approval_required and `safe_apply_ready=false`; review/repair adapters never produce a patch; unified diff deletion and invalid anchors fail closed
+Remaining gaps: pipeline, router, evaluation/runtime/UI integration and Anvil acceptance remain pending
+Next package: PR5 `feat/forge-method-pipeline`
+Blocker: none
+Proof level: `method_contract_present`
