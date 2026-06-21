@@ -680,3 +680,25 @@ Remaining gaps: H3 full-axis frontier re-verification (should now confirm anchor
 Next package: H3 `feat/forge-fullaxis-frontier-verify`
 Blocker: none
 Proof level: `real_runtime_evaluated` (semantic anchor/evidence/repair checks; PR21 over_claim resolved)
+
+---
+
+## 32. H3 Full-axis frontier re-verification 完了証跡 (Phase 3)
+
+Completed package: H3 `feat/forge-fullaxis-frontier-verify`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/full_axis_verification.py`, `tests/test_forge_full_axis_verification.py`, integration plan/status docs
+Behavior implemented: `all_live_dimensions()` enumerates every live axis (4 method-backed + 7 semantic/non-method = 11). `FullAxisFrontierVerifier` runs the PR21 harness over an evaluation run and reports covered vs uncovered live dimensions. The frontier verdict stays advisory; weak results are never upgraded.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_full_axis_verification.py` -> 4 passed
+Syntax checks: `py_compile agent/model_forge/full_axis_verification.py tests/test_forge_full_axis_verification.py` -> passed
+Affected tests: PR21 frontier_verification suite unaffected (additive wrapper)
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, eval run `forge_eval_5013afe646b3`: all 11 live dimensions evaluated by the weak LLM and re-verified by the frontier (Claude Opus 4.8) -> 23 cases assessed, 23 agreements, 0 mismatches, proof `frontier_verification_passed`, 0 uncovered live dimensions. Crucially `anchor_selection_quality` moved from `over_claim` (PR21) to `confirms_pass`, verifying the H2 semantic hardening.
+Atlas UI evidence: unavailable; backend verification
+Project Intelligence evidence: unavailable
+Runtime/Portal evidence: real local provider calls across all 11 live dimensions
+Unavailable checks: the 5 original judgment dimensions (impact_analysis, contract_preservation, test_generation, stale_test_judgment, flag_reasoning) are scored from supplied outcomes, not live-model cases, so they are outside the live full-axis run; the frontier judge here is the session frontier model's recorded assessment (StaticFrontierJudge), not a wired frontier API.
+Safety invariants: weak-LLM results never upgraded; `unavailable`/mismatch never counted as passed; no routing change
+Remaining gaps (track-level, recorded honestly): active-gate wiring into the Atlas execution path; harvesting Atlas phase observations from live artifacts; real-browser UI verification; tool_call provider gating; Anvil control-plane HTTP flow under the running app; live evaluators for the 5 original judgment dimensions.
+Next package: none — Phase 2 (PR16-22) and Phase 3 P0 hardening (H1-H3) are complete; the remaining gaps above are P1/P2 integration/UI items.
+Blocker: none
+Proof level: `frontier_verification_passed` (all 11 live axes; anchor over_claim resolved end-to-end)
