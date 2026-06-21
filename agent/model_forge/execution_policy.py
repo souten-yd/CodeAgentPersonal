@@ -11,6 +11,7 @@ from hashlib import sha1
 
 from agent.model_forge.route_matrix import ChangeClass, RouteMatrix, RouteSelector
 from agent.model_forge.route_taxonomy import ForgeRoute
+from agent.model_forge.method_router import MethodRouter
 from agent.twin_control_plane.contracts import (
     ExecutionPolicy,
     GitPolicy,
@@ -100,8 +101,13 @@ def _base_injection(profile: ModelCapabilityProfile, *, task_category: str, chan
 class ExecutionPolicySelector:
     """Select a complete execution policy without taking over route selection."""
 
-    def __init__(self, route_selector: RouteSelector | None = None) -> None:
+    def __init__(
+        self,
+        route_selector: RouteSelector | None = None,
+        method_router: MethodRouter | None = None,
+    ) -> None:
         self._route_selector = route_selector or RouteSelector(RouteMatrix())
+        self._method_router = method_router or MethodRouter()
 
     def select(
         self,
@@ -112,6 +118,7 @@ class ExecutionPolicySelector:
         model_profile: ModelCapabilityProfile | None = None,
         route_preferences: dict | None = None,
         twin_risk: str = "medium",
+        consecutive_method_failures: int = 0,
     ) -> ExecutionPolicy:
         change = ChangeClass(change_class)
         profile = model_profile or ModelCapabilityProfile(model_id="default")
@@ -129,6 +136,12 @@ class ExecutionPolicySelector:
                 route_selection = self._route_selector.select(
                     change, task_category=task_category, requested_route=benchmark_route)
         route = route_selection.selected_route
+        method_decision = self._method_router.select(
+            route=route,
+            change_class=change,
+            profile=profile,
+            consecutive_failures=consecutive_method_failures,
+        )
         weaknesses = set(profile.known_weaknesses)
         base_level = _base_injection(profile, task_category=task_category, change_class=change)
         if twin_risk == "high":
@@ -164,14 +177,27 @@ class ExecutionPolicySelector:
             reasons.append(f"benchmark_preferred_route={benchmark_route.value}:{round(route_preferences.get(benchmark_route, 0), 3)}")
         if weaknesses:
             reasons.append("known_weaknesses=" + ",".join(sorted(weaknesses)))
+        reasons.extend(method_decision.reasons)
 
         return ExecutionPolicy(
-            policy_id=_policy_id([str(change), task_category, str(route), profile.model_id, str(injection), style.value]),
+            policy_id=_policy_id([
+                str(change), task_category, str(route), profile.model_id, str(injection), style.value,
+                method_decision.chain.primary.value,
+            ]),
             route=route,
             model_id=profile.model_id,
             model_role="reviewer" if profile.mode == ModelCapabilityMode.AUDIT_ONLY else "coder",
             instruction_style=style,
             model_capability_mode=profile.mode,
+            method_variant=method_decision.chain.primary,
+            method_fallbacks=[step.method_variant for step in method_decision.chain.fallbacks],
+            instruction_abstraction_level=method_decision.instruction_abstraction_level,
+            task_decomposition_policy=method_decision.task_decomposition_policy,
+            context_package_mode=method_decision.context_package_mode,
+            output_protocol=method_decision.output_protocol,
+            patch_construction_mode=method_decision.patch_construction_mode,
+            verification_mode=method_decision.verification_mode,
+            repair_mode=method_decision.repair_mode,
             twin_injection_level=injection,
             required_twin_modules=sorted(set(required_modules)),
             required_gates=sorted(set(gates)),

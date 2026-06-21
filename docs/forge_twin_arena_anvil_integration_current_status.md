@@ -261,3 +261,25 @@ Remaining gaps: router, evaluation/runtime/UI integration, natural real-model fa
 Next package: PR6 `feat/forge-method-router`
 Blocker: none
 Proof level: `method_pipeline_component_complete`
+
+---
+
+## 13. PR6 MethodRouter + Policy 統合 完了証跡
+
+Completed package: PR6 `feat/forge-method-router`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/method_router.py`, `agent/model_forge/execution_policy.py`, `tests/test_forge_method_router.py`, integration plan/status docs
+Behavior implemented: profile/route/change-class/failure-aware MethodChain selection and policy fields; weak structured output -> edit intent; weak large editing -> anchored; repeated failures -> review-only
+Focused tests: `python -m pytest -q tests/test_forge_method_router.py tests/test_forge_method_pipeline.py tests/test_execution_policy_route_preference.py tests/test_twin_forge_git_steward_initial.py` -> 23 passed
+Syntax checks: `python -m py_compile agent/model_forge/method_router.py agent/model_forge/execution_policy.py tests/test_forge_method_router.py` -> passed
+Affected tests: `python -m pytest -q tests/test_forge_api.py tests/test_model_forge_schema.py tests/test_twin_control_plane_active_integration.py tests/test_twin_control_plane_shadow_integration.py` -> 50 passed
+Real model evidence: localhost:8080 response `chatcmpl-GSjGqYwEHpQMIIkvkitpNn5qFK3MhH1t`; weak structured profile selected `edit_intent_list` while preserving route `patch_dsl`, then real output passed pipeline contract with `safe_apply_ready=false`
+Atlas UI evidence: unavailable; PR6 has no UI change
+Project Intelligence evidence: unavailable; context package mode is selected but Project Intelligence payload injection is not connected here
+Runtime/Portal evidence: unavailable; ExecutionPolicy carries shadow method metadata but runtime invocation remains pending
+Unavailable checks: natural fallback and Anvil runtime evidence remain pending
+Safety invariants: RouteMatrix result is never overridden by MethodRouter; critical route remains critical; legacy profiles without new dimensions are not misclassified; review-only produces no patch
+Remaining gaps: evaluation dimensions/API, real runner, optimizer/loadout, UI, runtime shadow integration and Anvil acceptance remain pending
+Next package: PR7 `feat/forge-eval-dimensions`
+Blocker: none
+Proof level: `method_router_shadow_connected`
