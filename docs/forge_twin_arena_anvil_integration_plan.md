@@ -97,8 +97,21 @@ PR1〜15 がマージされ Method 層の骨格は揃ったが、レビュー指
 
 ---
 
+## Phase 3 ハードニング（acceptance_complete へ向けた残ガップ消化）
+
+Phase 2 完了後の残ガップを優先度順に消化する。
+
+| # | ブランチ | 内容 | 状態 |
+|---|---|---|---|
+| H1 | feat/forge-nonmethod-live-evaluators | **(P0-1)** 非method軸の live 機械評価器（scope_boundary_discipline / context_overload_sensitivity / abstraction_tolerance / fallback_recovery）。run_live に統合 | ☑ merged |
+| H2 | feat/forge-semantic-eval-hardening | **(P0-2)** 形式のみ判定を semantic 判定へ（anchor 一意性/曖昧性のファイル内容照合、review/repair の内容質） | ☐ pending |
+| H3 | feat/forge-fullaxis-frontier-verify | 全軸での弱LLM結果フロンティア再検証（H1/H2 後） | ☐ pending |
+
+---
+
 ## 進捗ログ
 
+- 2026-06-21: **H1 非method軸 live 評価器を実装（P0-1）**。`agent/model_forge/live_capability_eval.py`（具体・決定的に検証可能なプロンプト + 機械チェッカー。fallback_recovery は MethodPipeline 経由で「自然回復」と「failed primary を passed にしない」を検証）+ `evaluation_service.run_live` に統合（method軸=adapter runner / 非method軸=LiveCapabilityEvaluator に分岐）+ `tests/test_forge_live_capability_eval.py` 9 passed + 回帰 19 passed。**8080 実モデル run `forge_eval_50d47ff13bd2`**: 4軸すべて実スコア化（scope/context/abstraction/fallback_recovery=1.0、fallback は primary blocked→自然回復）。これで live 評価は 11/16 軸（method 7 + 非method 4）に拡大、4軸が `mechanical_evaluator_unavailable` を脱した。
 - 2026-06-21: **PR22 Atlas 経路妥当性検証を実装（Phase 2 完了）**。`agent/model_forge/atlas_route_validation.py`（ベンチマークプロファイル→`ExecutionPolicySelector` で最適経路+Twin注入量を導出→Atlas の planning/code_development/completion 各フェーズを RouteMatrix 安全性・最適経路整合・evidence・verification/safe_apply proof で検証。shadow 専用 `changes_production_routing=False`）+ `tests/test_forge_atlas_route_validation.py` 6 passed。**実ベンチマーク e2e**: 8080 で structured/patch=1.0・edit=0.0 のプロファイルを実測 → 最適経路 `patch_dsl`・Twin 注入 3 を導出 → Atlas 3 フェーズ検証 overall_valid、proof `atlas_route_validation_passed`。**これで Phase 2（PR16〜22）の計画項目はすべて merged**。残ガップは current_status の各証跡末尾に honest 記録（非method軸の機械評価器、形式のみ判定の semantic 強化、active gate の Atlas 実行経路接続、実ブラウザ UI、外部 tool_call provider）。
 - 2026-06-21: **PR20 Active 実行 gated 統合を実装**。`agent/model_forge/method_activation.py`（PR15 の atlas_shadow 記録を読み、サンプル数・method 安定性・evidence 有無・shadow-only を判定 → `evaluate_readiness`。`activate` は ack 必須 かつ ready 必須、`active_auto_enabled` は常に False、Proposal/Safe Apply/Verification 維持を proof_requirements に明記。`deactivate` は ack 不要で常に復帰可能）+ `tests/test_forge_method_activation.py` 9 passed + shadow 回帰 15 passed。cutover と同型の安全ゲート。実モデル実行は不要（shadow 証跡上の制御プレーン判断のため）。
 - 2026-06-21: **PR19 Multi-model RoleAssignment + live 評価軸拡張を実装**。`agent/model_forge/multimodel_optimizer.py`（複数モデルから planner/implementer/verifier/repairer/reviewer を役割別最適割当 + robust fallback model。latency/cost/local_only/privacy 制約。role ごと required/missing evidence を記録し未測定軸を能力と見なさない。review 役は patch 非構築）+ RealMethodRunner の live 軸を 4→7 に拡張（large_file_editing→anchored / evidence_discipline→review_only / repair_discipline→repair_compass、非 method 軸は honestly unavailable）+ `tests/test_forge_multimodel_roleassignment.py` 8 passed + 回帰 20 passed。**実モデル run `forge_eval_34b23a14d9c1`**: repair_discipline=1.0 / evidence_discipline=1.0 / large_file_editing=0.4 と新軸が live 評価可能に（unavailable でなくなった）。注: review/repair の機械判定は形式レベルのため PR21 フロンティア検証で over_claim 判定対象になり得る（既知の限界）。
