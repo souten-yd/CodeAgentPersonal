@@ -15,6 +15,7 @@ That entrypoint routes the implementation to the active continuation plans:
 ```text
 docs/forge_twin_assist_evaluation_plan.md
 docs/forge_twin_assist_readiness_extension_plan.md
+docs/forge_generation_policy_runtime_wiring_plan.md
 ```
 
 ## Current State
@@ -31,10 +32,13 @@ The next gap is not another model-only benchmark. The next gap is to evaluate th
 
 After TA1–TA8, continue into TA9–TA12 to evaluate the **Twin implementation readiness**, route/method/assist matrix, slot quality gates, and post-apply E2E behavior.
 
+After TA13–TA16, ensure the runtime Atlas generation path records whether benchmark/profile evidence actually changed route/method/Twin injection, and that unbenchmarked or optimal-routing-off runs use the safe default fallback.
+
 ## Authoritative Plans
 
 1. `docs/forge_twin_assist_evaluation_plan.md` — TA1–TA8: baseline vs assisted Twin Assist evaluation.
 2. `docs/forge_twin_assist_readiness_extension_plan.md` — TA9–TA12: Twin readiness, route-method-assist matrix, slot quality gates, post-apply E2E.
+3. `docs/forge_generation_policy_runtime_wiring_plan.md` — TA13–TA16: runtime policy resolver wiring, preview API/UI, default routing presets, patch-generation delivery proof.
 
 Supporting historical docs:
 
@@ -60,6 +64,10 @@ Execute the following packages in order, one coherent PR per item unless the use
 | TA10 | `feat/forge-route-method-assist-matrix` | Evaluate route × method × assist × fallback matrix | pending |
 | TA11 | `feat/forge-twin-slot-quality-gates` | Add slot/anchor/range quality gates and confidence calibration | pending |
 | TA12 | `feat/forge-twin-assist-postapply-e2e` | Evaluate proposal→Safe Apply dry-run→focused tests→post-apply Twin gate | pending |
+| TA13 | `feat/forge-runtime-policy-wiring` | Wire `atlas_generation_policy` into `pipeline_integration` runtime evidence | pending |
+| TA14 | `feat/forge-runtime-policy-preview-api` | Add runtime generation policy preview API/UI | pending |
+| TA15 | `feat/forge-default-routing-presets` | Define unbenchmarked/OFF safe default routing presets | pending |
+| TA16 | `feat/forge-runtime-policy-e2e-proof` | Prove route/method/injection reach patch proposal payload | pending |
 
 ## Standing Authorization
 
@@ -87,6 +95,10 @@ The user has explicitly authorized writing these plans into the project and cont
 * Twin readiness must cap advanced assist modes when the Project Twin is stale, unavailable, or low-confidence.
 * Slot-based assist must never use non-unique anchors, forbidden refs, broad ranges, or direct apply.
 * Post-apply E2E evaluation must run only in isolated workspace / dry-run / rollback-capable flows.
+* Benchmark route fitness may only reorder RouteMatrix safe candidates.
+* Critical changes must remain on `critical_gate`, even if benchmark fitness prefers another route.
+* `ATLAS_FORGE_OPTIMAL_ROUTING=off` must keep RouteMatrix default routes while still allowing capability-based method/injection adjustment.
+* Unbenchmarked models must use neutral safe defaults, not fabricated weaknesses or strengths.
 
 ## Local Git Policy
 
@@ -110,7 +122,7 @@ Remote publication or protected remote changes require user approval:
 
 For each package:
 
-1. Read the active package from `docs/forge_twin_assist_evaluation_plan.md` for TA1–TA8 or `docs/forge_twin_assist_readiness_extension_plan.md` for TA9–TA12.
+1. Read the active package from `docs/forge_twin_assist_evaluation_plan.md` for TA1–TA8, `docs/forge_twin_assist_readiness_extension_plan.md` for TA9–TA12, or `docs/forge_generation_policy_runtime_wiring_plan.md` for TA13–TA16.
 2. Verify the current implementation against actual code before editing.
 3. Reproduce or prove the gap with a failing or missing test where practical.
 4. Implement the smallest coherent vertical slice.
@@ -155,6 +167,11 @@ Proof ledger ref:
 Rollback evidence:
 E2E lift:
 E2E harm:
+Runtime policy selection mode:
+Optimal routing enabled:
+Route fitness applied:
+Runtime fallback recommendation:
+Prompt policy delivery audit:
 Profile recommendation:
 Atlas UI evidence:
 Project Intelligence evidence:
@@ -183,7 +200,10 @@ Stop only for:
 * non-unique anchor being accepted for slot assist;
 * direct workspace apply during evaluation;
 * focused tests unavailable being marked passed;
-* RouteMatrix-unsafe candidate being selected as matrix winner.
+* RouteMatrix-unsafe candidate being selected as matrix winner;
+* benchmark route fitness bypassing `critical_gate` or large/critical route safety;
+* optimal-routing-off runs claiming `benchmark_optimized`;
+* unbenchmarked runs claiming measured model preference.
 
 ## Completion
 
@@ -192,7 +212,8 @@ For the active Twin Assist Evaluation goal, use:
 ```text
 docs/forge_twin_assist_evaluation_plan.md
 docs/forge_twin_assist_readiness_extension_plan.md
+docs/forge_generation_policy_runtime_wiring_plan.md
 docs/forge_twin_arena_anvil_integration_current_status.md
 ```
 
-Do not mark the active goal complete until the final acceptance criteria pass, including baseline/assisted comparison, lift/harm recording, Twin readiness scoring, route-method-assist matrix, slot quality gates, ProfileStore recommendation, MethodRouter/ExecutionPolicy integration, UI evidence, post-apply E2E evidence, and real 8080 model evidence or truthful unavailable records.
+Do not mark the active goal complete until the final acceptance criteria pass, including baseline/assisted comparison, lift/harm recording, Twin readiness scoring, route-method-assist matrix, slot quality gates, ProfileStore recommendation, MethodRouter/ExecutionPolicy integration, runtime policy wiring, prompt delivery proof, UI evidence, post-apply E2E evidence, and real 8080 model evidence or truthful unavailable records.
