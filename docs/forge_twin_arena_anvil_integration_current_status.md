@@ -570,3 +570,25 @@ Remaining gaps: tool_call_patch + provider-capability gating; full-axis live eva
 Next package: PR19 `feat/forge-multimodel-roleassignment`
 Blocker: none
 Proof level: `method_router_shadow_connected` (v2 rules + real fallback verified)
+
+---
+
+## 27. PR19 Multi-model RoleAssignment + live eval expansion 完了証跡
+
+Completed package: PR19 `feat/forge-multimodel-roleassignment`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/multimodel_optimizer.py`, `agent/model_forge/real_method_runner.py`, `tests/test_forge_multimodel_roleassignment.py`, integration plan/status docs
+Behavior implemented: `MultiModelRoleOptimizer.assign` evaluates several `ModelCandidate`s together and assigns planner/implementer/verifier/repairer/reviewer to the best-fit model plus a robust fallback model; selection is constraint-aware (latency/cost/local_only/privacy), external providers are excluded in local_only or when privacy_sensitive, review roles (verifier/reviewer) never construct a patch, and per-role required vs missing evidence is recorded so an unmeasured dimension is never counted as competence. Twin injection level is derived from capability mode (weak->4 .. frontier->1). RealMethodRunner live coverage expanded from 4 to 7 method-backed dimensions (large_file_editing->anchored, evidence_discipline->review_only, repair_discipline->repair_compass); non-method dimensions (abstraction_tolerance / scope_boundary_discipline / context_overload_sensitivity / fallback_recovery) remain mechanical_evaluator_unavailable.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_multimodel_roleassignment.py` -> 8 passed
+Syntax checks: `py_compile agent/model_forge/multimodel_optimizer.py agent/model_forge/real_method_runner.py` -> passed
+Affected tests: `pytest -q tests/test_forge_multimodel_roleassignment.py tests/test_forge_real_method_runner.py tests/test_forge_optimizer_loadout.py tests/test_forge_evaluation_api.py` -> 20 passed
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, run `forge_eval_34b23a14d9c1`: the three newly-live dimensions produced real outcomes instead of unavailable — repair_discipline 1.0, evidence_discipline 1.0, large_file_editing 0.4 (mixed anchor_not_found failures).
+Atlas UI evidence: unavailable; backend optimizer + runner
+Project Intelligence evidence: per-role missing_evidence is surfaced, not assumed
+Runtime/Portal evidence: real local provider calls across the three new dimensions
+Unavailable checks: review_only / repair_compass mechanical checks are format-level (a non-empty review / non-empty steps array passes), so they can over-claim semantic quality — this is the same limitation PR21 frontier verification flags for anchor_selection; recorded honestly rather than claimed as semantic competence. Cost/latency for local candidates are operator-supplied estimates, not measured here.
+Safety invariants: non-applying preview; review roles never build a patch; external providers excluded under local_only/privacy; unmeasured dimensions recorded as missing evidence, never counted; applying still requires the existing loadout/cutover flow
+Remaining gaps: mechanical evaluators for non-method dimensions; semantic (not format-only) checks for review/repair/anchor; then full-coverage frontier re-verification
+Next package: PR20 `feat/forge-active-execution-gated`
+Blocker: none
+Proof level: `real_runtime_evaluated` (7 live dimensions; multi-model assignment component_complete)
