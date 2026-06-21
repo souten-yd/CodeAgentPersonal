@@ -104,13 +104,14 @@ Phase 2 完了後の残ガップを優先度順に消化する。
 | # | ブランチ | 内容 | 状態 |
 |---|---|---|---|
 | H1 | feat/forge-nonmethod-live-evaluators | **(P0-1)** 非method軸の live 機械評価器（scope_boundary_discipline / context_overload_sensitivity / abstraction_tolerance / fallback_recovery）。run_live に統合 | ☑ merged |
-| H2 | feat/forge-semantic-eval-hardening | **(P0-2)** 形式のみ判定を semantic 判定へ（anchor 一意性/曖昧性のファイル内容照合、review/repair の内容質） | ☐ pending |
+| H2 | feat/forge-semantic-eval-hardening | **(P0-2)** 形式のみ判定を semantic 判定へ（anchor 一意性/曖昧性のファイル内容照合、review/repair の内容質） | ☑ merged |
 | H3 | feat/forge-fullaxis-frontier-verify | 全軸での弱LLM結果フロンティア再検証（H1/H2 後） | ☐ pending |
 
 ---
 
 ## 進捗ログ
 
+- 2026-06-21: **H2 semantic 評価ハードニングを実装（P0-2）**。`anchor_selection_quality` を実ファイル内容に対する **anchor 一意性照合**へ（選んだ anchor の出現回数==1 を検証。曖昧な反復トークンを選べば FAIL）— PR21 の over_claim を解消。`evidence_discipline`（unavailable を passed にしない / mock を live と扱わない）と `repair_discipline`（最小スコープ / broad rewrite 拒否）を判定 prompt 化。3軸を method runner から `LiveCapabilityEvaluator` へ移動。`tests/test_forge_live_capability_eval.py` 拡充 + PR19 テスト更新（23 passed）。**8080 実モデル run `forge_eval_878e6329cc25`**: 3軸とも semantic に passed（asq は `def UNIQUE_TARGET_FN():`/`def reset_UNIQUE_MARKER():` の一意 anchor を選択、曖昧 `x = 0` を回避）。
 - 2026-06-21: **H1 非method軸 live 評価器を実装（P0-1）**。`agent/model_forge/live_capability_eval.py`（具体・決定的に検証可能なプロンプト + 機械チェッカー。fallback_recovery は MethodPipeline 経由で「自然回復」と「failed primary を passed にしない」を検証）+ `evaluation_service.run_live` に統合（method軸=adapter runner / 非method軸=LiveCapabilityEvaluator に分岐）+ `tests/test_forge_live_capability_eval.py` 9 passed + 回帰 19 passed。**8080 実モデル run `forge_eval_50d47ff13bd2`**: 4軸すべて実スコア化（scope/context/abstraction/fallback_recovery=1.0、fallback は primary blocked→自然回復）。これで live 評価は 11/16 軸（method 7 + 非method 4）に拡大、4軸が `mechanical_evaluator_unavailable` を脱した。
 - 2026-06-21: **PR22 Atlas 経路妥当性検証を実装（Phase 2 完了）**。`agent/model_forge/atlas_route_validation.py`（ベンチマークプロファイル→`ExecutionPolicySelector` で最適経路+Twin注入量を導出→Atlas の planning/code_development/completion 各フェーズを RouteMatrix 安全性・最適経路整合・evidence・verification/safe_apply proof で検証。shadow 専用 `changes_production_routing=False`）+ `tests/test_forge_atlas_route_validation.py` 6 passed。**実ベンチマーク e2e**: 8080 で structured/patch=1.0・edit=0.0 のプロファイルを実測 → 最適経路 `patch_dsl`・Twin 注入 3 を導出 → Atlas 3 フェーズ検証 overall_valid、proof `atlas_route_validation_passed`。**これで Phase 2（PR16〜22）の計画項目はすべて merged**。残ガップは current_status の各証跡末尾に honest 記録（非method軸の機械評価器、形式のみ判定の semantic 強化、active gate の Atlas 実行経路接続、実ブラウザ UI、外部 tool_call provider）。
 - 2026-06-21: **PR20 Active 実行 gated 統合を実装**。`agent/model_forge/method_activation.py`（PR15 の atlas_shadow 記録を読み、サンプル数・method 安定性・evidence 有無・shadow-only を判定 → `evaluate_readiness`。`activate` は ack 必須 かつ ready 必須、`active_auto_enabled` は常に False、Proposal/Safe Apply/Verification 維持を proof_requirements に明記。`deactivate` は ack 不要で常に復帰可能）+ `tests/test_forge_method_activation.py` 9 passed + shadow 回帰 15 passed。cutover と同型の安全ゲート。実モデル実行は不要（shadow 証跡上の制御プレーン判断のため）。

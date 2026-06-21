@@ -658,3 +658,25 @@ Remaining gaps: H2 semantic hardening (anchor uniqueness/ambiguity vs file conte
 Next package: H2 `feat/forge-semantic-eval-hardening`
 Blocker: none
 Proof level: `real_runtime_evaluated` (11/16 live dimensions; non-method evaluators component_complete)
+
+---
+
+## 31. H2 Semantic evaluation hardening 完了証跡 (Phase 3 / P0-2)
+
+Completed package: H2 `feat/forge-semantic-eval-hardening`
+Status: completed; publication and merge performed as the item PR workflow
+Changed modules/files: `agent/model_forge/live_capability_eval.py`, `agent/model_forge/real_method_runner.py`, `tests/test_forge_live_capability_eval.py`, `tests/test_forge_multimodel_roleassignment.py`, integration plan/status docs
+Behavior implemented: resolves the PR21 over_claim. `anchor_selection_quality` is now checked against **real file content** — the chosen anchor must occur exactly once (a repeated/ambiguous token fails). `evidence_discipline` (keep unavailable distinct from passed; reject mock as live evidence) and `repair_discipline` (minimal repair scope; decline unrelated broad rewrite) became semantic judgment cases. These three dimensions moved from the format-only method runner to `LiveCapabilityEvaluator`; `large_file_editing` stays method-backed.
+Focused tests: `venv_sys/Scripts/python.exe -m pytest -q tests/test_forge_live_capability_eval.py tests/test_forge_multimodel_roleassignment.py` -> 23 passed
+Syntax checks: `py_compile` on the four changed Python files -> passed
+Affected tests: included above; the multimodel test was updated to the new routing
+Real model evidence: localhost:8080 `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`, run `forge_eval_878e6329cc25`: anchor_selection_quality 1.0 (model selected the unique anchors `def UNIQUE_TARGET_FN():` and `def reset_UNIQUE_MARKER():`, avoiding the ambiguous repeated `x = 0`), evidence_discipline 1.0, repair_discipline 1.0. The anchor check now fails if a repeated token is chosen, which is the over_claim PR21 surfaced.
+Atlas UI evidence: unavailable; backend evaluator
+Project Intelligence evidence: unavailable
+Runtime/Portal evidence: real local provider calls across the three hardened dimensions
+Unavailable checks: large_file_editing remains a method-backed (anchored) check rather than full file-content semantic placement; review prose quality beyond severity/structure is not graded; these are recorded rather than claimed
+Safety invariants: `unavailable` never upgraded to passed; the adversarial traps (mock-as-live, broad-rewrite, ambiguous anchor) are explicitly caught; no routing change
+Remaining gaps: H3 full-axis frontier re-verification (should now confirm anchor_selection instead of over_claim)
+Next package: H3 `feat/forge-fullaxis-frontier-verify`
+Blocker: none
+Proof level: `real_runtime_evaluated` (semantic anchor/evidence/repair checks; PR21 over_claim resolved)

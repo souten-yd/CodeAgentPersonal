@@ -32,6 +32,19 @@ def _good_post(_url, payload, _headers, _timeout) -> tuple[int, str]:
         return _ok('{"name": "widget", "count": 3}')
     if "review findings" in user:  # fallback terminal
         return _ok("Severity: low; safe; no patch.")
+    # H2 semantic cases
+    if "UNIQUE_TARGET_FN" in user:
+        return _ok('{"anchor": "def UNIQUE_TARGET_FN():"}')
+    if "reset_UNIQUE_MARKER" in user:
+        return _ok('{"anchor": "def reset_UNIQUE_MARKER():"}')
+    if "could not run because the tool was offline" in user:
+        return _ok('{"status": "unavailable"}')
+    if "count as live evidence" in user:
+        return _ok('{"live_evidence": false}')
+    if "minimal repair scope" in user:
+        return _ok('{"scope": "single_function"}')
+    if "unrelated broad rewrite" in user:
+        return _ok('{"broad_rewrite": false}')
     # edit/anchored primary in fallback_recovery -> prose (genuine failure)
     return _ok("Here is prose, not a structured edit.")
 
@@ -103,6 +116,56 @@ def test_distractor_followed_fails(tmp_path):
     assert results["cos_distractor"].outcome == EvaluatorOutcome.FAILED
 
 
+def test_anchor_selection_semantic_unique(tmp_path):
+    results = _by_case(_evaluate(tmp_path, ["anchor_selection_quality"]))
+    assert results["asq_unique"].outcome == EvaluatorOutcome.PASSED
+    assert "unique_anchor_selected" in results["asq_unique"].detail
+    assert results["asq_ambiguous"].outcome == EvaluatorOutcome.PASSED
+
+
+def test_anchor_ambiguous_selection_is_caught(tmp_path):
+    def post(_url, payload, _headers, _timeout):
+        if "reset_UNIQUE_MARKER" in payload["messages"][1]["content"]:
+            return _ok('{"anchor": "    x = 0"}')  # appears 3x -> ambiguous
+        return _good_post(_url, payload, _headers, _timeout)
+
+    results = _by_case(_evaluate(tmp_path, ["anchor_selection_quality"], post=post))
+    assert results["asq_ambiguous"].outcome == EvaluatorOutcome.FAILED
+    assert "ambiguous_anchor_selected" in results["asq_ambiguous"].detail
+
+
+def test_evidence_discipline_semantic(tmp_path):
+    results = _by_case(_evaluate(tmp_path, ["evidence_discipline"]))
+    assert results["ed_unavailable"].outcome == EvaluatorOutcome.PASSED
+    assert results["ed_no_mock_as_live"].outcome == EvaluatorOutcome.PASSED
+
+
+def test_evidence_misclassified_as_passed_fails(tmp_path):
+    def post(_url, payload, _headers, _timeout):
+        if "could not run because the tool was offline" in payload["messages"][1]["content"]:
+            return _ok('{"status": "passed"}')  # the adversarial trap
+        return _good_post(_url, payload, _headers, _timeout)
+
+    results = _by_case(_evaluate(tmp_path, ["evidence_discipline"], post=post))
+    assert results["ed_unavailable"].outcome == EvaluatorOutcome.FAILED
+
+
+def test_repair_discipline_semantic(tmp_path):
+    results = _by_case(_evaluate(tmp_path, ["repair_discipline"]))
+    assert results["rd_local"].outcome == EvaluatorOutcome.PASSED
+    assert results["rd_no_broad_rewrite"].outcome == EvaluatorOutcome.PASSED
+
+
+def test_repair_broad_rewrite_is_caught(tmp_path):
+    def post(_url, payload, _headers, _timeout):
+        if "unrelated broad rewrite" in payload["messages"][1]["content"]:
+            return _ok('{"broad_rewrite": true}')
+        return _good_post(_url, payload, _headers, _timeout)
+
+    results = _by_case(_evaluate(tmp_path, ["repair_discipline"], post=post))
+    assert results["rd_no_broad_rewrite"].outcome == EvaluatorOutcome.FAILED
+
+
 def test_transport_error_is_unavailable_not_passed(tmp_path):
     def post(_url, _payload, _headers, _timeout):
         raise ConnectionRefusedError("down")
@@ -117,4 +180,5 @@ def test_only_owns_non_method_dimensions(tmp_path):
     assert set(LIVE_CAPABILITY_DIMENSIONS) == {
         "scope_boundary_discipline", "context_overload_sensitivity",
         "abstraction_tolerance", "fallback_recovery",
+        "anchor_selection_quality", "evidence_discipline", "repair_discipline",
     }

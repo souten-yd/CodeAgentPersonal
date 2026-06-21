@@ -25,13 +25,11 @@ _METHOD_BY_DIMENSION = {
     "structured_output_fidelity": MethodVariant.STRUCTURED_PATCH_JSON,
     "patch_protocol_fidelity": MethodVariant.PATCH_DSL_JSON,
     "edit_intent_quality": MethodVariant.EDIT_INTENT_LIST,
-    "anchor_selection_quality": MethodVariant.ANCHORED_EDIT_BLOCK,
-    # PR19: extend live coverage to method-backed dimensions. Dimensions without a
-    # mechanical method adapter (abstraction_tolerance, scope_boundary_discipline,
-    # context_overload_sensitivity, fallback_recovery) stay mechanical_evaluator_unavailable.
+    # large_file_editing stays method-backed (precise anchored placement).
     "large_file_editing": MethodVariant.ANCHORED_EDIT_BLOCK,
-    "evidence_discipline": MethodVariant.REVIEW_ONLY,
-    "repair_discipline": MethodVariant.REPAIR_COMPASS_STEPS,
+    # H2: anchor_selection_quality / evidence_discipline / repair_discipline moved to the
+    # semantic LiveCapabilityEvaluator, which checks anchor uniqueness against real file
+    # content and evidence/repair judgment rather than format-only contract validity.
 }
 _EXTERNAL_PROVIDERS = {"openrouter", "openrouter_api"}
 

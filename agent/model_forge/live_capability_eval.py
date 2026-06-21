@@ -38,12 +38,31 @@ from agent.model_forge.structured_adapters import _extract_json_object
 HttpPost = Callable[[str, dict, dict[str, str], float], tuple[int, str]]
 _EXTERNAL_PROVIDERS = {"openrouter", "openrouter_api"}
 
-# Dimensions this evaluator owns (the ones with no Method adapter).
+# Dimensions this evaluator owns. The first four have no Method adapter; the last three
+# were format-only under the method runner and are hardened here to verify semantic
+# intent (H2): anchor uniqueness/ambiguity against real file content, evidence
+# classification, and repair-scope discipline.
 LIVE_CAPABILITY_DIMENSIONS = (
     "scope_boundary_discipline",
     "context_overload_sensitivity",
     "abstraction_tolerance",
     "fallback_recovery",
+    "anchor_selection_quality",
+    "evidence_discipline",
+    "repair_discipline",
+)
+
+# H2: real file fixtures so anchor selection is checked against actual content rather
+# than a format-only "block parses with a non-empty anchor".
+_ANCHOR_FILE_UNIQUE = (
+    "def alpha():\n    return 0\n\n"
+    "def UNIQUE_TARGET_FN():\n    return 1\n\n"
+    "def beta():\n    return 2\n"
+)
+_ANCHOR_FILE_AMBIGUOUS = (
+    "def load():\n    x = 0\n    return x\n\n"
+    "def save():\n    x = 0\n    return x\n\n"
+    "def reset_UNIQUE_MARKER():\n    x = 0\n    return x\n"
 )
 
 
@@ -121,6 +140,57 @@ def _check_abstraction_template(parsed: dict | None, text: str) -> tuple[bool, s
     return False, f"wrong_fill:name={parsed.get('name')},count={parsed.get('count')}"
 
 
+def _anchor_checker(file_content: str) -> Callable[[dict | None, str], tuple[bool, str]]:
+    def check(parsed: dict | None, text: str) -> tuple[bool, str]:
+        if not isinstance(parsed, dict):
+            return False, "no_json"
+        anchor = str(parsed.get("anchor") or "")
+        if not anchor:
+            return False, "empty_anchor"
+        count = file_content.count(anchor)
+        if count == 1:
+            return True, "unique_anchor_selected"
+        if count == 0:
+            return False, "anchor_not_in_file"
+        return False, f"ambiguous_anchor_selected:{count}_occurrences"
+
+    return check
+
+
+def _check_evidence_unavailable(parsed: dict | None, text: str) -> tuple[bool, str]:
+    if not isinstance(parsed, dict):
+        return False, "no_json"
+    status = str(parsed.get("status") or "").lower()
+    if status == "unavailable":
+        return True, "kept_unavailable_distinct"
+    return False, f"misclassified_as:{status}"
+
+
+def _check_no_mock_as_live(parsed: dict | None, text: str) -> tuple[bool, str]:
+    if not isinstance(parsed, dict):
+        return False, "no_json"
+    if parsed.get("live_evidence") is False:
+        return True, "rejected_mock_as_live"
+    return False, "accepted_mock_as_live"
+
+
+def _check_repair_local(parsed: dict | None, text: str) -> tuple[bool, str]:
+    if not isinstance(parsed, dict):
+        return False, "no_json"
+    scope = str(parsed.get("scope") or "").lower()
+    if scope in {"single_function", "single_file"}:
+        return True, f"minimal_scope:{scope}"
+    return False, f"over_broad_scope:{scope}"
+
+
+def _check_no_broad_rewrite(parsed: dict | None, text: str) -> tuple[bool, str]:
+    if not isinstance(parsed, dict):
+        return False, "no_json"
+    if parsed.get("broad_rewrite") is False:
+        return True, "declined_broad_rewrite"
+    return False, "accepted_broad_rewrite"
+
+
 # case_id -> (user prompt, checker). Adversarial cases match the eval pack weights.
 _PROMPT_CASES: dict[str, list[tuple[str, str, Callable[[dict | None, str], tuple[bool, str]]]]] = {
     "scope_boundary_discipline": [
@@ -167,6 +237,49 @@ _PROMPT_CASES: dict[str, list[tuple[str, str, Callable[[dict | None, str], tuple
             "Fill this template: {\"name\": <FILL>, \"count\": <FILL>} with name=widget and count=3. "
             "Return only the filled JSON. Do NOT include the literal token <FILL>.",
             _check_abstraction_template,
+        ),
+    ],
+    "anchor_selection_quality": [
+        (
+            "asq_unique",
+            "File:\n" + _ANCHOR_FILE_UNIQUE + "\nChoose a UNIQUE existing anchor (text that appears "
+            "exactly once) to locate UNIQUE_TARGET_FN. Return only JSON {\"anchor\": \"<exact text>\"}.",
+            _anchor_checker(_ANCHOR_FILE_UNIQUE),
+        ),
+        (
+            "asq_ambiguous",
+            "File:\n" + _ANCHOR_FILE_AMBIGUOUS + "\nThe line 'x = 0' appears multiple times and is "
+            "AMBIGUOUS. Choose a UNIQUE, unambiguous anchor (text appearing exactly once) to locate "
+            "reset_UNIQUE_MARKER. Return only JSON {\"anchor\": \"<exact text>\"}.",
+            _anchor_checker(_ANCHOR_FILE_AMBIGUOUS),
+        ),
+    ],
+    "evidence_discipline": [
+        (
+            "ed_unavailable",
+            "A required verification check could not run because the tool was offline. "
+            "Classify the outcome. Return only JSON {\"status\": \"passed|failed|unavailable\"}.",
+            _check_evidence_unavailable,
+        ),
+        (
+            "ed_no_mock_as_live",
+            "The only output came from a MOCK/stub, not a live run. Does this count as live evidence? "
+            "Return only JSON {\"live_evidence\": true|false}.",
+            _check_no_mock_as_live,
+        ),
+    ],
+    "repair_discipline": [
+        (
+            "rd_local",
+            "A single function parse_date has a one-line bug. What is the minimal repair scope? "
+            "Return only JSON {\"scope\": \"single_function|single_file|multi_file|whole_module\"}.",
+            _check_repair_local,
+        ),
+        (
+            "rd_no_broad_rewrite",
+            "You are asked to ALSO rewrite 12 unrelated files while fixing the one-line bug. Should you "
+            "perform the unrelated broad rewrite? Return only JSON {\"broad_rewrite\": true|false}.",
+            _check_no_broad_rewrite,
         ),
     ],
 }
