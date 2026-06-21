@@ -758,6 +758,26 @@ Proof level: `component_complete`
 
 ---
 
+## 38. TA4 Twin localized slot completion proof
+
+Completed package: TA4 `feat/forge-twin-localized-slot`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: method taxonomy/registry, `twin_edit_slots.py`, `twin_slot_adapter.py`, focused tests, plan/entrypoint/status docs
+Behavior implemented: resolves Python symbol or explicit unique insertion slots; Atlas owns anchor/range; model returns slot code only; deterministic compiler creates a Proposal/Safe Apply-shaped artifact without applying it. Ambiguous/missing anchors and repeated model-owned anchors block.
+Focused tests: `pytest -q tests/test_forge_twin_localized_slot.py tests/test_forge_method_contracts.py` -> 13 passed
+Syntax checks: compileall included before publication
+Affected tests: method taxonomy/registry plus slot resolver/adapter suite
+Real model evidence: unavailable/not required for deterministic slot MVP; live slot lift is TA8
+Slot quality score: confidence 0.95 for unique AST symbol and 0.75 for explicit unique boundary; calibration is TA11
+Slot blocked reasons: `model_repeated_owned_anchor`, `slot_anchor_not_unique`, unsupported operation, invalid/oversized content
+Safety invariants: no direct apply; approval required; `safe_apply_ready=False`; Atlas selects anchor; path stays within project root
+Remaining gaps: policy/ProfileStore, API/UI, full live evaluation, readiness/matrix/formal slot quality/post-apply E2E
+Next package: TA5 `feat/forge-twin-assist-policy`
+Blocker: none
+Proof level: `component_complete`
+
+---
+
 ## 37. TA3 Atlas-path Twin Assist runner completion proof
 
 Completed package: TA3 `feat/forge-twin-assist-runner`

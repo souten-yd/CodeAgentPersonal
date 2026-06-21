@@ -555,7 +555,7 @@ Recommended Twin Assist:
 | TA1 | feat/forge-twin-assist-contracts | taxonomy / DTO / strict schema tests | ☑ completed |
 | TA2 | feat/forge-twin-assist-packs | case packs / fixtures / scoring | ☑ completed |
 | TA3 | feat/forge-twin-assist-runner | AtlasPatchProposalService実経路を使うbaseline vs assisted runner | ☑ completed |
-| TA4 | feat/forge-twin-localized-slot | TwinEditSlot / resolver / slot patch adapter MVP | ☐ pending |
+| TA4 | feat/forge-twin-localized-slot | TwinEditSlot / resolver / slot patch adapter MVP | ☑ completed |
 | TA5 | feat/forge-twin-assist-policy | MethodRouter / ExecutionPolicy / ProfileStore連携 | ☐ pending |
 | TA6 | feat/forge-twin-assist-api | `/api/forge/twin-assist/*` API | ☐ pending |
 | TA7 | feat/forge-twin-assist-ui | Forge UI: Twin Assist tab / result table / drawer / profile recommendation | ☐ pending |

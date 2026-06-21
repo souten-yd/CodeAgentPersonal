@@ -20,3 +20,7 @@ class MethodVariant(StrEnum):
     REVIEW_ONLY = "review_only"
     TEST_PLAN_ONLY = "test_plan_only"
     REPAIR_COMPASS_STEPS = "repair_compass_steps"
+    TWIN_LOCALIZED_SLOT_PATCH = "twin_localized_slot_patch"
+    TWIN_SYMBOL_WINDOW_PATCH = "twin_symbol_window_patch"
+    TWIN_DETERMINISTIC_ANCHOR_PATCH = "twin_deterministic_anchor_patch"
+    TWIN_SLOT_FILL_ONLY = "twin_slot_fill_only"

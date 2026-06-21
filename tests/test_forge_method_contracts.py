@@ -28,6 +28,10 @@ EXPECTED_VARIANTS = {
     "review_only",
     "test_plan_only",
     "repair_compass_steps",
+    "twin_localized_slot_patch",
+    "twin_symbol_window_patch",
+    "twin_deterministic_anchor_patch",
+    "twin_slot_fill_only",
 }
 
 
