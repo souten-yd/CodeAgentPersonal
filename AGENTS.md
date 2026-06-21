@@ -2,12 +2,20 @@
 
 ## Active Goal
 
-The current active track is **Forge / Twin / Arena / Anvil 統合改修** (Method layer: MethodVariant / MethodAdapter / MethodRouter / MethodPipeline + Arena radar + weak-LLM reinforcement). Manage it from:
+The current active track is **Forge / Twin / Arena / Anvil 統合改修** (Method layer: MethodVariant / MethodAdapter / MethodRouter / MethodPipeline + Arena radar + weak-LLM reinforcement).
 
-1. `docs/forge_twin_arena_anvil_integration_plan.md` — living plan + per-PR breakdown + progress tracker
+**START HERE — read this one file first, it is self-sufficient to begin:**
+
+```text
+docs/forge_twin_arena_anvil_integration_agent_entrypoint.md
+```
+
+It contains: the read order, the per-item PR workflow, the verified test command, the hard invariants, the `decomposition_policy.py` naming-collision warning, the existing foundation to reuse, the full 16-PR list, and an unambiguous PR1 spec to start from. Supporting docs:
+
+1. `docs/forge_twin_arena_anvil_integration_plan.md` — living plan + 16-PR breakdown + progress tracker (update before/after each item)
 2. `docs/forge_twin_arena_anvil_integration_current_status.md` — Phase 0 inventory / component classification
 
-Work item = 1 PR. For this track the user has explicitly authorized creating and merging a PR per item (2026-06-21); branch per item (`feat/forge-method-*`), implement + test, then PR + merge. Do not replace existing modules — integrate/extend. Watch the `decomposition_policy.py` naming collision (see plan §運用ルール).
+Work item = 1 PR. The user has explicitly authorized creating and merging a PR per item for this track (2026-06-21; the plan itself merged as PR #1960). Branch per item (`feat/forge-method-*`), implement + test, then PR + merge. Do not replace existing modules — integrate/extend. **Next to start: PR1 (feat/forge-method-contracts).** Test command: `venv_sys/Scripts/python.exe -m pytest -q tests/<file>.py`.
 
 The prior default development goal is **Atlas Twin / Forge / Git Steward**.
 
