@@ -299,6 +299,7 @@ class LiveCapabilityEvaluator:
         dimensions: list[str],
         source_mode: str = "local_only",
         timeout_seconds: float = 120.0,
+        system_directive: str = "",
     ) -> list[CaseResult]:
         selected = [d for d in dimensions if d in LIVE_CAPABILITY_DIMENSIONS]
         if not selected:
@@ -316,6 +317,7 @@ class LiveCapabilityEvaluator:
             for case_id, prompt, checker in _PROMPT_CASES[dim]:
                 results.append(self._eval_prompt_case(
                     provider_id, model_id, base_url, dim, case_id, prompt, checker, timeout_seconds,
+                    system_directive=system_directive,
                 ))
         return results
 
@@ -328,14 +330,15 @@ class LiveCapabilityEvaluator:
     def _eval_prompt_case(
         self, provider_id: str, model_id: str, base_url: str, dimension: str,
         case_id: str, prompt: str, checker: Callable[[dict | None, str], tuple[bool, str]],
-        timeout_seconds: float,
+        timeout_seconds: float, system_directive: str = "",
     ) -> CaseResult:
         endpoint = base_url.rstrip("/") + "/v1/chat/completions"
+        system_text = f"{system_directive}\n\n{_SYSTEM}" if system_directive else _SYSTEM
         started = time.monotonic()
         try:
             status, body = self._http_post(endpoint, {
                 "model": model_id,
-                "messages": [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": prompt}],
+                "messages": [{"role": "system", "content": system_text}, {"role": "user", "content": prompt}],
                 "temperature": 0,
                 "stream": False,
             }, {}, timeout_seconds)

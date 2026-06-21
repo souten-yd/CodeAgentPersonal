@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from agent.model_forge.capability_scoring import CapabilityScorer, build_capability_profile
-from agent.model_forge.eval_packs import CaseResult, load_eval_packs
+from agent.model_forge.eval_packs import CaseResult, load_eval_packs, score_pack
 from agent.model_forge.live_capability_eval import LIVE_CAPABILITY_DIMENSIONS, LiveCapabilityEvaluator
 from agent.model_forge.method_router import MethodRouter
 from agent.model_forge.method_taxonomy import MethodVariant
@@ -93,9 +93,25 @@ class ForgeEvaluationService:
         packs = [pack for pack in load_eval_packs() if pack.dimension in selected]
         if not packs or selected.difference(pack.dimension for pack in packs):
             raise ValueError("unknown_evaluation_dimension")
-        # Method-backed dimensions go through the adapter runner; the non-method
-        # capability dimensions (scope/context/abstraction/fallback) go through the live
-        # capability evaluator. Together they cover the full benchmark surface.
+        results = self._run_capability_cases(
+            provider_id=provider_id, model_id=model_id, base_url=base_url, selected=selected,
+            source_mode=source_mode, credential_env=credential_env, timeout_seconds=timeout_seconds,
+        )
+        return self.run(
+            provider_id=provider_id,
+            model_id=model_id,
+            results=results,
+            dimensions=dimensions,
+        )
+
+    def _run_capability_cases(
+        self, *, provider_id: str, model_id: str, base_url: str, selected: set[str],
+        source_mode: str, credential_env: str, timeout_seconds: float, system_directive: str = "",
+    ) -> list[CaseResult]:
+        """Run the live benchmark for the selected dimensions, optionally with a Twin assist
+        directive injected into the prompts. Method-backed dimensions go through the adapter
+        runner; non-method capability dimensions go through the live capability evaluator."""
+        packs = [pack for pack in load_eval_packs() if pack.dimension in selected]
         method_cases = [
             case for pack in packs for case in pack.cases
             if pack.dimension not in LIVE_CAPABILITY_DIMENSIONS
@@ -103,30 +119,89 @@ class ForgeEvaluationService:
         results: list[CaseResult] = []
         if method_cases:
             results.extend(RealMethodRunner(self._root / "real_evidence").run_cases(
-                provider_id=provider_id,
-                model_id=model_id,
-                base_url=base_url,
-                cases=method_cases,
-                source_mode=source_mode,
-                credential_env=credential_env,
-                timeout_seconds=timeout_seconds,
+                provider_id=provider_id, model_id=model_id, base_url=base_url, cases=method_cases,
+                source_mode=source_mode, credential_env=credential_env,
+                timeout_seconds=timeout_seconds, system_directive=system_directive,
             ))
         live_dims = [d for d in selected if d in LIVE_CAPABILITY_DIMENSIONS]
         if live_dims:
             results.extend(LiveCapabilityEvaluator(self._root / "real_evidence").evaluate(
-                provider_id=provider_id,
-                model_id=model_id,
-                base_url=base_url,
-                dimensions=live_dims,
-                source_mode=source_mode,
-                timeout_seconds=timeout_seconds,
+                provider_id=provider_id, model_id=model_id, base_url=base_url, dimensions=live_dims,
+                source_mode=source_mode, timeout_seconds=timeout_seconds, system_directive=system_directive,
             ))
-        return self.run(
-            provider_id=provider_id,
-            model_id=model_id,
-            results=results,
-            dimensions=dimensions,
+        return results
+
+    # Twin assist directive injected for the "with assist" pass. Real, meaningful guidance
+    # (not the full Twin pipeline) so the measured lift reflects guidance at eval time.
+    ASSIST_DIRECTIVE = (
+        "Twin assist guidance: follow the requested output contract exactly; copy exact, unique "
+        "anchors from the provided content; keep unavailable distinct from passed; never treat mock "
+        "output as live evidence; stay strictly within allowed paths; make minimal, targeted changes."
+    )
+
+    def assist_capability_profile(
+        self,
+        *,
+        provider_id: str,
+        model_id: str,
+        base_url: str,
+        dimensions: list[str],
+        source_mode: str = "local_only",
+        credential_env: str = "",
+        timeout_seconds: float = 120.0,
+        assist_directive: str | None = None,
+    ) -> dict:
+        """Measure capability WITHOUT and WITH a Twin assist directive, per dimension, so the
+        Arena radar can overlay with-vs-without-assist (補助有無) from real data. Persists the
+        comparison. Scores are None when a dimension had only unavailable evidence (never faked)."""
+        selected = set(dimensions)
+        packs = [pack for pack in load_eval_packs() if pack.dimension in selected]
+        if not packs or selected.difference(pack.dimension for pack in packs):
+            raise ValueError("unknown_evaluation_dimension")
+        directive = self.ASSIST_DIRECTIVE if assist_directive is None else assist_directive
+
+        baseline_results = self._run_capability_cases(
+            provider_id=provider_id, model_id=model_id, base_url=base_url, selected=selected,
+            source_mode=source_mode, credential_env=credential_env, timeout_seconds=timeout_seconds,
+            system_directive="",
         )
+        assisted_results = self._run_capability_cases(
+            provider_id=provider_id, model_id=model_id, base_url=base_url, selected=selected,
+            source_mode=source_mode, credential_env=credential_env, timeout_seconds=timeout_seconds,
+            system_directive=directive,
+        )
+        baseline_scores = {p.dimension: score_pack(p, baseline_results).score for p in packs}
+        assisted_scores = {p.dimension: score_pack(p, assisted_results).score for p in packs}
+        lift = {
+            dim: round(assisted_scores[dim] - baseline_scores[dim], 4)
+            for dim in baseline_scores
+            if isinstance(baseline_scores[dim], (int, float)) and isinstance(assisted_scores[dim], (int, float))
+        }
+        record = {
+            "provider_id": provider_id,
+            "model_id": model_id,
+            "dimensions": sorted(selected),
+            "baseline_scores": baseline_scores,
+            "assisted_scores": assisted_scores,
+            "lift": lift,
+            "assist_directive": directive,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._write_assist_capability(provider_id, model_id, record)
+        return record
+
+    def _assist_capability_path(self, provider_id: str, model_id: str) -> Path:
+        safe = f"{provider_id}_{model_id}".replace("/", "_").replace(":", "_").replace("\\", "_")
+        return self._root / "assist_capability" / f"{safe}.json"
+
+    def _write_assist_capability(self, provider_id: str, model_id: str, record: dict) -> None:
+        path = self._assist_capability_path(provider_id, model_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def load_assist_capability(self, provider_id: str, model_id: str) -> dict | None:
+        path = self._assist_capability_path(provider_id, model_id)
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
     def model_profile(self, provider_id: str, model_id: str) -> dict:
         profile = self._profiles.load_profile(provider_id, model_id)

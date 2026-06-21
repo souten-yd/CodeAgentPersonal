@@ -123,6 +123,17 @@ class RealEvaluationRequest(BaseModel):
     timeout_seconds: float = Field(default=120.0, gt=0.0, le=600.0)
 
 
+class AssistCapabilityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    base_url: str = Field(min_length=1)
+    dimensions: list[str] = Field(min_length=1)
+    source_mode: str = "local_only"
+    credential_env: str = ""
+    timeout_seconds: float = Field(default=120.0, gt=0.0, le=600.0)
+
+
 class EvaluationRerunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_id: str = Field(min_length=1)
@@ -285,6 +296,16 @@ def post_evaluation_run(request: Request, body: EvaluationRunRequest) -> dict:
 def post_live_evaluation_run(request: Request, body: RealEvaluationRequest) -> dict:
     try:
         return _service(request).run_live_evaluation(**body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/evaluation/assist-capability")
+def post_assist_capability(request: Request, body: AssistCapabilityRequest) -> dict:
+    """Measure capability with vs without a Twin assist directive (補助有無), per dimension,
+    and persist it so the Arena radar can overlay the Twin effect from real data."""
+    try:
+        return _service(request).assist_capability_profile(**body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

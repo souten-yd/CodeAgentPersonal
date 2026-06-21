@@ -37,6 +37,18 @@ def test_radar_empty_without_profile_not_fabricated(tmp_path):
     assert enriched.score.radar_scores == {}
 
 
+def test_radar_uses_assist_comparison_when_present(tmp_path):
+    svc = ForgeService(str(tmp_path))
+    # No plain profile needed; the assist comparison drives the overlay.
+    svc.evaluation.load_assist_capability = lambda p, m: {
+        "assisted_scores": {"structured_output_fidelity": 0.9, "edit_intent_quality": 0.8},
+        "baseline_scores": {"structured_output_fidelity": 0.4, "edit_intent_quality": 0.2},
+    }
+    enriched = svc._attach_candidate_radar({"provider_id": "local", "model_id": "m1"}, _evaluation())
+    assert enriched.score.radar_scores["structured_output_fidelity"] == 0.9  # with assist
+    assert enriched.score.baseline_radar_scores["structured_output_fidelity"] == 0.4  # without assist
+
+
 def test_radar_enrichment_never_raises(tmp_path):
     svc = ForgeService(str(tmp_path))
     def _boom(p, m):

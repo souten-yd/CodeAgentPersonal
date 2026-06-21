@@ -105,6 +105,9 @@ class ForgeService:
     def run_live_evaluation(self, **payload) -> dict:
         return self.evaluation.run_live(**payload)
 
+    def assist_capability_profile(self, **payload) -> dict:
+        return self.evaluation.assist_capability_profile(**payload)
+
     def rerun_evaluation(self, run_id: str, **payload) -> dict:
         return self.evaluation.rerun(run_id, **payload)
 
@@ -721,6 +724,17 @@ class ForgeService:
             model_id = str(cand.get("model_id") or "")
             if not model_id:
                 return evaluation
+            # Prefer a real with/without-assist comparison so the Arena radar overlays the
+            # Twin effect (補助有無) from measured data.
+            assist = self.evaluation.load_assist_capability(provider_id, model_id)
+            if assist:
+                assisted = {k: float(v) for k, v in (assist.get("assisted_scores") or {}).items() if v is not None}
+                baseline = {k: float(v) for k, v in (assist.get("baseline_scores") or {}).items() if v is not None}
+                if assisted:
+                    updated_score = evaluation.score.model_copy(update={
+                        "radar_scores": assisted, "baseline_radar_scores": baseline,
+                    })
+                    return evaluation.model_copy(update={"score": updated_score})
             profile = self.profiles.load_profile(provider_id, model_id)
             if profile is None:
                 return evaluation
