@@ -389,6 +389,28 @@ class ForgeModelExecutionBridge:
         )
 
     def _record_event(self, service: object, event: dict) -> dict:
+        if hasattr(service, "record_atlas_execution_shadow"):
+            try:
+                selection = dict(event.get("selection") or {})
+                shadow_ref = service.record_atlas_execution_shadow(  # type: ignore[attr-defined]
+                    stage=event.get("stage") or self._stage,
+                    request_id=str(event.get("request_id") or "unknown"),
+                    task_category=str(event.get("task_category") or self._task_category),
+                    result_payload={
+                        "legacy_ok": bool(event.get("legacy_ok")),
+                        "decision": str(event.get("decision") or ""),
+                        "shadow": dict(event.get("shadow") or {}),
+                    },
+                    result_status=str(event.get("decision") or ""),
+                    provider_id=str(selection.get("selected_provider_id") or ""),
+                    model_id=str(selection.get("selected_model_id") or ""),
+                )
+                if shadow_ref:
+                    event = dict(event)
+                    event["atlas_execution_shadow_ref"] = shadow_ref
+            except Exception:  # noqa: BLE001 - advisory recording never changes legacy output.
+                event = dict(event)
+                event.setdefault("reasons", []).append("atlas_execution_shadow:unavailable")
         if hasattr(service, "record_execution_bridge_event"):
             event = dict(event)
             event["evidence_ref"] = service.record_execution_bridge_event(self._public_event(event))  # type: ignore[attr-defined]

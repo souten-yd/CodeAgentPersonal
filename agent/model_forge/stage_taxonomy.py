@@ -42,6 +42,7 @@ _DEFAULT_STAGE_MODES: dict[ForgeStage, StageMode] = {
     ForgeStage.FAILURE_CLASSIFICATION: StageMode.SHADOW_SELECT,
     ForgeStage.REPAIR: StageMode.SHADOW_SELECT,
     ForgeStage.REVIEW: StageMode.SHADOW_SELECT,
+    ForgeStage.VERIFICATION_INTERPRETATION: StageMode.SHADOW_SELECT,
     ForgeStage.FINAL_SUMMARY: StageMode.DISABLED,
 }
 

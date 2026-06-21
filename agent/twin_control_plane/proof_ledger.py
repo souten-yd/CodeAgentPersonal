@@ -31,6 +31,10 @@ class ProofLedgerEntry(TwinControlPlaneModel):
     blocked_reasons: list[str] = Field(default_factory=list)
     repair_reasons: list[str] = Field(default_factory=list)
     proof_requirements: list[str] = Field(default_factory=list)
+    forge_stage: str = ""
+    method_variant: str = ""
+    method_fallbacks: list[str] = Field(default_factory=list)
+    forge_evaluation_refs: list[str] = Field(default_factory=list)
 
 
 class ProofLedger(TwinControlPlaneModel):
