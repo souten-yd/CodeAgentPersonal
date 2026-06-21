@@ -58,7 +58,7 @@ docs/forge_twin_assist_readiness_extension_plan.md # TA9〜TA12
 | # | ブランチ | 内容 | 依存 | 状態 |
 |---|---|---|---|---|
 | TA13 | `feat/forge-runtime-policy-wiring` | `atlas_generation_policy` resolverを `pipeline_integration` に本接続 | `atlas_generation_policy.py` | ☑ completed |
-| TA14 | `feat/forge-runtime-policy-preview-api` | 実生成policy preview API / evidence schema / UI表示 | TA13 | ☐ pending |
+| TA14 | `feat/forge-runtime-policy-preview-api` | 実生成policy preview API / evidence schema / UI表示 | TA13 | ☑ completed |
 | TA15 | `feat/forge-default-routing-presets` | 未ベンチ・OFF時の推奨fallback presetsを明文化/設定化 | TA13 | ☐ pending |
 | TA16 | `feat/forge-runtime-policy-e2e-proof` | 実patch生成payloadまで route/method/injection が届くE2E証跡 | TA13〜TA15 | ☐ pending |
 
@@ -521,3 +521,15 @@ Real model evidence: not required — TA13 is policy-resolution wiring into advi
 Safety invariants: advisory only; `production_routing_changed=False`; RouteMatrix authority preserved; Twin Assist attachment and capability-rescue wiring both preserved.
 Remaining: TA14 (preview API/UI), TA15 (default routing presets), TA16 (patch-payload delivery E2E proof).
 Proof level: `component_complete` (runtime policy resolution now recorded in pipeline evidence)
+
+### TA14 — Runtime Policy Preview API / UI (completed 2026-06-21)
+
+Completed package: TA14 `feat/forge-runtime-policy-preview-api`
+Changed modules/files: `app/api/forge.py`, `web/js/forge.js`, `tests/test_forge_runtime_policy_preview_api.py`, `tests/test_forge_runtime_policy_ui_render.py`, this plan + `AGENTS.md`
+Behavior implemented: `POST /api/forge/atlas-generation-policy/preview` (request: provider_id/model_id/change_class/task_category/optimal_routing) returns the full `AtlasGenerationPolicyResolution` (selection_mode, policy, fallback_recommendation, route_fitness, reasons) by calling `resolve_atlas_generation_policy` against the Atlas ca_data ProfileStore; strict request schema (unknown fields → 422; invalid change_class → 400). Forge UI Twin Assist view gains a "Runtime Policy Preview" card (change class + optimal-routing toggle + Preview button) that renders selection_mode / optimal_routing_enabled / profile_available / route_fitness_applied / route / method variant / method fallbacks / twin injection level / instruction style / why selected; values HTML-escaped; advisory copy "does not change production routing".
+Focused tests: `pytest -q tests/test_forge_runtime_policy_preview_api.py tests/test_forge_runtime_policy_ui_render.py` -> API 5 + UI 2 passed
+Syntax checks: `py_compile app/api/forge.py`; `node -c web/js/forge.js` -> OK
+Affected tests: forge evaluation/api + twin assist + atlas generation policy suites -> 50 passed
+Real model evidence: not required (preview is a policy-resolution read; no model call). Live-browser UI verification remains unavailable (asserted via source-render test, consistent with the track).
+Safety invariants: advisory; production routing never changed; RouteMatrix authority preserved; strict request schema.
+Proof level: `component_complete` (preview API + UI render; browser interaction unavailable)
