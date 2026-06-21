@@ -22,6 +22,10 @@ from app.api.twin_control import (
     post_settings as post_twin_settings,
 )
 from agent.model_forge.forge_service import ForgeService
+from agent.model_forge.profile_store import ProfileStore
+from agent.model_forge.twin_assist_contracts import TwinAssistEvaluationReport, TwinAssistRunRequest
+from agent.model_forge.twin_assist_eval_packs import TWIN_ASSIST_PACKS, load_twin_assist_pack
+from agent.model_forge.twin_assist_runner import TwinAssistRunner
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 router = APIRouter(prefix="/api/forge", tags=["forge"])
@@ -29,6 +33,19 @@ router = APIRouter(prefix="/api/forge", tags=["forge"])
 
 def _service(request: Request) -> ForgeService:
     return ForgeService(resolve_atlas_ca_data_root(request))
+
+
+def _twin_assist_root(request: Request):
+    return resolve_atlas_ca_data_root(request) / "model_forge" / "twin_assist_runs"
+
+
+def _load_twin_assist_report(request: Request, run_id: str) -> TwinAssistEvaluationReport:
+    if not run_id.startswith("twin_assist_") or not run_id.replace("_", "").isalnum():
+        raise HTTPException(status_code=400, detail="invalid_run_id")
+    path = _twin_assist_root(request) / run_id / "report.json"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="twin_assist_run_not_found")
+    return TwinAssistEvaluationReport.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 class ArenaSpec(BaseModel):
@@ -130,6 +147,33 @@ class ForgeTwinImpactRequest(ImpactRequest):
 @router.get("/status")
 def get_status(request: Request) -> dict:
     return _service(request).status()
+
+
+@router.get("/twin-assist/cases")
+def get_twin_assist_cases(pack_id: str = "full") -> dict:
+    try:
+        cases = load_twin_assist_pack(pack_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"pack_id": pack_id, "packs": TWIN_ASSIST_PACKS, "cases": [case.model_dump(mode="json") for case in cases]}
+
+
+@router.post("/twin-assist/run")
+def post_twin_assist_run(request: Request, body: TwinAssistRunRequest) -> dict:
+    report = TwinAssistRunner(_twin_assist_root(request)).run(body)
+    return report.model_dump(mode="json")
+
+
+@router.get("/twin-assist/runs/{run_id}")
+def get_twin_assist_run(request: Request, run_id: str) -> dict:
+    return _load_twin_assist_report(request, run_id).model_dump(mode="json")
+
+
+@router.post("/twin-assist/runs/{run_id}/record-profile")
+def post_twin_assist_record_profile(request: Request, run_id: str) -> dict:
+    report = _load_twin_assist_report(request, run_id)
+    profile = ProfileStore(resolve_atlas_ca_data_root(request) / "model_forge" / "profiles").record_twin_assist_report(report)
+    return {"status": "observation_recorded", "production_routing_changed": False, "profile": profile.model_dump(mode="json")}
 
 
 @router.get("/providers")
