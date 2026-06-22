@@ -87,6 +87,9 @@
     { key: 'min_p', label: 'min-p', type: 'num', opts: [0, 0.05, 0.1] },
     { key: 'presence_penalty', label: 'presence-penalty', type: 'num', opts: [0, 1.0, 1.5] },
     { key: 'repeat_penalty', label: 'repeat-penalty', type: 'num', opts: [1.0, 1.1] },
+    // Per-request generation cap (max_tokens), not a llama-server launch arg. Atlas codegen reads
+    // this so large files aren't truncated at the 4096/8192 default and then endlessly regenerated.
+    { key: 'max_output_tokens', label: '出力トークン上限 (max_tokens)', type: 'num', opts: [2048, 4096, 8192, 16384, 32768] },
   ];
 
   // Convert a stored Models DB value to the UI input value. Sentinel -1 / null / '' -> '' (未指定).
@@ -160,6 +163,8 @@
       + group(['reasoning', 'spec_type', 'spec_draft_n_max', 'spec_draft_p_min'])
       + '<div class="forge-card-title" style="margin-top:10px">サンプリング</div>'
       + group(['temp', 'top_p', 'top_k', 'min_p', 'presence_penalty', 'repeat_penalty'])
+      + '<div class="forge-card-title" style="margin-top:10px">生成</div>'
+      + group(['max_output_tokens'])
       + '</div>';
   }
 
