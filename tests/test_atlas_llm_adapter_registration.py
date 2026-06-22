@@ -23,6 +23,7 @@ _BACKEND_ENV_KEYS = (
     "CODEAGENT_MODEL",
     "OPENAI_MODEL",
     "ATLAS_DISABLE_LOCAL_LLM_DEFAULT",
+    "ATLAS_LLM_MAX_TOKENS",
 )
 
 
@@ -66,6 +67,37 @@ def test_explicit_env_backend_wins_over_default(monkeypatch) -> None:
     fn = app.state.atlas_llm_json_fn
     assert callable(fn)
     assert fn.base_url == "http://10.0.0.5:9000"
+
+
+def test_max_tokens_defaults_to_zero_uses_schema_default(monkeypatch) -> None:
+    # No override configured: the adapter leaves max_tokens at 0 so the request/schema default
+    # (now 8192) applies — large files are not truncated at the old 4096.
+    _clear_backend_env(monkeypatch)
+    app = _app()
+
+    register_atlas_llm_json_adapter(app)
+
+    assert app.state.atlas_llm_json_fn.max_tokens == 0
+
+
+def test_env_max_tokens_overrides_generation_cap(monkeypatch) -> None:
+    _clear_backend_env(monkeypatch)
+    monkeypatch.setenv("ATLAS_LLM_MAX_TOKENS", "16384")
+    app = _app()
+
+    register_atlas_llm_json_adapter(app)
+
+    assert app.state.atlas_llm_json_fn.max_tokens == 16384
+
+
+def test_state_max_tokens_used_when_env_absent(monkeypatch) -> None:
+    _clear_backend_env(monkeypatch)
+    app = _app()
+    app.state.atlas_llm_max_tokens = 12000
+
+    register_atlas_llm_json_adapter(app)
+
+    assert app.state.atlas_llm_json_fn.max_tokens == 12000
 
 
 def test_existing_callable_is_not_overwritten(monkeypatch) -> None:

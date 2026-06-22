@@ -11,7 +11,10 @@ class AtlasLLMJsonRequest(BaseModel):
     grammar: str = ""
     model: str = ""
     temperature: float = 0.1
-    max_tokens: int = 4096
+    # Output token cap. 8192 (was 4096): a whole file + test can exceed 4096 output tokens, and a
+    # truncated response is invalid JSON that triggers endless regeneration. Override per-call /
+    # per-model where needed.
+    max_tokens: int = 8192
     timeout_seconds: int = 120
     stream: bool = False
     metadata: dict = Field(default_factory=dict)

@@ -26,11 +26,12 @@ def test_model_db_roundtrips_new_llama_params(tmp_path):
             "n_cpu_moe": 14, "flash_attn": 1, "no_mmap": 1, "jinja": 1, "reasoning": "off",
             "spec_type": "draft-mtp", "spec_draft_n_max": 2, "spec_draft_p_min": 0.75,
             "temp": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0,
-            "presence_penalty": 1.5, "repeat_penalty": 1.0,
+            "presence_penalty": 1.5, "repeat_penalty": 1.0, "max_output_tokens": 16384,
         })
         rows = main.model_db_list()
         row = next(r for r in rows if r["id"] == mid)
         assert row["n_cpu_moe"] == 14
+        assert row["max_output_tokens"] == 16384
         assert row["spec_type"] == "draft-mtp"
         assert row["spec_draft_p_min"] == 0.75
         assert row["temp"] == 0.7
@@ -50,6 +51,13 @@ def test_model_db_roundtrips_new_llama_params(tmp_path):
         assert spec["spec_draft_p_min"] == 0.75
         assert spec["min_p"] == 0.0
         assert spec["temp"] == 0.7
+        # max_output_tokens is a generation cap (per-request max_tokens), carried in the spec.
+        assert spec["max_output_tokens"] == 16384
+
+        # Updating it through the PUT path persists, and unset stays at the -1 sentinel.
+        main.model_db_update(mid, {"max_output_tokens": 8192})
+        row3 = next(r for r in main.model_db_list() if r["id"] == mid)
+        assert row3["max_output_tokens"] == 8192
 
 
 def test_spec_sentinel_helpers_preserve_zero():

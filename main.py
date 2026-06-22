@@ -868,6 +868,9 @@ def _runtime_spec_from_row(row: dict) -> dict:
         "min_p": _spec_float_or_unset(row.get("min_p")),
         "presence_penalty": _spec_float_or_unset(row.get("presence_penalty")),
         "repeat_penalty": _spec_float_or_unset(row.get("repeat_penalty")),
+        # Generation output cap (per-request max_tokens), not a llama-server launch arg. The Atlas
+        # codegen adapter reads this so a model's large-file output isn't truncated at the default.
+        "max_output_tokens": _spec_int_or_unset(row.get("max_output_tokens")),
         "extra_args": _parse_extra_args(row.get("extra_args", "")),
         "auto_roles": auto_roles,
         "file_size_mb": int(row.get("file_size_mb", 0) or 0),
@@ -5831,6 +5834,7 @@ def _get_model_db(create_if_missing: bool = True):
             min_p REAL DEFAULT -1,
             presence_penalty REAL DEFAULT -1,
             repeat_penalty REAL DEFAULT -1,
+            max_output_tokens INTEGER DEFAULT -1,
             extra_args TEXT DEFAULT '',
             auto_roles TEXT DEFAULT '',
             benchmark_profiles TEXT DEFAULT '',
@@ -5872,6 +5876,7 @@ def _get_model_db(create_if_missing: bool = True):
         "ALTER TABLE models ADD COLUMN min_p REAL DEFAULT -1",
         "ALTER TABLE models ADD COLUMN presence_penalty REAL DEFAULT -1",
         "ALTER TABLE models ADD COLUMN repeat_penalty REAL DEFAULT -1",
+        "ALTER TABLE models ADD COLUMN max_output_tokens INTEGER DEFAULT -1",
         "ALTER TABLE models ADD COLUMN extra_args TEXT DEFAULT ''",
         "ALTER TABLE models ADD COLUMN auto_roles TEXT DEFAULT ''",
         "ALTER TABLE models ADD COLUMN benchmark_profiles TEXT DEFAULT ''",
@@ -6030,10 +6035,10 @@ def model_db_add(info: dict) -> str:
                  parallel, batch_size, ubatch_size, cache_type_k, cache_type_v,
                  n_cpu_moe, flash_attn, no_mmap, jinja, reasoning, spec_type,
                  spec_draft_n_max, spec_draft_p_min, temp, top_p, top_k, min_p,
-                 presence_penalty, repeat_penalty, extra_args,
+                 presence_penalty, repeat_penalty, max_output_tokens, extra_args,
                  benchmark_profiles,
                  auto_roles, has_mmproj, mmproj_path, quantization, file_size_mb, notes, benchmarked_at, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 mid,
                 info.get("model_key", ""),
@@ -6071,6 +6076,7 @@ def model_db_add(info: dict) -> str:
                 info.get("min_p", -1),
                 info.get("presence_penalty", -1),
                 info.get("repeat_penalty", -1),
+                info.get("max_output_tokens", -1),
                 info.get("extra_args", ""),
                 info.get("benchmark_profiles", ""),
                 info.get("auto_roles", ""),
@@ -6106,7 +6112,7 @@ def model_db_update(mid: str, updates: dict):
                "description", "parallel", "batch_size", "ubatch_size", "cache_type_k",
                "cache_type_v", "n_cpu_moe", "flash_attn", "no_mmap", "jinja", "reasoning",
                "spec_type", "spec_draft_n_max", "spec_draft_p_min", "temp", "top_p", "top_k",
-               "min_p", "presence_penalty", "repeat_penalty",
+               "min_p", "presence_penalty", "repeat_penalty", "max_output_tokens",
                "extra_args", "auto_roles", "benchmark_profiles", "has_mmproj", "mmproj_path", "quantization", "file_size_mb",
                "notes", "benchmarked_at", "proven_ngl", "ngl_ctx_profiles"}
     sets = {k: v for k, v in updates.items() if k in allowed}

@@ -446,7 +446,48 @@ def register_atlas_llm_json_adapter(app: Any) -> None:
             "falling back to local default %s.",
             base_url,
         )
-    app.state.atlas_llm_json_fn = AtlasLLMJsonAdapter(base_url=base_url, model=model)
+    # Output token cap for generation. Configurable (ATLAS_LLM_MAX_TOKENS / app.state.atlas_llm_max_tokens
+    # / the local provider's max_output_tokens setting) so large files aren't truncated at 4096 and then
+    # endlessly regenerated. 0 -> the request/schema default applies.
+    max_tokens = 0
+    try:
+        max_tokens = int(str(os.environ.get("ATLAS_LLM_MAX_TOKENS") or "").strip() or 0)
+    except ValueError:
+        max_tokens = 0
+    if max_tokens <= 0:
+        state_mt = getattr(app.state, "atlas_llm_max_tokens", 0)
+        try:
+            max_tokens = int(state_mt or 0)
+        except (TypeError, ValueError):
+            max_tokens = 0
+    if max_tokens <= 0:
+        # Lowest priority: the per-model 出力トークン上限 (max_output_tokens) configured in the
+        # Anvil 詳細設定 drawer / Models DB, matched to the resolved codegen model. Lazy import so
+        # this module stays importable without the main app, and never fatal.
+        max_tokens = _resolve_model_db_max_output_tokens(model)
+    app.state.atlas_llm_json_fn = AtlasLLMJsonAdapter(base_url=base_url, model=model, max_tokens=max_tokens)
+
+
+def _resolve_model_db_max_output_tokens(model: str) -> int:
+    name = str(model or "").strip()
+    if not name:
+        return 0
+    try:
+        import main  # type: ignore
+
+        rows = main.model_db_list() or []
+    except Exception:
+        return 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if name in {str(row.get("model_key") or ""), str(row.get("name") or ""), str(row.get("id") or "")}:
+            try:
+                value = int(row.get("max_output_tokens", -1) or -1)
+            except (TypeError, ValueError):
+                return 0
+            return value if value > 0 else 0
+    return 0
 
 def _resolve_callable_state(request: Request, name: str) -> Any:
     value = getattr(request.app.state, name, None)

@@ -83,6 +83,7 @@ class AtlasLLMJsonAdapter:
         base_url: str = "",
         model: str = "",
         timeout_seconds: int = 120,
+        max_tokens: int = 0,
         on_progress: Callable[[dict], None] | None = None,
         on_usage: Callable[[dict], None] | None = None,
         gpu_sampler: Callable[[], float | None] | None = None,
@@ -91,6 +92,10 @@ class AtlasLLMJsonAdapter:
         self.base_url = str(base_url or "").strip().rstrip("/")
         self.model = str(model or "").strip()
         self.timeout_seconds = int(timeout_seconds or 120)
+        # Output token cap for generation. 0 = use the request/schema default. Configurable so large
+        # files (a whole game's index.html/main.js) aren't truncated at the 4096 default, which would
+        # produce invalid JSON and trigger endless regeneration.
+        self.max_tokens = int(max_tokens or 0)
         self.on_progress = on_progress
         # Liveness probe for GPU-aware timeouts: returns the current GPU utilisation percent (or
         # None when unavailable). Injectable for tests; defaults to the resource-monitor sampler.
@@ -114,7 +119,10 @@ class AtlasLLMJsonAdapter:
         return clone
 
     def __call__(self, system_prompt: str, user_prompt: str) -> dict | None:
-        result = self.generate_json(AtlasLLMJsonRequest(system_prompt=system_prompt, user_prompt=user_prompt))
+        req_kwargs = {"system_prompt": system_prompt, "user_prompt": user_prompt}
+        if self.max_tokens > 0:
+            req_kwargs["max_tokens"] = self.max_tokens
+        result = self.generate_json(AtlasLLMJsonRequest(**req_kwargs))
         return result.data if result.ok else None
 
     def generate_json(self, request: AtlasLLMJsonRequest) -> AtlasLLMJsonResult:
