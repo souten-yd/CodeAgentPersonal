@@ -115,8 +115,14 @@ def test_atlas_pipeline_api_contains_expected_helpers_after_classic_conversion()
     ]
     for helper in expected_helpers:
         assert helper in js, f"Missing atlas pipeline helper: {helper}"
-    for forbidden in ["apiGet(", "apiPost(", "export async function", "import"]:
+    # Legacy helpers: these call shapes never legitimately appear elsewhere, so a substring check is fine.
+    for forbidden in ["apiGet(", "apiPost("]:
         assert forbidden not in js, f"Forbidden pattern found in atlas_pipeline_api.js: {forbidden}"
+    # ES module syntax must be absent — but match it as actual statements, not as a bare substring.
+    # A plain "import"/"export" also occurs inside string literals (e.g. the URL
+    # /api/portal/import/browse), which must NOT trip this classic-script guard.
+    assert re.search(r"^\s*import\s+[^('\"]", js, re.M) is None, "ES import statement found in atlas_pipeline_api.js"
+    assert re.search(r"^\s*export\s+", js, re.M) is None, "ES export statement found in atlas_pipeline_api.js"
 
 
 def test_ui_loads_atlas_pipeline_api_as_classic_script():
