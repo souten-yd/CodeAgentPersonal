@@ -29,6 +29,19 @@ def test_integration_verification_passes_on_green_suite(tmp_path):
     assert iv["status"] == "passed" and iv["test_file_count"] == 1
 
 
+def test_integration_verification_resolves_subdir_imports(tmp_path):
+    # A module + test under src/: the integration run must put src/ on sys.path (like per-item
+    # verification) so "from calc import subtract" resolves — a bare whole-dir run would fail import.
+    proj = tmp_path / "proj"
+    (proj / "src").mkdir(parents=True)
+    (proj / "src" / "calc.py").write_text("def subtract(a, b):\n    return a - b\n", encoding="utf-8")
+    (proj / "src" / "test_calc.py").write_text(
+        "from calc import subtract\n\ndef test_sub():\n    assert subtract(5, 3) == 2\n", encoding="utf-8")
+    out = _out()
+    _svc(tmp_path)._run_integration_verification(out, str(proj), _autopilot())
+    assert out.metadata["integration_verification"]["status"] == "passed"
+
+
 def test_integration_verification_fails_and_warns_on_red_suite(tmp_path):
     proj = tmp_path / "proj"
     proj.mkdir()
