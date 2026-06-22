@@ -536,7 +536,18 @@
     line.dataset.tokens = String(Math.max(previousTokens, tokens));
     const textEl = line.querySelector('.atlas-llm-progress-text');
     if (textEl) textEl.textContent = parts.join('  ·  ');
-    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    // Only follow the stream to the bottom when the user is already near it — never yank them down
+    // mid-scroll on every token update.
+    scrollTranscriptIfAtBottom();
+  }
+
+  // True auto-scroll: stick to the bottom only when the user hasn't scrolled up. This keeps the
+  // high-frequency generation updates from fighting manual scrolling.
+  function scrollTranscriptIfAtBottom() {
+    const t = dom.transcript;
+    if (!t) return;
+    const distanceFromBottom = t.scrollHeight - t.scrollTop - t.clientHeight;
+    if (distanceFromBottom <= 80) t.scrollTop = t.scrollHeight;
   }
 
   function clearLlmProgressLine() {
@@ -2109,7 +2120,7 @@
     summary.dataset.role = 'summary';
     block.append(planSteps, summary);
     dom.transcript.appendChild(block);
-    dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    scrollTranscriptIfAtBottom();
     return block;
   }
 
@@ -2139,7 +2150,7 @@
       }
       host.appendChild(row);
     });
-    if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    scrollTranscriptIfAtBottom();
   }
 
   // Map an internal reason/code to a short, user-facing note for the step checklist.
@@ -2193,7 +2204,7 @@
     if (icon) icon.textContent = STATE_ICONS[stateName] || '·';
     const det = row.querySelector('.atlas-claude-stage-detail');
     if (det) det.textContent = detail || '';
-    if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;
+    scrollTranscriptIfAtBottom();
   }
 
   function runtimeStatusPayload(poolId, overrides) {
