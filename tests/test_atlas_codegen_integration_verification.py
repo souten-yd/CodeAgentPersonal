@@ -42,6 +42,19 @@ def test_integration_verification_resolves_subdir_imports(tmp_path):
     assert out.metadata["integration_verification"]["status"] == "passed"
 
 
+def test_integration_verification_resolves_src_package_imports(tmp_path):
+    # Models often write `from src.mathops import ...` (src-prefixed). python -m pytest puts the
+    # project root on sys.path so `src` resolves as a namespace package — bare pytest would not.
+    proj = tmp_path / "proj"
+    (proj / "src").mkdir(parents=True)
+    (proj / "src" / "mathops.py").write_text("def multiply(a, b):\n    return a * b\n", encoding="utf-8")
+    (proj / "src" / "test_mathops.py").write_text(
+        "from src.mathops import multiply\n\ndef test_mul():\n    assert multiply(2, 3) == 6\n", encoding="utf-8")
+    out = _out()
+    _svc(tmp_path)._run_integration_verification(out, str(proj), _autopilot())
+    assert out.metadata["integration_verification"]["status"] == "passed"
+
+
 def test_integration_verification_fails_and_warns_on_red_suite(tmp_path):
     proj = tmp_path / "proj"
     proj.mkdir()
