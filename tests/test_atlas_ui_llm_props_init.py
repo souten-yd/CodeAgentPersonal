@@ -46,3 +46,19 @@ def test_progress_line_updates_token_indicator_without_ctx_props():
     assert "root.updateTokenDisplay" in body
     assert "tokenDelta" in body
     assert "maxCtx > 0" in body
+
+
+def test_progress_indicator_shows_status_progress_tokens_and_answer_timer():
+    body = _slice(PANEL, "function updateLlmProgressLine(detail)", "function clearLlmProgressLine()")
+    # 表示(status) · 進捗 · token生成数 · Ans <elapsed>s
+    assert "phase || 'generating'" in body                 # 表示
+    assert "runtimeConnectionLabel(connectionState" in body  # 進捗
+    assert "`Ans ${ansSec}s`" in body                       # 応答経過
+    assert "ansStart" in body
+
+
+def test_top_right_token_display_removed():
+    html = load_root_ui_html_text()
+    # The header "<n> tok" badge was removed (its updater is null-guarded).
+    assert 'id="tok-display"' not in html
+    assert 'id="tok-total"' not in html

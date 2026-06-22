@@ -517,12 +517,19 @@
     line.classList.add(connectionState);
     line.classList.toggle('stalled', connectionState === 'stalled');
     line.dataset.connectionState = connectionState;
-    const parts = [];
-    if (phase) parts.push(phase);
-    else parts.push('LLM generating');
-    parts.push(runtimeConnectionLabel(connectionState, detail || {}));
-    parts.push(maxCtx > 0 ? `tokens ${tokens} / ${maxCtx}` : `tokens ${tokens}`);
     const previousTokens = Number(line.dataset.tokens || 0) || 0;
+    // Elapsed answer timer: (re)start on a fresh generation (tokens reset to 0 / drop), else keep.
+    if (!line.dataset.ansStart || tokens < previousTokens || (tokens === 0 && previousTokens > 0)) {
+      line.dataset.ansStart = String(Date.now());
+    }
+    const ansSec = Math.max(0, Math.round((Date.now() - Number(line.dataset.ansStart)) / 1000));
+    // Indicator: 表示(status) · 進捗(progress) · token生成数 · Ans <elapsed>s
+    const parts = [
+      phase || 'generating',                                        // 表示 (status/phase)
+      runtimeConnectionLabel(connectionState, detail || {}),        // 進捗 (live / last progress)
+      maxCtx > 0 ? `tokens ${tokens} / ${maxCtx}` : `tokens ${tokens}`,  // token生成数
+      `Ans ${ansSec}s`,                                             // 応答経過時間
+    ];
     const tokenDelta = Math.max(0, tokens - previousTokens);
     if (tokenDelta > 0 && typeof root.updateTokenDisplay === 'function') {
       root.updateTokenDisplay(tokenDelta, tps);
