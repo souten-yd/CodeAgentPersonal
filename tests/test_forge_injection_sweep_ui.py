@@ -97,6 +97,15 @@ def test_reading_tips_and_direction_unification_present():
     assert "面積が大きいほど能力が高い" in src
 
 
+def test_method_substitution_surfaced_in_ui():
+    src = _forge_js()
+    # Injection-resistant weaknesses get an alternative-method suggestion in the sweep result.
+    assert "methodSubstitutionHtml" in src
+    assert "method_substitutions" in src
+    assert "注入では直らない弱点" in src
+    assert "代わりに使う手法" in src
+
+
 def test_local_server_port_option_present():
     src = _forge_js()
     # An already-running local model addressed by port (default 8080), no Anvil registry needed.

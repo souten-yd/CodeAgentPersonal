@@ -688,8 +688,25 @@
       + injectionSweepChart(rec)
       + '<div class="forge-card-title" style="margin-top:8px">Per-dimension min sufficient level（低いほど優秀）</div>'
       + (dimRows || '<div class="forge-empty">No measured dimensions.</div>')
+      + methodSubstitutionHtml(rec)
       + '</div>'
     );
+  }
+
+  // When a weakness can't be fixed by more injection (injection-resistant), the platform proposes a
+  // DIFFERENT generation method — so "injection didn't help" becomes actionable
+  // ("edit_intent is weak -> use deterministic_text_patch instead").
+  function methodSubstitutionHtml(rec) {
+    const subs = rec.method_substitutions || [];
+    if (!subs.length) return '';
+    const rows = subs.map((s) => (
+      '<div class="forge-subst-row"><div class="forge-subst-dim">⚠ ' + escapeHtml(s.dimension)
+      + ' <span class="forge-dim-peak">（注入では直らない）</span></div>'
+      + '<div class="forge-kv"><span>避ける手法</span><b>' + escapeHtml((s.avoid || []).join(', ')) + '</b></div>'
+      + '<div class="forge-kv"><span>代わりに使う手法</span><b>' + escapeHtml((s.prefer || []).join(' → ')) + '</b></div>'
+      + '<div class="forge-hint">' + escapeHtml(s.why || '') + '</div></div>'
+    )).join('');
+    return '<div class="forge-card-title" style="margin-top:8px">注入では直らない弱点 → 別の補助手法を提案</div>' + rows;
   }
 
   // Inline SVG line chart of the mean dimension score per injection level (no chart library).

@@ -303,6 +303,20 @@ class ForgeEvaluationService:
             recommended_injection_level if objective == "max_score"
             else min_sufficient_injection_level)
 
+        # Injection-resistant weaknesses: dimensions whose BEST score across all levels is still
+        # weak — more injection will not fix them, so propose a different generation METHOD instead.
+        from agent.model_forge.method_substitution import (
+            WEAKNESS_THRESHOLD, recommend_method_substitutions,
+        )
+        injection_resistant = []
+        for pack in packs:
+            dim = pack.dimension
+            vals = [scores_by_level[str(lvl)][dim] for lvl in levels]
+            numeric = [v for v in vals if isinstance(v, (int, float))]
+            if numeric and max(numeric) < WEAKNESS_THRESHOLD:
+                injection_resistant.append(dim)
+        method_substitutions = [s.as_dict() for s in recommend_method_substitutions(injection_resistant)]
+
         record = {
             "provider_id": provider_id,
             "model_id": model_id,
@@ -318,6 +332,8 @@ class ForgeEvaluationService:
             "recommended_injection_level": recommended_injection_level,
             "min_sufficient_injection_level": min_sufficient_injection_level,
             "selected_injection_level": selected_injection_level,
+            "injection_resistant_dimensions": injection_resistant,
+            "method_substitutions": method_substitutions,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         self._write_injection_sweep(provider_id, model_id, record)
