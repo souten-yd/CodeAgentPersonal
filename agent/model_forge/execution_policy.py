@@ -194,7 +194,9 @@ class ExecutionPolicySelector:
         )
         _sub_weak = set(weaknesses) | {
             dim for dim, val in profile.capability_scores.items() if val < _SUB_THRESHOLD}
-        _subs = recommend_method_substitutions(_sub_weak)
+        # Measurement-driven: rank substitute methods by the model's real capability scores so a
+        # strength is leveraged (e.g. anchor-strong -> anchored_edit_block) and a weakness avoided.
+        _subs = recommend_method_substitutions(_sub_weak, capability_scores=profile.capability_scores)
         avoid_methods: set[MethodVariant] = set()
         substitution_reasons: list[str] = []
         for _s in _subs:

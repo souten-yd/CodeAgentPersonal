@@ -370,6 +370,20 @@ class ForgeEvaluationService:
     def model_profile(self, provider_id: str, model_id: str) -> dict:
         profile = self._profiles.load_profile(provider_id, model_id)
         capability = build_capability_profile(profile, provider_id=provider_id, model_id=model_id)
+        # Benchmark-derived method fitness: turn the capability scores into which generation methods
+        # this model should be driven with, and which weak methods to substitute. Measurement-driven
+        # (ranked from real scores); a future per-method live measurement can slot in here.
+        from agent.model_forge.method_substitution import (
+            WEAKNESS_THRESHOLD, rank_methods_by_fitness, recommend_method_substitutions,
+        )
+        scores = capability.capability_scores
+        weak = [d for d, v in scores.items() if v < WEAKNESS_THRESHOLD]
+        method_fitness_view = {
+            "ranking": [{"method": m, "fitness": f} for m, f in rank_methods_by_fitness(scores)],
+            "substitutions": [s.as_dict() for s in
+                              recommend_method_substitutions(weak, capability_scores=scores)],
+            "measured": bool(scores),
+        }
         return {
             "available": profile is not None,
             "profile": profile.model_dump(mode="json") if profile else None,
@@ -380,6 +394,7 @@ class ForgeEvaluationService:
                 "known_weaknesses": capability.known_weaknesses,
                 "mode": capability.mode.value,
             },
+            "method_fitness": method_fitness_view,
         }
 
     def optimize_preview(self, provider_id: str, model_id: str) -> dict:

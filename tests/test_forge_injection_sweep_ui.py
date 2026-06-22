@@ -97,6 +97,15 @@ def test_reading_tips_and_direction_unification_present():
     assert "面積が大きいほど能力が高い" in src
 
 
+def test_method_fitness_panel_in_benchmark_capability():
+    src = _forge_js()
+    # Benchmark-derived method fitness surfaced in the capability view.
+    assert "methodFitnessHtml" in src
+    assert "method_fitness" in src
+    assert "手法の向き不向き" in src
+    assert "forge-fit-bar" in src
+
+
 def test_method_substitution_surfaced_in_ui():
     src = _forge_js()
     # Injection-resistant weaknesses get an alternative-method suggestion in the sweep result.

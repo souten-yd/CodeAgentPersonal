@@ -1313,6 +1313,24 @@
       + '</div><div class="forge-hint">Graph is observational; it does not execute or apply a method.</div></section>';
   }
 
+  // Benchmark-derived method fitness: the model's 向き不向き per generation method (ranked from real
+  // capability scores), plus the substitutions for weak methods. Surfaced in the Benchmark capability
+  // view so "this model is bad at edit_intent -> use deterministic_text_patch" is visible.
+  function methodFitnessHtml(mf) {
+    if (!mf || !(mf.ranking || []).length) return '';
+    const bar = (f) => '<span class="forge-fit-bar"><span style="width:' + Math.round(f * 100)
+      + '%"></span></span> ' + Math.round(f * 100) + '%';
+    const rows = mf.ranking.map((r) => (
+      '<div class="forge-kv"><span>' + escapeHtml(r.method) + '</span><b>' + bar(r.fitness) + '</b></div>'
+    )).join('');
+    const subs = (mf.substitutions || []).map((s) => (
+      '<div class="forge-hint">⚠ ' + escapeHtml(s.dimension) + ': ' + escapeHtml((s.avoid || []).join(', '))
+      + ' → <b>' + escapeHtml((s.prefer || [])[0] || '') + '</b> ほか</div>'
+    )).join('');
+    return '<div class="forge-card-title" style="margin-top:8px">Method fitness（手法の向き不向き・高いほど得意）</div>'
+      + rows + subs;
+  }
+
   function methodComparisonHtml(data) {
     const candidates = ((data || {}).arena || {}).candidates || [];
     if (!candidates.length) return '';
@@ -1798,6 +1816,7 @@
             ).join('')
           + (((modelProfile.capability_profile.known_weaknesses || []).length)
               ? '<div class="forge-kv"><span>known weaknesses</span><b>' + escapeHtml(modelProfile.capability_profile.known_weaknesses.join(', ')) + '</b></div>' : '')
+          + methodFitnessHtml(modelProfile.method_fitness)
         : '<div class="forge-empty">No benchmark profile for this model yet. Run a benchmark, then preview to see the derived route/method/injection.</div>')
       + '</div>';
 
