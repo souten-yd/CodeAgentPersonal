@@ -773,6 +773,10 @@ class AtlasAutonomousCodegenOrchestratorService:
                 profile_store_dir=str(Path(self.data_root) / "model_forge" / "profiles"),
                 anti_pattern_memory=self._load_anti_pattern_memory(),
                 golden_index=self._load_golden_index(),
+                # Failure-driven escalation: on each Twin-repair regeneration the loop bumps this so
+                # the policy re-resolves with MORE Twin injection (and, at >=2, a review-only/weaker
+                # method) instead of regenerating at the same level. 0 on the first pass.
+                consecutive_method_failures=int(req_md.get("twin_consecutive_method_failures") or 0),
             )
             block_reason = twin_gate_block_reason(evidence) if resolve_gate_blocking() else ""
             evidence["gate_blocking_enabled"] = resolve_gate_blocking()
@@ -1019,6 +1023,9 @@ class AtlasAutonomousCodegenOrchestratorService:
             hints = dict(new_md.get("twin_generation_hints") or {})
             hints["twin_repair_section"] = guidance
             new_md["twin_generation_hints"] = hints
+            # Escalate the policy on each regeneration: more Twin injection now, weaker/review
+            # method once repeated. This is what makes "失敗→注入↑/弱ルート化" fire at runtime.
+            new_md["twin_consecutive_method_failures"] = attempt
             repair_request = request.model_copy(update={"metadata": new_md})
             self._clear_affected_items(request.pool_id, autopilot)
             self._emit("autonomous_codegen_twin_repair_started", request.pool_id, run_id,

@@ -196,6 +196,7 @@ def build_twin_generation_hints(*, data_root: Any, pool: Any, item: Any, request
             profile_store_dir=str(Path(data_root) / "model_forge" / "profiles"),
             anti_pattern_memory=_load_anti_pattern_memory(data_root),
             golden_index=_load_golden_index(data_root),
+            consecutive_method_failures=int(req_md.get("twin_consecutive_method_failures") or 0),
         )
         return hints_from_evidence(evidence)
     except Exception:  # noqa: BLE001 - advisory; never break patch generation

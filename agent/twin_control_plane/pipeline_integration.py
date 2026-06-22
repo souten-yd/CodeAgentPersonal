@@ -180,6 +180,7 @@ def _build_policy_brief_and_resolution(
     *, requirement: str, pool_id: str, project_path: str, refs: list[str],
     item_refs: Iterable[str], change_class: str, task_category: str,
     capability_profile=None, profile_available: bool = False, route_preferences: dict | None = None,
+    consecutive_method_failures: int = 0,
 ):
     """Like ``_build_policy_and_brief`` but routes policy selection through
     ``resolve_atlas_generation_policy`` so the runtime records WHY this route/method/Twin
@@ -200,6 +201,7 @@ def _build_policy_brief_and_resolution(
         capability_profile=profile,
         profile_available=profile_available,
         route_preferences=route_preferences or {},
+        consecutive_method_failures=consecutive_method_failures,
     )
     brief = TwinBrief(
         brief_id=_stable_brief_id(pool_id, requirement),
@@ -441,6 +443,7 @@ def build_twin_pipeline_evidence(
     skill_patches=None,
     change_class: str = "medium",
     task_category: str = "autonomous_codegen",
+    consecutive_method_failures: int = 0,
 ) -> dict:
     """Assemble advisory Twin evidence for one autonomous run. Never raises — any internal
     failure is reported as ``available: False`` so the legacy flow is never broken.
@@ -464,6 +467,7 @@ def build_twin_pipeline_evidence(
             item_refs=item_refs, change_class=change_class, task_category=task_category,
             capability_profile=capability_profile, profile_available=profile_available,
             route_preferences=route_preferences,
+            consecutive_method_failures=consecutive_method_failures,
         )
         shadow_orch = TwinShadowOrchestrator(TwinShadowMode.SHADOW)
         shadow_report: TwinShadowReport | None = shadow_orch.assemble(
