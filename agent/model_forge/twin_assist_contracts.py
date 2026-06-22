@@ -39,7 +39,9 @@ class TwinAssistRunRequest(ForgeModel):
     case_ids: list[str] = Field(default_factory=list)
     assist_modes: list[TwinAssistMode] = Field(default_factory=list)
     run_baseline: bool = True
-    project_fixture_root: str = "ca_data/model_forge/twin_assist_fixtures"
+    # The tracked, canonical Twin-assist fixture projects (same root the post-apply runner uses).
+    # The previous ca_data/ default was gitignored/empty, so every case fell back to "unavailable".
+    project_fixture_root: str = "tests/fixtures/twin_assist"
     timeout_seconds: float = Field(default=120.0, gt=0)
     source_mode: SourceMode = SourceMode.LOCAL_ONLY
     privacy_sensitive: bool = True

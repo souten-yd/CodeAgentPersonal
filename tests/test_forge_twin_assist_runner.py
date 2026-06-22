@@ -12,6 +12,16 @@ from agent.model_forge.twin_assist_taxonomy import TwinAssistMode
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "twin_assist"
 
 
+def test_default_fixture_root_points_at_tracked_fixtures():
+    # Regression: the default was a gitignored/empty ca_data path, so every case fell back to
+    # "unavailable" and the model was never called. The default must resolve to the tracked fixtures.
+    from agent.model_forge.twin_assist_eval_packs import load_twin_assist_pack, validate_fixture
+
+    req = TwinAssistRunRequest(provider_id="local", model_id="m")
+    for case in load_twin_assist_pack("quick"):
+        assert validate_fixture(case, req.project_fixture_root) == []
+
+
 def test_runner_uses_real_atlas_proposal_path_for_baseline_and_assisted(tmp_path):
     prompts: list[str] = []
 
