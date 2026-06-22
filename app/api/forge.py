@@ -343,6 +343,12 @@ def post_injection_sweep(request: Request, body: InjectionSweepRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/evaluation/injection-sweep")
+def get_injection_sweep(request: Request, provider_id: str, model_id: str) -> dict:
+    """The last injection sweep persisted for this model, so the UI can restore it across restarts."""
+    return {"record": _service(request).load_injection_sweep(provider_id, model_id)}
+
+
 @router.post("/evaluation/rerun")
 def post_evaluation_rerun(request: Request, body: EvaluationRerunRequest) -> dict:
     try:
