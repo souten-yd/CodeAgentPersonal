@@ -109,9 +109,14 @@ class AtlasAutonomousCodegenOrchestratorService:
             if not tests:
                 out.metadata["integration_verification"] = {"status": "no_tests"}
                 return
+            # Pass the discovered test paths explicitly (relative to the project) so pytest puts each
+            # test's directory on sys.path — exactly like per-item verification — otherwise a bare
+            # whole-dir run from the project root can't import modules that live in subdirs (e.g. src/).
+            rel_tests = sorted({p.relative_to(root).as_posix() for p in tests})[:50]
+            command = "pytest -q " + " ".join(rel_tests)
             runner = self._test_command_runner or TestCommandRunner()
             res = runner.run_command(AtlasTestCommandRequest(
-                command="pytest -q", cwd=str(root), timeout_seconds=300,
+                command=command, cwd=str(root), timeout_seconds=300,
                 metadata={"source": "integration_verification"}))
             ok = str(getattr(res, "status", "")) == "passed" or int(getattr(res, "returncode", 1) or 1) == 0
             out.metadata["integration_verification"] = {
@@ -119,7 +124,7 @@ class AtlasAutonomousCodegenOrchestratorService:
                 "returncode": getattr(res, "returncode", None),
                 "command_status": str(getattr(res, "status", "")),
                 "test_file_count": len(tests),
-                "command": "pytest -q",
+                "command": command,
             }
             if not ok and "integration_verification_failed" not in out.warnings:
                 out.warnings.append("integration_verification_failed")
