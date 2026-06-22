@@ -62,6 +62,18 @@ def test_idempotent_no_change_detected(tmp_path):
     assert svc._is_idempotent_no_change(failed) is False
     # No items -> not idempotent.
     assert svc._is_idempotent_no_change(type("A", (), {"item_results": []})()) is False
+    # Real shape: no_effective_change nested in file-level results (not top-level reasons).
+    nested = type("A", (), {"item_results": [
+        {"status": "applied_no_verification", "reason": "verification_skipped",
+         "safe_apply_result": {"status": "blocked",
+                               "file_results": [{"path": "src/calc.py", "status": "blocked",
+                                                 "reasons": ["no_effective_change"]}]}}]})()
+    assert svc._is_idempotent_no_change(nested) is True
+    # A hard block token (content_missing) disqualifies idempotency even if no_effective_change present.
+    hard = type("A", (), {"item_results": [
+        {"status": "blocked", "safe_apply_result": {"status": "blocked",
+         "file_results": [{"reasons": ["no_effective_change"]}, {"reasons": ["content_missing"]}]}}]})()
+    assert svc._is_idempotent_no_change(hard) is False
 
 
 def test_integration_verification_skipped_when_nothing_applied(tmp_path):

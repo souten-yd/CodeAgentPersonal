@@ -1042,27 +1042,44 @@ class AtlasAutonomousCodegenOrchestratorService:
         if changed:
             self.storage.save_pool(pool)
 
-    @staticmethod
-    def _is_idempotent_no_change(autopilot) -> bool:
+    # Block reasons that mean a genuine apply problem (NOT idempotency).
+    _HARD_BLOCK_TOKENS = (
+        "content_missing", "update_target_missing", "unsafe", "preflight_failed",
+        "path_outside", "forbidden", "patch_content_missing", "multi_file_preflight_failed",
+    )
+
+    @classmethod
+    def _is_idempotent_no_change(cls, autopilot) -> bool:
         """True when a regeneration changed nothing because the workspace already satisfies the goal:
-        there is at least one item, none genuinely failed, and every non-completed item was blocked
-        solely by ``no_effective_change`` (the prior apply already made the edit)."""
+        at least one item, none genuinely failed, and every non-completed item's safe-apply was
+        blocked SOLELY by ``no_effective_change`` (the prior apply already made the edit). The marker
+        can sit at the file level, so the whole safe-apply result is scanned; any hard block token
+        disqualifies idempotency."""
         items = list(getattr(autopilot, "item_results", []) or [])
         if not items:
             return False
         saw_no_change = False
         for it in items:
-            status = str(getattr(it, "status", "") or (it.get("status") if isinstance(it, dict) else ""))
-            sar = (getattr(it, "safe_apply_result", None) if not isinstance(it, dict)
-                   else it.get("safe_apply_result")) or {}
-            reasons = " ".join(str(r) for r in (sar.get("block_reasons") or sar.get("reasons") or []))
-            blob = reasons + " " + str(getattr(it, "reason", "") or (it.get("reason") if isinstance(it, dict) else ""))
+            if isinstance(it, dict):
+                status = str(it.get("status") or "")
+                sar = it.get("safe_apply_result") or {}
+            else:
+                status = str(getattr(it, "status", "") or "")
+                sar = getattr(it, "safe_apply_result", None) or {}
+            if status in {"completed", "applied", "self_correction_recovered"}:
+                continue
+            if status == "failed":
+                return False
+            try:
+                blob = json.dumps(sar, ensure_ascii=False, default=str)
+            except Exception:  # noqa: BLE001
+                blob = str(sar)
+            if any(tok in blob for tok in cls._HARD_BLOCK_TOKENS):
+                return False
             if "no_effective_change" in blob:
                 saw_no_change = True
                 continue
-            if status in {"completed", "applied", "self_correction_recovered"}:
-                continue
-            return False  # a genuinely failed/blocked-for-other-reason item -> not idempotent
+            return False
         return saw_no_change
 
     @staticmethod
