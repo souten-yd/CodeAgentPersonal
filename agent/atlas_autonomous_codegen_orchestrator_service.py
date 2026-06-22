@@ -109,11 +109,12 @@ class AtlasAutonomousCodegenOrchestratorService:
             if not tests:
                 out.metadata["integration_verification"] = {"status": "no_tests"}
                 return
-            # Pass the discovered test paths explicitly (relative to the project) so pytest puts each
-            # test's directory on sys.path — exactly like per-item verification — otherwise a bare
-            # whole-dir run from the project root can't import modules that live in subdirs (e.g. src/).
+            # Use `python -m pytest` (NOT bare pytest) with explicit test paths, mirroring per-item
+            # verification: `-m` puts the project root (cwd) on sys.path AND pytest adds each test's
+            # dir, so both `from src.mathops import ...` and `from mathops import ...` resolve. A bare
+            # `pytest` doesn't add cwd, so model tests that import via the `src.` package fail to collect.
             rel_tests = sorted({p.relative_to(root).as_posix() for p in tests})[:50]
-            command = "pytest -q " + " ".join(rel_tests)
+            command = "python -m pytest -q " + " ".join(rel_tests)
             runner = self._test_command_runner or TestCommandRunner()
             res = runner.run_command(AtlasTestCommandRequest(
                 command=command, cwd=str(root), timeout_seconds=300,
