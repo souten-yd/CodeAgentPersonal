@@ -184,6 +184,41 @@ class ExecutionPolicySelector:
                 if rescue.escalate_to_model:
                     rescue_reason += f":to={rescue.escalate_to_provider}:{rescue.escalate_to_model}"
         weaknesses = set(profile.known_weaknesses)
+        # Method substitution (authoritative): for weaknesses a different METHOD fixes rather than
+        # more injection, avoid the method the model is structurally bad at and, if the router/rescue
+        # picked one of those, switch to the recommended substitute. Replaces the old single
+        # hardcoded edit_intent rule with the shared substitution map.
+        from agent.model_forge.method_substitution import (
+            WEAKNESS_THRESHOLD as _SUB_THRESHOLD,
+            recommend_method_substitutions,
+        )
+        _sub_weak = set(weaknesses) | {
+            dim for dim, val in profile.capability_scores.items() if val < _SUB_THRESHOLD}
+        _subs = recommend_method_substitutions(_sub_weak)
+        avoid_methods: set[MethodVariant] = set()
+        substitution_reasons: list[str] = []
+        for _s in _subs:
+            for _m in _s.avoid:
+                try:
+                    avoid_methods.add(MethodVariant(_m))
+                except ValueError:
+                    pass
+        if method_primary in avoid_methods:
+            for _s in _subs:
+                if method_primary.value not in _s.avoid:
+                    continue
+                for _pref in _s.prefer:
+                    try:
+                        _cand = MethodVariant(_pref)
+                    except ValueError:
+                        continue
+                    if _cand not in avoid_methods:
+                        substitution_reasons.append(
+                            f"method_substitution:{_s.dimension}:{method_primary.value}->{_cand.value}")
+                        method_primary = _cand
+                        break
+                break
+        method_fallbacks = [m for m in method_fallbacks if m not in avoid_methods]
         base_level = _base_injection(profile, task_category=task_category, change_class=change)
         if twin_risk == "high":
             base_level += 1
@@ -257,6 +292,7 @@ class ExecutionPolicySelector:
         if weaknesses:
             reasons.append("known_weaknesses=" + ",".join(sorted(weaknesses)))
         reasons.extend(method_decision.reasons)
+        reasons.extend(substitution_reasons)
         if rescue_reason:
             reasons.append(rescue_reason)
 
@@ -284,7 +320,7 @@ class ExecutionPolicySelector:
             twin_assist_expected_lift=(max(profile.twin_assist_lift.values()) if profile.twin_assist_lift else None),
             twin_slot_required=profile.recommended_twin_assist_mode == "twin_localized_slot",
             deterministic_anchor_required=profile.recommended_twin_assist_mode == "twin_deterministic_anchor",
-            avoid_method_variants=([MethodVariant.EDIT_INTENT_LIST] if profile.score("edit_intent_quality") < 0.55 else []),
+            avoid_method_variants=sorted(avoid_methods, key=lambda m: m.value),
             required_twin_modules=sorted(set(required_modules)),
             required_gates=sorted(set(gates)),
             git_policy=GitPolicy(
