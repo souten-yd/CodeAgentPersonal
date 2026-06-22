@@ -375,13 +375,18 @@ class ForgeEvaluationService:
         # (ranked from real scores); a future per-method live measurement can slot in here.
         from agent.model_forge.method_substitution import (
             WEAKNESS_THRESHOLD, rank_methods_by_fitness, recommend_method_substitutions,
+            recommend_twin_rescue,
         )
+        # method_fitness is derived from the LIVE-measured capability scores. The method-backed
+        # dimensions (structured/patch/edit/large_file, see real_method_runner._METHOD_BY_DIMENSION)
+        # are measured by running that very method's adapter, so this is already measurement-based.
         scores = capability.capability_scores
         weak = [d for d, v in scores.items() if v < WEAKNESS_THRESHOLD]
         method_fitness_view = {
             "ranking": [{"method": m, "fitness": f} for m, f in rank_methods_by_fitness(scores)],
             "substitutions": [s.as_dict() for s in
                               recommend_method_substitutions(weak, capability_scores=scores)],
+            "twin_rescues": [r.as_dict() for r in recommend_twin_rescue(weak)],
             "measured": bool(scores),
         }
         return {

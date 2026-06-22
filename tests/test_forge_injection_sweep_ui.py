@@ -106,6 +106,16 @@ def test_method_fitness_panel_in_benchmark_capability():
     assert "forge-fit-bar" in src
 
 
+def test_method_fitness_radar_and_twin_rescue_in_arena():
+    src = _forge_js()
+    # Method-fitness radar shown in the Arena candidate drawer.
+    assert "methodFitnessRadarHtml" in src
+    assert "Method fitness radar" in src
+    # Twin-offload rescue (the non-method weak-LLM rescue) surfaced alongside method substitution.
+    assert "twin_rescues" in src
+    assert "Twin肩代わり" in src
+
+
 def test_method_substitution_surfaced_in_ui():
     src = _forge_js()
     # Injection-resistant weaknesses get an alternative-method suggestion in the sweep result.
