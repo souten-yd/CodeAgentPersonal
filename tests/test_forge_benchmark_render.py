@@ -17,6 +17,7 @@ from agent.model_forge.benchmark_presets import preset_listing
 
 ROOT = Path(__file__).resolve().parent.parent
 FORGE_JS = ROOT / "web" / "js" / "forge.js"
+ANVIL_JS = ROOT / "web" / "js" / "anvil_params.js"
 
 _NODE_TEMPLATE = r"""
 const fs = require('fs');
@@ -28,7 +29,8 @@ global.document = { getElementById:(id)=>store[id]||(store[id]=mkEl()),
   createElement:()=>mkEl(), body:{appendChild(){}}, addEventListener(){} };
 global.window = {};
 global.fetch = () => Promise.reject(new Error('no-net'));
-eval(fs.readFileSync(process.argv[2], 'utf8'));
+eval(fs.readFileSync(process.argv[4], 'utf8'));  // anvil_params.js -> window.AnvilParams (shared)
+eval(fs.readFileSync(process.argv[2], 'utf8'));  // forge.js
 const F = global.window.Forge;
 const input = JSON.parse(process.argv[3]);
 Object.assign(F._state.bench, input.bench || {});
@@ -42,7 +44,7 @@ def _render(tmp_path, payload: dict) -> str:
         pytest.skip("node not available")
     script = tmp_path / "bench.js"
     script.write_text(_NODE_TEMPLATE, encoding="utf-8")
-    proc = subprocess.run([node, str(script), str(FORGE_JS), json.dumps(payload)],
+    proc = subprocess.run([node, str(script), str(FORGE_JS), json.dumps(payload), str(ANVIL_JS)],
                           capture_output=True, text=True, timeout=30,
                           encoding="utf-8", errors="replace")
     assert proc.returncode == 0, proc.stderr
@@ -145,7 +147,8 @@ global.document = { getElementById:(id)=>store[id]||(store[id]=mkEl()),
   createElement:()=>mkEl(), body:{appendChild(){}}, addEventListener(){} };
 global.window = {};
 global.fetch = () => Promise.reject(new Error('no-net'));
-eval(fs.readFileSync(process.argv[2], 'utf8'));
+eval(fs.readFileSync(process.argv[4], 'utf8'));  // anvil_params.js -> window.AnvilParams (shared)
+eval(fs.readFileSync(process.argv[2], 'utf8'));  // forge.js
 const F = global.window.Forge;
 const model = JSON.parse(process.argv[3]);
 process.stdout.write(F._anvilConfigFormHtml(model));
@@ -158,7 +161,7 @@ def _render_config_form(tmp_path, model: dict) -> str:
         pytest.skip("node not available")
     script = tmp_path / "configform.js"
     script.write_text(_NODE_CONFIG_FORM_TEMPLATE, encoding="utf-8")
-    proc = subprocess.run([node, str(script), str(FORGE_JS), json.dumps(model)],
+    proc = subprocess.run([node, str(script), str(FORGE_JS), json.dumps(model), str(ANVIL_JS)],
                           capture_output=True, text=True, timeout=30,
                           encoding="utf-8", errors="replace")
     assert proc.returncode == 0, proc.stderr
