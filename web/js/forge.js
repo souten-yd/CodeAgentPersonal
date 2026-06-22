@@ -524,13 +524,14 @@
       + modelNote
       + runtimeLoadBlock
       + externalWarning
+      + injectionObjectiveControl()
       + '<div class="forge-hint">1回の実行でベンチマーク・注入スイープ・Twin評価をまとめて行います。</div>'
       + '<button type="button" class="forge-run-btn" data-bench-run' + (canRun ? '' : ' disabled') + '>'
       + escapeHtml(runLabel) + '</button>'
       + result
+      + injectionSweepInlineHtml()
       + twinAssistInlineHtml()
       + '</div>'
-      + injectionSweepCard(data)
       + methodComparisonHtml(data)
     );
   }
@@ -613,28 +614,26 @@
     ['max_score', 'Max score'],
   ];
 
-  function injectionSweepCard(data) {
-    const sel = state.bench;
-    const canRun = !!(sel.provider && sel.model);
-    const rec = sel.injectionSweep;
-    const objective = sel.injectionObjective || 'min_sufficient';
+  // Injection objective switch (Min injection / Max score). Lives in the Benchmark Model card —
+  // the sweep itself runs as part of the single Benchmark action, not a separate button.
+  function injectionObjectiveControl() {
+    const objective = state.bench.injectionObjective || 'min_sufficient';
     const objBtns = INJECTION_OBJECTIVES.map(([id, label]) => (
       '<button type="button" class="forge-seg' + (objective === id ? ' active' : '')
       + '" data-injection-objective="' + id + '">' + escapeHtml(label) + '</button>'
     )).join('');
-    return (
-      '<div class="forge-card">'
-      + '<div class="forge-card-title">Twin injection sweep</div>'
-      + '<div class="forge-hint">Run the capability benchmark at each Twin injection level (0–4). '
-      + 'Choose the objective: <b>Min injection</b> = lowest level still within tolerance of the peak '
-      + '(cheapest guidance for a weak model → applied as a ceiling); <b>Max score</b> = the '
-      + 'peak-scoring level (→ applied as a floor). Advisory; does not change production routing.</div>'
+    return '<div class="forge-label">注入方針（Twin injection objective）</div>'
       + '<div class="forge-seg-row">' + objBtns + '</div>'
-      + '<button type="button" class="forge-run-btn" data-injection-sweep-run' + (canRun ? '' : ' disabled')
-      + '>Run injection sweep</button>'
-      + (rec ? injectionSweepResult(rec) : '')
-      + '</div>'
-    );
+      + '<div class="forge-hint"><b>Min injection</b>=ピーク許容内で最小の注入（弱モデル向け・天井として適用）／'
+      + '<b>Max score</b>=最高スコアの注入レベル（床として適用）。助言のみ。</div>';
+  }
+
+  // Injection-sweep RESULT, rendered inline under Benchmark (consolidated; no separate sweep panel).
+  function injectionSweepInlineHtml() {
+    const rec = state.bench.injectionSweep;
+    if (!rec) return '';
+    return '<div class="forge-card"><div class="forge-card-title">Twin injection sweep（今回の実行）</div>'
+      + injectionSweepResult(rec) + '</div>';
   }
 
   // Collapsible "how to read this" tips block, so the metrics' DIRECTION is never ambiguous.
@@ -791,7 +790,6 @@
     });
     content.querySelector('[data-bench-load]')?.addEventListener('click', () => loadSelectedModel());
     content.querySelector('[data-bench-run]')?.addEventListener('click', () => runBenchmark(data));
-    content.querySelector('[data-injection-sweep-run]')?.addEventListener('click', () => runInjectionSweep(data));
     content.querySelectorAll('[data-injection-objective]').forEach((btn) => {
       btn.addEventListener('click', () => {
         state.bench.injectionObjective = btn.getAttribute('data-injection-objective');
@@ -1074,17 +1072,6 @@
     } catch (err) {
       return { ok: false, msg: 'Twin評価(' + (err && err.message ? err.message : 'error') + ')' };
     }
-  }
-
-  // Standalone injection-sweep button (still available inside the sweep card).
-  async function runInjectionSweep(data) {
-    const sel = state.bench;
-    if (!sel.provider || !sel.model) { setStatus('プロバイダとモデルを選択してください', 'error'); return; }
-    setStatus('Running injection sweep…');
-    const n = await runInjectionSweepCore(data);
-    setStatus(n.ok ? 'Injection sweep recorded (advisory)' : ('Injection sweep failed: ' + n.msg),
-      n.ok ? 'ok' : 'error');
-    renderActive();
   }
 
   // ----- Arena (PFG-24) -----

@@ -6,13 +6,16 @@ def _forge_js() -> str:
     return Path("web/js/forge.js").read_text(encoding="utf-8")
 
 
-def test_injection_sweep_card_and_controls_present():
+def test_injection_sweep_consolidated_into_benchmark():
     src = _forge_js()
-    assert "Twin injection sweep" in src
-    assert "Run injection sweep" in src
-    assert "data-injection-sweep-run" in src
-    # Advisory framing — never changes routing directly from the UI.
-    assert "does not change production routing" in src
+    # The sweep runs as part of the single Benchmark action — no separate panel/button.
+    assert "Run injection sweep" not in src
+    assert "data-injection-sweep-run" not in src
+    assert "injectionSweepCard" not in src
+    # Result renders inline under Benchmark; objective control moved to the Benchmark area.
+    assert "injectionSweepInlineHtml" in src
+    assert "Twin injection sweep（今回の実行）" in src
+    assert "injectionObjectiveControl" in src
 
 
 def test_injection_sweep_calls_forge_api_with_dimensions():
