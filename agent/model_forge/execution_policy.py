@@ -293,6 +293,16 @@ class ExecutionPolicySelector:
         if "flag_reasoning" in weaknesses or profile.score("flag_reasoning") < 0.55:
             gates.append("FeatureFlagBaseline")
 
+        # Twin-offload rescue: reasoning/judgement weaknesses a generation method cannot fix are
+        # covered by FORCING the Twin module that does that work for the model (+ its gate). This is
+        # the runtime wiring of recommend_twin_rescue — not just advisory.
+        from agent.model_forge.method_substitution import recommend_twin_rescue
+        rescue_reasons: list[str] = []
+        for _r in recommend_twin_rescue(_sub_weak):
+            required_modules.append(_r.twin_module)
+            gates.append(_r.required_gate)
+            rescue_reasons.append(f"twin_rescue:{_r.dimension}->{_r.twin_module}")
+
         reasons = [*route_selection.reasons]
         reasons.append(f"model_mode={profile.mode}")
         reasons.append(f"twin_risk={twin_risk}")
@@ -306,6 +316,7 @@ class ExecutionPolicySelector:
             reasons.append("known_weaknesses=" + ",".join(sorted(weaknesses)))
         reasons.extend(method_decision.reasons)
         reasons.extend(substitution_reasons)
+        reasons.extend(rescue_reasons)
         if rescue_reason:
             reasons.append(rescue_reason)
 
