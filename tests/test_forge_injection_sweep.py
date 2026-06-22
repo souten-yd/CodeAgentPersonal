@@ -210,6 +210,18 @@ def test_method_substitution_ranks_by_measured_capability():
     assert weak_anchor.prefer[0] == "deterministic_text_patch"  # safe platform-owned fallback
 
 
+def test_twin_rescue_offloads_reasoning_weaknesses():
+    # Weaknesses no generation method fixes (impact analysis, test generation) are rescued by
+    # offloading to a Twin module — the other weak-LLM rescue avenue beyond method substitution.
+    from agent.model_forge.method_substitution import recommend_twin_rescue
+    rescues = {r.dimension: r for r in recommend_twin_rescue(
+        ["impact_analysis", "test_generation", "edit_intent_quality"])}
+    assert "impact_analysis" in rescues and rescues["impact_analysis"].twin_module == "BlastMap"
+    assert "test_generation" in rescues
+    # edit_intent is a method-substitution case, not a Twin-offload case -> not here.
+    assert "edit_intent_quality" not in rescues
+
+
 def test_method_fitness_platform_owned_vs_model_dependent():
     from agent.model_forge.method_substitution import method_fitness
     from agent.model_forge.method_taxonomy import MethodVariant

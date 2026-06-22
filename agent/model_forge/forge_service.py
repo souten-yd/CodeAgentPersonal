@@ -781,7 +781,13 @@ class ForgeService:
             radar = {dim: float(score) for dim, score in capability.capability_scores.items()}
             if not radar:
                 return evaluation
-            updated_score = evaluation.score.model_copy(update={"radar_scores": radar})
+            # Method fitness for this model (which generation method it is suited to), measured from
+            # the capability scores, so the Arena radar can show 手法の向き不向き alongside capability.
+            from agent.model_forge.method_substitution import rank_methods_by_fitness
+            from agent.model_forge.method_taxonomy import MethodVariant
+            method_fitness = {MethodVariant(m): f for m, f in rank_methods_by_fitness(radar)}
+            updated_score = evaluation.score.model_copy(update={
+                "radar_scores": radar, "method_fitness": method_fitness})
             return evaluation.model_copy(update={"score": updated_score})
         except Exception:  # noqa: BLE001 - radar enrichment is advisory; never break scoring.
             return evaluation

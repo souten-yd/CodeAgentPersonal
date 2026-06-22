@@ -43,9 +43,14 @@ _PLATFORM_OWNED_FITNESS = 0.8
 
 
 def method_fitness(method: MethodVariant, capability_scores: Mapping[str, float] | None) -> float:
-    """How well a model can be expected to drive ``method``, from its measured capability scores.
-    Platform-owned methods return a safe baseline; model-dependent methods return the WEAKEST of
-    their required dimensions (a chain is only as strong as its weakest required skill)."""
+    """How well a model can be expected to drive ``method``, from its LIVE-measured capability scores.
+
+    This is already measurement-based: the method-backed dimensions (structured_output_fidelity,
+    patch_protocol_fidelity, edit_intent_quality, large_file_editing — see
+    ``real_method_runner._METHOD_BY_DIMENSION``) are scored by running that very method's adapter
+    against the model, and anchor_selection_quality etc. are scored by the live capability evaluator.
+    Platform-owned methods (deterministic / Twin slot+anchor) get a safe baseline; model-dependent
+    methods return the WEAKEST of their required dimensions."""
     req = _METHOD_REQUIRED_DIMENSIONS.get(method, ())
     if not req:
         return _PLATFORM_OWNED_FITNESS
@@ -81,6 +86,48 @@ _SUBSTITUTION_MAP: dict[str, tuple[list[MethodVariant], list[MethodVariant], str
         "大ファイルの全書換が苦手 → 局所スロット/アンカーで最小編集に絞る",
     ),
 }
+
+# Weak-LLM rescue beyond method substitution: analysis / judgement weaknesses that NO generation
+# method fixes are instead OFFLOADED to a Twin module — the platform does the part the weak model
+# cannot, so the model only has to do the narrow generation step. (dim -> (twin_module, required_gate, why))
+_TWIN_RESCUE_MAP: dict[str, tuple[str, str, str]] = {
+    "impact_analysis": ("BlastMap", "ContractSentinel",
+                        "影響範囲を推測できない → TwinのBlastMapが依存・影響を算出して与える"),
+    "contract_preservation": ("ContractSentinel", "ContractSentinel",
+                              "公開契約を壊しがち → ContractSentinelゲートが契約保全を強制"),
+    "test_generation": ("TwinProof", "TwinProof",
+                        "テストを書けない → Twinが依存テストを選定し required_tests として渡す"),
+    "stale_test_judgment": ("TwinProof", "NoTestWeakening",
+                            "古いテストの扱いを誤る → Twinが retirement 候補として判定・保護"),
+    "flag_reasoning": ("FeatureFlagBaseline", "FeatureFlagBaseline",
+                       "フラグ整合を外す → Twinがフラグ基準値を供給しゲートで検査"),
+}
+
+
+@dataclass(frozen=True)
+class TwinRescue:
+    dimension: str
+    twin_module: str
+    required_gate: str
+    why: str
+
+    def as_dict(self) -> dict:
+        return {"dimension": self.dimension, "twin_module": self.twin_module,
+                "required_gate": self.required_gate, "why": self.why}
+
+
+def recommend_twin_rescue(weak_dimensions: Iterable[str]) -> list[TwinRescue]:
+    """For analysis/judgement weaknesses a generation method cannot fix, recommend the Twin module
+    that offloads the work (and the gate that enforces it). The complement to method substitution:
+    together they cover edit-shaped weaknesses (method swap) and reasoning-shaped ones (Twin offload)."""
+    out: list[TwinRescue] = []
+    seen: set[str] = set()
+    for dim in weak_dimensions:
+        if dim in _TWIN_RESCUE_MAP and dim not in seen:
+            seen.add(dim)
+            module, gate, why = _TWIN_RESCUE_MAP[dim]
+            out.append(TwinRescue(dimension=dim, twin_module=module, required_gate=gate, why=why))
+    return out
 
 
 @dataclass(frozen=True)
@@ -133,10 +180,9 @@ def recommend_method_substitutions(
 
 
 def rank_methods_by_fitness(capability_scores: Mapping[str, float] | None) -> list[tuple[str, float]]:
-    """A model's method "向き不向き": every known generation method ranked by measured fitness
-    (best-first). This is the benchmark-facing view — it turns the 16-dim capability profile into
-    "which generation method this model should be driven with". A future per-method live measurement
-    can replace ``method_fitness`` without changing callers."""
+    """A model's method "向き不向き": every known generation method ranked by fitness (best-first),
+    from the live-measured capability profile. Turns "which capabilities the model has" into "which
+    generation method to drive it with"."""
     ranked = sorted(
         _METHOD_REQUIRED_DIMENSIONS,
         key=lambda m: method_fitness(m, capability_scores),
@@ -147,5 +193,5 @@ def rank_methods_by_fitness(capability_scores: Mapping[str, float] | None) -> li
 
 __all__ = [
     "MethodSubstitution", "recommend_method_substitutions", "method_fitness",
-    "rank_methods_by_fitness", "WEAKNESS_THRESHOLD",
+    "rank_methods_by_fitness", "TwinRescue", "recommend_twin_rescue", "WEAKNESS_THRESHOLD",
 ]

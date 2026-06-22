@@ -137,14 +137,19 @@ class ProfileStore:
         )
 
     def record_injection_sweep_report(self, record: dict) -> ModelProfile:
-        """Persist an injection-sweep result so the MEASURED optimal injection level flows into
-        the model profile (and thence ``ExecutionPolicySelector``). The sweep carries no
-        per-dimension capability scores of its own (those live in the standard benchmark), so it
-        records an empty ``dimensions`` map and only the injection optimum + provenance."""
+        """Persist an injection-sweep result so (a) the MEASURED optimal injection level flows into
+        the model profile and ``ExecutionPolicySelector``, and (b) the per-dimension BEST score the
+        sweep measured is recorded as a real capability dimension — this populates the capability
+        profile (Arena radar, method fitness/substitution) from measured data instead of defaults."""
+        best_by_dim: dict[str, float] = {}
+        for level_scores in (record.get("scores_by_level") or {}).values():
+            for dim, score in (level_scores or {}).items():
+                if isinstance(score, (int, float)):
+                    best_by_dim[dim] = max(best_by_dim.get(dim, 0.0), float(score))
         return self.record_observation(
             model_id=record["model_id"],
             provider_id=record["provider_id"],
-            dimensions={},
+            dimensions=best_by_dim,
             source="injection_sweep",
             evidence_refs=[],
             injection_sweep={

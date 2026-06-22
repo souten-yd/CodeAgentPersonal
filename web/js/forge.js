@@ -1286,12 +1286,39 @@
       + escapeHtml(candidate.model_id) + '</span><button type="button" class="forge-drawer-close">×</button></div>'
       + '<div class="forge-drawer-sub">' + escapeHtml(candidate.route_id) + ' · '
       + escapeHtml(candidate.method_variant || 'method unavailable') + '</div><div class="forge-drawer-body">'
-      + radarHtml(candidate, filterName || 'All') + fallbackGraphHtml(candidate) + '</div></div>';
+      + radarHtml(candidate, filterName || 'All') + methodFitnessRadarHtml(candidate)
+      + fallbackGraphHtml(candidate) + '</div></div>';
     drawer.classList.add('open');
     drawer.querySelector('.forge-drawer-close')?.addEventListener('click', closeModelDrawer);
     drawer.querySelectorAll('[data-radar-filter]').forEach((button) => button.addEventListener('click', () => (
       openCandidateDrawer(candidateId, button.getAttribute('data-radar-filter'))
     )));
+  }
+
+  // Method-fitness radar in the Arena candidate drawer: each axis is a generation method, the area
+  // is how suited this model is to it (手法の向き不向き). Populated by _attach_candidate_radar.
+  function methodFitnessRadarHtml(candidate) {
+    const fit = (candidate.evaluator_score || {}).method_fitness || {};
+    const keys = Object.keys(fit);
+    if (keys.length < 3) return '';
+    const cx = 120, cy = 110, radius = 76;
+    const pts = (scale) => keys.map((k, i) => {
+      const a = (-Math.PI / 2) + (Math.PI * 2 * i / keys.length);
+      const d = radius * (scale ? Math.max(0, Math.min(1, fit[k])) : 1);
+      return (cx + d * Math.cos(a)).toFixed(1) + ',' + (cy + d * Math.sin(a)).toFixed(1);
+    }).join(' ');
+    const labels = keys.map((k, i) => {
+      const a = (-Math.PI / 2) + (Math.PI * 2 * i / keys.length);
+      const x = cx + (radius + 20) * Math.cos(a), y = cy + (radius + 20) * Math.sin(a);
+      return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" class="forge-radar-label">'
+        + escapeHtml(k) + ' · ' + Math.round(fit[k] * 100) + '%</text>';
+    }).join('');
+    return '<div class="forge-radar"><div class="forge-card-title">Method fitness（手法の向き不向き）</div>'
+      + '<div class="forge-radar-note">面積が大きいほどこの手法に向く（高いほど得意）</div>'
+      + '<svg class="forge-radar-svg" viewBox="0 0 240 220" role="img" aria-label="Method fitness radar">'
+      + '<polygon class="forge-radar-grid" points="' + pts(false) + '"></polygon>'
+      + '<polygon class="forge-radar-shape forge-radar-shape--assisted" points="' + pts(true) + '"></polygon>'
+      + labels + '</svg></div>';
   }
 
   function fallbackGraphHtml(candidate) {
@@ -1325,10 +1352,15 @@
     )).join('');
     const subs = (mf.substitutions || []).map((s) => (
       '<div class="forge-hint">⚠ ' + escapeHtml(s.dimension) + ': ' + escapeHtml((s.avoid || []).join(', '))
-      + ' → <b>' + escapeHtml((s.prefer || [])[0] || '') + '</b> ほか</div>'
+      + ' → <b>' + escapeHtml((s.prefer || [])[0] || '') + '</b> ほか（別の生成手法）</div>'
+    )).join('');
+    const rescues = (mf.twin_rescues || []).map((r) => (
+      '<div class="forge-hint">🧬 ' + escapeHtml(r.dimension) + ' → <b>' + escapeHtml(r.twin_module)
+      + '</b> が肩代わり（' + escapeHtml(r.required_gate) + ' で強制）</div>'
     )).join('');
     return '<div class="forge-card-title" style="margin-top:8px">Method fitness（手法の向き不向き・高いほど得意）</div>'
-      + rows + subs;
+      + rows + subs
+      + (rescues ? '<div class="forge-card-title" style="margin-top:8px">弱点の救済（Twin肩代わり）</div>' + rescues : '');
   }
 
   function methodComparisonHtml(data) {
