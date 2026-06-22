@@ -185,6 +185,36 @@ def test_invalid_objective_rejected(tmp_path):
             dimensions=["structured_output_fidelity"], objective="nope")
 
 
+def test_method_substitution_recommends_alternatives_for_weak_dims():
+    from agent.model_forge.method_substitution import recommend_method_substitutions
+    subs = recommend_method_substitutions(["edit_intent_quality", "unknown_dim"])
+    assert len(subs) == 1  # unknown dims have no structural alternative -> skipped
+    s = subs[0]
+    assert s.dimension == "edit_intent_quality"
+    assert "edit_intent_list" in s.avoid
+    assert "deterministic_text_patch" in s.prefer  # Atlas owns the structure instead
+
+
+def test_injection_resistant_dimension_gets_method_substitution(tmp_path, monkeypatch):
+    # A dimension that stays weak at EVERY injection level is injection-resistant -> the sweep
+    # attaches a method substitution (use a different method, not more injection).
+    import agent.model_forge.real_method_runner as rmr
+
+    def post(_url, payload, _headers, _timeout):
+        # structured passes (valid JSON), edit_intent path never satisfies -> stays weak.
+        content = '{"file_changes": [{"path": "eval_target.txt", "action_type": "create", "proposed_content": "ok"}]}'
+        return 200, json.dumps({"id": "stub", "choices": [{"message": {"content": content}}]})
+    monkeypatch.setattr(rmr, "_default_post", post)
+
+    rec = _svc(tmp_path).injection_sweep_profile(
+        provider_id="local", model_id="m1", base_url="http://x",
+        dimensions=["structured_output_fidelity", "edit_intent_quality"])
+    assert "edit_intent_quality" in rec["injection_resistant_dimensions"]
+    assert "structured_output_fidelity" not in rec["injection_resistant_dimensions"]
+    dims = [s["dimension"] for s in rec["method_substitutions"]]
+    assert "edit_intent_quality" in dims
+
+
 def test_forge_service_resolves_local_base_url_default(tmp_path):
     # An already-running local model is evaluable by port: with no env/settings the resolver falls
     # back to the per-runtime default so base_url need not be supplied by the client.
