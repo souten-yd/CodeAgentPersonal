@@ -210,6 +210,20 @@ def test_method_substitution_ranks_by_measured_capability():
     assert weak_anchor.prefer[0] == "deterministic_text_patch"  # safe platform-owned fallback
 
 
+def test_unmeasured_model_starts_conservative_injection():
+    # No benchmark evidence -> start at the route's high end (assume it needs help); a later
+    # measurement lowers it to the minimum that works.
+    from agent.model_forge.execution_policy import ExecutionPolicySelector, ModelCapabilityProfile
+    from agent.model_forge.route_matrix import ChangeClass
+    from agent.model_forge.route_taxonomy import ForgeRoute
+
+    unmeasured = ModelCapabilityProfile(model_id="unknown")  # no capability_scores, no measurements
+    policy = ExecutionPolicySelector().select(
+        ChangeClass.MICRO, requested_route=ForgeRoute.DIRECT_PATCH, model_profile=unmeasured)
+    assert int(policy.twin_injection_level) == 3  # DIRECT_PATCH range (1,3) -> high end
+    assert any(r == "unmeasured_model_conservative_injection" for r in policy.reasons)
+
+
 def test_twin_rescue_offloads_reasoning_weaknesses():
     # Weaknesses no generation method fixes (impact analysis, test generation) are rescued by
     # offloading to a Twin module — the other weak-LLM rescue avenue beyond method substitution.
