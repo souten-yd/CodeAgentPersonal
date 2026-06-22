@@ -118,18 +118,25 @@
     getPlanPoolStatus(poolId) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/status`, { timeoutMs: 15000 });
     },
-    // Local models can take a long time while still making progress. Poll until terminal state,
-    // server-confirmed stall, or the generous absolute backstop.
+    // Local models can take a long time while still making progress. The browser does NOT police
+    // generation time: whether the model is still generating tokens, has stalled, or is done is
+    // judged SERVER-SIDE (status running/ready/failed + is_stalled, which the server derives from
+    // the live token heartbeat). The client just reads that verdict and reacts. There is no
+    // client-side absolute deadline — a long-but-progressing local model (GPU busy, tokens still
+    // flowing) must never be aborted by a browser stopwatch. We stop only when the server reports a
+    // terminal/stalled state, or the status endpoint itself becomes unreachable.
+    // maxWaitMs is accepted for backward compatibility but intentionally ignored.
     async pollPlanPoolUntilReady(poolId, workspaceId, maxWaitMs, intervalMs = 1500) {
-      const startTime = Date.now();
-      const configuredMax = Number(maxWaitMs || root.ATLAS_PLAN_ABSOLUTE_MAX_MS || PLAN_POOL_ABSOLUTE_MAX_MS);
-      const absoluteMaxMs = Number.isFinite(configuredMax) && configuredMax > 0 ? configuredMax : PLAN_POOL_ABSOLUTE_MAX_MS;
-      while (Date.now() - startTime < absoluteMaxMs) {
+      void maxWaitMs;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
         await new Promise((r) => setTimeout(r, intervalMs));
         const st = await this.getPlanPoolStatus(poolId);
         if (!st.ok) {
           // 404 right after submit just means the job file isn't written yet — keep waiting.
           if (st.status === 404) continue;
+          // Status endpoint unreachable / server error: the server is the authority and we can no
+          // longer read it, so surface the failure instead of spinning forever.
           return st;
         }
         const status = (st.data && st.data.status) || '';
@@ -147,6 +154,8 @@
           Number.isFinite(secondsSinceProgress) ? `最終進捗から ${Math.round(secondsSinceProgress)} 秒` : '',
           Number.isFinite(tokensGenerated) && tokensGenerated > 0 ? `tokens: ${tokensGenerated}` : '',
         ].filter(Boolean).join(' / ');
+        // Server-side stall verdict (derived from the token heartbeat). This is the ONLY timeout
+        // judgment — the browser does not second-guess it.
         if (st.data && st.data.is_stalled === true) {
           const reason = st.data.stalled_reason || 'LLM生成の進捗が停止している可能性があります。';
           const action = st.data.suggested_action || '少し待つか、再実行してください。';
@@ -167,11 +176,6 @@
           };
         }
       }
-      return {
-        ok: false, status: 0, error: true, code: 'plan_pool_absolute_timeout',
-        message: 'プラン作成が絶対上限に達しました。状態を確認して再実行してください。',
-        detail: { error: 'plan_pool_absolute_timeout' },
-      };
     },
     listPlanPools() {
       return atlasFetch('/api/atlas/plan-pools');
