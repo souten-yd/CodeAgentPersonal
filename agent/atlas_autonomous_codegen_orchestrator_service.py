@@ -1043,6 +1043,29 @@ class AtlasAutonomousCodegenOrchestratorService:
             self.storage.save_pool(pool)
 
     @staticmethod
+    def _is_idempotent_no_change(autopilot) -> bool:
+        """True when a regeneration changed nothing because the workspace already satisfies the goal:
+        there is at least one item, none genuinely failed, and every non-completed item was blocked
+        solely by ``no_effective_change`` (the prior apply already made the edit)."""
+        items = list(getattr(autopilot, "item_results", []) or [])
+        if not items:
+            return False
+        saw_no_change = False
+        for it in items:
+            status = str(getattr(it, "status", "") or (it.get("status") if isinstance(it, dict) else ""))
+            sar = (getattr(it, "safe_apply_result", None) if not isinstance(it, dict)
+                   else it.get("safe_apply_result")) or {}
+            reasons = " ".join(str(r) for r in (sar.get("block_reasons") or sar.get("reasons") or []))
+            blob = reasons + " " + str(getattr(it, "reason", "") or (it.get("reason") if isinstance(it, dict) else ""))
+            if "no_effective_change" in blob:
+                saw_no_change = True
+                continue
+            if status in {"completed", "applied", "self_correction_recovered"}:
+                continue
+            return False  # a genuinely failed/blocked-for-other-reason item -> not idempotent
+        return saw_no_change
+
+    @staticmethod
     def _twin_genuine_ng(report: dict) -> tuple[bool, bool]:
         """Return ``(is_ng, is_hard)`` for a post-apply report. A genuine NG is only a real
         product regression (failed verification) or a hard-boundary block — NOT an evidence
@@ -1077,6 +1100,7 @@ class AtlasAutonomousCodegenOrchestratorService:
             # method once repeated. This is what makes "失敗→注入↑/弱ルート化" fire at runtime.
             new_md["twin_consecutive_method_failures"] = attempt
             repair_request = request.model_copy(update={"metadata": new_md})
+            prior_autopilot = autopilot  # the (successful) result before this regeneration
             self._clear_affected_items(request.pool_id, autopilot)
             self._emit("autonomous_codegen_twin_repair_started", request.pool_id, run_id,
                        orchestrator_run_id, attempt=attempt)
@@ -1084,6 +1108,15 @@ class AtlasAutonomousCodegenOrchestratorService:
                 request=repair_request, out=out, run_id=run_id,
                 orchestrator_run_id=orchestrator_run_id, requested_item_ids=requested_item_ids,
                 project_path=project_path, **limits)
+            # Idempotent regeneration: the workspace already reflects the change from the prior apply,
+            # so the re-apply finds "no_effective_change". That is NOT a failure — the goal is met.
+            # Keep the prior SUCCESSFUL result instead of downgrading it to applied_no_verification.
+            if self._is_idempotent_no_change(autopilot):
+                out.metadata.setdefault("twin_repair_attempts", []).append(
+                    {"attempt": attempt, "decision": report.get("decision"), "still_ng": False,
+                     "resolution": "already_applied_idempotent"})
+                out.autopilot_result = prior_autopilot.model_dump()
+                return prior_autopilot, ""
             out.autopilot_result = autopilot.model_dump()
             self._twin_post_apply_gate(out, request, autopilot)
             report = ((out.metadata.get("twin_control_plane") or {}).get("post_apply") or {})

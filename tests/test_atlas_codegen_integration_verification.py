@@ -48,6 +48,22 @@ def test_integration_verification_no_tests_is_noop(tmp_path):
     assert out.metadata["integration_verification"]["status"] == "no_tests"
 
 
+def test_idempotent_no_change_detected(tmp_path):
+    # A regeneration that finds "no_effective_change" (prior apply already made the edit) is NOT a
+    # failure: the goal is met. Detected so the repair loop keeps the prior successful result.
+    svc = _svc(tmp_path)
+    idem = type("A", (), {"item_results": [
+        {"status": "blocked", "reason": "verification_skipped",
+         "safe_apply_result": {"status": "blocked", "block_reasons": ["no_effective_change"]}}]})()
+    assert svc._is_idempotent_no_change(idem) is True
+    # A genuine other-reason block is not idempotent.
+    failed = type("A", (), {"item_results": [
+        {"status": "failed", "reason": "verification_failed", "safe_apply_result": {"status": "applied"}}]})()
+    assert svc._is_idempotent_no_change(failed) is False
+    # No items -> not idempotent.
+    assert svc._is_idempotent_no_change(type("A", (), {"item_results": []})()) is False
+
+
 def test_integration_verification_skipped_when_nothing_applied(tmp_path):
     proj = tmp_path / "proj"
     proj.mkdir()
