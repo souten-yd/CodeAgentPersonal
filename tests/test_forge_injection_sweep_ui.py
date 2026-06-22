@@ -79,6 +79,21 @@ def test_benchmark_button_runs_all_three_in_one_go():
     assert "Twin assist 評価" in src
 
 
+def test_reading_tips_and_direction_unification_present():
+    src = _forge_js()
+    # "How to read" tips so score/level direction is unambiguous.
+    assert "forgeTipsHtml" in src
+    assert "読み方" in src
+    # Injection level direction is spelled out (lower = better) and restated as a higher-is-better
+    # autonomy index so it reads the same way as capability scores.
+    assert "低いほど" in src
+    assert "autonomyIndex" in src
+    assert "自律度" in src
+    assert "best_mean_score" in src
+    # Radar carries the "bigger area = more capable" note so the graph direction is unified.
+    assert "面積が大きいほど能力が高い" in src
+
+
 def test_local_server_port_option_present():
     src = _forge_js()
     # An already-running local model addressed by port (default 8080), no Anvil registry needed.

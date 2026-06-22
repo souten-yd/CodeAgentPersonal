@@ -577,11 +577,17 @@
         + escapeHtml(item.best_assist_mode || 'unavailable') + '</td><td>'
         + (item.harm_detected ? '<span class="forge-warn-pill">harm</span>' : 'no') + '</td></tr>';
     }).join('');
+    const tips = forgeTipsHtml([
+      '<b>mean best score（0–1）</b>: 補助ありで出せた最高スコアの平均。高いほど能力が高い。',
+      '<b>mean lift</b>: 補助なし→ありのスコア上昇分。プラスが大きいほどTwinが効く。0付近＝補助不要。',
+      '<b>harm rate</b>: 補助で逆に悪化した割合。低いほど良い（0が理想）。',
+      '<b>recommended injection level（0–4）</b>: 低いほど少ない補助で足りる＝モデルが優秀。',
+    ]);
     return (
-      '<div class="forge-card">' + head
-      + '<div class="forge-kv"><span>mean best score</span><b>' + fmt(agg.mean_best_score) + '</b></div>'
-      + '<div class="forge-kv"><span>mean lift</span><b>' + fmt(agg.mean_lift) + '</b></div>'
-      + '<div class="forge-kv"><span>harm rate</span><b>' + fmt(agg.harm_rate) + '</b></div>'
+      '<div class="forge-card">' + head + tips
+      + '<div class="forge-kv"><span>mean best score（高いほど能力↑）</span><b>' + fmt(agg.mean_best_score) + '</b></div>'
+      + '<div class="forge-kv"><span>mean lift（補助の効き）</span><b>' + fmt(agg.mean_lift) + '</b></div>'
+      + '<div class="forge-kv"><span>harm rate（低いほど良い）</span><b>' + fmt(agg.harm_rate) + '</b></div>'
       + '<div class="forge-kv"><span>recommended assist</span><b>'
       + escapeHtml((rep.recommended_assist_modes || []).join(', ') || 'none') + '</b></div>'
       + '<div class="forge-kv"><span>recommended injection level</span><b>'
@@ -631,8 +637,25 @@
     );
   }
 
+  // Collapsible "how to read this" tips block, so the metrics' DIRECTION is never ambiguous.
+  function forgeTipsHtml(lines) {
+    return '<details class="forge-tips"><summary>📖 読み方（数値の見方）</summary><ul>'
+      + lines.map((l) => '<li>' + l + '</li>').join('') + '</ul></details>';
+  }
+
+  // Autonomy index: a higher-is-better restatement of the injection level so it reads in the SAME
+  // direction as the capability scores (less injection needed -> more capable -> bigger number).
+  function autonomyIndex(rec) {
+    const levels = (rec.levels || []);
+    const maxLevel = levels.length ? Math.max.apply(null, levels) : 4;
+    const sel = rec.selected_injection_level;
+    if (sel == null || maxLevel <= 0) return null;
+    return Math.max(0, Math.min(1, (maxLevel - sel) / maxLevel));
+  }
+
   function injectionSweepResult(rec) {
     const fmt = (v) => escapeHtml(v == null ? 'unavailable' : String(v));
+    const pct = (v) => (typeof v === 'number' ? Math.round(v * 100) + '%' : 'unavailable');
     const peak = rec.per_dimension_optimal || {};
     const minSuf = rec.per_dimension_min_sufficient_level || {};
     const dims = Object.keys(peak).sort();
@@ -640,10 +663,22 @@
       '<div class="forge-kv"><span>' + escapeHtml(dim) + '</span><b>'
       + fmt(minSuf[dim]) + ' <span class="forge-dim-peak">(peak ' + fmt(peak[dim]) + ')</span></b></div>'
     )).join('');
+    const autonomy = autonomyIndex(rec);
+    const tips = forgeTipsHtml([
+      '<b>スコア（0–100%）</b>: 高いほど能力が高い。グラフは曲線が上＝優秀。',
+      '<b>注入レベル（0–4）</b>: 低いほど少ない補助で動く＝モデルが優秀。0 = 補助なしでも能力を発揮（最良）。',
+      '<b>自律度</b>: 注入レベルを「高いほど良い」に言い換えた指標（自律度=（最大-選択）/最大）。能力スコアと同じ向きで読めます。',
+      '<b>min sufficient</b>: ここまで注入を下げても能力を（tolerance内で）維持できる最小レベル。',
+      '<b>peak</b>: 最高スコアになる注入レベル。<b>tolerance</b>: peak から何点下までを「十分」とみなすか。',
+    ]);
     return (
       '<div class="forge-injection-sweep">'
+      + tips
+      // Headline capability readings, oriented so "higher = more capable".
+      + '<div class="forge-kv"><span>best score（最高スコア）</span><b>' + pct(rec.best_mean_score) + '</b></div>'
+      + '<div class="forge-kv"><span>自律度（高いほど能力↑）</span><b>' + pct(autonomy) + '</b></div>'
       + '<div class="forge-kv"><span>objective</span><b>' + fmt(rec.objective) + '</b></div>'
-      + '<div class="forge-kv"><span>selected injection level</span><b>'
+      + '<div class="forge-kv"><span>selected injection level（低いほど優秀）</span><b>'
       + fmt(rec.selected_injection_level) + '</b></div>'
       // Both readings shown regardless of objective.
       + '<div class="forge-kv"><span>min sufficient injection level</span><b>'
@@ -652,7 +687,7 @@
       + fmt(rec.recommended_injection_level) + '</b></div>'
       + '<div class="forge-kv"><span>tolerance</span><b>' + fmt(rec.tolerance) + '</b></div>'
       + injectionSweepChart(rec)
-      + '<div class="forge-card-title" style="margin-top:8px">Per-dimension min sufficient level</div>'
+      + '<div class="forge-card-title" style="margin-top:8px">Per-dimension min sufficient level（低いほど優秀）</div>'
       + (dimRows || '<div class="forge-empty">No measured dimensions.</div>')
       + '</div>'
     );
@@ -1187,6 +1222,7 @@
         + '<span class="forge-radar-key forge-radar-key--baseline">without assist (補助なし)</span></div>'
       : '';
     return '<div class="forge-radar"><div class="forge-radar-filters">' + filters + '</div>' + legend
+      + '<div class="forge-radar-note">面積が大きいほど能力が高い（各軸0–100%、高いほど優秀）</div>'
       + '<svg class="forge-radar-svg" viewBox="0 0 240 220" role="img" aria-label="Candidate radar">'
       + '<polygon class="forge-radar-grid" points="' + outer + '"></polygon>'
       + (hasBaseline ? '<polygon class="forge-radar-shape forge-radar-shape--baseline" points="' + baselinePoints + '"></polygon>' : '')
@@ -1226,6 +1262,7 @@
     return '<div class="forge-radar">'
       + '<div class="forge-radar-legend"><span class="forge-radar-key forge-radar-key--assisted">with assist (補助あり)</span>'
       + '<span class="forge-radar-key forge-radar-key--baseline">without assist (補助なし)</span></div>'
+      + '<div class="forge-radar-note">面積が大きいほど能力が高い（各軸0–100%）。補助ありの面積が大きい＝Twinが効いている</div>'
       + '<svg class="forge-radar-svg" viewBox="0 0 240 220" role="img" aria-label="Assist effect radar (with vs without Twin)">'
       + '<polygon class="forge-radar-grid" points="' + outer + '"></polygon>'
       + '<polygon class="forge-radar-shape forge-radar-shape--baseline" points="' + ring('baseline') + '"></polygon>'
