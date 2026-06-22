@@ -3068,13 +3068,14 @@
     }
 
     if (!items.length && !rawMarkdown && !strategic) {
-      // Non-persisting: this is a transient render-time status, never a conversation event. Persisting
-      // it (the old behavior) duplicated it into the log on every reload.
-      appendMessage('atlas', 'Plan was created. Use Recover to view it.', false);
+      // Nothing to render yet (pool not ready / empty restore). Show NOTHING — the live progress
+      // indicator and the eventual plan render are authoritative. The old "Plan was created. Use
+      // Recover to view it." line was a misleading transient: it appeared mid-generation and on
+      // empty restores even though no plan existed yet.
       return;
     }
     if (!dom.transcript) {
-      pushAtlasMessage(rawMarkdown ? rawMarkdown.slice(0, 4000) : 'Plan was created.');
+      if (rawMarkdown) pushAtlasMessage(rawMarkdown.slice(0, 4000));
       return;
     }
     const revisionId = String(
