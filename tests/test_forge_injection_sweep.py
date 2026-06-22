@@ -60,6 +60,20 @@ def test_injection_sweep_persisted_and_loadable(tmp_path, monkeypatch):
     assert loaded["min_sufficient_injection_level"] == 2
 
 
+def test_saved_sweep_reloadable_for_next_startup(tmp_path, monkeypatch):
+    # Persistence: a sweep saved server-side is reloadable by provider/model on a later startup.
+    import agent.model_forge.real_method_runner as rmr
+    monkeypatch.setattr(rmr, "_default_post", _level_sensitive_post())
+    svc = _svc(tmp_path)
+    svc.injection_sweep_profile(provider_id="local", model_id="m1", base_url="http://x",
+                                dimensions=["structured_output_fidelity"], levels=[0, 2])
+    # A fresh service instance (as on restart) still finds it on disk.
+    from agent.model_forge.evaluation_service import ForgeEvaluationService
+    from agent.model_forge.profile_store import ProfileStore
+    reloaded = ForgeEvaluationService(tmp_path, ProfileStore(tmp_path / "profiles")).load_injection_sweep("local", "m1")
+    assert reloaded is not None and reloaded["levels"] == [0, 2]
+
+
 def test_high_tolerance_lowers_to_minimum_level(tmp_path, monkeypatch):
     # "How far can we lower it?" — with a generous tolerance any level counts as sufficient, so the
     # minimum-sufficient level drops to the lowest swept level while the PEAK stays unchanged.

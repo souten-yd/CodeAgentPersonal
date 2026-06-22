@@ -125,6 +125,13 @@ def test_method_substitution_surfaced_in_ui():
     assert "代わりに使う手法" in src
 
 
+def test_saved_sweep_loaded_on_model_select():
+    src = _forge_js()
+    # The UI restores the last persisted sweep when a model is selected (survives restart).
+    assert "loadSavedInjectionSweep" in src
+    assert "api('/evaluation/injection-sweep?provider_id='" in src
+
+
 def test_local_server_port_option_present():
     src = _forge_js()
     # An already-running local model addressed by port (default 8080), no Anvil registry needed.

@@ -132,6 +132,11 @@ class ForgeService:
         base_url = self._resolve_local_base_url(base_url, runtime_kind)
         return self.evaluation.injection_sweep_profile(base_url=base_url, **payload)
 
+    def load_injection_sweep(self, provider_id: str, model_id: str) -> dict | None:
+        """The last injection sweep saved for this model (persisted under ca_data), so the UI can show
+        it again on a later startup without re-running."""
+        return self.evaluation.load_injection_sweep(provider_id, model_id)
+
     def prepare_local_runtime(self, base_url: str = "", runtime_kind: str = "") -> dict:
         """Point the local provider at an already-running server (by port) and probe it LIVE so its
         health becomes READY for the arena run. Without this, an unprobed local provider reports

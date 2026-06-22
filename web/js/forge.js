@@ -794,7 +794,12 @@
     content.querySelector('[data-bench-model-select]')?.addEventListener('change', (e) => {
       state.bench.model = e.target.value;
       state.bench.ctx = '';  // re-derive ctx from the newly selected model's registered value
+      loadSavedInjectionSweep();  // restore the last persisted sweep for this model
       renderActive();
+    });
+    content.querySelector('[data-bench-model]')?.addEventListener('change', (e) => {
+      state.bench.model = e.target.value;
+      loadSavedInjectionSweep();
     });
     content.querySelector('[data-bench-model]')?.addEventListener('input', (e) => {
       state.bench.model = e.target.value;
@@ -951,6 +956,19 @@
     } catch (err) {
       state.data.lmStudioCatalog = { status: 'error', models: [] };
     }
+    renderActive();
+  }
+
+  // Restore the last injection sweep persisted server-side for the selected model, so a benchmark
+  // result is referenceable on a later startup without re-running it.
+  async function loadSavedInjectionSweep() {
+    const sel = state.bench;
+    if (!sel.provider || !sel.model) { sel.injectionSweep = null; return; }
+    try {
+      const r = await api('/evaluation/injection-sweep?provider_id=' + encodeURIComponent(runtimeProviderId())
+        + '&model_id=' + encodeURIComponent(sel.model));
+      sel.injectionSweep = (r && r.record) || null;
+    } catch (_e) { /* keep whatever is in memory */ }
     renderActive();
   }
 
