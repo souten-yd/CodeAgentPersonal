@@ -2041,21 +2041,29 @@
     state.loading = true;
     setStatus('Loading…');
     try {
-      const status = await api('/status');
-      const data = { status, providers: [], loadouts: [], profiles: [], leaderboard: [], settings: {}, openrouterCatalog: null, localModels: [], lmStudioCatalog: null, localPortCatalog: null, twinSettings: {}, twinProfiles: { profiles: [], count: 0 } };
-      // Anvil (local model registry) is the core app's Models DB, not a /api/forge endpoint.
-      try { data.localModels = ((await (await fetch('/models/db')).json()).models) || []; } catch (_e) {}
-      try { data.providers = (await api('/providers')).providers || []; } catch (_e) {}
-      try { data.settings = (await api('/settings')).settings || {}; } catch (_e) {}
-      try { data.openrouterCatalog = await api('/providers/openrouter/catalog'); } catch (_e) {}
-      try { data.loadouts = (await api('/loadouts')).loadouts || []; } catch (_e) {}
-      try { data.profiles = (await api('/profiles')).profiles || []; } catch (_e) {}
-      try { data.leaderboard = (await api('/leaderboard')).leaderboard || []; } catch (_e) {}
-      try { data.presets = (await api('/presets')).presets || []; } catch (_e) {}
-      try { data.stagePolicy = (await api('/stage-policy')).stage_policy || []; } catch (_e) {}
-      try { data.routePolicy = (await api('/route-policy')).route_policy || []; } catch (_e) {}
-      try { data.twinSettings = await api('/twin/settings'); } catch (_e) {}
-      try { data.twinProfiles = await api('/twin/profiles'); } catch (_e) {}
+      // One aggregate call for the Forge-internal init data (one ForgeService build server-side),
+      // plus the external/core fetches in PARALLEL so loading stays fast.
+      const [boot, localModels, openrouterCatalog] = await Promise.all([
+        api('/bootstrap'),
+        fetch('/models/db').then((r) => r.json()).then((j) => j.models || []).catch(() => []),
+        api('/providers/openrouter/catalog').catch(() => null),
+      ]);
+      const status = boot.status || {};
+      const data = {
+        status,
+        providers: boot.providers || [],
+        loadouts: boot.loadouts || [],
+        profiles: boot.profiles || [],
+        leaderboard: boot.leaderboard || [],
+        settings: boot.settings || {},
+        presets: boot.presets || [],
+        stagePolicy: boot.stage_policy || [],
+        routePolicy: boot.route_policy || [],
+        twinSettings: boot.twin_settings || {},
+        twinProfiles: boot.twin_profiles || { profiles: [], count: 0 },
+        openrouterCatalog, localModels,
+        lmStudioCatalog: null, localPortCatalog: null,
+      };
       state.data = data;
       renderShell();
       setStatus(status.forge_enabled ? 'Forge enabled' : 'Forge off — legacy model execution primary', 'ok');

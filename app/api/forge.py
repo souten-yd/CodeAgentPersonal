@@ -196,6 +196,35 @@ def get_status(request: Request) -> dict:
     return _service(request).status()
 
 
+@router.get("/bootstrap")
+def get_bootstrap(request: Request) -> dict:
+    """Aggregate the Forge tab's init data in ONE call and ONE ForgeService build, instead of ~11
+    separate GETs that each construct their own service. External/lazy data (OpenRouter catalog, the
+    local model registry, local server catalogs) is intentionally left out so this stays fast — the
+    UI fetches those in parallel/on demand."""
+    svc = _service(request)
+
+    def _safe(fn, default):
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001 - one missing section must not fail the whole bootstrap.
+            return default
+
+    return {
+        "status": _safe(svc.status, {}),
+        "providers": _safe(svc.providers, []),
+        "settings": _safe(svc.settings, {}),
+        "profiles": _safe(svc.profiles_list, []),
+        "leaderboard": _safe(svc.leaderboard, []),
+        "presets": _safe(svc.presets, []),
+        "stage_policy": _safe(svc.get_stage_policy, []),
+        "route_policy": _safe(svc.get_route_policy, []),
+        "loadouts": _safe(svc.get_loadouts, []),
+        "twin_settings": _safe(lambda: {"settings": get_twin_settings(), "reversible": True}, {}),
+        "twin_profiles": _safe(lambda: get_twin_profiles(request), {"profiles": [], "count": 0}),
+    }
+
+
 @router.get("/twin-assist/cases")
 def get_twin_assist_cases(pack_id: str = "full") -> dict:
     try:
