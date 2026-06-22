@@ -518,17 +518,16 @@
     line.classList.toggle('stalled', connectionState === 'stalled');
     line.dataset.connectionState = connectionState;
     const previousTokens = Number(line.dataset.tokens || 0) || 0;
-    // Elapsed answer timer: (re)start on a fresh generation (tokens reset to 0 / drop), else keep.
-    if (!line.dataset.ansStart || tokens < previousTokens || (tokens === 0 && previousTokens > 0)) {
-      line.dataset.ansStart = String(Date.now());
-    }
-    const ansSec = Math.max(0, Math.round((Date.now() - Number(line.dataset.ansStart)) / 1000));
-    // Indicator: 表示(status) · 進捗(progress) · token生成数 · Ans <elapsed>s
+    // Indicator: 表示(status) · token生成数 · <last progress>s ago. Non-live states
+    // (stalled/reconnecting/terminal) keep the descriptive connection label instead of "Ns ago".
+    const ageSec = Number.isFinite(sec) ? Math.max(0, Math.round(sec)) : 0;
+    const progressPart = (connectionState === 'live' || connectionState === 'unknown')
+      ? `${ageSec}s ago`
+      : runtimeConnectionLabel(connectionState, detail || {});
     const parts = [
-      phase || 'generating',                                        // 表示 (status/phase)
-      runtimeConnectionLabel(connectionState, detail || {}),        // 進捗 (live / last progress)
+      phase || 'generating',                                            // 表示 (status/phase)
       maxCtx > 0 ? `tokens ${tokens} / ${maxCtx}` : `tokens ${tokens}`,  // token生成数
-      `Ans ${ansSec}s`,                                             // 応答経過時間
+      progressPart,                                                     // 進捗 (Ns ago)
     ];
     const tokenDelta = Math.max(0, tokens - previousTokens);
     if (tokenDelta > 0 && typeof root.updateTokenDisplay === 'function') {

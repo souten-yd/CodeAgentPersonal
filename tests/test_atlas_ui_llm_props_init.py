@@ -48,13 +48,13 @@ def test_progress_line_updates_token_indicator_without_ctx_props():
     assert "maxCtx > 0" in body
 
 
-def test_progress_indicator_shows_status_progress_tokens_and_answer_timer():
+def test_progress_indicator_shows_status_tokens_and_progress_age():
     body = _slice(PANEL, "function updateLlmProgressLine(detail)", "function clearLlmProgressLine()")
-    # 表示(status) · 進捗 · token生成数 · Ans <elapsed>s
-    assert "phase || 'generating'" in body                 # 表示
-    assert "runtimeConnectionLabel(connectionState" in body  # 進捗
-    assert "`Ans ${ansSec}s`" in body                       # 応答経過
-    assert "ansStart" in body
+    # 表示(status) · token生成数 · <Ns> ago
+    assert "phase || 'generating'" in body          # 表示
+    assert "tokens ${tokens}" in body               # token生成数
+    assert "`${ageSec}s ago`" in body               # 進捗 (last progress age)
+    assert "Ans " not in body                       # the Ans timer was dropped per the requested format
 
 
 def test_top_right_token_display_removed():
