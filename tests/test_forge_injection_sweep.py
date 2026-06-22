@@ -211,6 +211,18 @@ def test_forge_service_injection_sweep_resolves_blank_base_url(tmp_path, monkeyp
     assert "runtime_kind" not in captured  # consumed by the service, not forwarded
 
 
+def test_prepare_local_runtime_points_and_probes_local_provider(tmp_path):
+    # Arena needs the local provider READY; prepare_local_runtime points it at the port and probes
+    # it live so an unprobed provider no longer blocks the run with health_unavailable.
+    from agent.model_forge.forge_service import ForgeService, LOCAL_OPENAI_PROVIDER_ID
+    fs = ForgeService(tmp_path, env={})
+    fs.prepare_local_runtime("http://127.0.0.1:9191", "llama_cpp")
+    assert fs._env["FORGE_LOCAL_BASE_URL"] == "http://127.0.0.1:9191"
+    # The local provider is now registered with that base_url and has been probed (health recorded).
+    health = fs.registry.health(LOCAL_OPENAI_PROVIDER_ID)
+    assert health.detail != "missing_base_url"
+
+
 def test_twin_assist_floor_wins_over_sweep_cap():
     from agent.model_forge.execution_policy import ExecutionPolicySelector, ModelCapabilityProfile
     from agent.model_forge.route_matrix import ChangeClass

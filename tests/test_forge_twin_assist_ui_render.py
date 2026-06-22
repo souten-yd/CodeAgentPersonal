@@ -1,20 +1,32 @@
 from pathlib import Path
 
 
-def test_twin_assist_ui_contains_controls_results_and_safety_copy():
+def test_twin_assist_results_render_and_safety_copy():
     source = Path("web/js/forge.js").read_text(encoding="utf-8")
     assert "Twin Assist Evaluation" in source
-    assert "Run Twin Assist Eval" in source
+    # The dedicated Twin-eval button/run form was removed; the run is part of the Benchmark action.
+    assert "Run Twin Assist Eval" not in source
+    assert "forge-twin-run" not in source
+    # Results still render (baseline vs assisted lift/harm) and the safety copy is preserved.
     assert "baseline" in source and "assisted" in source and "lift" in source and "harm" in source
     assert "twin_localized_slot" in source and "twin_deterministic_anchor" in source
-    assert "Evaluation does not apply files or change production routing" in source
-    assert "recommended_twin_assist_mode" in source
-    assert "recommended_twin_injection_level" in source
+    assert "ファイル適用や本番ルーティングは変更しません" in source
 
 
-def test_twin_assist_ui_uses_forge_api_and_escapes_rendered_values():
+def test_twin_eval_runs_via_benchmark_action_and_escapes_values():
     source = Path("web/js/forge.js").read_text(encoding="utf-8")
-    assert "api('/twin-assist/cases?pack_id='" in source
+    # The combined Benchmark action fetches cases and runs the twin eval.
+    assert "api('/twin-assist/cases?pack_id=quick')" in source
     assert "api('/twin-assist/run'" in source
+    assert "runTwinAssistCore" in source
     assert "escapeHtml(item.case_id)" in source
     assert "textContent = JSON.stringify" in source
+
+
+def test_twin_result_shown_in_benchmark_area_honestly():
+    source = Path("web/js/forge.js").read_text(encoding="utf-8")
+    # Twin result lives inline under Benchmark, and an unavailable run is shown honestly.
+    assert "twinAssistInlineHtml" in source
+    assert "Twin assist 評価（今回の実行）" in source
+    assert "twinUnavailableReasons" in source
+    assert "fixture_missing" in source
