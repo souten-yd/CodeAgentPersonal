@@ -253,6 +253,11 @@
         next_actions: ['retry', 'revise plan', 'cancel'],
       }));
     }
+    // Authoritative orchestrator state first: while it is still running, a stale/partial autopilot
+    // batch result must NOT be restored as a "completed" pipeline summary (the live progress is the
+    // truth). The server owns the task, so we trust its status over a cached sub-result.
+    const autoStatus = await restoreLatestAutonomousRun(poolId);
+    const runActive = !!autoStatus && String(autoStatus.status || '').toLowerCase() === 'running';
     try {
       const peek = await root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult({ pool_id: poolId });
       const hasAutopilotResult = peek && peek.ok && peek.data && (
@@ -261,7 +266,7 @@
         || Number.isFinite(Number(peek.data.completed_count))
         || Number.isFinite(Number(peek.data.failed_count))
       );
-      if (hasAutopilotResult) {
+      if (hasAutopilotResult && !runActive) {
         const d = peek.data;
         const stages = appendStageBlock(poolId);
         if (stages) {
@@ -275,7 +280,6 @@
     } catch (err) {
       console.warn('Atlas latest autopilot restore failed', err);
     }
-    await restoreLatestAutonomousRun(poolId);
   }
 
   function progressRunIdFromRuntime(runtime) {
@@ -444,18 +448,21 @@
     return restored;
   }
 
+  // Returns the authoritative orchestrator status data (or null), and renders the workflow state.
   async function restoreLatestAutonomousRun(poolId) {
-    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getLatestAutonomousCodegen || !root.AtlasPipelineAPI.getAutonomousCodegenStatus) return;
+    if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getLatestAutonomousCodegen || !root.AtlasPipelineAPI.getAutonomousCodegenStatus) return null;
     try {
       const latest = await root.AtlasPipelineAPI.getLatestAutonomousCodegen(poolId);
-      if (!latest || !latest.ok || !latest.data || !latest.data.orchestrator_run_id) return;
+      if (!latest || !latest.ok || !latest.data || !latest.data.orchestrator_run_id) return null;
       const status = await root.AtlasPipelineAPI.getAutonomousCodegenStatus(poolId, latest.data.orchestrator_run_id);
       if (status && status.ok && status.data) {
         renderAutonomousWorkflowState(status.data);
+        return status.data;
       }
     } catch (err) {
       console.warn('Atlas latest autonomous run restore failed', err);
     }
+    return null;
   }
 
   function init() {
