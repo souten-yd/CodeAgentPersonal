@@ -47,6 +47,11 @@
     // messages (e.g. "Plan was created…", approval prompts) must NOT be re-persisted during a
     // restore, or every reload appends another copy to the conversation log forever.
     restoring: false,
+    // True while a plan is being generated (the createPlanPool request is in flight). The pool is
+    // not persisted until planning finishes, so switching to another tab (Echo, …) and back must
+    // NOT surface the runtime-status 404 (plan_pool_not_found) as a terminal failure — generation
+    // is still running. Survives tab switches because the module/state persists (panel only hides).
+    planGenerationInFlight: false,
   };
 
   const dom = {};
@@ -244,14 +249,18 @@
       }
     } catch (err) {
       console.warn('Atlas runtime status restore failed', err);
-      renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
-        phase: 'failed',
-        status: 'failed',
-        message: 'Run status unavailable',
-        error: `endpoint=/api/atlas/plan-pools/${poolId}/runtime-status`,
-        requires_user_action: true,
-        next_actions: ['retry', 'revise plan', 'cancel'],
-      }));
+      // Don't flip an in-progress plan generation into a terminal failure on a transient restore
+      // error; the live planning indicator + eventual createPlanPool result remain authoritative.
+      if (!state.planGenerationInFlight) {
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: 'failed',
+          status: 'failed',
+          message: 'Run status unavailable',
+          error: `endpoint=/api/atlas/plan-pools/${poolId}/runtime-status`,
+          requires_user_action: true,
+          next_actions: ['retry', 'revise plan', 'cancel'],
+        }));
+      }
     }
     // Authoritative orchestrator state first: while it is still running, a stale/partial autopilot
     // batch result must NOT be restored as a "completed" pipeline summary (the live progress is the
@@ -904,7 +913,17 @@
     // free_text_goal: treat plain text as Atlas Workbench requirement input,
     // then render the generated plan in chat so the user can supervise it.
     setBusy(true);
-    const resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_path: projectPath(), metadata: { preset_id: state.selectedPresetId }, capability_preferences: getAtlasCapabilityPreferences(), automation_features: getAtlasAutomationFeatures() });
+    // Mark planning in flight for the whole createPlanPool round-trip (the pool is only persisted
+    // once planning finishes). The finally clears it on both success and failure so a returning tab
+    // sees the real status afterwards. See loadRuntimeStatus / restoreLatestRun for how this
+    // suppresses the spurious plan_pool_not_found terminal panel while generation is still running.
+    state.planGenerationInFlight = true;
+    let resp;
+    try {
+      resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_path: projectPath(), metadata: { preset_id: state.selectedPresetId }, capability_preferences: getAtlasCapabilityPreferences(), automation_features: getAtlasAutomationFeatures() });
+    } finally {
+      state.planGenerationInFlight = false;
+    }
     if (!resp.ok) {
       setBusy(false);
       pushAtlasMessage(`PlanPool creation failed: ${formatError(resp)}`);
@@ -2241,11 +2260,26 @@
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPlanRuntimeStatus) return null;
     const resp = await root.AtlasPipelineAPI.getPlanRuntimeStatus(poolId, workspaceId());
     if (resp && resp.ok && resp.data) return resp.data;
+    const errText = resp ? formatError(resp) : 'runtime_status_request_failed';
+    // Pool not yet persisted while a plan is still generating (returning from another tab mid-run):
+    // this is NOT a failure — the planning LLM call hasn't registered the pool yet. Show a benign
+    // "planning" state instead of a terminal retry/revise/cancel panel that wrongly implied the
+    // in-progress generation had already failed (plan_pool_not_found).
+    if (state.planGenerationInFlight && /plan_pool_not_found/i.test(String(errText))) {
+      return runtimeStatusPayload(poolId, {
+        phase: 'planning',
+        status: 'running',
+        message: 'プラン生成中…',
+        runtime_connection_state: 'live',
+        next_actions: ['wait'],
+        authoritative_source: 'planning in progress (pool not yet persisted)',
+      });
+    }
     return runtimeStatusPayload(poolId, {
       phase: 'failed',
       status: 'failed',
       message: 'Run status unavailable',
-      error: resp ? formatError(resp) : 'runtime_status_request_failed',
+      error: errText,
       requires_user_action: true,
       next_actions: ['retry', 'revise plan', 'cancel'],
       authoritative_source: 'PlanPool runtime-status endpoint',
