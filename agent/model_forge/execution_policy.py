@@ -134,6 +134,15 @@ class ExecutionPolicySelector:
         consecutive_method_failures: int = 0,
         rescue_fallback_model: FallbackModelRef | None = None,
     ) -> ExecutionPolicy:
+        # Weakness-handling pipeline (single coherent order; each layer is separable/extendable):
+        #   1. RouteMatrix          — route by change-class/task (+ benchmark route preference)
+        #   2. MethodRouter         — base method/injection from capability scores
+        #   3. CapabilityRescue     — broadly-incapable model -> deterministic / review / fallback model
+        #   4. method_substitution  — bad at a SPECIFIC method -> swap to the measured-best substitute
+        #   5. injection level      — unmeasured=conservative / sweep min_sufficient|max_score / twin floor
+        #   6. twin-offload rescue  — weak reasoning dims -> force the Twin module that does it (BlastMap…)
+        #   7. failure escalation   — +injection per consecutive failure, then review-only
+        # 3 and 4 compose (substitution never avoids deterministic, so it won't undo a rescue).
         change = ChangeClass(change_class)
         profile = model_profile or ModelCapabilityProfile(model_id="default")
         route_selection = self._route_selector.select(change, task_category=task_category, requested_route=requested_route)
