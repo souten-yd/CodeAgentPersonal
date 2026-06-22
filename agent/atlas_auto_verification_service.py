@@ -84,13 +84,22 @@ class AtlasAutoVerificationService:
             return self._blocked(pool, item.item_id, request, "arbitrary_command_forbidden")
         command_id = request.command_id or str(((item.metadata or {}).get("verification") or {}).get("command_id") or "")
         if not command_id:
-            # No allowlisted test command. For visual HTML artifacts, run the static visual
-            # contract (and optional Playwright smoke) instead of reporting "nothing to verify"
-            # — file existence alone must never pass a visual task.
+            # No configured command. For visual HTML artifacts, run the visual contract.
             html_rel = self._resolve_visual_html(item, pool)
             if html_rel and self._safe_rel(html_rel):
                 return self._run_visual_verification(pool, item, request, workspace_root, html_rel)
-            return self._blocked(pool, item.item_id, request, "verification_command_missing")
+            # Generic default: if the item touches a Python test file, run pytest on it rather than
+            # reporting "nothing to verify". This makes generated code actually get verified by
+            # default — a planner need not hand-author a verification command for the common case.
+            derived = self._derive_pytest_test_path(item, workspace_root)
+            if derived:
+                command_id = "pytest_selected"
+                ver_meta = dict((item.metadata or {}).get("verification") or {})
+                ver_meta.setdefault("test_path", derived)
+                ver_meta["auto_derived"] = True
+                item.metadata = {**(item.metadata or {}), "verification": ver_meta}
+            else:
+                return self._blocked(pool, item.item_id, request, "verification_command_missing")
         if command_id not in allowlist or not allowlist[command_id].allowed:
             return self._blocked(pool, item.item_id, request, "verification_command_not_allowlisted")
         spec = allowlist[command_id]
@@ -614,6 +623,21 @@ class AtlasAutoVerificationService:
         if path.is_absolute() or ".." in path.parts:
             return False
         return True
+
+    @staticmethod
+    def _looks_like_pytest_file(rel: str) -> bool:
+        name = PurePosixPath(str(rel or "")).name
+        return name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py"))
+
+    def _derive_pytest_test_path(self, item, workspace_root: str) -> str:
+        """Pick a Python test file the item touches so pytest can verify it when no command was
+        configured. Prefers an existing file on disk; safe-relative only. Returns '' when none."""
+        candidates = [str(t) for t in (getattr(item, "target_files", []) or [])
+                      if self._looks_like_pytest_file(t) and self._safe_rel(str(t))]
+        if not candidates:
+            return ""
+        on_disk = [c for c in candidates if (Path(workspace_root) / c).is_file()]
+        return (on_disk or candidates)[0]
 
     def _persist_task_contract(self, pool, item, contract, *, status: str, evidence: dict | None = None) -> None:
         item.metadata.setdefault("task_verification_contract", {})

@@ -88,6 +88,31 @@ def test_auto_verification_safe_apply_not_applied_includes_safe_apply_details(tm
     assert summary['file_results'][0]['reason'] == 'content_missing'
 
 
+def test_auto_verification_auto_derives_pytest_from_test_target(tmp_path):
+    # Generic default: no verification command configured, but the item touches a pytest file ->
+    # run pytest on it instead of reporting "nothing to verify", so generated code is verified.
+    (tmp_path / 'src').mkdir(parents=True, exist_ok=True)
+    (tmp_path / 'src' / 'test_calc.py').write_text('def test_ok():\n    assert True\n', encoding='utf-8')
+    storage, journal, pool, item = _setup(tmp_path)
+    item.target_files = ['src/calc.py', 'src/test_calc.py']  # no metadata['verification']
+    storage.save_pool(pool)
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=_runner())
+    r = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id='r1'))
+    assert r.command_id == 'pytest_selected'
+    assert r.status == 'passed'
+
+
+def test_auto_verification_blocks_when_no_test_target_and_no_command(tmp_path):
+    # No command and no test-looking target -> still honestly blocked (nothing to verify).
+    storage, journal, pool, item = _setup(tmp_path)
+    item.target_files = ['src/calc.py']  # not a test file
+    storage.save_pool(pool)
+    svc = AtlasAutoVerificationService(journal=journal, storage=storage, command_runner=_runner())
+    r = svc.run_after_auto_safe_apply(AtlasAutoVerificationRequest(pool_id=pool.pool_id, item_id=item.item_id, run_id='r1'))
+    assert r.status == 'blocked'
+    assert 'verification_command_missing' in r.warnings
+
+
 def test_auto_verification_passes_allowlisted_pytest(tmp_path):
     (tmp_path / 'tests').mkdir(parents=True, exist_ok=True)
     (tmp_path / 'tests' / 'test_ok.py').write_text('def test_ok():\n    assert True\n', encoding='utf-8')
