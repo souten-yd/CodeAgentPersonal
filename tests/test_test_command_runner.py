@@ -13,6 +13,9 @@ def test_allowed_command_prefixes() -> None:
     runner = TestCommandRunner()
 
     assert runner.is_allowed_command("pytest -q tests/test_x.py") is True
+    # The verification allowlist builds "python -m pytest -q <path>"; the default runner must accept
+    # it, else auto-verification is blocked as not_allowlisted and generated code is never tested.
+    assert runner.is_allowed_command("python -m pytest -q src/test_calc.py") is True
     assert runner.is_allowed_command("python -m py_compile agent/x.py") is True
     assert runner.is_allowed_command("node --check web/js/x.js") is True
     assert runner.is_allowed_command("python -m json.tool x.json") is True

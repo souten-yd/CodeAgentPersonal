@@ -19,6 +19,10 @@ from agent.test_command_runner_schema import (
 DEFAULT_ALLOWED_COMMANDS = [
     "python -m py_compile",
     "pytest -q",
+    # The verification allowlist (atlas_verification_allowlist: pytest_selected / pytest_file) builds
+    # "python -m pytest -q <path>"; it must be runnable by the default runner or auto-verification is
+    # blocked as not_allowlisted and generated code is never actually tested.
+    "python -m pytest",
     "node --check",
     "python -m json.tool",
     "python scripts/check_ui_inline_script_syntax.py",
