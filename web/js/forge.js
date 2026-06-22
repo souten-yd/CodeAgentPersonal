@@ -348,14 +348,12 @@
   }
 
   function benchmarkHtml(data) {
-    // Evaluation hub: capability Benchmark + Twin Assist (run as a section here, not a tab).
-    const subtab = state.bench.subtab || 'benchmark';
-    const subnav = '<div class="forge-card-title forge-section-title">Evaluation</div>'
-      + '<div class="forge-subnav">'
-      + '<button type="button" class="forge-tab' + (subtab === 'benchmark' ? ' active' : '') + '" data-bench-subtab="benchmark">Benchmark</button>'
-      + '<button type="button" class="forge-tab' + (subtab === 'twin-assist' ? ' active' : '') + '" data-bench-subtab="twin-assist">Twin Assist</button>'
-      + '</div>';
-    return subnav + (subtab === 'twin-assist' ? twinAssistHtml() : _benchmarkBody(data));
+    // Single evaluation hub: the Benchmark body (run + injection sweep + Twin-assist result inline)
+    // plus the capability & runtime-policy views. The old "Twin Assist" sub-tab was removed — its
+    // evaluation now runs inline under Benchmark, and the capability/readiness/policy views are
+    // surfaced here so no capability evaluation is hidden.
+    return '<div class="forge-card-title forge-section-title">Evaluation</div>'
+      + _benchmarkBody(data) + capabilityPolicyHtml();
   }
 
   function _benchmarkBody(data) {
@@ -1805,40 +1803,17 @@
     renderActive();
   }
 
-  function twinAssistHtml() {
-    const report = state.twinAssist.result;
+  // Capability & runtime-policy views (relocated out of the removed Twin Assist sub-tab): Twin
+  // Readiness, the Runtime Policy preview, and the Benchmark capability profile (capability scores
+  // + method fitness) — the "another capability evaluation" that must stay visible under Benchmark.
+  function capabilityPolicyHtml() {
     const readiness = state.twinAssist.readiness;
     const rtpolicy = state.twinAssist.runtimePolicy;
     const modelProfile = state.twinAssist.modelProfile;
-    const rows = report ? (report.comparisons || []).map((item, index) => {
-      const baseline = item.baseline && item.baseline.score != null ? item.baseline.score : 'unavailable';
-      const best = item.best_score != null ? item.best_score : 'unavailable';
-      const lift = item.lift != null ? item.lift : 'unavailable';
-      return '<tr><td>' + escapeHtml(item.case_id) + '</td><td>' + escapeHtml(baseline) + '</td><td>' + escapeHtml(best)
-        + '</td><td>' + escapeHtml(lift) + '</td><td>' + escapeHtml(item.best_assist_mode || 'unavailable')
-        + '</td><td>' + (item.harm_detected ? '<span class="forge-warn-pill">harm</span>' : 'no')
-        + '</td><td><button class="forge-probe-btn" data-twin-detail="' + index + '">Detail</button></td></tr>';
-    }).join('') : '';
-    const subtab = state.twinAssist.subtab || 'evaluation';
 
-    // Sub-section 1: Evaluation (read-only). The run is now part of the single Benchmark action;
-    // there is no separate Twin-eval button. Results render here and inline under Benchmark.
-    const evaluationSection = '<div class="forge-card"><div class="forge-card-title">Twin Assist Evaluation</div>'
-      + '<div class="forge-hint">Twin評価は Benchmark の「Run benchmark + 注入スイープ + Twin評価」で一括実行されます。'
-      + 'ここは結果の参照専用です（ファイル適用や本番ルーティングは変更しません）。</div></div>'
-      + (report ? '<div class="forge-card"><div class="forge-card-title">Results</div><div class="forge-kv"><span>Run</span><b>' + escapeHtml(report.run_id) + '</b></div>'
-        + '<div class="forge-table-wrap"><table><thead><tr><th>case</th><th>baseline</th><th>assisted</th><th>lift</th><th>best mode</th><th>harm</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>'
-        + '<div class="forge-card"><div class="forge-card-title">Assist Effect (補助有無)</div>'
-        + '<div class="forge-hint">Baseline vs Twin-assisted score per case — the visible Twin effect.</div>'
-        + assistEffectRadarHtml(report.comparisons) + '</div>'
-        : '<div class="forge-card"><div class="forge-empty">まだ評価結果がありません。Benchmark タブで実行してください。</div></div>')
-      + '<div id="forge-twin-detail" class="forge-twin-result" style="display:none"></div>';
-
-    // Sub-section 2: Readiness.
     const readinessSection = (readiness ? '<div class="forge-card"><div class="forge-card-title">Twin Readiness</div><div class="forge-kv"><span>score</span><b>' + escapeHtml(readiness.overall_score == null ? 'unavailable' : readiness.overall_score) + '</b></div><div class="forge-kv"><span>level</span><b>' + escapeHtml(readiness.readiness_level) + '</b></div><div class="forge-kv"><span>max assist</span><b>' + escapeHtml(readiness.recommended_max_assist_mode) + '</b></div></div>'
-      : '<div class="forge-card"><div class="forge-card-title">Twin Readiness</div><div class="forge-empty">Run a Twin Assist evaluation to populate Twin readiness.</div></div>');
+      : '<div class="forge-card"><div class="forge-card-title">Twin Readiness</div><div class="forge-empty">Run a benchmark to populate Twin readiness.</div></div>');
 
-    // Sub-section 3: Runtime Policy Preview.
     const runtimePolicySection = '<div class="forge-card"><div class="forge-card-title">Runtime Policy Preview</div>'
       + '<div class="forge-hint">Preview why this model/task/change-class would get a route/method/Twin injection. Advisory; does not change production routing.</div>'
       + '<label class="forge-label">Change class<select id="forge-rtpolicy-change" class="forge-select">' + ['trivial','micro','small','medium','large','critical','greenfield'].map((c) => '<option value="' + c + '"' + (c === 'medium' ? ' selected' : '') + '>' + c + '</option>').join('') + '</select></label>'
@@ -1870,14 +1845,8 @@
         : '<div class="forge-empty">No benchmark profile for this model yet. Run a benchmark, then preview to see the derived route/method/injection.</div>')
       + '</div>';
 
-    // One coherent Twin Assist tab with a sub-navigation instead of a long card stack.
-    const subtabs = [['evaluation', 'Evaluation'], ['readiness', 'Readiness'], ['runtime-policy', 'Runtime Policy']];
-    const subnav = '<div class="forge-subnav">' + subtabs.map(([id, label]) =>
-      '<button type="button" class="forge-tab' + (id === subtab ? ' active' : '') + '" data-twin-subtab="' + id + '">' + label + '</button>'
-    ).join('') + '</div>';
-    const activeSection = subtab === 'readiness' ? readinessSection
-      : subtab === 'runtime-policy' ? runtimePolicySection : evaluationSection;
-    return '<div class="forge-card-title forge-section-title">Twin Assist</div>' + subnav + activeSection;
+    return '<div class="forge-card-title forge-section-title">Capability &amp; runtime policy</div>'
+      + readinessSection + runtimePolicySection;
   }
 
   async function previewRuntimePolicy() {
@@ -1899,17 +1868,9 @@
     renderActive();
   }
 
-  function wireTwinAssist(content) {
-    content.querySelectorAll('[data-twin-subtab]').forEach((btn) => btn.addEventListener('click', () => {
-      state.twinAssist.subtab = btn.getAttribute('data-twin-subtab');
-      renderActive();
-    }));
+  // Wiring for the capability/runtime-policy views now living in the Benchmark body.
+  function wireCapabilityPolicy(content) {
     content.querySelector('#forge-rtpolicy-run')?.addEventListener('click', () => previewRuntimePolicy().catch((err) => setStatus('Runtime policy preview failed: ' + err.message, 'error')));
-    content.querySelectorAll('[data-twin-detail]').forEach((button) => button.addEventListener('click', () => {
-      const detail = $('forge-twin-detail');
-      detail.style.display = 'block';
-      detail.textContent = JSON.stringify(state.twinAssist.result.comparisons[Number(button.getAttribute('data-twin-detail'))], null, 2);
-    }));
   }
 
   // Overview and the standalone Twin Assist tab were removed: status/providers live in
@@ -1988,17 +1949,9 @@
         row.addEventListener('click', () => openModelDrawer(row.getAttribute('data-model')));
       });
     } else if (state.tab === 'benchmark') {
-      // Benchmark is the evaluation hub: a sub-nav switches between capability Benchmark and
-      // Twin Assist (which runs as a section here, not a standalone tab).
-      content.querySelectorAll('[data-bench-subtab]').forEach((btn) => btn.addEventListener('click', () => {
-        state.bench.subtab = btn.getAttribute('data-bench-subtab');
-        renderActive();
-      }));
-      if ((state.bench.subtab || 'benchmark') === 'twin-assist') {
-        wireTwinAssist(content);
-      } else {
-        wireBenchmark(content, state.data);
-      }
+      // Single evaluation hub: benchmark run + capability/runtime-policy views (no sub-tab).
+      wireBenchmark(content, state.data);
+      wireCapabilityPolicy(content);
     } else if (state.tab === 'arena') {
       content.querySelectorAll('[data-candidate-detail]').forEach((btn) => {
         btn.addEventListener('click', () => openCandidateDrawer(btn.getAttribute('data-candidate-detail'), 'All'));
@@ -2099,7 +2052,7 @@
     _benchmarkHtml: benchmarkHtml,
     _anvilConfigFormHtml: renderAnvilConfigForm,
     _arenaHtml: arenaHtml,
-    _twinAssistHtml: twinAssistHtml,
+    _capabilityPolicyHtml: capabilityPolicyHtml,
     _radarHtml: radarHtml,
     _fallbackGraphHtml: fallbackGraphHtml,
     _methodComparisonHtml: methodComparisonHtml,

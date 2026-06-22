@@ -3,10 +3,11 @@ from pathlib import Path
 
 def test_twin_assist_results_render_and_safety_copy():
     source = Path("web/js/forge.js").read_text(encoding="utf-8")
-    assert "Twin Assist Evaluation" in source
-    # The dedicated Twin-eval button/run form was removed; the run is part of the Benchmark action.
+    # The dedicated Twin-eval tab/button/run form was removed; the run is part of the Benchmark
+    # action and results render inline under Benchmark.
     assert "Run Twin Assist Eval" not in source
     assert "forge-twin-run" not in source
+    assert "function twinAssistHtml" not in source
     # Results still render (baseline vs assisted lift/harm) and the safety copy is preserved.
     assert "baseline" in source and "assisted" in source and "lift" in source and "harm" in source
     assert "twin_localized_slot" in source and "twin_deterministic_anchor" in source

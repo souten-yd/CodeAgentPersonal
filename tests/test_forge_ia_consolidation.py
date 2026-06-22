@@ -17,11 +17,11 @@ def test_default_tab_is_benchmark():
     assert "tab: 'benchmark'," in SRC
 
 
-def test_benchmark_is_evaluation_hub_with_twin_assist_subnav():
-    assert 'data-bench-subtab="benchmark"' in SRC
-    assert 'data-bench-subtab="twin-assist"' in SRC
-    # Twin Assist content is rendered inside the benchmark hub.
-    assert "twinAssistHtml() : _benchmarkBody(data)" in SRC
+def test_benchmark_is_single_evaluation_hub_no_subnav():
+    # The Twin Assist sub-tab was removed: the Benchmark body and the capability/runtime-policy
+    # views render together as one hub.
+    assert 'data-bench-subtab="twin-assist"' not in SRC
+    assert "_benchmarkBody(data) + capabilityPolicyHtml()" in SRC
 
 
 def test_providers_and_status_moved_into_settings():
