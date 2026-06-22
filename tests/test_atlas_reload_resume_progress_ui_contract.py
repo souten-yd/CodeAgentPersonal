@@ -26,6 +26,15 @@ def test_restore_latest_run_replays_server_progress_state():
     assert "renderRuntimeStatusPanel(runtime)" in body
 
 
+def test_restore_does_not_show_completed_summary_while_run_is_active():
+    # Returning to Atlas mid-run must not render a stale "completed" pipeline summary; it is gated on
+    # the authoritative orchestrator status not being "running".
+    body = _slice(PANEL, "async function restoreLatestRun(poolId)", "async function restoreLatestAutonomousRun(poolId)")
+    assert "const autoStatus = await restoreLatestAutonomousRun(poolId)" in body
+    assert "'running'" in body
+    assert "hasAutopilotResult && !runActive" in body
+
+
 def test_runtime_progress_replay_uses_server_authoritative_events_and_local_hints():
     body = _slice(PANEL, "async function restoreRuntimeProgressReplay(poolId, runtime)", "function bindInputs()")
 
