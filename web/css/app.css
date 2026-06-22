@@ -1825,6 +1825,12 @@ iframe#preview-frame{flex:1;border:none;background:#fff;display:none}
 .forge-chart-dot.is-recommended{fill:var(--accent);opacity:1;stroke:var(--text);stroke-width:1.5}
 .forge-chart-threshold{stroke:var(--amber,#d6a23e);stroke-width:1;stroke-dasharray:4 3;opacity:.8}
 .forge-dim-peak{color:var(--text3);font-weight:400;font-size:11px}
+.forge-tips{margin:6px 0;font-size:11.5px;color:var(--text2);background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:6px 10px}
+.forge-tips summary{cursor:pointer;color:var(--text);font-weight:600}
+.forge-tips ul{margin:6px 0 2px;padding-left:18px;line-height:1.7}
+.forge-tips li{margin:2px 0}
+.forge-tips b{color:var(--text)}
+.forge-radar-note{font-size:11px;color:var(--text3);margin:2px 0 6px}
 .forge-help-steps{margin:8px 0 0;padding-left:18px;font-size:12px;color:var(--text2);line-height:1.7}
 .forge-help-steps li{margin:2px 0}
 .forge-select,.forge-input{width:100%;margin-top:8px;background:var(--bg1);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12.5px;padding:7px 10px;box-sizing:border-box}
