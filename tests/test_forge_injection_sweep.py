@@ -195,6 +195,25 @@ def test_method_substitution_recommends_alternatives_for_weak_dims():
     assert "deterministic_text_patch" in s.prefer  # Atlas owns the structure instead
 
 
+def test_execution_policy_switches_away_from_weak_method():
+    # A model weak at structured AND edit_intent: the router would pick edit_intent_list (structured
+    # weakness -> edit intents), but the model is ALSO bad at edit intents. The substitution wiring
+    # must switch the method away from edit_intent_list and record it.
+    from agent.model_forge.execution_policy import ExecutionPolicySelector, ModelCapabilityProfile
+    from agent.model_forge.method_taxonomy import MethodVariant
+    from agent.model_forge.route_matrix import ChangeClass
+    from agent.twin_control_plane.contracts import ModelCapabilityMode
+
+    profile = ModelCapabilityProfile(
+        model_id="weak", mode=ModelCapabilityMode.WEAK_LOCAL,
+        capability_scores={"structured_output_fidelity": 0.2, "edit_intent_quality": 0.2},
+        known_weaknesses=["structured_output_fidelity", "edit_intent_quality"])
+    policy = ExecutionPolicySelector().select(ChangeClass.MICRO, task_category="bugfix", model_profile=profile)
+    assert policy.method_variant != MethodVariant.EDIT_INTENT_LIST          # switched away
+    assert MethodVariant.EDIT_INTENT_LIST in policy.avoid_method_variants   # and avoided
+    assert any(r.startswith("method_substitution:edit_intent_quality") for r in policy.reasons)
+
+
 def test_injection_resistant_dimension_gets_method_substitution(tmp_path, monkeypatch):
     # A dimension that stays weak at EVERY injection level is injection-resistant -> the sweep
     # attaches a method substitution (use a different method, not more injection).
