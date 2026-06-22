@@ -38,6 +38,10 @@ class AtlasAutonomousCodegenRequest(BaseModel):
     policy_id: str = "full_auto_multi_item_v1"
     # Phase 2: generate a first patch for any item that has no applicable content yet.
     generate_missing_patches: bool = True
+    # Phase 1.5 (opt-in): deterministically ensure every implementation item also produces a unit
+    # test (adds test_<file>.py targets) so generated code is always accompanied by a test, instead
+    # of relying on a weak LLM planner to remember.
+    expand_test_plan: bool = False
     # Phase 5 (opt-in): after per-item apply+verify, run the project's whole test suite as an
     # integration / 結合 check, so cross-item breakage is caught (per-item verification only tests
     # each item in isolation). Advisory: recorded + warned, does not change the gated apply status.

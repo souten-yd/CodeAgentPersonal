@@ -154,6 +154,17 @@ class AtlasAutonomousCodegenOrchestratorService:
         if self._stop_requested(request.pool_id, orchestrator_run_id):
             return self._stopped_result(out, request.pool_id, run_id, orchestrator_run_id)
         pool = self.storage.load_pool(request.pool_id)
+        # Phase 1.5: deterministic test planning — ensure every implementation item also produces a
+        # unit test (weak models can't be trusted to remember). Persist so generation sees the targets.
+        if getattr(request, "expand_test_plan", False):
+            try:
+                from agent.atlas_plan_test_expansion import expand_plan_with_tests
+                pool = expand_plan_with_tests(pool)
+                if (pool.metadata or {}).get("test_expansion"):
+                    self.storage.save_pool(pool)
+                    out.metadata["test_expansion"] = pool.metadata.get("test_expansion")
+            except Exception as exc:  # noqa: BLE001 - advisory; never break the run.
+                out.warnings.append(f"test_expansion_skipped:{type(exc).__name__}")
         # Attach a Forge-evaluated model identity (when unset) so capability-profile-driven
         # adaptation — route selection, decomposition tier, learned evidence — is active for the
         # whole run instead of neutral. Identity only; execution routing is unchanged.
