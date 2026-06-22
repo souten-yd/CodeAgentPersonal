@@ -109,3 +109,15 @@ def test_mobile_css_compacts_header_and_uses_fullscreen_sheet() -> None:
     assert ".atlas-claude-capsule-btn::after" in CSS
     assert ".atlas-claude-play-btn::after" in CSS
     assert ".atlas-claude-plan-history-btn::after" in CSS
+
+
+def test_plan_history_button_collapses_on_mobile_in_app_js() -> None:
+    # The Plan History button's base style is injected by app.js *after* app.css, so app.css's
+    # mobile collapse rule loses the cascade and the full-width "Plan History" text gets squished
+    # into the header. The collapse must therefore be re-declared in app.js's injected <style>.
+    style_idx = APP_JS.index(".atlas-claude-plan-history-btn {")
+    media_idx = APP_JS.index("@media (max-width: 720px)", style_idx)
+    after_idx = APP_JS.index('.atlas-claude-plan-history-btn::after { content: "H"', media_idx)
+    assert media_idx > style_idx
+    assert after_idx > media_idx
+    assert "font-size: 0; width: 30px" in APP_JS[media_idx:after_idx + 80]

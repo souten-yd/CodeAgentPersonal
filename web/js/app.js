@@ -271,6 +271,13 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
         margin-left: auto;
       }
       .atlas-claude-plan-history-btn:hover { background: var(--bg3, rgba(255,255,255,0.08)); }
+      /* This <style> is injected after app.css, so app.css's mobile @media collapse rule for this
+         button is overridden here and the full "Plan History" text gets squished into the tight
+         header. Re-declare the collapse so it shrinks to a single "H" icon like Capsule/Play. */
+      @media (max-width: 720px) {
+        .atlas-claude-plan-history-btn { font-size: 0; width: 30px; padding: 5px; margin-left: 0; }
+        .atlas-claude-plan-history-btn::after { content: "H"; font-size: 12px; }
+      }
     `;
     document.head.appendChild(style);
   }
