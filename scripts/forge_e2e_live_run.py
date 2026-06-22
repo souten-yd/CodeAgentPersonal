@@ -59,7 +59,7 @@ def main():
             title="Add subtract() to calc.py",
             goal="Add a subtract(a, b) function returning a - b to calc.py, and a test in test_calc.py.",
             item_type="implementation", status="ready", risk_level="low",
-            target_files=["src/calc.py", "src/test_calc.py"],
+            target_files=["src/calc.py"],  # test is added deterministically by expand_test_plan
             metadata={"action_type": "update"})],
         metadata={})
     storage.save_pool(pool)
@@ -81,6 +81,7 @@ def main():
         "max_retries": 2,
         "max_runtime_seconds": 600,
         "generate_missing_patches": True,
+        "expand_test_plan": True,
         "run_integration_verification": True,
         "metadata": {"model_id": MODEL, "provider_id": "local_openai_compatible",
                      "forge_model_id": MODEL, "forge_provider_id": "local_openai_compatible"},
