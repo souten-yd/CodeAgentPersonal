@@ -10887,47 +10887,17 @@ async function saveModelDb(mid) {
 }
 
 // ── Anvil モデル詳細設定（llama-server 起動パラメータ）────────────────────────
-// Models DB の各カラムに対応。type 'num'/'text' はプルダウン＋「カスタム…」で自由入力、
-// type 'tri' は 未指定/ON/OFF。未指定は起動時に省略され、main.py の _runtime_spec_from_row /
-// _try_start_once が値ありの項目だけ llama-server へ渡す。
-const ANVIL_LLAMA_PARAMS = [
-  { group: '基本', items: [
-    { key: 'ctx_size', label: 'CTX (context length)', type: 'num', opts: [4096, 8192, 16384, 32768, 65536, 131072] },
-    { key: 'gpu_layers', label: 'n-gpu-layers', type: 'num', opts: [0, 999] },
-    { key: 'n_cpu_moe', label: 'n-cpu-moe', type: 'num', opts: [0, 8, 14, 24, 36] },
-    { key: 'threads', label: 'threads', type: 'num', opts: [4, 8, 12, 16, 24] },
-    { key: 'parallel', label: 'parallel', type: 'num', opts: [1, 2, 4] },
-    { key: 'batch_size', label: 'batch-size', type: 'num', opts: [512, 1024, 2048, 4096] },
-    { key: 'ubatch_size', label: 'ubatch-size', type: 'num', opts: [128, 256, 512] },
-    { key: 'cache_type_k', label: 'cache-type-k', type: 'text', opts: ['f16', 'q8_0', 'q4_0'] },
-    { key: 'cache_type_v', label: 'cache-type-v', type: 'text', opts: ['f16', 'q8_0', 'q4_0'] },
-    { key: 'flash_attn', label: 'flash-attn', type: 'tri' },
-    { key: 'no_mmap', label: 'no-mmap', type: 'tri' },
-    { key: 'jinja', label: 'jinja', type: 'tri' },
-  ]},
-  { group: '思考 / 投機デコード', items: [
-    { key: 'reasoning', label: 'reasoning (think)', type: 'text', opts: ['off', 'on', 'auto'] },
-    { key: 'spec_type', label: 'spec-type (MTP)', type: 'text', opts: ['draft-mtp', 'draft-model'] },
-    { key: 'spec_draft_n_max', label: 'spec-draft-n-max (先読み数)', type: 'num', opts: [1, 2, 3, 4] },
-    { key: 'spec_draft_p_min', label: 'spec-draft-p-min', type: 'num', opts: [0.5, 0.75, 0.9] },
-  ]},
-  { group: 'サンプリング', items: [
-    { key: 'temp', label: 'temp', type: 'num', opts: [0, 0.3, 0.7, 1.0] },
-    { key: 'top_p', label: 'top-p', type: 'num', opts: [0.8, 0.9, 0.95, 1.0] },
-    { key: 'top_k', label: 'top-k', type: 'num', opts: [0, 20, 40] },
-    { key: 'min_p', label: 'min-p', type: 'num', opts: [0, 0.05, 0.1] },
-    { key: 'presence_penalty', label: 'presence-penalty', type: 'num', opts: [0, 1.0, 1.5] },
-    { key: 'repeat_penalty', label: 'repeat-penalty', type: 'num', opts: [1.0, 1.1] },
-  ]},
-];
-const ANVIL_PARAM_FLAT = ANVIL_LLAMA_PARAMS.reduce((a, g) => a.concat(g.items), []);
+// フィールド定義と値変換は共有モジュール web/js/anvil_params.js（単一の真実の源）に集約。
+// Forge 側の「⚙ 詳細設定」ドロワー（forge.js）と同じ定義を参照するので、項目を1つ変えれば
+// 両方の UI に反映される。window.AnvilParams は anvil_params.js が先に読み込まれて公開する。
+// 値は Models DB の各カラムに対応し、main.py の _runtime_spec_from_row / _try_start_once /
+// register_atlas_llm_json_adapter が消費する。GROUPS/FLAT はモーダル操作時（全 script ロード後）
+// に参照するため、ここではトップレベルで束縛せず関数内で都度取得する。
 let _anvilParamCurrentId = '';
 
-// 保存値（-1/''/null = 未指定）→ 入力欄の値（'' = 未指定）
+// 保存値（-1/''/null = 未指定）→ 入力欄の値（'' = 未指定）。共有モジュールに委譲。
 function _anvilStoredToInput(field, raw) {
-  if (field.type === 'text') return String(raw == null ? '' : raw);
-  if (raw == null || raw === '' || Number(raw) === -1) return '';
-  return String(raw);
+  return window.AnvilParams.storedToInput(field, raw);
 }
 
 function _anvilParamFieldHtml(f, rawVal) {
@@ -10961,7 +10931,7 @@ function _anvilToggleCustom(sel) {
 function renderAnvilParamModalBody(model) {
   const grid = (items) => `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">`
     + items.map((f) => _anvilParamFieldHtml(f, model[f.key])).join('') + `</div>`;
-  return ANVIL_LLAMA_PARAMS.map((g) =>
+  return window.AnvilParams.GROUPS.map((g) =>
     `<div class="section-label" style="margin-top:6px">${esc(g.group)}</div>${grid(g.items)}`
   ).join('');
 }
@@ -10990,21 +10960,14 @@ async function saveAnvilParamModal() {
   if (!mid) return;
   const body = document.getElementById('anvil-param-body');
   const payload = {};
-  ANVIL_PARAM_FLAT.forEach((f) => {
+  window.AnvilParams.FLAT.forEach((f) => {
     const sel = body.querySelector(`select[data-anvil-p="${f.key}"]`);
     let v = sel ? sel.value : '';
     if (v === '__custom__') {
       const box = body.querySelector(`[data-anvil-custom="${f.key}"]`);
       v = box ? box.value : '';
     }
-    if (f.type === 'text') {
-      payload[f.key] = String(v == null ? '' : v).trim();
-    } else if (v === '' || v == null) {
-      payload[f.key] = -1;
-    } else {
-      const n = Number(v);
-      payload[f.key] = Number.isFinite(n) ? n : -1;
-    }
+    payload[f.key] = window.AnvilParams.toPayloadValue(f, v);
   });
   const ctxNum = normalizeCtxSize(payload.ctx_size, _settingsDefaultCtxSize);
   if (!ctxNum || ctxNum < 512) { addLog('err', 'models', 'CTX が無効です（512 以上）'); return; }
@@ -16992,6 +16955,9 @@ function testSkill(skillName) {
 }
 
 </script>
+<!-- Shared Anvil per-model parameter definitions (single source of truth for both the Forge
+     詳細設定 drawer in forge.js and the Models tab Anvil modal above). Must load before forge.js. -->
+<script src="/static/js/anvil_params.js?v=anvil-params-1"></script>
 <script src="/static/js/app.js?v=atlas-ui-fix-6"></script>
 <script src="/static/js/settings.js"></script>
 <script src="/static/js/skills_memory.js"></script>
@@ -17003,7 +16969,7 @@ function testSkill(skillName) {
 <script src="/static/js/atlas_pipeline_api.js?v=atlas-ui-fix-14"></script>
 <script src="/static/js/atlas_play_workspace.js?v=atlas-play-workspace-3-reload-on-open"></script>
 <script src="/static/js/portal.js?v=portal-2"></script>
-<script src="/static/js/forge.js?v=forge-2-anvil-config"></script>
+<script src="/static/js/forge.js?v=forge-3-shared-anvil-params"></script>
 <script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-40"></script>
 <script src="/static/js/atlas_claude_panel.js?v=atlas-ui-fix-18-retry-btn"></script>
 <script src="/static/js/echo.js"></script>

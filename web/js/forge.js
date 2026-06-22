@@ -59,60 +59,21 @@
     return Number.isFinite(n) && n > 0 ? n : '';
   }
 
-  // Anvil per-model llama-server launch parameters, mirrored in the Models DB columns.
-  // type 'num'  -> datalist combo (choices + free numeric input); '' means 未指定 (-> -1 on save).
-  // type 'text' -> datalist combo (choices + free text); '' kept as-is (omitted at launch).
-  // type 'tri'  -> <select> 未指定/ON/OFF mapping to ''/1/0 (stored -1/1/0).
-  // The runtime manager (main.py _try_start_once) omits any field left 未指定.
-  const ANVIL_PARAM_FIELDS = [
-    { key: 'ctx_size', label: 'CTX (context length)', type: 'num', opts: [4096, 8192, 16384, 32768, 65536, 131072] },
-    { key: 'gpu_layers', label: 'n-gpu-layers', type: 'num', opts: [0, 999] },
-    { key: 'n_cpu_moe', label: 'n-cpu-moe', type: 'num', opts: [0, 8, 14, 24, 36] },
-    { key: 'threads', label: 'threads', type: 'num', opts: [4, 8, 12, 16, 24] },
-    { key: 'parallel', label: 'parallel', type: 'num', opts: [1, 2, 4] },
-    { key: 'batch_size', label: 'batch-size', type: 'num', opts: [512, 1024, 2048, 4096] },
-    { key: 'ubatch_size', label: 'ubatch-size', type: 'num', opts: [128, 256, 512] },
-    { key: 'cache_type_k', label: 'cache-type-k', type: 'text', opts: ['f16', 'q8_0', 'q4_0'] },
-    { key: 'cache_type_v', label: 'cache-type-v', type: 'text', opts: ['f16', 'q8_0', 'q4_0'] },
-    { key: 'flash_attn', label: 'flash-attn', type: 'tri' },
-    { key: 'no_mmap', label: 'no-mmap', type: 'tri' },
-    { key: 'jinja', label: 'jinja', type: 'tri' },
-    { key: 'reasoning', label: 'reasoning', type: 'text', opts: ['off', 'on', 'auto'] },
-    { key: 'spec_type', label: 'spec-type', type: 'text', opts: ['draft-mtp', 'draft-model'] },
-    { key: 'spec_draft_n_max', label: 'spec-draft-n-max', type: 'num', opts: [1, 2, 3, 4] },
-    { key: 'spec_draft_p_min', label: 'spec-draft-p-min', type: 'num', opts: [0.5, 0.75, 0.9] },
-    { key: 'temp', label: 'temp', type: 'num', opts: [0, 0.3, 0.7, 1.0] },
-    { key: 'top_p', label: 'top-p', type: 'num', opts: [0.8, 0.9, 0.95, 1.0] },
-    { key: 'top_k', label: 'top-k', type: 'num', opts: [0, 20, 40] },
-    { key: 'min_p', label: 'min-p', type: 'num', opts: [0, 0.05, 0.1] },
-    { key: 'presence_penalty', label: 'presence-penalty', type: 'num', opts: [0, 1.0, 1.5] },
-    { key: 'repeat_penalty', label: 'repeat-penalty', type: 'num', opts: [1.0, 1.1] },
-    // Per-request generation cap (max_tokens), not a llama-server launch arg. Atlas codegen reads
-    // this so large files aren't truncated at the 4096/8192 default and then endlessly regenerated.
-    { key: 'max_output_tokens', label: '出力トークン上限 (max_tokens)', type: 'num', opts: [2048, 4096, 8192, 16384, 32768] },
-  ];
+  // Anvil per-model llama-server parameters. Definitions + value conversions live in the shared
+  // web/js/anvil_params.js (single source of truth), so this drawer and the Models tab Anvil modal
+  // in ui.html stay in sync — one edit there updates both. Loaded before forge.js (see ui.html).
+  const ANVIL_PARAM_FIELDS = (root.AnvilParams && root.AnvilParams.FLAT) || [];
 
   // Convert a stored Models DB value to the UI input value. Sentinel -1 / null / '' -> '' (未指定).
   function anvilParamToInput(field, raw) {
-    if (field.type === 'text') return String(raw == null ? '' : raw);
-    // numeric & tri: -1 / null / '' all mean 未指定.
-    if (raw == null || raw === '' || Number(raw) === -1) return '';
-    return String(raw);
+    return root.AnvilParams.storedToInput(field, raw);
   }
 
   // Convert UI input values to the PUT payload. '' -> -1 for num/tri, '' kept for text.
   function anvilParamsToPayload(params) {
     const out = {};
     ANVIL_PARAM_FIELDS.forEach((f) => {
-      const v = params[f.key];
-      if (f.type === 'text') {
-        out[f.key] = String(v == null ? '' : v).trim();
-      } else if (v === '' || v == null) {
-        out[f.key] = -1;
-      } else {
-        const n = Number(v);
-        out[f.key] = Number.isFinite(n) ? n : -1;
-      }
+      out[f.key] = root.AnvilParams.toPayloadValue(f, params[f.key]);
     });
     return out;
   }
@@ -151,20 +112,14 @@
   // scannability. Shown inside the 詳細設定 drawer; also exported for render tests.
   function renderAnvilConfigForm(model) {
     model = model || {};
-    const group = (keys) => '<div class="forge-check-grid">' + keys.map((k) => {
-      const f = ANVIL_PARAM_FIELDS.find((x) => x.key === k);
-      return f ? anvilConfigFieldHtml(f, model[f.key]) : '';
-    }).join('') + '</div>';
+    const groups = (root.AnvilParams && root.AnvilParams.GROUPS) || [];
     return '<div class="forge-anvil-config" data-anvil-config-form>'
-      + '<div class="forge-card-title">基本</div>'
-      + group(['ctx_size', 'gpu_layers', 'n_cpu_moe', 'threads', 'parallel', 'batch_size', 'ubatch_size',
-               'cache_type_k', 'cache_type_v', 'flash_attn', 'no_mmap', 'jinja'])
-      + '<div class="forge-card-title" style="margin-top:10px">思考 / 投機デコード</div>'
-      + group(['reasoning', 'spec_type', 'spec_draft_n_max', 'spec_draft_p_min'])
-      + '<div class="forge-card-title" style="margin-top:10px">サンプリング</div>'
-      + group(['temp', 'top_p', 'top_k', 'min_p', 'presence_penalty', 'repeat_penalty'])
-      + '<div class="forge-card-title" style="margin-top:10px">生成</div>'
-      + group(['max_output_tokens'])
+      + groups.map((g, i) =>
+          '<div class="forge-card-title"' + (i ? ' style="margin-top:10px"' : '') + '>' + escapeHtml(g.group) + '</div>'
+          + '<div class="forge-check-grid">'
+          + g.items.map((f) => anvilConfigFieldHtml(f, model[f.key])).join('')
+          + '</div>'
+        ).join('')
       + '</div>';
   }
 
