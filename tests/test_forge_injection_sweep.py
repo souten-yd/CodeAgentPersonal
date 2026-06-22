@@ -224,6 +224,21 @@ def test_unmeasured_model_starts_conservative_injection():
     assert any(r == "unmeasured_model_conservative_injection" for r in policy.reasons)
 
 
+def test_execution_policy_forces_twin_rescue_module_for_weak_reasoning():
+    # Wired (not advisory): a model weak at impact_analysis must get BlastMap forced into the
+    # required Twin modules + its gate, so the Twin does the analysis the model can't.
+    from agent.model_forge.execution_policy import ExecutionPolicySelector, ModelCapabilityProfile
+    from agent.model_forge.route_matrix import ChangeClass
+    from agent.twin_control_plane.contracts import ModelCapabilityMode
+
+    profile = ModelCapabilityProfile(
+        model_id="weak", mode=ModelCapabilityMode.WEAK_LOCAL,
+        capability_scores={"impact_analysis": 0.2}, known_weaknesses=["impact_analysis"])
+    policy = ExecutionPolicySelector().select(ChangeClass.MEDIUM, task_category="bugfix", model_profile=profile)
+    assert "BlastMap" in policy.required_twin_modules
+    assert any(r.startswith("twin_rescue:impact_analysis") for r in policy.reasons)
+
+
 def test_twin_rescue_offloads_reasoning_weaknesses():
     # Weaknesses no generation method fixes (impact analysis, test generation) are rescued by
     # offloading to a Twin module — the other weak-LLM rescue avenue beyond method substitution.
