@@ -193,6 +193,46 @@ def test_method_substitution_recommends_alternatives_for_weak_dims():
     assert s.dimension == "edit_intent_quality"
     assert "edit_intent_list" in s.avoid
     assert "deterministic_text_patch" in s.prefer  # Atlas owns the structure instead
+    assert s.basis == "static"  # no scores -> curated order
+
+
+def test_method_substitution_ranks_by_measured_capability():
+    # Measurement-driven: a model STRONG at anchors should prefer anchored_edit_block; a model weak
+    # at anchors should fall back to the platform-owned deterministic method.
+    from agent.model_forge.method_substitution import recommend_method_substitutions
+    strong_anchor = recommend_method_substitutions(
+        ["edit_intent_quality"], capability_scores={"anchor_selection_quality": 0.95})[0]
+    assert strong_anchor.basis == "measured"
+    assert strong_anchor.prefer[0] == "anchored_edit_block"   # leverage the measured strength
+
+    weak_anchor = recommend_method_substitutions(
+        ["edit_intent_quality"], capability_scores={"anchor_selection_quality": 0.2})[0]
+    assert weak_anchor.prefer[0] == "deterministic_text_patch"  # safe platform-owned fallback
+
+
+def test_method_fitness_platform_owned_vs_model_dependent():
+    from agent.model_forge.method_substitution import method_fitness
+    from agent.model_forge.method_taxonomy import MethodVariant
+    # Platform-owned methods get the safe baseline regardless of scores.
+    assert method_fitness(MethodVariant.DETERMINISTIC_TEXT_PATCH, {}) == 0.8
+    # Model-dependent methods reflect the measured required dimension.
+    assert method_fitness(MethodVariant.ANCHORED_EDIT_BLOCK, {"anchor_selection_quality": 0.3}) == 0.3
+
+
+def test_model_profile_exposes_method_fitness(tmp_path):
+    # Benchmark integration: the model-profile view carries the method-fitness ranking + substitutions.
+    from agent.model_forge.profile_store import ProfileStore
+    store = ProfileStore(tmp_path / "profiles")
+    store.record_observation(model_id="m1", provider_id="local",
+                             dimensions={"anchor_selection_quality": 0.9, "edit_intent_quality": 0.1})
+    svc = ForgeEvaluationService(tmp_path, store)
+    mf = svc.model_profile("local", "m1")["method_fitness"]
+    assert mf["measured"] is True
+    methods = [r["method"] for r in mf["ranking"]]
+    assert "deterministic_text_patch" in methods and "edit_intent_list" in methods
+    # edit_intent is weak -> a substitution is offered.
+    assert any(s["dimension"] == "edit_intent_quality" for s in mf["substitutions"])
+
 
 
 def test_execution_policy_switches_away_from_weak_method():
