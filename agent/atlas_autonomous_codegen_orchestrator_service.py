@@ -68,9 +68,12 @@ class AtlasAutonomousCodegenOrchestratorService:
     gate (Phase 1 stop) plus the pre-apply snapshot/rollback inside the multi-item engine.
     """
 
-    def __init__(self, *, storage, journal, patch_proposal_service, multi_item_autopilot_service, data_root=None, draft_pr_client: DraftPullRequestClient | None = None, project_twin_store=None):
+    def __init__(self, *, storage, journal, patch_proposal_service, multi_item_autopilot_service, data_root=None, draft_pr_client: DraftPullRequestClient | None = None, project_twin_store=None, test_command_runner=None):
         self.storage = storage
         self.journal = journal
+        # Runner for the opt-in integration (結合) verification phase; defaults to the allowlisted
+        # TestCommandRunner so callers need not wire it.
+        self._test_command_runner = test_command_runner
         # Optional Project Twin store for real impact evidence. Absent by default (there is
         # no persistent per-project Twin store), so impact is recorded as unavailable.
         self.project_twin_store = project_twin_store
@@ -82,6 +85,46 @@ class AtlasAutonomousCodegenOrchestratorService:
         self.multi_item_autopilot_service = multi_item_autopilot_service
         self.data_root = Path(data_root or getattr(journal, "root_dir", "ca_data"))
         self.draft_pr_client = draft_pr_client
+
+    def _run_integration_verification(self, out, project_path: str, autopilot) -> None:
+        """Opt-in 結合 (integration) test: run the project's whole pytest suite once after all items
+        applied, so cross-item breakage is caught (per-item verification only tests each in isolation).
+        Best-effort + guarded — records the result and warns on failure; never raises, never changes
+        the gated apply status."""
+        try:
+            from agent.test_command_runner import TestCommandRunner
+            from agent.test_command_runner_schema import AtlasTestCommandRequest
+
+            root = Path(project_path or "")
+            applied = (int(getattr(autopilot, "completed_count", 0) or 0)
+                       + int(getattr(autopilot, "applied_no_verification_count", 0) or 0))
+            if not project_path or not root.is_dir() or applied <= 0:
+                out.metadata["integration_verification"] = {
+                    "status": "skipped", "reason": "no_applied_changes_or_project"}
+                return
+            _excl = {".git", "venv", "venv_sys", "node_modules", "__pycache__", ".portal", "ca_data"}
+            tests = [p for p in root.rglob("*.py")
+                     if (p.name.startswith("test_") or p.name.endswith("_test.py"))
+                     and not any(seg in _excl for seg in p.parts)]
+            if not tests:
+                out.metadata["integration_verification"] = {"status": "no_tests"}
+                return
+            runner = self._test_command_runner or TestCommandRunner()
+            res = runner.run_command(AtlasTestCommandRequest(
+                command="pytest -q", cwd=str(root), timeout_seconds=300,
+                metadata={"source": "integration_verification"}))
+            ok = str(getattr(res, "status", "")) == "passed" or int(getattr(res, "returncode", 1) or 1) == 0
+            out.metadata["integration_verification"] = {
+                "status": "passed" if ok else "failed",
+                "returncode": getattr(res, "returncode", None),
+                "command_status": str(getattr(res, "status", "")),
+                "test_file_count": len(tests),
+                "command": "pytest -q",
+            }
+            if not ok and "integration_verification_failed" not in out.warnings:
+                out.warnings.append("integration_verification_failed")
+        except Exception as exc:  # noqa: BLE001 - advisory; never break the run.
+            out.metadata["integration_verification"] = {"status": "error", "error": str(exc)[:200]}
 
     def accumulate_llm_usage(self, usage: dict) -> None:
         """Add one model call's token usage into the run total (called by the adapter)."""
@@ -246,6 +289,13 @@ class AtlasAutonomousCodegenOrchestratorService:
             model_id=str(_req_md.get("model_id") or _req_md.get("forge_model_id") or ""),
             provider_id=str(_req_md.get("provider_id") or _req_md.get("forge_provider_id") or ""),
             repair_attempts=out.metadata.get("twin_repair_attempts"))
+
+        # ── Phase 4.5: integration (結合) verification ─────────────────────────────────────────
+        # Per-item verification tests each item in isolation; this opt-in step runs the project's
+        # whole test suite once so cross-item breakage is caught. Advisory + guarded.
+        if request.run_integration_verification:
+            self._run_integration_verification(
+                out, str(preflight.get("effective_project_path") or request.project_path), autopilot)
 
         # ── Phase 4: aggregate ────────────────────────────────────────────────────────────────
         out.phase = "final_summary"
