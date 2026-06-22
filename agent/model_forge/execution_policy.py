@@ -228,6 +228,17 @@ class ExecutionPolicySelector:
             base_level -= 1
         injection = _clamp_injection(route, base_level)
         injection_reasons: list[str] = []
+        # Unmeasured model: with no benchmark evidence it can run on less help, start CONSERVATIVE
+        # (route's high end). A failed cheap attempt costs a whole generate+verify cycle and risks
+        # bad code, which outweighs mild over-injection. Once a benchmark/sweep profiles the model,
+        # measured_optimal/twin floor below take over and lower it to the minimum that actually works.
+        _unmeasured = (not profile.capability_scores
+                       and profile.measured_optimal_injection_level is None
+                       and profile.recommended_twin_injection_level is None)
+        if _unmeasured:
+            _low, _high = _ROUTE_INJECTION_RANGE.get(route, (1, 3))
+            injection = _clamp_injection(route, _high)
+            injection_reasons.append("unmeasured_model_conservative_injection")
         # Injection-sweep: apply the measured level per the chosen OBJECTIVE.
         #   max_score      -> start at the PEAK level: raise injection up to it (floor).
         #   min_sufficient -> start at the LOWEST sufficient level: cap injection down to it
