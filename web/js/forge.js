@@ -535,23 +535,61 @@
     );
   }
 
-  // Compact Twin-assist summary shown inline in the Benchmark tab (the full breakdown still lives
-  // in the Twin Assist subtab). Rendered from the combined run's result so everything is in one place.
+  // Distinct reasons a Twin case could not be measured (e.g. missing fixtures), so an unavailable
+  // run is shown honestly instead of as a misleading 0.000.
+  function twinUnavailableReasons(rep) {
+    const reasons = new Set();
+    (rep.comparisons || []).forEach((c) => {
+      const attempts = [c.baseline].concat(c.assisted || []);
+      attempts.forEach((a) => (a && a.unavailable_reasons ? a.unavailable_reasons : []).forEach((r) => reasons.add(r)));
+    });
+    return Array.from(reasons);
+  }
+
+  // Full Twin-assist result shown inline in the Benchmark tab (consolidated here; the Twin Assist
+  // subtab is read-only). Honest about unavailable runs — never renders 0.000 as if it were measured.
   function twinAssistInlineHtml() {
     const rep = state.bench.twinResult;
     if (!rep) return '';
     const agg = rep.aggregate_scores || {};
+    const scored = Number(agg.scored_case_count || 0) > 0 && rep.status !== 'unavailable';
     const fmt = (v) => escapeHtml(v == null ? 'unavailable' : (typeof v === 'number' ? v.toFixed(3) : String(v)));
-    const modes = (rep.recommended_assist_modes || []).join(', ');
+    const head = '<div class="forge-card-title">Twin assist 評価（今回の実行）</div>';
+    if (!scored) {
+      const reasons = twinUnavailableReasons(rep);
+      const fixtureMissing = reasons.some((r) => String(r).startsWith('fixture_missing'));
+      return (
+        '<div class="forge-card">' + head
+        + '<div class="forge-warn">Twin評価は実行されませんでした（status: ' + escapeHtml(rep.status || 'unavailable')
+        + '）。スコアは測定値ではありません。</div>'
+        + (reasons.length ? '<div class="forge-kv"><span>理由</span><b>' + escapeHtml(reasons.join(', ')) + '</b></div>' : '')
+        + (fixtureMissing ? '<div class="forge-hint">Twin評価ケースのフィクスチャ（ca_data/model_forge/twin_assist_fixtures）が未配置のため、'
+          + 'モデルは呼び出されていません。フィクスチャを配置すると評価が走ります。</div>' : '')
+        + '</div>'
+      );
+    }
+    const rows = (rep.comparisons || []).map((item) => {
+      const baseline = item.baseline && item.baseline.score != null ? item.baseline.score : 'unavailable';
+      const best = item.best_score != null ? item.best_score : 'unavailable';
+      const lift = item.lift != null ? item.lift : 'unavailable';
+      return '<tr><td>' + escapeHtml(item.case_id) + '</td><td>' + escapeHtml(baseline) + '</td><td>'
+        + escapeHtml(best) + '</td><td>' + escapeHtml(lift) + '</td><td>'
+        + escapeHtml(item.best_assist_mode || 'unavailable') + '</td><td>'
+        + (item.harm_detected ? '<span class="forge-warn-pill">harm</span>' : 'no') + '</td></tr>';
+    }).join('');
     return (
-      '<div class="forge-card">'
-      + '<div class="forge-card-title">Twin assist 評価（今回の実行）</div>'
+      '<div class="forge-card">' + head
       + '<div class="forge-kv"><span>mean best score</span><b>' + fmt(agg.mean_best_score) + '</b></div>'
       + '<div class="forge-kv"><span>mean lift</span><b>' + fmt(agg.mean_lift) + '</b></div>'
       + '<div class="forge-kv"><span>harm rate</span><b>' + fmt(agg.harm_rate) + '</b></div>'
-      + '<div class="forge-kv"><span>recommended assist</span><b>' + escapeHtml(modes || 'none') + '</b></div>'
+      + '<div class="forge-kv"><span>recommended assist</span><b>'
+      + escapeHtml((rep.recommended_assist_modes || []).join(', ') || 'none') + '</b></div>'
       + '<div class="forge-kv"><span>recommended injection level</span><b>'
       + fmt(rep.recommended_twin_injection_level) + '</b></div>'
+      + '<div class="forge-table-wrap"><table><thead><tr><th>case</th><th>baseline</th><th>assisted</th>'
+      + '<th>lift</th><th>best mode</th><th>harm</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      + '<div class="forge-card-title" style="margin-top:8px">Assist Effect (補助有無)</div>'
+      + assistEffectRadarHtml(rep.comparisons || [])
       + '<div class="forge-hint">評価のみ。ファイル適用や本番ルーティングは変更しません。</div>'
       + '</div>'
     );
@@ -926,21 +964,30 @@
     renderActive();
   }
 
+  function isLocalProvider() {
+    const p = state.bench.provider;
+    return p === 'anvil' || p === 'lm_studio' || p === 'local_openai_compatible';
+  }
+
   async function runArenaCore(data) {
     const sel = state.bench;
     const preset = (data.presets || []).find((p) => p.preset_id === sel.presets[0]);
     const route = (preset && preset.recommended_routes && preset.recommended_routes[0]) || 'direct_patch';
     try {
-      const record = await api('/arena/run', {
-        method: 'POST',
-        body: JSON.stringify({
-          stage: 'patch_generation',
-          specs: [{ provider_id: runtimeProviderId(), model_id: sel.model, route_id: route }],
-          preset_id: sel.presets[0],
-          preset_ids: sel.presets.slice(),
-          depth: sel.depth,
-        }),
-      });
+      const body = {
+        stage: 'patch_generation',
+        specs: [{ provider_id: runtimeProviderId(), model_id: sel.model, route_id: route }],
+        preset_id: sel.presets[0],
+        preset_ids: sel.presets.slice(),
+        depth: sel.depth,
+      };
+      // Local-by-port: tell the arena which running server to use and probe it (avoids
+      // health_unavailable from an unprobed local provider).
+      if (isLocalProvider()) {
+        body.base_url = injectionSweepBaseUrl(data);
+        body.runtime_kind = sel.provider === 'lm_studio' ? 'lm_studio' : 'llama_cpp';
+      }
+      const record = await api('/arena/run', { method: 'POST', body: JSON.stringify(body) });
       const cand = (record.candidates || [])[0] || {};
       sel.result = 'Arena run ' + record.arena_run_id + ' — candidate ' + (cand.adoption_state || 'not_applied')
         + ' (Safe Apply required before any adoption). See the Arena tab for candidates.';
@@ -987,6 +1034,7 @@
           run_baseline: true,
         }),
       });
+      state.twinAssist.result = sel.twinResult;  // keep the read-only subtab in sync
       return { ok: true, msg: 'twin_assist' };
     } catch (err) {
       return { ok: false, msg: 'Twin評価(' + (err && err.message ? err.message : 'error') + ')' };
@@ -1664,22 +1712,17 @@
     }).join('') : '';
     const subtab = state.twinAssist.subtab || 'evaluation';
 
-    // Sub-section 1: Evaluation (run form + results + detail drawer).
+    // Sub-section 1: Evaluation (read-only). The run is now part of the single Benchmark action;
+    // there is no separate Twin-eval button. Results render here and inline under Benchmark.
     const evaluationSection = '<div class="forge-card"><div class="forge-card-title">Twin Assist Evaluation</div>'
-      + '<div class="forge-hint">Compares Atlas proposal generation without and with Twin guidance. Evaluation does not apply files or change production routing.</div>'
-      + '<label class="forge-label">Provider<input id="forge-twin-provider" class="forge-input" value="local-8080"></label>'
-      + '<label class="forge-label">Model<input id="forge-twin-model" class="forge-input" placeholder="model id"></label>'
-      + '<label class="forge-label">Base URL<input id="forge-twin-base-url" class="forge-input" value="http://127.0.0.1:8080"></label>'
-      + '<label class="forge-label">Case pack<select id="forge-twin-pack" class="forge-select"><option value="quick">Quick</option><option value="large_file">Large-file</option><option value="cross_file">Cross-file</option><option value="contract">Contract</option><option value="full">Full</option></select></label>'
-      + '<div class="forge-check-grid" id="forge-twin-modes">'
-      + ['constraints_and_refs','impact_and_safe_edit','strict_twin_brief','twin_localized_slot','twin_deterministic_anchor'].map((mode) => '<label class="forge-check"><input type="checkbox" value="' + mode + '" checked>' + mode + '</label>').join('') + '</div>'
-      + '<button id="forge-twin-run" class="forge-run-btn">Run Twin Assist Eval</button></div>'
+      + '<div class="forge-hint">Twin評価は Benchmark の「Run benchmark + 注入スイープ + Twin評価」で一括実行されます。'
+      + 'ここは結果の参照専用です（ファイル適用や本番ルーティングは変更しません）。</div></div>'
       + (report ? '<div class="forge-card"><div class="forge-card-title">Results</div><div class="forge-kv"><span>Run</span><b>' + escapeHtml(report.run_id) + '</b></div>'
         + '<div class="forge-table-wrap"><table><thead><tr><th>case</th><th>baseline</th><th>assisted</th><th>lift</th><th>best mode</th><th>harm</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>'
         + '<div class="forge-card"><div class="forge-card-title">Assist Effect (補助有無)</div>'
         + '<div class="forge-hint">Baseline vs Twin-assisted score per case — the visible Twin effect.</div>'
         + assistEffectRadarHtml(report.comparisons) + '</div>'
-        : '<div class="forge-card"><div class="forge-empty">No evaluation yet. Run an evaluation to see baseline vs assisted lift and harm.</div></div>')
+        : '<div class="forge-card"><div class="forge-empty">まだ評価結果がありません。Benchmark タブで実行してください。</div></div>')
       + '<div id="forge-twin-detail" class="forge-twin-result" style="display:none"></div>';
 
     // Sub-section 2: Readiness.
@@ -1727,21 +1770,11 @@
     return '<div class="forge-card-title forge-section-title">Twin Assist</div>' + subnav + activeSection;
   }
 
-  async function runTwinAssist() {
-    const pack = $('forge-twin-pack').value;
-    const cases = await api('/twin-assist/cases?pack_id=' + encodeURIComponent(pack));
-    const modes = Array.from(document.querySelectorAll('#forge-twin-modes input:checked')).map((node) => node.value);
-    const body = { provider_id: $('forge-twin-provider').value, model_id: $('forge-twin-model').value, base_url: $('forge-twin-base-url').value, case_ids: cases.cases.map((item) => item.case_id), assist_modes: modes, run_baseline: true };
-    setStatus('Running Twin Assist evaluation…');
-    state.twinAssist.result = await api('/twin-assist/run', { method: 'POST', body: JSON.stringify(body) });
-    setStatus('Twin Assist evaluation complete', 'ok');
-    renderActive();
-  }
-
   async function previewRuntimePolicy() {
+    // Use the model selected in Benchmark (the Twin run form was removed; everything is driven there).
     const body = {
-      provider_id: $('forge-twin-provider').value,
-      model_id: $('forge-twin-model').value,
+      provider_id: runtimeProviderId() || 'local_openai_compatible',
+      model_id: state.bench.model,
       change_class: $('forge-rtpolicy-change').value,
       optimal_routing: $('forge-rtpolicy-optimal').checked,
     };
@@ -1761,7 +1794,6 @@
       state.twinAssist.subtab = btn.getAttribute('data-twin-subtab');
       renderActive();
     }));
-    content.querySelector('#forge-twin-run')?.addEventListener('click', () => runTwinAssist().catch((err) => setStatus('Twin Assist failed: ' + err.message, 'error')));
     content.querySelector('#forge-rtpolicy-run')?.addEventListener('click', () => previewRuntimePolicy().catch((err) => setStatus('Runtime policy preview failed: ' + err.message, 'error')));
     content.querySelectorAll('[data-twin-detail]').forEach((button) => button.addEventListener('click', () => {
       const detail = $('forge-twin-detail');

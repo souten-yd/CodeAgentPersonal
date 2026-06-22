@@ -27,5 +27,6 @@ def test_twin_assist_subnav_has_css():
 
 def test_empty_states_present_for_unrun_sections():
     source = Path("web/js/forge.js").read_text(encoding="utf-8")
-    assert "No evaluation yet" in source
+    # Evaluation is now driven from the Benchmark action; the subtab is read-only.
+    assert "まだ評価結果がありません。Benchmark タブで実行してください。" in source
     assert "Run a Twin Assist evaluation to populate Twin readiness" in source

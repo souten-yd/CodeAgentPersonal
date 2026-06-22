@@ -67,6 +67,10 @@ class ArenaRunRequest(BaseModel):
     preset_ids: list[str] = Field(default_factory=list)
     depth: str = "standard"
     task_id: str = ""
+    # Optional: evaluate an already-running local model by port. When set, the local provider is
+    # pointed here and probed LIVE so the arena's health gate sees it as READY.
+    base_url: str = ""
+    runtime_kind: str = ""
 
 
 class StagePolicyRequest(BaseModel):
@@ -441,7 +445,12 @@ def get_presets(request: Request) -> dict:
 @router.post("/arena/run")
 def post_arena_run(request: Request, body: ArenaRunRequest) -> dict:
     try:
-        return _service(request).run_arena(
+        service = _service(request)
+        # Local-by-port: point the local provider at the chosen server and probe it live so the
+        # arena health gate sees READY (otherwise an unprobed local provider blocks the run).
+        if body.base_url or body.runtime_kind:
+            service.prepare_local_runtime(body.base_url, body.runtime_kind)
+        return service.run_arena(
             stage=body.stage, specs=[s.model_dump() for s in body.specs],
             source_mode=body.source_mode, privacy_mode=body.privacy_mode,
             preset_id=body.preset_id, preset_ids=body.preset_ids,

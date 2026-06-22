@@ -132,6 +132,21 @@ class ForgeService:
         base_url = self._resolve_local_base_url(base_url, runtime_kind)
         return self.evaluation.injection_sweep_profile(base_url=base_url, **payload)
 
+    def prepare_local_runtime(self, base_url: str = "", runtime_kind: str = "") -> dict:
+        """Point the local provider at an already-running server (by port) and probe it LIVE so its
+        health becomes READY for the arena run. Without this, an unprobed local provider reports
+        UNAVAILABLE and the arena blocks the run (health_unavailable). Rebuilds the registry/arena so
+        the fresh probe result takes effect within this request."""
+        resolved = self._resolve_local_base_url(base_url, runtime_kind)
+        self._env["FORGE_LOCAL_BASE_URL"] = resolved
+        self.registry = self._build_registry()
+        health = self.probe_provider(LOCAL_OPENAI_PROVIDER_ID)
+        # Rebuild so the registry reads the freshly-persisted READY probe (providers cache health at
+        # construction time from the probe file).
+        self.registry = self._build_registry()
+        self.arena = ArenaRunner(self.registry, store_dir=self._root / "arena_runs")
+        return health
+
     def rerun_evaluation(self, run_id: str, **payload) -> dict:
         return self.evaluation.rerun(run_id, **payload)
 
