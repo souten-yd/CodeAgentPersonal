@@ -17,7 +17,8 @@
   <img src="https://img.shields.io/badge/llama.cpp-CUDA_/_Vulkan-orange" />
   <img src="https://img.shields.io/badge/Atlas_Play-Preview_&_Run-blueviolet" />
   <img src="https://img.shields.io/badge/Portal-Package_Catalog-ff69b4" />
-  <img src="https://img.shields.io/badge/Forge-Model_Arena-black" />
+  <img src="https://img.shields.io/badge/Forge-Eval→Route→Fallback-black" />
+  <img src="https://img.shields.io/badge/Twin_Injection-Sweep_0–4-success" />
 </p>
 
 <p align="center">
@@ -225,48 +226,112 @@ Run sheet
 
 ---
 
-# 🔥 Forge — モデルを鍛え、比べ、ルーティングする工房
+# 🔥 Forge — モデルを測って、鍛えて、適材適所に配る工房
 
-Forgeは、KasaneCoreのモデル工房です。どのモデルが、どのステージで、どのタスクに強いのかを比べ、記録し、慎重に切り替えるためのレイヤーです。
+Forgeは、KasaneCoreのモデル工房です。「このモデル、なんとなく良さそう」ではなく、**実測スコアで能力を測り、その能力に応じてルート・生成方法・Twin補助量を自動で決め、失敗したら締め直す**——そこまでを一気通貫でやります。弱いローカルLLMでも、補助の当て方しだいで戦えるようにするのがゴールです。
 
-## できること
+## 1️⃣ 測る — Benchmark & 能力プロファイル
 
-- Provider一覧 / Model一覧 / Profile一覧
-- Leaderboard表示
-- Benchmark Preset
-- Arena Run
-- Stage Policy
-- Route Policy
-- Loadout保存・適用
-- Risky Loadoutの明示確認
-- Cutover / Rollback
-- Portal run evidenceの取り込み
-- Capsule replay結果の記録
+- Provider / Model / Profile / Leaderboard、Benchmark Preset、Arena Run
+- 16次元の能力評価（structured出力・パッチ整合・影響分析・契約保全・テスト生成・抽象耐性 …）を**実測**し、`ModelProfile` として証拠付きで蓄積
+- **起動済みローカルモデルをポート指定で評価**（既定 `127.0.0.1:8080`、Anvil登録不要）。base_urlはサーバ側で解決し、健全性をライブprobe
+- **Benchmarkタブ1ボタン**で「ベンチマーク + 注入スイープ + Twin評価」をまとめて実行 → 結果はその場でカーブ＆レーダー表示
 
-## 安全設計
+## 2️⃣ どれだけ補助が要るか測る — Twin Injection Sweep
 
-- Forgeは明示的に有効化するまでOFF。
-- Legacy Atlas実行経路は主経路として残す。
-- Secret値は返さない。
-- 外部プロバイダは、明示的に有効化し、ポリシーで許可されるまで使わない。
-- Production routingの自動切替はしない。
-- Cutoverには証拠と確認を要求する。
+同じモデルを **Twin注入レベル0〜4** で段階評価し、能力曲線を描きます。
+
+- **min_sufficient**（最小注入）= 性能のピークから許容誤差内に収まる**いちばん低い**注入量。弱モデルを過剰補助しないための「天井」。
+- **max_score**（最大スコア）= ピーク注入量。能力最優先のときの「床」。
+- 目的は**ワンタップで切替**。読み方Tipsと「自律度（高いほど少ない補助で動ける）」も併記し、**面積が大きいほど能力が高い**で統一。
+
+## 3️⃣ 補助の効きを測る — Twin Assist 評価（補助あり / なし）
+
+実プロジェクトのフィクスチャ上で、**補助なし(baseline)** と **補助あり(Twinガイダンス注入)** のコード生成を同条件で走らせ、**lift（上がり幅）/ harm（悪化率）** を測ります。アシスト効果はレーダーで「補助あり vs なし」を重ねて可視化。
+
+## 4️⃣ 能力に応じて配る — Execution Policy（評価が実コードに効く）
+
+ベンチ結果は飾りではありません。`ProfileStore → capability_profile → ExecutionPolicySelector` を通って、**実際の自律コード生成のルート・方法・Twin注入量を変えます**。
 
 ```text
-Candidate models
-  ↓
-Arena
-  ↓
-Profile / Leaderboard
-  ↓
-Loadout
-  ↓
-Stage Policy
-  ↓
-Guarded Cutover
+Benchmark scores ─▶ Capability Profile ─▶ Execution Policy
+                                           ├─ Route        (RouteMatrix×ベンチ選好)
+                                           ├─ Method        (強い→直接生成 / 弱い→決定論テキスト・anchor・edit-intent)
+                                           └─ Twin Injection (能力・スイープ・リスクから決定)
 ```
 
-Forgeは「このモデル、なんとなく良さそう」ではなく、**実行証拠・スコア・用途別の勝ち筋**でモデル運用を考えるための仕組みです。
+## 5️⃣ 失敗したら締め直す — Failure Escalation（フォールバック）
+
+生成が検証NGになったら、ただ作り直すのではなく**ポリシーごと締め直します**。
+
+```text
+生成 → 検証NG → 再生成（毎回エスカレーション）
+        ├─ Twin注入量を +1（少ない補助から始めて、必要な分だけ増やす）
+        ├─ 繰り返すと review-only / 弱LLM向けの安全な方法へ切替
+        └─ ルートの安全範囲は決して超えない
+```
+
+「最小の補助で始めて、失敗したら補助を足す」——この梯子が自律ループに実配線されています。
+
+## 🛡️ 安全設計
+
+- Forgeは明示的に有効化するまでOFF。Legacy Atlas実行経路は主経路として残す。
+- Secret値は返さない。外部プロバイダはポリシーで許可されるまで使わない。
+- **Production routingの自動切替はしない**。Cutoverには証拠と確認を要求。
+- 評価は評価。ファイル適用や本番ルーティングを勝手に変えない（Safe Apply前提）。
+
+> Forgeの思想は **「弱いモデルを、賢い補助で戦力化する」**。能力を測り、最小の補助で動かし、足りなければ補助を足し、それでもダメなら安全側へ降りる。すべてフロンティアLLM非依存で回ります。
+
+## 📊 プラットフォームの効果をどう測るか（評価方法）
+
+「補助があると本当に良くなるのか？」を、雰囲気でなく**実測で**示すための評価デザインです。すべて同一モデル・同一フィクスチャ・同一採点で、変える軸は「補助の当て方」だけにします。
+
+| 比較軸 | 何を変える | 何が分かる | 指標 |
+|---|---|---|---|
+| **補助あり / なし** | Twinガイダンス注入の有無 | プラットフォームの正味効果 | `lift`（上がり幅）, `harm`（悪化率） |
+| **注入レベル 0→4** | 段階的な補助量 | 能力曲線・最小十分量 | level別 mean score, `min_sufficient` |
+| **失敗エスカレーション** | 連続失敗時の締め直し | フォールバックの妥当性 | 注入↑・review-only化の発火 |
+
+評価は決定論的に採点（パッチ生成可否・対象ファイル整合・期待シンボル・契約保全・テスト標的）。**補助なし(baseline)** を必ず対照に置くので、「補助あり」の数字が単独で良く見える錯覚を避けられます。再現は `tests/fixtures/twin_assist`（トラッキング済み）上で、Benchmarkタブの1ボタン、または `injection_sweep_profile` / `TwinAssistRunner` を直接呼んで取得できます。
+
+### 実測レポート（ローカル `Qwen3.6-35B-A3B-IQ4_XS` @ `127.0.0.1:8080`）
+
+正直な実測です。盛りません。**有能なモデルでは「補助を盛らない」のが正解**で、プラットフォームはそれを実証します。
+
+**① Twin補助あり / なし（フルパック5ケース, baseline + slot/anchor, 約221秒）**
+
+| ケース | 補助なし | 補助あり(best) | lift | harm |
+|---|:--:|:--:|:--:|:--:|
+| large_existing_file_insert | 0.8 | 0.8 | 0.0 | no |
+| cross_file_api_consistency | 0.6 | 0.6 | 0.0 | no |
+| public_contract_preservation | 0.8 | 0.8 | 0.0 | no |
+| edit_intent_rescue | 0.6 | 0.6 | 0.0 | no |
+| dependency_aware_test_selection | 0.8 | 0.8 | 0.0 | no |
+| **平均** | — | **0.72** | **+0.00** | **0.0** |
+
+→ この35Bは素のままで十分強く（baseline 0.6–0.8）、補助は**害もないが上積みも出ない**。
+
+**② 注入スイープ（レベル0→4, 約35秒）**
+
+| 次元 | level 0 | 1 | 2 | 3 | 4 | 最小十分 |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|
+| structured_output_fidelity | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | **0** |
+| edit_intent_quality | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0 |
+
+→ structuredは満点・注入不要、edit_intentは注入を増やしても0のまま＝**注入では埋まらない弱み**。
+
+**③ 評価が実コードルーティングを変える（これが正味の効果）**
+
+上記プロファイル（structured=1.0 / edit_intent=0.0）を `ExecutionPolicySelector` に通すと:
+
+```text
+route=repair_loop  method=repair_compass_steps  injection=2
+avoid_method_variants = ['edit_intent_list']        # ← 測定された弱みの方法を自動回避
+reasons = injection_sweep_min_sufficient=0,          # ← 有能なので注入は最小（ルート下限）
+          known_weaknesses=edit_intent_quality
+```
+
+**結論（正直版）:** 有能なモデルに対するプラットフォームの価値は「補助でスコアを盛る」ことではなく、**①弱みを測って自動で回避し（edit_intent_listを使わない）、②過剰注入を避け（min_sufficient=0）、③補助しても害が出ないことを保証する**ことでした。lift が出るのは baseline に伸びしろがある**より弱いモデル / より難しいケース**で、評価デザインはそれもそのまま捉えます。フォールバック（失敗時に注入↑→弱方法へ）は別途、解決器レベルで `注入 0<1<2`・2回目で review-only を実証済みです。
 
 ---
 
