@@ -34,10 +34,12 @@ class _StreamTimeout(Exception):
 
     - ``llm_stalled_before_first_token``: prefill never produced a content token.
     - ``llm_stalled_after_progress``: generation started but then went idle.
-    - ``llm_total_timeout``: total wall-clock budget exhausted regardless of progress.
 
-    A slow-but-progressing model resets the idle timer on every real token and so
-    must never surface ``llm_stalled_after_progress`` purely for being slow.
+    There is no total wall-clock timeout: a call is only terminated when generation
+    actually stops (idle past the budget with the GPU back at baseline), never for
+    running long while still producing tokens. A slow-but-progressing model resets the
+    idle timer on every real token and so must never surface ``llm_stalled_after_progress``
+    purely for being slow.
     """
 
     def __init__(self, phase: str, *, tokens_generated: int = 0) -> None:
@@ -425,15 +427,21 @@ class AtlasLLMJsonAdapter:
         payload["stream_options"] = {"include_usage": True}
         self.last_usage = {}
         req = self._build_request(payload)
-        # Three independent budgets so a slow local model is judged on the right axis:
-        #   - first-token: how long prefill may run before any content token;
-        #   - idle-token: max gap *between real tokens* once generation has started;
-        #   - total: an absolute wall-clock ceiling regardless of progress.
+        # Two liveness budgets — and NO absolute wall-clock ceiling. The progress signal IS token
+        # generation: as long as tokens keep flowing (or the GPU is busy / the model is "thinking")
+        # the call must never be cut off, no matter how long it runs; the server's own max_tokens is
+        # the hard length bound. We only count idle time:
+        #   - first-token: how long prefill may run before the first content token;
+        #   - idle-token: max gap *between real tokens* once generation has started.
+        # Each real token (or reasoning delta, or GPU-busy poll) resets the idle timer; a stall is
+        # declared only when no progress occurs for the whole budget AND the GPU has gone idle. A
+        # previous fixed total ceiling cut healthy long generations off mid-stream (e.g. a large plan
+        # phase on a slow local model) and surfaced as a spurious "timeout" while the model was still
+        # working — so it was removed.
         # New env names take precedence; the historical names remain as fallbacks so existing
         # deployments and tuning keep working.
         first_token_sec = _resolve_timeout("ATLAS_LLM_FIRST_TOKEN_TIMEOUT_SECONDS", "ATLAS_PLAN_FIRST_TOKEN_SEC", 300.0)
         idle_token_sec = _resolve_timeout("ATLAS_LLM_IDLE_TOKEN_TIMEOUT_SECONDS", "ATLAS_LLM_INTER_TOKEN_SEC", 300.0)
-        total_sec = _resolve_timeout("ATLAS_LLM_TOTAL_TIMEOUT_SECONDS", "", 1800.0)
         chunks: list[str] = []
         reasoning_chars = 0  # separate reasoning_content deltas (reasoning models)
         tokens_generated = 0
@@ -445,16 +453,14 @@ class AtlasLLMJsonAdapter:
         # Poll the socket on a short interval so we re-evaluate liveness (tokens OR GPU) and emit a
         # heartbeat regularly even during a long no-token phase, independent of any browser polling.
         poll_sec = max(1.0, min(15.0, first_token_sec, idle_token_sec))
-        start_mono = time.monotonic()
-        last_progress_mono = start_mono  # last real token, reasoning delta, OR GPU-busy poll
+        last_progress_mono = time.monotonic()  # last real token, reasoning delta, OR GPU-busy poll
         with urllib_request.urlopen(req, timeout=first_token_sec) as resp:  # noqa: S310
             self._set_response_timeout(resp, poll_sec)
             line_iter = iter(resp)
             while True:
-                now = time.monotonic()
-                # Absolute wall-clock ceiling: a hard stop regardless of progress or GPU state.
-                if now - start_mono > total_sec:
-                    raise _StreamTimeout("llm_total_timeout", tokens_generated=tokens_generated)
+                # No absolute wall-clock ceiling: liveness (idle/first-token + GPU) and the server's
+                # max_tokens are the only stop conditions, so a healthy long generation is never cut
+                # off mid-stream.
                 try:
                     raw_line = next(line_iter)
                 except StopIteration:

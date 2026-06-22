@@ -170,15 +170,21 @@ def test_one_token_then_idle_fails_after_progress(monkeypatch) -> None:
     assert result.metadata.get("tokens_generated") == 1
 
 
-def test_total_timeout_is_distinct_from_first_and_idle(monkeypatch) -> None:
+def test_no_total_timeout_long_generation_completes_while_tokens_flow(monkeypatch) -> None:
+    # There is NO absolute wall-clock ceiling: as long as tokens keep flowing within the idle budget,
+    # a generation whose total wall-clock is very long (here ~1801s, well past the old 1800s cap that
+    # used to exist) must complete, not time out. Idle time is the only thing counted — and it resets
+    # on every token — so "don't count while generating; only count when generation stops".
     clock = _FakeClock()
-    # Tokens keep flowing within the idle budget, but the absolute total budget (40s) is hit.
-    steps = [(10, _content('{"a":')), (10, _content("1,")), (10, _content('"b":')), (20, _content("2}")), (1, _DONE)]
+    steps = [
+        (200, _content('{"a":')), (200, _content("1,")), (200, _content('"b":')),
+        (200, _content("2,")), (200, _content('"c":')), (200, _content("3,")),
+        (200, _content('"d":')), (200, _content("4,")), (200, _content('"e":5}')), (1, _DONE),
+    ]  # ~1801s total wall-clock, each inter-token gap 200s < idle 250s
     adapter = _adapter(
         monkeypatch, clock,
-        ATLAS_LLM_FIRST_TOKEN_TIMEOUT_SECONDS=1000,
-        ATLAS_LLM_IDLE_TOKEN_TIMEOUT_SECONDS=1000,
-        ATLAS_LLM_TOTAL_TIMEOUT_SECONDS=40,
+        ATLAS_LLM_FIRST_TOKEN_TIMEOUT_SECONDS=250,
+        ATLAS_LLM_IDLE_TOKEN_TIMEOUT_SECONDS=250,
     )
     monkeypatch.setattr(
         "agent.atlas_llm_json_adapter.urllib_request.urlopen",
@@ -187,9 +193,30 @@ def test_total_timeout_is_distinct_from_first_and_idle(monkeypatch) -> None:
 
     result = _run(adapter)
 
-    assert result.ok is False
-    assert result.error == "llm_total_timeout"
-    assert result.metadata.get("timeout_phase") == "llm_total_timeout"
+    assert result.ok is True
+    assert result.data == {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}
+
+
+def test_total_timeout_env_is_ignored_after_removal(monkeypatch) -> None:
+    # The old ATLAS_LLM_TOTAL_TIMEOUT_SECONDS absolute cap was removed. Even with it set very low,
+    # a steadily-progressing generation (gaps within the idle budget) must NOT be cut off.
+    clock = _FakeClock()
+    steps = [(10, _content('{"a":')), (10, _content("1,")), (10, _content('"b":')), (20, _content("2}")), (1, _DONE)]
+    adapter = _adapter(
+        monkeypatch, clock,
+        ATLAS_LLM_FIRST_TOKEN_TIMEOUT_SECONDS=1000,
+        ATLAS_LLM_IDLE_TOKEN_TIMEOUT_SECONDS=1000,
+        ATLAS_LLM_TOTAL_TIMEOUT_SECONDS=40,  # legacy cap — now ignored
+    )
+    monkeypatch.setattr(
+        "agent.atlas_llm_json_adapter.urllib_request.urlopen",
+        lambda _req, timeout=0: _TimedStreamResp(steps, clock),
+    )
+
+    result = _run(adapter)
+
+    assert result.ok is True
+    assert result.data == {"a": 1, "b": 2}
 
 
 def test_malformed_first_output_then_valid_structured_retry(monkeypatch) -> None:
