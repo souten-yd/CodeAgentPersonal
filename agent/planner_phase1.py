@@ -5,6 +5,7 @@ import uuid
 from typing import Callable
 
 from agent.atlas_action_type import normalize_action_type
+from agent.atlas_input_canonicalizer import ensure_english_text, render_canonical_task_for_prompt
 from agent.atlas_llm_output_models import PlanGenerationOutput
 from agent.atlas_llm_schemas import plan_generation_json_schema
 from agent.atlas_structured_output import generate_structured
@@ -110,13 +111,13 @@ class PlannerPhase1:
         )
         if not req.functional_requirements:
             if not analysis_failed:
-                req.functional_requirements = ["ユーザー入力に沿った実装計画を作成する"]
+                req.functional_requirements = ["Create an implementation plan that satisfies the canonical user request."]
                 warnings.append("Requirement payload did not include functional_requirements. Fallback requirement item was generated.")
             else:
                 warnings.append("Requirement analysis failed; functional_requirements were left empty.")
         if not req.done_definition:
             if not analysis_failed:
-                req.done_definition = ["実装前の計画が合意可能な品質で提示されること"]
+                req.done_definition = ["The implementation plan is specific enough to review before any code changes."]
                 warnings.append("Requirement payload did not include done_definition. Fallback done_definition was generated.")
             else:
                 warnings.append("Requirement analysis failed; done_definition was left empty.")
@@ -137,8 +138,10 @@ class PlannerPhase1:
     ) -> Plan:
         warnings: list[str] = []
         nexus_text = _format_nexus_context(nexus_context)
+        canonical_task_text = render_canonical_task_for_prompt(requirement.canonical_task_spec)
         planner_input = "\n\n".join([
             f"User Input:\n{requirement.user_input}",
+            canonical_task_text,
             f"Requirement Summary:\nGoal={requirement.interpreted_goal}\nFunctional={requirement.functional_requirements}\nNonFunctional={requirement.non_functional_requirements}\nConstraints={requirement.constraints}",
             f"Nexus Context:\n{nexus_text}",
             f"Repository Context:\n{repository_context}",
@@ -255,11 +258,12 @@ class PlannerPhase1:
             plan.rollback_plan = []
             warnings.append("planner_failure_requires_replan")
         elif not plan.test_plan:
-            plan.test_plan = ["APIレスポンス構造の確認", "保存ファイル(JSON/Markdown)の存在確認"]
+            plan.test_plan = ["Verify the API response structure.", "Verify the saved JSON and Markdown files exist."]
             warnings.append("Plan payload did not include test_plan. Fallback test plan was generated.")
         if not fallback_reason and not plan.rollback_plan:
-            plan.rollback_plan = ["追加ファイルを削除し、変更をrevertする"]
+            plan.rollback_plan = ["Remove newly added files and revert modified files."]
             warnings.append("Plan payload did not include rollback_plan. Fallback rollback plan was generated.")
+        _ensure_english_plan_text(plan)
         self._last_warnings = warnings
         return plan
 
@@ -317,6 +321,31 @@ def _format_nexus_context(nexus_context: dict) -> str:
         else:
             lines.append(f"- {str(item)[:220]}")
     return "\n".join([x for x in lines if x]).strip()[:9000]
+
+
+def _ensure_english_plan_text(plan: Plan) -> None:
+    plan.user_goal = ensure_english_text(plan.user_goal, fallback="Implement the canonical user request.")
+    plan.requirement_summary = ensure_english_text(plan.requirement_summary, fallback=plan.user_goal)
+    plan.assumptions = [ensure_english_text(value) for value in plan.assumptions]
+    plan.constraints = [ensure_english_text(value) for value in plan.constraints]
+    plan.architecture_options = [ensure_english_text(value) for value in plan.architecture_options]
+    plan.selected_architecture = ensure_english_text(plan.selected_architecture)
+    plan.rejected_architectures = [ensure_english_text(value) for value in plan.rejected_architectures]
+    plan.risks = [ensure_english_text(value) for value in plan.risks]
+    plan.test_plan = [ensure_english_text(value) for value in plan.test_plan]
+    plan.verification_plan = [ensure_english_text(value) for value in plan.verification_plan]
+    plan.rollback_plan = [ensure_english_text(value) for value in plan.rollback_plan]
+    plan.done_definition = [ensure_english_text(value) for value in plan.done_definition]
+    for step in plan.implementation_steps:
+        step.title = ensure_english_text(step.title, fallback=f"Implementation step {step.step_id}")
+        step.description = ensure_english_text(step.description)
+        step.goal = ensure_english_text(step.goal)
+        step.acceptance_criteria = [ensure_english_text(value) for value in step.acceptance_criteria]
+        step.assumptions = [ensure_english_text(value) for value in step.assumptions]
+        step.expected_changes = [ensure_english_text(value) for value in step.expected_changes]
+        step.verification = ensure_english_text(step.verification)
+        step.rollback = ensure_english_text(step.rollback)
+        step.preserve_behaviors = [ensure_english_text(value) for value in step.preserve_behaviors]
 
 
 def _strip_high_risk_noise(text: str) -> str:

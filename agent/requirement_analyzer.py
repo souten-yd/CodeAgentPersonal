@@ -7,6 +7,7 @@ from typing import Callable
 from agent.atlas_llm_output_models import RequirementAnalysisOutput
 from agent.atlas_llm_schemas import requirement_analysis_json_schema
 from agent.atlas_structured_output import generate_structured
+from agent.atlas_input_canonicalizer import ensure_english_text
 from agent.requirement_schema import RequirementCategoryScores, RequirementDefinition
 
 
@@ -32,6 +33,7 @@ class RequirementAnalyzer:
         nexus_context: dict,
         repository_context: str,
         existing_requirement: RequirementDefinition | None = None,
+        canonical_task_spec: dict | None = None,
     ) -> RequirementDefinition:
         warnings: list[str] = []
         nexus_text = _format_nexus_context(nexus_context)
@@ -75,6 +77,8 @@ class RequirementAnalyzer:
             requirement_id=requirement_id,
             source_task_id=source_task_id,
             user_input=user_input,
+            raw_user_input=str((canonical_task_spec or {}).get("raw_user_input") or user_input),
+            canonical_task_spec=dict(canonical_task_spec or {}),
             interpreted_goal=str(payload.get("interpreted_goal", user_input[:120])),
             user_intent=str(payload.get("user_intent", "Solve user request safely and incrementally.")),
             task_type=str(payload.get("task_type", _guess_task_type(user_input))),
@@ -111,13 +115,13 @@ class RequirementAnalyzer:
         )
         if not req.functional_requirements:
             if not analysis_failed:
-                req.functional_requirements = ["ユーザー入力に沿った実装計画を作成する"]
+                req.functional_requirements = ["Create an implementation plan that satisfies the canonical user request."]
                 warnings.append("Requirement payload did not include functional_requirements. Fallback requirement item was generated.")
             else:
                 warnings.append("Requirement analysis failed; functional_requirements were left empty.")
         if not req.done_definition:
             if not analysis_failed:
-                req.done_definition = ["実装前の計画が合意可能な品質で提示されること"]
+                req.done_definition = ["The implementation plan is specific enough to review before any code changes."]
                 warnings.append("Requirement payload did not include done_definition. Fallback done_definition was generated.")
             else:
                 warnings.append("Requirement analysis failed; done_definition was left empty.")
@@ -241,22 +245,22 @@ def _guess_task_type(user_input: str) -> str:
 
 
 def _merge_non_functional(raw_value) -> list[str]:
-    existing = _as_str_list(raw_value)
+    existing = [ensure_english_text(value) for value in _as_str_list(raw_value)]
     minimums = [
-        "安定性（既存動作を壊さない）",
-        "保守性（責務分離・読みやすさ）",
-        "UI/UX（既存UIとの一貫性）",
-        "iPhone Safari対応（表示崩れ回避）",
-        "Docker / Runpod / Windowsローカル対応",
-        "セキュリティ（危険な自動実行をしない）",
-        "データ保存（JSON/Markdownの整合性）",
-        "ログ（warning可視化）",
-        "エラー時の復旧性（busy解除・再試行可能）",
-        "既存機能との互換性",
+        "Stability: preserve existing behavior.",
+        "Maintainability: keep responsibilities separated and readable.",
+        "UI/UX: remain consistent with the existing interface.",
+        "iPhone Safari support: avoid layout breakage.",
+        "Docker, Runpod, and Windows local compatibility.",
+        "Security: do not perform unsafe automatic execution.",
+        "Data persistence: keep JSON and Markdown records consistent.",
+        "Logging: surface warnings clearly.",
+        "Recoverability: clear busy states and allow retry after errors.",
+        "Backward compatibility with existing features.",
     ]
     merged = list(existing)
     for item in minimums:
-        if not any(item.split("（")[0] in x for x in merged):
+        if not any(item.split(":")[0] in x for x in merged):
             merged.append(item)
     return merged
 

@@ -51,6 +51,8 @@ class RequirementDefinition(BaseModel):
     created_at: str = Field(default_factory=_utc_now_iso)
     updated_at: str = Field(default_factory=_utc_now_iso)
     user_input: str
+    raw_user_input: str = ""
+    canonical_task_spec: dict[str, Any] = Field(default_factory=dict)
     project_name: str = ""
     project_path: str = ""
     resolved_project_path: str = ""

@@ -31,6 +31,12 @@ Important:
 - Do NOT write code.
 - Do NOT execute implementation.
 - Produce implementation plan only.
+- Always write implementation steps, requirement labels, acceptance criteria, risks, warnings,
+  recovery actions, and patch proposal metadata in English.
+- If the user's input contains Japanese or mixed Japanese/English, use the provided canonical
+  English task spec. Do not emit Japanese text in plan items, target files, acceptance criteria,
+  critique findings, or patch proposal metadata.
+- Preserve the user's original intent through requirement_ids.
 
 Required keys:
 - task_type

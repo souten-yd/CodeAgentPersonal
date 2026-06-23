@@ -562,6 +562,132 @@ def test_create_plan_pool_uses_registered_atlas_llm_json_fn(tmp_path) -> None:
     assert body["plan_pool"]["metadata"]["source"] == "real_planner"
 
 
+def test_create_plan_pool_canonicalizes_japanese_input_before_planning(tmp_path) -> None:
+    from agent.atlas_input_canonicalizer import contains_cjk
+
+    client = _client(tmp_path)
+    seen_user_prompts: list[str] = []
+
+    def fake_llm(system_prompt: str, user_prompt: str) -> dict:
+        seen_user_prompts.append(user_prompt)
+        if "requirement analyst" in system_prompt:
+            return {
+                "interpreted_goal": "Build an HTML retro first-person shooter in a space station.",
+                "user_intent": "Create a browser FPS game.",
+                "task_type": "project_generation",
+                "scope": ["HTML browser game"],
+                "out_of_scope": [],
+                "functional_requirements": [
+                    "Build an HTML retro first-person shooter game.",
+                    "Set the game in a space station.",
+                    "Add handgun, shotgun, rocket launcher, unlimited ammunition, and alien enemies.",
+                ],
+                "non_functional_requirements": ["Keep the implementation browser-runnable."],
+                "constraints": [],
+                "assumptions": [],
+                "open_questions": [],
+                "done_definition": ["The browser game includes movement, weapons, ammunition, and alien combat."],
+                "risks": [],
+                "priority": "medium",
+                "requirement_completeness_score": 0.9,
+                "category_scores": {
+                    "goal": 0.9,
+                    "scope": 0.9,
+                    "functional_requirements": 0.9,
+                    "non_functional_requirements": 0.8,
+                    "constraints": 0.8,
+                    "done_definition": 0.9,
+                },
+            }
+        if "codebase research assistant" in system_prompt:
+            return {
+                "relevant_files": ["index.html"],
+                "existing_patterns": [],
+                "key_findings": ["No existing files constrain the greenfield game."],
+                "risks": [],
+                "open_questions": [],
+                "recommended_approach": "Create a small browser game with clear modules.",
+            }
+        if "adversarial plan reviewer" in system_prompt:
+            return {
+                "findings": [],
+                "angle_risk": "low",
+                "consensus_risk": "low",
+                "requires_revision": False,
+            }
+        return {
+            "task_type": "project_generation",
+            "user_goal": "Build an HTML retro first-person shooter in a space station.",
+            "requirement_summary": "Create movement, weapons, unlimited ammunition, and alien enemies.",
+            "assumptions": [],
+            "constraints": [],
+            "architecture_options": ["Static HTML plus JavaScript and CSS"],
+            "selected_architecture": "Static HTML plus JavaScript and CSS",
+            "rejected_architectures": [],
+            "implementation_steps": [
+                {
+                    "title": "Create the space station FPS shell",
+                    "description": "Create the HTML game shell and space station scene.",
+                    "goal": "Represent the space station FPS experience.",
+                    "requirement_ids": ["req_001", "req_002"],
+                    "acceptance_criteria": ["The game opens in a browser and shows a space station FPS scene."],
+                    "patch_task_kind": "code_change",
+                    "target_files": ["index.html"],
+                    "target_directories": [],
+                    "assumptions": [],
+                    "action_type": "create",
+                    "risk_level": "low",
+                    "verification": "Open index.html in a browser.",
+                    "rollback": "Delete index.html.",
+                },
+                {
+                    "title": "Implement weapons and alien combat",
+                    "description": "Add handgun, shotgun, rocket launcher, unlimited ammunition, alien enemies, combat, damage, and defeat feedback.",
+                    "goal": "Satisfy the weapon and enemy requirements.",
+                    "requirement_ids": ["req_003", "req_004", "req_005", "req_006"],
+                    "acceptance_criteria": ["Weapons can be selected and aliens can be defeated."],
+                    "patch_task_kind": "code_change",
+                    "target_files": ["game.js"],
+                    "target_directories": [],
+                    "assumptions": [],
+                    "action_type": "create",
+                    "risk_level": "low",
+                    "verification": "Play the browser game manually.",
+                    "rollback": "Delete game.js.",
+                },
+            ],
+            "target_files": ["index.html", "game.js"],
+            "target_directories": [],
+            "expected_file_changes": [],
+            "risks": [],
+            "test_plan": ["Open the game in a browser."],
+            "verification_plan": ["Perform a browser smoke test."],
+            "rollback_plan": ["Delete generated files."],
+            "done_definition": ["The game includes movement, weapons, ammunition, and alien enemies."],
+            "destructive_change_detected": False,
+            "requires_user_confirmation": False,
+        }
+
+    main.app.state.atlas_llm_json_fn = fake_llm
+    prompt = "007ゴールデンアイみたいなファーストパーソンシューティングゲームをHTMLで作って。舞台は宇宙ステーション。ハンドガン、ショットガン、ロケットランチャー。弾は無限。敵は宇宙人。"
+
+    response = client.post(
+        "/api/atlas/plan-pools?sync=1",
+        json={"input": prompt, "planner_mode": "real_planner", "automation_level": "full_autopilot"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    metadata = body["plan_pool"]["metadata"]
+    assert body["used_fallback"] is False
+    assert metadata["raw_user_input"] == prompt
+    assert metadata["source_language"] == "ja"
+    assert not contains_cjk(metadata["canonical_request_en"])
+    assert all(not contains_cjk(req["description"]) for req in metadata["requirement_trace"])
+    assert "plan_revision_required" not in metadata
+    assert not any(contains_cjk(prompt_text) for prompt_text in seen_user_prompts)
+
+
 def test_create_plan_pool_records_forge_bridge_decision_at_llm_boundary(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("FORGE_ENABLED", raising=False)
     client = _client(tmp_path)

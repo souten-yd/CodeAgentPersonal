@@ -68,6 +68,7 @@ from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
 from agent.atlas_planner_bridge import AtlasPlannerBridge
 from agent.atlas_planner_bridge_schema import AtlasPlannerBridgeRequest
+from agent.atlas_input_canonicalizer import ensure_english_text
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_recovery_service import AtlasRecoveryService
@@ -812,9 +813,17 @@ def _build_strategic_plan_summary(
             "recommendation": _sp_str(f.get("recommendation"), 300),
         })
 
+    pool_metadata = getattr(pool, "metadata", {}) or {}
+    canonical_request = str(pool_metadata.get("canonical_request_en") or "").strip()
     summary: dict = {
-        "goal": _sp_str(requirement.get("interpreted_goal") or plan.get("user_goal") or pool.root_goal, 600),
-        "requirement_summary": _sp_str(plan.get("requirement_summary") or requirement.get("user_intent"), 600),
+        "goal": _sp_str(ensure_english_text(
+            requirement.get("interpreted_goal") or plan.get("user_goal") or canonical_request or pool.root_goal,
+            fallback=canonical_request or "Implement the canonical user request.",
+        ), 600),
+        "requirement_summary": _sp_str(ensure_english_text(
+            plan.get("requirement_summary") or requirement.get("user_intent") or canonical_request,
+            fallback=canonical_request or "Implement the canonical user request.",
+        ), 600),
         "scope": _sp_list(requirement.get("scope")),
         "out_of_scope": _sp_list(requirement.get("out_of_scope")),
         "assumptions": _sp_list(plan.get("assumptions") or requirement.get("assumptions")),
@@ -865,7 +874,6 @@ def _build_strategic_plan_summary(
 
     # Make a planner-bridge fallback impossible to miss on the plan card. ``fallback_reason`` carries the
     # actual exception summary from the planner bridge; pool warnings carry the corroborating tags.
-    pool_metadata = getattr(pool, "metadata", {}) or {}
     effective_reason = str(fallback_reason or pool_metadata.get("planner_bridge_reason") or "").strip()
     if used_fallback or effective_reason:
         pool_warnings = [str(w) for w in (getattr(pool, "warnings", []) or [])]
@@ -877,9 +885,10 @@ def _build_strategic_plan_summary(
             "used_fallback": True,
             "reason": _sp_str(effective_reason or "unknown", 400),
             "detail": _sp_str(
-                "実プランナーが計画を生成できず、汎用フォールバックプランに切り替わりました。"
-                "このプランには適用可能な変更（file_changes）が含まれないため、実行しても safe_apply は"
-                "適用対象を持たず safe_apply_not_applied で停止します。上記 reason が実プランナーの失敗原因です。",
+                "The real planner could not generate a plan, so Atlas switched to a generic fallback plan. "
+                "This fallback does not contain applicable file_changes; execution will stop at "
+                "safe_apply_not_applied because there is no patchable target. The reason field is the "
+                "planner failure summary.",
                 500,
             ),
             "diagnostics": _sp_list(diagnostics, max_items=8, item_limit=300),
@@ -1899,7 +1908,27 @@ def _create_plan_pool_core(
 
     # ── Requirement trace + repair intent (PR-8d): persist on pool metadata so the autopilot
     # final-status rollup can compute coverage and detect test-only repair plans. ──
-    pool.metadata["requirement_trace"] = AtlasRequirementTracer().extract_requirements(root_goal)
+    if not list(pool.metadata.get("requirement_trace") or []):
+        canonical_requirements = [
+            req for req in list(pool.metadata.get("canonical_requirements") or [])
+            if isinstance(req, dict) and str(req.get("canonical_text_en") or req.get("description") or "").strip()
+        ]
+        if canonical_requirements:
+            pool.metadata["requirement_trace"] = [
+                {
+                    "requirement_id": str(req.get("id") or req.get("requirement_id") or f"req_{index:03d}"),
+                    "description": str(req.get("canonical_text_en") or req.get("description") or ""),
+                    "planned_files": [],
+                    "implementation_evidence": [],
+                    "verification_method": "",
+                    "status": "planned",
+                }
+                for index, req in enumerate(canonical_requirements, start=1)
+            ]
+        else:
+            pool.metadata["requirement_trace"] = AtlasRequirementTracer().extract_requirements(
+                str(pool.metadata.get("canonical_request_en") or root_goal)
+            )
     _repair_intent = (req.metadata or {}).get("repair_intent") or classify_repair_intent(
         req.input or "", previous_changed_files=changed_files_for_context
     )
