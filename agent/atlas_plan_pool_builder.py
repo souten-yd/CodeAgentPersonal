@@ -67,7 +67,13 @@ def coerce_requirements(value: Any) -> list[dict[str, Any]]:
     for index, raw in enumerate(value, start=1):
         if isinstance(raw, dict):
             item = dict(raw)
-            description = str(item.get("description") or item.get("title") or item.get("goal") or "").strip()
+            description = str(
+                item.get("description")
+                or (str(item.get("canonical_text_en") or "").strip() or None)
+                or item.get("title")
+                or item.get("goal")
+                or ""
+            ).strip()
             if not description:
                 continue
             item.setdefault("requirement_id", str(item.get("id") or f"req_{index:03d}"))

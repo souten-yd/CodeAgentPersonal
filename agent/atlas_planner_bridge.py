@@ -6,6 +6,7 @@ from typing import Any, Callable
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder, coerce_list
 from agent.atlas_plan_pool_schema import AtlasPlanPool
 from agent.atlas_planner_bridge_schema import AtlasPlannerBridgeRequest, AtlasPlannerBridgeResult
+from agent.atlas_input_canonicalizer import AtlasInputCanonicalizer
 from agent.task_planning_runner import TaskPlanningRunner
 
 
@@ -237,8 +238,9 @@ class AtlasPlannerBridge:
         warnings = ["real_planner_unavailable"] if reason == "real_planner_unavailable" else []
         if reason and reason not in warnings:
             warnings.append(reason)
+        canonical_task = AtlasInputCanonicalizer().canonicalize(request.input)
         pool = self.builder.build_fallback_pool(
-            root_goal=request.input,
+            root_goal=canonical_task.canonical_request_en,
             project_path=request.project_path,
             project_name=request.project_name,
             planning_depth=request.planning_depth,
@@ -247,7 +249,17 @@ class AtlasPlannerBridge:
             pool_id=request.pool_id,
             warnings=warnings,
         )
-        pool.metadata.update({"source": "fallback", "planner_bridge_reason": reason})
+        pool.original_user_request = request.input
+        pool.metadata.update({
+            "source": "fallback",
+            "planner_bridge_reason": reason,
+            "raw_user_input": request.input,
+            "canonical_request_en": canonical_task.canonical_request_en,
+            "canonical_requirements": [req.model_dump() for req in canonical_task.canonical_requirements],
+            "source_language": canonical_task.source_language,
+            "canonical_language": canonical_task.canonical_language,
+            "canonical_task_spec": canonical_task.model_dump(),
+        })
         return pool
 
     def planner_result_to_plan_payload(
@@ -258,6 +270,9 @@ class AtlasPlannerBridge:
         plan = _as_dict(planner_result.get("plan"))
         review_result = _as_dict(planner_result.get("review_result"))
         requirement = _as_dict(planner_result.get("requirement"))
+        canonical_task = requirement.get("canonical_task_spec") if isinstance(requirement.get("canonical_task_spec"), dict) else {}
+        if not canonical_task:
+            canonical_task = AtlasInputCanonicalizer().canonicalize(request.input).model_dump()
         requirement_trace = _requirements_from_planner_result(planner_result, requirement)
         steps = plan.get("implementation_steps")
         if not isinstance(steps, list) or not steps:
@@ -329,6 +344,14 @@ class AtlasPlannerBridge:
             "global_constraints": coerce_list(plan.get("constraints") or requirement.get("constraints")),
             "preserve_behaviors": coerce_list(plan.get("preserve_behaviors") or requirement.get("preserve_behaviors")),
             "requirement_trace": requirement_trace,
+            "raw_user_input": requirement.get("raw_user_input") or request.input,
+            "canonical_request_en": (canonical_task.get("canonical_request_en") if canonical_task else "")
+            or requirement.get("user_input")
+            or request.input,
+            "canonical_requirements": list(canonical_task.get("canonical_requirements") or []) if canonical_task else [],
+            "source_language": str(canonical_task.get("source_language") or ""),
+            "canonical_language": str(canonical_task.get("canonical_language") or "en"),
+            "canonical_task_spec": canonical_task,
         }
         if request.repo_context_package:
             metadata["repo_context_package"] = {
@@ -342,11 +365,11 @@ class AtlasPlannerBridge:
             metadata["planner_context_text"] = mtxt[:6000]
             metadata["planner_repo_context_caveat"] = "Repo Context is advisory and read-only. Do not execute tests or apply patches."
         return {
-            "original_user_request": requirement.get("user_input") or request.input,
+            "original_user_request": requirement.get("raw_user_input") or request.input,
             "root_goal": plan.get("user_goal")
             or plan.get("requirement_summary")
             or requirement.get("interpreted_goal")
-            or request.input,
+            or metadata["canonical_request_en"],
             "selected_architecture": metadata["selected_architecture"],
             "requirements": requirement_trace,
             "preserve_behaviors": metadata["preserve_behaviors"],
@@ -449,7 +472,12 @@ def _infer_step_requirement_ids(step: dict[str, Any], requirements: list[dict[st
 
 
 def _requirements_from_planner_result(planner_result: dict, requirement: dict) -> list[dict[str, Any]]:
+    canonical_task = requirement.get("canonical_task_spec") if isinstance(requirement.get("canonical_task_spec"), dict) else {}
     candidates = (
+        canonical_task.get("canonical_requirements")
+        if isinstance(canonical_task.get("canonical_requirements"), list) and canonical_task.get("canonical_requirements")
+        else None
+    ) or (
         planner_result.get("requirements")
         or planner_result.get("requirement_trace")
         or requirement.get("requirements")
@@ -460,7 +488,13 @@ def _requirements_from_planner_result(planner_result: dict, requirement: dict) -
         for index, raw in enumerate(candidates, start=1):
             if isinstance(raw, dict):
                 req = dict(raw)
-                description = str(req.get("description") or req.get("title") or req.get("goal") or "").strip()
+                description = str(
+                    req.get("description")
+                    or req.get("canonical_text_en")
+                    or req.get("title")
+                    or req.get("goal")
+                    or ""
+                ).strip()
                 if not description:
                     continue
                 req.setdefault("requirement_id", str(req.get("id") or f"req_{index:03d}"))

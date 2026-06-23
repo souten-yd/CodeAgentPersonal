@@ -12,6 +12,7 @@ from agent.clarification_policy import ClarificationPolicy
 from agent.nexus_context_builder import NexusContextBuilder
 from agent.plan_reviewer import PlanReviewer
 from agent.atlas_plan_target_contract import normalize_plan_for_review
+from agent.atlas_input_canonicalizer import AtlasInputCanonicalizer
 from agent.research_conductor import ResearchConductor
 from agent.plan_storage import PlanStorage
 from agent.planner_phase1 import PlannerPhase1
@@ -88,6 +89,11 @@ class TaskPlanningRunner:
         callback = progress_cb or self.progress_cb
         task_id = f"task_{uuid.uuid4().hex[:12]}"
         warnings: list[str] = []
+        canonical_task = AtlasInputCanonicalizer().canonicalize(user_input)
+        canonical_task_payload = canonical_task.model_dump()
+        raw_user_input = user_input
+        user_input = canonical_task.canonical_request_en
+        warnings.extend(canonical_task.normalization_warnings)
         project_path = (project_path or "").strip()
         project_name = (project_name or "").strip()
         resolved_project_path = project_path
@@ -124,7 +130,10 @@ class TaskPlanningRunner:
             prompt=REQUIREMENT_ANALYSIS_PROMPT,
             nexus_context=nexus_context,
             repository_context=repository_context,
+            canonical_task_spec=canonical_task_payload,
         )
+        requirement.raw_user_input = raw_user_input
+        requirement.canonical_task_spec = canonical_task_payload
         requirement.project_name = project_name
         requirement.project_path = project_path
         requirement.resolved_project_path = resolved_project_path

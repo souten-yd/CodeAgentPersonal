@@ -3085,7 +3085,7 @@
       || (strategic && strategic.revision_id)
       || ''
     );
-    appendStrategicPlanCard(poolId, revisionId, strategic, items, rawMarkdown);
+    appendStrategicPlanCard(poolId, revisionId, strategic, items, rawMarkdown, poolMeta);
     // State-driven prompts (survive a browser reload): re-derive from the server pool.status /
     // metadata instead of in-memory flags, so the approval / clarification controls reappear.
     const clarification = poolMeta.critique_clarification_options || {};
@@ -3261,7 +3261,7 @@
     );
   }
 
-  function appendStrategicPlanCard(poolId, revisionId, strategic, items, rawMarkdown) {
+  function appendStrategicPlanCard(poolId, revisionId, strategic, items, rawMarkdown, poolMeta = {}) {
     if (!strategic || typeof strategic !== 'object') {
       appendPlanCard(poolId, revisionId, items, rawMarkdown);
       return;
@@ -3273,7 +3273,7 @@
     const head = document.createElement('div');
     head.className = 'atlas-claude-summary-head';
     const stepCount = Array.isArray(strategic.steps) ? strategic.steps.length : 0;
-    head.textContent = `戦略プラン — 実行ステップ ${stepCount} 件`;
+    head.textContent = `Strategic plan - ${stepCount} execution steps`;
     card.appendChild(head);
 
     const addSection = (label, render) => {
@@ -3313,14 +3313,14 @@
 
     // Goal / summary
     if (strategic.goal || strategic.requirement_summary) {
-      addSection('ゴール', (sec) => {
+      addSection('Goal', (sec) => {
         para(sec, strategic.goal);
         if (strategic.requirement_summary && strategic.requirement_summary !== strategic.goal) para(sec, strategic.requirement_summary);
       });
     }
     // Approach / architecture
     if (strategic.selected_architecture || (strategic.architecture_options || []).length || (strategic.research && strategic.research.recommended_approach)) {
-      addSection('アプローチ / アーキテクチャ', (sec) => {
+      addSection('Approach / Architecture', (sec) => {
         if (strategic.research && strategic.research.recommended_approach) para(sec, strategic.research.recommended_approach);
         para(sec, strategic.selected_architecture);
         bullets(sec, strategic.architecture_options);
@@ -3328,7 +3328,7 @@
     }
     // Steps
     if (stepCount) {
-      addSection('実行ステップ', (sec) => {
+      addSection('Execution Steps', (sec) => {
         strategic.steps.forEach((s, i) => {
           const row = document.createElement('div');
           row.style.padding = '4px 0';
@@ -3336,12 +3336,12 @@
           const meta = [s.action_type, s.risk_level].filter(Boolean).join(' · ');
           t.innerHTML = `<strong>${escapeText(`${i + 1}. ${s.title || 'step'}`)}</strong>${meta ? ` <span class="atlas-claude-stage-detail">(${escapeText(meta)})</span>` : ''}`;
           row.appendChild(t);
-          if (s.goal) para(row, `ゴール: ${s.goal}`);
+          if (s.goal) para(row, `Goal: ${s.goal}`);
           para(row, s.description);
-          bullets(row, textItems(s.acceptance_criteria).map((x) => `受入条件: ${x}`));
+          bullets(row, textItems(s.acceptance_criteria).map((x) => `Acceptance criterion: ${x}`));
           if ((s.target_files || []).length) para(row, `files: ${s.target_files.join(', ')}`);
-          if (s.verification) para(row, `検証: ${s.verification}`);
-          if (s.rollback) para(row, `ロールバック: ${s.rollback}`);
+          if (s.verification) para(row, `Verification: ${s.verification}`);
+          if (s.rollback) para(row, `Rollback: ${s.rollback}`);
           sec.appendChild(row);
         });
       });
@@ -3350,25 +3350,41 @@
     const review = strategic.review || {};
     const critique = strategic.adversarial_critique || {};
     if ((strategic.risks || []).length || review.summary || (review.findings || []).length || (critique.findings || []).length) {
-      addSection('リスク / レビュー', (sec) => {
-        if (review.overall_risk) para(sec, `総合リスク: ${review.overall_risk}`);
+      addSection('Risks / Review', (sec) => {
+        if (review.overall_risk) para(sec, `Overall risk: ${review.overall_risk}`);
         if (review.summary) para(sec, review.summary);
         bullets(sec, strategic.risks);
         const unresolvedReview = (review.findings || []).filter((f) => ['high', 'critical'].includes(String(f.severity || '').toLowerCase()) || f.requires_user_confirmation);
         const resolvedReview = (review.findings || []).filter((f) => !unresolvedReview.includes(f));
-        unresolvedReview.forEach((f) => para(sec, `未解決 ⚠ [${f.severity || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
-        if (resolvedReview.length) para(sec, `解決済み/低リスク findings: ${resolvedReview.length} 件（折りたたみ対象）`);
-        if (critique.requires_revision) para(sec, `敵対的批評: 要改訂 (${critique.consensus_risk || '-'})`);
+        unresolvedReview.forEach((f) => para(sec, `Unresolved [${f.severity || '-'}] ${f.title || ''}${f.recommendation ? ' -> ' + f.recommendation : ''}`));
+        if (resolvedReview.length) para(sec, `Resolved or low-risk findings: ${resolvedReview.length}`);
+        if (critique.requires_revision) para(sec, `Adversarial critique: revision required (${critique.consensus_risk || '-'})`);
         const unresolvedCritique = (critique.findings || []).filter((f) => ['high', 'critical'].includes(String(f.severity || '').toLowerCase()));
-        unresolvedCritique.forEach((f) => para(sec, `未解決 ⚔ [${f.severity || '-'}/${f.angle || '-'}] ${f.title || ''}${f.recommendation ? ' → ' + f.recommendation : ''}`));
+        unresolvedCritique.forEach((f) => para(sec, `Unresolved [${f.severity || '-'}/${f.angle || '-'}] ${f.title || ''}${f.recommendation ? ' -> ' + f.recommendation : ''}`));
       });
     }
     // Done definition / tests
     if ((strategic.done_definition || []).length || (strategic.test_plan || []).length) {
-      addSection('完了条件 / テスト', (sec) => {
+      addSection('Done Definition / Tests', (sec) => {
         bullets(sec, strategic.done_definition);
         bullets(sec, strategic.test_plan);
       });
+    }
+
+    const canonical = poolMeta && typeof poolMeta === 'object' ? (poolMeta.canonical_task_spec || {}) : {};
+    if ((canonical.raw_user_input && canonical.canonical_request_en) || (poolMeta && poolMeta.raw_user_input)) {
+      const det = document.createElement('details');
+      det.className = 'atlas-claude-summary-items';
+      const sm = document.createElement('summary');
+      sm.textContent = 'Original request and canonical task';
+      det.appendChild(sm);
+      const body = document.createElement('div');
+      para(body, `Original request: ${canonical.raw_user_input || poolMeta.raw_user_input || ''}`);
+      para(body, `Canonical request: ${canonical.canonical_request_en || poolMeta.canonical_request_en || ''}`);
+      const reqs = Array.isArray(canonical.canonical_requirements) ? canonical.canonical_requirements : [];
+      bullets(body, reqs.map((r) => `${r.id || r.requirement_id || '-'}: ${r.canonical_text_en || r.description || ''}`).filter(Boolean));
+      det.appendChild(body);
+      card.appendChild(det);
     }
 
     // Raw details preserved for power users.
@@ -3376,7 +3392,7 @@
       const det = document.createElement('details');
       det.className = 'atlas-claude-summary-items';
       const sm = document.createElement('summary');
-      sm.textContent = '詳細（生のプラン情報）';
+      sm.textContent = 'Raw plan details';
       det.appendChild(sm);
       const body = document.createElement('div');
       const trimmed = rawMarkdown.length > 8000 ? rawMarkdown.slice(0, 8000) + '\n\n…(truncated)' : rawMarkdown;
@@ -3397,7 +3413,7 @@
 
     const head = document.createElement('div');
     head.className = 'atlas-claude-summary-head';
-    head.textContent = `プラン — 実行ステップ ${items.length} 件`;
+    head.textContent = `Plan - ${items.length} execution steps`;
     card.appendChild(head);
 
     if (items.length) {
@@ -3428,7 +3444,7 @@
       const det = document.createElement('details');
       det.className = 'atlas-claude-summary-items';
       const sm = document.createElement('summary');
-      sm.textContent = '詳細（生のプラン情報）';
+      sm.textContent = 'Raw plan details';
       det.appendChild(sm);
       const body = document.createElement('div');
       const trimmed = rawMarkdown.length > 8000 ? rawMarkdown.slice(0, 8000) + '\n\n…(truncated)' : rawMarkdown;
