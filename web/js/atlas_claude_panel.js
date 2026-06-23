@@ -227,8 +227,38 @@
     }
   }
 
+  // Reopening the browser (or restoring a project) can land on a pool whose PLAN is still being
+  // generated — the long createPlanPool poll was interrupted when the tab closed. Re-attach to the
+  // running job and resume the server-authoritative poll so the live indicator and the plan render
+  // reappear, instead of showing a stale/empty card. If the plan already reached a terminal state we
+  // do nothing here (renderPlanPoolMarkdown / restoreLatestRun render it normally).
+  async function resumeInFlightPlanGeneration(poolId) {
+    if (!poolId || !root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPlanPoolStatus) return false;
+    let status = '';
+    try {
+      const st = await root.AtlasPipelineAPI.getPlanPoolStatus(poolId);
+      status = (st && st.ok && st.data && st.data.status) || '';
+    } catch (_) { return false; }
+    if (status !== 'queued' && status !== 'running' && status !== 'revising') return false;
+    // Still generating: show the live indicator and resume polling to completion, then re-render.
+    state.planGenerationInFlight = true;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('atlas:llm-progress', { detail: { phase: status, tokens: 0, secondsSince: 0, poolId } }));
+    }
+    try {
+      await root.AtlasPipelineAPI.pollPlanPoolUntilReady(poolId, workspaceId());
+    } finally {
+      state.planGenerationInFlight = false;
+    }
+    try { await renderPlanPoolMarkdown(poolId); } catch (_) {}
+    return true;
+  }
+
   async function restoreLatestRun(poolId) {
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult) return;
+    // If the PLAN itself is still generating (browser reopened mid-generation), re-attach and resume
+    // polling detached so the live indicator returns without blocking the rest of the restore.
+    resumeInFlightPlanGeneration(poolId).catch(() => {});
     let runtime = null;
     try {
       runtime = await loadRuntimeStatus(poolId);
@@ -919,12 +949,29 @@
     // suppresses the spurious plan_pool_not_found terminal panel while generation is still running.
     state.planGenerationInFlight = true;
     let resp;
+    let earlyPoolId = '';
     try {
-      resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_path: projectPath(), metadata: { preset_id: state.selectedPresetId }, capability_preferences: getAtlasCapabilityPreferences(), automation_features: getAtlasAutomationFeatures() });
+      resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_path: projectPath(), metadata: { preset_id: state.selectedPresetId }, capability_preferences: getAtlasCapabilityPreferences(), automation_features: getAtlasAutomationFeatures() }, (queuedPoolId) => {
+        // The server ACCEPTED the job: persist the per-project recovery pointer the moment it is
+        // queued (localStorage + conversation meta), not after the long poll returns. A browser
+        // closed mid-generation can then re-attach to the still-running plan on reopen.
+        earlyPoolId = queuedPoolId;
+        try { localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, queuedPoolId); } catch (_) {}
+        try { persistMeta({ active_pool_id: queuedPoolId }); } catch (_) {}
+      });
     } finally {
       state.planGenerationInFlight = false;
     }
     if (!resp.ok) {
+      // If the server already accepted the job (earlyPoolId set) and we merely lost the transport
+      // mid-generation, this is NOT a creation failure: the plan keeps generating server-side and
+      // per-project recovery re-attaches on reopen. Surface a recoverable notice instead of an error.
+      const transportLost = resp.status === 0 || resp.code === 'network_error' || resp.code === 'gateway_timeout';
+      if (earlyPoolId && transportLost) {
+        setBusy(false);
+        pushSystemMessage('接続が切れましたが、プラン生成はサーバ側で継続中です。再読み込みすると進捗に再接続します。');
+        return;
+      }
       setBusy(false);
       pushAtlasMessage(`PlanPool creation failed: ${formatError(resp)}`);
       return;
@@ -1940,6 +1987,11 @@
           hasContent = patchGeneration.state === 'succeeded'
             && patchGeneration.outcome === 'success'
             && patchGeneration.patch_content_available === true;
+          // A server `blocked` result means generation was REFUSED without ever invoking the LLM
+          // (stateful: plan_revision_required / planner_fallback / clarification open / invalid item).
+          // Retrying with the same pool state can only block again — and does so in milliseconds, so
+          // the 5-attempt budget burns instantly without ever waiting for the model. Stop immediately.
+          if (!hasContent && r && r.ok && r.data && r.data.status === 'blocked') break;
         }
         if (hasContent) {
           generated += 1;
@@ -2031,8 +2083,20 @@
             const status = r.data.status || 'unknown';
             const warnings = Array.isArray(r.data.warnings) ? r.data.warnings : [];
             const errors = Array.isArray(r.data.errors) ? r.data.errors : [];
+            // A fallback-skeleton plan (no implementation steps) cannot produce a patch. The reason is
+            // taken from the structured metadata when present, else recovered from the
+            // "planner_fallback:<reason>" warning the patch service echoes into the result. This was
+            // previously referenced UNDECLARED below, throwing "Can't find variable: plannerFallback"
+            // the moment a content-required item failed — aborting the whole build/safety-override flow
+            // and masking the real per-item failure reason.
+            const fallbackWarning = warnings.map(String).find((w) => w.startsWith('planner_fallback:'));
+            const plannerFallback = (resultMeta && resultMeta.planner_fallback)
+              || (propMeta && propMeta.planner_fallback)
+              || (fallbackWarning ? { reason: fallbackWarning.slice('planner_fallback:'.length).trim() } : null);
             let cause = 'パッチ生成がブロックされました';
-            if (warnings.includes('plan_revision_required_blocks_patch')) {
+            if (plannerFallback) {
+              cause = 'プランがフォールバック（実装ステップ未生成）のため、パッチ生成できません';
+            } else if (warnings.includes('plan_revision_required_blocks_patch')) {
               cause = 'プラン修正が必要なため、パッチ生成は開始されませんでした';
             } else if (warnings.includes('llm_no_patch_content_generated') || warnings.includes('plan_item_patch_content_missing')) {
               cause = 'LLMがパッチ内容を生成できませんでした';
@@ -3140,14 +3204,15 @@
       // rendered with zero controls — the reported "Critic shown, then no approve/revise/cancel
       // buttons" dead-end. Surface approve / revise / cancel mapped to the critical-decision endpoint.
       appendCriticalDecisionPrompt(poolId, poolMeta, approvalContext);
+    } else if (opts.allowReuse) {
+      // Reusing an existing plan from Plan History: a previously-failed/blocked plan must offer
+      // reset+regenerate, not just the plain approval prompt — so this branch takes precedence over
+      // approval_required. The pool may be past approval (ready / completed / failed / running …),
+      // in which case no interactive prompt fires below and the plan would render with no controls.
+      // Offer reuse actions so the user can re-run it (re-execute), request a revision, or cancel.
+      appendPlanReusePrompt(poolId, approvalContext, poolStatus);
     } else if (poolStatus === 'approval_required') {
       appendPlanActionPrompt(poolId, approvalContext);
-    } else if (opts.allowReuse) {
-      // Reusing an existing plan from Plan History: the pool is past approval_required
-      // (ready / completed / failed / running …) so no interactive prompt fires above and
-      // the plan would render with no controls. Offer reuse actions so the user can
-      // re-run it (re-execute), request a revision, or cancel.
-      appendPlanReusePrompt(poolId, approvalContext, poolStatus);
     }
   }
 

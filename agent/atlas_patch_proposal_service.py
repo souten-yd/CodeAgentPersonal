@@ -1341,6 +1341,10 @@ class AtlasPatchProposalService:
         empty_content_attempts = 0
         self_review_feedback: dict | None = None
         anchor_recovery: dict | None = None
+        # Deterministic-repeat guard: when a regeneration reproduces the EXACT same defect signature,
+        # burning the rest of the attempt budget cannot change the outcome — it just regenerates the
+        # same broken part over and over. Track seen signatures and stop early on an exact repeat.
+        seen_failure_signatures: set[str] = set()
         for attempt in range(1, self.MAX_LLM_GENERATION_ATTEMPTS + 1):
             user_obj: dict = {"task": base_task, "input": input_payload}
             if clarification_directives:
@@ -1488,7 +1492,15 @@ class AtlasPatchProposalService:
             if semantic.get("status") == "failed":
                 proposal.warnings.append("semantic_validation_failed")
                 last_failure = "semantic_validation_failed:" + ",".join(semantic.get("reasons") or [])
-                if attempt < self.MAX_LLM_GENERATION_ATTEMPTS:
+                _sig = self._failure_signature(proposal, semantic.get("reasons") or [])
+                _repeated = bool(_sig) and _sig in seen_failure_signatures
+                if _sig:
+                    seen_failure_signatures.add(_sig)
+                if _repeated:
+                    # Same defect as a previous attempt: regenerating again would only reproduce it.
+                    # Stop now instead of wasting the remaining attempts on an identical re-generation.
+                    proposal.warnings.append("deterministic_repeat_early_stop")
+                if attempt < self.MAX_LLM_GENERATION_ATTEMPTS and not _repeated:
                     proposal.metadata["patch_generation"] = reduce_patch_generation_state(
                         proposal.metadata.get("patch_generation"),
                         {
@@ -2057,8 +2069,23 @@ class AtlasPatchProposalService:
             required_count = max(1, min(len(tokens), (len(tokens) + 1) // 2))
             if len(matched) >= required_count:
                 covered.add(req_id)
-        if not covered and len(item_requirement_ids) == 1 and content_l.strip():
-            covered.update(item_requirement_ids)
+        if not covered and content_l.strip():
+            # Content is present but keyword inference matched nothing. For a SINGLE-requirement item this
+            # already credited the lone requirement. Generalize that to scaffolding/create items: a
+            # foundational "initialize project structure / HTML shell" patch legitimately establishes the
+            # target files, but its high-level requirements (e.g. "Build an HTML-based retro FPS") share
+            # too few tokens with an HTML skeleton to keyword-match — so a CORRECT multi-requirement
+            # scaffolding patch would otherwise deterministically fail `satisfied_requirement_ids_missing`
+            # on every attempt. Credit only the item's OWN planned requirement_ids (the caller further
+            # bounds these to satisfied_scope), so a functional item is never credited for work it did not do.
+            action_type = str(item.get("action_type") or "").strip().lower()
+            patch_task_kind = str(item.get("patch_task_kind") or "").strip().lower()
+            is_scaffolding = (
+                action_type in ("create", "scaffold", "initialize", "bootstrap")
+                or patch_task_kind in ("structural_change", "scaffold", "project_structure")
+            )
+            if len(item_requirement_ids) == 1 or is_scaffolding:
+                covered.update(item_requirement_ids)
         return covered
 
     _STUB_PATTERNS: list[re.Pattern] = [
