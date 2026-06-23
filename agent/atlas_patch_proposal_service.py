@@ -1397,15 +1397,18 @@ class AtlasPatchProposalService:
             part = self._generate_proposal_with_llm_core(sub)
             pmeta = part.metadata or {}
             fcs = pmeta.get("file_changes") if isinstance(pmeta.get("file_changes"), list) else []
-            good = [fc for fc in fcs if has_file_change_content(fc)]
-            if good:
-                combined_changes.extend(good)
+            _norm = lambda p: str(p or "").replace("\\", "/")
+            # THIS target's own change decides its success — a by-product change (e.g. a test the model
+            # added) must NOT mark the target succeeded, or the merged proposal carries a file the target
+            # never produced (which then validates as unauthorized under per-file partial scope).
+            target_changes = [fc for fc in fcs if _norm(fc.get("path")) == _norm(target) and has_file_change_content(fc)]
+            byproduct_changes = [fc for fc in fcs if _norm(fc.get("path")) != _norm(target) and has_file_change_content(fc)]
+            if target_changes:
+                combined_changes.extend(target_changes)
                 per_file_ok[target] = True
             else:
                 # The model often returns the whole updated file as proposed_content (or edits) rather
-                # than a file_changes entry. Recover the content for THIS target and synthesize a
-                # file change so it survives the merge instead of being dropped (the cause of a
-                # 0-byte / missing file in the merged proposal).
+                # than a file_changes entry. Recover the content for THIS target and synthesize a change.
                 content_by_path = self._proposal_content_by_path(part)
                 content = str(content_by_path.get(target) or (next(iter(content_by_path.values()), "") if len(content_by_path) == 1 else "") or pmeta.get("proposed_content") or "")
                 if content.strip():
@@ -1413,6 +1416,12 @@ class AtlasPatchProposalService:
                     per_file_ok[target] = True
                 else:
                     per_file_ok[target] = False
+            # Keep by-product changes (e.g. a generated test) but they never gate target success.
+            _seen = {_norm(c.get("path")) for c in combined_changes}
+            for fc in byproduct_changes:
+                if _norm(fc.get("path")) not in _seen:
+                    combined_changes.append(fc)
+                    _seen.add(_norm(fc.get("path")))
             sub_warnings.extend(str(w) for w in (part.warnings or []))
         item = input_payload.get("item") or {}
         output = {
@@ -1444,17 +1453,26 @@ class AtlasPatchProposalService:
                  "patch_content_available": True, "attempt": len(targets),
                  "failed_checks": [], "candidate_fingerprint": self._candidate_fingerprint(proposal)},
             )
-        elif has_content and succeeded and failed and os.environ.get("ATLAS_PATCHGEN_PER_FILE_PARTIAL", "1").strip() != "0":
+        elif has_content and succeeded and failed and os.environ.get("ATLAS_PATCHGEN_PER_FILE_PARTIAL", "0").strip() == "1":
             # PARTIAL COMMIT: a multi-file item is NOT all-or-nothing. Apply the files that generated
             # cleanly and record the rest as PENDING for an independent retry, instead of throwing away
-            # the whole item because one large file failed. Validate the proposal against ONLY the
-            # succeeded files so it is appliable; the item is later marked partial (not completed) by
-            # safe-apply because per_file_pending is non-empty.
+            # the whole item because one large file failed. FIRST drop the failed files' (and any stray
+            # by-product) changes from the proposal, keeping only the succeeded files plus authorised
+            # test by-products — otherwise the failed file's leftover change validates as
+            # `unauthorized_target_files` against the succeeded-only scope. Then validate against that
+            # scope so the proposal is appliable; safe-apply marks the item partial via per_file_pending.
+            orig_targets = {str(p).replace("\\", "/") for p in ((input_payload.get("item") or {}).get("target_files") or []) if str(p)}
+            keep_paths = set(succeeded) | {p for p in orig_targets if _is_test_path(p)}
+            kept_fc = [fc for fc in (proposal.metadata.get("file_changes") or [])
+                       if str(fc.get("path") or "").replace("\\", "/") in keep_paths and has_file_change_content(fc)]
+            if kept_fc:
+                proposal.metadata["file_changes"] = kept_fc
+                proposal.target_files = sorted({str(fc.get("path") or "") for fc in kept_fc})
             sub_payload = dict(input_payload)
             sub_item = dict(input_payload.get("item") or {})
-            sub_item["target_files"] = list(succeeded)
+            sub_item["target_files"] = sorted(keep_paths)
             sub_payload["item"] = sub_item
-            psem = self._validate_task_complete_proposal(proposal, sub_payload, has_content=has_content)
+            psem = self._validate_task_complete_proposal(proposal, sub_payload, has_content=bool(kept_fc)) if kept_fc else {"status": "failed", "reasons": ["per_file_partial_no_applicable_changes"]}
             if psem.get("status") != "failed":
                 proposal.metadata["semantic_validation"] = psem
                 proposal.metadata["per_file_pending"] = list(failed)
