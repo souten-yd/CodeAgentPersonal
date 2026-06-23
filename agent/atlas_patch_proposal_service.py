@@ -36,6 +36,17 @@ from agent.atlas_workspace_root import resolve_atlas_workspace_root
 from agent.project_intelligence.adapters.atlas_generation import AtlasGeneratorBridge
 from agent.project_intelligence.contracts import GenerationContextRequest, ProjectIdentity
 
+# A generated test is a Twin verification ARTIFACT (TwinProof manages it: rerun on change, classify
+# staleness, retire only after approval — never auto-delete). It is therefore a permitted by-product of
+# an implementation step, but NOT an implementation deliverable: it must not be split out as its own
+# per-file generation target (it cannot be written in isolation from the code it tests) nor be REQUIRED
+# content of the implementation step. It is still applied + retained and run by Verification.
+_TEST_PATH_RE = re.compile(r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*\.|[._-](test|spec)\.[A-Za-z0-9]+$", re.IGNORECASE)
+
+
+def _is_test_path(path: str) -> bool:
+    return bool(_TEST_PATH_RE.search(str(path or "").replace("\\", "/")))
+
 
 class AtlasPatchProposalService:
     ALLOWED_SOURCE_TYPES = {"debug_review", "plan_item"}
@@ -1193,7 +1204,11 @@ class AtlasPatchProposalService:
             return []
         item = input_payload.get("item") or {}
         targets = [str(p).strip() for p in (item.get("target_files") or []) if str(p).strip()]
-        targets = list(dict.fromkeys(targets))
+        # A generated test must NOT be split out as its own per-file target — it cannot be written in
+        # isolation from the implementation it exercises (its per-file pass deterministically produced
+        # no content, failing the whole step). Tests are still generated as a by-product of the
+        # implementation passes, applied and retained, and run by Verification.
+        targets = [p for p in dict.fromkeys(targets) if not _is_test_path(p)]
         if len(targets) < 2:
             return []
         ctc = input_payload.get("current_target_contents") or {}
@@ -2002,7 +2017,13 @@ class AtlasPatchProposalService:
         if enforce_target_scope and unauthorized_targets:
             reasons.append("unauthorized_target_files:" + ",".join(unauthorized_targets))
         if len(target_files) > 1:
-            missing_content = sorted(p for p in target_files if not str(content_by_path.get(p) or "").strip())
+            # Tests are verification ARTIFACTS, not implementation deliverables: a generated test is
+            # allowed and retained, but its absence must not fail the implementation step (the step
+            # delivers code; TwinProof/Verification own the tests). Only require content for the
+            # non-test implementation targets.
+            impl_targets = [p for p in target_files if not _is_test_path(p)]
+            required_targets = impl_targets if impl_targets else target_files
+            missing_content = sorted(p for p in required_targets if not str(content_by_path.get(p) or "").strip())
             if missing_content:
                 reasons.append("multi_file_content_missing:" + ",".join(missing_content))
         if self._plan_item_requires_content(input_payload) and not has_content:
