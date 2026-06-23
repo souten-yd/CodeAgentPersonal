@@ -3506,6 +3506,12 @@ def reset_pool_execution(pool_id: str, req: AtlasResetExecutionRequest, request:
         "patch_proposal", "approval",
         "latest_verification", "verification",
         "debug_review", "auto_safe_apply", "auto_verification",
+        # A pool can get STUCK with an item whose patch_generation froze mid-flight (state="running",
+        # outcome="active", strategy="terminal_failure" after exhausting the attempt budget). Leaving
+        # that stale block in place makes the reset item still look "generating", so a clean re-run
+        # never starts. Clear the whole patch-generation footprint too.
+        "patch_generation", "patch_generation_state", "patch_generation_outcome",
+        "latest_patch_generation_run_id", "patch_proposal_previous", "patch_proposal_revision_count",
     )
     for item in pool.items:
         item.status = "queued"

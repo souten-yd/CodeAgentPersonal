@@ -102,7 +102,7 @@
     // Async plan-pool creation: the server returns immediately with {pool_id, status:"queued"} and
     // does the slow LLM planning on a background thread. We poll status until ready, then fetch the
     // full pool. This avoids the proxy 524 timeout that produced the raw Cloudflare HTML in the UI.
-    async createPlanPool(payload) {
+    async createPlanPool(payload, onQueued) {
       const started = await atlasFetch('/api/atlas/plan-pools', {
         method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 30000,
       });
@@ -110,6 +110,10 @@
       const data = started.data || {};
       // Async path: poll the job to completion.
       if (data.pool_id && (data.status === 'queued' || data.status === 'running')) {
+        // Hand the QUEUED pool_id to the caller BEFORE the (long) poll, so it can persist the
+        // per-project recovery pointer immediately. If the browser is closed or the connection drops
+        // mid-generation, that pointer lets a reopen re-attach to the still-running job.
+        if (typeof onQueued === 'function') { try { onQueued(data.pool_id); } catch (_) {} }
         return await this.pollPlanPoolUntilReady(data.pool_id, payload && payload.workspace_id);
       }
       // Sync path (server returned the full pool directly): pass through unchanged.
@@ -128,17 +132,33 @@
     // maxWaitMs is accepted for backward compatibility but intentionally ignored.
     async pollPlanPoolUntilReady(poolId, workspaceId, maxWaitMs, intervalMs = 1500) {
       void maxWaitMs;
+      // A SINGLE failed status poll (an aborted fetch, a transient network drop, a gateway 502/504
+      // HTML page) must NOT end the wait: the server is still the authority and is very likely still
+      // generating. We tolerate SUSTAINED unreachability only up to UNREACHABLE_GRACE_MS, then give
+      // up. This is not a deadline on GENERATION time (the server still owns that via is_stalled) —
+      // only on how long we keep retrying when we cannot READ the status at all.
+      const UNREACHABLE_GRACE_MS = 90000;
+      let unreachableSince = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {
         await new Promise((r) => setTimeout(r, intervalMs));
         const st = await this.getPlanPoolStatus(poolId);
         if (!st.ok) {
           // 404 right after submit just means the job file isn't written yet — keep waiting.
-          if (st.status === 404) continue;
-          // Status endpoint unreachable / server error: the server is the authority and we can no
-          // longer read it, so surface the failure instead of spinning forever.
+          if (st.status === 404) { unreachableSince = 0; continue; }
+          const nowMs = Date.now();
+          const transient = st.status === 0 || st.code === 'network_error' || st.code === 'gateway_timeout';
+          if (transient) {
+            if (unreachableSince === 0) unreachableSince = nowMs;
+            // Ride through the blip: the server may still be generating. Retry until the grace
+            // window is exhausted, only then surface the failure.
+            if (nowMs - unreachableSince < UNREACHABLE_GRACE_MS) continue;
+          }
+          // Sustained unreachability (or a non-transient server error): we can no longer read the
+          // authority, so surface the failure instead of spinning forever.
           return st;
         }
+        unreachableSince = 0;
         const status = (st.data && st.data.status) || '';
         const currentPhase = (st.data && (st.data.current_phase || st.data.phase)) || '';
         const secondsSinceProgress = Number(st.data && st.data.seconds_since_progress);
