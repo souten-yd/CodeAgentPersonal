@@ -234,6 +234,18 @@ class AtlasSafeApplyExecutionService:
 
     def mark_item_from_result(self, pool, item, result):
         st = str(result.get('status') or '')
+        # Per-file partial commit: the proposal applied the files that generated cleanly but left others
+        # pending (a multi-large-file item the model could not do in one shot). The applied files ARE
+        # written, but the item is NOT complete — mark it blocked with the pending files surfaced so the
+        # remaining work is retried rather than silently treated as done.
+        pending = list((item.metadata or {}).get('per_file_pending') or [])
+        if st == 'applied' and pending:
+            item.status = 'blocked'
+            pool.blocked_item_ids = list(dict.fromkeys(pool.blocked_item_ids + [item.item_id]))
+            item.metadata.setdefault('safe_apply', {})
+            item.metadata['safe_apply'].update({'status': 'partial_applied', 'pending_files': pending,
+                                                'applied_at': datetime.now(timezone.utc).isoformat()})
+            return
         if st == 'applied':
             item.status = 'completed'
             pool.completed_item_ids = list(dict.fromkeys(pool.completed_item_ids + [item.item_id]))

@@ -282,6 +282,13 @@ class AtlasPatchProposalService:
             proposal.run_id = run_id
             if pi_generation:
                 proposal.metadata["project_intelligence_generation"] = pi_generation
+            # Per-file partial commit: surface the files that still need work on the ITEM so safe-apply
+            # marks the item partial (not completed) and the pending files can be retried.
+            _pending = (proposal.metadata or {}).get("per_file_pending")
+            if _pending:
+                item.metadata["per_file_pending"] = list(_pending)
+            elif "per_file_pending" in (item.metadata or {}):
+                item.metadata.pop("per_file_pending", None)
             # Honest signal: a proposal can be "proposed" yet carry NO applicable content (weak/absent
             # LLM, or fallback). Surface that explicitly so the UI does not report fake success and the
             # autopilot does not silently skip with "missing_patch_or_content".
@@ -1426,7 +1433,9 @@ class AtlasPatchProposalService:
         self._infer_semantic_evidence_from_content(proposal, input_payload, has_content=has_content)
         semantic = self._validate_task_complete_proposal(proposal, input_payload, has_content=has_content)
         proposal.metadata["semantic_validation"] = semantic
-        all_ok = bool(combined_changes) and all(per_file_ok.get(t) for t in targets)
+        succeeded = [t for t in targets if per_file_ok.get(t)]
+        failed = [t for t in targets if not per_file_ok.get(t)]
+        all_ok = bool(combined_changes) and not failed
         if has_content and all_ok and semantic.get("status") != "failed":
             proposal.metadata["patch_generation"] = reduce_patch_generation_state(
                 proposal.metadata.get("patch_generation"),
@@ -1435,7 +1444,35 @@ class AtlasPatchProposalService:
                  "patch_content_available": True, "attempt": len(targets),
                  "failed_checks": [], "candidate_fingerprint": self._candidate_fingerprint(proposal)},
             )
-        else:
+        elif has_content and succeeded and failed and os.environ.get("ATLAS_PATCHGEN_PER_FILE_PARTIAL", "1").strip() != "0":
+            # PARTIAL COMMIT: a multi-file item is NOT all-or-nothing. Apply the files that generated
+            # cleanly and record the rest as PENDING for an independent retry, instead of throwing away
+            # the whole item because one large file failed. Validate the proposal against ONLY the
+            # succeeded files so it is appliable; the item is later marked partial (not completed) by
+            # safe-apply because per_file_pending is non-empty.
+            sub_payload = dict(input_payload)
+            sub_item = dict(input_payload.get("item") or {})
+            sub_item["target_files"] = list(succeeded)
+            sub_payload["item"] = sub_item
+            psem = self._validate_task_complete_proposal(proposal, sub_payload, has_content=has_content)
+            if psem.get("status") != "failed":
+                proposal.metadata["semantic_validation"] = psem
+                proposal.metadata["per_file_pending"] = list(failed)
+                proposal.metadata["per_file_applied"] = list(succeeded)
+                proposal.warnings.append("per_file_partial:applied=" + ",".join(succeeded) + ";pending=" + ",".join(failed))
+                proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                    proposal.metadata.get("patch_generation"),
+                    {"event_type": "patch_generation_succeeded", "run_id": run_id, "state": "succeeded",
+                     "outcome": "success", "strategy": "per_file_split_partial",
+                     "reason_code": "per_file_partial_success", "patch_content_available": True,
+                     "attempt": len(targets), "failed_checks": list(failed),
+                     "candidate_fingerprint": self._candidate_fingerprint(proposal)},
+                )
+                return proposal
+            # succeeded files did not pass validation on their own -> fall through to a clean failure
+            semantic = psem
+            proposal.metadata["semantic_validation"] = semantic
+        if not (has_content and all_ok and semantic.get("status") != "failed"):
             if semantic.get("status") == "failed":
                 reason = "semantic_validation_failed:" + ",".join(semantic.get("reasons") or [])
             else:
