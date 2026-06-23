@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import copy
 import json
+import os
 import re
 from types import SimpleNamespace
 from html.parser import HTMLParser
@@ -667,8 +669,12 @@ class AtlasPatchProposalService:
                 "target_file_exists": bool(existing_target["exists"]),
                 "current_file_content": existing_target["content"],
                 "current_file_truncated": bool(existing_target["truncated"]),
-                "current_target_contents": current_targets,
-                "base_file_revisions": {path: str(entry.get("revision") or "absent") for path, entry in current_targets.items()},
+                # NOTE: the full multi-file map (current_target_contents) and base_file_revisions are
+                # carried ONCE at the top level of the payload; duplicating them here re-serialized the
+                # entire target file content a second (and via existing_content a third) time, which on a
+                # multi-large-file step (e.g. game.js + main.js) pushed the prompt past the context
+                # window and made the server return an EMPTY completion. The model reads the primary file
+                # from current_file_content and the full set from the top-level current_target_contents.
                 "project_symbols": code_context["symbols"],
                 "related_tests": code_context["related_tests"],
                 "clarification_implementation_directives": list(item_metadata.get("clarification_implementation_directives") or []),
@@ -1165,8 +1171,151 @@ class AtlasPatchProposalService:
         Thin wrapper over the core generator so the runtime policy (route/method/injection/
         selection_mode) that reached this generation is recorded on the proposal regardless of
         which internal return path produced it. Advisory only; nothing is applied here."""
-        proposal = self._generate_proposal_with_llm_core(input_payload)
+        split_targets = self._per_file_split_targets(input_payload)
+        if split_targets:
+            proposal = self._generate_per_file_split(input_payload, split_targets)
+        else:
+            proposal = self._generate_proposal_with_llm_core(input_payload)
         self._attach_runtime_policy_delivery(proposal, input_payload)
+        return proposal
+
+    # --- Per-file split generation -------------------------------------------------------------
+    # A single item that edits SEVERAL large files cannot fit one prompt in a small local context
+    # window: packing every target file's full content (plus the instruction template) pushes the
+    # prompt past n_ctx and the server returns an empty completion. Instead, generate ONE file at a
+    # time (each prompt carries only that file + the shared contract/siblings), then MERGE the
+    # file_changes and validate requirement coverage ONCE over the combined result.
+    MULTI_FILE_SPLIT_MIN_CHARS = 9000
+
+    def _per_file_split_targets(self, input_payload: dict) -> list[str]:
+        """Return the target files to generate separately, or [] to keep the single-shot path."""
+        if os.environ.get("ATLAS_PATCHGEN_PER_FILE_SPLIT", "1").strip() == "0":
+            return []
+        item = input_payload.get("item") or {}
+        targets = [str(p).strip() for p in (item.get("target_files") or []) if str(p).strip()]
+        targets = list(dict.fromkeys(targets))
+        if len(targets) < 2:
+            return []
+        ctc = input_payload.get("current_target_contents") or {}
+        total = 0
+        for t in targets:
+            total += len(str((ctc.get(t) or {}).get("content") or ""))
+        # Only split when the combined existing content is large enough to risk overflow; a couple of
+        # tiny files are cheaper to generate together.
+        if total < self.MULTI_FILE_SPLIT_MIN_CHARS:
+            return []
+        return targets
+
+    def _single_file_input_payload(self, input_payload: dict, target: str) -> dict:
+        """A copy of the generation payload scoped to ONE target file: only that file's current
+        content is carried (the others remain available as capped sibling context), and the item's
+        requirement_ids are cleared so the per-file pass is NOT hard-failed for not covering
+        requirements that other files satisfy — coverage is judged once over the merged result."""
+        sub = copy.deepcopy(input_payload)
+        ctc = (input_payload.get("current_target_contents") or {})
+        entry = ctc.get(target) or {"content": "", "exists": False}
+        content = str(entry.get("content") or "")
+        # Carry the file's CURRENT content exactly ONCE (in item.current_file_content, which the edit
+        # instructions reference). Leaving it ALSO in current_target_contents and existing_content
+        # re-serialized the same (large) file two more times — the triple copy is what pushed a
+        # single-file prompt past the context window. Empty those, plus the heaviest non-essential
+        # context (other files' current contents, completed-item summaries), so each per-file prompt
+        # stays small. The MERGED proposal is still validated against the full original payload.
+        sub["current_target_contents"] = {}
+        sub["base_file_revisions"] = {}
+        sub["completed_item_summaries"] = []
+        # Further trim non-essential bulk so a single-file prompt fits a small context window. The
+        # shared interface contract (kept) already carries the cross-file API the model must honour, so
+        # the FULL sibling-file contents are redundant here; the requirement lists are de-duplicated to
+        # just this item's; advisory web-research notes are dropped.
+        sub["plan_sibling_files"] = {}
+        sub["all_requirements"] = list(sub.get("requirements_for_this_item") or [])
+        sub["remaining_requirements"] = []
+        sub["already_satisfied_requirements"] = []
+        sub["web_research_notes"] = ""
+        item = sub.get("item") or {}
+        item["project_symbols"] = (item.get("project_symbols") or [])[:20]
+        item["related_tests"] = (item.get("related_tests") or [])[:5]
+        item["target_files"] = [target]
+        item["original_target_files"] = [target]
+        item["requirement_ids"] = []
+        item["current_file_content"] = content
+        item["existing_content"] = ""
+        item["target_file_exists"] = bool(entry.get("exists"))
+        sub["item"] = item
+        sub["per_file_split_target"] = target
+        return sub
+
+    def _generate_per_file_split(self, input_payload: dict, targets: list[str]) -> AtlasPatchProposal:
+        run_id = str(input_payload.get("run_id") or "")
+        combined_changes: list[dict] = []
+        sub_warnings: list[str] = []
+        per_file_ok: dict[str, bool] = {}
+        for target in targets:
+            sub = self._single_file_input_payload(input_payload, target)
+            part = self._generate_proposal_with_llm_core(sub)
+            pmeta = part.metadata or {}
+            fcs = pmeta.get("file_changes") if isinstance(pmeta.get("file_changes"), list) else []
+            good = [fc for fc in fcs if has_file_change_content(fc)]
+            if good:
+                combined_changes.extend(good)
+                per_file_ok[target] = True
+            else:
+                # The model often returns the whole updated file as proposed_content (or edits) rather
+                # than a file_changes entry. Recover the content for THIS target and synthesize a
+                # file change so it survives the merge instead of being dropped (the cause of a
+                # 0-byte / missing file in the merged proposal).
+                content_by_path = self._proposal_content_by_path(part)
+                content = str(content_by_path.get(target) or (next(iter(content_by_path.values()), "") if len(content_by_path) == 1 else "") or pmeta.get("proposed_content") or "")
+                if content.strip():
+                    combined_changes.append({"path": target, "content": content, "change_type": "modify"})
+                    per_file_ok[target] = True
+                else:
+                    per_file_ok[target] = False
+            sub_warnings.extend(str(w) for w in (part.warnings or []))
+        item = input_payload.get("item") or {}
+        output = {
+            "title": str(item.get("title") or ""),
+            "summary": str(item.get("description") or item.get("goal") or ""),
+            "file_changes": combined_changes,
+        }
+        proposal, has_content = self._build_proposal_from_output(output, input_payload)
+        proposal.warnings.append("per_file_split_generation")
+        for w in sorted(set(sub_warnings))[:10]:
+            proposal.warnings.append(f"per_file:{w}")
+        # Coverage + semantic validation run ONCE over the merged content (cross-file), exactly like the
+        # single-shot path, so quality gates are unchanged — only the generation was decomposed.
+        self._sanitize_requirement_claims_and_infer_coverage(proposal, input_payload)
+        # Backfill semantic evidence (implemented_symbols / behavioral_cases / verification_cases) from
+        # the MERGED content, mirroring the single-shot path (line ~1541). Without this the merged
+        # proposal is falsely rejected with semantic_evidence_missing even though the content is present.
+        self._infer_semantic_evidence_from_content(proposal, input_payload, has_content=has_content)
+        semantic = self._validate_task_complete_proposal(proposal, input_payload, has_content=has_content)
+        proposal.metadata["semantic_validation"] = semantic
+        all_ok = bool(combined_changes) and all(per_file_ok.get(t) for t in targets)
+        if has_content and all_ok and semantic.get("status") != "failed":
+            proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                proposal.metadata.get("patch_generation"),
+                {"event_type": "patch_generation_succeeded", "run_id": run_id, "state": "succeeded",
+                 "outcome": "success", "strategy": "per_file_split", "reason_code": "patch_generation_succeeded",
+                 "patch_content_available": True, "attempt": len(targets),
+                 "failed_checks": [], "candidate_fingerprint": self._candidate_fingerprint(proposal)},
+            )
+        else:
+            if semantic.get("status") == "failed":
+                reason = "semantic_validation_failed:" + ",".join(semantic.get("reasons") or [])
+            else:
+                missing = [t for t in targets if not per_file_ok.get(t)]
+                reason = "per_file_content_missing:" + ",".join(missing)
+            proposal.metadata["generation_failed"] = True
+            proposal.metadata["generation_failure_reason"] = reason
+            proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                proposal.metadata.get("patch_generation"),
+                {"event_type": "patch_generation_failed", "run_id": run_id, "state": "failed",
+                 "outcome": "failure", "strategy": "per_file_split", "reason_code": reason,
+                 "patch_content_available": bool(has_content), "retryable": True, "attempt": len(targets),
+                 "failed_checks": list(semantic.get("reasons") or [])},
+            )
         return proposal
 
     @staticmethod
@@ -1408,6 +1557,23 @@ class AtlasPatchProposalService:
                 parse_failures += 1
                 last_failure = f"llm_output_unparseable:{str(exc) or exc.__class__.__name__}"
                 continue
+            # Per-file split CONTENT-ONLY mode: this sub-generation exists only to produce ONE file's
+            # content; all quality gates (semantic validation, self review, anchor placement) run ONCE
+            # over the MERGED proposal in _generate_per_file_split. Returning the candidate as soon as it
+            # has content avoids the per-file gates discarding valid content before the merge sees it.
+            if input_payload.get("per_file_split_target") and has_content:
+                proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                    proposal.metadata.get("patch_generation") if isinstance(proposal.metadata.get("patch_generation"), dict) else default_patch_generation_state(run_id=str(input_payload.get("run_id") or "")),
+                    {
+                        "event_type": "patch_candidate_generated",
+                        "run_id": str(input_payload.get("run_id") or ""),
+                        "state": "succeeded", "outcome": "success", "attempt": attempt,
+                        "strategy": "per_file_content_only", "reason_code": "per_file_content_generated",
+                        "patch_content_available": True,
+                        "candidate_fingerprint": self._candidate_fingerprint(proposal),
+                    },
+                )
+                return proposal
             # Anchor recovery: a weak model often writes correct NEW code but returns it as an insertion
             # with an EMPTY old_string and NO anchor, so it cannot be placed in the right scope (it would
             # land after </html>). This was the live root cause of "生成失敗(content_missing)" on a step
