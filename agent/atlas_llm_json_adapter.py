@@ -25,6 +25,30 @@ _STRICT_JSON_REINFORCEMENT = (
     "fences, no trailing commas. Ensure every string is closed and every bracket is balanced."
 )
 
+# Output-budget safety. A local llama-server cannot serve a request where
+# ``prompt_tokens + max_tokens > n_ctx``: it returns an EMPTY completion (0 tokens), which the patch
+# pipeline then records as ``content_missing`` and regenerates forever. The configured per-model
+# ``max_output_tokens`` (often == n_ctx) must therefore be capped to what actually fits AFTER the
+# prompt. We estimate prompt size conservatively (code/JSON is token-dense) and reserve a margin for
+# the chat template + response_format overhead.
+_MIN_OUTPUT_TOKENS = 512
+_CTX_OUTPUT_MARGIN = 256
+_DEFAULT_N_CTX = 16384
+
+
+def _estimate_text_tokens(text: str) -> int:
+    """Conservative token estimate (overestimates so the output budget stays safe). Code/JSON packs
+    ~3 chars/token; we use 3.0 to bias toward leaving headroom."""
+    return int(len(str(text or "")) / 3.0) + 1
+
+
+def _estimate_message_tokens(messages: list[dict]) -> int:
+    total = 0
+    for m in messages or []:
+        total += _estimate_text_tokens(m.get("content") if isinstance(m, dict) else m)
+        total += 4  # per-message role/format overhead
+    return total
+
 
 class _StreamTimeout(Exception):
     """A streaming planning call exceeded a phase-specific timeout budget.
@@ -361,12 +385,48 @@ class AtlasLLMJsonAdapter:
             return False
         return bool(request.stream or self.on_progress is not None)
 
+    def _resolve_n_ctx(self) -> int:
+        """The served context window. Resolved (and cached) from the launcher-set environment
+        (``LLAMA_CTX_SIZE`` / ``DEFAULT_LLM_CTX_SIZE``) with a safe default — deliberately NO network
+        call, so this never contends for the single llama slot and stays test-deterministic."""
+        cached = getattr(self, "_cached_n_ctx", 0)
+        if cached:
+            return int(cached)
+        n_ctx = 0
+        for env_key in ("ATLAS_LLM_N_CTX", "LLAMA_CTX_SIZE", "DEFAULT_LLM_CTX_SIZE"):
+            try:
+                n_ctx = int(str(os.environ.get(env_key) or "").strip() or 0)
+            except ValueError:
+                n_ctx = 0
+            if n_ctx > 0:
+                break
+        n_ctx = n_ctx if n_ctx > 0 else _DEFAULT_N_CTX
+        self._cached_n_ctx = n_ctx
+        return n_ctx
+
+    def _budgeted_max_tokens(self, messages: list[dict], requested: int) -> int:
+        """Cap the output budget so ``prompt + max_tokens`` fits the context window. Without this a
+        request with max_tokens == n_ctx (the per-model default for the served model) overflows the
+        moment the prompt is non-trivial and the server returns an empty completion."""
+        n_ctx = self._resolve_n_ctx()
+        prompt_tok = _estimate_message_tokens(messages)
+        req = int(requested) if requested and int(requested) > 0 else n_ctx
+        avail = n_ctx - prompt_tok - _CTX_OUTPUT_MARGIN
+        if avail < _MIN_OUTPUT_TOKENS:
+            logger.warning(
+                "atlas_llm output budget tight: n_ctx=%s prompt~%s avail=%s -> flooring to %s "
+                "(prompt may need scope reduction)", n_ctx, prompt_tok, avail, _MIN_OUTPUT_TOKENS,
+            )
+            return _MIN_OUTPUT_TOKENS
+        return max(_MIN_OUTPUT_TOKENS, min(req, avail))
+
     def _build_payload(self, request: AtlasLLMJsonRequest, *, structured: bool) -> dict:
+        messages = self.build_messages(request)
         payload: dict = {
             "model": request.model or self.model or "local-llm",
-            "messages": self.build_messages(request),
+            "messages": messages,
             "temperature": request.temperature,
-            "max_tokens": request.max_tokens,
+            "max_tokens": self._budgeted_max_tokens(messages, request.max_tokens),
         }
         # Per-model structured-output mode: a strict json_schema grammar collapses some models
         # (notably Gemma 4), so the preferred mode is resolved from the model id. We still only apply
