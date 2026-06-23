@@ -229,6 +229,14 @@ include_routers(app)
 app.include_router(nexus_router, prefix="/nexus", tags=["nexus"])
 
 app.state.atlas_implementation_executor = AtlasFileSafeApplyExecutor(workspace_root=Path.cwd())
+# Verification gate test runner: without this the verification gate is permanently
+# "blocked: test_runner_unavailable" and never actually runs any check. The runner is sandboxed by
+# its own allowlist (node --check / py_compile / pytest only) and forbidden-token guard.
+try:
+    from agent.test_command_runner import TestCommandRunner as _AtlasTestCommandRunner
+    app.state.atlas_test_command_runner = _AtlasTestCommandRunner()
+except Exception as _exc:  # noqa: BLE001 - verification stays gated rather than crashing startup
+    print(f"[Atlas] test command runner unavailable: {_exc}")
 
 
 def nexus_summary_payload(project: str = "default") -> dict[str, Any]:
