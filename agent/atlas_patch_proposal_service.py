@@ -27,7 +27,7 @@ from agent.atlas_patch_generation_state import (
     reduce_patch_generation_state,
 )
 from agent.atlas_patch_proposal_schema import AtlasPatchProposal, AtlasPatchProposalRequest, AtlasPatchProposalResult
-from agent.atlas_placeholder_detector import detect_placeholders
+from agent.atlas_placeholder_detector import detect_placeholders, is_placeholder_only_content
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_plan_target_contract import materialize_structural_targets, validate_plan_target_contract
@@ -2259,7 +2259,9 @@ class AtlasPatchProposalService:
         re.compile(r"<!--\s*(content|game|todo|placeholder|\.\.\.)\s*(goes here|here|\.\.\.)?", re.IGNORECASE),
         re.compile(r"#\s*(TODO|Implement|FIXME|Placeholder)", re.IGNORECASE),
         re.compile(r"pass\s*#\s*(todo|implement|placeholder)", re.IGNORECASE),
-        re.compile(r"^\s*return\s+(false|null|undefined|None)\s*;?\s*$"),
+        # NOTE: a bare `return false/null/None` is NORMAL control flow (a predicate returning false, a
+        # lookup returning null on miss) — NOT a stub. Treating it as one falsely inflated the stub
+        # ratio on real code, so it is intentionally not a stub marker.
     ]
     _STUB_EXTENSIONS = {".html", ".js", ".ts", ".jsx", ".tsx"}
 
@@ -2302,15 +2304,27 @@ class AtlasPatchProposalService:
                 stub_finding = self._detect_stub_content(path, content or "")
                 if stub_finding:
                     findings.append(stub_finding)
-            for placeholder in detect_placeholders(content or "", file_path=path):
-                findings.append({
-                    "type": "placeholder_content_detected",
-                    "severity": "blocking",
-                    "path": path,
-                    "message": str(placeholder.get("type") or "placeholder"),
-                    "line": placeholder.get("line"),
-                    "snippet": placeholder.get("snippet", ""),
-                })
+            placeholders = detect_placeholders(content or "", file_path=path)
+            if placeholders:
+                # Only BLOCK when the file is ESSENTIALLY placeholder/stub (no real implementation).
+                # A few "// Placeholder" comments inside otherwise-substantial, working code (e.g. an
+                # optional drawWalls/drawParticles helper) must NOT reject the whole patch — that
+                # falsely rejected a 19.6 KB real combat implementation. Completeness for real code is
+                # judged EMPIRICALLY downstream by Safe Apply + Verification (apply it, run the
+                # generated tests / browser smoke), not by a regex marker count.
+                if is_placeholder_only_content(content or "", file_path=path):
+                    p0 = placeholders[0]
+                    findings.append({
+                        "type": "placeholder_content_detected", "severity": "blocking", "path": path,
+                        "message": str(p0.get("type") or "placeholder"),
+                        "line": p0.get("line"), "snippet": p0.get("snippet", ""),
+                    })
+                else:
+                    for ph in placeholders:
+                        advisories.append({
+                            "type": "placeholder_marker", "severity": "advisory", "path": path,
+                            "line": ph.get("line"), "snippet": ph.get("snippet", ""),
+                        })
         combined_content = "\n".join(content_by_path.values())
         if self._plan_item_requires_content(input_payload) and str((input_payload.get("item") or {}).get("patch_task_kind") or "") != "structural_change":
             for missing in self._missing_requirement_keywords(input_payload, combined_content):
@@ -2332,14 +2346,17 @@ class AtlasPatchProposalService:
         if oversized:
             findings.append({"type": "oversized_content", "reason": "content_too_large", **oversized})
         for path, content in content_by_path.items():
-            for placeholder in detect_placeholders(content or "", file_path=path):
-                findings.append({
-                    "type": "placeholder_content_detected",
-                    "reason": "placeholder_content_detected",
-                    "path": path,
-                    "line": placeholder.get("line"),
-                    "snippet": placeholder.get("snippet", ""),
-                })
+            # Same threshold as the validation gate: only a placeholder-DOMINANT file is a quality
+            # defect; a couple of markers in real, working code is not (judged empirically downstream).
+            if is_placeholder_only_content(content or "", file_path=path):
+                for placeholder in detect_placeholders(content or "", file_path=path):
+                    findings.append({
+                        "type": "placeholder_content_detected",
+                        "reason": "placeholder_content_detected",
+                        "path": path,
+                        "line": placeholder.get("line"),
+                        "snippet": placeholder.get("snippet", ""),
+                    })
             findings.extend(self._trivial_function_findings(path, content or ""))
         findings.extend(self._disconnected_artifact_findings(content_by_path))
         findings.extend(self._requirement_evidence_mismatch_findings(input_payload, content_by_path, metadata))
