@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import copy
+import difflib
 import json
 import os
 import re
@@ -46,6 +47,66 @@ _TEST_PATH_RE = re.compile(r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*\.|[._
 
 def _is_test_path(path: str) -> bool:
     return bool(_TEST_PATH_RE.search(str(path or "").replace("\\", "/")))
+
+
+# Definition/anchor signatures the Twin can point the model AT, so editing a large EXISTING file is a
+# targeted "insert near / replace this exact line" instead of a fragile whole-file rewrite. Extracted
+# deterministically from the current file content (no model): function / class / method / const / def.
+_ANCHOR_DEF_RE = re.compile(
+    r"^\s*(?:export\s+)?(?:async\s+)?(?:function\s+[A-Za-z_$][\w$]*\s*\(|class\s+[A-Za-z_$][\w$]*|"
+    r"(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*(?:async\s*)?(?:function|\([^)]*\)\s*=>)|"
+    r"[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{|def\s+[A-Za-z_]\w*\s*\()",
+)
+
+
+def _full_content_to_edits(old_content: str, new_content: str, *, max_edits: int = 24) -> list[dict] | None:
+    """Convert a model's whole-file rewrite of an EXISTING file into minimal surgical edits by diffing
+    against the current content, so a weak model that ignored "edits only" still applies as a small,
+    non-destructive patch. Returns None when the diff is NOT clean/small (too many hunks) — then the
+    full rewrite is genuine and kept as-is. Deterministic (difflib); no model."""
+    old = str(old_content or "")
+    new = str(new_content or "")
+    if not old.strip() or not new.strip() or old == new:
+        return None
+    old_lines = old.splitlines(keepends=True)
+    new_lines = new.splitlines(keepends=True)
+    sm = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+    edits: list[dict] = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            continue
+        old_str = "".join(old_lines[i1:i2])
+        new_str = "".join(new_lines[j1:j2])
+        if tag == "insert":
+            anchor = "".join(old_lines[max(0, i1 - 1):i1]).strip("\n")
+            if not anchor:
+                return None  # can't anchor a leading insertion safely -> keep full content
+            edits.append({"old_string": anchor, "new_string": anchor + ("\n" if not anchor.endswith("\n") else "") + new_str})
+        else:  # replace / delete
+            if not old_str.strip():
+                return None
+            edits.append({"old_string": old_str, "new_string": new_str})
+        if len(edits) > max_edits:
+            return None  # not a surgical change -> a real full rewrite; keep proposed_content
+    return edits or None
+
+
+def _anchor_candidates(content: str, *, max_n: int = 14, max_len: int = 100) -> list[str]:
+    """Exact existing definition/signature lines from the current file, usable verbatim as an
+    ``insert_after`` anchor or the base of an ``old_string`` surgical edit. Deterministic; no model."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in str(content or "").splitlines():
+        line = raw.strip()
+        if not line or len(line) > max_len or not _ANCHOR_DEF_RE.match(raw):
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        out.append(line)
+        if len(out) >= max_n:
+            break
+    return out
 
 
 class AtlasPatchProposalService:
@@ -1442,6 +1503,17 @@ class AtlasPatchProposalService:
                 "\"proposed_content\" or re-emit the whole file — emitting unchanged lines wastes output "
                 "and risks corrupting untouched code. Keep each old_string just large enough to be unique."
             )
+            # Twin localisation: hand the model EXACT existing anchors from this file so it edits a
+            # known site instead of guessing where its change goes (a weak model fails to anchor a
+            # whole-file rewrite). Each is a verbatim line it can use as insert_after or old_string.
+            anchors = _anchor_candidates(str(item_for_task.get("current_file_content") or ""))
+            if anchors:
+                rendered = "\n".join(f"  - {a}" for a in anchors)
+                base_task += (
+                    " ANCHORS — these EXACT lines already exist in input.item.current_file_content; "
+                    "base each edit on one of them (copy it verbatim as the old_string to replace, or as "
+                    "the insert_after anchor your new code must FOLLOW):\n" + rendered
+                )
         # Cross-file consistency: when the plan produces several files, references between them must
         # use the plan's REAL filenames. Without this the model invents names (e.g. an index.html that
         # loads 'game.js' while the plan creates 'script.js'), which 404s and fails browser smoke.
@@ -1918,9 +1990,10 @@ class AtlasPatchProposalService:
         # Pillar B: surgical string-replacement edits the executor can apply against the current file.
         edits = self._normalize_edits(llm_allowed.get("edits"), warnings)
 
-        # Tier-gated observability: a non-frontier tier that re-emitted a whole large existing file
-        # instead of surgical edits violated the output budget. Advisory only — never blocks (the
-        # content still applies); it surfaces wasted output for the route/profile feedback loop.
+        # (A) ENFORCE surgical edits on a large EXISTING file. A weak/standard tier that re-emitted the
+        # whole file instead of surgical edits is converted to minimal edits by diffing against the
+        # current content, so the apply stays small and non-destructive (and a genuine full rewrite,
+        # whose diff is large, is kept as-is). Frontier tier is exempt.
         if (
             str(input_payload.get("size_tier") or "").strip().lower() not in ("", "frontier")
             and bool(item.get("target_file_exists"))
@@ -1928,7 +2001,13 @@ class AtlasPatchProposalService:
             and not edits
             and len(str(item.get("current_file_content") or "").splitlines()) >= self.LARGE_EXISTING_FILE_LINES
         ):
-            warnings.append("full_content_emitted_for_minimal_edit_tier")
+            converted = _full_content_to_edits(str(item.get("current_file_content") or ""), proposed_content)
+            if converted:
+                edits = converted
+                proposed_content = ""
+                warnings.append("full_content_converted_to_surgical_edits")
+            else:
+                warnings.append("full_content_emitted_for_minimal_edit_tier")
 
         has_content = bool(proposed_content or diff_preview or edits or (file_changes and all(has_file_change_content(fc) for fc in file_changes)))
         metadata = {
