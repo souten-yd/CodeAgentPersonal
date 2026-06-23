@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
+
+# A test file (run it as a test, not just compile it). Mirrors atlas_patch_proposal_service._TEST_PATH_RE.
+_TEST_PATH_RE = re.compile(r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*\.|[._-](test|spec)\.[A-Za-z0-9]+$", re.IGNORECASE)
 
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
@@ -103,13 +107,39 @@ class AtlasVerificationGateService:
             warnings.append("test_runner_unavailable")
         return len(warnings) == 0, warnings
 
+    # Source extensions checkable with `node --check` (JS/TS syntax). Behavioural execution of a JS
+    # test (`node <file>`) is intentionally NOT in the runner allowlist, so JS tests are syntax-checked;
+    # Python tests are executed with pytest.
+    _NODE_CHECK_EXTS = {".js", ".mjs", ".cjs", ".jsx"}
+
     def build_verification_commands(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasVerificationRequest) -> list[dict]:
-        commands = []
-        py_targets = [p for p in (item.target_files or []) if str(p).endswith('.py')]
-        for target in py_targets:
-            commands.append({"command": f"python -m py_compile {target}", "timeout_seconds": 120, "metadata": {"pool_id": pool.pool_id, "item_id": item.item_id, "profile": request.command_profile}})
-        if not commands:
-            commands.append({"command": "node --check web/js/atlas_dashboard.js", "timeout_seconds": 120, "metadata": {"pool_id": pool.pool_id, "item_id": item.item_id, "profile": request.command_profile}})
+        """Verify the ACTUAL files this item changed, in the project workspace — not a hardcoded
+        unrelated file. JS/TS get `node --check`, Python gets `py_compile`, and Python tests are run
+        with pytest. Files that don't exist on disk are skipped (nothing to verify is a pass)."""
+        from pathlib import Path as _Path
+
+        project_root = str(getattr(pool, "project_path", "") or "").strip()
+
+        def _meta() -> dict:
+            return {"pool_id": pool.pool_id, "item_id": item.item_id, "profile": request.command_profile,
+                    "project_root": project_root}
+
+        targets = [str(p).strip().replace("\\", "/") for p in (item.target_files or []) if str(p).strip()]
+        commands: list[dict] = []
+        for target in targets:
+            full = (_Path(project_root) / target) if project_root else _Path(target)
+            if project_root and not full.is_file():
+                continue  # not applied / absent -> nothing to verify for this file
+            ext = _Path(target).suffix.lower()
+            if ext == ".py":
+                commands.append({"command": f"python -m py_compile {target}", "cwd": project_root,
+                                 "timeout_seconds": 120, "metadata": _meta()})
+                if _TEST_PATH_RE.search(target):
+                    commands.append({"command": f"python -m pytest -q {target}", "cwd": project_root,
+                                     "timeout_seconds": 300, "metadata": _meta()})
+            elif ext in self._NODE_CHECK_EXTS:
+                commands.append({"command": f"node --check {target}", "cwd": project_root,
+                                 "timeout_seconds": 120, "metadata": _meta()})
         return commands
 
     def save_verification_record(self, pool_id: str, item_id: str, result: AtlasVerificationResult) -> tuple[str, str]:
