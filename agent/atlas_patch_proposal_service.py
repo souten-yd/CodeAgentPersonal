@@ -91,6 +91,42 @@ def _full_content_to_edits(old_content: str, new_content: str, *, max_edits: int
     return edits or None
 
 
+def _slice_file_for_edit(content: str, goal_text: str, *, max_chars: int, context: int = 6) -> tuple[str, bool]:
+    """Twin-style INPUT minimisation for a large existing file: keep the relevant region plus the
+    file's full API skeleton, drop unrelated bodies. A surgical edit still anchors on a SHOWN line and
+    applies against the full on-disk file, so omitting unrelated bodies is safe.
+
+    Kept: every definition/signature line (the API the edit must stay consistent with — "related
+    functions as a set"), every line relevant to the goal (keyword overlap), and ``context`` lines
+    around each. Omitted runs are collapsed to a visible marker. Returns (content, was_sliced)."""
+    text = str(content or "")
+    if len(text) <= max_chars:
+        return text, False
+    lines = text.splitlines()
+    keywords = {w for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", str(goal_text or "").lower())}
+    keep = [False] * len(lines)
+    for i, raw in enumerate(lines):
+        low = raw.lower()
+        if _ANCHOR_DEF_RE.match(raw):
+            keep[i] = True  # signatures = the API skeleton (always shown so the model anchors on real code)
+        elif keywords and any(w in low for w in keywords):
+            for j in range(max(0, i - context), min(len(lines), i + context + 1)):
+                keep[j] = True
+    out: list[str] = []
+    omitted = 0
+    for i, raw in enumerate(lines):
+        if keep[i]:
+            if omitted:
+                out.append(f"    // ... ({omitted} unrelated line(s) omitted — full file is on disk) ...")
+                omitted = 0
+            out.append(raw)
+        else:
+            omitted += 1
+    if omitted:
+        out.append(f"    // ... ({omitted} unrelated line(s) omitted — full file is on disk) ...")
+    return "\n".join(out), True
+
+
 def _anchor_candidates(content: str, *, max_n: int = 14, max_len: int = 100) -> list[str]:
     """Exact existing definition/signature lines from the current file, usable verbatim as an
     ``insert_after`` anchor or the base of an ``old_string`` surgical edit. Deterministic; no model."""
@@ -689,6 +725,9 @@ class AtlasPatchProposalService:
             "item_id": item.item_id,
             "run_id": request.run_id,
             "workspace_id": request.workspace_id,
+            # Per-request override for the Twin input-slice (None -> fall back to the env default). Lets
+            # an A/B evaluation toggle slicing without a server restart.
+            "input_slice_enabled": (getattr(request, "metadata", {}) or {}).get("input_slice_enabled"),
             "root_goal": pool.root_goal,
             "original_user_request": getattr(pool, "original_user_request", "") or (pool.metadata or {}).get("original_user_request", "") or pool.root_goal,
             "selected_architecture": getattr(pool, "selected_architecture", "") or (pool.metadata or {}).get("selected_architecture", ""),
@@ -1315,7 +1354,26 @@ class AtlasPatchProposalService:
         item["target_files"] = [target]
         item["original_target_files"] = [target]
         item["requirement_ids"] = []
-        item["current_file_content"] = content
+        # INPUT minimisation (Twin-style slice): for a LARGE existing file, send only the goal-relevant
+        # region plus the full signature skeleton, not the whole file. Surgical edits anchor on a shown
+        # line and apply against the full on-disk file, so unrelated bodies are safe to omit. Gated by
+        # size + ATLAS_PATCHGEN_INPUT_SLICE so small files are sent whole.
+        _override = input_payload.get("input_slice_enabled")
+        slice_on = bool(_override) if _override is not None else (os.environ.get("ATLAS_PATCHGEN_INPUT_SLICE", "1").strip() != "0")
+        try:
+            slice_max = int(os.environ.get("ATLAS_PATCHGEN_INPUT_SLICE_MAX_CHARS", "8000") or 8000)
+        except ValueError:
+            slice_max = 8000
+        content_for_model, was_sliced = (content, False)
+        if slice_on and bool(entry.get("exists")):
+            goal_text = " ".join([
+                str(item.get("title") or ""), str(item.get("description") or ""), str(item.get("goal") or ""),
+                " ".join(str(c) for c in (item.get("acceptance_criteria") or [])),
+                " ".join(str(r.get("description") or "") for r in (sub.get("requirements_for_this_item") or []) if isinstance(r, dict)),
+            ])
+            content_for_model, was_sliced = _slice_file_for_edit(content, goal_text, max_chars=slice_max)
+        item["current_file_content"] = content_for_model
+        item["current_file_content_sliced"] = bool(was_sliced)
         item["existing_content"] = ""
         item["target_file_exists"] = bool(entry.get("exists"))
         sub["item"] = item
@@ -1503,6 +1561,13 @@ class AtlasPatchProposalService:
                 "\"proposed_content\" or re-emit the whole file — emitting unchanged lines wastes output "
                 "and risks corrupting untouched code. Keep each old_string just large enough to be unique."
             )
+            if bool(item_for_task.get("current_file_content_sliced")):
+                base_task += (
+                    " NOTE: input.item.current_file_content is a RELEVANT SLICE of the file — unrelated "
+                    "bodies are collapsed to '... omitted ...' markers (the COMPLETE file is on disk and "
+                    "WILL be the apply target). Anchor each edit ONLY on a line shown verbatim here; never "
+                    "anchor on, or assume the content of, an omitted region."
+                )
             # Twin localisation: hand the model EXACT existing anchors from this file so it edits a
             # known site instead of guessing where its change goes (a weak model fails to anchor a
             # whole-file rewrite). Each is a verbatim line it can use as insert_after or old_string.
