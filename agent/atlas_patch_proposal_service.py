@@ -15,7 +15,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from agent.atlas_file_safe_apply_executor import normalize_safe_apply_action_type
-from agent.atlas_interface_contract import app_is_interface_coupled, build_app_interface_contract, render_contract_for_prompt
+from agent.atlas_interface_contract import (
+    app_is_interface_coupled,
+    build_app_interface_contract,
+    build_shared_resource_contract,
+    render_contract_for_prompt,
+    render_shared_resource_contract_for_prompt,
+)
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_nexus_web_research_client import AtlasNexusWebResearchClient, web_research_enabled
 from agent.atlas_llm_json_adapter import call_llm_json
@@ -618,6 +624,21 @@ class AtlasPatchProposalService:
             return {"symbols": [], "related_tests": []}
         return out
 
+    def _build_app_resource_contract(self, current_targets: dict | None, plan_sibling_files: dict | None) -> dict:
+        """Deterministic shared-resource contract from the app's real HTML+JS (the current target(s)
+        plus sibling files already on disk). No LLM, no network — pure extraction. Non-fatal: any
+        problem yields {} and generation proceeds without it."""
+        try:
+            files: dict[str, str] = {}
+            for source in (plan_sibling_files or {}, current_targets or {}):
+                for path, entry in dict(source).items():
+                    content = str((entry or {}).get("content") or "") if isinstance(entry, dict) else str(entry or "")
+                    if content.strip():
+                        files.setdefault(str(path), content)
+            return build_shared_resource_contract(files)
+        except Exception:  # noqa: BLE001 — never break generation for the resource contract.
+            return {}
+
     def _ensure_app_interface_contract(self, pool: AtlasPlanPool, current_targets: dict | None) -> dict:
         """Lazily build (once) and cache the shared interface contract on the pool, for apps where
         several items edit the same file (the integration-risk case). Cached on pool.metadata so it is
@@ -750,6 +771,10 @@ class AtlasPatchProposalService:
             # Shared interface contract so every step that edits the same file integrates (new files:
             # a defined contract; existing files: extracted from the real code). See ① / digital twin.
             "app_interface_contract": self._ensure_app_interface_contract(pool, current_targets),
+            # Deterministic shared-RESOURCE contract (canvas render model, DOM ids, libs, sibling
+            # globals) so per-file units cannot diverge on a shared resource — the live root cause of
+            # the WebGL-vs-2D #gameCanvas break. Built from real HTML+JS, no LLM. See ②.
+            "app_resource_contract": self._build_app_resource_contract(current_targets, plan_sibling_files),
             # ③ Optional Nexus web-research notes (general path: new builds AND existing-code feature
             # additions). Empty unless ATLAS_NEXUS_WEB_RESEARCH=1.
             "web_research_notes": self._ensure_web_research_notes(pool),
@@ -1757,6 +1782,20 @@ class AtlasPatchProposalService:
                     "every step integrates. Do NOT invent parallel names or a different object shape, "
                     "and do NOT drop existing entities already wired in the current content:\n"
                     + rendered_contract
+                )
+        # ② Shared RESOURCE contract (deterministic): the cross-cutting platform facts independently
+        # generated files must agree on — the canvas render model (WebGL/Three.js vs 2D), real DOM
+        # ids, loaded libs, sibling globals. This is what stops the WebGL-vs-2D #gameCanvas class of
+        # break. Inject as hard constraints (extracted from real code, so they are authoritative).
+        resource_contract = input_payload.get("app_resource_contract")
+        if isinstance(resource_contract, dict) and resource_contract:
+            rendered_resource = render_shared_resource_contract_for_prompt(resource_contract)
+            if rendered_resource:
+                base_task += (
+                    "\n\nSHARED RESOURCE CONTRACT — these are FACTS extracted from the app's actual "
+                    "HTML/JS that every file MUST respect so the files integrate at runtime. Treat "
+                    "them as hard constraints; do not contradict them:\n"
+                    + rendered_resource
                 )
         # ③ Web-research notes (when enabled): ground the implementation in real conventions/patterns
         # for the goal or the feature being added. Advisory context — never override the contract or
