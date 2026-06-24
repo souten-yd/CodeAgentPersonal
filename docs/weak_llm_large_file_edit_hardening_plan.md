@@ -465,3 +465,24 @@ Remaining gaps: P1-2 non-dead WebGL/2D deterministic repair option selection.
 Next package: P1-2 deterministic repair option selection for non-dead WebGL/2D conflicts
 Blocker: none
 Proof level: `component_complete`
+
+## P1-2 — deterministic repair option selection for non-dead WebGL/2D conflicts (completed 2026-06-25)
+
+Completed package: P1-2 deterministic repair option selection
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/atlas_repair_recipes.py`, `tests/test_atlas_repair_recipes_contract.py`, this plan
+Behavior implemented:
+- `repair_webgl_2d_conflict()` now accepts an explicit `selected_option_id`.
+- Used 2D contexts still decline without guessing when no option is selected.
+- selected option `A` deterministically moves the used 2D context to a separate overlay canvas while preserving existing `ctx.*` drawing calls.
+- selected options `B` and `C` remain non-applied with `selected_option_not_implemented` unless a future deterministic transform is added.
+- `apply_known_bug_repairs()` passes `resource_contract["selected_repair_option_id"]` through to the recipe.
+Focused tests: `python -m pytest -q tests/test_atlas_repair_recipes_contract.py` -> 9 passed
+Affected tests: `python -m pytest -q tests/test_atlas_repair_recipes_contract.py tests/test_atlas_patch_output_minimization.py tests/test_atlas_edit_format_contract.py tests/test_atlas_weak_large_file_edit_policy_contract.py tests/test_atlas_focused_patch_extraction.py tests/test_atlas_per_file_split_edits.py` -> 58 passed
+Real model evidence: not required; this slice consumes an explicit selected option and applies deterministic code transformation only. No new LLM chooser was introduced.
+Unavailable checks: browser/runtime rendering of the transformed overlay canvas was not run.
+Safety invariants: no option is guessed; used 2D contexts are not removed blindly; only selected option `A` has a deterministic transform; WebGL primary canvas no longer receives `getContext('2d')` in the transformed path.
+Remaining gaps: optional future transforms for selected option `B` DOM overlay and selected option `C` used-context removal when safe.
+Next package: none in this weak large-file P0/P1 plan
+Blocker: none
+Proof level: `component_complete`
