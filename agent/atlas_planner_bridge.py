@@ -232,7 +232,29 @@ class AtlasPlannerBridge:
         )
         pool.metadata.update(plan_payload.get("metadata") or {})
         pool.metadata["source"] = "real_planner"
+        self._maybe_decompose_per_file(pool)
         return pool
+
+    def _maybe_decompose_per_file(self, pool: AtlasPlanPool) -> None:
+        """(A) Expand multi-file implementation items into per-file sub-items so each file
+        is generated/applied/verified independently through the normal path (validated 6/6
+        vs the 2-file atomic item's 0/4). Opt-in via ATLAS_PLAN_PER_FILE_DECOMPOSE=1."""
+        import os
+
+        if os.environ.get("ATLAS_PLAN_PER_FILE_DECOMPOSE", "0").strip() != "1":
+            return
+        try:
+            from agent.atlas_plan_decomposition import decompose_multi_file_items
+
+            _, notes = decompose_multi_file_items(pool)
+        except Exception as exc:  # never let decomposition break plan creation
+            if self.warning_logger:
+                self.warning_logger(f"per_file_decomposition_failed:{type(exc).__name__}")
+            return
+        if notes:
+            pool.metadata["per_file_decomposition"] = notes
+            if self.warning_logger:
+                self.warning_logger(f"per_file_decomposition_applied:{len(notes)}")
 
     def build_fallback_pool(self, request: AtlasPlannerBridgeRequest, reason: str = "") -> AtlasPlanPool:
         warnings = ["real_planner_unavailable"] if reason == "real_planner_unavailable" else []
@@ -260,6 +282,7 @@ class AtlasPlannerBridge:
             "canonical_language": canonical_task.canonical_language,
             "canonical_task_spec": canonical_task.model_dump(),
         })
+        self._maybe_decompose_per_file(pool)
         return pool
 
     def planner_result_to_plan_payload(
