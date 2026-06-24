@@ -733,6 +733,34 @@ class AtlasPatchProposalService:
         except Exception:  # noqa: BLE001 - tier is advisory.
             return "standard"
 
+    def _weak_large_file_edit_policy(self, input_payload: dict) -> dict:
+        """Resolve WeakLargeFileEditPolicy for this generation: force edits-only (+ a small output
+        cap) when a weak/standard model is MODIFYING a large existing target. Frontier and create
+        (no existing content) are exempt. Returns the largest-target verdict; {} on any problem."""
+        try:
+            from agent.model_forge.weak_large_file_edit_policy import weak_large_file_edit_policy
+
+            item = input_payload.get("item") if isinstance(input_payload.get("item"), dict) else {}
+            targets = [str(p) for p in (item.get("target_files") or []) if str(p) and not _is_test_path(str(p))]
+            current = input_payload.get("current_target_contents") or {}
+            tier = str(input_payload.get("size_tier") or "standard")
+            prior_error = str(input_payload.get("previous_failure_reason") or "")
+            for path in targets:
+                entry = current.get(path) if isinstance(current.get(path), dict) else {}
+                content = str((entry or {}).get("content") or "")
+                verdict = weak_large_file_edit_policy(
+                    size_tier=tier,
+                    file_chars=len(content),
+                    file_lines=(content.count("\n") + 1) if content else 0,
+                    file_exists=bool(content.strip()),
+                    prior_error=prior_error,
+                )
+                if verdict.get("edit_only"):
+                    return verdict
+        except Exception:  # noqa: BLE001 — policy is advisory; never break generation.
+            return {}
+        return {}
+
     def build_proposal_input(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest) -> dict:
         source_type = self._effective_source_type(item, request)
         debug_review = (item.metadata or {}).get("debug_review") or {}
@@ -1809,6 +1837,14 @@ class AtlasPatchProposalService:
             )
         content_required = self._plan_item_requires_content(input_payload)
         output_schema = patch_proposal_json_schema(require_content=content_required)
+        # WeakLargeFileEditPolicy: a weak/standard model MODIFYING a large existing file otherwise
+        # tries to re-emit the whole file as proposed_content, runs away (~5000 tokens) and breaks
+        # (llm_no_patch_content_generated). Force edits-only output + a small token cap so it cannot.
+        edit_policy = self._weak_large_file_edit_policy(input_payload)
+        if edit_policy.get("edit_only"):
+            from agent.model_forge.weak_large_file_edit_policy import edit_only_prompt_directive
+            base_task += "\n\n" + edit_only_prompt_directive()
+        edit_only_cap = edit_policy.get("max_output_tokens") if edit_policy.get("edit_only") else None
         # If this is a self-correction regeneration, surface the failing verification output so the
         # model fixes the ROOT CAUSE instead of re-emitting the same broken content.
         verification_feedback = self._verification_feedback(input_payload)
@@ -1858,18 +1894,29 @@ class AtlasPatchProposalService:
                     # "semantic_validation_failed:missing_symbol_foo", "llm_returned_empty_patch_content",
                     # "llm_output_unparseable:...") so the model fixes THAT specific cause instead of
                     # re-rolling blindly. last_failure is set at every rejection point in this loop.
+                    if edit_policy.get("edit_only"):
+                        # Large existing file on a weak model: re-emitting the COMPLETE file is exactly
+                        # what failed. Demand a small edits array instead.
+                        retry_instruction = (
+                            "The previous response was REJECTED for the reason in previous_failure_reason. "
+                            "Do not repeat it. Return JSON ONLY with a small \"edits\" array of 1-3 surgical "
+                            "edits ({old_string copied verbatim from the current file, new_string}). Do NOT "
+                            "return proposed_content or the whole file."
+                        )
+                    else:
+                        retry_instruction = (
+                            "The previous response was REJECTED for the reason in previous_failure_reason. "
+                            "Do not repeat it. Return JSON only with a non-empty \"proposed_content\" "
+                            "containing the COMPLETE file text that fixes that specific cause."
+                        )
                     user_obj["retry_note"] = {
                         "attempt": attempt,
                         "max_attempts": self.MAX_LLM_GENERATION_ATTEMPTS,
                         "previous_failure_reason": last_failure,
-                        "instruction": (
-                            "The previous response was REJECTED for the reason in previous_failure_reason. "
-                            "Do not repeat it. Return JSON only with a non-empty \"proposed_content\" "
-                            "containing the COMPLETE file text that fixes that specific cause."
-                        ),
+                        "instruction": retry_instruction,
                     }
             try:
-                output = call_llm_json(self.llm_json_fn, system_prompt, json.dumps(user_obj, ensure_ascii=False), json_schema=output_schema) or {}
+                output = call_llm_json(self.llm_json_fn, system_prompt, json.dumps(user_obj, ensure_ascii=False), json_schema=output_schema, max_output_tokens=edit_only_cap) or {}
                 if not isinstance(output, dict):
                     raise ValueError("llm_output_not_dict")
                 proposal, has_content = self._build_proposal_from_output(output, input_payload)
