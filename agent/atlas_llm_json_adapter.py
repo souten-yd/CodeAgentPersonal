@@ -78,6 +78,7 @@ def call_llm_json(
     user_prompt: str,
     *,
     json_schema: dict | None = None,
+    max_output_tokens: int | None = None,
 ) -> dict | None:
     """Call an llm_json_fn, threading a JSON schema through when the target supports it.
 
@@ -90,13 +91,18 @@ def call_llm_json(
     if fn is None:
         return None
     if json_schema and hasattr(fn, "generate_json"):
-        req = AtlasLLMJsonRequest(
+        req_kwargs = dict(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             json_schema=json_schema,
             schema_hint=json.dumps(json_schema, ensure_ascii=False),
         )
-        result = fn.generate_json(req)
+        # A small per-call output cap (e.g. WeakLargeFileEditPolicy edits-only mode) overrides the
+        # schema default so a weak model cannot run away re-emitting a whole large file. Still capped
+        # further by the adapter's n_ctx budget (_budgeted_max_tokens).
+        if max_output_tokens and int(max_output_tokens) > 0:
+            req_kwargs["max_tokens"] = int(max_output_tokens)
+        result = fn.generate_json(AtlasLLMJsonRequest(**req_kwargs))
         return result.data if result.ok else None
     return fn(system_prompt, user_prompt)
 
