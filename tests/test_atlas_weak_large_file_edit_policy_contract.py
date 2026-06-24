@@ -11,6 +11,7 @@ from agent.model_forge.weak_large_file_edit_policy import (
     edit_only_prompt_directive,
     weak_large_file_edit_policy,
 )
+from agent.atlas_patch_proposal_service import AtlasPatchProposalService
 
 
 def test_weak_modifying_large_existing_file_forces_edit_only():
@@ -64,3 +65,46 @@ def test_directive_forbids_full_file_output():
     assert "EDITS ONLY" in d
     assert "old_string" in d and "new_string" in d
     assert "proposed_content" in d  # names it to forbid it
+
+
+def test_service_policy_reads_per_file_split_current_content():
+    large = "x = 1\n" * 400
+    svc = AtlasPatchProposalService(journal=None, storage=None)
+    payload = {
+        "size_tier": "weak",
+        "current_target_contents": {},
+        "item": {
+            "target_files": ["app.js"],
+            "target_file_exists": True,
+            "current_file_content": large,
+            "current_file_original_chars": len(large),
+            "current_file_original_lines": large.count("\n") + 1,
+        },
+    }
+
+    verdict = svc._weak_large_file_edit_policy(payload)
+
+    assert verdict["edit_only"] is True
+    assert verdict["max_output_tokens"] == EDIT_ONLY_MAX_OUTPUT_TOKENS
+    assert verdict["reason"] == "large_existing_file"
+
+
+def test_service_policy_treats_sliced_existing_content_as_edit_only():
+    svc = AtlasPatchProposalService(journal=None, storage=None)
+    payload = {
+        "size_tier": "weak",
+        "current_target_contents": {},
+        "item": {
+            "target_files": ["app.js"],
+            "target_file_exists": True,
+            "current_file_content": "function target() {}\n",
+            "current_file_content_sliced": True,
+            "current_file_original_chars": 24000,
+            "current_file_original_lines": 700,
+        },
+    }
+
+    verdict = svc._weak_large_file_edit_policy(payload)
+
+    assert verdict["edit_only"] is True
+    assert verdict["reason"] == "sliced_existing_file"

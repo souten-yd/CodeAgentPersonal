@@ -85,6 +85,63 @@ def test_tier2_line_range_when_anchor_fails():
     assert p.metadata["focused_extraction"]["mode"] == "line_range"
 
 
+def test_sliced_existing_content_blocks_line_range_proposed_content():
+    seq = [
+        {"old_string": "missing", "new_string": "x"},
+        {"change_type": "replace", "start_line": 2, "end_line": 2, "new_content": "    return a + b"},
+        {"proposed_content": "def add(a, b):\n    return a + b\n"},
+    ]
+    svc = _svc(lambda system, user: seq.pop(0))
+    payload = {
+        "run_id": "r",
+        "size_tier": "weak",
+        "item": {
+            "target_files": ["calc.py"],
+            "target_file_exists": True,
+            "current_file_content": "def add(a, b):\n    return a - b\n",
+            "current_file_content_sliced": True,
+            "current_file_original_chars": 24000,
+            "current_file_original_lines": 700,
+        },
+    }
+    p = _proposal()
+    assert svc._focused_edit_extraction(payload, p) is False
+    assert "proposed_content" not in p.metadata
+    assert "line_range_forbidden_on_sliced_content" in p.warnings
+    assert seq == [{"change_type": "replace", "start_line": 2, "end_line": 2, "new_content": "    return a + b"}, {"proposed_content": "def add(a, b):\n    return a + b\n"}]
+
+
+def test_existing_edit_only_focused_recovery_blocks_full_content_fallback():
+    calls = []
+
+    def fake(system, user):
+        calls.append(system)
+        if len(calls) == 1:
+            return {"old_string": "missing", "new_string": "x"}
+        if len(calls) == 2:
+            return {"change_type": "replace", "start_line": 999, "end_line": 999, "new_content": "x"}
+        return {"proposed_content": "should not be requested"}
+
+    svc = _svc(fake)
+    large = "x = 1\n" * 400
+    payload = {
+        "run_id": "r",
+        "size_tier": "weak",
+        "item": {
+            "target_files": ["large.py"],
+            "target_file_exists": True,
+            "current_file_content": large,
+            "current_file_original_chars": len(large),
+            "current_file_original_lines": large.count("\n") + 1,
+        },
+    }
+    p = _proposal()
+    assert svc._focused_edit_extraction(payload, p) is False
+    assert len(calls) == 2
+    assert "proposed_content" not in p.metadata
+    assert "focused_full_content_forbidden_under_edit_only" in p.warnings
+
+
 def test_additive_task_rejects_underbuilt_edit_and_falls_through():
     """An ADD task whose tier-1 edit only tweaks one line (e.g. updates an import) must be rejected
     as under-complete so a tier that inserts the full new code is used instead."""

@@ -420,3 +420,29 @@ Instead, remove output freedom:
 weak model: choose or describe the smallest edit
 Atlas: applies, validates, and gates deterministically
 ```
+
+---
+
+# Completion evidence
+
+## P0 fixes — completed 2026-06-25
+
+Completed package: P0 weak LLM large-file edit hardening
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/atlas_patch_proposal_service.py`, `tests/test_atlas_weak_large_file_edit_policy_contract.py`, `tests/test_atlas_focused_patch_extraction.py`, `tests/test_atlas_per_file_split_edits.py`, this plan
+Behavior implemented:
+- `_weak_large_file_edit_policy()` now reads per-file child payload metadata (`current_file_content`, original char/line counts, sliced flag, target existence) even when `current_target_contents` was intentionally cleared.
+- `_single_file_input_payload()` preserves original size metadata before slicing.
+- per-file item and split merges preserve child `metadata.edits` as `file_changes[{content_mode: "edits"}]` instead of converting `new_string` fragments into full-file replacement content.
+- focused recovery forbids line-range-to-`proposed_content` on sliced existing content and forbids full-content fallback when edit-only policy is active for an existing target.
+Focused tests: `python -m pytest -q tests/test_atlas_weak_large_file_edit_policy_contract.py tests/test_atlas_focused_patch_extraction.py tests/test_atlas_per_file_split_edits.py` -> 30 passed
+Affected tests: `python -m pytest -q tests/test_atlas_weak_large_file_edit_policy_contract.py tests/test_atlas_focused_patch_extraction.py tests/test_atlas_per_file_split_edits.py tests/test_atlas_edit_format_contract.py tests/test_atlas_repair_recipes_contract.py` -> 45 passed
+Syntax checks: `python -m py_compile agent/atlas_patch_proposal_service.py tests/test_atlas_weak_large_file_edit_policy_contract.py tests/test_atlas_focused_patch_extraction.py tests/test_atlas_per_file_split_edits.py` -> passed
+Real model evidence: localhost:8080 served `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. Live sliced-existing run against a temporary 32,232-byte / 856-line `js/main.js` recorded policy `{edit_only: true, max_output_tokens: 1800, reason: sliced_existing_file}`; the OpenAI-compatible request carried `max_tokens=1800`; the model returned 2 edits, no `proposed_content`; Safe Apply in the temporary workspace returned `applied`; post-apply content no longer contained `getContext('2d')` or `fillText`.
+Bounded rejection evidence: a full-content-input live run also stayed capped at `max_tokens=1800` and ended as `semantic_validation_failed:content_missing,semantic_evidence_missing` without `proposed_content`, confirming no full-file token runaway.
+Unavailable checks: no production workspace apply; live Safe Apply was limited to a temporary reproduction workspace.
+Safety invariants: weak/standard large existing-file generation remains edit-only; sliced content is never promoted to full `proposed_content`; per-file split edits stay surgical; no Proposal / Safe Apply / Verification authority is bypassed.
+Remaining gaps: P1-1 raw `proposed_content` rejection under edit-only policy; P1-2 non-dead WebGL/2D deterministic repair option selection.
+Next package: P1-1 raw `proposed_content` rejection under edit-only policy
+Blocker: none
+Proof level: `runtime_bounded_edit_verified`
