@@ -74,6 +74,16 @@ class AtlasAutoVerificationService:
             explanation = self._safe_apply_explanation(safe_apply_meta)
             return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status="skipped", warnings=["safe_apply_not_applied", *list(explanation.get("reasons") or [])], metadata={"safe_apply_not_applied": explanation}, plan_pool=pool.model_dump(), orchestration_summary={"safe_apply_not_applied": explanation})
 
+        # Per-file decomposition group member (not the final file of its feature): behavioural/
+        # visual smoke runs against the WHOLE app and is premature until every file is applied —
+        # a partially-applied app can throw a transient js_error that is not a real defect and
+        # would trigger pointless self-correction. Defer behavioural verification to the FINAL
+        # member (its smoke loads every file); syntax is already enforced at generation. This is
+        # an advisory pass, never a hard block, keeping decomposed plans generically usable.
+        if str((item.metadata or {}).get("group_role") or "").lower() == "member":
+            self._append_event(pool.pool_id, request.run_id, "auto_verification_deferred_group_member", item.item_id, status="passed")
+            return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status="passed", warnings=["group_member_behavioral_deferred"], metadata={"group_role": "member", "behavioral_verification": "deferred_to_final_member"}, plan_pool=pool.model_dump())
+
         workspace_root = str(getattr(pool, "project_path", "") or "").strip()
         if not workspace_root:
             return self._blocked(pool, item.item_id, request, "project_path_missing")

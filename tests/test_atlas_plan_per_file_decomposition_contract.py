@@ -56,6 +56,10 @@ def test_multi_file_item_expands_to_one_subitem_per_code_file():
     # requirement coverage is inherited by every unit
     assert pool.items[0].requirement_ids == ["req_1", "req_2"]
     assert notes and "step_4" in notes[0]
+    # group roles drive when behavioural/visual smoke runs: only the final file of the
+    # feature runs it; earlier members defer (premature smoke on a partial app is noise)
+    assert pool.items[0].metadata.get("group_role") == "member"
+    assert pool.items[1].metadata.get("group_role") == "final"
 
 
 def test_subitems_chain_define_before_use():

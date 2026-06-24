@@ -142,6 +142,12 @@ def decompose_multi_file_items(
             meta["decomposed_from"] = item.item_id
             meta["decomposed_index"] = idx
             meta["decomposed_total"] = len(real)
+            # Behavioural/visual smoke runs against the WHOLE app, so it is premature on any
+            # but the final file of a feature (a partially-applied app can throw a transient
+            # js_error that is not a real defect). Only the final member runs the feature's
+            # behavioural verification; earlier members defer it (syntax is enforced at
+            # generation, and the final member's smoke loads every file).
+            meta["group_role"] = "final" if idx == len(real) - 1 else "member"
             sub.metadata = meta
             prev_id = sub.item_id
             subs.append(sub)
