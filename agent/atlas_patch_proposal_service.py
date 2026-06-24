@@ -28,6 +28,7 @@ from agent.atlas_nexus_web_research_client import AtlasNexusWebResearchClient, w
 from agent.atlas_llm_json_adapter import call_llm_json
 from agent.atlas_edit_format import harvest_search_replace_edits
 from agent.atlas_llm_schemas import patch_proposal_json_schema
+from agent.atlas_repair_recipes import apply_known_bug_repairs
 from agent.atlas_plan_item_file_changes import DEFAULT_CHANGE_SET, has_file_change_content, normalize_plan_item_file_changes
 from agent.atlas_patch_generation_state import (
     ACTIVE_PATCH_GENERATION_STATES,
@@ -2297,6 +2298,16 @@ class AtlasPatchProposalService:
         if proposed_content_too_large:
             proposed_content = ""
             warnings.append("proposed_content_too_large")
+
+        # Deterministic known-bug REPAIR RECIPE on a full-file output, BEFORE it is validated or
+        # converted to edits: a recurring mechanical defect (e.g. a dead 2D-context acquisition on the
+        # WebGL canvas — the live #gameCanvas conflict) is fixed by the recipe instead of relying on a
+        # weak model to self-correct. Only fires when provably safe (e.g. the 2D var is unused).
+        if proposed_content:
+            _repair = apply_known_bug_repairs(proposed_content, input_payload.get("app_resource_contract"))
+            if _repair.get("applied") and _repair.get("new_content"):
+                proposed_content = str(_repair["new_content"])
+                warnings.append("known_bug_repair_applied:" + str(_repair.get("recipe") or ""))
 
         # Pillar B: surgical string-replacement edits the executor can apply against the current file.
         edits = self._normalize_edits(llm_allowed.get("edits"), warnings)
