@@ -15,6 +15,7 @@ produced at plan time and travels on the pool so it is available to every genera
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable
 
 from agent.atlas_llm_json_adapter import call_llm_json
@@ -139,6 +140,148 @@ def _clean_entity(e: dict) -> dict[str, Any]:
         "methods": [str(m) for m in (e.get("methods") or []) if str(m).strip()][:16],
         "notes": str(e.get("notes") or "").strip()[:240],
     }
+
+
+# ── Shared RESOURCE contract (deterministic) ──────────────────────────────────────────────────
+# The entity/wiring contract above is an LLM-defined OBJECT model. It does NOT capture the
+# cross-cutting PLATFORM decisions that independently-generated per-file units must also agree on —
+# and disagreement there is what silently breaks the app. The live failure: game.js drove #gameCanvas
+# as a Three.js WebGL surface while main.js did getContext('2d') on the SAME canvas (a canvas allows
+# only ONE context type), so WebGL failed and nothing rendered. That is not an "entity" mismatch; it
+# is a shared-RESOURCE mismatch. These facts are extractable DETERMINISTICALLY from the existing HTML
+# + JS (no weak model needed), which is both more reliable and cheaper than asking the model.
+
+_CANVAS_ID_RE = re.compile(r"<canvas\b[^>]*\bid\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
+_ELEM_ID_RE = re.compile(r"\bid\s*=\s*[\"']([A-Za-z_][\w\-]*)[\"']")
+_SCRIPT_SRC_RE = re.compile(r"<script\b[^>]*\bsrc\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
+_GETCTX_RE = re.compile(r"getContext\(\s*[\"']([^\"']+)[\"']")
+_THREE_RE = re.compile(r"\bnew\s+THREE\.|\bTHREE\.\w+|\bWebGLRenderer\b")
+_WIN_GLOBAL_RE = re.compile(r"\bwindow\.([A-Za-z_]\w*)\s*=")
+_TOPLEVEL_DECL_RE = re.compile(r"^(?:export\s+)?(?:class|function)\s+([A-Za-z_]\w*)", re.MULTILINE)
+
+
+def _is_html(path: str) -> bool:
+    return str(path).lower().endswith((".html", ".htm"))
+
+
+def _is_js(path: str) -> bool:
+    return str(path).lower().endswith((".js", ".mjs", ".cjs", ".jsx"))
+
+
+def _dedup(seq: list[str]) -> list[str]:
+    seen: dict[str, None] = {}
+    for s in seq:
+        s = str(s).strip()
+        if s and s not in seen:
+            seen[s] = None
+    return list(seen.keys())
+
+
+def _lib_name(src: str) -> str:
+    s = src.lower()
+    if "three" in s:
+        return "THREE (three.js)"
+    base = src.rstrip("/").rsplit("/", 1)[-1] or src
+    return base
+
+
+def build_shared_resource_contract(files: dict[str, str]) -> dict[str, Any]:
+    """Deterministically extract the shared PLATFORM/RESOURCE facts that every per-file unit must
+    agree on, from the app's existing HTML + JS. Captures: the canvas render model (WebGL/Three.js
+    vs 2D) and which canvas owns it, the DOM element ids that actually exist, external libraries
+    already loaded, and the global symbols each sibling file exposes. No LLM. Returns {} when there
+    is nothing app-shaped to constrain."""
+    html = {p: c for p, c in (files or {}).items() if _is_html(p) and str(c).strip()}
+    js = {p: c for p, c in (files or {}).items() if _is_js(p) and str(c).strip()}
+
+    canvas_ids: list[str] = []
+    dom_ids: list[str] = []
+    libs: list[str] = []
+    for content in html.values():
+        canvas_ids += _CANVAS_ID_RE.findall(content)
+        dom_ids += _ELEM_ID_RE.findall(content)
+        for src in _SCRIPT_SRC_RE.findall(content):
+            if src.startswith("http") or src.startswith("//"):
+                libs.append(_lib_name(src))
+
+    uses_webgl = any(_THREE_RE.search(c) for c in js.values())
+    ctx_types: set[str] = set()
+    for c in js.values():
+        for t in _GETCTX_RE.findall(c):
+            ctx_types.add(t.lower())
+    uses_webgl = uses_webgl or any(t.startswith("webgl") for t in ctx_types)
+    uses_2d = "2d" in ctx_types
+    if uses_webgl:
+        render_model = "webgl"
+        render_lib = "three.js" if any(_THREE_RE.search(c) for c in js.values()) else ""
+    elif uses_2d:
+        render_model = "canvas_2d"
+        render_lib = ""
+    else:
+        render_model, render_lib = "", ""
+
+    globals_by_file: dict[str, list[str]] = {}
+    for path, content in js.items():
+        names = set(_WIN_GLOBAL_RE.findall(content)) | set(_TOPLEVEL_DECL_RE.findall(content))
+        if names:
+            globals_by_file[path] = sorted(names)[:16]
+
+    contract = {
+        "render_model": render_model,                       # "webgl" | "canvas_2d" | ""
+        "render_lib": render_lib,                           # "three.js" | ""
+        "primary_canvas": (_dedup(canvas_ids)[0] if canvas_ids else ""),
+        "canvas_ids": _dedup(canvas_ids),
+        "dom_ids": _dedup(dom_ids),
+        "external_libs": _dedup(libs),
+        "globals_by_file": globals_by_file,
+        # Both a WebGL and a 2D context are requested somewhere → a guaranteed runtime break.
+        "context_conflict": bool(uses_webgl and uses_2d),
+    }
+    if not (contract["primary_canvas"] or contract["dom_ids"] or contract["globals_by_file"]):
+        return {}
+    return contract
+
+
+def render_shared_resource_contract_for_prompt(contract: dict[str, Any]) -> str:
+    """Imperative, model-facing constraints from the deterministic resource contract."""
+    if not isinstance(contract, dict) or not contract:
+        return ""
+    lines: list[str] = []
+    canvas = contract.get("primary_canvas")
+    model = contract.get("render_model")
+    lib = contract.get("render_lib")
+    if canvas and model == "webgl":
+        via = f" via {lib}" if lib else ""
+        lines.append(
+            f"RENDER SURFACE: canvas#{canvas} is a WebGL surface{via}. Render to it through "
+            f"WebGL/{lib or 'WebGL'} ONLY. NEVER call {canvas}.getContext('2d') or attach a 2D "
+            f"renderer to #{canvas}: a canvas allows only ONE context type, so requesting 2D makes "
+            f"WebGLRenderer fail ('Error creating WebGL context') and the app renders nothing."
+        )
+    elif canvas and model == "canvas_2d":
+        lines.append(
+            f"RENDER SURFACE: canvas#{canvas} is a 2D canvas (getContext('2d')). Render through its "
+            f"2D context ONLY — do NOT use WebGL or Three.js on #{canvas}."
+        )
+    if contract.get("external_libs"):
+        lines.append(
+            "EXTERNAL LIBS already loaded in index.html (use these globals; do not re-import or "
+            "swap the library): " + ", ".join(contract["external_libs"])
+        )
+    if contract.get("dom_ids"):
+        lines.append(
+            "DOM ELEMENT IDS that exist in index.html (reference these EXACT ids; do not invent new "
+            "ones or rename them): " + ", ".join("#" + i for i in contract["dom_ids"][:40])
+        )
+    if contract.get("globals_by_file"):
+        parts = "; ".join(
+            f"{path} defines [{', '.join(names)}]" for path, names in contract["globals_by_file"].items()
+        )
+        lines.append(
+            "GLOBAL SYMBOLS defined by sibling files (consume these EXACT names across files; do not "
+            "redefine or invent parallel ones): " + parts
+        )
+    return "\n".join(lines)
 
 
 def render_contract_for_prompt(contract: dict[str, Any]) -> str:
