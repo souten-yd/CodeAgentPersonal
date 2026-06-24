@@ -68,7 +68,14 @@ _ANCHOR_DEF_RE = re.compile(
 )
 
 
-def _full_content_to_edits(old_content: str, new_content: str, *, max_edits: int = 24) -> list[dict] | None:
+def _full_content_to_edits(
+    old_content: str,
+    new_content: str,
+    *,
+    max_edits: int = 24,
+    max_changed_lines: int = 80,
+    max_changed_chars: int = 4000,
+) -> list[dict] | None:
     """Convert a model's whole-file rewrite of an EXISTING file into minimal surgical edits by diffing
     against the current content, so a weak model that ignored "edits only" still applies as a small,
     non-destructive patch. Returns None when the diff is NOT clean/small (too many hunks) — then the
@@ -86,6 +93,13 @@ def _full_content_to_edits(old_content: str, new_content: str, *, max_edits: int
             continue
         old_str = "".join(old_lines[i1:i2])
         new_str = "".join(new_lines[j1:j2])
+        if (
+            len(old_str.splitlines()) > max_changed_lines
+            or len(new_str.splitlines()) > max_changed_lines
+            or len(old_str) > max_changed_chars
+            or len(new_str) > max_changed_chars
+        ):
+            return None
         if tag == "insert":
             anchor = "".join(old_lines[max(0, i1 - 1):i1]).strip("\n")
             if not anchor:
@@ -2359,24 +2373,21 @@ class AtlasPatchProposalService:
         # Pillar B: surgical string-replacement edits the executor can apply against the current file.
         edits = self._normalize_edits(llm_allowed.get("edits"), warnings)
 
-        # (A) ENFORCE surgical edits on a large EXISTING file. A weak/standard tier that re-emitted the
-        # whole file instead of surgical edits is converted to minimal edits by diffing against the
-        # current content, so the apply stays small and non-destructive (and a genuine full rewrite,
-        # whose diff is large, is kept as-is). Frontier tier is exempt.
-        if (
-            str(input_payload.get("size_tier") or "").strip().lower() not in ("", "frontier")
-            and bool(item.get("target_file_exists"))
-            and proposed_content
-            and not edits
-            and len(str(item.get("current_file_content") or "").splitlines()) >= self.LARGE_EXISTING_FILE_LINES
-        ):
+        # (A) ENFORCE surgical edits on a large/sliced EXISTING file. A weak/standard tier that
+        # re-emitted the whole file instead of surgical edits is converted to minimal edits by diffing
+        # against the current content, so the apply stays small and non-destructive. If conversion
+        # fails under edit-only policy, drop raw proposed_content entirely so retry/failure stays
+        # bounded instead of treating an unrelated fragment as apply-ready full content.
+        edit_policy = self._weak_large_file_edit_policy(input_payload)
+        if edit_policy.get("edit_only") and proposed_content and not edits:
             converted = _full_content_to_edits(str(item.get("current_file_content") or ""), proposed_content)
             if converted:
                 edits = converted
                 proposed_content = ""
                 warnings.append("full_content_converted_to_surgical_edits")
             else:
-                warnings.append("full_content_emitted_for_minimal_edit_tier")
+                proposed_content = ""
+                warnings.append("full_content_forbidden_under_edit_only")
 
         has_content = bool(proposed_content or diff_preview or edits or (file_changes and all(has_file_change_content(fc) for fc in file_changes)))
         metadata = {

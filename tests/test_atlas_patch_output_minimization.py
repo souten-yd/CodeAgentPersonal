@@ -29,11 +29,31 @@ def _svc() -> AtlasPatchProposalService:
 
 
 def test_converts_small_full_content_rewrite_for_large_existing_file():
+    current = "\n".join(f"line {i}" for i in range(200))
+    updated = current.replace("line 42", "line 42 changed")
     payload = _payload(size_tier="weak", current_lines=200)
-    output = {"proposed_content": "rewritten whole file\n" * 5, "risk_level": "low", "target_files": ["app.py"]}
+    payload["item"]["current_file_content"] = current
+    output = {"proposed_content": updated, "risk_level": "low", "target_files": ["app.py"]}
     proposal, _ = _svc()._build_proposal_from_output(output, payload)
     assert "full_content_converted_to_surgical_edits" in proposal.warnings
     assert proposal.metadata["edits"]
+    assert "proposed_content" not in proposal.metadata
+
+
+def test_rejects_unconvertible_full_content_under_edit_only_policy():
+    current = "line\n" * 200
+    payload = _payload(size_tier="weak", current_lines=200)
+    payload["item"]["current_file_content"] = current
+    output = {
+        "proposed_content": "completely unrelated replacement\n" * 220,
+        "risk_level": "low",
+        "target_files": ["app.py"],
+    }
+    proposal, has_content = _svc()._build_proposal_from_output(output, payload)
+
+    assert has_content is False
+    assert "full_content_forbidden_under_edit_only" in proposal.warnings
+    assert proposal.metadata["patch_content_available"] is False
     assert "proposed_content" not in proposal.metadata
 
 

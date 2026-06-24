@@ -446,3 +446,22 @@ Remaining gaps: P1-1 raw `proposed_content` rejection under edit-only policy; P1
 Next package: P1-1 raw `proposed_content` rejection under edit-only policy
 Blocker: none
 Proof level: `runtime_bounded_edit_verified`
+
+## P1-1 — raw proposed_content rejection under edit-only policy (completed 2026-06-25)
+
+Completed package: P1-1 raw `proposed_content` rejection under edit-only policy
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/atlas_patch_proposal_service.py`, `tests/test_atlas_patch_output_minimization.py`, this plan
+Behavior implemented:
+- `_full_content_to_edits()` now rejects oversized changed hunks instead of converting a whole-file replacement into one giant edit.
+- `_build_proposal_from_output()` now consults `WeakLargeFileEditPolicy`; when edit-only is active and raw `proposed_content` cannot be converted into small surgical edits, it drops the raw content, records `full_content_forbidden_under_edit_only`, and leaves `patch_content_available=false` so retry/failure remains bounded.
+- small one-line full-content rewrites can still be converted into surgical edits.
+Focused tests: `python -m pytest -q tests/test_atlas_patch_output_minimization.py` -> 10 passed
+Affected tests: `python -m pytest -q tests/test_atlas_weak_large_file_edit_policy_contract.py tests/test_atlas_focused_patch_extraction.py tests/test_atlas_per_file_split_edits.py tests/test_atlas_edit_format_contract.py tests/test_atlas_repair_recipes_contract.py tests/test_atlas_patch_output_minimization.py` -> 55 passed
+Real model evidence: no additional provider call required for this deterministic output-validation slice. P0 already verified the same edit-only 8080 runtime path with `max_tokens=1800`, edits output, no `proposed_content`, and temporary-workspace Safe Apply success.
+Unavailable checks: no production workspace apply.
+Safety invariants: edit-only mode cannot pass unconverted raw full content; large whole-file replacement cannot be disguised as one giant edit; small surgical conversion remains allowed.
+Remaining gaps: P1-2 non-dead WebGL/2D deterministic repair option selection.
+Next package: P1-2 deterministic repair option selection for non-dead WebGL/2D conflicts
+Blocker: none
+Proof level: `component_complete`
