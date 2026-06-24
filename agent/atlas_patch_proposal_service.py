@@ -26,6 +26,7 @@ from agent.atlas_interface_contract import (
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_nexus_web_research_client import AtlasNexusWebResearchClient, web_research_enabled
 from agent.atlas_llm_json_adapter import call_llm_json
+from agent.atlas_edit_format import harvest_search_replace_edits
 from agent.atlas_llm_schemas import patch_proposal_json_schema
 from agent.atlas_plan_item_file_changes import DEFAULT_CHANGE_SET, has_file_change_content, normalize_plan_item_file_changes
 from agent.atlas_patch_generation_state import (
@@ -2239,6 +2240,28 @@ class AtlasPatchProposalService:
         debug = input_payload.get("debug_review") or {}
         item = input_payload.get("item") or {}
         warnings: list[str] = []
+        output = dict(output or {})
+
+        # Weak-model SEARCH/REPLACE blocks: a weak model emits Aider-style <<< SEARCH / === / >>>
+        # REPLACE blocks far more reliably than a nested JSON edits array. When present (anywhere in
+        # the output) and no structured edits were given, parse them into the {old_string,new_string}
+        # edits the apply path uses, and blank the field that carried the raw blocks so it is not also
+        # applied as full content. Single concrete target -> that file is the default path.
+        if not (isinstance(output.get("edits"), list) and output.get("edits")):
+            _targets = [str(p) for p in (item.get("target_files") or item.get("original_target_files") or []) if str(p)]
+            _sr_blocks = harvest_search_replace_edits(output, default_path=(_targets[0] if len(_targets) == 1 else None))
+            if _sr_blocks:
+                _allowed = set(_targets)
+                _kept = [
+                    {"old_string": b["old_string"], "new_string": b["new_string"]}
+                    for b in _sr_blocks if not _allowed or b["path"] in _allowed
+                ]
+                if _kept:
+                    output["edits"] = _kept
+                    for _k in ("search_replace", "proposed_content", "proposed_fix"):
+                        if isinstance(output.get(_k), str) and "SEARCH" in output[_k] and "REPLACE" in output[_k]:
+                            output[_k] = ""
+                    warnings.append("search_replace_blocks_parsed")
 
         ignored_untrusted = bool(self.LLM_UNTRUSTED_FIELDS.intersection(output.keys()))
         if ignored_untrusted:

@@ -66,13 +66,17 @@ def weak_large_file_edit_policy(
 
 
 def edit_only_prompt_directive(canvas_safe: bool = True) -> str:
-    """The hard output-format constraint injected when edit_only is active."""
+    """The hard output-format constraint injected when edit_only is active. Offers an Aider-style
+    SEARCH/REPLACE form because a weak model writes that (mostly verbatim code) more reliably than a
+    nested JSON edits array; the service parses either form into edits."""
     return (
-        "OUTPUT FORMAT — EDITS ONLY (this is a large existing file; a weak model must NOT rewrite it):\n"
-        "Return ONLY a small \"edits\" array of 1-3 surgical edits, each {\"path\", \"old_string\", "
-        "\"new_string\"} where old_string is text copied VERBATIM from the current file content. Do "
-        "NOT return \"proposed_content\", the whole file, a markdown code block, or the full function "
-        "unless it is under ~40 lines. Change ONLY what the task requires; keep every other line "
-        "untouched. If the change cannot be expressed as a few small edits, return the SINGLE smallest "
-        "edit that makes progress."
+        "OUTPUT FORMAT — EDITS ONLY (this is a large existing file; do NOT rewrite the whole file).\n"
+        "Return 1-3 SMALL surgical edits, in EITHER form:\n"
+        "(a) a JSON \"edits\" array of {\"old_string\" (copied VERBATIM from the current file content), "
+        "\"new_string\"}; OR\n"
+        "(b) put Aider-style SEARCH/REPLACE blocks in the \"proposed_content\" field, each exactly:\n"
+        "<<<<<<< SEARCH\n<the exact current lines to find>\n=======\n<the replacement lines>\n>>>>>>> REPLACE\n"
+        "Do NOT return the whole file or a full-function rewrite over ~40 lines. Change ONLY what the "
+        "task requires and keep every other line untouched. If you cannot express it as a few small "
+        "edits, return the SINGLE smallest edit that makes progress."
     )
