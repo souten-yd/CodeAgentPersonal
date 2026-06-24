@@ -276,7 +276,16 @@ class AtlasPatchProposalService:
                 )
                 self._record_trace(pool.pool_id, request.run_id, "blocked", "project_intelligence_generation_blocked", {"llm_called": False, "project_intelligence_generation": pi_generation})
                 return AtlasPatchProposalResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=run_id, status="blocked", warnings=warnings, plan_pool=pool.model_dump(), metadata={"project_intelligence_generation": pi_generation, "patch_generation": (item.metadata or {}).get("patch_generation") or {}})
-            proposal = self.generate_proposal_with_llm(payload) if self.llm_json_fn else self.generate_fallback_proposal(payload)
+            # Per-file ITEM decomposition (validated 6/6 vs multi-file 0/4): a weak model reliably edits
+            # ONE file at a time but fails a 2-large-file item. Generate each real target file as its own
+            # single-file unit through the NORMAL path (full context + validation + retries) and merge,
+            # instead of the in-item content-only split. Single/large-file items are unaffected.
+            _real_targets = [f for f in (item.target_files or []) if str(f).strip() and not _is_test_path(str(f))]
+            if (self.llm_json_fn and len(_real_targets) >= 2
+                    and os.environ.get("ATLAS_PATCHGEN_PER_FILE_DECOMPOSE", "0").strip() == "1"):
+                proposal = self._generate_per_file_items(pool, item, request, payload, _real_targets)
+            else:
+                proposal = self.generate_proposal_with_llm(payload) if self.llm_json_fn else self.generate_fallback_proposal(payload)
             proposal.pool_id = pool.pool_id
             proposal.item_id = item.item_id
             proposal.run_id = run_id
@@ -1295,6 +1304,78 @@ class AtlasPatchProposalService:
         else:
             proposal = self._generate_proposal_with_llm_core(input_payload)
         self._attach_runtime_policy_delivery(proposal, input_payload)
+        return proposal
+
+    def _generate_per_file_items(self, pool, item, request, base_payload: dict, real_targets: list[str]) -> AtlasPatchProposal:
+        """Generate each real target file as its OWN single-file unit through the NORMAL generation path
+        (full context + validation + retries — empirically 6/6 vs 0/4 for the in-item split), then merge
+        the file_changes. Each file is built with its own ``build_proposal_input`` scoped to that file,
+        so the per-file SPLIT never recurses (single target) and the model edits one file at a time."""
+        _norm = lambda p: str(p or "").replace("\\", "/")
+        run_id = str(base_payload.get("run_id") or "")
+        combined: list[dict] = []
+        per_file_ok: dict[str, bool] = {}
+        sub_warnings: list[str] = []
+        for f in real_targets:
+            scoped = item.model_copy(deep=True)
+            scoped.target_files = [f]
+            fp = self.build_proposal_input(pool, scoped, request)
+            for k in ("twin_control_section", "twin_repair_section", "runtime_policy", "input_slice_enabled"):
+                if base_payload.get(k) is not None:
+                    fp[k] = base_payload[k]
+            part = self.generate_proposal_with_llm(fp)  # single target -> normal path, no split
+            pmeta = part.metadata or {}
+            fcs = [fc for fc in (pmeta.get("file_changes") or []) if has_file_change_content(fc)]
+            own = [fc for fc in fcs if _norm(fc.get("path")) == _norm(f)]
+            if own:
+                combined.extend(own)
+                per_file_ok[f] = True
+            else:
+                content = str(self._proposal_content_by_path(part).get(f) or pmeta.get("proposed_content") or "")
+                if content.strip():
+                    combined.append({"path": f, "content": content, "change_type": "modify"})
+                    per_file_ok[f] = True
+                else:
+                    per_file_ok[f] = False
+            seen = {_norm(c.get("path")) for c in combined}
+            for fc in fcs:  # keep by-products (e.g. a generated test) without gating target success
+                if _norm(fc.get("path")) not in seen:
+                    combined.append(fc)
+                    seen.add(_norm(fc.get("path")))
+            sub_warnings.extend(str(w) for w in (part.warnings or []))
+        output = {"title": item.title, "summary": item.description or item.goal or "", "file_changes": combined}
+        proposal, has_content = self._build_proposal_from_output(output, base_payload)
+        proposal.warnings.append("per_file_item_decomposition")
+        for w in sorted(set(sub_warnings))[:8]:
+            proposal.warnings.append(f"per_item:{w}")
+        self._sanitize_requirement_claims_and_infer_coverage(proposal, base_payload)
+        self._infer_semantic_evidence_from_content(proposal, base_payload, has_content=has_content)
+        semantic = self._validate_task_complete_proposal(proposal, base_payload, has_content=has_content)
+        proposal.metadata["semantic_validation"] = semantic
+        all_ok = bool(combined) and all(per_file_ok.get(f) for f in real_targets)
+        if has_content and all_ok and semantic.get("status") != "failed":
+            proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                proposal.metadata.get("patch_generation"),
+                {"event_type": "patch_generation_succeeded", "run_id": run_id, "state": "succeeded",
+                 "outcome": "success", "strategy": "per_file_item_decomposition",
+                 "reason_code": "patch_generation_succeeded", "patch_content_available": True,
+                 "attempt": len(real_targets), "failed_checks": [],
+                 "candidate_fingerprint": self._candidate_fingerprint(proposal)},
+            )
+        else:
+            missing = [f for f in real_targets if not per_file_ok.get(f)]
+            reason = ("semantic_validation_failed:" + ",".join(semantic.get("reasons") or [])
+                      if semantic.get("status") == "failed" else "per_file_item_missing:" + ",".join(missing))
+            proposal.metadata["generation_failed"] = True
+            proposal.metadata["generation_failure_reason"] = reason
+            proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                proposal.metadata.get("patch_generation"),
+                {"event_type": "patch_generation_failed", "run_id": run_id, "state": "failed",
+                 "outcome": "failure", "strategy": "per_file_item_decomposition", "reason_code": reason,
+                 "patch_content_available": bool(has_content), "retryable": True, "attempt": len(real_targets),
+                 "failed_checks": list(semantic.get("reasons") or [])},
+            )
+        self._attach_runtime_policy_delivery(proposal, base_payload)
         return proposal
 
     # --- Per-file split generation -------------------------------------------------------------
