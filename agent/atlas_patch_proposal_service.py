@@ -1260,7 +1260,10 @@ class AtlasPatchProposalService:
                     "instruction": ("Return an old_string/new_string edit that FULLY applies the change. "
                                     "If it adds new code, include the complete new code in new_string."),
                 }, ensure_ascii=False)
-                out = call_llm_json(self.llm_json_fn, system, user, json_schema=self._FOCUSED_EDIT_SCHEMA) or {}
+                # A focused old/new edit is small by construction; cap the output so a degraded model
+                # cannot run away re-emitting the whole file here (the uncapped recovery path that let
+                # the modify generation reach 4000+ tokens despite the main-call cap).
+                out = call_llm_json(self.llm_json_fn, system, user, json_schema=self._FOCUSED_EDIT_SCHEMA, max_output_tokens=2000) or {}
                 old = str(out.get("old_string") or "")
                 new = str(out.get("new_string") or "")
                 # For an additive task, reject a non-net-additive edit (the model only tweaked a line
@@ -1287,7 +1290,7 @@ class AtlasPatchProposalService:
                     "numbered_file_content": numbered,
                     "instruction": "Return the single line-range change that applies the fix.",
                 }, ensure_ascii=False)
-                out = call_llm_json(self.llm_json_fn, system, user, json_schema=self._FOCUSED_RANGE_SCHEMA) or {}
+                out = call_llm_json(self.llm_json_fn, system, user, json_schema=self._FOCUSED_RANGE_SCHEMA, max_output_tokens=2400) or {}
                 new_text = self._apply_line_range_op(current, out)
                 if new_text is not None:
                     proposal.metadata["proposed_content"] = new_text
