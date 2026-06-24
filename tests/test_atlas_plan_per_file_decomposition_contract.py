@@ -77,13 +77,15 @@ def test_downstream_dependency_remapped_to_last_subitem():
     assert step5.depends_on == ["step_4__f1_js_main_js"]
 
 
-def test_test_files_ride_along_not_their_own_unit():
+def test_test_files_are_not_required_targets_of_any_unit():
     pool = _pool([_item("step_4", ["js/game.js", "js/main.js", "tests/test_main.js"])])
     decompose_multi_file_items(pool)
-    # only the 2 CODE files become units; the test rides on the LAST code unit
+    # only the 2 CODE files become units, each STRICTLY single-target (a test ride-along
+    # would make the unit a multi-target generation and re-introduce multi_file_content_missing)
     assert len(pool.items) == 2
-    assert "tests/test_main.js" in pool.items[-1].target_files
-    assert "tests/test_main.js" not in pool.items[0].target_files
+    for it in pool.items:
+        assert len(it.target_files) == 1
+        assert "tests/test_main.js" not in it.target_files
     assert all(not it.item_id.endswith("test_main_js") for it in pool.items)
 
 

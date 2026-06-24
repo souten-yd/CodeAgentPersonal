@@ -108,7 +108,6 @@ def decompose_multi_file_items(
 
         target_files = list(getattr(item, "target_files", None) or [])
         real = [f for f in target_files if not _is_test_path(f)]
-        tests = [f for f in target_files if _is_test_path(f)]
         operations = list(getattr(item, "operations", None) or [])
         orig_deps = list(getattr(item, "depends_on", None) or [])
 
@@ -118,10 +117,14 @@ def decompose_multi_file_items(
             sub = item.model_copy(deep=True)
             sub.item_id = f"{item.item_id}__f{idx}_{_slug(f)}"[:120]
             sub.title = f"{item.title} — {f}"
-            # The LAST code unit carries the test artifact(s): tests validate the completed
-            # feature and can only run meaningfully after every code file exists (define-
-            # before-use). They are applied+retained, never a required deliverable of a unit.
-            sub.target_files = [f] + (tests if idx == len(real) - 1 else [])
+            # Each unit targets EXACTLY ONE code file. A test path is deliberately NOT carried
+            # here: any extra target makes the unit a multi-target generation (len>1), which
+            # diverges from the single-file path validated 6/6 and re-introduces the
+            # multi_file_content_missing failure (the 2-target main.js unit failed 0/2 with a
+            # test attached, vs 2/2 as a lone file). The generated test remains an allowed,
+            # retained by-product harvested during the code unit's own generation (TwinProof),
+            # and a dedicated test-generation item is future work — never a required deliverable.
+            sub.target_files = [f]
             scoped_ops = [op for op in operations if _norm(f) in _op_paths(op)]
             if not scoped_ops:
                 # Synthesize a single op for this file, preserving the item's op type when
