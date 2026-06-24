@@ -8,6 +8,7 @@ and test files stay as retained artifacts rather than their own units.
 from __future__ import annotations
 
 from agent.atlas_plan_decomposition import (
+    assign_app_verification_scope,
     decompose_multi_file_items,
     should_decompose_item,
 )
@@ -111,6 +112,36 @@ def test_idempotent_on_already_decomposed_pool():
     ids_after_first = [it.item_id for it in pool.items]
     decompose_multi_file_items(pool)
     assert [it.item_id for it in pool.items] == ids_after_first
+
+
+def test_verification_scope_defers_whole_app_smoke_until_last_app_toucher():
+    # a typical web plan: scaffold -> code -> code -> ... -> final css. Only the LAST item that
+    # touches the app runtime runs the whole-app smoke; every earlier app item defers it.
+    pool = _pool([
+        _item("step_1", ["index.html", "css/style.css"]),
+        _item("step_2", ["js/game.js"]),
+        _item("step_3", ["js/main.js"]),
+        _item("step_5", ["css/style.css"]),
+    ])
+    decompose_multi_file_items(pool)
+    by_id = {it.item_id: it for it in pool.items}
+    # step_1 expanded to 2 items, both deferred (later items still touch the app)
+    assert by_id["step_1__f0_index_html"].metadata["verification_scope"] == "deferred_smoke"
+    assert by_id["step_2"].metadata["verification_scope"] == "deferred_smoke"
+    assert by_id["step_3"].metadata["verification_scope"] == "deferred_smoke"
+    # the LAST item touching the app runs the integration smoke
+    assert by_id["step_5"].metadata["verification_scope"] == "integration"
+
+
+def test_verification_scope_marks_non_app_items_normal():
+    pool = _pool([
+        _item("step_1", ["lib/util.py"]),
+        _item("step_2", ["index.html"]),
+    ])
+    assign_app_verification_scope(pool)
+    by_id = {it.item_id: it for it in pool.items}
+    assert by_id["step_1"].metadata["verification_scope"] == "normal"  # pure python, not the app
+    assert by_id["step_2"].metadata["verification_scope"] == "integration"  # only/last app item
 
 
 def test_runtime_metadata_not_carried_onto_subitems():

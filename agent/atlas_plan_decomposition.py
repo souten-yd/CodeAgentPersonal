@@ -47,6 +47,17 @@ def _is_test_path(path: str) -> bool:
     return bool(_TEST_PATH_RE.search(str(path or "").replace("\\", "/")))
 
 
+# Runtime surface of a web/app artifact: a whole-app browser smoke loads index.html and
+# pulls in these. An item is "touching the running app" if any non-test target has one of
+# these extensions.
+_RUNTIME_EXTS = (".html", ".htm", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".css")
+
+
+def _is_runtime_file(path: str) -> bool:
+    p = _norm(path)
+    return not _is_test_path(p) and any(p.endswith(ext) for ext in _RUNTIME_EXTS)
+
+
 def _slug(path: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(path or "").lower()).strip("_") or "f"
 
@@ -167,4 +178,40 @@ def decompose_multi_file_items(
                 it.depends_on = [last_sub_for.get(d, d) for d in deps]
 
     pool.items = new_items
+    assign_app_verification_scope(pool)
     return pool, notes
+
+
+def assign_app_verification_scope(pool: Any) -> Any:
+    """Tag every item with metadata.verification_scope so a whole-app browser smoke runs only
+    when the app is actually complete — preventing premature smoke from failing intermediate,
+    not-yet-runnable states (the live failure mode observed across step_2..step_5 in a full-plan
+    run, where each item smoked the whole app before later items had wired it).
+
+    Three scopes (the 3-layer model):
+      - "normal"          — item touches no app runtime file (e.g. a pure module / doc): verify
+                            it on its own terms (configured/derivable test) as usual.
+      - "deferred_smoke"  — item touches the app runtime, but a LATER item still touches it too:
+                            defer the whole-app smoke (advisory pass); a feature-scoped test
+                            (e.g. a pytest) may still run. Syntax is enforced at generation.
+      - "integration"     — the LAST item (in execution order) to touch the app runtime: run the
+                            whole-app browser smoke here, when every file is in place.
+
+    Idempotent and independent of decomposition — it works on plain sequential plans too.
+    """
+    items = list(getattr(pool, "items", None) or [])
+    last_runtime_idx = -1
+    for i, it in enumerate(items):
+        if any(_is_runtime_file(f) for f in (getattr(it, "target_files", None) or [])):
+            last_runtime_idx = i
+    for i, it in enumerate(items):
+        has_runtime = any(_is_runtime_file(f) for f in (getattr(it, "target_files", None) or []))
+        meta = dict(getattr(it, "metadata", None) or {})
+        if not has_runtime:
+            meta["verification_scope"] = "normal"
+        elif i == last_runtime_idx:
+            meta["verification_scope"] = "integration"
+        else:
+            meta["verification_scope"] = "deferred_smoke"
+        it.metadata = meta
+    return pool

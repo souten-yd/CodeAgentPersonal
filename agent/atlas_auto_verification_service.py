@@ -58,6 +58,19 @@ class AtlasAutoVerificationService:
         self.project_intelligence = project_intelligence
         self.verification_bridge = verification_bridge or AtlasVerificationBridge()
 
+    @staticmethod
+    def _defer_whole_app_smoke(item) -> bool:
+        """True when a whole-app browser smoke should be deferred for this item because a later
+        plan item still modifies the running app. Driven by metadata.verification_scope assigned
+        plan-wide (deferred_smoke = not the last app-toucher); falls back to the per-file
+        decomposition group_role for back-compat. Items with no scope (e.g. non-decomposed default
+        plans) are never deferred, so existing behaviour is unchanged."""
+        meta = getattr(item, "metadata", None) or {}
+        scope = str(meta.get("verification_scope") or "").lower()
+        if scope:
+            return scope == "deferred_smoke"
+        return str(meta.get("group_role") or "").lower() == "member"
+
     def run_after_auto_safe_apply(self, request: AtlasAutoVerificationRequest) -> AtlasAutoVerificationResult:
         pool = self.storage.load_pool(request.pool_id)
         item = pool.get_item(request.item_id)
@@ -74,16 +87,6 @@ class AtlasAutoVerificationService:
             explanation = self._safe_apply_explanation(safe_apply_meta)
             return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status="skipped", warnings=["safe_apply_not_applied", *list(explanation.get("reasons") or [])], metadata={"safe_apply_not_applied": explanation}, plan_pool=pool.model_dump(), orchestration_summary={"safe_apply_not_applied": explanation})
 
-        # Per-file decomposition group member (not the final file of its feature): behavioural/
-        # visual smoke runs against the WHOLE app and is premature until every file is applied —
-        # a partially-applied app can throw a transient js_error that is not a real defect and
-        # would trigger pointless self-correction. Defer behavioural verification to the FINAL
-        # member (its smoke loads every file); syntax is already enforced at generation. This is
-        # an advisory pass, never a hard block, keeping decomposed plans generically usable.
-        if str((item.metadata or {}).get("group_role") or "").lower() == "member":
-            self._append_event(pool.pool_id, request.run_id, "auto_verification_deferred_group_member", item.item_id, status="passed")
-            return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status="passed", warnings=["group_member_behavioral_deferred"], metadata={"group_role": "member", "behavioral_verification": "deferred_to_final_member"}, plan_pool=pool.model_dump())
-
         workspace_root = str(getattr(pool, "project_path", "") or "").strip()
         if not workspace_root:
             return self._blocked(pool, item.item_id, request, "project_path_missing")
@@ -94,10 +97,22 @@ class AtlasAutoVerificationService:
             return self._blocked(pool, item.item_id, request, "arbitrary_command_forbidden")
         command_id = request.command_id or str(((item.metadata or {}).get("verification") or {}).get("command_id") or "")
         if not command_id:
-            # No configured command. For visual HTML artifacts, run the visual contract.
+            # No configured command. For visual HTML artifacts, run the visual contract — UNLESS a
+            # later plan item still modifies the running app, in which case a whole-app browser smoke
+            # is premature (it would load a not-yet-complete app and fail on transient errors that are
+            # not real defects). Defer it with an ADVISORY pass to the integration item (the last item
+            # touching the app), keeping intermediate states shippable. A feature-scoped configured/
+            # derivable test (e.g. pytest) still runs below — only the whole-app smoke is deferred.
             html_rel = self._resolve_visual_html(item, pool)
             if html_rel and self._safe_rel(html_rel):
-                return self._run_visual_verification(pool, item, request, workspace_root, html_rel)
+                if self._defer_whole_app_smoke(item):
+                    derived = self._derive_pytest_test_path(item, workspace_root)
+                    if not derived:
+                        scope = str((item.metadata or {}).get("verification_scope") or "deferred_smoke")
+                        self._append_event(pool.pool_id, request.run_id, "auto_verification_whole_app_smoke_deferred", item.item_id, status="passed")
+                        return AtlasAutoVerificationResult(pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id, status="passed", warnings=["whole_app_smoke_deferred_to_integration"], metadata={"verification_scope": scope, "behavioral_verification": "deferred_to_integration_item"}, plan_pool=pool.model_dump())
+                else:
+                    return self._run_visual_verification(pool, item, request, workspace_root, html_rel)
             # Generic default: if the item touches a Python test file, run pytest on it rather than
             # reporting "nothing to verify". This makes generated code actually get verified by
             # default — a planner need not hand-author a verification command for the common case.
