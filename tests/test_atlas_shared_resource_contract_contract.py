@@ -11,7 +11,10 @@ from __future__ import annotations
 from agent.atlas_interface_contract import (
     build_shared_resource_contract,
     render_shared_resource_contract_for_prompt,
+    webgl_canvas_2d_conflict,
 )
+
+_WEBGL_CONTRACT = {"render_model": "webgl", "render_lib": "three.js", "primary_canvas": "gameCanvas"}
 
 INDEX_HTML = """<!DOCTYPE html><html><body>
   <div id="game-container">
@@ -93,3 +96,34 @@ def test_non_app_files_yield_empty_contract():
     c = build_shared_resource_contract({"util.py": "def f(): pass", "README.md": "# hi"})
     assert c == {}
     assert render_shared_resource_contract_for_prompt(c) == ""
+
+
+# ── Enforcement gate: reject 2D context on the WebGL canvas ──────────────────────────────────────
+
+def test_gate_flags_2d_context_on_webgl_canvas_via_variable():
+    # the exact live defect: const canvas = getElementById('gameCanvas'); new Renderer(canvas.getContext('2d'))
+    bad = "const canvas = document.getElementById('gameCanvas');\nconst r = new Renderer(canvas.getContext('2d'));"
+    assert webgl_canvas_2d_conflict(_WEBGL_CONTRACT, bad) == "webgl_canvas_2d_context_conflict:gameCanvas"
+
+
+def test_gate_flags_2d_context_on_webgl_canvas_direct():
+    bad = "const ctx = document.getElementById('gameCanvas').getContext('2d');"
+    assert webgl_canvas_2d_conflict(_WEBGL_CONTRACT, bad) == "webgl_canvas_2d_context_conflict:gameCanvas"
+
+
+def test_gate_allows_2d_on_a_different_canvas():
+    # a separate minimap canvas legitimately uses 2D — must NOT be flagged
+    ok = "const mini = document.getElementById('minimap');\nconst mctx = mini.getContext('2d');"
+    assert webgl_canvas_2d_conflict(_WEBGL_CONTRACT, ok) is None
+
+
+def test_gate_allows_webgl_usage_on_the_webgl_canvas():
+    ok = "const c = document.getElementById('gameCanvas');\nconst r = new THREE.WebGLRenderer({canvas: c});"
+    assert webgl_canvas_2d_conflict(_WEBGL_CONTRACT, ok) is None
+
+
+def test_gate_noop_when_app_is_not_webgl():
+    twod = {"render_model": "canvas_2d", "primary_canvas": "c"}
+    code = "const ctx = document.getElementById('c').getContext('2d');"
+    assert webgl_canvas_2d_conflict(twod, code) is None
+    assert webgl_canvas_2d_conflict({}, code) is None

@@ -242,6 +242,38 @@ def build_shared_resource_contract(files: dict[str, str]) -> dict[str, Any]:
     return contract
 
 
+def webgl_canvas_2d_conflict(resource_contract: dict[str, Any] | None, content: str) -> str | None:
+    """ENFORCEMENT (not just guidance) for the resource contract: return a reason string when
+    ``content`` requests a 2D context on the app's WebGL canvas — a guaranteed runtime break
+    (THREE.WebGLRenderer fails, nothing renders) — else None. A 2D context on a DIFFERENT canvas
+    (e.g. a separate minimap) is allowed, so the check is scoped to the known WebGL canvas only.
+
+    Deterministic and conservative: only flags when the 2D context is taken on the primary WebGL
+    canvas either directly (getElementById('webglCanvas').getContext('2d')) or via a local variable
+    bound to it. The prompt-injected contract asks the model not to do this; this gate makes it a
+    hard rejection so a non-compliant generation is regenerated rather than shipped."""
+    if not isinstance(resource_contract, dict):
+        return None
+    if resource_contract.get("render_model") != "webgl":
+        return None
+    canvas = str(resource_contract.get("primary_canvas") or "").strip()
+    if not canvas:
+        return None
+    text = str(content or "")
+    if "getContext" not in text or "2d" not in text.lower():
+        return None
+    cid = re.escape(canvas)
+    # Direct: document.getElementById('gameCanvas').getContext('2d')
+    if re.search(rf"getElementById\(\s*['\"]{cid}['\"]\s*\)\s*\.\s*getContext\(\s*['\"]2d['\"]", text):
+        return f"webgl_canvas_2d_context_conflict:{canvas}"
+    # Via a local variable bound to the WebGL canvas: const c = getElementById('gameCanvas'); c.getContext('2d')
+    bound = set(re.findall(rf"(\w+)\s*=\s*document\.getElementById\(\s*['\"]{cid}['\"]\s*\)", text))
+    for var in bound:
+        if re.search(rf"\b{re.escape(var)}\s*\.\s*getContext\(\s*['\"]2d['\"]", text):
+            return f"webgl_canvas_2d_context_conflict:{canvas}"
+    return None
+
+
 def render_shared_resource_contract_for_prompt(contract: dict[str, Any]) -> str:
     """Imperative, model-facing constraints from the deterministic resource contract."""
     if not isinstance(contract, dict) or not contract:

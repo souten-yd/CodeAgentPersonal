@@ -21,6 +21,7 @@ from agent.atlas_interface_contract import (
     build_shared_resource_contract,
     render_contract_for_prompt,
     render_shared_resource_contract_for_prompt,
+    webgl_canvas_2d_conflict,
 )
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_nexus_web_research_client import AtlasNexusWebResearchClient, web_research_enabled
@@ -2347,6 +2348,18 @@ class AtlasPatchProposalService:
                 reasons.append("multi_file_content_missing:" + ",".join(missing_content))
         if self._plan_item_requires_content(input_payload) and not has_content:
             reasons.append("content_missing")
+
+        # ENFORCEMENT of the shared-resource contract: reject a patch that takes a 2D context on the
+        # app's WebGL canvas (a guaranteed runtime break the prompt already warns against). Hard gate
+        # so a non-compliant generation is regenerated, not shipped — guidance + enforcement.
+        resource_contract = input_payload.get("app_resource_contract")
+        if isinstance(resource_contract, dict) and resource_contract.get("render_model") == "webgl":
+            conflicts = sorted({
+                r for content in content_by_path.values()
+                if (r := webgl_canvas_2d_conflict(resource_contract, content))
+            })
+            if conflicts:
+                reasons.extend(conflicts)
 
         authorized_req_ids = {str(v) for v in (item.get("requirement_ids") or []) if str(v)}
         all_req_ids = {str(r.get("requirement_id") or "") for r in (input_payload.get("all_requirements") or []) if isinstance(r, dict)}
