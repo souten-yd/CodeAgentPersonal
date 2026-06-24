@@ -740,7 +740,7 @@ class AtlasPatchProposalService:
         cap) when a weak/standard model is MODIFYING a large existing target. Frontier and create
         (no existing content) are exempt. Returns the largest-target verdict; {} on any problem."""
         try:
-            from agent.model_forge.weak_large_file_edit_policy import weak_large_file_edit_policy
+            from agent.model_forge.weak_large_file_edit_policy import EDIT_ONLY_MAX_OUTPUT_TOKENS, weak_large_file_edit_policy
 
             item = input_payload.get("item") if isinstance(input_payload.get("item"), dict) else {}
             targets = [str(p) for p in (item.get("target_files") or []) if str(p) and not _is_test_path(str(p))]
@@ -750,11 +750,22 @@ class AtlasPatchProposalService:
             for path in targets:
                 entry = current.get(path) if isinstance(current.get(path), dict) else {}
                 content = str((entry or {}).get("content") or "")
+                if not content:
+                    content = str(item.get("current_file_content") or "")
+                file_chars = int(item.get("current_file_original_chars") or len(content))
+                file_lines = int(item.get("current_file_original_lines") or ((content.count("\n") + 1) if content else 0))
+                file_exists = bool(content.strip()) or bool(item.get("target_file_exists"))
+                if bool(item.get("current_file_content_sliced")) and file_exists and tier.strip().lower() != "frontier":
+                    return {
+                        "edit_only": True,
+                        "max_output_tokens": EDIT_ONLY_MAX_OUTPUT_TOKENS,
+                        "reason": "sliced_existing_file",
+                    }
                 verdict = weak_large_file_edit_policy(
                     size_tier=tier,
-                    file_chars=len(content),
-                    file_lines=(content.count("\n") + 1) if content else 0,
-                    file_exists=bool(content.strip()),
+                    file_chars=file_chars,
+                    file_lines=file_lines,
+                    file_exists=file_exists,
                     prior_error=prior_error,
                 )
                 if verdict.get("edit_only"):
@@ -1225,6 +1236,8 @@ class AtlasPatchProposalService:
         target = targets[0]
         current = str(item.get("current_file_content") or "")
         exists = bool(item.get("target_file_exists")) and current.strip() != ""
+        edit_policy = self._weak_large_file_edit_policy(payload) if exists else {}
+        sliced_existing = exists and bool(item.get("current_file_content_sliced"))
         fix_text = str(
             proposal.proposed_fix
             or (payload.get("debug_review") or {}).get("proposed_fix")
@@ -1274,6 +1287,10 @@ class AtlasPatchProposalService:
                     proposal.metadata["edits"] = [{"old_string": old, "new_string": new}]
                     self._mark_focused_recovery(proposal, payload, mode="edits", target=target)
                     return True
+                if sliced_existing:
+                    if "line_range_forbidden_on_sliced_content" not in proposal.warnings:
+                        proposal.warnings.append("line_range_forbidden_on_sliced_content")
+                    return False
                 # Tier 2 — line-range op on a numbered view (the operator's method, made robust by
                 # deterministic application). Handles cases the surgical anchor missed.
                 numbered = "\n".join(f"{i + 1}: {ln}" for i, ln in enumerate(current.split("\n")))
@@ -1297,6 +1314,10 @@ class AtlasPatchProposalService:
                     self._mark_focused_recovery(proposal, payload, mode="line_range", target=target)
                     return True
                 # Not resolvable as a localized edit -> fall through to a full-content rewrite.
+            if exists and edit_policy.get("edit_only"):
+                if "focused_full_content_forbidden_under_edit_only" not in proposal.warnings:
+                    proposal.warnings.append("focused_full_content_forbidden_under_edit_only")
+                return False
             system = (
                 "You output the COMPLETE updated file as JSON. proposed_content = the ENTIRE working "
                 "file text after applying the fix (no placeholders, no ellipses, no commentary). JSON only."
@@ -1390,12 +1411,22 @@ class AtlasPatchProposalService:
                 combined.extend(own)
                 per_file_ok[f] = True
             else:
-                content = str(self._proposal_content_by_path(part).get(f) or pmeta.get("proposed_content") or "")
-                if content.strip():
-                    combined.append({"path": f, "content": content, "change_type": "modify"})
+                edits = pmeta.get("edits") if isinstance(pmeta.get("edits"), list) else []
+                if edits:
+                    combined.append({
+                        "path": f,
+                        "action_type": "update",
+                        "content_mode": "edits",
+                        "edits": edits,
+                    })
                     per_file_ok[f] = True
                 else:
-                    per_file_ok[f] = False
+                    content = str(self._proposal_content_by_path(part).get(f) or pmeta.get("proposed_content") or "")
+                    if content.strip():
+                        combined.append({"path": f, "content": content, "change_type": "modify"})
+                        per_file_ok[f] = True
+                    else:
+                        per_file_ok[f] = False
             seen = {_norm(c.get("path")) for c in combined}
             for fc in fcs:  # keep by-products (e.g. a generated test) without gating target success
                 if _norm(fc.get("path")) not in seen:
@@ -1521,6 +1552,8 @@ class AtlasPatchProposalService:
             content_for_model, was_sliced = _slice_file_for_edit(content, goal_text, max_chars=slice_max)
         item["current_file_content"] = content_for_model
         item["current_file_content_sliced"] = bool(was_sliced)
+        item["current_file_original_chars"] = len(content)
+        item["current_file_original_lines"] = content.count("\n") + 1 if content else 0
         item["existing_content"] = ""
         item["target_file_exists"] = bool(entry.get("exists"))
         sub["item"] = item
@@ -1547,15 +1580,26 @@ class AtlasPatchProposalService:
                 combined_changes.extend(target_changes)
                 per_file_ok[target] = True
             else:
-                # The model often returns the whole updated file as proposed_content (or edits) rather
-                # than a file_changes entry. Recover the content for THIS target and synthesize a change.
-                content_by_path = self._proposal_content_by_path(part)
-                content = str(content_by_path.get(target) or (next(iter(content_by_path.values()), "") if len(content_by_path) == 1 else "") or pmeta.get("proposed_content") or "")
-                if content.strip():
-                    combined_changes.append({"path": target, "content": content, "change_type": "modify"})
+                edits = pmeta.get("edits") if isinstance(pmeta.get("edits"), list) else []
+                if edits:
+                    combined_changes.append({
+                        "path": target,
+                        "action_type": "update",
+                        "content_mode": "edits",
+                        "edits": edits,
+                    })
                     per_file_ok[target] = True
                 else:
-                    per_file_ok[target] = False
+                    # The model often returns the whole updated file as proposed_content rather
+                    # than a file_changes entry. Recover the content for THIS target and synthesize a
+                    # change, but only after preserving top-level edits as edits above.
+                    content_by_path = self._proposal_content_by_path(part)
+                    content = str(content_by_path.get(target) or (next(iter(content_by_path.values()), "") if len(content_by_path) == 1 else "") or pmeta.get("proposed_content") or "")
+                    if content.strip():
+                        combined_changes.append({"path": target, "content": content, "change_type": "modify"})
+                        per_file_ok[target] = True
+                    else:
+                        per_file_ok[target] = False
             # Keep by-product changes (e.g. a generated test) but they never gate target success.
             _seen = {_norm(c.get("path")) for c in combined_changes}
             for fc in byproduct_changes:

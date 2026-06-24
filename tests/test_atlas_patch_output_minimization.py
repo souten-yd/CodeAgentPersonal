@@ -28,11 +28,13 @@ def _svc() -> AtlasPatchProposalService:
     return AtlasPatchProposalService(journal=None, storage=None)
 
 
-def test_warns_when_weak_tier_emits_full_content_for_large_existing_file():
+def test_converts_small_full_content_rewrite_for_large_existing_file():
     payload = _payload(size_tier="weak", current_lines=200)
     output = {"proposed_content": "rewritten whole file\n" * 5, "risk_level": "low", "target_files": ["app.py"]}
     proposal, _ = _svc()._build_proposal_from_output(output, payload)
-    assert "full_content_emitted_for_minimal_edit_tier" in proposal.warnings
+    assert "full_content_converted_to_surgical_edits" in proposal.warnings
+    assert proposal.metadata["edits"]
+    assert "proposed_content" not in proposal.metadata
 
 
 def test_no_warning_for_frontier_tier_full_content():
