@@ -1845,6 +1845,7 @@
           current_item_index: d.current_item_index || 0,
           current_item_title: d.current_item_id || '',
           message: `Backend run ${d.status || 'running'}`,
+          run_id: runId,
           error: d.error || d.block_reason || '',
           requires_user_action: !!d.requires_user_action,
           next_actions: d.next_actions || ['wait'],
@@ -2579,7 +2580,7 @@
       // run shows only the "推奨操作: retry" TEXT with no clickable way to recover.
       const _nextActions = Array.isArray(view.next_actions) ? view.next_actions : [];
       if (view.requires_user_action && _nextActions.includes('retry')) {
-        appendRecoveryActions(summary, view.pool_id || (block && block.dataset && block.dataset.poolId));
+        appendRecoveryActions(summary, view.pool_id || (block && block.dataset && block.dataset.poolId), view.run_id || '');
       }
     }
     if (dom.transcript) dom.transcript.scrollTop = dom.transcript.scrollHeight;
@@ -2589,8 +2590,9 @@
   // Actionable recovery controls for a failed run: a Retry (re-run, skipping already-applied items
   // so only the failed ones regenerate) and a Revise-plan button. Previously the failure summary
   // only printed text hints, leaving the user with no way to recover from the UI.
-  function appendRecoveryActions(parentBox, poolId) {
+  function appendRecoveryActions(parentBox, poolId, runId) {
     const pid = String(poolId || '').trim();
+    const rid = String(runId || '').trim();
     if (!pid || !parentBox) return;
     const actions = document.createElement('div');
     actions.className = 'atlas-claude-recovery-actions';
@@ -2603,9 +2605,20 @@
     retry.type = 'button';
     retry.className = 'atlas-claude-primary-btn';
     retry.textContent = '生成をリトライ';
-    retry.addEventListener('click', () => {
+    retry.addEventListener('click', async () => {
       Array.from(actions.querySelectorAll('button')).forEach((b) => { b.disabled = true; });
       state.dismissedApprovalPlanKeys?.delete?.(pid);
+      if (rid && root.AtlasPipelineAPI && root.AtlasPipelineAPI.retryRun) {
+        const resp = await root.AtlasPipelineAPI.retryRun(rid, { reason: 'ui_retry', mode: 'resume' });
+        if (!resp || resp.ok === false) {
+          pushSystemMessage(`リトライ開始に失敗しました: ${formatError(resp)}`);
+          Array.from(actions.querySelectorAll('button')).forEach((b) => { b.disabled = false; });
+          return;
+        }
+        const stages = appendStageBlock(pid);
+        await watchBackendRun(pid, rid, stages);
+        return;
+      }
       approveAndRunPipeline(pid, { resume: true });
     });
 
@@ -2613,8 +2626,17 @@
     revise.type = 'button';
     revise.className = 'atlas-claude-secondary-btn';
     revise.textContent = 'プランを改訂';
-    revise.addEventListener('click', () => {
+    revise.addEventListener('click', async () => {
       const note = (root.prompt && root.prompt('改訂依頼の内容（任意）')) || '';
+      if (rid && root.AtlasPipelineAPI && root.AtlasPipelineAPI.reviseRun) {
+        const resp = await root.AtlasPipelineAPI.reviseRun(rid, { reason: note || 'revise plan' });
+        if (!resp || resp.ok === false) {
+          pushSystemMessage(`改訂依頼に失敗しました: ${formatError(resp)}`);
+          return;
+        }
+        pushSystemMessage('改訂依頼をRun APIに記録しました。');
+        return;
+      }
       requestPlanRevision(pid, note);
     });
 

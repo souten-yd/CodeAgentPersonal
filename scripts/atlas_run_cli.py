@@ -80,6 +80,11 @@ def build_parser() -> argparse.ArgumentParser:
     retry = sub.add_parser("retry", help="Request run retry")
     retry.add_argument("run_id")
     retry.add_argument("--reason", default="operator_retry")
+    retry.add_argument("--mode", default="", choices=["", "resume", "rerun"])
+
+    revise = sub.add_parser("revise", help="Record a run revision request")
+    revise.add_argument("run_id")
+    revise.add_argument("--reason", default="revise plan")
 
     return parser
 
@@ -158,7 +163,9 @@ def run_cli(argv: list[str] | None = None, *, client: Any | None = None, stdout:
     if args.command == "cancel":
         return _emit(http.request("POST", f"/api/atlas/runs/{args.run_id}/cancel", {"reason": args.reason}), out)
     if args.command == "retry":
-        return _emit(http.request("POST", f"/api/atlas/runs/{args.run_id}/retry", {"reason": args.reason}), out)
+        return _emit(http.request("POST", f"/api/atlas/runs/{args.run_id}/retry", {"reason": args.reason, "mode": args.mode}), out)
+    if args.command == "revise":
+        return _emit(http.request("POST", f"/api/atlas/runs/{args.run_id}/revise", {"reason": args.reason}), out)
     raise SystemExit(f"unknown command: {args.command}")
 
 

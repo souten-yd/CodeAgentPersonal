@@ -48,6 +48,11 @@ class AtlasRunState(BaseModel):
     block_reason: str = ""
     error: str = ""
     next_actions: list[str] = Field(default_factory=list)
+    retry_count: int = 0
+    max_retries: int = 2
+    last_retry_reason: str = ""
+    revision_requested_at: str = ""
+    revision_note: str = ""
     created_at: str = Field(default_factory=utc_now_iso)
     updated_at: str = Field(default_factory=utc_now_iso)
     finished_at: str = ""

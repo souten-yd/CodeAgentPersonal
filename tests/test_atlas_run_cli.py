@@ -58,11 +58,14 @@ def test_cli_watch_resumes_from_event_cursor_once() -> None:
 def test_cli_decision_cancel_and_retry_use_run_api_only() -> None:
     client, _ = _run(["decision", "run_1", "--decision", "approved", "--item-id", "item_1"])
     client2, _ = _run(["cancel", "run_1", "--reason", "stop"])
-    client3, _ = _run(["retry", "run_1", "--reason", "again"])
+    client3, _ = _run(["retry", "run_1", "--reason", "again", "--mode", "resume"])
+    client4, _ = _run(["revise", "run_1", "--reason", "smaller plan"])
 
     assert client.calls[0][1] == "/api/atlas/runs/run_1/decisions"
     assert client2.calls[0][1] == "/api/atlas/runs/run_1/cancel"
     assert client3.calls[0][1] == "/api/atlas/runs/run_1/retry"
+    assert client3.calls[0][2] == {"reason": "again", "mode": "resume"}
+    assert client4.calls[0][1] == "/api/atlas/runs/run_1/revise"
 
 
 def test_cli_plan_and_pool_views_use_planpool_api() -> None:

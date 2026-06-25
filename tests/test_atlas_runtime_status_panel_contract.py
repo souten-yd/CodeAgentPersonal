@@ -52,6 +52,15 @@ def test_approve_and_run_delegates_to_backend_run_api():
     assert "root.AtlasPipelineAPI.runMultiItemAutopilot" not in body
 
 
+def test_run_recovery_controls_prefer_run_retry_and_revise_when_run_id_exists():
+    body = _function_body("appendRecoveryActions")
+    assert "root.AtlasPipelineAPI.retryRun" in body
+    assert "root.AtlasPipelineAPI.reviseRun" in body
+    assert "approveAndRunPipeline(pid, { resume: true })" in body
+    assert "requestPlanRevision(pid, note)" in body
+    assert "リトライ開始に失敗しました" in body
+
+
 def test_runtime_panel_renders_required_patch_zero_states():
     body = _function_body("renderRuntimeStatusPanel")
     for token in [
