@@ -1761,6 +1761,107 @@
   }
 
   async function approveAndRunPipeline(poolId, opts) {
+    opts = opts || {};
+    if (!poolId || !root.AtlasPipelineAPI || !root.AtlasPipelineAPI.createRun) {
+      pushAtlasMessage('Run API is unavailable.');
+      return;
+    }
+    setBusy(true);
+    const stages = appendStageBlock(poolId);
+    try {
+      updateStage(stages, 'plan', 'running', 'backend run');
+      renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+        phase: 'server_controlled_run',
+        status: 'running',
+        message: 'Backend run starting',
+        next_actions: ['wait', 'cancel'],
+        authoritative_source: '/api/atlas/runs',
+      }), stages);
+      let poolResp = null;
+      let pool = null;
+      try { poolResp = await root.AtlasPipelineAPI.getPlanPool(poolId); } catch (_) {}
+      if (poolResp && poolResp.ok && poolResp.data) {
+        pool = poolResp.data.plan_pool || poolResp.data.pool || poolResp.data;
+      }
+      const items = Array.isArray(pool && pool.items) ? pool.items : [];
+      const itemIds = items.map((it) => it && (it.item_id || it.id)).filter(Boolean);
+      const created = await root.AtlasPipelineAPI.createRun({
+        pool_id: poolId,
+        workspace_id: workspaceId(),
+        item_ids: itemIds,
+        mode: opts.resume ? 'resume' : 'fresh',
+        auto_start: true,
+        metadata: { ui: 'atlas_claude_panel', server_controlled_ui: true },
+      });
+      if (!created || !created.ok || !created.data || !created.data.run_id) {
+        updateStage(stages, 'plan', 'failed', formatError(created));
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: 'failed',
+          status: 'failed',
+          message: 'Backend run failed to start',
+          error: formatError(created),
+          requires_user_action: true,
+          next_actions: ['retry', 'cancel'],
+          authoritative_source: '/api/atlas/runs',
+        }), stages);
+        return;
+      }
+      const runId = created.data.run_id;
+      try {
+        localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, poolId);
+        localStorage.setItem(STORAGE_LAST_RUN_ID_KEY, runId);
+      } catch (_) {}
+      updateStage(stages, 'plan', 'done', runId);
+      await watchBackendRun(poolId, runId, stages);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function watchBackendRun(poolId, runId, stages) {
+    let after = 0;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 1800000) {
+      let events = null;
+      try { events = await root.AtlasPipelineAPI.getRunEvents(runId, after); } catch (_) {}
+      if (events && events.ok && events.data) {
+        const rows = Array.isArray(events.data.events) ? events.data.events : [];
+        after = Number(events.data.next_after_sequence || after) || after;
+        rows.forEach((ev) => {
+          const phase = ev.phase || 'server_controlled_run';
+          const status = ev.status || 'running';
+          const item = ev.item_id ? ` ${ev.item_id}` : '';
+          updateStage(stages, phase === 'safe_apply' ? 'apply' : (phase === 'verification' ? 'verify' : 'patch'), status, `${ev.event_type || 'event'}${item}`);
+        });
+      }
+      let status = null;
+      try { status = await root.AtlasPipelineAPI.getRunStatus(runId); } catch (_) {}
+      if (status && status.ok && status.data) {
+        const d = status.data;
+        renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
+          phase: d.phase || 'server_controlled_run',
+          status: d.status || 'running',
+          items_total: d.total_items || 0,
+          current_item_index: d.current_item_index || 0,
+          current_item_title: d.current_item_id || '',
+          message: `Backend run ${d.status || 'running'}`,
+          error: d.error || d.block_reason || '',
+          requires_user_action: !!d.requires_user_action,
+          next_actions: d.next_actions || ['wait'],
+          authoritative_source: '/api/atlas/runs/{run_id}/status',
+        }), stages);
+        if (d.terminal) {
+          updateStage(stages, 'verify', d.status === 'completed' ? 'done' : 'failed', d.status || 'terminal');
+          try { await renderPlanPoolMarkdown(poolId, { allowReuse: true }); } catch (_) {}
+          return;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    updateStage(stages, 'verify', 'failed', 'run watch timeout');
+  }
+
+  async function approveAndRunPipelineLegacyDisabled(poolId, opts) {
     if (!root.AtlasPipelineAPI) return;
     const resume = !!(opts && opts.resume);
     setBusy(true);

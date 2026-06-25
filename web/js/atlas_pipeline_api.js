@@ -203,6 +203,28 @@
     getPlanPool(poolId) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}`);
     },
+    createRun(payload) {
+      return atlasFetch('/api/atlas/runs', { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    startRun(runId, payload) {
+      return atlasFetch(`/api/atlas/runs/${encodeURIComponent(runId)}/start`, { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    getRunStatus(runId) {
+      return atlasFetch(`/api/atlas/runs/${encodeURIComponent(runId)}/status`, { timeoutMs: 10000 });
+    },
+    getRunEvents(runId, afterSequence) {
+      const after = Number(afterSequence) || 0;
+      return atlasFetch(`/api/atlas/runs/${encodeURIComponent(runId)}/events${query({ after_sequence: after })}`, { timeoutMs: 10000 });
+    },
+    submitRunDecision(runId, payload) {
+      return atlasFetch(`/api/atlas/runs/${encodeURIComponent(runId)}/decisions`, { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    cancelRun(runId, payload) {
+      return atlasFetch(`/api/atlas/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
+    retryRun(runId, payload) {
+      return atlasFetch(`/api/atlas/runs/${encodeURIComponent(runId)}/retry`, { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     getPlanRuntimeStatus(poolId, workspaceId) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/runtime-status${query({ workspace_id: workspaceId })}`);
     },

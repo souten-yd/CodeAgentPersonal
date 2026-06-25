@@ -42,14 +42,14 @@ def test_runtime_status_endpoint_is_exposed_to_panel():
     assert "renderRuntimeStatusPanel(runtime" in JS
 
 
-def test_approve_and_run_calls_approval_endpoint_before_patch_generation():
+def test_approve_and_run_delegates_to_backend_run_api():
     body = _function_body("approveAndRunPipeline")
-    assert "approvalTargets" in body
-    assert "root.AtlasPipelineAPI.decideApproval" in body
-    assert "plan_approval: true" in body
-    assert "Approval failed before patch generation" in body
-    assert "root.AtlasPipelineAPI.generatePatchProposal" in body
-    assert body.index("root.AtlasPipelineAPI.decideApproval") < body.index("root.AtlasPipelineAPI.generatePatchProposal")
+    assert "root.AtlasPipelineAPI.createRun" in body
+    assert "watchBackendRun(poolId, runId, stages)" in body
+    assert "authoritative_source: '/api/atlas/runs'" in body
+    assert "root.AtlasPipelineAPI.decideApproval" not in body
+    assert "root.AtlasPipelineAPI.generatePatchProposal" not in body
+    assert "root.AtlasPipelineAPI.runMultiItemAutopilot" not in body
 
 
 def test_runtime_panel_renders_required_patch_zero_states():

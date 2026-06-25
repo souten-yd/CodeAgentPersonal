@@ -16,13 +16,15 @@ def _slice(text: str, start_marker: str, end_marker: str) -> str:
     return text[start:end]
 
 
-def test_sc0_browser_approval_path_still_owns_patch_apply_verify_loop() -> None:
-    body = _slice(PANEL, "async function approveAndRunPipeline(", "function escapeText(")
+def test_sc6_browser_approval_path_uses_backend_run_api() -> None:
+    body = _slice(PANEL, "async function approveAndRunPipeline(", "async function approveAndRunPipelineLegacyDisabled(")
 
-    assert "root.AtlasPipelineAPI.generatePatchProposal" in body
-    assert "root.AtlasPipelineAPI.decidePatchProposal" in body
-    assert "root.AtlasPipelineAPI.runMultiItemAutopilot" in body
-    assert "Interleaved generate -> approve -> apply+verify" in body
+    assert "root.AtlasPipelineAPI.createRun" in body
+    assert "root.AtlasPipelineAPI.getRunStatus" in PANEL
+    assert "root.AtlasPipelineAPI.getRunEvents" in PANEL
+    assert "root.AtlasPipelineAPI.generatePatchProposal" not in body
+    assert "root.AtlasPipelineAPI.decidePatchProposal" not in body
+    assert "root.AtlasPipelineAPI.runMultiItemAutopilot" not in body
 
 
 def test_sc0_direct_patch_apply_verify_endpoints_exist_in_browser_api() -> None:
