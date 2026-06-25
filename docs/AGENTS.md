@@ -6,59 +6,83 @@ This file is an agent-facing entrypoint for implementation tasks under `docs/`.
 
 Start from:
 
-- `docs/generic_weak_llm_app_hardening_plan.md`
+```text
+docs/atlas_server_controlled_ui_cli_plan.md
+```
 
-Then read the completed safety base:
+Then use the completed weak-LLM / generic hardening work only as supporting context:
 
-- `docs/weak_llm_large_file_edit_hardening_plan.md`
-
-The new generic plan continues the completed weak LLM large-file edit hardening work and generalizes it for games, Web apps, and business applications.
+```text
+docs/generic_weak_llm_app_hardening_plan.md
+docs/weak_llm_large_file_edit_hardening_plan.md
+```
 
 ## Core rule
 
-Do not ask a weak model to rewrite large existing files. Force it to return small edits or SEARCH/REPLACE blocks, then let Atlas normalize, preview, validate, and gate the edit deterministically.
-
-The repair system must stay generic:
+Make Atlas safe when the browser is closed, refreshed, hidden on mobile, or replaced by CLI.
 
 ```text
-weak model chooses or describes the smallest edit
-Atlas dry-runs the post-apply content in memory
-generic contracts validate the post-apply state
-domain-specific repairs run only through a registry
-Safe Apply remains the only authority that changes files
+Backend = execution authority, state machine, progress log, recovery source
+Web UI  = lightweight viewer plus user-decision sender
+CLI     = lightweight viewer plus user-decision sender
 ```
 
-Do not add game-only special cases at the patch service top level. WebGL/Canvas repair is one domain recipe, not the framework.
+The UI and CLI must use the same backend `run_id`. Neither client may directly orchestrate Plan -> Patch -> Apply -> Verify.
+
+Backend must own:
+
+- run phase transitions;
+- retry budget;
+- resume skip behavior;
+- cancellation;
+- Proposal / Safe Apply / Verification orchestration;
+- event replay;
+- terminal status classification.
+
+Weak models may choose or describe small edits. Atlas must normalize and dry-run them in memory, validators inspect the post-apply state, deterministic recipes may propose bounded repairs, and Safe Apply remains the only authority that changes files.
+
+Do not add game-only special cases at the patch service top level. Games, Web apps, and business/config apps must share the same generic framework.
 
 ## Package status
 
-Use `docs/generic_weak_llm_app_hardening_plan.md` for completion evidence and any follow-up work:
+Use `docs/atlas_server_controlled_ui_cli_plan.md` for package sequence and completion evidence:
 
-1. GA1 — Post-Apply Preview for generic validation: done
-2. GA2 — Harden sliced-content salvage: done
-3. GA3 — Generic Contract Registry: done
-4. GA4 — Repair Recipe Registry: done
-5. GA5 — File-type-aware edit policy and primitives: done
-6. GA6 — Generic validators after preview: done
-7. GA7 — 8080 weak-model generic live checks: done
-8. GA8 — Documentation and agent workflow update: done
+1. SC0 — Baseline proof: pending
+2. SC1 — Run schema/store/events: pending
+3. SC2 — Run API skeleton: pending
+4. SC3 — RunOrchestrator MVP: pending
+5. SC4 — Multi-item resume/retry/rerun: pending
+6. SC5 — CLI thin client: pending
+7. SC6 — UI thinning: pending
+8. SC7 — Live 8080 weak-LLM validation: pending
+9. SC8 — Final LLM evaluation: pending
 
 ## Main files
 
-- `agent/atlas_patch_proposal_service.py`
-- `agent/atlas_file_safe_apply_executor.py`
-- `agent/atlas_edit_format.py`
-- `agent/atlas_repair_recipes.py`
-- `agent/model_forge/weak_large_file_edit_policy.py`
+Start with the package-specific files in `docs/atlas_server_controlled_ui_cli_plan.md`. Likely central files include:
+
+```text
+web/js/atlas_claude_panel.js
+web/js/atlas_pipeline_api.js
+app/api/atlas_pipeline.py
+app/api/atlas_workflow_state.py
+app/atlas/workflow_state_contract.py
+agent/atlas_journal.py
+agent/atlas_pipeline_runner.py
+```
 
 Likely new files:
 
-- `agent/atlas_post_apply_preview.py`
-- `agent/atlas_contracts.py`
-- `agent/atlas_contract_registry.py`
-- `agent/atlas_repair_recipe_registry.py`
-- `agent/atlas_edit_primitives.py`
-- `agent/atlas_post_apply_validators.py`
+```text
+agent/atlas_run_schema.py
+agent/atlas_run_store.py
+agent/atlas_run_events.py
+agent/atlas_run_orchestrator.py
+app/api/atlas_runs.py
+atlasctl/__main__.py
+atlasctl/client.py
+atlasctl/render.py
+```
 
 ## Live validation
 
@@ -68,19 +92,24 @@ The user may provide a weak OpenAI-compatible LLM on:
 http://127.0.0.1:8080/v1
 ```
 
-After implementation, run live weak-LLM checks outside the game/WebGL case when available:
+After implementation, run live checks from `docs/atlas_server_controlled_ui_cli_plan.md`:
 
-- one Web app scenario;
-- one business/config scenario.
+- Web app greenfield;
+- existing Web app repair;
+- business/config scenario;
+- CLI starts a run and UI/status API observes it;
+- UI/API starts a run and CLI watches it.
 
-Success means bounded behavior: small edit success, post-apply preview validation, or clear bounded rejection. It does not require the weak model to be semantically perfect.
+If the model is unavailable, record the live check as blocked, not passed.
 
 ## Must preserve
 
 - No code path may bypass Proposal / Safe Apply / Verification.
-- Weak/standard large existing-file modify remains edit-only.
+- UI rendering is not runtime evidence.
+- Mock output is not live model evidence.
+- `unavailable` is not `passed`.
+- UI and CLI must not directly own patch/apply/verify orchestration.
+- Weak/standard large existing-file modification remains edit-only.
 - Raw full content is forbidden under edit-only unless converted into bounded surgical edits against non-sliced full content.
 - Sliced content must never become full file content.
 - Domain-specific repairs must live under registry-style extension points.
-- `unavailable` is not `passed`.
-- Mock output is not live model evidence.
