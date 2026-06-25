@@ -127,6 +127,7 @@ from app.server import (
     configure_workspace_mount,
     include_routers,
 )
+from app.startup_banner import print_server_startup_banner_once
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from agent.project_intelligence.service_registry import (
     close_project_intelligence_service,
@@ -174,6 +175,7 @@ except Exception:
 
 @asynccontextmanager
 async def lifespan(app):
+    print_server_startup_banner_once()
     # 起動時: 前回の残骸コンテナをクリーンアップ（後方定義のためglobals経由）
     cleanup = globals().get("_cleanup_server_containers")
     if cleanup: cleanup()

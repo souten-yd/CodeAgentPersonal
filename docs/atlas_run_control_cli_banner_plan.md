@@ -553,7 +553,7 @@ Acceptance:
 | CS11 | Run leases, duplicate-start guard, restart recovery | completed | `tests/test_atlas_run_lease_recovery.py`; focused/affected 48 passed; stale recovery blocks not succeeds |
 | CS12 | Remove or hard-disable legacy UI orchestration | completed | `tests/test_atlas_ui_no_legacy_orchestration.py`; focused/affected 42 passed; legacy function throws before direct calls |
 | CS13 | First-class Claude-like Kasane CLI package | completed | `tests/test_kasane_cli.py`; package entrypoint and wrapper validated; affected 33 passed |
-| CS14 | KasaneCore ASCII startup banner | pending | |
+| CS14 | KasaneCore ASCII startup banner | completed | `tests/test_kasane_startup_banner.py`; CLI/server banner suppression validated; affected 36 passed |
 | CS15 | Live 8080 validation | pending | |
 | CS16 | Final evidence review and docs closeout | pending | |
 
@@ -745,6 +745,42 @@ Next package: CS14 — KasaneCore ASCII startup banner
 Blocker: none
 
 Proof level: `first_class_kasane_cli_package_complete`
+
+### CS14 — KasaneCore ASCII startup banner (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `app/startup_banner.py`
+- `kasane_cli/banner.py`
+- `main.py`
+- `tests/test_kasane_startup_banner.py`
+- `docs/atlas_run_control_cli_banner_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_kasane_startup_banner.py tests/test_kasane_cli.py` -> 11 passed
+- `python -m pytest -q tests/test_kasane_startup_banner.py tests/test_kasane_cli.py tests/test_atlas_run_cli.py tests/test_system_status_router_contract.py tests/test_atlas_run_api.py tests/test_atlas_runtime_status_panel_contract.py` -> 36 passed
+- `python -m py_compile app/startup_banner.py kasane_cli/banner.py kasane_cli/repl.py kasane_cli/commands.py main.py tests/test_kasane_startup_banner.py` -> passed
+- `python -m kasane_cli --help` -> passed and did not print the ASCII banner
+- `git diff --check` -> passed, with CRLF warnings only
+
+Non-target local note: `python -m pytest -q tests/test_kasane_startup_banner.py tests/test_kasane_cli.py tests/test_atlas_run_cli.py tests/test_app_factory_contract.py tests/test_system_status_router_contract.py` produced 36 passed and 1 failed in `tests/test_app_factory_contract.py::test_create_app_can_optionally_serve_static_assets` because Windows `Path.write_text()` returned `asset ready\r\n` while the existing expectation is `asset ready\n`. This failure is unrelated to CS14 banner code and was not treated as CS14 acceptance evidence.
+
+8080 evidence: `GET http://127.0.0.1:8080/v1/models` returned model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. CS14 adds no new LLM-backed generation path, so no live patch-generation replay is counted as CS14 acceptance evidence.
+
+Behavior implemented: added shared `app.startup_banner` with plain ASCII banner text, CLI and server suppression predicates, and server startup printing. `kasane_cli.banner` now delegates to the shared provider. CLI interactive mode continues to print the banner by default, while JSON/quiet/no-banner controls suppress it. Server startup calls the shared printer from `main.py` lifespan and prints only for an interactive stream or explicit `KASANE_BANNER=1`, while suppressing pytest, JSON/machine-readable log modes, and `KASANE_NO_BANNER=1`.
+
+Safety invariants: banner text is ASCII only, has no ANSI color by default, and is never included in CLI JSON output. Server banner printing is isolated from structured payloads and does not change FastAPI routing, run control, Proposal, Safe Apply, Verification, retry, or item-selection behavior.
+
+Remaining gaps: CS15 live hardening validation, CS16 final evidence review.
+
+Next package: CS15 — Live validation for hardened run control and CLI
+
+Blocker: none
+
+Proof level: `kasane_ascii_startup_banner_complete`
 
 ## Required focused test matrix
 
