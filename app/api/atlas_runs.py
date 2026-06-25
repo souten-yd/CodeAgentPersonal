@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from agent.atlas_run_events import validate_run_storage_id
+from agent.atlas_run_orchestrator import (
+    AtlasRunOrchestrator,
+    AtlasRunOrchestratorCallbacks,
+    AtlasRunOrchestratorRequest,
+)
 from agent.atlas_run_schema import AtlasRunState, TERMINAL_RUN_STATUSES
 from agent.atlas_run_store import AtlasRunStore
 from app.api.atlas_root import resolve_atlas_ca_data_root
@@ -21,6 +26,10 @@ class AtlasRunCreateRequest(BaseModel):
     workspace_id: str = "default"
     mode: str = "fresh"
     run_id: str = ""
+    item_id: str = ""
+    auto_start: bool = False
+    preset_id: str = "guarded_low_risk"
+    command_id: str = ""
     total_items: int = 0
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -35,6 +44,13 @@ class AtlasRunDecisionRequest(BaseModel):
 
 class AtlasRunControlRequest(BaseModel):
     reason: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AtlasRunStartRequest(BaseModel):
+    item_id: str = ""
+    preset_id: str = "guarded_low_risk"
+    command_id: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -84,7 +100,7 @@ def _state_payload(state: AtlasRunState) -> dict[str, Any]:
 
 
 @router.post("")
-def create_run(payload: AtlasRunCreateRequest, request: Request) -> dict[str, Any]:
+def create_run(payload: AtlasRunCreateRequest, request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     store = _store(request)
     try:
         if payload.run_id:
@@ -101,10 +117,18 @@ def create_run(payload: AtlasRunCreateRequest, request: Request) -> dict[str, An
         )
     except ValueError as exc:
         raise _api_error(400, "invalid_request", str(exc)) from exc
+    if payload.auto_start:
+        start_payload = AtlasRunStartRequest(
+            item_id=payload.item_id,
+            preset_id=payload.preset_id,
+            command_id=payload.command_id,
+            metadata=payload.metadata,
+        )
+        background_tasks.add_task(_run_one_item, request, state.run_id, start_payload)
     return {
         "run_id": state.run_id,
         "state": _state_payload(state),
-        "execution_started": False,
+        "execution_started": bool(payload.auto_start),
         "authoritative_source": "backend_run_store",
     }
 
@@ -215,6 +239,21 @@ def cancel_run(run_id: str, payload: AtlasRunControlRequest, request: Request) -
     return {"run_id": state.run_id, "state": _state_payload(state), "event": event.model_dump()}
 
 
+@router.post("/{run_id}/start")
+def start_run(run_id: str, payload: AtlasRunStartRequest, request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    store = _store(request)
+    state = _load_state(store, run_id)
+    if state.status in TERMINAL_RUN_STATUSES:
+        raise _api_error(409, "run_terminal", f"run_terminal:{state.status}")
+    background_tasks.add_task(_run_one_item, request, state.run_id, payload)
+    return {
+        "run_id": state.run_id,
+        "status": "accepted",
+        "execution_started": True,
+        "state": _state_payload(state),
+    }
+
+
 def _record_deferred_control(
     *,
     run_id: str,
@@ -255,3 +294,113 @@ def retry_run(run_id: str, payload: AtlasRunControlRequest, request: Request) ->
 @router.post("/{run_id}/revise")
 def revise_run(run_id: str, payload: AtlasRunControlRequest, request: Request) -> dict[str, Any]:
     return _record_deferred_control(run_id=run_id, payload=payload, request=request, event_type="run_revise_requested")
+
+
+def _run_one_item(request: Request, run_id: str, payload: AtlasRunStartRequest) -> None:
+    store = _store(request)
+    state = store.load_state(run_id)
+    run_request = AtlasRunOrchestratorRequest(
+        run_id=state.run_id,
+        pool_id=state.pool_id,
+        workspace_id=state.workspace_id,
+        item_id=payload.item_id,
+        preset_id=payload.preset_id,
+        command_id=payload.command_id,
+        metadata=_scrub_metadata(payload.metadata),
+    )
+    orchestrator = _build_run_orchestrator(request, workspace_id=state.workspace_id)
+    orchestrator.run_one_item(run_request)
+
+
+def _build_run_orchestrator(request: Request, *, workspace_id: str) -> AtlasRunOrchestrator:
+    from agent.atlas_approval_service import AtlasApprovalService
+    from agent.atlas_journal import AtlasJournal
+    from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+
+    root = resolve_atlas_ca_data_root(request)
+    storage = AtlasPlanPoolStorage(root)
+    journal = AtlasJournal(root, workspace_id=workspace_id or "default")
+    fastapi_request = request
+
+    def _approve_plan_item(*, pool, item, request: AtlasRunOrchestratorRequest) -> dict[str, Any]:
+        run_request = request
+        result = AtlasApprovalService(journal).decide(
+            pool,
+            item_id=item.item_id,
+            run_id=run_request.run_id,
+            decision="approved",
+            reason="server_controlled_run_orchestrator",
+            approver="atlas_run_orchestrator",
+            metadata={"server_controlled_run": True, **dict(run_request.metadata or {})},
+        )
+        storage.save_pool(pool)
+        journal.save_plan_pool(pool)
+        return result
+
+    def _generate_patch_proposal(*, pool, item, request: AtlasRunOrchestratorRequest):
+        run_request = request
+        from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
+        from app.api.atlas_pipeline import generate_patch_proposal
+
+        return generate_patch_proposal(
+            AtlasPatchProposalRequest(
+                pool_id=pool.pool_id,
+                item_id=item.item_id,
+                run_id=run_request.run_id,
+                workspace_id=run_request.workspace_id,
+                requested_by="atlas_run_orchestrator",
+                source_type="server_controlled_run",
+                proposal_mode="standard",
+                metadata={"server_controlled_run": True, **dict(run_request.metadata or {})},
+            ),
+            request=fastapi_request,
+        )
+
+    def _approve_patch_proposal(*, pool, item, request: AtlasRunOrchestratorRequest, proposal_id: str, proposal: dict[str, Any]):
+        run_request = request
+        from agent.atlas_patch_proposal_approval_schema import AtlasPatchProposalApprovalRequest
+        from app.api.atlas_pipeline import decide_patch_proposal
+
+        return decide_patch_proposal(
+            AtlasPatchProposalApprovalRequest(
+                pool_id=pool.pool_id,
+                item_id=item.item_id,
+                proposal_id=proposal_id,
+                run_id=run_request.run_id,
+                workspace_id=run_request.workspace_id,
+                decision="approved",
+                reason="server_controlled_run_orchestrator",
+                approver="atlas_run_orchestrator",
+                metadata={"server_controlled_run": True, **dict(run_request.metadata or {})},
+            ),
+            request=fastapi_request,
+        )
+
+    def _apply_and_verify(*, pool, item, request: AtlasRunOrchestratorRequest, proposal: dict[str, Any]):
+        run_request = request
+        from app.api.atlas_pipeline import AtlasAutoSafeApplyAndVerifyRequest, atlas_automation_safe_apply_one_and_verify
+
+        return atlas_automation_safe_apply_one_and_verify(
+            AtlasAutoSafeApplyAndVerifyRequest(
+                pool_id=pool.pool_id,
+                item_id=item.item_id,
+                preset_id=run_request.preset_id,
+                workspace_id=run_request.workspace_id,
+                run_id=run_request.run_id,
+                command_id=run_request.command_id,
+                metadata={"server_controlled_run": True, **dict(run_request.metadata or {})},
+            ),
+            request=fastapi_request,
+        )
+
+    return AtlasRunOrchestrator(
+        run_store=_store(request),
+        plan_storage=storage,
+        journal=journal,
+        callbacks=AtlasRunOrchestratorCallbacks(
+            approve_plan_item=_approve_plan_item,
+            generate_patch_proposal=_generate_patch_proposal,
+            approve_patch_proposal=_approve_patch_proposal,
+            apply_and_verify=_apply_and_verify,
+        ),
+    )

@@ -334,7 +334,7 @@ Also run affected tests for PlanPool API, approvals, patch proposal generation, 
 | SC0 | Baseline proof | completed | `tests/test_atlas_server_controlled_ui_cli_sc0.py`; focused 18 passed |
 | SC1 | Run schema/store/events | completed | `tests/test_atlas_run_schema.py`; focused 5 passed |
 | SC2 | Run API skeleton | done | PR pending |
-| SC3 | RunOrchestrator MVP | pending | |
+| SC3 | RunOrchestrator MVP | done | PR pending |
 | SC4 | Multi-item resume/retry/rerun | pending | |
 | SC5 | CLI thin client | pending | |
 | SC6 | UI thinning | pending | |
@@ -416,3 +416,32 @@ Remaining gaps: SC3 backend one-item orchestration, SC4 backend multi-item resum
 Next package: SC3 — RunOrchestrator MVP
 Blocker: none
 Proof level: `run_api_skeleton_component_complete`
+
+### SC3 — RunOrchestrator MVP (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `agent/atlas_run_orchestrator.py`
+- `app/api/atlas_runs.py`
+- `tests/test_atlas_run_orchestrator.py`
+- `tests/test_atlas_run_api.py`
+- `docs/atlas_server_controlled_ui_cli_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_run_orchestrator.py tests/test_atlas_run_api.py` -> 11 passed
+- `python -m py_compile agent/atlas_run_orchestrator.py app/api/atlas_runs.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_api.py` -> passed
+- `python -m pytest -q tests/test_atlas_run_orchestrator.py tests/test_atlas_run_api.py tests/test_atlas_run_schema.py tests/test_atlas_server_controlled_ui_cli_sc0.py tests/test_phase14_atlas_runs_api.py tests/test_atlas_reload_resume_progress_ui_contract.py tests/test_atlas_workflow_state_truthfulness_contract.py` -> 37 passed
+
+8080 evidence: `GET http://127.0.0.1:8080/v1/models` -> 200 with local model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`; full weak-model Run API scenario remains SC7 acceptance evidence, not counted here
+
+Unavailable / failing checks: `python -m pytest -q tests/test_atlas_auto_verification_api.py::test_safe_apply_one_and_verify_success` failed locally because verification returned `requirement_coverage_incomplete` despite the focused pytest command passing; the same failure reproduced on detached `origin/main` at `2e3fb964`, so it is recorded as an existing mainline failure and not SC3 acceptance proof
+
+Safety invariants: Run API start delegates one-item execution to backend orchestration; the orchestrator loads PlanPool, blocks clarification/safety/critical states before execution, uses existing approval/proposal/apply-verify callbacks, emits backend run events after each phase, and records terminal failed/blocked states instead of converting failures to success
+
+Remaining gaps: SC4 backend multi-item resume/retry/rerun, SC5 CLI, SC6 UI thinning, SC7 live 8080 validation, SC8 final LLM evaluation
+Next package: SC4 — Multi-item resume/retry/rerun
+Blocker: none
+Proof level: `one_item_backend_orchestrator_component_complete`

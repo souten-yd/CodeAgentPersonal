@@ -7,7 +7,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.atlas_runs import router
+import app.api.atlas_runs as atlas_runs_api
 from app.server import create_app
+from agent.atlas_run_store import AtlasRunStore
 
 
 @pytest.fixture
@@ -133,3 +135,30 @@ def test_create_app_registers_run_api(tmp_path: Path, monkeypatch: pytest.Monkey
     assert created.status_code == 200
     run_id = created.json()["run_id"]
     assert client.get(f"/api/atlas/runs/{run_id}/status").status_code == 200
+
+
+def test_start_endpoint_runs_backend_orchestrator(client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    created = client.post("/api/atlas/runs", json={"pool_id": "pool_sc3", "run_id": "run_sc3"}).json()
+
+    class FakeOrchestrator:
+        def run_one_item(self, request):
+            store = AtlasRunStore(tmp_path)
+            return store.patch_state(
+                request.run_id,
+                {
+                    "status": "completed",
+                    "phase": "final_summary",
+                    "completed_item_ids": ["item_1"],
+                    "current_item_id": "item_1",
+                },
+            )
+
+    monkeypatch.setattr(atlas_runs_api, "_build_run_orchestrator", lambda request, workspace_id: FakeOrchestrator())
+
+    started = client.post(f"/api/atlas/runs/{created['run_id']}/start", json={"item_id": "item_1"})
+
+    assert started.status_code == 200
+    assert started.json()["execution_started"] is True
+    status = client.get(f"/api/atlas/runs/{created['run_id']}/status").json()
+    assert status["status"] == "completed"
+    assert status["current_item_id"] == "item_1"
