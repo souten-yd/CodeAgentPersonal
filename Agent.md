@@ -8,37 +8,39 @@ For the authoritative root instructions, read:
 AGENTS.md
 ```
 
-## Current Codex package
+## Current package
 
 For the next Atlas hardening work, start from:
+
+```text
+docs/atlas_run_control_cli_banner_plan.md
+```
+
+This is the **CS9-CS16 Atlas Run Control Hardening / Claude-like CLI / Startup Banner** track.
+
+Then read the completed base plan as context:
 
 ```text
 docs/atlas_server_controlled_ui_cli_plan.md
 ```
 
-Then use the completed weak-LLM / generic hardening work only as supporting context:
-
-```text
-docs/generic_weak_llm_app_hardening_plan.md
-docs/weak_llm_large_file_edit_hardening_plan.md
-```
-
 ## Goal
 
-Make Atlas safe when the browser is closed, refreshed, hidden on mobile, or replaced by CLI.
+Close the remaining backend Run control gaps, make the CLI feel like a Claude-style terminal cockpit, and add a safe KasaneCore ASCII startup banner.
 
-The target split is:
+## Package order
 
-```text
-Backend = execution authority, state machine, progress log, recovery source
-Web UI  = lightweight viewer plus user-decision sender
-CLI     = lightweight viewer plus user-decision sender
-```
-
-The UI and CLI must use the same backend `run_id`. Neither client may own the Plan -> Patch -> Apply -> Verify loop.
+1. CS9 — Run retry/revise backend execution
+2. CS10 — Backend-owned item ordering and resume target selection
+3. CS11 — Run leases, duplicate-start guard, restart recovery
+4. CS12 — Remove or hard-disable legacy UI orchestration
+5. CS13 — First-class Claude-like Kasane CLI package
+6. CS14 — KasaneCore ASCII startup banner
+7. CS15 — Live 8080 validation
+8. CS16 — Final evidence review and docs closeout
 
 ## Core rule
 
-Browser lifetime must not control Atlas code generation. The backend must own run phase transitions, retry budget, resume skip behavior, cancellation, Proposal / Safe Apply / Verification orchestration, event replay, and terminal status classification.
+Backend Run control is the execution authority. Web UI and CLI send user intent and read backend state/events. They must not own Proposal, Safe Apply, Verification, retry policy, item order, or terminal status.
 
-Preserve all rules in `AGENTS.md`: no bypass around Proposal / Safe Apply / Verification, no remote publication without approval, unavailable is not passed, mock output is not live evidence, and UI rendering is not runtime evidence.
+Preserve all rules in `AGENTS.md`: no bypass around Proposal / Safe Apply / Verification, unavailable is not passed, mock output is not live evidence, UI rendering is not runtime evidence, and banner output must not appear in JSON mode.
