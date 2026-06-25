@@ -557,6 +557,27 @@ Proof level: `generic_post_apply_validators_component_complete`
 
 ---
 
+## GA7 — 8080 weak-model generic live checks (completed 2026-06-25)
+
+Completed package: GA7 `codex/generic-weak-llm-live-checks`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `tests/test_atlas_generic_weak_llm_live.py`, this plan
+Behavior implemented: added a `real_model`-gated live evidence test that drives two temporary-workspace Atlas patch proposal scenarios through the local OpenAI-compatible 8080 model, then runs post-apply preview and generic validators without applying files to the repository workspace.
+Focused tests: `pytest -q tests/test_atlas_generic_weak_llm_live.py -m real_model -s` -> 1 passed in 74.06s using localhost 8080
+Affected tests: live GA7 test exercises `AtlasPatchProposalService`, `AtlasLLMJsonAdapter`, weak large-file edit policy, file-type edit policy, post-apply preview, and generic post-apply validators
+Syntax checks: covered by pytest collection for `tests/test_atlas_generic_weak_llm_live.py`
+8080 live model evidence: `GET http://127.0.0.1:8080/v1/models` returned `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. Web app scenario `src/App.tsx` had 4334 chars / 152 lines, `large_existing_file` edit-only policy, output cap 1800, output mode `edits`, output tokens 42, preview `applied=true`, validator violations `[]`, no full-content acceptance. Business/config scenario `config/settings.json` had 63 chars / 2 lines, JSON file-type policy `json_pointer_required`, output cap 1800, output mode `edits`, output tokens 376, preview `applied=true`, validator violations `[]`, no full-content acceptance.
+Post-apply preview evidence: both live scenarios reached preview with one applied change and zero blocked changes
+Contract validation evidence: all generic validators passed for both post-apply maps; no contract violations were recorded
+Unavailable checks: none for this run; 8080 was reachable and returned model/usage evidence
+Safety invariants: no full-file token runaway; no slice fragment applied as full file; no raw `proposed_content` accepted under edit-only; tests run in temporary workspaces and use preview as the dry-run evidence path
+Remaining gaps: GA8 entrypoint docs
+Next package: GA8 — Documentation and agent workflow update
+Blocker: none
+Proof level: `generic_weak_llm_live_evidence_complete`
+
+---
+
 # Global safety invariants
 
 - `unavailable` is not `passed`.
