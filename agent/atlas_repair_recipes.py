@@ -133,14 +133,28 @@ def repair_webgl_2d_conflict(content: str, canvas_id: str, *, selected_option_id
 
 
 def apply_known_bug_repairs(content: str, resource_contract: dict | None) -> dict:
-    """Dispatch deterministic repairs based on the shared-resource contract. Currently handles the
-    WebGL-vs-2D canvas conflict. Returns the recipe result (``applied`` False when nothing applied)."""
+    """Compatibility dispatch for deterministic repairs.
+
+    New repair families should register with ``atlas_repair_recipe_registry``. This wrapper keeps the
+    historical API while routing the WebGL-vs-2D recipe through the generic registry.
+    """
     if not isinstance(resource_contract, dict):
         return {"applied": False, "reason": "no_contract"}
     if resource_contract.get("render_model") == "webgl" and resource_contract.get("primary_canvas"):
-        return repair_webgl_2d_conflict(
-            content,
-            str(resource_contract.get("primary_canvas")),
+        from agent.atlas_repair_recipe_registry import apply_repair_for_violation
+
+        canvas = str(resource_contract.get("primary_canvas") or "")
+        return apply_repair_for_violation(
+            violation={
+                "code": "webgl_canvas_2d_context_conflict",
+                "contract_type": "resource",
+                "path": "__content__",
+                "evidence": {"primary_canvas": canvas},
+            },
+            context={
+                "content_by_path": {"__content__": str(content or "")},
+                "resource_contract": dict(resource_contract),
+            },
             selected_option_id=str(resource_contract.get("selected_repair_option_id") or ""),
         )
     return {"applied": False, "reason": "no_recipe"}

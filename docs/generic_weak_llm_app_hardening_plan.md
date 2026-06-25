@@ -494,6 +494,27 @@ Proof level: `generic_contract_registry_component_complete`
 
 ---
 
+## GA4 — Repair Recipe Registry (completed 2026-06-25)
+
+Completed package: GA4 `codex/repair-recipe-registry`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/atlas_repair_recipe_registry.py`, `agent/atlas_repair_recipes.py`, `tests/test_atlas_repair_recipe_registry.py`, this plan
+Behavior implemented: added a generic repair recipe registry with `RepairRecipe` protocol, option lookup, selected-option application, and a registered `webgl_canvas_2d_context_conflict` recipe. Existing `apply_known_bug_repairs` remains compatible but now dispatches through the registry. Unsupported selected options return bounded `selected_option_not_implemented`; unknown violations return `no_recipe`.
+Focused tests: `pytest -q tests/test_atlas_repair_recipe_registry.py` -> 4 passed
+Affected tests: `pytest -q tests/test_atlas_repair_recipes_contract.py tests/test_atlas_contract_registry.py` -> 14 passed; `pytest -q tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_patch_output_minimization.py` -> 27 passed
+Syntax checks: `py_compile agent/atlas_repair_recipe_registry.py agent/atlas_repair_recipes.py tests/test_atlas_repair_recipe_registry.py` -> passed
+8080 live model evidence: not required for GA4; repairs are deterministic recipe dispatch after explicit violation evidence
+Post-apply preview evidence: GA3 registry still produces the WebGL resource violation consumed by the repair registry
+Contract validation evidence: WebGL conflict repair is now keyed by `resource` contract type and `webgl_canvas_2d_context_conflict` violation code
+Unavailable checks: generic non-WebGL recipes are not implemented yet and return `no_recipe` or `selected_option_not_implemented`
+Safety invariants: repair recipes do not guess semantic intent; registry returns bounded options/results; no Safe Apply bypass; no direct workspace apply
+Remaining gaps: GA5 edit primitives, GA6 validators, GA7 live 8080 generic checks, GA8 entrypoint docs
+Next package: GA5 — File-type-aware edit policy and primitives
+Blocker: none
+Proof level: `repair_recipe_registry_component_complete`
+
+---
+
 # Global safety invariants
 
 - `unavailable` is not `passed`.
