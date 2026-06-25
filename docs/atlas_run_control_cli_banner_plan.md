@@ -551,7 +551,7 @@ Acceptance:
 | CS9 | Run retry/revise backend execution | completed | `tests/test_atlas_run_retry_revise.py`; focused/affected 38 passed; 8080 model endpoint reachable |
 | CS10 | Backend-owned item ordering and resume target selection | completed | `tests/test_atlas_run_item_selection.py`; focused/affected 51 passed; UI/CLI omit normal `item_ids` |
 | CS11 | Run leases, duplicate-start guard, restart recovery | completed | `tests/test_atlas_run_lease_recovery.py`; focused/affected 48 passed; stale recovery blocks not succeeds |
-| CS12 | Remove or hard-disable legacy UI orchestration | pending | |
+| CS12 | Remove or hard-disable legacy UI orchestration | completed | `tests/test_atlas_ui_no_legacy_orchestration.py`; focused/affected 42 passed; legacy function throws before direct calls |
 | CS13 | First-class Claude-like Kasane CLI package | pending | |
 | CS14 | KasaneCore ASCII startup banner | pending | |
 | CS15 | Live 8080 validation | pending | |
@@ -674,6 +674,38 @@ Next package: CS12 — Remove or hard-disable legacy UI orchestration
 Blocker: none
 
 Proof level: `run_lease_duplicate_guard_recovery_complete`
+
+### CS12 — Remove or hard-disable legacy UI orchestration (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `web/js/atlas_claude_panel.js`
+- `tests/test_atlas_ui_no_legacy_orchestration.py`
+- `docs/atlas_run_control_cli_banner_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_ui_no_legacy_orchestration.py tests/test_atlas_runtime_status_panel_contract.py tests/test_atlas_server_controlled_ui_cli_sc0.py tests/test_atlas_dev_phase_llm_progress_indicator_contract.py` -> 19 passed
+- `python -m pytest -q tests/test_atlas_ui_no_legacy_orchestration.py tests/test_atlas_runtime_status_panel_contract.py tests/test_atlas_server_controlled_ui_cli_sc0.py tests/test_atlas_dev_phase_llm_progress_indicator_contract.py tests/test_atlas_server_controlled_flow_eval.py tests/test_atlas_run_api.py tests/test_atlas_run_cli.py` -> 42 passed
+- `python -m py_compile tests/test_atlas_ui_no_legacy_orchestration.py` -> passed
+- `node --check web/js/atlas_claude_panel.js; node --check web/js/atlas_pipeline_api.js` -> passed
+- `git diff --check` -> passed, with CRLF warnings only
+
+8080 evidence: `GET http://127.0.0.1:8080/v1/models` returned model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. CS12 adds no new LLM-backed generation path, so no live patch-generation replay is counted as CS12 acceptance evidence.
+
+Behavior implemented: `approveAndRunPipelineLegacyDisabled()` is now hard-disabled at entry and throws `legacy_ui_orchestration_disabled` before any direct browser orchestration call can run. Added tests proving the normal approval path uses backend Run API only, the legacy function is guarded before direct `generatePatchProposal`, `decidePatchProposal`, or `runMultiItemAutopilot` calls, and visible approval wiring does not invoke the legacy function.
+
+Safety invariants: normal Web UI execution remains a client of `/api/atlas/runs`; direct patch/apply/autopilot endpoints remain available only as compatibility/manual surfaces outside the approval execution path. The hard-disabled legacy body cannot be revived by a typo or visible button without removing the explicit guard and breaking tests.
+
+Remaining gaps: CS13 first-class CLI, CS14 banner, CS15 live hardening validation, CS16 final evidence review.
+
+Next package: CS13 — First-class Claude-like Kasane CLI package
+
+Blocker: none
+
+Proof level: `legacy_ui_orchestration_hard_disabled`
 
 ## Required focused test matrix
 
