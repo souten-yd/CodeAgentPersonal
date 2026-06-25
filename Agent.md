@@ -38,17 +38,17 @@ Safe Apply remains the only authority that changes files
 
 Do not add new game-only top-level special cases. WebGL/Canvas repair should become one domain recipe under a generic repair/contract framework.
 
-## Next implementation packages
+## Package status
 
-Use `docs/generic_weak_llm_app_hardening_plan.md` and implement packages in order:
+Use `docs/generic_weak_llm_app_hardening_plan.md` for completion evidence and any follow-up work:
 
-1. GA1 — Post-Apply Preview for generic validation
-2. GA2 — Harden sliced-content salvage
-3. GA3 — Generic Contract Registry
-4. GA4 — Repair Recipe Registry
-5. GA5 — File-type-aware edit policy and primitives
-6. GA6 — Generic validators after preview
-7. GA7 — 8080 weak-model generic live checks
-8. GA8 — Documentation and agent workflow update
+1. GA1 — Post-Apply Preview for generic validation: done
+2. GA2 — Harden sliced-content salvage: done
+3. GA3 — Generic Contract Registry: done
+4. GA4 — Repair Recipe Registry: done
+5. GA5 — File-type-aware edit policy and primitives: done
+6. GA6 — Generic validators after preview: done
+7. GA7 — 8080 weak-model generic live checks: done
+8. GA8 — Documentation and agent workflow update: done
 
 Preserve all rules in `AGENTS.md`: no bypass around Proposal / Safe Apply / Verification, no remote publication without approval, unavailable is not passed, and mock output is not live evidence.

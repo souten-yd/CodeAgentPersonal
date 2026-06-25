@@ -578,6 +578,27 @@ Proof level: `generic_weak_llm_live_evidence_complete`
 
 ---
 
+## GA8 — Documentation and agent workflow update (completed 2026-06-25)
+
+Completed package: GA8 `codex/generic-agent-docs-update`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `AGENTS.md`, `Agent.md`, `docs/AGENTS.md`, this plan
+Behavior implemented: aligned the root and docs agent entrypoints on the Generic Weak LLM App Hardening track, linked this active plan and the completed weak-LLM large-file base plan, marked GA1-GA7 complete, and kept the per-item PR workflow plus 8080 evidence requirement explicit.
+Focused tests: documentation-only package; no product code path changed
+Affected tests: `pytest -q tests/test_atlas_generic_weak_llm_live.py -m real_model -s` remained the GA7 live evidence gate before GA8; no additional runtime test required for doc-only changes
+Syntax checks: markdown text inspection and `rg -n "generic_weak_llm_app_hardening_plan|weak_llm_large_file_edit_hardening_plan|GA8" AGENTS.md Agent.md docs/AGENTS.md docs/generic_weak_llm_app_hardening_plan.md`
+8080 live model evidence: not required for GA8; GA7 recorded live 8080 model evidence with `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`
+Post-apply preview evidence: unchanged from GA7
+Contract validation evidence: unchanged from GA7
+Unavailable checks: no live model evidence required for this documentation-only slice
+Safety invariants: documentation preserves Proposal / Safe Apply / Verification authority, edit-only weak model constraints, truthful unavailable handling, and one-package-per-PR workflow
+Remaining gaps: none for the Generic Weak LLM App Hardening package sequence
+Next package: none for this track; choose a new active plan before continuing
+Blocker: none
+Proof level: `generic_agent_workflow_docs_complete`
+
+---
+
 # Global safety invariants
 
 - `unavailable` is not `passed`.
