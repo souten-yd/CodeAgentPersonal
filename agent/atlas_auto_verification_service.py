@@ -163,7 +163,7 @@ class AtlasAutoVerificationService:
                 planned_paths=self._pool_planned_paths(pool),
                 classification_desc=self._visual_classification_description(item, pool),
             )
-            metadata["visual_contract"] = ev["static"]
+            metadata["visual_contract"] = self._visual_contract_metadata(ev)
             metadata["browser_smoke"] = ev["smoke"]
             metadata["visual_classification"] = ev.get("classification", {})
             metadata["visual_classification_context"] = ev.get("classification_context", "")
@@ -177,6 +177,9 @@ class AtlasAutoVerificationService:
                 "repair_profile": ev.get("contract_repair_profile", ""),
                 "structured_failures": ev.get("structured_failures", []),
                 "missing_signals": list((ev["static"] or {}).get("missing") or []),
+                "required_signals": list(ev.get("required_signals") or []),
+                "classification_context": ev.get("classification_context", ""),
+                "normalized_requirement_source_phrases": list((ev.get("normalized_requirement") or {}).get("source_phrases") or []),
                 "verified_at": datetime.now(timezone.utc).isoformat(),
             })
             missing = list((ev["static"] or {}).get("missing") or [])
@@ -508,10 +511,28 @@ class AtlasAutoVerificationService:
             "classification": asdict(classification),
             "contract_id": contract.contract_id,
             "contract_repair_profile": contract.repair_profile,
+            "required_signals": list(contract.required_signals),
             "structured_failures": [f.to_dict() for f in structured_failures],
             "normalized_requirement": asdict(normalized),
             "classification_context": classification_context,
         }
+
+    @staticmethod
+    def _visual_contract_metadata(ev: dict) -> dict:
+        static = dict(ev.get("static") or {})
+        classification = dict(ev.get("classification") or {})
+        normalized = dict(ev.get("normalized_requirement") or {})
+        missing = list(static.get("missing") or [])
+        static.update({
+            "contract_id": ev.get("contract_id", static.get("contract_id", "")),
+            "artifact_type": classification.get("artifact_type", ""),
+            "visual_intent": classification.get("visual_intent", ""),
+            "classification_context": ev.get("classification_context", ""),
+            "source_phrases": list(normalized.get("source_phrases") or []),
+            "required_signals": list(ev.get("required_signals") or []),
+            "missing_signals": missing,
+        })
+        return static
 
     def _run_visual_verification(self, pool, item, request, workspace_root: str, html_rel: str):
         """Run the static visual contract (+ optional Playwright smoke) for a visual HTML task
@@ -527,7 +548,7 @@ class AtlasAutoVerificationService:
         warnings = list(ev["warnings"])
         metadata: dict = {
             "workspace_root": workspace_root,
-            "visual_contract": ev["static"],
+            "visual_contract": self._visual_contract_metadata(ev),
             "browser_smoke": ev["smoke"],
             "task_verification_contract": {
                 **task_contract.model_dump(),
@@ -604,6 +625,9 @@ class AtlasAutoVerificationService:
             "repair_profile": ev.get("contract_repair_profile", ""),
             "structured_failures": ev.get("structured_failures", []),
             "missing_signals": missing,
+            "required_signals": list(ev.get("required_signals") or []),
+            "classification_context": ev.get("classification_context", ""),
+            "normalized_requirement_source_phrases": list((ev.get("normalized_requirement") or {}).get("source_phrases") or []),
             "verified_at": datetime.now(timezone.utc).isoformat(),
         })
 
