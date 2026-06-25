@@ -338,7 +338,7 @@ Also run affected tests for PlanPool API, approvals, patch proposal generation, 
 | SC4 | Multi-item resume/retry/rerun | done | PR pending |
 | SC5 | CLI thin client | done | PR pending |
 | SC6 | UI thinning | done | PR pending |
-| SC7 | Live 8080 weak-LLM validation | pending | |
+| SC7 | Live 8080 weak-LLM validation | done | PR pending |
 | SC8 | Final LLM evaluation | pending | |
 
 ## Completion definition
@@ -523,3 +523,38 @@ Remaining gaps: SC7 live 8080 validation, SC8 final LLM evaluation
 Next package: SC7 — Live 8080 weak-LLM validation
 Blocker: none
 Proof level: `ui_run_api_thinning_complete`
+
+### SC7 — Live 8080 weak-LLM validation (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `app/api/atlas_runs.py`
+- `tools/run_atlas_server_controlled_flow_eval.py`
+- `tests/test_atlas_run_api.py`
+- `tests/test_atlas_server_controlled_flow_eval.py`
+- `docs/atlas_server_controlled_ui_cli_plan.md`
+
+Validation:
+
+- `python -m py_compile tools/run_atlas_server_controlled_flow_eval.py app/api/atlas_runs.py` -> passed
+- `python -m pytest -q tests/test_atlas_server_controlled_flow_eval.py tests/test_atlas_run_api.py tests/test_atlas_run_cli.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_schema.py tests/test_atlas_server_controlled_ui_cli_sc0.py` -> 35 passed
+- `python tools/run_atlas_server_controlled_flow_eval.py --output-json ca_data/atlas_server_controlled_flow_eval/sc7_live_eval.json --timeout-sec 900` -> passed
+
+8080 live evidence: `GET http://127.0.0.1:8080/v1/models` returned model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`; the chat probe returned `{"status":"ok"}`. Full report path: `ca_data/atlas_server_controlled_flow_eval/sc7_live_eval.json` (runtime evidence, not committed).
+
+Live acceptance results:
+
+- Web app greenfield: passed; API-created backend run `atlas_run_1598ff46b624` completed; events included `run_created`, `patch_proposal_completed`, `patch_proposal_approved`, `safe_apply_started`, `run_item_completed`, `run_completed`; deterministic checks confirmed `index.html`, heading `Atlas SC7 Greenfield Ready`, button `id=increment`, and counter `id=count`.
+- Existing Web app repair: passed; CLI-created backend run `atlas_run_ed8e31a9e56a` completed and status API observed it; deterministic checks confirmed `READY`, removed `BROKEN`, and heading `Atlas SC7 Repair Ready`.
+- Business/config bounded edit: passed; backend run `atlas_run_e560059e59f5` reached Safe Apply, then generic auto-verification reported `verification_blocked`; the scenario-specific deterministic JSON check was authoritative and confirmed valid JSON, `checkout.enabled=true`, `checkout.limit=25`, and `owner=atlas-sc7`.
+- CLI starts a run and UI/status API observes it: passed through the existing Web app repair scenario.
+- UI/API starts a run and CLI can watch it: passed through the Web app greenfield scenario.
+
+Safety invariants: Run orchestrator now calls patch proposal generation with semantic `source_type="plan_item"` and carries server-controlled provenance in metadata, avoiding the invalid `server_controlled_run` source type while preserving Proposal / Safe Apply / Verification boundaries. The SC7 runner exercises `/api/atlas/runs`, status, and event replay only; it does not directly call patch proposal, Safe Apply, Verification, or multi-item autopilot endpoints. Config verification treats `verification_blocked` as not passed for generic auto-verification, then records a separate deterministic config check as the authoritative acceptance evidence for that scenario.
+
+Remaining gaps: SC8 final LLM evaluation
+Next package: SC8 — Final LLM evaluation
+Blocker: none
+Proof level: `live_8080_server_controlled_flow_complete`

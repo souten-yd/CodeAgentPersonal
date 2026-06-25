@@ -12,6 +12,9 @@ from app.server import create_app
 from agent.atlas_run_store import AtlasRunStore
 
 
+SOURCE = Path("app/api/atlas_runs.py").read_text(encoding="utf-8")
+
+
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("CODEAGENT_CA_DATA_DIR", str(tmp_path))
@@ -162,3 +165,10 @@ def test_start_endpoint_runs_backend_orchestrator(client: TestClient, tmp_path: 
     status = client.get(f"/api/atlas/runs/{created['run_id']}/status").json()
     assert status["status"] == "completed"
     assert status["current_item_id"] == "item_1"
+
+
+def test_run_orchestrator_uses_plan_item_patch_source_with_server_control_metadata() -> None:
+    assert 'requested_by="atlas_run_orchestrator"' in SOURCE
+    assert 'source_type="plan_item"' in SOURCE
+    assert '"server_controlled_run": True' in SOURCE
+    assert 'source_type="server_controlled_run"' not in SOURCE
