@@ -333,7 +333,7 @@ Also run affected tests for PlanPool API, approvals, patch proposal generation, 
 |---|---|---|---|
 | SC0 | Baseline proof | completed | `tests/test_atlas_server_controlled_ui_cli_sc0.py`; focused 18 passed |
 | SC1 | Run schema/store/events | completed | `tests/test_atlas_run_schema.py`; focused 5 passed |
-| SC2 | Run API skeleton | pending | |
+| SC2 | Run API skeleton | done | PR pending |
 | SC3 | RunOrchestrator MVP | pending | |
 | SC4 | Multi-item resume/retry/rerun | pending | |
 | SC5 | CLI thin client | pending | |
@@ -390,3 +390,29 @@ Remaining gaps: SC2 Run API skeleton, SC3 backend one-item orchestration, SC4 ba
 Next package: SC2 — Run API skeleton
 Blocker: none
 Proof level: `run_primitives_component_complete`
+
+### SC2 — Run API skeleton (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `app/api/atlas_runs.py`
+- `app/server.py`
+- `tests/test_atlas_run_api.py`
+- `docs/atlas_server_controlled_ui_cli_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_run_api.py` -> 7 passed
+- `python -m py_compile app/api/atlas_runs.py tests/test_atlas_run_api.py` -> passed
+- `python -m pytest -q tests/test_atlas_run_api.py tests/test_atlas_run_schema.py tests/test_atlas_server_controlled_ui_cli_sc0.py tests/test_phase14_atlas_runs_api.py tests/test_atlas_reload_resume_progress_ui_contract.py tests/test_atlas_workflow_state_truthfulness_contract.py` -> 33 passed
+
+8080 live model evidence: not required for SC2; this package exposes deterministic run lifecycle API plumbing and does not add or change LLM-backed execution paths
+
+Safety invariants: Run API create/status/events/cancel/decisions endpoints are backend-store backed; duplicate client-supplied `run_id` values are rejected instead of overwriting state; decisions record client events only and do not invoke Proposal, Safe Apply, Verification, retry, or revise execution; client metadata redacts secret/token/password-style keys before persistence; existing direct patch/apply endpoints are unchanged for compatibility
+
+Remaining gaps: SC3 backend one-item orchestration, SC4 backend multi-item resume/retry/rerun, SC5 CLI, SC6 UI thinning, SC7 live 8080 validation, SC8 final LLM evaluation
+Next package: SC3 — RunOrchestrator MVP
+Blocker: none
+Proof level: `run_api_skeleton_component_complete`
