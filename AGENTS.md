@@ -2,7 +2,7 @@
 
 ## Active Goal
 
-The current active track is **Atlas Server-Controlled UI / CLI**.
+The current active track is **CS0-CS8 Close-Safe Codegen / Server-Controlled UI-CLI**.
 
 Start here:
 
@@ -26,7 +26,11 @@ docs/AGENTS.md
 
 ## Current State
 
-The weak-LLM large-file edit and generic application hardening base is complete. The next priority is to make Atlas safe when the browser is closed, refreshed, hidden on mobile, or replaced by CLI.
+The weak-LLM large-file edit and generic application hardening base is complete. The next priority is **CS0-CS8**, which makes Atlas safe when the browser is closed, refreshed, hidden on mobile, or replaced by CLI.
+
+```text
+CS = Close-Safe Codegen / Client-Safe Control
+```
 
 The target architecture is:
 
@@ -52,15 +56,15 @@ Execute packages in order from `docs/atlas_server_controlled_ui_cli_plan.md`:
 
 | # | Goal | Status |
 |---|---|---|
-| SC0 | Baseline proof | pending |
-| SC1 | Run schema/store/events | pending |
-| SC2 | Run API skeleton | pending |
-| SC3 | RunOrchestrator MVP | pending |
-| SC4 | Multi-item resume/retry/rerun | pending |
-| SC5 | CLI thin client | pending |
-| SC6 | UI thinning | pending |
-| SC7 | Live 8080 weak-LLM validation | pending |
-| SC8 | Final LLM evaluation | pending |
+| CS0 | Baseline proof | pending |
+| CS1 | Run schema/store/events | pending |
+| CS2 | Run API skeleton | pending |
+| CS3 | RunOrchestrator MVP | pending |
+| CS4 | Multi-item resume/retry/rerun | pending |
+| CS5 | CLI thin client | pending |
+| CS6 | UI thinning | pending |
+| CS7 | Live 8080 weak-LLM validation | pending |
+| CS8 | Final LLM evaluation | pending |
 
 ## Must Preserve
 
@@ -71,6 +75,7 @@ Execute packages in order from `docs/atlas_server_controlled_ui_cli_plan.md`:
 * No code path may bypass Proposal / Safe Apply / Verification.
 * Web UI and CLI must not directly orchestrate patch generation, patch approval, Safe Apply, verification, or terminal status classification.
 * Backend owns run phase transitions, retry budget, resume skip behavior, cancellation, and final status.
+* Browser close/reload must not cancel or corrupt an in-progress backend run.
 * Weak/standard large existing-file modification remains edit-only.
 * Raw full content is forbidden under edit-only unless converted into bounded surgical edits against non-sliced full content.
 * Sliced content must never be promoted to full file content.
@@ -102,11 +107,11 @@ Remote publication or protected remote changes require explicit user authorizati
 * PR merge;
 * protected remote state changes.
 
-The current user request authorizes writing this planning track to the repository. It does not automatically authorize merging future implementation PRs unless separately requested.
+The current user request authorizes writing the CS0-CS8 planning track to the repository. It does not automatically authorize merging future implementation PRs unless separately requested.
 
 ## Execution Rules
 
-For each package:
+For each CS package:
 
 1. Read the active package from `docs/atlas_server_controlled_ui_cli_plan.md`.
 2. Verify current implementation against actual code before editing.
@@ -147,7 +152,7 @@ Stop only for:
 
 ## Completion
 
-For the active Atlas Server-Controlled UI / CLI goal, use:
+For the active CS0-CS8 Close-Safe Codegen goal, use:
 
 ```text
 docs/atlas_server_controlled_ui_cli_plan.md
