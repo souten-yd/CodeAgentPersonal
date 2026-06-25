@@ -359,7 +359,7 @@ def _build_run_orchestrator(request: Request, *, workspace_id: str) -> AtlasRunO
                 run_id=run_request.run_id,
                 workspace_id=run_request.workspace_id,
                 requested_by="atlas_run_orchestrator",
-                source_type="server_controlled_run",
+                source_type="plan_item",
                 proposal_mode="standard",
                 metadata={"server_controlled_run": True, **dict(run_request.metadata or {})},
             ),
