@@ -6,6 +6,7 @@ from typing import Any, Callable
 from agent.atlas_run_schema import AtlasRunState, TERMINAL_RUN_STATUSES
 from agent.atlas_run_selection import select_run_items
 from agent.atlas_run_store import AtlasRunStore
+from agent.atlas_time_utils import utc_now_iso
 
 
 RunCallback = Callable[..., Any]
@@ -259,6 +260,7 @@ class AtlasRunOrchestrator:
         item_id: str = "",
         message: str = "",
     ) -> AtlasRunState:
+        patch = {**dict(patch or {}), "worker_heartbeat_at": utc_now_iso()}
         next_state = self.run_store.patch_state(state.run_id, patch)
         self._event(next_state, event_type, item_id=item_id, message=message)
         return next_state

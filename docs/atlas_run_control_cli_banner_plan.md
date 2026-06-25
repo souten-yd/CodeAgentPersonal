@@ -550,7 +550,7 @@ Acceptance:
 |---|---|---|---|
 | CS9 | Run retry/revise backend execution | completed | `tests/test_atlas_run_retry_revise.py`; focused/affected 38 passed; 8080 model endpoint reachable |
 | CS10 | Backend-owned item ordering and resume target selection | completed | `tests/test_atlas_run_item_selection.py`; focused/affected 51 passed; UI/CLI omit normal `item_ids` |
-| CS11 | Run leases, duplicate-start guard, restart recovery | pending | |
+| CS11 | Run leases, duplicate-start guard, restart recovery | completed | `tests/test_atlas_run_lease_recovery.py`; focused/affected 48 passed; stale recovery blocks not succeeds |
 | CS12 | Remove or hard-disable legacy UI orchestration | pending | |
 | CS13 | First-class Claude-like Kasane CLI package | pending | |
 | CS14 | KasaneCore ASCII startup banner | pending | |
@@ -637,6 +637,43 @@ Next package: CS11 — Run leases, duplicate-start guard, and restart recovery
 Blocker: none
 
 Proof level: `backend_item_selection_complete`
+
+### CS11 — Run leases, duplicate-start guard, and restart recovery (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `agent/atlas_run_locks.py`
+- `agent/atlas_run_recovery.py`
+- `agent/atlas_run_schema.py`
+- `agent/atlas_run_orchestrator.py`
+- `app/api/atlas_runs.py`
+- `tests/test_atlas_run_lease_recovery.py`
+- `tests/test_atlas_run_retry_revise.py`
+- `docs/atlas_run_control_cli_banner_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_run_lease_recovery.py tests/test_atlas_run_api.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_retry_revise.py tests/test_atlas_run_item_selection.py` -> 29 passed
+- `python -m pytest -q tests/test_atlas_run_lease_recovery.py tests/test_atlas_run_api.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_retry_revise.py tests/test_atlas_run_item_selection.py tests/test_atlas_run_cli.py tests/test_atlas_runtime_status_panel_contract.py tests/test_atlas_server_controlled_flow_eval.py` -> 48 passed
+- `python -m py_compile agent/atlas_run_locks.py agent/atlas_run_recovery.py agent/atlas_run_schema.py agent/atlas_run_orchestrator.py app/api/atlas_runs.py tests/test_atlas_run_lease_recovery.py tests/test_atlas_run_retry_revise.py` -> passed
+- `node --check web/js/atlas_claude_panel.js; node --check web/js/atlas_pipeline_api.js` -> passed
+- `git diff --check` -> passed, with CRLF warnings only
+
+8080 evidence: `GET http://127.0.0.1:8080/v1/models` returned model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. CS11 adds no new LLM-backed generation path, so no live patch-generation replay is counted as CS11 acceptance evidence.
+
+Behavior implemented: added process-local run lease acquisition with durable `lease_owner`, `lease_acquired_at`, `lease_expires_at`, `worker_heartbeat_at`, and `resume_after_restart_supported` state fields. `create_run(auto_start=True)`, `/start`, and `/retry` acquire a lease before scheduling backend execution, and reject active or stale active starts instead of launching duplicate workers. Orchestrator state transitions refresh worker heartbeat. Added `POST /api/atlas/runs/recover-stale` to mark stale queued/running runs as `blocked` with `next_actions=["retry", "inspect_events"]`.
+
+Safety invariants: recovery never marks unknown running state as success and does not auto-resume after restart. Duplicate-start protection prevents a second backend worker from bypassing the authoritative run lifecycle. Lease release is recorded after worker completion without changing Proposal / Safe Apply / Verification boundaries.
+
+Remaining gaps: CS12 hard-disable legacy UI orchestration, CS13 first-class CLI, CS14 banner, CS15 live hardening validation, CS16 final evidence review.
+
+Next package: CS12 — Remove or hard-disable legacy UI orchestration
+
+Blocker: none
+
+Proof level: `run_lease_duplicate_guard_recovery_complete`
 
 ## Required focused test matrix
 

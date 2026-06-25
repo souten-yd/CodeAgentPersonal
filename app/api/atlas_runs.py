@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from agent.atlas_run_events import validate_run_storage_id
+from agent.atlas_run_locks import acquire_run_lease, refresh_run_heartbeat, release_run_lease
 from agent.atlas_run_orchestrator import (
     AtlasRunOrchestrator,
     AtlasRunOrchestratorCallbacks,
     AtlasRunOrchestratorRequest,
 )
+from agent.atlas_run_recovery import recover_stale_runs
 from agent.atlas_run_retry_policy import retry_decision
 from agent.atlas_run_schema import AtlasRunState, TERMINAL_RUN_STATUSES
 from agent.atlas_run_store import AtlasRunStore
@@ -60,6 +63,10 @@ class AtlasRunStartRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class AtlasRunRecoverRequest(BaseModel):
+    stale_after_seconds: int = 900
+
+
 def _store(request: Request) -> AtlasRunStore:
     return AtlasRunStore(resolve_atlas_ca_data_root(request))
 
@@ -105,6 +112,28 @@ def _state_payload(state: AtlasRunState) -> dict[str, Any]:
     return state.model_dump()
 
 
+def _lease_owner(run_id: str) -> str:
+    return f"atlas_run_worker:{run_id}:{uuid4().hex[:8]}"
+
+
+def _start_payload_with_lease(payload: AtlasRunStartRequest, *, lease_owner: str) -> AtlasRunStartRequest:
+    return AtlasRunStartRequest(
+        item_id=payload.item_id,
+        item_ids=list(payload.item_ids or []),
+        mode=payload.mode,
+        preset_id=payload.preset_id,
+        command_id=payload.command_id,
+        metadata={**_scrub_metadata(payload.metadata), "lease_owner": lease_owner},
+    )
+
+
+def _acquire_or_raise(store: AtlasRunStore, run_id: str, *, owner: str) -> AtlasRunState:
+    lease = acquire_run_lease(store, run_id, owner=owner)
+    if not lease.acquired:
+        raise _api_error(409, lease.reason or "run_already_active", lease.reason or "run_already_active")
+    return lease.state
+
+
 @router.post("")
 def create_run(payload: AtlasRunCreateRequest, request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     store = _store(request)
@@ -132,7 +161,9 @@ def create_run(payload: AtlasRunCreateRequest, request: Request, background_task
             command_id=payload.command_id,
             metadata=payload.metadata,
         )
-        background_tasks.add_task(_run_one_item, request, state.run_id, start_payload)
+        owner = _lease_owner(state.run_id)
+        state = _acquire_or_raise(store, state.run_id, owner=owner)
+        background_tasks.add_task(_run_one_item, request, state.run_id, _start_payload_with_lease(start_payload, lease_owner=owner))
     return {
         "run_id": state.run_id,
         "state": _state_payload(state),
@@ -170,6 +201,11 @@ def get_run_status(run_id: str, request: Request) -> dict[str, Any]:
         "last_retry_reason": state.last_retry_reason,
         "revision_requested_at": state.revision_requested_at,
         "revision_note": state.revision_note,
+        "lease_owner": state.lease_owner,
+        "lease_acquired_at": state.lease_acquired_at,
+        "lease_expires_at": state.lease_expires_at,
+        "worker_heartbeat_at": state.worker_heartbeat_at,
+        "resume_after_restart_supported": state.resume_after_restart_supported,
         "terminal": state.terminal,
         "updated_at": state.updated_at,
         "finished_at": state.finished_at,
@@ -258,12 +294,14 @@ def start_run(run_id: str, payload: AtlasRunStartRequest, request: Request, back
     state = _load_state(store, run_id)
     if state.status in TERMINAL_RUN_STATUSES:
         raise _api_error(409, "run_terminal", f"run_terminal:{state.status}")
-    background_tasks.add_task(_run_one_item, request, state.run_id, payload)
+    owner = _lease_owner(state.run_id)
+    leased = _acquire_or_raise(store, state.run_id, owner=owner)
+    background_tasks.add_task(_run_one_item, request, state.run_id, _start_payload_with_lease(payload, lease_owner=owner))
     return {
         "run_id": state.run_id,
         "status": "accepted",
         "execution_started": True,
-        "state": _state_payload(state),
+        "state": _state_payload(leased),
     }
 
 
@@ -317,6 +355,8 @@ def retry_run(run_id: str, payload: AtlasRunControlRequest, request: Request, ba
         )
         raise _api_error(status_code, decision.reason, decision.reason)
     clean_metadata = _scrub_metadata(payload.metadata)
+    owner = _lease_owner(state.run_id)
+    _acquire_or_raise(store, state.run_id, owner=owner)
     retry_count = max(0, int(state.retry_count or 0)) + 1
     requested = store.patch_state(
         state.run_id,
@@ -358,7 +398,10 @@ def retry_run(run_id: str, payload: AtlasRunControlRequest, request: Request, ba
         message="Backend retry execution started.",
         metadata={"mode": decision.mode, "retry_count": retry_count},
     )
-    start_payload = AtlasRunStartRequest(mode=decision.mode, metadata={"retry_reason": payload.reason, **dict(clean_metadata or {})})
+    start_payload = AtlasRunStartRequest(
+        mode=decision.mode,
+        metadata={"retry_reason": payload.reason, **dict(clean_metadata or {}), "lease_owner": owner},
+    )
     background_tasks.add_task(_run_one_item, request, requested.run_id, start_payload)
     return {
         "run_id": requested.run_id,
@@ -369,6 +412,12 @@ def retry_run(run_id: str, payload: AtlasRunControlRequest, request: Request, ba
         "reason": decision.reason,
         "next_actions": decision.next_actions,
     }
+
+
+@router.post("/recover-stale")
+def recover_stale(payload: AtlasRunRecoverRequest, request: Request) -> dict[str, Any]:
+    result = recover_stale_runs(resolve_atlas_ca_data_root(request), stale_after_seconds=payload.stale_after_seconds)
+    return {"status": "ok", **result}
 
 
 @router.post("/{run_id}/revise")
@@ -419,23 +468,28 @@ def revise_run(run_id: str, payload: AtlasRunControlRequest, request: Request) -
 
 def _run_one_item(request: Request, run_id: str, payload: AtlasRunStartRequest) -> None:
     store = _store(request)
-    state = store.load_state(run_id)
-    run_request = AtlasRunOrchestratorRequest(
-        run_id=state.run_id,
-        pool_id=state.pool_id,
-        workspace_id=state.workspace_id,
-        item_id=payload.item_id,
-        item_ids=list(payload.item_ids or []),
-        mode=payload.mode or state.mode,
-        preset_id=payload.preset_id,
-        command_id=payload.command_id,
-        metadata=_scrub_metadata(payload.metadata),
-    )
-    orchestrator = _build_run_orchestrator(request, workspace_id=state.workspace_id)
-    if run_request.item_id and not run_request.item_ids and run_request.mode not in {"resume", "rerun"}:
-        orchestrator.run_one_item(run_request)
-    else:
-        orchestrator.run_items(run_request)
+    owner = str((payload.metadata or {}).get("lease_owner") or "")
+    try:
+        refresh_run_heartbeat(store, run_id, owner=owner)
+        state = store.load_state(run_id)
+        run_request = AtlasRunOrchestratorRequest(
+            run_id=state.run_id,
+            pool_id=state.pool_id,
+            workspace_id=state.workspace_id,
+            item_id=payload.item_id,
+            item_ids=list(payload.item_ids or []),
+            mode=payload.mode or state.mode,
+            preset_id=payload.preset_id,
+            command_id=payload.command_id,
+            metadata=_scrub_metadata(payload.metadata),
+        )
+        orchestrator = _build_run_orchestrator(request, workspace_id=state.workspace_id)
+        if run_request.item_id and not run_request.item_ids and run_request.mode not in {"resume", "rerun"}:
+            orchestrator.run_one_item(run_request)
+        else:
+            orchestrator.run_items(run_request)
+    finally:
+        release_run_lease(store, run_id, owner=owner)
 
 
 def _build_run_orchestrator(request: Request, *, workspace_id: str) -> AtlasRunOrchestrator:
