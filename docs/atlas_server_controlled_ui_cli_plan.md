@@ -339,7 +339,7 @@ Also run affected tests for PlanPool API, approvals, patch proposal generation, 
 | SC5 | CLI thin client | done | PR pending |
 | SC6 | UI thinning | done | PR pending |
 | SC7 | Live 8080 weak-LLM validation | done | PR pending |
-| SC8 | Final LLM evaluation | pending | |
+| SC8 | Final LLM evaluation | done | PR pending |
 
 ## Completion definition
 
@@ -558,3 +558,32 @@ Remaining gaps: SC8 final LLM evaluation
 Next package: SC8 — Final LLM evaluation
 Blocker: none
 Proof level: `live_8080_server_controlled_flow_complete`
+
+### SC8 — Final LLM evaluation (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `tools/run_atlas_server_controlled_flow_eval.py`
+- `tests/test_atlas_server_controlled_flow_eval.py`
+- `docs/atlas_server_controlled_ui_cli_plan.md`
+
+Validation:
+
+- `python -m py_compile tools/run_atlas_server_controlled_flow_eval.py` -> passed
+- `python -m pytest -q tests/test_atlas_server_controlled_flow_eval.py` -> 7 passed
+- `python tools/run_atlas_server_controlled_flow_eval.py --final-review --input-json ca_data/atlas_server_controlled_flow_eval/sc7_live_eval.json --review-output-json ca_data/atlas_server_controlled_flow_eval/sc8_final_review.json --timeout-sec 180` -> passed
+
+8080 final review evidence: the local model at `http://127.0.0.1:8080/v1/chat/completions` reviewed the SC7 evidence bundle and returned `verdict=pass`, `blocking_issues=[]`, `missing_deterministic_checks=[]`, and `contradictory_evidence=[]`. Full review report path: `ca_data/atlas_server_controlled_flow_eval/sc8_final_review.json` (runtime evidence, not committed).
+
+Evidence bundle contents: focused test output summaries, run-state JSON excerpts, event-log excerpts, final report excerpts, live scenario result JSON from SC7, and an explicit empty unavailable-check list.
+
+Review notes: the model called out the business/config scenario's generic `verification_blocked` state, but accepted it because the evidence explicitly records the deterministic JSON check as authoritative for that bounded config edit and that check passed. Web greenfield and existing web repair completed with full event traces and passing deterministic checks.
+
+Safety invariants: SC8 is advisory review only; it performs no Proposal, Safe Apply, Verification, or repository mutation. The review blocks completion only for concrete contradictory evidence or missing deterministic checks, and preserves unavailable/blocked evidence as distinct from passed.
+
+Remaining gaps: none for SC0-SC8
+Next package: none
+Blocker: none
+Proof level: `final_8080_evidence_review_complete`

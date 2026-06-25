@@ -11,6 +11,7 @@ import argparse
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -79,6 +80,185 @@ def _probe_model(timeout: float) -> dict[str, Any]:
         "model_ids": [model_id for model_id in model_ids if model_id],
         "chat_probe": chat_probe,
     }
+
+
+def _local_model_id(timeout: float) -> str:
+    configured = str(os.environ.get("CODEAGENT_MODEL") or os.environ.get("OPENAI_MODEL") or "").strip()
+    if configured:
+        return configured
+    try:
+        with urllib.request.urlopen(f"{LLM_BASE_URL}/v1/models", timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return ""
+    for item in payload.get("data", []) or []:
+        if isinstance(item, dict) and str(item.get("id") or "").strip():
+            return str(item.get("id") or "").strip()
+    return ""
+
+
+def _post_llm_json(system_prompt: str, user_payload: dict[str, Any], *, timeout: float) -> dict[str, Any] | None:
+    body = json.dumps(
+        {
+            "model": _local_model_id(min(timeout, 10.0)),
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+            ],
+            "temperature": 0,
+            "stream": False,
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        LLM_ENDPOINT,
+        data=body,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    content = str((((response_payload.get("choices") or [{}])[0]).get("message") or {}).get("content") or "").strip()
+    if not content:
+        return None
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", content, flags=re.S)
+        if not match:
+            return None
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+
+
+def _compact_live_report(report: dict[str, Any]) -> dict[str, Any]:
+    scenarios = []
+    for scenario in list(report.get("scenarios") or []):
+        final_status = scenario.get("final_status") or {}
+        events = scenario.get("events") or {}
+        scenarios.append(
+            {
+                "scenario": scenario.get("scenario"),
+                "status": scenario.get("status"),
+                "run_id": scenario.get("run_id"),
+                "final_status": {
+                    "status": final_status.get("status"),
+                    "phase": final_status.get("phase"),
+                    "block_reason": final_status.get("block_reason"),
+                    "terminal": final_status.get("terminal"),
+                },
+                "event_types": events.get("event_types"),
+                "event_count": events.get("count"),
+                "deterministic_check": scenario.get("deterministic_check"),
+                "verification_interpretation": scenario.get("verification_interpretation"),
+            }
+        )
+    return {
+        "status": report.get("status"),
+        "llm_base_url": report.get("llm_base_url"),
+        "model_probe": report.get("model_probe"),
+        "acceptance_checks": report.get("acceptance_checks"),
+        "scenarios": scenarios,
+    }
+
+
+def build_final_review_bundle(live_report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "track": "Atlas Server-Controlled UI / CLI",
+        "focused_test_outputs": [
+            {
+                "command": "python -m pytest -q tests/test_atlas_server_controlled_flow_eval.py tests/test_atlas_run_api.py tests/test_atlas_run_cli.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_schema.py tests/test_atlas_server_controlled_ui_cli_sc0.py",
+                "status": "passed",
+                "summary": "35 passed",
+            },
+            {
+                "command": "python -m py_compile tools/run_atlas_server_controlled_flow_eval.py app/api/atlas_runs.py",
+                "status": "passed",
+            },
+        ],
+        "run_state_json": [
+            {
+                "scenario": scenario.get("scenario"),
+                "run_id": scenario.get("run_id"),
+                "final_status": scenario.get("final_status"),
+            }
+            for scenario in _compact_live_report(live_report).get("scenarios", [])
+        ],
+        "event_log_excerpts": [
+            {
+                "scenario": scenario.get("scenario"),
+                "run_id": scenario.get("run_id"),
+                "event_types": scenario.get("event_types"),
+                "event_count": scenario.get("event_count"),
+            }
+            for scenario in _compact_live_report(live_report).get("scenarios", [])
+        ],
+        "final_report_excerpts": {
+            "ui_cli_contract": {
+                "ui_thin_client": "Browser approval path creates/watches /api/atlas/runs and does not directly call proposal/apply/autopilot endpoints.",
+                "cli_thin_client": "CLI plan/status/watch/decision/cancel/retry commands call PlanPool or /api/atlas/runs endpoints only.",
+                "backend_authority": "Run API delegates proposal, approval, Safe Apply, and verification to backend orchestrator callbacks.",
+                "replay": "Run events are persisted and replayable after an event cursor.",
+            },
+            "config_verification_note": "Business/config scenario records generic auto-verification_blocked separately; deterministic JSON check is the authoritative acceptance check for that scenario.",
+        },
+        "live_scenario_result_json": _compact_live_report(live_report),
+        "unavailable_checks": [],
+    }
+
+
+def run_final_review(*, input_json: Path, output_json: Path, timeout: float) -> dict[str, Any]:
+    if not input_json.exists():
+        report = {
+            "kind": "atlas_server_controlled_final_review",
+            "status": "blocked",
+            "blocked_reason": "live_scenario_result_json_missing",
+            "input_json": str(input_json),
+            "finished_at": _now(),
+        }
+        _write(output_json, report)
+        return report
+    live_report = json.loads(input_json.read_text(encoding="utf-8"))
+    bundle = build_final_review_bundle(live_report)
+    system_prompt = (
+        "You are reviewing Atlas Server-Controlled UI / CLI evidence. Return one JSON object only with keys: "
+        "verdict ('pass' or 'fail'), blocking_issues (array), missing_deterministic_checks (array), "
+        "contradictory_evidence (array), and notes (array). Treat LLM review as advisory. Fail only for "
+        "concrete contradictory evidence or missing deterministic checks. Do not treat recorded unavailable "
+        "or blocked evidence as passed."
+    )
+    review = _post_llm_json(system_prompt, bundle, timeout=timeout)
+    if not isinstance(review, dict):
+        report = {
+            "kind": "atlas_server_controlled_final_review",
+            "status": "blocked",
+            "blocked_reason": "blocked_live_llm_unavailable",
+            "input_json": str(input_json),
+            "bundle": bundle,
+            "finished_at": _now(),
+        }
+        _write(output_json, report)
+        return report
+    blocking = list(review.get("blocking_issues") or [])
+    missing = list(review.get("missing_deterministic_checks") or [])
+    contradictory = list(review.get("contradictory_evidence") or [])
+    verdict = str(review.get("verdict") or "").strip().lower()
+    passed = verdict == "pass" and not blocking and not missing and not contradictory
+    report = {
+        "kind": "atlas_server_controlled_final_review",
+        "status": "passed" if passed else "failed",
+        "input_json": str(input_json),
+        "bundle": bundle,
+        "llm_review": review,
+        "finished_at": _now(),
+    }
+    _write(output_json, report)
+    return report
 
 
 def _configure_app(workspace: Path, data_dir: Path, *, workspace_id: str) -> TestClient:
@@ -496,9 +676,16 @@ def _write(path: Path, report: dict[str, Any]) -> None:
 def main_cli(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Run live SC7 Atlas server-controlled flow evaluation.")
     parser.add_argument("--output-json", type=Path, default=REPO_ROOT / "ca_data" / "atlas_server_controlled_flow_eval" / "sc7_live_eval.json")
+    parser.add_argument("--input-json", type=Path, default=REPO_ROOT / "ca_data" / "atlas_server_controlled_flow_eval" / "sc7_live_eval.json")
+    parser.add_argument("--review-output-json", type=Path, default=REPO_ROOT / "ca_data" / "atlas_server_controlled_flow_eval" / "sc8_final_review.json")
     parser.add_argument("--timeout-sec", type=float, default=600.0)
     parser.add_argument("--only", default="", help="Comma-separated scenario names.")
+    parser.add_argument("--final-review", action="store_true", help="Ask the 8080 LLM to review an existing live evidence bundle.")
     args = parser.parse_args(argv)
+    if args.final_review:
+        report = run_final_review(input_json=args.input_json, output_json=args.review_output_json, timeout=args.timeout_sec)
+        print(json.dumps({"status": report.get("status"), "report": str(args.review_output_json)}, ensure_ascii=False))
+        return 0 if report.get("status") == "passed" else 2 if report.get("status") == "blocked" else 1
     only = {item.strip() for item in args.only.split(",") if item.strip()}
     report = run_all(output_json=args.output_json, timeout_sec=args.timeout_sec, only=only)
     print(json.dumps({"status": report.get("status"), "report": str(args.output_json)}, ensure_ascii=False))

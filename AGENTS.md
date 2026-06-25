@@ -52,15 +52,15 @@ Execute packages in order from `docs/atlas_server_controlled_ui_cli_plan.md`:
 
 | # | Goal | Status |
 |---|---|---|
-| SC0 | Baseline proof | pending |
-| SC1 | Run schema/store/events | pending |
-| SC2 | Run API skeleton | pending |
-| SC3 | RunOrchestrator MVP | pending |
-| SC4 | Multi-item resume/retry/rerun | pending |
-| SC5 | CLI thin client | pending |
-| SC6 | UI thinning | pending |
-| SC7 | Live 8080 weak-LLM validation | pending |
-| SC8 | Final LLM evaluation | pending |
+| SC0 | Baseline proof | done |
+| SC1 | Run schema/store/events | done |
+| SC2 | Run API skeleton | done |
+| SC3 | RunOrchestrator MVP | done |
+| SC4 | Multi-item resume/retry/rerun | done |
+| SC5 | CLI thin client | done |
+| SC6 | UI thinning | done |
+| SC7 | Live 8080 weak-LLM validation | done |
+| SC8 | Final LLM evaluation | done |
 
 ## Must Preserve
 

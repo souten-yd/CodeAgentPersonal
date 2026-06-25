@@ -50,3 +50,24 @@ def test_sc7_runner_has_file_level_deterministic_checks() -> None:
     assert "owner_preserved" in SOURCE
     assert "deterministic_config_check_authoritative" in SOURCE
     assert "verification_blocked" in SOURCE
+
+
+def test_sc8_final_review_mode_builds_required_evidence_bundle() -> None:
+    assert "--final-review" in SOURCE
+    assert "build_final_review_bundle" in SOURCE
+    for marker in [
+        "focused_test_outputs",
+        "run_state_json",
+        "event_log_excerpts",
+        "final_report_excerpts",
+        "live_scenario_result_json",
+        "unavailable_checks",
+    ]:
+        assert marker in SOURCE
+
+
+def test_sc8_final_review_blocks_on_contradictions_or_missing_checks() -> None:
+    assert "blocking_issues" in SOURCE
+    assert "missing_deterministic_checks" in SOURCE
+    assert "contradictory_evidence" in SOURCE
+    assert "blocked_live_llm_unavailable" in SOURCE
