@@ -552,7 +552,7 @@ Acceptance:
 | CS10 | Backend-owned item ordering and resume target selection | completed | `tests/test_atlas_run_item_selection.py`; focused/affected 51 passed; UI/CLI omit normal `item_ids` |
 | CS11 | Run leases, duplicate-start guard, restart recovery | completed | `tests/test_atlas_run_lease_recovery.py`; focused/affected 48 passed; stale recovery blocks not succeeds |
 | CS12 | Remove or hard-disable legacy UI orchestration | completed | `tests/test_atlas_ui_no_legacy_orchestration.py`; focused/affected 42 passed; legacy function throws before direct calls |
-| CS13 | First-class Claude-like Kasane CLI package | pending | |
+| CS13 | First-class Claude-like Kasane CLI package | completed | `tests/test_kasane_cli.py`; package entrypoint and wrapper validated; affected 33 passed |
 | CS14 | KasaneCore ASCII startup banner | pending | |
 | CS15 | Live 8080 validation | pending | |
 | CS16 | Final evidence review and docs closeout | pending | |
@@ -706,6 +706,45 @@ Next package: CS13 — First-class Claude-like Kasane CLI package
 Blocker: none
 
 Proof level: `legacy_ui_orchestration_hard_disabled`
+
+### CS13 — First-class Claude-like Kasane CLI package (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `kasane_cli/__init__.py`
+- `kasane_cli/__main__.py`
+- `kasane_cli/client.py`
+- `kasane_cli/commands.py`
+- `kasane_cli/repl.py`
+- `kasane_cli/render.py`
+- `kasane_cli/banner.py`
+- `scripts/atlas_run_cli.py`
+- `tests/test_kasane_cli.py`
+- `docs/atlas_run_control_cli_banner_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_kasane_cli.py tests/test_atlas_run_cli.py` -> 10 passed
+- `python -m pytest -q tests/test_kasane_cli.py tests/test_atlas_run_cli.py tests/test_atlas_server_controlled_flow_eval.py tests/test_atlas_run_api.py tests/test_atlas_runtime_status_panel_contract.py` -> 33 passed
+- `python -m py_compile kasane_cli/__main__.py kasane_cli/client.py kasane_cli/commands.py kasane_cli/repl.py kasane_cli/render.py kasane_cli/banner.py scripts/atlas_run_cli.py tests/test_kasane_cli.py` -> passed
+- `python -m kasane_cli --help` -> passed
+- `git diff --check` -> passed, with CRLF warnings only
+
+8080 evidence: `GET http://127.0.0.1:8080/v1/models` returned model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. CS13 adds no new LLM-backed generation path, so no live patch-generation replay is counted as CS13 acceptance evidence.
+
+Behavior implemented: added `kasane_cli` package with HTTP client, command parser, render/redaction layer, interactive REPL, and CLI banner provider. `python -m kasane_cli` opens interactive mode; non-interactive commands keep JSON output and do not print the banner. Slash commands cover `/plan`, `/run`, `/watch`, `/events`, `/approve`, `/decision`, `/retry`, `/revise`, `/cancel`, `/project`, `/model`, `/status`, `/help`, and `/exit`. `scripts/atlas_run_cli.py` is now a compatibility wrapper that delegates to `kasane_cli`.
+
+Safety invariants: CLI calls PlanPool APIs for planning/list/show and `/api/atlas/runs/*` for execution/status/events/decision/retry/revise/cancel. Tests verify the CLI package and compatibility wrapper do not call direct patch proposal, Safe Apply, Verification, or multi-item autopilot endpoints.
+
+Remaining gaps: CS14 banner, CS15 live hardening validation, CS16 final evidence review.
+
+Next package: CS14 — KasaneCore ASCII startup banner
+
+Blocker: none
+
+Proof level: `first_class_kasane_cli_package_complete`
 
 ## Required focused test matrix
 
