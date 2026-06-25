@@ -473,6 +473,27 @@ Proof level: `sliced_salvage_hardened`
 
 ---
 
+## GA3 — Generic Contract Registry (completed 2026-06-25)
+
+Completed package: GA3 `codex/generic-contract-registry`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/atlas_contracts.py`, `agent/atlas_contract_registry.py`, `tests/test_atlas_contract_registry.py`, this plan
+Behavior implemented: added lightweight generic contract DTOs and a deterministic registry that consumes `post_apply_content_by_path`. The registry returns structured `violations` plus discovered contracts for shared app resources, API routes, env/config keys, JSON schema fields, and YAML form fields. Existing WebGL/canvas checks are represented as a resource contract violation instead of a game-only top-level pattern.
+Focused tests: `pytest -q tests/test_atlas_contract_registry.py` -> 5 passed
+Affected tests: `pytest -q tests/test_atlas_contract_registry.py tests/test_atlas_contract_adherence.py tests/test_atlas_post_apply_preview.py` -> 20 passed; `pytest -q tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_patch_output_minimization.py` -> 27 passed
+Syntax checks: `py_compile agent/atlas_contracts.py agent/atlas_contract_registry.py tests/test_atlas_contract_registry.py` -> passed
+8080 live model evidence: not required for GA3; this package is deterministic contract extraction/validation over post-apply preview content
+Post-apply preview evidence: API endpoint mismatch test consumes GA1 preview output, not raw model fragments
+Contract validation evidence: non-game examples covered API endpoint mismatch, env/config key mismatch, and JSON/YAML form/schema mismatch; WebGL conflict is surfaced as `resource:shared_app_surface`
+Unavailable checks: no live model evidence required; no repair recipe application yet
+Safety invariants: registry is read-only; no Proposal / Safe Apply / Verification bypass; violations are evidence, not direct apply authority
+Remaining gaps: GA4 repair recipe registry, GA5 edit primitives, GA6 validators, GA7 live 8080 generic checks, GA8 entrypoint docs
+Next package: GA4 — Repair Recipe Registry
+Blocker: none
+Proof level: `generic_contract_registry_component_complete`
+
+---
+
 # Global safety invariants
 
 - `unavailable` is not `passed`.
