@@ -337,7 +337,7 @@ Also run affected tests for PlanPool API, approvals, patch proposal generation, 
 | SC3 | RunOrchestrator MVP | done | PR pending |
 | SC4 | Multi-item resume/retry/rerun | done | PR pending |
 | SC5 | CLI thin client | done | PR pending |
-| SC6 | UI thinning | pending | |
+| SC6 | UI thinning | done | PR pending |
 | SC7 | Live 8080 weak-LLM validation | pending | |
 | SC8 | Final LLM evaluation | pending | |
 
@@ -496,3 +496,30 @@ Remaining gaps: SC6 UI thinning, SC7 live 8080 validation, SC8 final LLM evaluat
 Next package: SC6 — UI thinning
 Blocker: none
 Proof level: `cli_run_api_thin_client_complete`
+
+### SC6 — UI thinning (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `web/js/atlas_pipeline_api.js`
+- `web/js/atlas_claude_panel.js`
+- `tests/test_atlas_server_controlled_ui_cli_sc0.py`
+- `tests/test_atlas_runtime_status_panel_contract.py`
+- `docs/atlas_server_controlled_ui_cli_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_server_controlled_ui_cli_sc0.py tests/test_atlas_runtime_status_panel_contract.py tests/test_atlas_dev_phase_llm_progress_indicator_contract.py tests/test_atlas_run_cli.py tests/test_atlas_run_api.py` -> 28 passed
+- `node --check web/js/atlas_claude_panel.js; node --check web/js/atlas_pipeline_api.js` -> passed
+- `python -m pytest -q tests/test_atlas_server_controlled_ui_cli_sc0.py tests/test_atlas_runtime_status_panel_contract.py tests/test_atlas_dev_phase_llm_progress_indicator_contract.py tests/test_atlas_run_cli.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_api.py tests/test_atlas_run_schema.py tests/test_phase14_atlas_runs_api.py tests/test_atlas_reload_resume_progress_ui_contract.py tests/test_atlas_workflow_state_truthfulness_contract.py` -> 57 passed
+
+8080 evidence: not required for SC6; this package changes UI transport only and does not add or change model execution
+
+Safety invariants: browser approval path now creates/watches backend runs through `/api/atlas/runs`; UI renders backend run status/events; old direct browser orchestration is retained only under a disabled legacy function name and is no longer the approval path; direct patch/apply endpoints remain available for compatibility outside this path
+
+Remaining gaps: SC7 live 8080 validation, SC8 final LLM evaluation
+Next package: SC7 — Live 8080 weak-LLM validation
+Blocker: none
+Proof level: `ui_run_api_thinning_complete`
