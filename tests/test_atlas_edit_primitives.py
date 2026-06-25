@@ -8,6 +8,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from agent.atlas_edit_primitives import file_type_edit_policy
 from agent.atlas_file_safe_apply_executor import AtlasFileSafeApplyExecutor
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_patch_proposal_schema import AtlasPatchProposalRequest
@@ -139,6 +140,92 @@ def test_full_content_create_still_works():
     assert (ws / "new.html").read_text() == "<h1>hi</h1>"
 
 
+def test_edit_primitive_replace_exact_uses_bounded_mode():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(
+        ws,
+        "a.py",
+        {
+            "action_type": "update",
+            "edit_primitives": [{"op": "replace_exact", "old_string": "return 1", "new_string": "return 2"}],
+        },
+        seed="def foo():\n    return 1\n",
+    )
+    assert r["status"] == "applied" and "(edit_primitives)" in r["summary"]
+    assert (ws / "a.py").read_text() == "def foo():\n    return 2\n"
+
+
+def test_edit_primitive_json_pointer_replaces_value():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(
+        ws,
+        "settings.json",
+        {
+            "action_type": "update",
+            "edit_primitives": [{"op": "replace_json_pointer", "path": "/feature/enabled", "value": True}],
+        },
+        seed='{"feature":{"enabled":false,"label":"Old"}}\n',
+    )
+    assert r["status"] == "applied"
+    final = (ws / "settings.json").read_text()
+    assert '"enabled": true' in final
+    assert '"label": "Old"' in final
+
+
+def test_edit_primitive_insert_import_python():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(
+        ws,
+        "app.py",
+        {
+            "action_type": "update",
+            "edit_primitives": [{"op": "insert_import", "module": "math", "name": "sqrt"}],
+        },
+        seed="def main():\n    return sqrt(4)\n",
+    )
+    assert r["status"] == "applied"
+    assert (ws / "app.py").read_text().startswith("from math import sqrt\n")
+
+
+def test_edit_primitive_insert_import_typescript():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(
+        ws,
+        "app.ts",
+        {
+            "action_type": "update",
+            "edit_primitives": [{"op": "insert_import", "import_statement": "import { helper } from './helper';"}],
+        },
+        seed="export const value = helper();\n",
+    )
+    assert r["status"] == "applied"
+    assert (ws / "app.ts").read_text().startswith("import { helper } from './helper';\n")
+
+
+def test_unsupported_edit_primitive_blocks_without_full_content_fallback():
+    ws = Path(tempfile.mkdtemp())
+    r = _apply(
+        ws,
+        "config.yaml",
+        {
+            "action_type": "update",
+            "edit_primitives": [{"op": "replace_yaml_path", "path": "feature.enabled", "value": True}],
+            "proposed_content": "feature:\n  enabled: true\n",
+        },
+        seed="feature:\n  enabled: false\n",
+    )
+    assert r["status"] == "blocked"
+    assert "unsupported_edit_primitive" in r["reasons"]
+    assert (ws / "config.yaml").read_text() == "feature:\n  enabled: false\n"
+
+
+def test_file_type_edit_policy_prefers_json_pointer_for_json():
+    policy = file_type_edit_policy("config/settings.json").to_dict()
+    assert policy["edit_only"] is True
+    assert policy["preferred_primitives"] == ["replace_json_pointer"]
+    assert "full_content" in policy["forbidden_modes"]
+
+
 def _make_service():
     tmp = Path(tempfile.mkdtemp()); ca = tmp / "ca"; ca.mkdir()
     return AtlasPatchProposalService(journal=AtlasJournal(ca, workspace_id="default"),
@@ -177,6 +264,20 @@ def test_normalize_file_changes_validates_nested_edits():
     assert {"old_string": "real", "new_string": "new"} in nested
     assert {"old_string": "", "new_string": "orphan"} in nested
     assert all(not (e["old_string"] == "" and not e["new_string"]) for e in nested)
+
+
+def test_normalize_file_changes_preserves_edit_primitives():
+    svc = _make_service()
+    warnings: list[str] = []
+    out = svc._normalize_file_changes([
+        {
+            "path": "settings.json",
+            "action_type": "update",
+            "edit_primitives": [{"op": "replace_json_pointer", "path": "/feature/enabled", "value": True}],
+        },
+    ], warnings)
+    assert out[0]["content_mode"] == "edit_primitives"
+    assert out[0]["edit_primitives"] == [{"op": "replace_json_pointer", "path": "/feature/enabled", "value": True}]
 
 
 def test_proposal_to_executor_edits_flow():

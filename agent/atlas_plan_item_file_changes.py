@@ -136,11 +136,13 @@ def detect_executor_readable_content(item: AtlasPlanItem) -> bool:
         metadata.get("patch"),
         metadata.get("unified_diff_preview"),
         metadata.get("edits"),
+        metadata.get("edit_primitives"),
         metadata.get("append_content"),
         patch_proposal.get("proposed_content"),
         patch_proposal.get("patch"),
         patch_proposal.get("unified_diff_preview"),
         patch_proposal.get("edits"),
+        patch_proposal.get("edit_primitives"),
         patch_proposal.get("append_content"),
     )
     if any((isinstance(value, str) and value.strip()) or (isinstance(value, list) and value) for value in top_level):
@@ -164,6 +166,8 @@ def infer_content_mode(change: dict[str, Any]) -> str:
         return "unified_diff"
     if isinstance(change.get("edits"), list) and change.get("edits"):
         return "edits"
+    if isinstance(change.get("edit_primitives"), list) and change.get("edit_primitives"):
+        return "edit_primitives"
     if isinstance(change.get("append_content"), str) and change.get("append_content"):
         return "append"
     return ""
@@ -214,6 +218,7 @@ def has_file_change_content(change: dict[str, Any]) -> bool:
         or (isinstance(change.get("patch"), str) and change.get("patch"))
         or (isinstance(change.get("unified_diff_preview"), str) and change.get("unified_diff_preview"))
         or (isinstance(change.get("edits"), list) and change.get("edits"))
+        or (isinstance(change.get("edit_primitives"), list) and change.get("edit_primitives"))
         or (isinstance(change.get("append_content"), str) and change.get("append_content"))
     )
 
