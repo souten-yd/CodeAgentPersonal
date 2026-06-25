@@ -434,7 +434,7 @@ Acceptance:
 | RV3 | Backend continuation/recovery workspace isolation audit | completed | `tests/test_atlas_continuation_workspace_isolation.py`; focused/affected 37 passed |
 | RV4 | Rubik / cube visual classification fix | completed | `agent/atlas_visual_task_classifier.py`; Rubik focused/affected 74 passed |
 | RV5 | Visual verifier contract evidence and UI diagnostics | completed | `tests/test_atlas_visual_failure_diagnostics.py`; focused/affected 9 passed + 71 passed |
-| RV6 | End-to-end project isolation scenario | pending | |
+| RV6 | End-to-end project isolation scenario | completed | `tests/test_atlas_project_restore_e2e_contract.py`; focused/affected 15 passed + 9 passed |
 | RV7 | Live 8080 Rubik validation | pending | |
 | RV8 | Final review and docs closeout | pending | |
 
@@ -612,7 +612,7 @@ Proof level: `rubik_html_solver_non_canvas_classification_complete`
 
 ### RV5 — Visual verifier contract evidence and UI diagnostics (completed 2026-06-26)
 
-Status: completed locally; PR pending
+Status: completed; PR #2105 merged
 
 Changed files:
 
@@ -642,6 +642,35 @@ Next package: RV6 — End-to-end project isolation scenario
 Blocker: none
 
 Proof level: `visual_contract_diagnostics_complete`
+
+### RV6 — End-to-end project isolation scenario (completed 2026-06-26)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `tests/test_atlas_project_restore_e2e_contract.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests\test_atlas_project_restore_e2e_contract.py` -> 2 passed
+- `python -m pytest -q tests\test_atlas_project_restore_e2e_contract.py tests\test_atlas_project_restore_isolation.py tests\test_atlas_project_picker_bootstrap_contract.py tests\test_atlas_continuation_workspace_isolation.py` -> 15 passed
+- `python -m pytest -q tests\test_atlas_visual_rubik_contract.py tests\test_atlas_visual_failure_diagnostics.py` -> 9 passed
+- `python -m py_compile tests\test_atlas_project_restore_e2e_contract.py` -> passed
+- `node --check web\js\atlas_claude_panel.js` -> passed
+
+Scenario covered: Project A creates and dry-runs a PlanPool, persists its active pool/run meta, then Project B is created and opened with no pool. Project B's conversation meta, continuation latest, and recovery latest remain empty and scoped to B. After submitting the Rubik HTML solver request in Project B, the generated PlanPool, dry-run, continuation latest, and recovery latest belong to Project B while Project A still resolves only to Project A's pool/run.
+
+Safety invariants: RV6 adds proof only. It does not change Proposal, Safe Apply, Verification, backend Run control, retry, client execution authority, or visual verification semantics. Active project mode continues to avoid global localStorage restoration.
+
+Remaining gaps: RV7 live 8080 Rubik validation, RV8 final review.
+
+Next package: RV7 — Live 8080 Rubik validation
+
+Blocker: none
+
+Proof level: `project_restore_e2e_isolation_complete`
 
 ## Required focused test matrix
 
