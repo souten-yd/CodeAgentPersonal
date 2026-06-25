@@ -3180,15 +3180,26 @@
     const visual = metadata.visual_contract || {};
     const smoke = metadata.browser_smoke || {};
     const pipelineMeta = metadata.visual_pipeline || {};
-    const missing = Array.isArray(visual.missing) ? visual.missing.map((x) => String(x)).filter(Boolean) : [];
+    const classification = metadata.visual_classification || {};
+    const missingSource = Array.isArray(visual.missing_signals) ? visual.missing_signals : visual.missing;
+    const missing = Array.isArray(missingSource) ? missingSource.map((x) => String(x)).filter(Boolean) : [];
+    const required = Array.isArray(visual.required_signals) ? visual.required_signals.map((x) => String(x)).filter(Boolean)
+      : (Array.isArray(pipelineMeta.required_signals) ? pipelineMeta.required_signals.map((x) => String(x)).filter(Boolean) : []);
     const visualWarnings = warnings.map((w) => String(w)).filter((w) => w.startsWith('visual_missing:'));
     const smokeStatus = String(smoke.status || '');
     const smokeReason = String(smoke.reason || '');
     if (!missing.length && !visualWarnings.length && !smokeStatus) return '';
     const parts = [];
+    const contractId = String(visual.contract_id || metadata.visual_contract_id || pipelineMeta.visual_contract_id || '');
+    const artifactType = String(visual.artifact_type || classification.artifact_type || pipelineMeta.artifact_type || '');
+    const context = String(visual.classification_context || metadata.visual_classification_context || pipelineMeta.classification_context || '');
+    if (contractId) parts.push(`visual_contract=${contractId}`);
+    if (artifactType) parts.push(`artifact_type=${artifactType}`);
     if (visual.status) parts.push(`visual_contract.status=${visual.status}`);
+    if (required.length) parts.push(`required=${required.join(', ')}`);
     if (missing.length) parts.push(`missing=${missing.join(', ')}`);
     if (visualWarnings.length) parts.push(`warnings=${visualWarnings.join(', ')}`);
+    if (context) parts.push(`classification_context=${context.slice(0, 160)}`);
     if (smokeStatus || smokeReason) parts.push(`browser_smoke=${smokeStatus || '-'}${smokeReason ? ':' + smokeReason : ''}`);
     const repairProfile = String(pipelineMeta.repair_profile || '');
     parts.push('Repair guidance: ' + _visualRepairGuidanceForProfile(repairProfile));

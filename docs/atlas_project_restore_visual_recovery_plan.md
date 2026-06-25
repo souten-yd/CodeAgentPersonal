@@ -433,7 +433,7 @@ Acceptance:
 | RV2 | Bootstrap order and selected-project load | completed | `web/js/app.js`; focused/affected 21 passed |
 | RV3 | Backend continuation/recovery workspace isolation audit | completed | `tests/test_atlas_continuation_workspace_isolation.py`; focused/affected 37 passed |
 | RV4 | Rubik / cube visual classification fix | completed | `agent/atlas_visual_task_classifier.py`; Rubik focused/affected 74 passed |
-| RV5 | Visual verifier contract evidence and UI diagnostics | pending | |
+| RV5 | Visual verifier contract evidence and UI diagnostics | completed | `tests/test_atlas_visual_failure_diagnostics.py`; focused/affected 9 passed + 71 passed |
 | RV6 | End-to-end project isolation scenario | pending | |
 | RV7 | Live 8080 Rubik validation | pending | |
 | RV8 | Final review and docs closeout | pending | |
@@ -579,7 +579,7 @@ Proof level: `backend_continuation_workspace_isolation_verified`
 
 ### RV4 — Rubik / cube visual classification fix (completed 2026-06-26)
 
-Status: completed locally; PR pending
+Status: completed; PR #2104 merged
 
 Changed files:
 
@@ -609,6 +609,39 @@ Next package: RV5 — Visual verifier contract evidence and UI diagnostics
 Blocker: none
 
 Proof level: `rubik_html_solver_non_canvas_classification_complete`
+
+### RV5 — Visual verifier contract evidence and UI diagnostics (completed 2026-06-26)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `agent/atlas_auto_verification_service.py`
+- `web/js/atlas_claude_panel.js`
+- `tests/test_atlas_visual_failure_diagnostics.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests\test_atlas_visual_failure_diagnostics.py tests\test_atlas_runtime_status_panel_contract.py` -> 9 passed
+- `python -m pytest -q tests\test_atlas_visual_rubik_contract.py tests\test_visual_contract_matrix.py tests\test_atlas_auto_verification_service.py` -> 71 passed
+- `python -m py_compile agent\atlas_auto_verification_service.py tests\test_atlas_visual_failure_diagnostics.py` -> passed
+- `node --check web\js\atlas_claude_panel.js` -> passed
+- `git diff --check` -> passed with CRLF warnings only
+
+Behavior implemented: visual verification metadata now records compact contract diagnostics in `visual_contract`: `contract_id`, `artifact_type`, `visual_intent`, `classification_context`, `source_phrases`, `required_signals`, and `missing_signals`. Pool-level `visual_pipeline` metadata also records required signals, classification context, and normalized source phrases.
+
+UI diagnostics: visual failure summaries now include `visual_contract=<id>`, `artifact_type=<type>`, `required=<signals>`, `missing=<signals>`, and `classification_context=<first 160 chars>` when available, plus browser-smoke status and existing repair guidance.
+
+Safety invariants: diagnostics are read-only observability. They do not change classification, verification pass/fail semantics, Proposal, Safe Apply, backend Run control, retry, or UI execution authority.
+
+Remaining gaps: RV6 exact project isolation scenario, RV7 live 8080 validation, RV8 final review.
+
+Next package: RV6 — End-to-end project isolation scenario
+
+Blocker: none
+
+Proof level: `visual_contract_diagnostics_complete`
 
 ## Required focused test matrix
 
