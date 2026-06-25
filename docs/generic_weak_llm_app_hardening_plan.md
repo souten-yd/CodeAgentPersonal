@@ -452,6 +452,27 @@ Proof level: `post_apply_preview_component_complete`
 
 ---
 
+## GA2 — Harden sliced-content salvage (completed 2026-06-25)
+
+Completed package: GA2 `codex/harden-sliced-content-salvage`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/atlas_patch_proposal_service.py`, `tests/test_atlas_patch_output_minimization.py`, this plan
+Behavior implemented: edit-only generation for sliced existing files now forbids full-content-to-edits salvage instead of diffing against a slice. The proposal records `full_content_salvage_forbidden_on_sliced_content` and drops raw `proposed_content`. Exact SEARCH/REPLACE edits still parse and remain allowed on sliced payloads. Surgical edits containing omitted/rest-unchanged slice markers are rejected during normalization with `slice_marker_forbidden_in_edit`.
+Focused tests: `pytest -q tests/test_atlas_patch_output_minimization.py` -> 13 passed
+Affected tests: `pytest -q tests/test_atlas_edit_format_contract.py tests/test_atlas_weak_large_file_edit_policy_contract.py tests/test_atlas_focused_patch_extraction.py tests/test_atlas_post_apply_preview.py` -> 48 passed
+Syntax checks: `py_compile agent/atlas_patch_proposal_service.py tests/test_atlas_patch_output_minimization.py` -> passed
+8080 live model evidence: not required for GA2; this package hardens deterministic proposal normalization after model output
+Post-apply preview evidence: GA1 preview tests remain green and cover slice full-content rejection
+Contract validation evidence: unavailable; generic contract validators are GA3/GA6
+Unavailable checks: no live model evidence required for this deterministic slice
+Safety invariants: sliced content is never used as a full-file diff base; SEARCH/REPLACE remains bounded exact-edit input; Safe Apply authority unchanged; no direct workspace apply
+Remaining gaps: GA3 contract registry, GA4 repair recipe registry, GA5 edit primitives, GA6 validators, GA7 live 8080 generic checks, GA8 entrypoint docs
+Next package: GA3 — Generic Contract Registry
+Blocker: none
+Proof level: `sliced_salvage_hardened`
+
+---
+
 # Global safety invariants
 
 - `unavailable` is not `passed`.
