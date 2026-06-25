@@ -428,7 +428,7 @@ Acceptance:
 
 | Package | Goal | Status | Evidence |
 |---|---|---|---|
-| RV0 | Baseline proof and reproduction tests | pending | |
+| RV0 | Baseline proof and reproduction tests | completed | `tests/test_atlas_project_restore_isolation.py`; `tests/test_atlas_project_picker_bootstrap_contract.py`; `tests/test_atlas_visual_rubik_contract.py`; focused 10 passed / 5 xfailed |
 | RV1 | Project-scoped client recovery keys | pending | |
 | RV2 | Bootstrap order and selected-project load | pending | |
 | RV3 | Backend continuation/recovery workspace isolation audit | pending | |
@@ -437,6 +437,51 @@ Acceptance:
 | RV6 | End-to-end project isolation scenario | pending | |
 | RV7 | Live 8080 Rubik validation | pending | |
 | RV8 | Final review and docs closeout | pending | |
+
+## Completion evidence
+
+### RV0 — Baseline proof and reproduction tests (completed 2026-06-26)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `tests/test_atlas_project_restore_isolation.py`
+- `tests/test_atlas_project_picker_bootstrap_contract.py`
+- `tests/test_atlas_visual_rubik_contract.py`
+- `tests/test_atlas_visual_contract_registry.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests\test_atlas_project_restore_isolation.py tests\test_atlas_project_picker_bootstrap_contract.py tests\test_atlas_visual_rubik_contract.py` -> 10 passed, 5 xfailed
+- `python -m pytest -q tests\test_atlas_inflight_resume_recovery_contract.py tests\test_atlas_runtime_status_panel_contract.py` -> 11 passed
+- `python -m pytest -q tests\test_atlas_visual_task_classifier.py tests\test_atlas_visual_contract_registry.py tests\test_visual_contract_matrix.py` -> 86 passed
+- `python -m py_compile tests\test_atlas_project_restore_isolation.py tests\test_atlas_project_picker_bootstrap_contract.py tests\test_atlas_visual_rubik_contract.py tests\test_atlas_visual_contract_registry.py` -> passed
+- `node --check web\js\atlas_claude_panel.js` -> passed
+- `node --check web\js\app.js` -> passed
+- `git diff --check` -> passed with CRLF warning only for `tests/test_atlas_visual_contract_registry.py`
+
+Baseline proof captured:
+
+- Project restore still has unscoped browser recovery keys: `atlas_claude_last_pool_id`, `atlas_claude_last_run_id`, and `atlas_claude_last_event_sequence`.
+- `activate()` still has a no-project global last-pool fallback that can render and restore a globally remembered pool.
+- Runtime progress replay still writes pool/run/event hints to global localStorage keys.
+- `bootstrapProjects()` sets the chosen active project and renders the picker, but does not yet call `AtlasClaudePanel.loadProject(chosen.name)`.
+- Rubik HTML solver requests do not explicitly require canvas, and a wrong canvas contract reproduces `missing=canvas_exists`.
+- Expected RV1/RV2/RV4 behavior is captured as strict `xfail` tests: scoped recovery helpers, bootstrap selected-project load, Rubik interactive classification, and explicit Japanese canvas wording.
+
+Behavior implemented: tests and documentation only; no production behavior changed.
+
+Safety invariants: no Proposal / Safe Apply / Verification path changed; unavailable evidence is not converted into passed; UI and CLI execution authority boundaries are unchanged.
+
+Remaining gaps: RV1 project-scoped client recovery keys, RV2 bootstrap selected-project load, RV3 backend workspace isolation audit, RV4 Rubik classification fix, RV5 diagnostics, RV6 exact project isolation scenario, RV7 live 8080 validation, RV8 final review.
+
+Next package: RV1 — Project-scoped client recovery keys
+
+Blocker: none
+
+Proof level: `baseline_restore_visual_regressions_captured`
 
 ## Required focused test matrix
 
