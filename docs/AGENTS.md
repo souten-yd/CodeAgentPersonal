@@ -47,15 +47,15 @@ Do not add game-only special cases at the patch service top level. Games, Web ap
 
 Use `docs/atlas_server_controlled_ui_cli_plan.md` for package sequence and completion evidence:
 
-1. SC0 — Baseline proof: pending
-2. SC1 — Run schema/store/events: pending
-3. SC2 — Run API skeleton: pending
-4. SC3 — RunOrchestrator MVP: pending
-5. SC4 — Multi-item resume/retry/rerun: pending
-6. SC5 — CLI thin client: pending
-7. SC6 — UI thinning: pending
-8. SC7 — Live 8080 weak-LLM validation: pending
-9. SC8 — Final LLM evaluation: pending
+1. SC0 — Baseline proof: done
+2. SC1 — Run schema/store/events: done
+3. SC2 — Run API skeleton: done
+4. SC3 — RunOrchestrator MVP: done
+5. SC4 — Multi-item resume/retry/rerun: done
+6. SC5 — CLI thin client: done
+7. SC6 — UI thinning: done
+8. SC7 — Live 8080 weak-LLM validation: done
+9. SC8 — Final LLM evaluation: done
 
 ## Main files
 
