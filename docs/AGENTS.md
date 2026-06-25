@@ -7,10 +7,18 @@ This file is an agent-facing entrypoint for implementation tasks under `docs/`.
 Start from:
 
 ```text
+docs/atlas_run_control_cli_banner_plan.md
+```
+
+This is the **CS9-CS16 Atlas Run Control Hardening / Claude-like CLI / Startup Banner** track.
+
+Then read the completed base plan as context:
+
+```text
 docs/atlas_server_controlled_ui_cli_plan.md
 ```
 
-Then use the completed weak-LLM / generic hardening work only as supporting context:
+Supporting context only:
 
 ```text
 docs/generic_weak_llm_app_hardening_plan.md
@@ -19,69 +27,60 @@ docs/weak_llm_large_file_edit_hardening_plan.md
 
 ## Core rule
 
-Make Atlas safe when the browser is closed, refreshed, hidden on mobile, or replaced by CLI.
+Backend Run control is the execution authority.
 
 ```text
-Backend = execution authority, state machine, progress log, recovery source
-Web UI  = lightweight viewer plus user-decision sender
-CLI     = lightweight viewer plus user-decision sender
+Backend = run lifecycle, item order, retry/revise, leases, events, final status
+Web UI  = user intent sender and backend status/event viewer
+CLI     = Claude-like terminal cockpit over the same backend Run API
 ```
 
-The UI and CLI must use the same backend `run_id`. Neither client may directly orchestrate Plan -> Patch -> Apply -> Verify.
-
-Backend must own:
-
-- run phase transitions;
-- retry budget;
-- resume skip behavior;
-- cancellation;
-- Proposal / Safe Apply / Verification orchestration;
-- event replay;
-- terminal status classification.
-
-Weak models may choose or describe small edits. Atlas must normalize and dry-run them in memory, validators inspect the post-apply state, deterministic recipes may propose bounded repairs, and Safe Apply remains the only authority that changes files.
-
-Do not add game-only special cases at the patch service top level. Games, Web apps, and business/config apps must share the same generic framework.
+UI and CLI must not directly orchestrate Plan -> Patch -> Apply -> Verify. They must not directly call patch proposal, patch approval, Safe Apply, Verification, or multi-item autopilot execution endpoints in the normal execution path.
 
 ## Package status
 
-Use `docs/atlas_server_controlled_ui_cli_plan.md` for package sequence and completion evidence:
+Use `docs/atlas_run_control_cli_banner_plan.md` for package sequence and completion evidence:
 
-1. SC0 — Baseline proof: done
-2. SC1 — Run schema/store/events: done
-3. SC2 — Run API skeleton: done
-4. SC3 — RunOrchestrator MVP: done
-5. SC4 — Multi-item resume/retry/rerun: done
-6. SC5 — CLI thin client: done
-7. SC6 — UI thinning: done
-8. SC7 — Live 8080 weak-LLM validation: done
-9. SC8 — Final LLM evaluation: done
+1. CS9 — Run retry/revise backend execution: pending
+2. CS10 — Backend-owned item ordering and resume target selection: pending
+3. CS11 — Run leases, duplicate-start guard, restart recovery: pending
+4. CS12 — Remove or hard-disable legacy UI orchestration: pending
+5. CS13 — First-class Claude-like Kasane CLI package: pending
+6. CS14 — KasaneCore ASCII startup banner: pending
+7. CS15 — Live 8080 validation: pending
+8. CS16 — Final evidence review and docs closeout: pending
 
 ## Main files
 
-Start with the package-specific files in `docs/atlas_server_controlled_ui_cli_plan.md`. Likely central files include:
+Start with the package-specific files in `docs/atlas_run_control_cli_banner_plan.md`. Likely central files include:
 
 ```text
+app/api/atlas_runs.py
+agent/atlas_run_schema.py
+agent/atlas_run_store.py
+agent/atlas_run_events.py
+agent/atlas_run_orchestrator.py
 web/js/atlas_claude_panel.js
 web/js/atlas_pipeline_api.js
-app/api/atlas_pipeline.py
-app/api/atlas_workflow_state.py
-app/atlas/workflow_state_contract.py
-agent/atlas_journal.py
-agent/atlas_pipeline_runner.py
+scripts/atlas_run_cli.py
+tools/run_atlas_server_controlled_flow_eval.py
 ```
 
 Likely new files:
 
 ```text
-agent/atlas_run_schema.py
-agent/atlas_run_store.py
-agent/atlas_run_events.py
-agent/atlas_run_orchestrator.py
-app/api/atlas_runs.py
-atlasctl/__main__.py
-atlasctl/client.py
-atlasctl/render.py
+agent/atlas_run_locks.py
+agent/atlas_run_worker.py
+agent/atlas_run_recovery.py
+agent/atlas_run_retry_policy.py
+kasane_cli/__main__.py
+kasane_cli/client.py
+kasane_cli/commands.py
+kasane_cli/repl.py
+kasane_cli/render.py
+kasane_cli/banner.py
+app/startup_banner.py
+tools/run_atlas_run_control_hardening_eval.py
 ```
 
 ## Live validation
@@ -92,15 +91,7 @@ The user may provide a weak OpenAI-compatible LLM on:
 http://127.0.0.1:8080/v1
 ```
 
-After implementation, run live checks from `docs/atlas_server_controlled_ui_cli_plan.md`:
-
-- Web app greenfield;
-- existing Web app repair;
-- business/config scenario;
-- CLI starts a run and UI/status API observes it;
-- UI/API starts a run and CLI watches it.
-
-If the model is unavailable, record the live check as blocked, not passed.
+For CS15, run the live checks from `docs/atlas_run_control_cli_banner_plan.md`. If the model is unavailable, record the live check as blocked, not passed.
 
 ## Must preserve
 
@@ -109,7 +100,6 @@ If the model is unavailable, record the live check as blocked, not passed.
 - Mock output is not live model evidence.
 - `unavailable` is not `passed`.
 - UI and CLI must not directly own patch/apply/verify orchestration.
-- Weak/standard large existing-file modification remains edit-only.
-- Raw full content is forbidden under edit-only unless converted into bounded surgical edits against non-sliced full content.
-- Sliced content must never become full file content.
-- Domain-specific repairs must live under registry-style extension points.
+- Backend owns item order, retry/revise, cancellation, resume, event replay, and terminal status.
+- Unknown or stale run state must not become success.
+- JSON/machine-readable CLI output must never include the startup banner.
