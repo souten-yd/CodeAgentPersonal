@@ -75,6 +75,44 @@
     return (state.activeProject && state.activeProject.name) || '';
   }
 
+  function recoveryScope(wsId) {
+    const name = projectName();
+    if (!name) return '';
+    return String(wsId || workspaceId() || name || '').trim();
+  }
+
+  function projectScopedStorageKey(baseKey, wsId) {
+    const scope = recoveryScope(wsId);
+    if (!scope) return '';
+    const suffix = String(baseKey || '').replace(/^atlas_claude_/, '');
+    return `atlas_claude:${encodeURIComponent(scope)}:${suffix}`;
+  }
+
+  function setProjectScopedHint(baseKey, value, wsId) {
+    const key = projectScopedStorageKey(baseKey, wsId);
+    if (!key || value == null || value === '') return;
+    try { localStorage.setItem(key, String(value)); } catch (_) {}
+  }
+
+  function getProjectScopedHint(baseKey, wsId) {
+    const key = projectScopedStorageKey(baseKey, wsId);
+    try {
+      if (key) return localStorage.getItem(key) || '';
+      return localStorage.getItem(baseKey) || '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function removeProjectScopedHints(wsId) {
+    const keys = [
+      STORAGE_LAST_POOL_ID_KEY,
+      STORAGE_LAST_RUN_ID_KEY,
+      STORAGE_LAST_EVENT_SEQUENCE_KEY,
+    ].map((baseKey) => projectScopedStorageKey(baseKey, wsId)).filter(Boolean);
+    try { keys.forEach((key) => localStorage.removeItem(key)); } catch (_) {}
+  }
+
   // Called by app.js's picker when a project is selected / created / renamed.
   function setActiveProject(project) {
     if (!project) return;
@@ -213,13 +251,9 @@
       }
     }
     if (!poolRestored) {
-      // No server-side pool for this project: drop any stale global hints so a later no-project
-      // reload cannot resurrect a deleted pool, then fall through to the empty prompt.
-      try {
-        localStorage.removeItem(STORAGE_LAST_POOL_ID_KEY);
-        localStorage.removeItem(STORAGE_LAST_RUN_ID_KEY);
-        localStorage.removeItem(STORAGE_LAST_EVENT_SEQUENCE_KEY);
-      } catch (_) {}
+      // No server-side pool for this project: drop project-scoped hints for this workspace,
+      // then fall through to the empty prompt.
+      removeProjectScopedHints(state.activeProject.workspaceId || target);
     }
     if (!restored) pushSystemMessage('指示を入力してください');
     } finally {
@@ -398,11 +432,9 @@
       secondsSince,
       stalledReason: event.stalled_reason,
     });
-    try {
-      if (effectivePoolId) localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, effectivePoolId);
-      if (runId) localStorage.setItem(STORAGE_LAST_RUN_ID_KEY, runId);
-      if (sequence > 0) localStorage.setItem(STORAGE_LAST_EVENT_SEQUENCE_KEY, String(sequence));
-    } catch (_) {}
+    if (effectivePoolId) setProjectScopedHint(STORAGE_LAST_POOL_ID_KEY, effectivePoolId);
+    if (runId) setProjectScopedHint(STORAGE_LAST_RUN_ID_KEY, runId);
+    if (sequence > 0) setProjectScopedHint(STORAGE_LAST_EVENT_SEQUENCE_KEY, String(sequence));
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('atlas:llm-progress', {
         detail: {
@@ -445,7 +477,7 @@
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPipelineEvents) return false;
     let runId = progressRunIdFromRuntime(runtime);
     if (!runId) {
-      try { runId = localStorage.getItem(STORAGE_LAST_RUN_ID_KEY) || ''; } catch (_) { runId = ''; }
+      runId = getProjectScopedHint(STORAGE_LAST_RUN_ID_KEY);
     }
     if (!runId && root.AtlasPipelineAPI.getContinuationPool) {
       try {
@@ -455,7 +487,7 @@
     }
     if (!runId) return false;
     let afterSequence = 0;
-    try { afterSequence = Number(localStorage.getItem(STORAGE_LAST_EVENT_SEQUENCE_KEY) || 0) || 0; } catch (_) {}
+    afterSequence = Number(getProjectScopedHint(STORAGE_LAST_EVENT_SEQUENCE_KEY) || 0) || 0;
     renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
       run_id: runId,
       phase: 'patch_generation',
@@ -668,7 +700,7 @@
     } else {
       // No project selected: fall back to the last pool ID stored in localStorage.
       try {
-        const lastPoolId = localStorage.getItem(STORAGE_LAST_POOL_ID_KEY);
+        const lastPoolId = getProjectScopedHint(STORAGE_LAST_POOL_ID_KEY);
         if (lastPoolId) {
           state.dismissedApprovalPlanKeys.delete(lastPoolId);
           renderPlanPoolMarkdown(lastPoolId).catch((_) => {});
@@ -956,7 +988,7 @@
         // queued (localStorage + conversation meta), not after the long poll returns. A browser
         // closed mid-generation can then re-attach to the still-running plan on reopen.
         earlyPoolId = queuedPoolId;
-        try { localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, queuedPoolId); } catch (_) {}
+        setProjectScopedHint(STORAGE_LAST_POOL_ID_KEY, queuedPoolId);
         try { persistMeta({ active_pool_id: queuedPoolId }); } catch (_) {}
       });
     } finally {
@@ -985,7 +1017,7 @@
     // Persist the active pool pointer (rides along with this message's meta) so
     // a reload can re-render the plan, then auto-name the provisional project
     // from this first instruction before any further workspace-scoped calls.
-    try { localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, poolId); } catch (_) {}
+    setProjectScopedHint(STORAGE_LAST_POOL_ID_KEY, poolId);
     appendMessage('atlas', `PlanPool 作成: \`${poolId}\``, true, { active_pool_id: poolId });
     if (state.provisional) await maybeAutoRename(text);
     if (resp.data && resp.data.planner_status === 'fallback_used') {
@@ -1536,7 +1568,7 @@
   async function restorePlanPool(poolId, rootGoal) {
     if (!poolId) return;
     pushUserMessage(`プール復元: ${rootGoal || poolId}`);
-    try { localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, poolId); } catch (_) {}
+    setProjectScopedHint(STORAGE_LAST_POOL_ID_KEY, poolId);
     setBusy(true);
     state.dismissedApprovalPlanKeys.delete(poolId);
     // The plan card is upserted by pool/revision key: if this pool's card already exists
@@ -1798,10 +1830,8 @@
         return;
       }
       const runId = created.data.run_id;
-      try {
-        localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, poolId);
-        localStorage.setItem(STORAGE_LAST_RUN_ID_KEY, runId);
-      } catch (_) {}
+      setProjectScopedHint(STORAGE_LAST_POOL_ID_KEY, poolId);
+      setProjectScopedHint(STORAGE_LAST_RUN_ID_KEY, runId);
       updateStage(stages, 'plan', 'done', runId);
       await watchBackendRun(poolId, runId, stages);
     } finally {
@@ -2076,10 +2106,8 @@
           patchGeneration = resultMeta.patch_generation || propMeta.patch_generation || {};
           const generatedRunId = (r && r.ok && r.data && r.data.run_id) || patchGeneration.run_id || '';
           if (generatedRunId) {
-            try {
-              localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, poolId);
-              localStorage.setItem(STORAGE_LAST_RUN_ID_KEY, generatedRunId);
-            } catch (_) {}
+            setProjectScopedHint(STORAGE_LAST_POOL_ID_KEY, poolId);
+            setProjectScopedHint(STORAGE_LAST_RUN_ID_KEY, generatedRunId);
           }
           hasContent = patchGeneration.state === 'succeeded'
             && patchGeneration.outcome === 'success'
