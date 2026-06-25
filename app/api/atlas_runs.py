@@ -432,10 +432,10 @@ def _run_one_item(request: Request, run_id: str, payload: AtlasRunStartRequest) 
         metadata=_scrub_metadata(payload.metadata),
     )
     orchestrator = _build_run_orchestrator(request, workspace_id=state.workspace_id)
-    if run_request.item_ids or run_request.mode in {"resume", "rerun"}:
-        orchestrator.run_items(run_request)
-    else:
+    if run_request.item_id and not run_request.item_ids and run_request.mode not in {"resume", "rerun"}:
         orchestrator.run_one_item(run_request)
+    else:
+        orchestrator.run_items(run_request)
 
 
 def _build_run_orchestrator(request: Request, *, workspace_id: str) -> AtlasRunOrchestrator:

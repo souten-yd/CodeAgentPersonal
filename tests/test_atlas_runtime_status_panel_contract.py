@@ -47,6 +47,8 @@ def test_approve_and_run_delegates_to_backend_run_api():
     assert "root.AtlasPipelineAPI.createRun" in body
     assert "watchBackendRun(poolId, runId, stages)" in body
     assert "authoritative_source: '/api/atlas/runs'" in body
+    assert "root.AtlasPipelineAPI.getPlanPool" not in body
+    assert "item_ids:" not in body
     assert "root.AtlasPipelineAPI.decideApproval" not in body
     assert "root.AtlasPipelineAPI.generatePatchProposal" not in body
     assert "root.AtlasPipelineAPI.runMultiItemAutopilot" not in body

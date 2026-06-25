@@ -1777,18 +1777,9 @@
         next_actions: ['wait', 'cancel'],
         authoritative_source: '/api/atlas/runs',
       }), stages);
-      let poolResp = null;
-      let pool = null;
-      try { poolResp = await root.AtlasPipelineAPI.getPlanPool(poolId); } catch (_) {}
-      if (poolResp && poolResp.ok && poolResp.data) {
-        pool = poolResp.data.plan_pool || poolResp.data.pool || poolResp.data;
-      }
-      const items = Array.isArray(pool && pool.items) ? pool.items : [];
-      const itemIds = items.map((it) => it && (it.item_id || it.id)).filter(Boolean);
       const created = await root.AtlasPipelineAPI.createRun({
         pool_id: poolId,
         workspace_id: workspaceId(),
-        item_ids: itemIds,
         mode: opts.resume ? 'resume' : 'fresh',
         auto_start: true,
         metadata: { ui: 'atlas_claude_panel', server_controlled_ui: true },

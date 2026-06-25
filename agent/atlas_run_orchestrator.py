@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from agent.atlas_run_schema import AtlasRunState, TERMINAL_RUN_STATUSES
+from agent.atlas_run_selection import select_run_items
 from agent.atlas_run_store import AtlasRunStore
 
 
@@ -66,8 +67,25 @@ class AtlasRunOrchestrator:
             )
             self._event(state, "run_rerun_reset", message="Run execution state reset for rerun.")
         pool = self.plan_storage.load_pool(request.pool_id)
-        item_ids = list(request.item_ids or ([request.item_id] if request.item_id else [item.item_id for item in pool.items]))
+        if request.item_ids:
+            item_ids = list(request.item_ids)
+            selection_source = "client_explicit_item_ids"
+        else:
+            item_ids = select_run_items(pool, state, request.mode, requested_item_id=request.item_id)
+            selection_source = "backend_selection"
         state = self.run_store.patch_state(state.run_id, {"total_items": len(item_ids), "status": "running", "phase": "planning"})
+        self._event(
+            state,
+            "run_items_selected",
+            metadata={
+                "item_ids": item_ids,
+                "mode": request.mode,
+                "selection_source": selection_source,
+                "requested_item_id": request.item_id,
+            },
+        )
+        if not item_ids:
+            return self._complete_or_block_empty_selection(state, pool, request)
         self._event(state, "run_multi_item_started", metadata={"item_ids": item_ids, "mode": request.mode})
         for item_id in item_ids:
             state = self.run_store.load_state(request.run_id)
@@ -105,6 +123,36 @@ class AtlasRunOrchestrator:
         )
         self._event(completed, "run_completed", message="Multi-item backend run completed.")
         return completed
+
+    def _complete_or_block_empty_selection(self, state: AtlasRunState, pool: Any, request: AtlasRunOrchestratorRequest) -> AtlasRunState:
+        pool_completed = {str(item_id) for item_id in getattr(pool, "completed_item_ids", []) or [] if str(item_id)}
+        completed = {str(item_id) for item_id in state.completed_item_ids or [] if str(item_id)}
+        all_items = [str(getattr(item, "item_id", "") or "") for item in getattr(pool, "items", []) or []]
+        all_item_ids = {item_id for item_id in all_items if item_id}
+        if request.mode == "resume" and all_item_ids and all_item_ids.issubset(completed | pool_completed):
+            done = self.run_store.patch_state(
+                state.run_id,
+                {
+                    "status": "completed",
+                    "phase": "final_summary",
+                    "requires_user_action": False,
+                    "next_actions": [],
+                },
+            )
+            self._event(done, "run_completed", message="No remaining runnable items for resume.")
+            return done
+        blocked = self.run_store.patch_state(
+            state.run_id,
+            {
+                "status": "blocked",
+                "phase": "planning",
+                "requires_user_action": True,
+                "block_reason": "no_runnable_items",
+                "next_actions": ["review_run_events", "revise_or_cancel"],
+            },
+        )
+        self._event(blocked, "run_blocked", message="No runnable PlanItems were selected.")
+        return blocked
 
     def _run_one_item(self, request: AtlasRunOrchestratorRequest, *, complete_run: bool) -> AtlasRunState:
         state = self.run_store.load_state(request.run_id)

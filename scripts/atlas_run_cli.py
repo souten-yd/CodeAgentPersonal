@@ -114,20 +114,23 @@ def run_cli(argv: list[str] | None = None, *, client: Any | None = None, stdout:
         return _emit(http.request("GET", f"/api/atlas/plan-pools/{args.pool_id}"), out)
     if args.command == "start":
         item_ids = [item.strip() for item in str(args.item_ids or "").split(",") if item.strip()]
+        payload = {
+            "pool_id": args.pool_id,
+            "workspace_id": args.workspace_id,
+            "mode": args.mode,
+            "preset_id": args.preset_id,
+            "command_id": args.command_id,
+            "auto_start": True,
+        }
+        if args.item_id:
+            payload["item_id"] = args.item_id
+        if item_ids:
+            payload["item_ids"] = item_ids
         return _emit(
             http.request(
                 "POST",
                 "/api/atlas/runs",
-                {
-                    "pool_id": args.pool_id,
-                    "workspace_id": args.workspace_id,
-                    "item_id": args.item_id,
-                    "item_ids": item_ids,
-                    "mode": args.mode,
-                    "preset_id": args.preset_id,
-                    "command_id": args.command_id,
-                    "auto_start": True,
-                },
+                payload,
             ),
             out,
         )

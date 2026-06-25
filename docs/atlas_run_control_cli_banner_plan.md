@@ -549,7 +549,7 @@ Acceptance:
 | Package | Goal | Status | Evidence |
 |---|---|---|---|
 | CS9 | Run retry/revise backend execution | completed | `tests/test_atlas_run_retry_revise.py`; focused/affected 38 passed; 8080 model endpoint reachable |
-| CS10 | Backend-owned item ordering and resume target selection | pending | |
+| CS10 | Backend-owned item ordering and resume target selection | completed | `tests/test_atlas_run_item_selection.py`; focused/affected 51 passed; UI/CLI omit normal `item_ids` |
 | CS11 | Run leases, duplicate-start guard, restart recovery | pending | |
 | CS12 | Remove or hard-disable legacy UI orchestration | pending | |
 | CS13 | First-class Claude-like Kasane CLI package | pending | |
@@ -599,6 +599,44 @@ Next package: CS10 — Backend-owned item ordering and resume target selection
 Blocker: none
 
 Proof level: `run_retry_revise_backend_execution_complete`
+
+### CS10 — Backend-owned item ordering and resume target selection (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `agent/atlas_run_selection.py`
+- `agent/atlas_run_orchestrator.py`
+- `app/api/atlas_runs.py`
+- `scripts/atlas_run_cli.py`
+- `web/js/atlas_claude_panel.js`
+- `tests/test_atlas_run_item_selection.py`
+- `tests/test_atlas_run_cli.py`
+- `tests/test_atlas_runtime_status_panel_contract.py`
+- `docs/atlas_run_control_cli_banner_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_run_item_selection.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_api.py tests/test_atlas_run_cli.py tests/test_atlas_runtime_status_panel_contract.py` -> 33 passed
+- `python -m pytest -q tests/test_atlas_run_item_selection.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_api.py tests/test_atlas_run_cli.py tests/test_atlas_runtime_status_panel_contract.py tests/test_atlas_server_controlled_ui_cli_sc0.py tests/test_atlas_dev_phase_llm_progress_indicator_contract.py tests/test_atlas_server_controlled_flow_eval.py` -> 51 passed
+- `python -m py_compile agent/atlas_run_selection.py agent/atlas_run_orchestrator.py app/api/atlas_runs.py scripts/atlas_run_cli.py tests/test_atlas_run_item_selection.py tests/test_atlas_run_api.py` -> passed
+- `node --check web/js/atlas_claude_panel.js; node --check web/js/atlas_pipeline_api.js` -> passed
+- `git diff --check` -> passed, with CRLF warnings only
+
+8080 evidence: `GET http://127.0.0.1:8080/v1/models` returned model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. CS10 adds no new LLM-backed generation path, so no live patch-generation replay is counted as CS10 acceptance evidence.
+
+Behavior implemented: added backend `select_run_items()` for fresh/resume/rerun/explicit item selection. Normal UI approval no longer fetches PlanPool to build `item_ids`, and CLI `start` omits `item_ids` unless the operator explicitly provides them. Backend `run_items()` emits `run_items_selected` with selected order and then executes one item at a time against the current workspace state.
+
+Safety invariants: UI and CLI no longer own normal item order or resume target selection. Explicit item selection remains available for manual/advanced use, while backend selection skips completed run/pool items on resume and keeps blocked/non-runnable items out of automatic execution.
+
+Remaining gaps: CS11 leases/recovery, CS12 hard-disable legacy UI orchestration, CS13 first-class CLI, CS14 banner, CS15 live hardening validation, CS16 final evidence review.
+
+Next package: CS11 — Run leases, duplicate-start guard, and restart recovery
+
+Blocker: none
+
+Proof level: `backend_item_selection_complete`
 
 ## Required focused test matrix
 

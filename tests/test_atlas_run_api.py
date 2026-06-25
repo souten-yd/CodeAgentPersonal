@@ -164,6 +164,27 @@ def test_start_endpoint_runs_backend_orchestrator(client: TestClient, tmp_path: 
     assert status["current_item_id"] == "item_1"
 
 
+def test_create_auto_start_without_item_ids_uses_backend_item_selection(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, object] = {}
+
+    class FakeOrchestrator:
+        def run_items(self, request):
+            seen["mode"] = request.mode
+            seen["item_ids"] = list(request.item_ids)
+            store = AtlasRunStore(tmp_path)
+            return store.patch_state(request.run_id, {"status": "completed", "phase": "final_summary"})
+
+    monkeypatch.setattr(atlas_runs_api, "_build_run_orchestrator", lambda request, workspace_id: FakeOrchestrator())
+
+    created = client.post("/api/atlas/runs", json={"pool_id": "pool_sc10", "mode": "fresh", "auto_start": True})
+
+    assert created.status_code == 200
+    assert created.json()["execution_started"] is True
+    assert seen == {"mode": "fresh", "item_ids": []}
+
+
 def test_run_orchestrator_uses_plan_item_patch_source_with_server_control_metadata() -> None:
     assert 'requested_by="atlas_run_orchestrator"' in SOURCE
     assert 'source_type="plan_item"' in SOURCE

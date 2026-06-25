@@ -33,19 +33,37 @@ def test_cli_start_uses_run_api_only() -> None:
         (
             "POST",
             "/api/atlas/runs",
-            {
-                "pool_id": "pool_1",
-                "workspace_id": "default",
-                "item_id": "",
-                "item_ids": ["item_1", "item_2"],
-                "mode": "resume",
-                "preset_id": "guarded_low_risk",
+                {
+                    "pool_id": "pool_1",
+                    "workspace_id": "default",
+                    "item_ids": ["item_1", "item_2"],
+                    "mode": "resume",
+                    "preset_id": "guarded_low_risk",
                 "command_id": "",
                 "auto_start": True,
             },
         )
     ]
     assert '"ok": true' in output
+
+
+def test_cli_start_omits_item_ids_by_default() -> None:
+    client, _ = _run(["start", "--pool-id", "pool_1"])
+
+    assert client.calls == [
+        (
+            "POST",
+            "/api/atlas/runs",
+            {
+                "pool_id": "pool_1",
+                "workspace_id": "default",
+                "mode": "fresh",
+                "preset_id": "guarded_low_risk",
+                "command_id": "",
+                "auto_start": True,
+            },
+        )
+    ]
 
 
 def test_cli_watch_resumes_from_event_cursor_once() -> None:
