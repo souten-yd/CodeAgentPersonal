@@ -431,7 +431,7 @@ Acceptance:
 | RV0 | Baseline proof and reproduction tests | completed | `tests/test_atlas_project_restore_isolation.py`; `tests/test_atlas_project_picker_bootstrap_contract.py`; `tests/test_atlas_visual_rubik_contract.py`; focused 10 passed / 5 xfailed |
 | RV1 | Project-scoped client recovery keys | completed | `web/js/atlas_claude_panel.js`; focused 17 passed; project picker RV2 contract remains xfailed |
 | RV2 | Bootstrap order and selected-project load | completed | `web/js/app.js`; focused/affected 21 passed |
-| RV3 | Backend continuation/recovery workspace isolation audit | pending | |
+| RV3 | Backend continuation/recovery workspace isolation audit | completed | `tests/test_atlas_continuation_workspace_isolation.py`; focused/affected 37 passed |
 | RV4 | Rubik / cube visual classification fix | pending | |
 | RV5 | Visual verifier contract evidence and UI diagnostics | pending | |
 | RV6 | End-to-end project isolation scenario | pending | |
@@ -518,7 +518,7 @@ Proof level: `project_scoped_client_recovery_keys_complete`
 
 ### RV2 — Bootstrap order and selected-project load (completed 2026-06-26)
 
-Status: completed locally; PR pending
+Status: completed; PR #2102 merged
 
 Changed files:
 
@@ -545,6 +545,37 @@ Next package: RV3 — Backend continuation/recovery workspace isolation audit
 Blocker: none
 
 Proof level: `bootstrap_selected_project_load_complete`
+
+### RV3 — Backend continuation/recovery workspace isolation audit (completed 2026-06-26)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `tests/test_atlas_continuation_workspace_isolation.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests\test_atlas_continuation_workspace_isolation.py tests\test_atlas_api_pipeline.py` -> 37 passed
+- `python -m pytest -q tests\test_atlas_project_restore_isolation.py tests\test_atlas_project_picker_bootstrap_contract.py tests\test_atlas_inflight_resume_recovery_contract.py` -> 15 passed
+- `python -m py_compile tests\test_atlas_continuation_workspace_isolation.py` -> passed
+- `node --check web\js\atlas_pipeline_api.js` -> passed
+- `git diff --check` -> passed
+
+Behavior implemented: tests and documentation only; no production behavior changed. Existing backend continuation/recovery components already use `AtlasJournal(root, workspace_id=...)`, and missing explicit workspaces return `no_workspace` instead of falling back to `default`.
+
+Isolation proof: API tests create separate default/project A/project B workspaces and verify `/api/atlas/continuation/latest`, `/api/atlas/recovery/latest`, and UI client restore calls stay scoped by `workspace_id`. Missing workspace requests return empty pool/run ids with `no_workspace`.
+
+Safety invariants: recovery and continuation remain read-only; no Proposal, Safe Apply, Verification, backend run execution, retry, or UI orchestration behavior changed.
+
+Remaining gaps: RV4 Rubik classification fix, RV5 diagnostics, RV6 exact project isolation scenario, RV7 live 8080 validation, RV8 final review.
+
+Next package: RV4 — Rubik / cube visual classification fix
+
+Blocker: none
+
+Proof level: `backend_continuation_workspace_isolation_verified`
 
 ## Required focused test matrix
 
