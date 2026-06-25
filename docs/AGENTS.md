@@ -7,80 +7,81 @@ This file is an agent-facing entrypoint for implementation tasks under `docs/`.
 Start from:
 
 ```text
+docs/atlas_project_restore_visual_recovery_plan.md
+```
+
+This is the **RV0-RV8 Atlas Project Restore / Visual Contract Recovery** track.
+
+Then read completed tracks as context only:
+
+```text
 docs/atlas_run_control_cli_banner_plan.md
-```
-
-This is the completed **CS9-CS16 Atlas Run Control Hardening / Claude-like CLI / Startup Banner** track.
-
-Then read the completed base plan as context:
-
-```text
 docs/atlas_server_controlled_ui_cli_plan.md
-```
-
-Supporting context only:
-
-```text
-docs/generic_weak_llm_app_hardening_plan.md
-docs/weak_llm_large_file_edit_hardening_plan.md
 ```
 
 ## Core rule
 
-Backend Run control is the execution authority.
+Project restore must be project/workspace-scoped:
 
 ```text
-Backend = run lifecycle, item order, retry/revise, leases, events, final status
-Web UI  = user intent sender and backend status/event viewer
-CLI     = Claude-like terminal cockpit over the same backend Run API
+Project A pool/run/failure must never render in Project B.
+New project with no pool must show an empty prompt.
+Global localStorage hints must not override active project identity.
 ```
 
-UI and CLI must not directly orchestrate Plan -> Patch -> Apply -> Verify. They must not directly call patch proposal, patch approval, Safe Apply, Verification, or multi-item autopilot execution endpoints in the normal execution path.
+Visual verification must be requirement-scoped:
+
+```text
+Rubik HTML solver = interactive web app or UI component by default.
+Canvas is required only when canvas/WebGL/game-canvas is explicit or intentionally declared.
+```
+
+Backend Run control remains authoritative. UI and CLI send user intent and read backend state/events. They must not directly orchestrate Plan -> Patch -> Apply -> Verify.
 
 ## Package status
 
-Use `docs/atlas_run_control_cli_banner_plan.md` for package sequence and completion evidence:
+Use `docs/atlas_project_restore_visual_recovery_plan.md` for package sequence and completion evidence:
 
-1. CS9 — Run retry/revise backend execution: completed
-2. CS10 — Backend-owned item ordering and resume target selection: completed
-3. CS11 — Run leases, duplicate-start guard, restart recovery: completed
-4. CS12 — Remove or hard-disable legacy UI orchestration: completed
-5. CS13 — First-class Claude-like Kasane CLI package: completed
-6. CS14 — KasaneCore ASCII startup banner: completed
-7. CS15 — Live 8080 validation: completed
-8. CS16 — Final evidence review and docs closeout: completed
+1. RV0 — Baseline proof and reproduction tests: pending
+2. RV1 — Project-scoped client recovery keys: pending
+3. RV2 — Bootstrap order and selected-project load: pending
+4. RV3 — Backend continuation/recovery workspace isolation audit: pending
+5. RV4 — Rubik / cube visual classification fix: pending
+6. RV5 — Visual verifier contract evidence and UI diagnostics: pending
+7. RV6 — End-to-end project isolation scenario: pending
+8. RV7 — Live 8080 Rubik validation: pending
+9. RV8 — Final review and docs closeout: pending
 
 ## Main files
 
-Start with the package-specific files in `docs/atlas_run_control_cli_banner_plan.md`. Likely central files include:
+Start with the package-specific files in `docs/atlas_project_restore_visual_recovery_plan.md`. Likely central files include:
 
 ```text
-app/api/atlas_runs.py
-agent/atlas_run_schema.py
-agent/atlas_run_store.py
-agent/atlas_run_events.py
-agent/atlas_run_orchestrator.py
 web/js/atlas_claude_panel.js
+web/js/app.js
 web/js/atlas_pipeline_api.js
-scripts/atlas_run_cli.py
-tools/run_atlas_server_controlled_flow_eval.py
+app/api/atlas_pipeline.py
+agent/atlas_continuation_service.py
+agent/atlas_recovery_service.py
+agent/atlas_journal.py
+agent/atlas_auto_verification_service.py
+agent/atlas_visual_requirement_normalizer.py
+agent/atlas_visual_task_classifier.py
+agent/atlas_visual_contract_registry.py
+agent/atlas_visual_artifact_verifier.py
+agent/atlas_playwright_smoke_verifier.py
 ```
 
-Likely new files:
+Likely new/updated tests:
 
 ```text
-agent/atlas_run_locks.py
-agent/atlas_run_worker.py
-agent/atlas_run_recovery.py
-agent/atlas_run_retry_policy.py
-kasane_cli/__main__.py
-kasane_cli/client.py
-kasane_cli/commands.py
-kasane_cli/repl.py
-kasane_cli/render.py
-kasane_cli/banner.py
-app/startup_banner.py
-tools/run_atlas_run_control_hardening_eval.py
+tests/test_atlas_project_restore_isolation.py
+tests/test_atlas_project_picker_bootstrap_contract.py
+tests/test_atlas_continuation_workspace_isolation.py
+tests/test_atlas_visual_rubik_contract.py
+tests/test_atlas_visual_failure_diagnostics.py
+tests/test_atlas_project_restore_e2e_contract.py
+tests/test_atlas_restore_visual_recovery_eval.py
 ```
 
 ## Live validation
@@ -91,7 +92,7 @@ The user may provide a weak OpenAI-compatible LLM on:
 http://127.0.0.1:8080/v1
 ```
 
-For CS15, run the live checks from `docs/atlas_run_control_cli_banner_plan.md`. If the model is unavailable, record the live check as blocked, not passed.
+For RV7, run the live Rubik/project-isolation checks from `docs/atlas_project_restore_visual_recovery_plan.md`. If the model is unavailable, record the live check as blocked, not passed.
 
 ## Must preserve
 
@@ -102,4 +103,5 @@ For CS15, run the live checks from `docs/atlas_run_control_cli_banner_plan.md`. 
 - UI and CLI must not directly own patch/apply/verify orchestration.
 - Backend owns item order, retry/revise, cancellation, resume, event replay, and terminal status.
 - Unknown or stale run state must not become success.
-- JSON/machine-readable CLI output must never include the startup banner.
+- Project restore must not leak PlanPool/run/progress/failure state across workspaces.
+- Visual verification must not require canvas for DOM/CSS/SVG HTML apps unless explicit.
