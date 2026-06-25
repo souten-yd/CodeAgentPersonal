@@ -554,7 +554,7 @@ Acceptance:
 | CS12 | Remove or hard-disable legacy UI orchestration | completed | `tests/test_atlas_ui_no_legacy_orchestration.py`; focused/affected 42 passed; legacy function throws before direct calls |
 | CS13 | First-class Claude-like Kasane CLI package | completed | `tests/test_kasane_cli.py`; package entrypoint and wrapper validated; affected 33 passed |
 | CS14 | KasaneCore ASCII startup banner | completed | `tests/test_kasane_startup_banner.py`; CLI/server banner suppression validated; affected 36 passed |
-| CS15 | Live 8080 validation | pending | |
+| CS15 | Live 8080 validation | completed | `tools/run_atlas_run_control_hardening_eval.py`; 8080 chat probe true; 7/7 scenarios passed |
 | CS16 | Final evidence review and docs closeout | pending | |
 
 ## Completion Evidence
@@ -781,6 +781,48 @@ Next package: CS15 — Live validation for hardened run control and CLI
 Blocker: none
 
 Proof level: `kasane_ascii_startup_banner_complete`
+
+### CS15 — Live 8080 validation (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `tools/run_atlas_run_control_hardening_eval.py`
+- `tests/test_atlas_run_control_hardening_eval.py`
+- `docs/atlas_run_control_cli_banner_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_run_control_hardening_eval.py` -> 4 passed
+- `python -m pytest -q tests/test_atlas_run_control_hardening_eval.py tests/test_atlas_run_retry_revise.py tests/test_atlas_run_item_selection.py tests/test_atlas_run_lease_recovery.py tests/test_kasane_startup_banner.py tests/test_kasane_cli.py tests/test_atlas_run_cli.py` -> 33 passed
+- `python -m py_compile tools/run_atlas_run_control_hardening_eval.py tests/test_atlas_run_control_hardening_eval.py` -> passed
+- `python tools/run_atlas_run_control_hardening_eval.py --output-json ca_data/atlas_run_control_hardening_eval/cs15_live_eval.json --timeout 60` -> status `passed`
+- `git diff --check` -> passed
+
+8080 evidence: runner probed `GET http://127.0.0.1:8080/v1/models` and `POST http://127.0.0.1:8080/v1/chat/completions`. Model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf` was reachable and `chat_probe_ok` was `true`. No unavailable live checks were recorded.
+
+Scenario evidence:
+
+- `api_starts_run_cli_watches_browser_status_observes` -> passed
+- `cli_interactive_style_starts_run_api_watches` -> passed
+- `failed_item_retry_uses_run_retry_endpoint` -> passed
+- `resume_without_client_item_ids_skips_completed` -> passed
+- `duplicate_start_rejected_or_idempotent` -> passed
+- `stale_running_recovery_marks_blocked_retryable_not_success` -> passed
+- `banner_interactive_present_json_absent` -> passed
+
+Behavior implemented: added a CS15 live validation runner that gates acceptance on the local 8080 model being available, then drives isolated real Run API and Kasane CLI client paths. The runner records JSON evidence for API-start/CLI-watch, REPL `/run` start, retry after seeded verification failure, backend resume selection without client `item_ids`, duplicate-start rejection, stale-run recovery to blocked/retryable, and banner JSON/no-banner behavior.
+
+Safety invariants: unavailable 8080 evidence becomes `blocked_live_llm_unavailable`, not passed. The runner does not call direct browser proposal/apply/autopilot endpoints; it uses PlanPool storage, `/api/atlas/runs/*`, and Kasane CLI paths. Safe callbacks preserve the Proposal / approval / Safe Apply / Verification event boundary without treating mock LLM output as live generation evidence.
+
+Remaining gaps: CS16 final evidence review and docs closeout.
+
+Next package: CS16 — Final evidence review and docs closeout
+
+Blocker: none
+
+Proof level: `live_run_control_hardening_validation_complete`
 
 ## Required focused test matrix
 
