@@ -2,53 +2,54 @@
 
 ## Active Goal
 
-The **CS9-CS16 Atlas Run Control Hardening / Claude-like CLI / Startup Banner** track is complete.
+The current active track is **RV0-RV8 Atlas Project Restore / Visual Contract Recovery**.
 
 Start here:
 
 ```text
-docs/atlas_run_control_cli_banner_plan.md
+docs/atlas_project_restore_visual_recovery_plan.md
 ```
 
-Then read the completed base plan as context:
+Then read these completed tracks as context only:
 
 ```text
+docs/atlas_run_control_cli_banner_plan.md
 docs/atlas_server_controlled_ui_cli_plan.md
 ```
 
-Supporting context only:
+Compatibility entrypoints also point here:
 
 ```text
-docs/generic_weak_llm_app_hardening_plan.md
-docs/weak_llm_large_file_edit_hardening_plan.md
 Agent.md
 docs/AGENTS.md
 ```
 
 ## Current State
 
-SC0-SC8 moved the normal Web UI execution path to backend `/api/atlas/runs`, added backend run state/events, backend orchestration, a thin CLI wrapper, live 8080 validation, and final evidence review.
+CS9-CS16 completed the backend Run control, Claude-like CLI, and startup banner work. The current recovery track addresses two regressions observed after that work:
 
-CS9-CS16 closed the remaining gaps:
+1. a newly-created Atlas project can show a PlanPool/run/failure from another project;
+2. an HTML Rubik-cube solver task can fail visual verification because the selected visual contract requires canvas evidence.
+
+## Package Status
 
 | # | Goal | Status |
 |---|---|---|
-| CS9 | Run retry/revise backend execution | completed |
-| CS10 | Backend-owned item ordering and resume target selection | completed |
-| CS11 | Run leases, duplicate-start guard, restart recovery | completed |
-| CS12 | Remove or hard-disable legacy UI orchestration | completed |
-| CS13 | First-class Claude-like Kasane CLI package | completed |
-| CS14 | KasaneCore ASCII startup banner | completed |
-| CS15 | Live 8080 validation | completed |
-| CS16 | Final evidence review and docs closeout | completed |
-
-Previous base status:
-
-```text
-SC0-SC8: done. Treat SC4/SC5/SC6 as MVPs that CS9-CS14 harden.
-```
+| RV0 | Baseline proof and reproduction tests | pending |
+| RV1 | Project-scoped client recovery keys | pending |
+| RV2 | Bootstrap order and selected-project load | pending |
+| RV3 | Backend continuation/recovery workspace isolation audit | pending |
+| RV4 | Rubik / cube visual classification fix | pending |
+| RV5 | Visual verifier contract evidence and UI diagnostics | pending |
+| RV6 | End-to-end project isolation scenario | pending |
+| RV7 | Live 8080 Rubik validation | pending |
+| RV8 | Final review and docs closeout | pending |
 
 ## Core Rule
+
+Project restore must be project/workspace-scoped. A global browser hint must never resurrect a PlanPool into a different active project. A new project with no PlanPool must show an empty prompt, not the last global PlanPool.
+
+Visual verification must not require canvas unless the requirement explicitly asks for canvas/WebGL/game-canvas behavior or the artifact intentionally declares and satisfies a canvas contract.
 
 Backend Run control remains the execution authority. Web UI and CLI are clients that send user intent and read backend state/events. They must not own Proposal, Safe Apply, Verification, retry policy, item order, or terminal status.
 
@@ -64,23 +65,25 @@ Backend Run control remains the execution authority. Web UI and CLI are clients 
 - Unknown or stale backend state must never be converted into success.
 - Local Only mode must not call external providers.
 - Startup banner must not appear in JSON or machine-readable output.
+- Project restore must not leak PlanPool, run, progress, or failure state across projects/workspaces.
+- Visual contract classification must stay generic and must not add game-only special cases.
 
 ## Execution Rules
 
-For each CS9-CS16 package:
+For each RV0-RV8 package:
 
-1. Read `docs/atlas_run_control_cli_banner_plan.md`.
+1. Read `docs/atlas_project_restore_visual_recovery_plan.md`.
 2. Verify current code before editing.
 3. Add or update focused tests before behavior changes where practical.
 4. Implement one package at a time.
 5. Run focused tests, affected tests, syntax checks, and live 8080 checks when required.
-6. Record truthful evidence in `docs/atlas_run_control_cli_banner_plan.md`.
+6. Record truthful evidence in `docs/atlas_project_restore_visual_recovery_plan.md`.
 7. Advance only when acceptance criteria pass.
 
 ## Stop Conditions
 
-Stop for destructive migration, authority conflicts, unavailable live evidence with no truthful blocked state, security-sensitive output issues, direct client-side execution authority reintroduced, or banner output leaking into JSON mode.
+Stop for destructive migration, authority conflicts, unavailable live evidence with no truthful blocked state, security-sensitive output issues, direct client-side execution authority reintroduced, cross-project state leakage, or visual verification treating unavailable evidence as passed.
 
 ## Completion
 
-This track is complete. See `docs/atlas_run_control_cli_banner_plan.md` for package evidence, live 8080 validation, and final review output.
+This track is complete only when RV0-RV8 pass or truthfully block according to `docs/atlas_project_restore_visual_recovery_plan.md`.
