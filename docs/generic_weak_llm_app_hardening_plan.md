@@ -536,6 +536,27 @@ Proof level: `file_type_edit_primitives_component_complete`
 
 ---
 
+## GA6 — Generic validators after preview (completed 2026-06-25)
+
+Completed package: GA6 `codex/generic-preview-validators`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/atlas_post_apply_validators.py`, `tests/test_atlas_post_apply_validators.py`, this plan
+Behavior implemented: added deterministic post-apply validators that consume `post_apply_content_by_path` and return structured violations plus per-validator status. Initial validators cover import/export mismatches, invalid JSON and JSON/form field mismatches, env/config key mismatches, API route reference mismatches, WebGL shared resource conflicts as resource violations, forbidden full-content preview metadata, and slice marker leakage.
+Focused tests: `pytest -q tests/test_atlas_post_apply_validators.py` -> 7 passed
+Affected tests: `pytest -q tests/test_atlas_post_apply_validators.py tests/test_atlas_contract_registry.py tests/test_atlas_post_apply_preview.py` -> 22 passed; `pytest -q tests/test_atlas_repair_recipe_registry.py tests/test_atlas_edit_primitives.py` -> 26 passed
+Syntax checks: `py_compile agent/atlas_post_apply_validators.py tests/test_atlas_post_apply_validators.py` -> passed
+8080 live model evidence: not required for GA6; validators are deterministic post-apply evidence checks. Live 8080 generic scenarios remain GA7.
+Post-apply preview evidence: validators accept a `post_apply_content_by_path` map and optional preview metadata for full-content policy checks.
+Contract validation evidence: Web app tests cover missing named export and missing API route handler; business/config tests cover env mismatch and invalid JSON; WebGL conflict is represented through the resource validator.
+Unavailable checks: no live model evidence required for this deterministic slice
+Safety invariants: validators are read-only; they do not apply repairs or write files; structured violations remain evidence for Proposal / Safe Apply / Verification rather than execution authority.
+Remaining gaps: GA7 live 8080 generic checks, GA8 entrypoint docs
+Next package: GA7 — 8080 weak-model generic live checks
+Blocker: none
+Proof level: `generic_post_apply_validators_component_complete`
+
+---
+
 # Global safety invariants
 
 - `unavailable` is not `passed`.
