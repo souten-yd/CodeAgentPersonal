@@ -40,6 +40,25 @@ def test_converts_small_full_content_rewrite_for_large_existing_file():
     assert "proposed_content" not in proposal.metadata
 
 
+def test_sliced_existing_file_rejects_full_content_salvage():
+    current = "\n".join(f"line {i}" for i in range(20))
+    updated = current.replace("line 10", "line 10 changed")
+    payload = _payload(size_tier="weak", current_lines=20)
+    payload["item"]["current_file_content"] = current
+    payload["item"]["current_file_content_sliced"] = True
+    payload["item"]["current_file_original_chars"] = 24000
+    payload["item"]["current_file_original_lines"] = 700
+    output = {"proposed_content": updated, "risk_level": "low", "target_files": ["app.py"]}
+
+    proposal, has_content = _svc()._build_proposal_from_output(output, payload)
+
+    assert has_content is False
+    assert "full_content_salvage_forbidden_on_sliced_content" in proposal.warnings
+    assert "full_content_converted_to_surgical_edits" not in proposal.warnings
+    assert "proposed_content" not in proposal.metadata
+    assert "edits" not in proposal.metadata
+
+
 def test_rejects_unconvertible_full_content_under_edit_only_policy():
     current = "line\n" * 200
     payload = _payload(size_tier="weak", current_lines=200)
@@ -55,6 +74,54 @@ def test_rejects_unconvertible_full_content_under_edit_only_policy():
     assert "full_content_forbidden_under_edit_only" in proposal.warnings
     assert proposal.metadata["patch_content_available"] is False
     assert "proposed_content" not in proposal.metadata
+
+
+def test_sliced_existing_file_still_accepts_search_replace_edits():
+    current = "\n".join(f"line {i}" for i in range(20))
+    payload = _payload(size_tier="weak", current_lines=20)
+    payload["item"]["current_file_content"] = current
+    payload["item"]["current_file_content_sliced"] = True
+    payload["item"]["current_file_original_chars"] = 24000
+    payload["item"]["current_file_original_lines"] = 700
+    output = {
+        "proposed_content": (
+            "app.py\n"
+            "<<<<<<< SEARCH\n"
+            "line 10\n"
+            "=======\n"
+            "line 10 changed\n"
+            ">>>>>>> REPLACE\n"
+        ),
+        "risk_level": "low",
+        "target_files": ["app.py"],
+    }
+
+    proposal, has_content = _svc()._build_proposal_from_output(output, payload)
+
+    assert has_content is True
+    assert "search_replace_blocks_parsed" in proposal.warnings
+    assert "full_content_salvage_forbidden_on_sliced_content" not in proposal.warnings
+    assert proposal.metadata["edits"] == [{"old_string": "line 10", "new_string": "line 10 changed"}]
+    assert "proposed_content" not in proposal.metadata
+
+
+def test_slice_marker_inside_edit_is_rejected():
+    payload = _payload(size_tier="weak", current_lines=200)
+    output = {
+        "edits": [{
+            "old_string": "line 10\n// ... (42 unrelated line(s) omitted -- full file is on disk) ...",
+            "new_string": "line 10 changed",
+        }],
+        "risk_level": "low",
+        "target_files": ["app.py"],
+    }
+
+    proposal, has_content = _svc()._build_proposal_from_output(output, payload)
+
+    assert has_content is False
+    assert "slice_marker_forbidden_in_edit" in proposal.warnings
+    assert "some_edits_dropped" in proposal.warnings
+    assert "edits" not in proposal.metadata
 
 
 def test_no_warning_for_frontier_tier_full_content():

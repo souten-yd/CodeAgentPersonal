@@ -66,6 +66,20 @@ _ANCHOR_DEF_RE = re.compile(
     r"(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*(?:async\s*)?(?:function|\([^)]*\)\s*=>)|"
     r"[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{|def\s+[A-Za-z_]\w*\s*\()",
 )
+_SLICE_EDIT_MARKERS = (
+    "unrelated line(s) omitted",
+    "full file is on disk",
+    "rest of the file unchanged",
+    "rest unchanged",
+)
+
+
+def _contains_slice_edit_marker(text: str) -> bool:
+    value = str(text or "")
+    lowered = value.lower()
+    if any(marker in lowered for marker in _SLICE_EDIT_MARKERS):
+        return True
+    return any(line.strip() in {"...", "... omitted ...", "…"} for line in value.splitlines())
 
 
 def _full_content_to_edits(
@@ -2380,14 +2394,18 @@ class AtlasPatchProposalService:
         # bounded instead of treating an unrelated fragment as apply-ready full content.
         edit_policy = self._weak_large_file_edit_policy(input_payload)
         if edit_policy.get("edit_only") and proposed_content and not edits:
-            converted = _full_content_to_edits(str(item.get("current_file_content") or ""), proposed_content)
-            if converted:
-                edits = converted
+            if bool(item.get("current_file_content_sliced")):
                 proposed_content = ""
-                warnings.append("full_content_converted_to_surgical_edits")
+                warnings.append("full_content_salvage_forbidden_on_sliced_content")
             else:
-                proposed_content = ""
-                warnings.append("full_content_forbidden_under_edit_only")
+                converted = _full_content_to_edits(str(item.get("current_file_content") or ""), proposed_content)
+                if converted:
+                    edits = converted
+                    proposed_content = ""
+                    warnings.append("full_content_converted_to_surgical_edits")
+                else:
+                    proposed_content = ""
+                    warnings.append("full_content_forbidden_under_edit_only")
 
         has_content = bool(proposed_content or diff_preview or edits or (file_changes and all(has_file_change_content(fc) for fc in file_changes)))
         metadata = {
@@ -3236,6 +3254,15 @@ class AtlasPatchProposalService:
             new = str(e.get("new_string", ""))
             insert_after = str(e.get("insert_after", ""))
             insert_before = str(e.get("insert_before", ""))
+            if (
+                _contains_slice_edit_marker(old)
+                or _contains_slice_edit_marker(new)
+                or _contains_slice_edit_marker(insert_after)
+                or _contains_slice_edit_marker(insert_before)
+            ):
+                warnings.append("slice_marker_forbidden_in_edit")
+                dropped = True
+                continue
             if old == "":
                 if not (insert_after or insert_before or new):
                     dropped = True
