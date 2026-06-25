@@ -335,7 +335,7 @@ Also run affected tests for PlanPool API, approvals, patch proposal generation, 
 | SC1 | Run schema/store/events | completed | `tests/test_atlas_run_schema.py`; focused 5 passed |
 | SC2 | Run API skeleton | done | PR pending |
 | SC3 | RunOrchestrator MVP | done | PR pending |
-| SC4 | Multi-item resume/retry/rerun | pending | |
+| SC4 | Multi-item resume/retry/rerun | done | PR pending |
 | SC5 | CLI thin client | pending | |
 | SC6 | UI thinning | pending | |
 | SC7 | Live 8080 weak-LLM validation | pending | |
@@ -445,3 +445,29 @@ Remaining gaps: SC4 backend multi-item resume/retry/rerun, SC5 CLI, SC6 UI thinn
 Next package: SC4 — Multi-item resume/retry/rerun
 Blocker: none
 Proof level: `one_item_backend_orchestrator_component_complete`
+
+### SC4 — Multi-item resume/retry/rerun (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `agent/atlas_run_orchestrator.py`
+- `app/api/atlas_runs.py`
+- `tests/test_atlas_run_orchestrator.py`
+- `docs/atlas_server_controlled_ui_cli_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_run_orchestrator.py tests/test_atlas_run_api.py` -> 15 passed
+- `python -m py_compile agent/atlas_run_orchestrator.py app/api/atlas_runs.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_api.py` -> passed
+- `python -m pytest -q tests/test_atlas_run_orchestrator.py tests/test_atlas_run_api.py tests/test_atlas_run_schema.py tests/test_atlas_server_controlled_ui_cli_sc0.py tests/test_phase14_atlas_runs_api.py tests/test_atlas_reload_resume_progress_ui_contract.py tests/test_atlas_workflow_state_truthfulness_contract.py` -> 41 passed
+
+8080 evidence: not required for SC4 beyond the SC3 availability check; this package adds deterministic backend loop state handling around existing execution callbacks and does not add a new model provider path
+
+Safety invariants: backend loop processes one item at a time, records per-item completion before moving on, skips already completed items in resume mode, resets explicit execution state in rerun mode, checks cancellation between items, and keeps generation failure before the first patch as terminal failed rather than partial success
+
+Remaining gaps: SC5 CLI, SC6 UI thinning, SC7 live 8080 validation, SC8 final LLM evaluation
+Next package: SC5 — CLI thin client
+Blocker: none
+Proof level: `multi_item_resume_rerun_component_complete`

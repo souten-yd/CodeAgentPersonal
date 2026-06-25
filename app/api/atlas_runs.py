@@ -30,6 +30,7 @@ class AtlasRunCreateRequest(BaseModel):
     auto_start: bool = False
     preset_id: str = "guarded_low_risk"
     command_id: str = ""
+    item_ids: list[str] = Field(default_factory=list)
     total_items: int = 0
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -49,6 +50,8 @@ class AtlasRunControlRequest(BaseModel):
 
 class AtlasRunStartRequest(BaseModel):
     item_id: str = ""
+    item_ids: list[str] = Field(default_factory=list)
+    mode: str = ""
     preset_id: str = "guarded_low_risk"
     command_id: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -120,6 +123,8 @@ def create_run(payload: AtlasRunCreateRequest, request: Request, background_task
     if payload.auto_start:
         start_payload = AtlasRunStartRequest(
             item_id=payload.item_id,
+            item_ids=list(payload.item_ids or []),
+            mode=payload.mode,
             preset_id=payload.preset_id,
             command_id=payload.command_id,
             metadata=payload.metadata,
@@ -304,12 +309,17 @@ def _run_one_item(request: Request, run_id: str, payload: AtlasRunStartRequest) 
         pool_id=state.pool_id,
         workspace_id=state.workspace_id,
         item_id=payload.item_id,
+        item_ids=list(payload.item_ids or []),
+        mode=payload.mode or state.mode,
         preset_id=payload.preset_id,
         command_id=payload.command_id,
         metadata=_scrub_metadata(payload.metadata),
     )
     orchestrator = _build_run_orchestrator(request, workspace_id=state.workspace_id)
-    orchestrator.run_one_item(run_request)
+    if run_request.item_ids or run_request.mode in {"resume", "rerun"}:
+        orchestrator.run_items(run_request)
+    else:
+        orchestrator.run_one_item(run_request)
 
 
 def _build_run_orchestrator(request: Request, *, workspace_id: str) -> AtlasRunOrchestrator:
