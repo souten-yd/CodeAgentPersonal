@@ -1,11 +1,8 @@
-"""Unit tests for VisualContractRegistry — MVP universal contract.
+"""Unit tests for VisualContractRegistry.
 
-The registry now always returns universal_visual_v1 so no per-type contract
-configuration is needed when adding new artifact types (HTML, Web, Game,
-Business apps all pass the same gate).
-
-Specialised contracts (static_html_visual_v1, canvas_game_visual_v1, etc.)
-still exist and are reachable via get(), but select() always returns universal.
+The registry selects the narrowest known visual contract for classified
+artifact types. universal_visual_v1 remains available as the fallback for
+unknown artifact types.
 """
 from __future__ import annotations
 
@@ -40,24 +37,24 @@ def _make_classification(**kwargs) -> VisualTaskClassification:
 
 
 # ---------------------------------------------------------------------------
-# MVP universal contract — select() always returns universal_visual_v1
+# Contract selection
 # ---------------------------------------------------------------------------
 
-def test_all_artifact_types_get_universal_contract():
-    tasks = [
-        "make a simple HTML page",
-        "animate the text with rainbow colors",
-        "form with name, email, and submit button",
-        "canvas particle animation with requestAnimationFrame",
-        "browser game with score, player, and collision on canvas",
-        "bar chart showing sales data by month",
-        "interactive todo app with add and delete",
-        "business dashboard with KPI widgets",
-    ]
-    for task in tasks:
+def test_known_artifact_types_get_specialized_contracts():
+    cases = {
+        "make a simple HTML page": "static_html_visual_v1",
+        "animate the text with rainbow colors": "animated_dom_visual_v1",
+        "form with name, email, and submit button": "ui_component_visual_v1",
+        "canvas particle animation with requestAnimationFrame": "canvas_animation_visual_v1",
+        "browser game with score, player, and collision on canvas": "canvas_game_visual_v1",
+        "bar chart showing sales data by month": "chart_visualization_v1",
+        "interactive todo app with add and delete": "interactive_web_app_visual_v1",
+        "business dashboard with KPI widgets": "universal_visual_v1",
+    }
+    for task, expected in cases.items():
         c = _contract_for(task)
-        assert c.contract_id == "universal_visual_v1", (
-            f"Expected universal_visual_v1 for '{task}', got {c.contract_id}"
+        assert c.contract_id == expected, (
+            f"Expected {expected} for '{task}', got {c.contract_id}"
         )
 
 
@@ -85,10 +82,10 @@ def test_universal_contract_uses_universal_repair_profile():
     assert c.repair_profile == "universal_visual_repair"
 
 
-def test_select_returns_universal_for_low_confidence():
+def test_select_uses_artifact_type_even_for_low_confidence_classification():
     low_cls = _make_classification(artifact_type="animated_html_page", confidence=0.1)
     c = _reg.select(low_cls)
-    assert c.contract_id == "universal_visual_v1"
+    assert c.contract_id == "animated_dom_visual_v1"
 
 
 def test_select_returns_universal_for_unknown_artifact_type():
@@ -103,7 +100,7 @@ def test_select_is_deterministic():
     cls = _clf.classify(n, text)
     c1 = _reg.select(cls)
     c2 = _reg.select(cls)
-    assert c1.contract_id == c2.contract_id == "universal_visual_v1"
+    assert c1.contract_id == c2.contract_id == "animated_dom_visual_v1"
 
 
 # ---------------------------------------------------------------------------
