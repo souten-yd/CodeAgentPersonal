@@ -429,6 +429,29 @@ Proof level:
 
 ---
 
+# Completion evidence
+
+## GA1 — Post-Apply Preview for generic validation (completed 2026-06-25)
+
+Completed package: GA1 `codex/generic-post-apply-preview`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/atlas_post_apply_preview.py`, `tests/test_atlas_post_apply_preview.py`, this plan
+Behavior implemented: added a reusable in-memory post-apply preview layer that resolves Atlas plan item file changes to `post_apply_content_by_path` without writing to disk. The preview reuses Safe Apply content resolution for edits/append/full-content/diff paths, expands `content_mode="edits"` into final file content, carries unchanged target files into the preview map, reports applied/blocked changes, and blocks slice-derived full-content replacements.
+Focused tests: `pytest -q tests/test_atlas_post_apply_preview.py` -> 10 passed
+Affected tests: `pytest -q tests/test_atlas_file_safe_apply_executor.py` -> 24 passed
+Syntax checks: `py_compile agent/atlas_post_apply_preview.py tests/test_atlas_post_apply_preview.py` -> passed
+8080 live model evidence: not required for GA1; this package is deterministic preview plumbing and makes no LLM call
+Post-apply preview evidence: tests cover JS/TS exact edit preview, Python, JSON, YAML-like text, ordinary text, multi-file unchanged target retention, new-file full content preview, policy-gated existing full content, and slice full-content rejection
+Contract validation evidence: unavailable; generic contract validators are GA3/GA6
+Unavailable checks: no browser/UI evidence; no live model evidence required for this slice
+Safety invariants: no disk write; Safe Apply remains the only authority that changes files; slice markers are not promoted to full file content; `unavailable` is not treated as passed
+Remaining gaps: GA2 sliced-content salvage hardening, GA3 contract registry, GA4 repair recipe registry, GA5 edit primitives, GA6 validators, GA7 live 8080 generic checks, GA8 entrypoint docs
+Next package: GA2 — Harden sliced-content salvage
+Blocker: none
+Proof level: `post_apply_preview_component_complete`
+
+---
+
 # Global safety invariants
 
 - `unavailable` is not `passed`.
