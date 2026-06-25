@@ -35,10 +35,6 @@ def test_rubik_solver_canvas_overrequirement_current_request_does_not_explicitly
         assert "canvas_exists" not in contract.required_signals
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="RV4 must classify Rubik HTML solver requests as interactive web app or UI component.",
-)
 @pytest.mark.parametrize("text", [RUBIK_JA, RUBIK_EN])
 def test_rubik_solver_canvas_overrequirement_expected_interactive_classification(text: str):
     _normalized, classification = _classify(text)
@@ -85,10 +81,6 @@ def test_rubik_solver_canvas_overrequirement_dom_solver_is_not_missing_canvas_fo
     assert "canvas_exists" not in result["missing"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="RV4 must recognize explicit Japanese canvas wording for Rubik tasks.",
-)
 def test_explicit_canvas_rubik_request_still_requires_canvas():
     _normalized, classification = _classify("canvasでルービックキューブを描画して")
     contract = _registry.select(classification)

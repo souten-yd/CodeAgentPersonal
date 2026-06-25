@@ -64,7 +64,7 @@ class NormalizedVisualRequirement:
 
 # (compiled-regex, canonical-name, runtime-requirement-flags)
 _ARTIFACT_HINTS: list[tuple[re.Pattern, str, list[str]]] = [
-    (re.compile(r"\bcanvas\b", re.I),          "canvas",    ["canvas_required", "browser_required"]),
+    (re.compile(r"canvas|キャンバス", re.I),   "canvas",    ["canvas_required", "browser_required"]),
     (re.compile(r"\bwebgl\b",  re.I),          "webgl",     ["webgl_required",  "canvas_required", "browser_required"]),
     (re.compile(r"\bsvg\b",    re.I),          "svg",       ["svg_required",    "browser_required"]),
     (re.compile(r"\bgame\b",   re.I),          "game",      ["canvas_required", "browser_required", "input_required",
@@ -75,7 +75,7 @@ _ARTIFACT_HINTS: list[tuple[re.Pattern, str, list[str]]] = [
                                                "component", ["browser_required"]),
     (re.compile(r"\b(app|application|webapp|web\s+app|dashboard)\b", re.I),
                                                "app",       ["browser_required"]),
-    (re.compile(r"\bhtml?\b",  re.I),          "html_page", ["browser_required"]),
+    (re.compile(r"html?",      re.I),          "html_page", ["browser_required"]),
     (re.compile(r"\bpage\b",   re.I),          "html_page", ["browser_required"]),
 ]
 
@@ -127,7 +127,7 @@ _INTERACTION_PATTERNS: list[tuple[re.Pattern, str, list[str]]] = [
     (re.compile(r"\bpointer\b",                         re.I), "pointer",  ["input_required"]),
     (re.compile(r"\btouch\b",                           re.I), "touch",    ["input_required"]),
     (re.compile(r"\bform\b",                            re.I), "form",     ["input_required"]),
-    (re.compile(r"\b(submit|button)\b",                 re.I), "submit",   ["input_required"]),
+    (re.compile(r"\b(submit|button)\b|ボタン|押す",     re.I), "submit",   ["input_required"]),
     (re.compile(r"\bscroll(ing)?\b",                    re.I), "scroll",   []),   # scroll ≠ user input
     (re.compile(r"\bhover(ing)?\b",                     re.I), "hover",    ["input_required"]),
 ]
