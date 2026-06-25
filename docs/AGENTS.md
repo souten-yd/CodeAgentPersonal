@@ -10,6 +10,8 @@ Start from:
 docs/atlas_server_controlled_ui_cli_plan.md
 ```
 
+This is the **CS0-CS8 Close-Safe Codegen / Server-Controlled UI-CLI** track.
+
 Then use the completed weak-LLM / generic hardening work only as supporting context:
 
 ```text
@@ -22,6 +24,8 @@ docs/weak_llm_large_file_edit_hardening_plan.md
 Make Atlas safe when the browser is closed, refreshed, hidden on mobile, or replaced by CLI.
 
 ```text
+CS = Close-Safe Codegen / Client-Safe Control
+
 Backend = execution authority, state machine, progress log, recovery source
 Web UI  = lightweight viewer plus user-decision sender
 CLI     = lightweight viewer plus user-decision sender
@@ -47,15 +51,15 @@ Do not add game-only special cases at the patch service top level. Games, Web ap
 
 Use `docs/atlas_server_controlled_ui_cli_plan.md` for package sequence and completion evidence:
 
-1. SC0 — Baseline proof: pending
-2. SC1 — Run schema/store/events: pending
-3. SC2 — Run API skeleton: pending
-4. SC3 — RunOrchestrator MVP: pending
-5. SC4 — Multi-item resume/retry/rerun: pending
-6. SC5 — CLI thin client: pending
-7. SC6 — UI thinning: pending
-8. SC7 — Live 8080 weak-LLM validation: pending
-9. SC8 — Final LLM evaluation: pending
+1. CS0 — Baseline proof: pending
+2. CS1 — Run schema/store/events: pending
+3. CS2 — Run API skeleton: pending
+4. CS3 — RunOrchestrator MVP: pending
+5. CS4 — Multi-item resume/retry/rerun: pending
+6. CS5 — CLI thin client: pending
+7. CS6 — UI thinning: pending
+8. CS7 — Live 8080 weak-LLM validation: pending
+9. CS8 — Final LLM evaluation: pending
 
 ## Main files
 
@@ -109,6 +113,7 @@ If the model is unavailable, record the live check as blocked, not passed.
 - Mock output is not live model evidence.
 - `unavailable` is not `passed`.
 - UI and CLI must not directly own patch/apply/verify orchestration.
+- Browser close/reload must not cancel or corrupt an in-progress backend run.
 - Weak/standard large existing-file modification remains edit-only.
 - Raw full content is forbidden under edit-only unless converted into bounded surgical edits against non-sliced full content.
 - Sliced content must never become full file content.
