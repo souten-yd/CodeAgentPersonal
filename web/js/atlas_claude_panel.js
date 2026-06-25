@@ -1854,6 +1854,10 @@
   }
 
   async function approveAndRunPipelineLegacyDisabled(poolId, opts) {
+    void poolId;
+    void opts;
+    throw new Error('legacy_ui_orchestration_disabled');
+
     if (!root.AtlasPipelineAPI) return;
     const resume = !!(opts && opts.resume);
     setBusy(true);
