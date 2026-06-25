@@ -16,6 +16,8 @@ class AtlasRunOrchestratorRequest:
     pool_id: str
     workspace_id: str = "default"
     item_id: str = ""
+    item_ids: list[str] = field(default_factory=list)
+    mode: str = "fresh"
     preset_id: str = "guarded_low_risk"
     command_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -37,6 +39,74 @@ class AtlasRunOrchestrator:
         self.callbacks = callbacks
 
     def run_one_item(self, request: AtlasRunOrchestratorRequest) -> AtlasRunState:
+        return self._run_one_item(request, complete_run=True)
+
+    def run_items(self, request: AtlasRunOrchestratorRequest) -> AtlasRunState:
+        state = self.run_store.load_state(request.run_id)
+        if state.status in TERMINAL_RUN_STATUSES:
+            self._event(state, "run_start_ignored", message="Run is already terminal.")
+            return state
+        if request.mode == "rerun":
+            state = self.run_store.patch_state(
+                state.run_id,
+                {
+                    "status": "running",
+                    "phase": "planning",
+                    "current_item_id": "",
+                    "current_item_index": 0,
+                    "completed_item_ids": [],
+                    "failed_item_ids": [],
+                    "blocked_item_ids": [],
+                    "skipped_item_ids": [],
+                    "requires_user_action": False,
+                    "block_reason": "",
+                    "error": "",
+                    "next_actions": [],
+                },
+            )
+            self._event(state, "run_rerun_reset", message="Run execution state reset for rerun.")
+        pool = self.plan_storage.load_pool(request.pool_id)
+        item_ids = list(request.item_ids or ([request.item_id] if request.item_id else [item.item_id for item in pool.items]))
+        state = self.run_store.patch_state(state.run_id, {"total_items": len(item_ids), "status": "running", "phase": "planning"})
+        self._event(state, "run_multi_item_started", metadata={"item_ids": item_ids, "mode": request.mode})
+        for item_id in item_ids:
+            state = self.run_store.load_state(request.run_id)
+            if state.status == "cancelled":
+                self._event(state, "run_cancel_observed", item_id=item_id, message="Cancellation observed between items.")
+                return state
+            if request.mode != "rerun" and item_id in set(state.completed_item_ids):
+                skipped = list(dict.fromkeys([*state.skipped_item_ids, item_id]))
+                state = self.run_store.patch_state(state.run_id, {"skipped_item_ids": skipped})
+                self._event(state, "run_item_skipped_completed", item_id=item_id)
+                continue
+            item_request = AtlasRunOrchestratorRequest(
+                run_id=request.run_id,
+                pool_id=request.pool_id,
+                workspace_id=request.workspace_id,
+                item_id=item_id,
+                item_ids=[],
+                mode=request.mode,
+                preset_id=request.preset_id,
+                command_id=request.command_id,
+                metadata=dict(request.metadata or {}),
+            )
+            state = self._run_one_item(item_request, complete_run=False)
+            if state.status in {"failed", "blocked", "cancelled"}:
+                return state
+        final_state = self.run_store.load_state(request.run_id)
+        completed = self.run_store.patch_state(
+            final_state.run_id,
+            {
+                "status": "completed",
+                "phase": "final_summary",
+                "requires_user_action": False,
+                "next_actions": [],
+            },
+        )
+        self._event(completed, "run_completed", message="Multi-item backend run completed.")
+        return completed
+
+    def _run_one_item(self, request: AtlasRunOrchestratorRequest, *, complete_run: bool) -> AtlasRunState:
         state = self.run_store.load_state(request.run_id)
         if state.status in TERMINAL_RUN_STATUSES:
             self._event(state, "run_start_ignored", message="Run is already terminal.")
@@ -117,7 +187,7 @@ class AtlasRunOrchestrator:
             apply_payload = self._dump(apply_verify)
             apply_status = str(apply_payload.get("status") or "")
             if apply_status == "applied_and_verified":
-                return self._complete(state, item.item_id, apply_payload)
+                return self._complete(state, item.item_id, apply_payload, terminal=complete_run)
             if apply_status in {"safe_apply_blocked", "verification_blocked"}:
                 return self._block(state, item.item_id, apply_status, metadata=apply_payload)
             return self._fail_or_block(
@@ -180,14 +250,29 @@ class AtlasRunOrchestrator:
         self._event(blocked, "run_blocked", item_id=item_id, message=reason, metadata=dict(metadata or {}))
         return blocked
 
-    def _complete(self, state: AtlasRunState, item_id: str, payload: dict[str, Any]) -> AtlasRunState:
+    def _complete(self, state: AtlasRunState, item_id: str, payload: dict[str, Any], *, terminal: bool) -> AtlasRunState:
+        completed_ids = list(dict.fromkeys([*state.completed_item_ids, item_id]))
+        if not terminal:
+            item_completed = self.run_store.patch_state(
+                state.run_id,
+                {
+                    "status": "running",
+                    "phase": "planning",
+                    "current_item_id": item_id,
+                    "completed_item_ids": completed_ids,
+                    "requires_user_action": False,
+                    "metadata": {**dict(state.metadata or {}), "last_apply_verify_result": payload},
+                },
+            )
+            self._event(item_completed, "run_item_completed", item_id=item_id, message="One item completed.", metadata=payload)
+            return item_completed
         completed = self.run_store.patch_state(
             state.run_id,
             {
                 "status": "completed",
                 "phase": "final_summary",
                 "current_item_id": item_id,
-                "completed_item_ids": [item_id],
+                "completed_item_ids": completed_ids,
                 "requires_user_action": False,
                 "next_actions": [],
                 "metadata": {**dict(state.metadata or {}), "last_apply_verify_result": payload},
