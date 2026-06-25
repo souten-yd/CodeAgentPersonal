@@ -103,6 +103,7 @@ def include_routers(app: FastAPI) -> None:
     network-backed runtime state during module import.
     """
     from app.api.atlas_workflow_state import router as atlas_workflow_state_router
+    from app.api.atlas_runs import router as atlas_runs_router
     from app.api.atlas_automation_safety_profile import (
         router as atlas_automation_safety_profile_router,
     )
@@ -158,6 +159,7 @@ def include_routers(app: FastAPI) -> None:
 
     app.include_router(twin_control_router)
     app.include_router(atlas_workflow_state_router)
+    app.include_router(atlas_runs_router)
     app.include_router(atlas_automation_safety_profile_router)
     app.include_router(atlas_pipeline_router)
     app.include_router(atlas_dev_tools_router)
