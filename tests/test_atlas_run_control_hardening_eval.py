@@ -42,3 +42,28 @@ def test_cs15_runner_preserves_truthful_evidence_contract() -> None:
     assert '"blocked_reason"] = "blocked_live_llm_unavailable"' in SOURCE
     assert '"unavailable_checks"' in SOURCE
     assert "RUNNABLE_PLAN_STATUSES = {\"ready\", \"approval_required\"}" in SOURCE
+
+
+def test_cs16_final_review_mode_builds_required_bundle() -> None:
+    assert "--final-review" in SOURCE
+    assert "build_final_review_bundle" in SOURCE
+    for marker in [
+        "focused_test_outputs",
+        "run_state_json_excerpts",
+        "event_log_excerpts",
+        "retry_revise_evidence",
+        "item_selection_evidence",
+        "duplicate_start_lease_evidence",
+        "cli_transcript_excerpts",
+        "banner_json_no_banner_evidence",
+        "live_scenario_json",
+        "unavailable_checks",
+    ]:
+        assert marker in SOURCE
+
+
+def test_cs16_final_review_blocks_only_on_deterministic_or_contradictory_evidence() -> None:
+    assert "missing_deterministic_check" in SOURCE
+    assert "contradictory_evidence" in SOURCE
+    assert "_filter_llm_blockers" in SOURCE
+    assert "llm_reported_blocking_evidence_issue" in SOURCE

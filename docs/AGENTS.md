@@ -10,7 +10,7 @@ Start from:
 docs/atlas_run_control_cli_banner_plan.md
 ```
 
-This is the **CS9-CS16 Atlas Run Control Hardening / Claude-like CLI / Startup Banner** track.
+This is the completed **CS9-CS16 Atlas Run Control Hardening / Claude-like CLI / Startup Banner** track.
 
 Then read the completed base plan as context:
 
@@ -41,14 +41,14 @@ UI and CLI must not directly orchestrate Plan -> Patch -> Apply -> Verify. They 
 
 Use `docs/atlas_run_control_cli_banner_plan.md` for package sequence and completion evidence:
 
-1. CS9 — Run retry/revise backend execution: pending
-2. CS10 — Backend-owned item ordering and resume target selection: pending
-3. CS11 — Run leases, duplicate-start guard, restart recovery: pending
-4. CS12 — Remove or hard-disable legacy UI orchestration: pending
-5. CS13 — First-class Claude-like Kasane CLI package: pending
-6. CS14 — KasaneCore ASCII startup banner: pending
-7. CS15 — Live 8080 validation: pending
-8. CS16 — Final evidence review and docs closeout: pending
+1. CS9 — Run retry/revise backend execution: completed
+2. CS10 — Backend-owned item ordering and resume target selection: completed
+3. CS11 — Run leases, duplicate-start guard, restart recovery: completed
+4. CS12 — Remove or hard-disable legacy UI orchestration: completed
+5. CS13 — First-class Claude-like Kasane CLI package: completed
+6. CS14 — KasaneCore ASCII startup banner: completed
+7. CS15 — Live 8080 validation: completed
+8. CS16 — Final evidence review and docs closeout: completed
 
 ## Main files
 
