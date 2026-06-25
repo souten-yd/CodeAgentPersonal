@@ -430,7 +430,7 @@ Acceptance:
 |---|---|---|---|
 | RV0 | Baseline proof and reproduction tests | completed | `tests/test_atlas_project_restore_isolation.py`; `tests/test_atlas_project_picker_bootstrap_contract.py`; `tests/test_atlas_visual_rubik_contract.py`; focused 10 passed / 5 xfailed |
 | RV1 | Project-scoped client recovery keys | completed | `web/js/atlas_claude_panel.js`; focused 17 passed; project picker RV2 contract remains xfailed |
-| RV2 | Bootstrap order and selected-project load | pending | |
+| RV2 | Bootstrap order and selected-project load | completed | `web/js/app.js`; focused/affected 21 passed |
 | RV3 | Backend continuation/recovery workspace isolation audit | pending | |
 | RV4 | Rubik / cube visual classification fix | pending | |
 | RV5 | Visual verifier contract evidence and UI diagnostics | pending | |
@@ -485,7 +485,7 @@ Proof level: `baseline_restore_visual_regressions_captured`
 
 ### RV1 — Project-scoped client recovery keys (completed 2026-06-26)
 
-Status: completed locally; PR pending
+Status: completed; PR #2101 merged
 
 Changed files:
 
@@ -515,6 +515,36 @@ Next package: RV2 — Bootstrap order and selected-project load
 Blocker: none
 
 Proof level: `project_scoped_client_recovery_keys_complete`
+
+### RV2 — Bootstrap order and selected-project load (completed 2026-06-26)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `web/js/app.js`
+- `tests/test_atlas_project_picker_bootstrap_contract.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests\test_atlas_project_picker_bootstrap_contract.py tests\test_atlas_project_restore_isolation.py tests\test_atlas_inflight_resume_recovery_contract.py tests\test_atlas_runtime_status_panel_contract.py` -> 21 passed
+- `python -m py_compile tests\test_atlas_project_picker_bootstrap_contract.py` -> passed
+- `node --check web\js\app.js` -> passed
+- `node --check web\js\atlas_claude_panel.js` -> passed
+- `git diff --check` -> passed with CRLF warnings only
+
+Behavior implemented: `bootstrapProjects()` now calls `AtlasClaudePanel.loadProject(chosen.name)` immediately after `setActiveProject(chosen)` and picker rendering when the selected project name is available. Project creation and explicit selection continue to route through `selectProject()`, which already loads the selected project.
+
+Safety invariants: browser bootstrap now loads the active project into the Atlas panel but does not start execution, patch generation, Safe Apply, Verification, retry, or autopilot. Backend Run control remains authoritative.
+
+Remaining gaps: RV3 backend workspace isolation audit, RV4 Rubik classification fix, RV5 diagnostics, RV6 exact project isolation scenario, RV7 live 8080 validation, RV8 final review.
+
+Next package: RV3 — Backend continuation/recovery workspace isolation audit
+
+Blocker: none
+
+Proof level: `bootstrap_selected_project_load_complete`
 
 ## Required focused test matrix
 

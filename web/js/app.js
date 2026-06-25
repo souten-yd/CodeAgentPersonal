@@ -499,6 +499,7 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
     const chosen = (stored && list.find((p) => p.name === stored)) || list[0];
     setActiveProject(chosen);
     renderProjects();
+    try { if (chosen && chosen.name) root.AtlasClaudePanel?.loadProject?.(chosen.name); } catch (_err) {}
   }
 
   // Backwards-compatible accessors: the selected project's working dir IS the
