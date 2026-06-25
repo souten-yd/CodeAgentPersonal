@@ -148,9 +148,21 @@ _APP_KEYWORDS = re.compile(
 # Action verbs that imply interactive functionality even without explicit pointer words
 _ACTION_VERB_KEYWORDS = re.compile(
     r"\b(add|delete|remove|edit|update|create|search|filter|sort|"
-    r"submit|save|load|toggle|select|upload|download|manage|track)\b",
+    r"submit|save|load|toggle|select|upload|download|manage|track|solve|randomi[sz]e)\b",
     re.I,
 )
+_RUBIK_SOLVER_KEYWORDS = re.compile(
+    r"\brubik(?:'s)?\b|ルービック|"
+    r"(?:\bcube\b.*\b(?:solver|solve)\b|\b(?:solver|solve)\b.*\bcube\b)|"
+    r"(?:キューブ.*(?:解く|揃う|そろう)|(?:解く|揃う|そろう).*キューブ)",
+    re.I,
+)
+_RUBIK_INTERACTION_KEYWORDS = re.compile(
+    r"\b(button|solve|solver|step[\s\-]?by[\s\-]?step|random(?:ize|ise|ized|ised)?)\b|"
+    r"ボタン|押す|自動|順次|初期状態|ランダム|解く|揃う|そろう",
+    re.I,
+)
+_HTML_KEYWORDS = re.compile(r"html?", re.I)
 
 _ANIMATION_KEYWORDS = re.compile(
     # Stem-based: animat(e/ion/ing/ed), wave, oscillat(e/ion), etc.
@@ -265,9 +277,28 @@ class VisualTaskClassifier:
             )
 
         # ------------------------------------------------------------------
-        # 5. Interactive web app — app keywords + interaction or action verbs
+        # 5. Puzzle/solver HTML app — interactive stateful UI, not canvas unless explicit
         # ------------------------------------------------------------------
         has_interaction = bool(normalized.interaction_types) or bool(_ACTION_VERB_KEYWORDS.search(text))
+        if (
+            _RUBIK_SOLVER_KEYWORDS.search(text)
+            and ("html_page" in normalized.artifact_type_hints or _HTML_KEYWORDS.search(text))
+            and (has_interaction or _RUBIK_INTERACTION_KEYWORDS.search(text))
+        ):
+            return VisualTaskClassification(
+                artifact_type="interactive_web_app",
+                visual_intent="layout_interaction",
+                interaction_intent=_map_interaction(normalized.interaction_types) if normalized.interaction_types else "click",
+                runtime_requirements=_add_flags(rt, [
+                    "browser_required", "input_required",
+                ]),
+                confidence=0.84,
+                rationale="Rubik/cube solver HTML request with button/solve interaction; no canvas required",
+            )
+
+        # ------------------------------------------------------------------
+        # 6. Interactive web app — app keywords + interaction or action verbs
+        # ------------------------------------------------------------------
         if _APP_KEYWORDS.search(text) and has_interaction:
             return VisualTaskClassification(
                 artifact_type="interactive_web_app",
@@ -281,7 +312,7 @@ class VisualTaskClassifier:
             )
 
         # ------------------------------------------------------------------
-        # 6. UI component — form or component keywords
+        # 7. UI component — form or component keywords
         # ------------------------------------------------------------------
         if _FORM_KEYWORDS.search(text):
             return VisualTaskClassification(
@@ -306,7 +337,7 @@ class VisualTaskClassifier:
             )
 
         # ------------------------------------------------------------------
-        # 7. Animated HTML page — DOM/CSS animations, no canvas
+        # 8. Animated HTML page — DOM/CSS animations, no canvas
         # ------------------------------------------------------------------
         has_animation = (
             "animation_required" in rt
@@ -343,7 +374,7 @@ class VisualTaskClassifier:
             )
 
         # ------------------------------------------------------------------
-        # 8. Audio/video media
+        # 9. Audio/video media
         # ------------------------------------------------------------------
         if _AUDIO_KEYWORDS.search(text) or _VIDEO_KEYWORDS.search(text):
             return VisualTaskClassification(
@@ -360,7 +391,7 @@ class VisualTaskClassifier:
             )
 
         # ------------------------------------------------------------------
-        # 9. Static HTML page — page/document/display keywords, no motion
+        # 10. Static HTML page — page/document/display keywords, no motion
         # ------------------------------------------------------------------
         if _STATIC_KEYWORDS.search(text) or "html_page" in normalized.artifact_type_hints:
             return VisualTaskClassification(
@@ -373,7 +404,7 @@ class VisualTaskClassifier:
             )
 
         # ------------------------------------------------------------------
-        # 10. Unknown — not enough signal
+        # 11. Unknown — not enough signal
         # ------------------------------------------------------------------
         return VisualTaskClassification(
             artifact_type="unknown",

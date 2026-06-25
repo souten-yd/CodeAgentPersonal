@@ -432,7 +432,7 @@ Acceptance:
 | RV1 | Project-scoped client recovery keys | completed | `web/js/atlas_claude_panel.js`; focused 17 passed; project picker RV2 contract remains xfailed |
 | RV2 | Bootstrap order and selected-project load | completed | `web/js/app.js`; focused/affected 21 passed |
 | RV3 | Backend continuation/recovery workspace isolation audit | completed | `tests/test_atlas_continuation_workspace_isolation.py`; focused/affected 37 passed |
-| RV4 | Rubik / cube visual classification fix | pending | |
+| RV4 | Rubik / cube visual classification fix | completed | `agent/atlas_visual_task_classifier.py`; Rubik focused/affected 74 passed |
 | RV5 | Visual verifier contract evidence and UI diagnostics | pending | |
 | RV6 | End-to-end project isolation scenario | pending | |
 | RV7 | Live 8080 Rubik validation | pending | |
@@ -548,7 +548,7 @@ Proof level: `bootstrap_selected_project_load_complete`
 
 ### RV3 — Backend continuation/recovery workspace isolation audit (completed 2026-06-26)
 
-Status: completed locally; PR pending
+Status: completed; PR #2103 merged
 
 Changed files:
 
@@ -576,6 +576,39 @@ Next package: RV4 — Rubik / cube visual classification fix
 Blocker: none
 
 Proof level: `backend_continuation_workspace_isolation_verified`
+
+### RV4 — Rubik / cube visual classification fix (completed 2026-06-26)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `agent/atlas_visual_requirement_normalizer.py`
+- `agent/atlas_visual_task_classifier.py`
+- `tests/test_atlas_visual_rubik_contract.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests\test_atlas_visual_rubik_contract.py tests\test_atlas_visual_task_classifier.py tests\test_visual_contract_matrix.py` -> 74 passed
+- `python -m pytest -q tests\test_atlas_visual_contract_registry.py tests\test_atlas_auto_verification_service.py` -> 35 passed
+- `python -m pytest -q tests\test_atlas_project_restore_isolation.py tests\test_atlas_project_picker_bootstrap_contract.py` -> 10 passed
+- `python -m py_compile agent\atlas_visual_requirement_normalizer.py agent\atlas_visual_task_classifier.py tests\test_atlas_visual_rubik_contract.py` -> passed
+- `git diff --check` -> passed with CRLF warnings only
+
+Behavior implemented: Rubik/cube HTML solver requests with button/solve interaction now classify as `interactive_web_app` with `browser_required` and `input_required`, without `canvas_required`. Explicit canvas wording, including Japanese `canvasでルービックキューブを描画`, still selects a canvas contract and requires `canvas_exists`.
+
+Keyword updates: added minimal Japanese support for `ボタン`, `押す`, `ルービック`, `キューブ`, `解く`, `揃う`, `そろう`, `自動`, `順次`, `初期状態`, and `ランダム`; made `HTML` adjacent to Japanese text detectable without requiring word boundaries.
+
+Safety invariants: visual classification remains deterministic and generic; no game-only special case was added. Canvas remains required only for explicit canvas/WebGL/canvas-rendering requests. No Proposal, Safe Apply, Verification, or Run control authority changed.
+
+Remaining gaps: RV5 diagnostics, RV6 exact project isolation scenario, RV7 live 8080 validation, RV8 final review.
+
+Next package: RV5 — Visual verifier contract evidence and UI diagnostics
+
+Blocker: none
+
+Proof level: `rubik_html_solver_non_canvas_classification_complete`
 
 ## Required focused test matrix
 
