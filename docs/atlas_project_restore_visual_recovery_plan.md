@@ -429,7 +429,7 @@ Acceptance:
 | Package | Goal | Status | Evidence |
 |---|---|---|---|
 | RV0 | Baseline proof and reproduction tests | completed | `tests/test_atlas_project_restore_isolation.py`; `tests/test_atlas_project_picker_bootstrap_contract.py`; `tests/test_atlas_visual_rubik_contract.py`; focused 10 passed / 5 xfailed |
-| RV1 | Project-scoped client recovery keys | pending | |
+| RV1 | Project-scoped client recovery keys | completed | `web/js/atlas_claude_panel.js`; focused 17 passed; project picker RV2 contract remains xfailed |
 | RV2 | Bootstrap order and selected-project load | pending | |
 | RV3 | Backend continuation/recovery workspace isolation audit | pending | |
 | RV4 | Rubik / cube visual classification fix | pending | |
@@ -442,7 +442,7 @@ Acceptance:
 
 ### RV0 — Baseline proof and reproduction tests (completed 2026-06-26)
 
-Status: completed locally; PR pending
+Status: completed; PR #2100 merged
 
 Changed files:
 
@@ -482,6 +482,39 @@ Next package: RV1 — Project-scoped client recovery keys
 Blocker: none
 
 Proof level: `baseline_restore_visual_regressions_captured`
+
+### RV1 — Project-scoped client recovery keys (completed 2026-06-26)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `web/js/atlas_claude_panel.js`
+- `tests/test_atlas_project_restore_isolation.py`
+- `tests/test_atlas_inflight_resume_recovery_contract.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests\test_atlas_project_restore_isolation.py tests\test_atlas_inflight_resume_recovery_contract.py tests\test_atlas_runtime_status_panel_contract.py` -> 17 passed
+- `python -m pytest -q tests\test_atlas_project_picker_bootstrap_contract.py` -> 3 passed, 1 xfailed
+- `python -m py_compile tests\test_atlas_project_restore_isolation.py tests\test_atlas_inflight_resume_recovery_contract.py` -> passed
+- `node --check web\js\atlas_claude_panel.js` -> passed
+- `git diff --check` -> passed with CRLF warnings only
+
+Behavior implemented: added `projectScopedStorageKey()`, `setProjectScopedHint()`, `getProjectScopedHint()`, and `removeProjectScopedHints()` in `web/js/atlas_claude_panel.js`. Pool/run/event recovery hints now use `atlas_claude:<workspace_id>:last_pool_id`, `atlas_claude:<workspace_id>:last_run_id`, and `atlas_claude:<workspace_id>:last_event_sequence` whenever an active project/workspace exists.
+
+Legacy behavior: old global keys remain read-only fallback only when no active project scope exists. Active projects no longer write or read direct global pool/run/event hint keys. A selected project with no pool clears only its scoped hints and renders the empty prompt.
+
+Safety invariants: no backend Run control, Proposal, Safe Apply, Verification, retry, item order, or terminal status behavior changed. UI remains a client of backend state; unavailable evidence is not converted into passed.
+
+Remaining gaps: RV2 bootstrap selected-project load, RV3 backend workspace isolation audit, RV4 Rubik classification fix, RV5 diagnostics, RV6 exact project isolation scenario, RV7 live 8080 validation, RV8 final review.
+
+Next package: RV2 — Bootstrap order and selected-project load
+
+Blocker: none
+
+Proof level: `project_scoped_client_recovery_keys_complete`
 
 ## Required focused test matrix
 

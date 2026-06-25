@@ -40,11 +40,11 @@ def test_create_plan_pool_surfaces_queued_pool_id_before_polling():
 
 
 def test_dispatch_persists_active_pool_id_at_queued_time():
-    # The active_pool_id pointer must be persisted (localStorage + conversation meta) the moment the
-    # job is accepted, not after the poll completes.
+    # The active_pool_id pointer must be persisted (project-scoped localStorage hint +
+    # conversation meta) the moment the job is accepted, not after the poll completes.
     body = _slice(PANEL, "resp = await root.AtlasPipelineAPI.createPlanPool(", "if (!resp.ok) {")
     assert "(queuedPoolId) =>" in body
-    assert "localStorage.setItem(STORAGE_LAST_POOL_ID_KEY, queuedPoolId)" in body
+    assert "setProjectScopedHint(STORAGE_LAST_POOL_ID_KEY, queuedPoolId)" in body
     assert "{ active_pool_id: queuedPoolId }" in body
 
 
