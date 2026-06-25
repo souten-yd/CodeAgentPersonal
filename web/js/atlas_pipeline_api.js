@@ -225,6 +225,9 @@
     retryRun(runId, payload) {
       return atlasFetch(`/api/atlas/runs/${encodeURIComponent(runId)}/retry`, { method: 'POST', body: JSON.stringify(payload || {}) });
     },
+    reviseRun(runId, payload) {
+      return atlasFetch(`/api/atlas/runs/${encodeURIComponent(runId)}/revise`, { method: 'POST', body: JSON.stringify(payload || {}) });
+    },
     getPlanRuntimeStatus(poolId, workspaceId) {
       return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/runtime-status${query({ workspace_id: workspaceId })}`);
     },

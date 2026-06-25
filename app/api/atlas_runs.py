@@ -11,8 +11,10 @@ from agent.atlas_run_orchestrator import (
     AtlasRunOrchestratorCallbacks,
     AtlasRunOrchestratorRequest,
 )
+from agent.atlas_run_retry_policy import retry_decision
 from agent.atlas_run_schema import AtlasRunState, TERMINAL_RUN_STATUSES
 from agent.atlas_run_store import AtlasRunStore
+from agent.atlas_time_utils import utc_now_iso
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
 
@@ -45,6 +47,7 @@ class AtlasRunDecisionRequest(BaseModel):
 
 class AtlasRunControlRequest(BaseModel):
     reason: str = ""
+    mode: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -162,6 +165,11 @@ def get_run_status(run_id: str, request: Request) -> dict[str, Any]:
         "block_reason": state.block_reason,
         "error": state.error,
         "next_actions": state.next_actions,
+        "retry_count": state.retry_count,
+        "max_retries": state.max_retries,
+        "last_retry_reason": state.last_retry_reason,
+        "revision_requested_at": state.revision_requested_at,
+        "revision_note": state.revision_note,
         "terminal": state.terminal,
         "updated_at": state.updated_at,
         "finished_at": state.finished_at,
@@ -292,13 +300,121 @@ def _record_deferred_control(
 
 
 @router.post("/{run_id}/retry")
-def retry_run(run_id: str, payload: AtlasRunControlRequest, request: Request) -> dict[str, Any]:
-    return _record_deferred_control(run_id=run_id, payload=payload, request=request, event_type="run_retry_requested")
+def retry_run(run_id: str, payload: AtlasRunControlRequest, request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    store = _store(request)
+    state = _load_state(store, run_id)
+    decision = retry_decision(state, requested_mode=payload.mode)
+    if not decision.allowed:
+        status_code = 400 if decision.reason == "invalid_retry_mode" else 409
+        store.append_event(
+            state.run_id,
+            event_type="run_retry_rejected",
+            phase=state.phase,
+            status=state.status,
+            message=decision.reason,
+            source="client",
+            metadata={"reason": payload.reason, "mode": payload.mode, "next_actions": decision.next_actions},
+        )
+        raise _api_error(status_code, decision.reason, decision.reason)
+    clean_metadata = _scrub_metadata(payload.metadata)
+    retry_count = max(0, int(state.retry_count or 0)) + 1
+    requested = store.patch_state(
+        state.run_id,
+        {
+            "status": "running",
+            "phase": "planning",
+            "mode": decision.mode,
+            "requires_user_action": False,
+            "block_reason": "",
+            "error": "",
+            "next_actions": decision.next_actions,
+            "retry_count": retry_count,
+            "last_retry_reason": str(payload.reason or "operator_retry"),
+            "finished_at": "",
+            "metadata": {**dict(state.metadata or {}), "last_retry_metadata": clean_metadata},
+        },
+    )
+    request_event = store.append_event(
+        requested.run_id,
+        event_type="run_retry_requested",
+        phase=requested.phase,
+        status=requested.status,
+        message="Client requested backend run retry.",
+        source="client",
+        metadata={
+            "reason": payload.reason,
+            "mode": decision.mode,
+            "retry_count": retry_count,
+            "max_retries": requested.max_retries,
+            "metadata": clean_metadata,
+            "execution_started": True,
+        },
+    )
+    store.append_event(
+        requested.run_id,
+        event_type="run_retry_started",
+        phase=requested.phase,
+        status=requested.status,
+        message="Backend retry execution started.",
+        metadata={"mode": decision.mode, "retry_count": retry_count},
+    )
+    start_payload = AtlasRunStartRequest(mode=decision.mode, metadata={"retry_reason": payload.reason, **dict(clean_metadata or {})})
+    background_tasks.add_task(_run_one_item, request, requested.run_id, start_payload)
+    return {
+        "run_id": requested.run_id,
+        "state": _state_payload(requested),
+        "event": request_event.model_dump(),
+        "execution_started": True,
+        "deferred": False,
+        "reason": decision.reason,
+        "next_actions": decision.next_actions,
+    }
 
 
 @router.post("/{run_id}/revise")
 def revise_run(run_id: str, payload: AtlasRunControlRequest, request: Request) -> dict[str, Any]:
-    return _record_deferred_control(run_id=run_id, payload=payload, request=request, event_type="run_revise_requested")
+    store = _store(request)
+    state = _load_state(store, run_id)
+    note = str(payload.reason or "").strip()
+    if not note:
+        note = str((payload.metadata or {}).get("note") or "revise plan").strip()
+    clean_metadata = _scrub_metadata(payload.metadata)
+    status = state.status if state.status in TERMINAL_RUN_STATUSES else "waiting_for_user"
+    revised = store.patch_state(
+        state.run_id,
+        {
+            "status": status,
+            "requires_user_action": True,
+            "revision_requested_at": utc_now_iso(),
+            "revision_note": note,
+            "next_actions": ["revise_plan"],
+            "metadata": {**dict(state.metadata or {}), "last_revision_metadata": clean_metadata},
+        },
+    )
+    event = store.append_event(
+        revised.run_id,
+        event_type="run_revise_requested",
+        phase=revised.phase,
+        status=revised.status,
+        message="Client requested plan revision; execution was not started.",
+        source="client",
+        metadata={
+            "reason": payload.reason,
+            "mode": payload.mode or "blocked_decision",
+            "metadata": clean_metadata,
+            "execution_started": False,
+            "next_actions": ["revise_plan"],
+        },
+    )
+    return {
+        "run_id": revised.run_id,
+        "state": _state_payload(revised),
+        "event": event.model_dump(),
+        "execution_started": False,
+        "deferred": False,
+        "reason": "revision_note_recorded",
+        "next_actions": ["revise_plan"],
+    }
 
 
 def _run_one_item(request: Request, run_id: str, payload: AtlasRunStartRequest) -> None:

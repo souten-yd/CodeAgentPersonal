@@ -69,7 +69,7 @@ class AtlasRunStore:
             return state
         next_payload = state.model_dump()
         for key, value in dict(patch or {}).items():
-            if key in {"run_id", "pool_id", "created_at", "finished_at"}:
+            if key in {"run_id", "pool_id", "created_at"}:
                 continue
             if key in next_payload:
                 next_payload[key] = value

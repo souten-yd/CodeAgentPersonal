@@ -96,18 +96,15 @@ def test_cancel_marks_run_terminal_and_keeps_event_replay(client: TestClient) ->
     assert events[-1]["event_type"] == "run_cancel_requested"
 
 
-def test_retry_and_revise_are_deferred_control_events(client: TestClient) -> None:
+def test_revise_records_control_event_without_execution(client: TestClient) -> None:
     run_id = client.post("/api/atlas/runs", json={"pool_id": "pool_sc2"}).json()["run_id"]
 
-    retry = client.post(f"/api/atlas/runs/{run_id}/retry", json={"reason": "try again"}).json()
     revise = client.post(f"/api/atlas/runs/{run_id}/revise", json={"reason": "update plan"}).json()
 
-    assert retry["deferred"] is True
-    assert revise["deferred"] is True
-    assert retry["execution_started"] is False
+    assert revise["deferred"] is False
     assert revise["execution_started"] is False
     events = client.get(f"/api/atlas/runs/{run_id}/events", params={"after_sequence": 1}).json()["events"]
-    assert [event["event_type"] for event in events] == ["run_retry_requested", "run_revise_requested"]
+    assert [event["event_type"] for event in events] == ["run_revise_requested"]
 
 
 def test_run_api_rejects_invalid_and_missing_ids(client: TestClient) -> None:

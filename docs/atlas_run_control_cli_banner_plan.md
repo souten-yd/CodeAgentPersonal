@@ -548,7 +548,7 @@ Acceptance:
 
 | Package | Goal | Status | Evidence |
 |---|---|---|---|
-| CS9 | Run retry/revise backend execution | pending | |
+| CS9 | Run retry/revise backend execution | completed | `tests/test_atlas_run_retry_revise.py`; focused/affected 38 passed; 8080 model endpoint reachable |
 | CS10 | Backend-owned item ordering and resume target selection | pending | |
 | CS11 | Run leases, duplicate-start guard, restart recovery | pending | |
 | CS12 | Remove or hard-disable legacy UI orchestration | pending | |
@@ -556,6 +556,49 @@ Acceptance:
 | CS14 | KasaneCore ASCII startup banner | pending | |
 | CS15 | Live 8080 validation | pending | |
 | CS16 | Final evidence review and docs closeout | pending | |
+
+## Completion Evidence
+
+### CS9 — Run retry/revise backend execution (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `agent/atlas_run_retry_policy.py`
+- `agent/atlas_run_schema.py`
+- `agent/atlas_run_store.py`
+- `app/api/atlas_runs.py`
+- `scripts/atlas_run_cli.py`
+- `web/js/atlas_claude_panel.js`
+- `web/js/atlas_pipeline_api.js`
+- `tests/test_atlas_run_retry_revise.py`
+- `tests/test_atlas_run_api.py`
+- `tests/test_atlas_run_cli.py`
+- `tests/test_atlas_runtime_status_panel_contract.py`
+- `docs/atlas_run_control_cli_banner_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_run_retry_revise.py tests/test_atlas_run_api.py tests/test_atlas_run_cli.py tests/test_atlas_runtime_status_panel_contract.py` -> 24 passed
+- `python -m pytest -q tests/test_atlas_run_orchestrator.py tests/test_atlas_run_retry_revise.py tests/test_atlas_run_api.py tests/test_atlas_run_cli.py tests/test_atlas_runtime_status_panel_contract.py tests/test_atlas_server_controlled_flow_eval.py` -> 38 passed
+- `python -m py_compile app/api/atlas_runs.py agent/atlas_run_orchestrator.py agent/atlas_run_store.py agent/atlas_run_schema.py agent/atlas_run_retry_policy.py` -> passed
+- `python -m py_compile app/api/atlas_runs.py agent/atlas_run_schema.py agent/atlas_run_store.py agent/atlas_run_retry_policy.py scripts/atlas_run_cli.py tests/test_atlas_run_retry_revise.py` -> passed
+- `node --check web/js/atlas_claude_panel.js; node --check web/js/atlas_pipeline_api.js` -> passed
+
+8080 evidence: `GET http://127.0.0.1:8080/v1/models` returned model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`. CS9 adds no new LLM-backed generation path, so no live patch-generation replay is counted as CS9 acceptance evidence.
+
+Behavior implemented: `/api/atlas/runs/{run_id}/retry` now validates retry mode, enforces a backend retry budget, rejects completed/cancelled runs unless explicit `mode=rerun`, records `retry_count` / `max_retries` / `last_retry_reason`, emits `run_retry_requested` and `run_retry_started`, and starts backend `resume` or `rerun` orchestration. `/revise` records a first-class revision note and user-action state without falsely claiming execution started.
+
+Safety invariants: retry/revise remain backend Run API operations; UI and CLI only send user intent. Retry resumes through `AtlasRunOrchestrator` and therefore preserves Proposal / Safe Apply / Verification boundaries. Revise does not mark unavailable or unexecuted work as passed.
+
+Remaining gaps: CS10 backend-owned item ordering and resume target selection, CS11 leases/recovery, CS12 hard-disable legacy UI orchestration, CS13 first-class CLI, CS14 banner, CS15 live hardening validation, CS16 final evidence review.
+
+Next package: CS10 — Backend-owned item ordering and resume target selection
+
+Blocker: none
+
+Proof level: `run_retry_revise_backend_execution_complete`
 
 ## Required focused test matrix
 
