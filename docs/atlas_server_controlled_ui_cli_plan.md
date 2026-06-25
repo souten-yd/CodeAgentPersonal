@@ -336,7 +336,7 @@ Also run affected tests for PlanPool API, approvals, patch proposal generation, 
 | SC2 | Run API skeleton | done | PR pending |
 | SC3 | RunOrchestrator MVP | done | PR pending |
 | SC4 | Multi-item resume/retry/rerun | done | PR pending |
-| SC5 | CLI thin client | pending | |
+| SC5 | CLI thin client | done | PR pending |
 | SC6 | UI thinning | pending | |
 | SC7 | Live 8080 weak-LLM validation | pending | |
 | SC8 | Final LLM evaluation | pending | |
@@ -471,3 +471,28 @@ Remaining gaps: SC5 CLI, SC6 UI thinning, SC7 live 8080 validation, SC8 final LL
 Next package: SC5 — CLI thin client
 Blocker: none
 Proof level: `multi_item_resume_rerun_component_complete`
+
+### SC5 — CLI thin client (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `scripts/atlas_run_cli.py`
+- `tests/test_atlas_run_cli.py`
+- `docs/atlas_server_controlled_ui_cli_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_run_cli.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_api.py` -> 20 passed
+- `python -m py_compile scripts/atlas_run_cli.py tests/test_atlas_run_cli.py` -> passed
+- `python -m pytest -q tests/test_atlas_run_cli.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_api.py tests/test_atlas_run_schema.py tests/test_atlas_server_controlled_ui_cli_sc0.py tests/test_phase14_atlas_runs_api.py tests/test_atlas_reload_resume_progress_ui_contract.py tests/test_atlas_workflow_state_truthfulness_contract.py` -> 46 passed
+
+8080 evidence: not required for SC5; this package is an HTTP client wrapper and does not add or change model execution
+
+Safety invariants: CLI calls PlanPool APIs for plan/list/show and `/api/atlas/runs/*` for run start/watch/status/decision/cancel/retry; tests assert the CLI source does not call direct patch proposal, Safe Apply, Verification, or multi-item autopilot execution endpoints
+
+Remaining gaps: SC6 UI thinning, SC7 live 8080 validation, SC8 final LLM evaluation
+Next package: SC6 — UI thinning
+Blocker: none
+Proof level: `cli_run_api_thin_client_complete`
