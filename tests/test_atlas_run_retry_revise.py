@@ -71,8 +71,11 @@ def test_retry_failed_run_starts_backend_resume(client: TestClient, tmp_path: Pa
     assert state["retry_count"] == 1
     assert state["last_retry_reason"] == "try again"
     events = client.get(f"/api/atlas/runs/{run_id}/events", params={"after_sequence": 1}).json()["events"]
-    assert [event["event_type"] for event in events][:2] == ["run_retry_requested", "run_retry_started"]
-    assert events[-1]["event_type"] == "run_completed"
+    event_types = [event["event_type"] for event in events]
+    assert "run_lease_acquired" in event_types
+    assert event_types.index("run_retry_requested") < event_types.index("run_retry_started")
+    assert "run_completed" in event_types
+    assert event_types[-1] == "run_lease_released"
 
 
 def test_retry_budget_is_enforced(client: TestClient, tmp_path: Path) -> None:

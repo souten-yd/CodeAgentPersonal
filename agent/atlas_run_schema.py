@@ -53,6 +53,11 @@ class AtlasRunState(BaseModel):
     last_retry_reason: str = ""
     revision_requested_at: str = ""
     revision_note: str = ""
+    lease_owner: str = ""
+    lease_acquired_at: str = ""
+    lease_expires_at: str = ""
+    worker_heartbeat_at: str = ""
+    resume_after_restart_supported: bool = False
     created_at: str = Field(default_factory=utc_now_iso)
     updated_at: str = Field(default_factory=utc_now_iso)
     finished_at: str = ""
