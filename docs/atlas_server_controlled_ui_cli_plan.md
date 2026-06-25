@@ -332,7 +332,7 @@ Also run affected tests for PlanPool API, approvals, patch proposal generation, 
 | Package | Goal | Status | Evidence |
 |---|---|---|---|
 | SC0 | Baseline proof | completed | `tests/test_atlas_server_controlled_ui_cli_sc0.py`; focused 18 passed |
-| SC1 | Run schema/store/events | pending | |
+| SC1 | Run schema/store/events | completed | `tests/test_atlas_run_schema.py`; focused 5 passed |
 | SC2 | Run API skeleton | pending | |
 | SC3 | RunOrchestrator MVP | pending | |
 | SC4 | Multi-item resume/retry/rerun | pending | |
@@ -372,3 +372,21 @@ Remaining gaps: SC1 run schema/store/events, SC2 Run API skeleton, SC3 backend o
 Next package: SC1 — Run schema/store/events
 Blocker: none
 Proof level: `baseline_gap_frozen`
+
+### SC1 — Run schema/store/events (completed 2026-06-25)
+
+Completed package: SC1 `codex/server-controlled-ui-cli-sc1`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/atlas_run_schema.py`, `agent/atlas_run_events.py`, `agent/atlas_run_store.py`, `tests/test_atlas_run_schema.py`, this plan
+Behavior implemented: added backend-owned Atlas run state and event primitives without exposing new runtime routes. The store can create/load/save run state, append monotonic backend run events, replay events after a cursor, reject unsafe storage IDs, and ignore heartbeat-only updates once a run is terminal.
+Focused tests: `python -m pytest -q tests/test_atlas_run_schema.py` -> 5 passed
+Affected tests: `python -m pytest -q tests/test_atlas_server_controlled_ui_cli_sc0.py` -> 4 passed; `python -m pytest -q tests/test_atlas_runtime_progress_events.py::test_journal_persists_progress_events_and_latest_snapshot` -> 1 passed; `python -m pytest -q tests/test_atlas_runtime_progress_events.py::test_patch_generation_writes_durable_llm_progress_events` -> 1 passed
+Syntax checks: `python -m py_compile agent/atlas_run_schema.py agent/atlas_run_events.py agent/atlas_run_store.py tests/test_atlas_run_schema.py` -> passed
+8080 live model evidence: not required for SC1; this package is deterministic persistence/event plumbing and adds no LLM-backed execution path
+Run/event evidence: tests cover create/load/save, event append and cursor replay, invalid `pool_id` / `workspace_id` / `run_id` rejection, terminal heartbeat-only no-op behavior, and `finished_at` stamping for terminal states
+Unavailable checks: full `tests/test_atlas_runtime_progress_events.py` was not counted as passed because `test_pipeline_events_endpoint_replays_durable_run_progress` did not complete within the local wait window and was stopped; SC1 coverage uses the direct journal replay tests plus new run-store replay tests
+Safety invariants: no Run API exposed yet; no Proposal / Safe Apply / Verification path changed; terminal state cannot be revived by heartbeat-only progress; unavailable evidence is not marked passed
+Remaining gaps: SC2 Run API skeleton, SC3 backend one-item orchestration, SC4 backend multi-item resume/retry/rerun, SC5 CLI, SC6 UI thinning, SC7 live 8080 validation, SC8 final LLM evaluation
+Next package: SC2 — Run API skeleton
+Blocker: none
+Proof level: `run_primitives_component_complete`
