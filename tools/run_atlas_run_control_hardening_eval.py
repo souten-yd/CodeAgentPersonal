@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import tempfile
+import re
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -113,6 +114,52 @@ def _probe_model(timeout: float) -> dict[str, Any]:
         "model_ids": [model for model in model_ids if model],
         "chat_probe_ok": bool(chat_payload.get("choices")),
     }
+
+
+def _post_llm_json(system_prompt: str, user_payload: dict[str, Any], *, timeout: float) -> dict[str, Any] | None:
+    model_ids = [str(model_id) for model_id in user_payload.get("model_ids", []) if str(model_id)]
+    model_id = model_ids[0] if model_ids else ""
+    if not model_id:
+        probe = _probe_model(min(timeout, 10.0))
+        model_id = next((str(item) for item in probe.get("model_ids", []) if str(item)), "")
+    if not model_id:
+        return None
+    body = json.dumps(
+        {
+            "model": model_id,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+            ],
+            "temperature": 0,
+            "stream": False,
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        LLM_ENDPOINT,
+        data=body,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    content = str((((response_payload.get("choices") or [{}])[0]).get("message") or {}).get("content") or "").strip()
+    if not content:
+        return None
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", content, flags=re.S)
+        if not match:
+            return None
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
 
 
 def _pool(pool_id: str, items: list[str], *, completed: list[str] | None = None) -> AtlasPlanPool:
@@ -381,12 +428,190 @@ def run_eval(*, output_json: Path, timeout: float) -> dict[str, Any]:
     return report
 
 
+def _scenario_by_name(live_report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {str(scenario.get("scenario")): scenario for scenario in live_report.get("scenarios", []) if isinstance(scenario, dict)}
+
+
+def _scenario_excerpt(scenario: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "scenario": scenario.get("scenario"),
+        "status": scenario.get("status"),
+        "run_id": scenario.get("run_id"),
+        "final_status": {
+            "status": (scenario.get("final_status") or {}).get("status"),
+            "phase": (scenario.get("final_status") or {}).get("phase"),
+            "terminal": (scenario.get("final_status") or {}).get("terminal"),
+            "block_reason": (scenario.get("final_status") or {}).get("block_reason"),
+        },
+        "event_types": (scenario.get("events") or {}).get("event_types"),
+    }
+
+
+def build_final_review_bundle(live_report: dict[str, Any]) -> dict[str, Any]:
+    scenarios = _scenario_by_name(live_report)
+    return {
+        "track": "CS9-CS16 Atlas Run Control Hardening / Claude-like CLI / Startup Banner",
+        "focused_test_outputs": [
+            {"package": "CS9", "summary": "focused/affected 38 passed"},
+            {"package": "CS10", "summary": "focused/affected 51 passed"},
+            {"package": "CS11", "summary": "focused/affected 48 passed"},
+            {"package": "CS12", "summary": "focused/affected 42 passed"},
+            {"package": "CS13", "summary": "focused/affected 33 passed"},
+            {"package": "CS14", "summary": "focused/affected 36 passed"},
+            {"package": "CS15", "summary": "focused/affected 33 passed and live runner status passed"},
+        ],
+        "run_state_json_excerpts": [_scenario_excerpt(scenario) for scenario in live_report.get("scenarios", [])],
+        "event_log_excerpts": [
+            {
+                "scenario": scenario.get("scenario"),
+                "event_count": (scenario.get("events") or {}).get("count"),
+                "event_types": (scenario.get("events") or {}).get("event_types"),
+            }
+            for scenario in live_report.get("scenarios", [])
+            if isinstance(scenario, dict)
+        ],
+        "retry_revise_evidence": {
+            "retry": {
+                "scenario": "failed_item_retry_uses_run_retry_endpoint",
+                "status": scenarios.get("failed_item_retry_uses_run_retry_endpoint", {}).get("status"),
+                "first_status": (scenarios.get("failed_item_retry_uses_run_retry_endpoint", {}).get("first_status") or {}).get("status"),
+                "final_status": (scenarios.get("failed_item_retry_uses_run_retry_endpoint", {}).get("final_status") or {}).get("status"),
+                "events": (scenarios.get("failed_item_retry_uses_run_retry_endpoint", {}).get("events") or {}).get("event_types"),
+            },
+            "revise": {
+                "source": "CS9 focused tests and docs",
+                "evidence": "revise records run_revise_requested, execution_started=false, deferred=false, and does not mark work passed.",
+            },
+        },
+        "item_selection_evidence": {
+            "scenario": "resume_without_client_item_ids_skips_completed",
+            "status": scenarios.get("resume_without_client_item_ids_skips_completed", {}).get("status"),
+            "completed_item_ids": (scenarios.get("resume_without_client_item_ids_skips_completed", {}).get("final_state") or {}).get("completed_item_ids"),
+            "events": (scenarios.get("resume_without_client_item_ids_skips_completed", {}).get("events") or {}).get("event_types"),
+        },
+        "duplicate_start_lease_evidence": {
+            "duplicate_start": scenarios.get("duplicate_start_rejected_or_idempotent"),
+            "stale_recovery": scenarios.get("stale_running_recovery_marks_blocked_retryable_not_success"),
+        },
+        "cli_transcript_excerpts": {
+            "watch": scenarios.get("api_starts_run_cli_watches_browser_status_observes", {}).get("cli_watch_transcript"),
+            "repl_run": scenarios.get("cli_interactive_style_starts_run_api_watches", {}).get("cli_repl_transcript"),
+        },
+        "banner_json_no_banner_evidence": scenarios.get("banner_interactive_present_json_absent"),
+        "live_scenario_json": {
+            "status": live_report.get("status"),
+            "model_probe": live_report.get("model_probe"),
+            "acceptance_checks": live_report.get("acceptance_checks"),
+            "scenario_count": len(live_report.get("scenarios") or []),
+        },
+        "unavailable_checks": live_report.get("unavailable_checks") or [],
+    }
+
+
+def _deterministic_review_issues(live_report: dict[str, Any]) -> list[dict[str, str]]:
+    required = [
+        "api_starts_run_cli_watches_browser_status_observes",
+        "cli_interactive_style_starts_run_api_watches",
+        "failed_item_retry_uses_run_retry_endpoint",
+        "resume_without_client_item_ids_skips_completed",
+        "duplicate_start_rejected_or_idempotent",
+        "stale_running_recovery_marks_blocked_retryable_not_success",
+        "banner_interactive_present_json_absent",
+    ]
+    issues: list[dict[str, str]] = []
+    if live_report.get("status") != "passed":
+        issues.append({"category": "missing_deterministic_check", "detail": "live report status is not passed"})
+    if (live_report.get("model_probe") or {}).get("status") != "available":
+        issues.append({"category": "missing_deterministic_check", "detail": "8080 model probe is not available"})
+    scenarios = _scenario_by_name(live_report)
+    for name in required:
+        if name not in scenarios:
+            issues.append({"category": "missing_deterministic_check", "detail": f"missing scenario {name}"})
+        elif scenarios[name].get("status") != "passed":
+            issues.append({"category": "contradictory_evidence", "detail": f"scenario {name} status is {scenarios[name].get('status')}"})
+    return issues
+
+
+def _filter_llm_blockers(review: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(review, dict):
+        return []
+    blockers = review.get("blocking_issues") or []
+    allowed = {"missing_deterministic_check", "contradictory_evidence"}
+    return [issue for issue in blockers if isinstance(issue, dict) and str(issue.get("category")) in allowed]
+
+
+def run_final_review(*, input_json: Path, output_json: Path, timeout: float) -> dict[str, Any]:
+    if not input_json.exists():
+        report = {
+            "kind": "atlas_run_control_final_review",
+            "track": "CS16",
+            "created_at": _now(),
+            "status": "blocked",
+            "blocked_reason": "live_scenario_result_json_missing",
+            "input_json": str(input_json),
+        }
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return report
+    live_report = json.loads(input_json.read_text(encoding="utf-8"))
+    bundle = build_final_review_bundle(live_report)
+    deterministic_issues = _deterministic_review_issues(live_report)
+    llm_review: dict[str, Any] | None = None
+    unavailable_checks: list[dict[str, Any]] = list(bundle.get("unavailable_checks") or [])
+    if not deterministic_issues:
+        llm_review = _post_llm_json(
+            "Review the supplied evidence bundle. Return JSON only with keys status, blocking_issues, advisory_notes. "
+            "Only include blocking_issues for category missing_deterministic_check or contradictory_evidence.",
+            {
+                "model_ids": (live_report.get("model_probe") or {}).get("model_ids") or [],
+                "evidence_bundle": bundle,
+            },
+            timeout=timeout,
+        )
+        if llm_review is None:
+            unavailable_checks.append({"status": "blocked_live_llm_unavailable", "url": LLM_ENDPOINT, "error": "final_review_llm_unavailable"})
+    llm_blockers = _filter_llm_blockers(llm_review)
+    status = "passed"
+    blocked_reason = ""
+    if deterministic_issues:
+        status = "blocked"
+        blocked_reason = "deterministic_review_issues"
+    elif llm_review is None:
+        status = "blocked"
+        blocked_reason = "blocked_live_llm_unavailable"
+    elif llm_blockers:
+        status = "blocked"
+        blocked_reason = "llm_reported_blocking_evidence_issue"
+    report = {
+        "kind": "atlas_run_control_final_review",
+        "track": "CS16",
+        "created_at": _now(),
+        "status": status,
+        "blocked_reason": blocked_reason,
+        "input_json": str(input_json),
+        "evidence_bundle": bundle,
+        "deterministic_issues": deterministic_issues,
+        "llm_review": llm_review,
+        "llm_blockers": llm_blockers,
+        "unavailable_checks": unavailable_checks,
+    }
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    return report
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run live CS15 Atlas Run control hardening validation.")
     parser.add_argument("--output-json", type=Path, default=REPO_ROOT / "ca_data" / "atlas_run_control_hardening_eval" / "cs15_live_eval.json")
+    parser.add_argument("--input-json", type=Path, default=REPO_ROOT / "ca_data" / "atlas_run_control_hardening_eval" / "cs15_live_eval.json")
+    parser.add_argument("--review-output-json", type=Path, default=REPO_ROOT / "ca_data" / "atlas_run_control_hardening_eval" / "cs16_final_review.json")
     parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--final-review", action="store_true", help="Ask the 8080 LLM to review an existing CS15 live evidence bundle.")
     args = parser.parse_args()
-    report = run_eval(output_json=args.output_json, timeout=args.timeout)
+    if args.final_review:
+        report = run_final_review(input_json=args.input_json, output_json=args.review_output_json, timeout=args.timeout)
+    else:
+        report = run_eval(output_json=args.output_json, timeout=args.timeout)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report.get("status") == "passed" else 1
 

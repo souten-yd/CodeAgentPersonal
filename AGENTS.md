@@ -2,7 +2,7 @@
 
 ## Active Goal
 
-The current active track is **CS9-CS16 Atlas Run Control Hardening / Claude-like CLI / Startup Banner**.
+The **CS9-CS16 Atlas Run Control Hardening / Claude-like CLI / Startup Banner** track is complete.
 
 Start here:
 
@@ -29,18 +29,18 @@ docs/AGENTS.md
 
 SC0-SC8 moved the normal Web UI execution path to backend `/api/atlas/runs`, added backend run state/events, backend orchestration, a thin CLI wrapper, live 8080 validation, and final evidence review.
 
-CS9-CS16 closes the remaining gaps:
+CS9-CS16 closed the remaining gaps:
 
 | # | Goal | Status |
 |---|---|---|
-| CS9 | Run retry/revise backend execution | pending |
-| CS10 | Backend-owned item ordering and resume target selection | pending |
-| CS11 | Run leases, duplicate-start guard, restart recovery | pending |
-| CS12 | Remove or hard-disable legacy UI orchestration | pending |
-| CS13 | First-class Claude-like Kasane CLI package | pending |
-| CS14 | KasaneCore ASCII startup banner | pending |
-| CS15 | Live 8080 validation | pending |
-| CS16 | Final evidence review and docs closeout | pending |
+| CS9 | Run retry/revise backend execution | completed |
+| CS10 | Backend-owned item ordering and resume target selection | completed |
+| CS11 | Run leases, duplicate-start guard, restart recovery | completed |
+| CS12 | Remove or hard-disable legacy UI orchestration | completed |
+| CS13 | First-class Claude-like Kasane CLI package | completed |
+| CS14 | KasaneCore ASCII startup banner | completed |
+| CS15 | Live 8080 validation | completed |
+| CS16 | Final evidence review and docs closeout | completed |
 
 Previous base status:
 
@@ -83,4 +83,4 @@ Stop for destructive migration, authority conflicts, unavailable live evidence w
 
 ## Completion
 
-This track is complete only when CS9-CS16 pass or truthfully block according to `docs/atlas_run_control_cli_banner_plan.md`.
+This track is complete. See `docs/atlas_run_control_cli_banner_plan.md` for package evidence, live 8080 validation, and final review output.

@@ -555,7 +555,7 @@ Acceptance:
 | CS13 | First-class Claude-like Kasane CLI package | completed | `tests/test_kasane_cli.py`; package entrypoint and wrapper validated; affected 33 passed |
 | CS14 | KasaneCore ASCII startup banner | completed | `tests/test_kasane_startup_banner.py`; CLI/server banner suppression validated; affected 36 passed |
 | CS15 | Live 8080 validation | completed | `tools/run_atlas_run_control_hardening_eval.py`; 8080 chat probe true; 7/7 scenarios passed |
-| CS16 | Final evidence review and docs closeout | pending | |
+| CS16 | Final evidence review and docs closeout | completed | final review status `passed`; deterministic issues none; LLM blockers none |
 
 ## Completion Evidence
 
@@ -824,6 +824,47 @@ Blocker: none
 
 Proof level: `live_run_control_hardening_validation_complete`
 
+### CS16 — Final evidence review and docs closeout (completed 2026-06-25)
+
+Status: completed locally; PR pending
+
+Changed files:
+
+- `tools/run_atlas_run_control_hardening_eval.py`
+- `tests/test_atlas_run_control_hardening_eval.py`
+- `docs/atlas_run_control_cli_banner_plan.md`
+- `AGENTS.md`
+- `docs/AGENTS.md`
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_run_control_hardening_eval.py` -> 6 passed
+- `python -m pytest -q tests/test_atlas_run_control_hardening_eval.py tests/test_atlas_run_retry_revise.py tests/test_atlas_run_item_selection.py tests/test_atlas_run_lease_recovery.py tests/test_kasane_startup_banner.py tests/test_kasane_cli.py tests/test_atlas_run_cli.py` -> 35 passed
+- `python -m py_compile tools/run_atlas_run_control_hardening_eval.py tests/test_atlas_run_control_hardening_eval.py` -> passed
+- `python tools/run_atlas_run_control_hardening_eval.py --output-json ca_data/atlas_run_control_hardening_eval/cs15_live_eval.json --timeout 60` -> status `passed`
+- `python tools/run_atlas_run_control_hardening_eval.py --final-review --input-json ca_data/atlas_run_control_hardening_eval/cs15_live_eval.json --review-output-json ca_data/atlas_run_control_hardening_eval/cs16_final_review.json --timeout 60` -> status `passed`
+
+8080 evidence: final review used `POST http://127.0.0.1:8080/v1/chat/completions` with model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf` after deterministic CS15 live checks passed.
+
+Final review result:
+
+- deterministic issues: none
+- LLM blocking issues: none
+- unavailable checks: none
+- final status: `passed`
+
+Behavior implemented: extended `tools/run_atlas_run_control_hardening_eval.py` with `--final-review`, evidence bundle construction, deterministic issue detection, 8080 LLM advisory review, and strict blocker filtering. The bundle includes focused test summaries, run-state excerpts, event-log excerpts, retry/revise evidence, backend item-selection evidence, duplicate-start/lease/recovery evidence, CLI transcript excerpts, banner JSON/no-banner evidence, live scenario JSON, and unavailable checks.
+
+Safety invariants: final review asks the 8080 LLM only after deterministic checks pass. LLM output can block only for `missing_deterministic_check` or `contradictory_evidence`; advisory notes do not turn passed deterministic evidence into failure. Unavailable LLM review remains `blocked_live_llm_unavailable`, not passed.
+
+Remaining gaps: none for CS9-CS16.
+
+Next package: none; CS9-CS16 is complete.
+
+Blocker: none
+
+Proof level: `final_evidence_review_complete`
+
 ## Required focused test matrix
 
 As packages land, add or update:
@@ -871,3 +912,5 @@ This track is complete only when:
 - KasaneCore ASCII banner appears in interactive startup and can be disabled;
 - 8080 live validation passes or truthfully blocks;
 - final evidence review is written.
+
+Completion status: complete. CS9-CS16 have passed their local focused/affected checks, live 8080 validation, and final evidence review.
