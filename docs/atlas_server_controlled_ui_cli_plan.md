@@ -1,8 +1,18 @@
-# Atlas Server-Controlled UI / CLI Plan
+# Atlas Close-Safe Codegen / Server-Controlled UI-CLI Plan
 
-> Active track: make Atlas safe when the browser is closed.
+> Active track: **CS0-CS8 Close-Safe Codegen**.
 >
-> Start from root `AGENTS.md`, then read this file. This plan replaces UI-owned execution with a backend run control plane and adds a CLI that observes and decides through the same API.
+> Start from root `AGENTS.md`, then read this file. This plan makes Atlas safe when the browser is closed by replacing UI-owned execution with a backend run control plane and by adding a CLI that observes and decides through the same API.
+
+## Naming
+
+This work package sequence is named **CS0-CS8**.
+
+```text
+CS = Close-Safe Codegen / Client-Safe Control
+```
+
+Earlier notes may have used `SC0-SC8`. Treat those as the same track. From this document forward, use **CS0-CS8**.
 
 ## Final goal
 
@@ -20,9 +30,11 @@ The Web UI and CLI must use the same backend `run_id`. Neither client may run it
 
 ## Current problem to remove
 
-Current code already has server-side pieces: read-only workflow state, async PlanPool creation, runtime progress events, recovery summaries, Safe Apply, verification, and multi-item autopilot. But `web/js/atlas_claude_panel.js` still contains `approveAndRunPipeline()`, which fetches the PlanPool, approves items, generates patch proposals, approves proposals, calls apply/verify, polls sub-progress, and classifies the final result in browser JavaScript.
+Current code already has server-side pieces: read-only workflow state, async PlanPool creation, runtime progress events, recovery summaries, Safe Apply, verification, and multi-item autopilot.
 
-That means browser lifetime can affect execution. This track moves that orchestration into the backend.
+However, `web/js/atlas_claude_panel.js` still contains `approveAndRunPipeline()`, which fetches the PlanPool, approves items, generates patch proposals, approves proposals, calls apply/verify, polls sub-progress, and classifies the final result in browser JavaScript.
+
+That means browser lifetime can affect execution. CS0-CS8 moves that orchestration into the backend.
 
 ## Non-negotiable rules
 
@@ -36,12 +48,13 @@ Preserve all root `AGENTS.md` safety rules:
 - external providers remain policy-gated;
 - remote publication still requires explicit user authorization.
 
-Additional rules for this track:
+Additional rules for CS0-CS8:
 
 - UI and CLI must call `/api/atlas/runs/*` for execution.
 - Backend owns item order, retry budget, resume skip logic, phase transition, and terminal status.
 - UI and CLI may only send user intent: approve, revise, cancel, retry, answer clarification.
 - All progress must be replayable from backend event logs after client restart.
+- A browser close/reload must not cancel or corrupt an in-progress backend run.
 
 ## Target API
 
@@ -152,9 +165,11 @@ ATLAS_BASE_URL=http://127.0.0.1:8000
 
 CLI must not call patch proposal, Safe Apply, verification, or autopilot endpoints directly.
 
-## Work packages
+## CS0-CS8 work packages
 
-### SC0: Baseline proof
+Execute these packages in order. Each package must update the status table in this document with truthful evidence.
+
+### CS0: Baseline proof
 
 Freeze the current gap before changing behavior.
 
@@ -176,9 +191,12 @@ Required tests:
 - prove existing pipeline events support replay cursor;
 - prove workflow-state endpoint is read-only/backend-authoritative.
 
-No runtime behavior change in SC0.
+Acceptance:
 
-### SC1: Run schema/store/events
+- No runtime behavior change in CS0.
+- The current UI-owned execution gap is pinned by tests.
+
+### CS1: Run schema/store/events
 
 Add run state and event primitives.
 
@@ -190,7 +208,7 @@ Acceptance:
 - terminal states are not changed by heartbeat-only patches;
 - focused unit tests pass.
 
-### SC2: Run API skeleton
+### CS2: Run API skeleton
 
 Expose `/api/atlas/runs/*` without moving full orchestration yet.
 
@@ -201,7 +219,7 @@ Acceptance:
 - decisions are recorded as events only and do not bypass gates;
 - existing PlanPool/recovery/UI tests still pass.
 
-### SC3: RunOrchestrator MVP
+### CS3: RunOrchestrator MVP
 
 Move one-item execution to backend.
 
@@ -223,7 +241,7 @@ Acceptance:
 - failure becomes failed/blocked, not success;
 - status/events survive client disappearance.
 
-### SC4: Multi-item resume/retry/rerun
+### CS4: Multi-item resume/retry/rerun
 
 Move the current interleaved UI loop into backend.
 
@@ -244,7 +262,7 @@ Acceptance:
 - generation failure before first patch is an honest terminal failure;
 - partial completion is not reported as full success.
 
-### SC5: CLI thin client
+### CS5: CLI thin client
 
 Add CLI using the same Run API.
 
@@ -254,7 +272,7 @@ Acceptance:
 - CLI can be killed and restarted, then `watch <run_id>` resumes from server events;
 - tests prove CLI does not call patch/apply/verify endpoints.
 
-### SC6: UI thinning
+### CS6: UI thinning
 
 Replace browser orchestration with Run API calls.
 
@@ -266,7 +284,7 @@ Acceptance:
 - UI no longer directly calls `generatePatchProposal`, `decidePatchProposal`, or `runMultiItemAutopilot` in the approval path;
 - reload mid-run restores from backend state.
 
-### SC7: Live 8080 weak-LLM validation
+### CS7: Live 8080 weak-LLM validation
 
 Use the user's OpenAI-compatible LLM on:
 
@@ -284,7 +302,7 @@ Required live checks:
 
 If the model is unavailable, record `blocked_live_llm_unavailable`; do not mark the package complete.
 
-### SC8: Final LLM evaluation
+### CS8: Final LLM evaluation
 
 After deterministic tests and live checks, ask the 8080 LLM to review the evidence bundle.
 
@@ -331,15 +349,15 @@ Also run affected tests for PlanPool API, approvals, patch proposal generation, 
 
 | Package | Goal | Status | Evidence |
 |---|---|---|---|
-| SC0 | Baseline proof | pending | |
-| SC1 | Run schema/store/events | pending | |
-| SC2 | Run API skeleton | pending | |
-| SC3 | RunOrchestrator MVP | pending | |
-| SC4 | Multi-item resume/retry/rerun | pending | |
-| SC5 | CLI thin client | pending | |
-| SC6 | UI thinning | pending | |
-| SC7 | Live 8080 weak-LLM validation | pending | |
-| SC8 | Final LLM evaluation | pending | |
+| CS0 | Baseline proof | pending | |
+| CS1 | Run schema/store/events | pending | |
+| CS2 | Run API skeleton | pending | |
+| CS3 | RunOrchestrator MVP | pending | |
+| CS4 | Multi-item resume/retry/rerun | pending | |
+| CS5 | CLI thin client | pending | |
+| CS6 | UI thinning | pending | |
+| CS7 | Live 8080 weak-LLM validation | pending | |
+| CS8 | Final LLM evaluation | pending | |
 
 ## Completion definition
 
