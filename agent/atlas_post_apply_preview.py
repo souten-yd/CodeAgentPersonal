@@ -93,6 +93,7 @@ class AtlasPostApplyPreview:
                 change,
                 current_text=current_text,
                 target_exists=existed,
+                file_path=path,
             )
             if resolved["status"] != "ok":
                 self._block(blocked_changes, reasons, base, str(resolved.get("reason") or "content_unresolved"))

@@ -12,13 +12,48 @@ PLAN_ACTION_TYPES = ["create", "update", "delete", "inspect", "run_command", "te
 PATCH_TASK_KINDS = ["code_change", "configuration_change", "documentation_change", "test_change", "structural_change", "mixed_change"]
 
 
+EDIT_PRIMITIVE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "op": {
+            "type": "string",
+            "enum": [
+                "replace_exact",
+                "search_replace",
+                "replace_symbol",
+                "insert_import",
+                "replace_object_property",
+                "replace_json_pointer",
+                "replace_yaml_path",
+                "replace_sql_statement",
+                "replace_route_handler",
+                "replace_component_prop",
+            ],
+        },
+        "old_string": {"type": "string"},
+        "new_string": {"type": "string"},
+        "search": {"type": "string"},
+        "replace": {"type": "string"},
+        "path": {"type": "string"},
+        "json_pointer": {"type": "string"},
+        "value": {},
+        "import_statement": {"type": "string"},
+        "module": {"type": "string"},
+        "name": {"type": "string"},
+        "symbol": {"type": "string"},
+    },
+    "required": ["op"],
+    "additionalProperties": True,
+}
+
+
 FILE_CHANGE_SCHEMA = {
     "type": "object",
     "properties": {
         "change_id": {"type": "string"},
         "path": {"type": "string"},
         "action_type": {"type": "string", "enum": ["create", "update"]},
-        "content_mode": {"type": "string", "enum": ["full_content", "unified_diff", "edits", "append"]},
+        "content_mode": {"type": "string", "enum": ["full_content", "unified_diff", "edits", "edit_primitives", "append"]},
         "proposed_content": {"type": "string"},
         "patch": {"type": "string"},
         "unified_diff_preview": {"type": "string"},
@@ -31,6 +66,7 @@ FILE_CHANGE_SCHEMA = {
                 "additionalProperties": True,
             },
         },
+        "edit_primitives": {"type": "array", "items": EDIT_PRIMITIVE_SCHEMA},
         "append_content": {"type": "string"},
         "metadata": {"type": "object", "additionalProperties": True},
     },
@@ -65,6 +101,7 @@ def patch_proposal_json_schema(*, require_content: bool = False) -> dict:
                 "additionalProperties": True,
             },
         },
+        "edit_primitives": {"type": "array", "items": EDIT_PRIMITIVE_SCHEMA},
         "unified_diff_preview": {"type": "string"},
         "risk_level": {"type": "string", "enum": RISK_LEVELS},
         "satisfied_requirement_ids": {"type": "array", "items": {"type": "string"}},

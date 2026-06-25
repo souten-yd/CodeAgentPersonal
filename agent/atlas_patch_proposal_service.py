@@ -186,7 +186,7 @@ class AtlasPatchProposalService:
     ALLOWED_SOURCE_TYPES = {"debug_review", "plan_item"}
     LLM_ALLOWED_FIELDS = {
         "title", "summary", "root_cause", "proposed_fix", "target_files", "file_changes", "change_set",
-        "suggested_changes", "unified_diff_preview", "proposed_content", "edits", "risk_level",
+        "suggested_changes", "unified_diff_preview", "proposed_content", "edits", "edit_primitives", "risk_level",
         "verification_plan", "rollback_plan", "assumptions", "satisfied_requirement_ids",
         "preserved_requirement_ids", "implemented_symbols", "behavioral_cases", "verification_cases",
         "known_limitations", "remaining_todos",
@@ -2386,6 +2386,7 @@ class AtlasPatchProposalService:
 
         # Pillar B: surgical string-replacement edits the executor can apply against the current file.
         edits = self._normalize_edits(llm_allowed.get("edits"), warnings)
+        edit_primitives = self._normalize_edit_primitives(llm_allowed.get("edit_primitives"), warnings)
 
         # (A) ENFORCE surgical edits on a large/sliced EXISTING file. A weak/standard tier that
         # re-emitted the whole file instead of surgical edits is converted to minimal edits by diffing
@@ -2407,7 +2408,7 @@ class AtlasPatchProposalService:
                     proposed_content = ""
                     warnings.append("full_content_forbidden_under_edit_only")
 
-        has_content = bool(proposed_content or diff_preview or edits or (file_changes and all(has_file_change_content(fc) for fc in file_changes)))
+        has_content = bool(proposed_content or diff_preview or edits or edit_primitives or (file_changes and all(has_file_change_content(fc) for fc in file_changes)))
         metadata = {
             "source_type": str(input_payload.get("source_type") or "debug_review"),
             "requested_source_type": str(input_payload.get("requested_source_type") or ""),
@@ -2432,6 +2433,8 @@ class AtlasPatchProposalService:
             metadata["proposed_content"] = proposed_content
         if edits:
             metadata["edits"] = edits
+        if edit_primitives:
+            metadata["edit_primitives"] = edit_primitives
         for key in (
             "satisfied_requirement_ids",
             "preserved_requirement_ids",
@@ -3380,14 +3383,61 @@ class AtlasPatchProposalService:
                 warnings.append("duplicate_file_change_path")
                 continue
             seen.add(path)
-            change = {k: raw[k] for k in ("change_id", "path", "action_type", "content_mode", "proposed_content", "patch", "unified_diff_preview", "edits", "append_content", "metadata") if k in raw}
+            change = {k: raw[k] for k in ("change_id", "path", "action_type", "content_mode", "proposed_content", "patch", "unified_diff_preview", "edits", "edit_primitives", "append_content", "metadata") if k in raw}
             change["path"] = path
             change["action_type"] = action
             # Nested edits must pass the SAME validation as top-level edits — without this, a malformed
             # edit (e.g. an empty old_string with no anchor) slips through and blocks the atomic apply.
             if "edits" in change:
                 change["edits"] = self._normalize_edits(change.get("edits"), warnings)
+            if "edit_primitives" in change:
+                change["edit_primitives"] = self._normalize_edit_primitives(change.get("edit_primitives"), warnings)
+            if not str(change.get("content_mode") or "").strip():
+                if change.get("edit_primitives"):
+                    change["content_mode"] = "edit_primitives"
+                elif change.get("edits"):
+                    change["content_mode"] = "edits"
+                elif change.get("append_content"):
+                    change["content_mode"] = "append"
+                elif change.get("patch") or change.get("unified_diff_preview"):
+                    change["content_mode"] = "unified_diff"
+                elif change.get("proposed_content"):
+                    change["content_mode"] = "full_content"
             out.append(change)
+        return out
+
+    def _normalize_edit_primitives(self, raw_primitives: object, warnings: list[str]) -> list[dict]:
+        if not isinstance(raw_primitives, list):
+            return []
+        out: list[dict] = []
+        dropped = False
+        allowed_ops = {
+            "replace_exact",
+            "search_replace",
+            "replace_symbol",
+            "insert_import",
+            "replace_object_property",
+            "replace_json_pointer",
+            "replace_yaml_path",
+            "replace_sql_statement",
+            "replace_route_handler",
+            "replace_component_prop",
+        }
+        for raw in raw_primitives[: self.MAX_EDITS]:
+            if not isinstance(raw, dict):
+                dropped = True
+                continue
+            op = str(raw.get("op") or raw.get("type") or "").strip()
+            if op not in allowed_ops:
+                dropped = True
+                continue
+            normalized = dict(raw)
+            normalized["op"] = op
+            out.append(normalized)
+        if len(raw_primitives) > self.MAX_EDITS:
+            warnings.append("edit_primitives_truncated")
+        if dropped:
+            warnings.append("some_edit_primitives_dropped")
         return out
 
     def generate_fallback_proposal(self, input_payload: dict) -> AtlasPatchProposal:

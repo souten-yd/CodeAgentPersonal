@@ -515,6 +515,27 @@ Proof level: `repair_recipe_registry_component_complete`
 
 ---
 
+## GA5 — File-type-aware edit policy and primitives (completed 2026-06-25)
+
+Completed package: GA5 `codex/filetype-edit-primitives`
+Status: completed; ready for item PR publication and merge
+Changed modules/files: `agent/atlas_edit_primitives.py`, `agent/atlas_file_safe_apply_executor.py`, `agent/atlas_plan_item_file_changes.py`, `agent/atlas_patch_proposal_service.py`, `agent/atlas_llm_schemas.py`, `agent/atlas_post_apply_preview.py`, `tests/test_atlas_edit_primitives.py`, this plan
+Behavior implemented: added a file-type-aware edit policy and a bounded edit primitive vocabulary for weak models. Safe Apply now accepts `content_mode="edit_primitives"` / `edit_primitives` through proposal metadata and file changes, applies implemented primitives against current file content, and blocks unsupported primitives without falling back to raw full content. Implemented primitives cover exact replacement compatibility, JSON Pointer replacement, and conservative Python/JS/TS import insertion.
+Focused tests: `pytest -q tests/test_atlas_edit_primitives.py` -> 22 passed
+Affected tests: `pytest -q tests/test_atlas_file_safe_apply_executor.py tests/test_atlas_post_apply_preview.py` -> 34 passed; `pytest -q tests/test_atlas_patch_proposal_codegen_contract.py tests/test_atlas_patch_output_minimization.py` -> 27 passed
+Syntax checks: `py_compile agent/atlas_edit_primitives.py agent/atlas_file_safe_apply_executor.py agent/atlas_plan_item_file_changes.py agent/atlas_patch_proposal_service.py agent/atlas_llm_schemas.py tests/test_atlas_edit_primitives.py` -> passed
+8080 live model evidence: not required for GA5; this package defines deterministic schema, normalization, and Safe Apply behavior after model output. Live 8080 generic checks remain GA7.
+Post-apply preview evidence: preview now passes `file_path` into Safe Apply content resolution so edit primitives can be resolved consistently in dry-run preview paths.
+Contract validation evidence: unavailable for this slice; GA6 adds deterministic validators over post-apply preview output.
+Unavailable checks: no live model evidence required; unsupported primitives beyond `replace_exact`, `search_replace`, `replace_json_pointer`, and `insert_import` are intentionally bounded rejections.
+Safety invariants: unsupported primitives return `unsupported_edit_primitive`; missing existing target returns `edit_primitives_require_existing_file`; no fallback to full content when a primitive is present; Safe Apply remains the only disk-write authority.
+Remaining gaps: GA6 validators, GA7 live 8080 generic checks, GA8 entrypoint docs
+Next package: GA6 — Generic validators after preview
+Blocker: none
+Proof level: `file_type_edit_primitives_component_complete`
+
+---
+
 # Global safety invariants
 
 - `unavailable` is not `passed`.

@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from agent.atlas_action_type import normalize_action_type
+from agent.atlas_edit_primitives import apply_edit_primitives
 from agent.atlas_plan_item_file_changes import (
     ALLOWED_FILE_CHANGE_ACTIONS,
     FORBIDDEN_FILE_CHANGE_ACTIONS,
@@ -73,7 +74,7 @@ class AtlasFileSafeApplyExecutor:
         # Resolve the final file content. Supports full-file (proposed_content), surgical string
         # replacements (edits: old->new), append, and hunk-aware unified-diff — all computed against
         # the file's CURRENT content so a patch connects to existing code instead of overwriting it.
-        parse = self._resolve_content(item, current_text=current_text, target_exists=existed)
+        parse = self._resolve_content(item, current_text=current_text, target_exists=existed, file_path=rel_target)
         if parse["status"] != "ok":
             return self._blocked(parse["reason"])
         content = parse["content"]
@@ -311,7 +312,7 @@ class AtlasFileSafeApplyExecutor:
                 self._mark_blocked_file(file_results, reasons, base_result, "content_missing")
                 continue
 
-            parse = self._resolve_content_from_metadata(change, current_text=current_text, target_exists=existed)
+            parse = self._resolve_content_from_metadata(change, current_text=current_text, target_exists=existed, file_path=path)
             if parse["status"] != "ok":
                 self._mark_blocked_file(file_results, reasons, base_result, parse["reason"])
                 continue
@@ -346,14 +347,25 @@ class AtlasFileSafeApplyExecutor:
             return None, reason
         return resolved, ""
 
-    def _resolve_content(self, item: AtlasPlanItem, *, current_text: str = "", target_exists: bool = False) -> dict:
+    def _resolve_content(self, item: AtlasPlanItem, *, current_text: str = "", target_exists: bool = False, file_path: str = "") -> dict:
         metadata = item.metadata or {}
-        return self._resolve_content_from_metadata(metadata, current_text=current_text, target_exists=target_exists)
+        return self._resolve_content_from_metadata(metadata, current_text=current_text, target_exists=target_exists, file_path=file_path)
 
-    def _resolve_content_from_metadata(self, metadata: dict, *, current_text: str = "", target_exists: bool = False) -> dict:
+    def _resolve_content_from_metadata(self, metadata: dict, *, current_text: str = "", target_exists: bool = False, file_path: str = "") -> dict:
         patch_proposal = metadata.get("patch_proposal") if isinstance(metadata.get("patch_proposal"), dict) else {}
 
-        # 1. Surgical string-replacement edits (old -> new), like Claude Code's Edit. Applied against
+        # 1. File-type-aware edit primitives. These are bounded operations selected by weak models
+        #    instead of raw full-content rewrites; unsupported primitives block without falling back.
+        primitives = metadata.get("edit_primitives") or patch_proposal.get("edit_primitives")
+        if isinstance(primitives, list) and primitives:
+            if not target_exists:
+                return {"status": "blocked", "reason": "edit_primitives_require_existing_file"}
+            applied = apply_edit_primitives(current_text, primitives, file_path=file_path)
+            if applied.get("status") != "ok":
+                return {"status": "blocked", "reason": str(applied.get("reason") or "edit_primitive_not_applicable")}
+            return {"status": "ok", "content": str(applied.get("content") or ""), "mode": "edit_primitives"}
+
+        # 2. Surgical string-replacement edits (old -> new), like Claude Code's Edit. Applied against
         #    the CURRENT file content; each old_string must appear exactly once. Preferred for existing
         #    files because it cannot clobber unrelated code.
         edits = metadata.get("edits") or patch_proposal.get("edits")
@@ -365,7 +377,7 @@ class AtlasFileSafeApplyExecutor:
                 return {"status": "blocked", "reason": "edit_not_applicable"}
             return {"status": "ok", "content": applied, "mode": "edits"}
 
-        # 2. Append a block to the end of an existing file.
+        # 3. Append a block to the end of an existing file.
         append_text = metadata.get("append_content") or patch_proposal.get("append_content")
         if isinstance(append_text, str) and append_text:
             if not target_exists:
@@ -373,7 +385,7 @@ class AtlasFileSafeApplyExecutor:
             sep = "" if current_text.endswith("\n") or not current_text else "\n"
             return {"status": "ok", "content": current_text + sep + append_text, "mode": "append"}
 
-        # 3. Full-file content (greenfield write or full overwrite).
+        # 4. Full-file content (greenfield write or full overwrite).
         proposed = metadata.get("proposed_content")
         if isinstance(proposed, str) and proposed:
             return {"status": "ok", "content": proposed, "mode": "full_content"}
@@ -381,7 +393,7 @@ class AtlasFileSafeApplyExecutor:
         if isinstance(proposal_content, str) and proposal_content:
             return {"status": "ok", "content": proposal_content, "mode": "full_content"}
 
-        # 4. Unified diff — applied hunk-by-hunk against the current content when the file exists
+        # 5. Unified diff — applied hunk-by-hunk against the current content when the file exists
         #    (precise, preserves unrelated lines); falls back to full-content extraction otherwise.
         for diff in (metadata.get("patch"), metadata.get("unified_diff_preview"),
                      patch_proposal.get("unified_diff_preview") if isinstance(patch_proposal, dict) else None):
