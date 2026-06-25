@@ -1,22 +1,14 @@
 from __future__ import annotations
 
-import os
+from collections.abc import Mapping
+
+from app.startup_banner import BANNER_TEXT, should_show_cli_banner
 
 
-BANNER_TEXT = r""" _  __                         ____               
-| |/ /__ _ ___  __ _ _ __   ___/ ___|___  _ __ ___ 
-| ' // _` / __|/ _` | '_ \ / _ \ |   / _ \| '__/ _ \
-| . \ (_| \__ \ (_| | | | |  __/ |__| (_) | | |  __/
-|_|\_\__,_|___/\__,_|_| |_|\___|\____\___/|_|  \___|
-
-        Atlas * Portal * Forge * Twin"""
-
-
-def should_show_banner(*, json_mode: bool = False, quiet: bool = False) -> bool:
-    if json_mode or quiet:
-        return False
-    if os.environ.get("KASANE_NO_BANNER") == "1":
-        return False
-    if os.environ.get("KASANE_BANNER") == "0":
-        return False
-    return True
+def should_show_banner(
+    *,
+    json_mode: bool = False,
+    quiet: bool = False,
+    env: Mapping[str, str] | None = None,
+) -> bool:
+    return should_show_cli_banner(json_mode=json_mode, quiet=quiet, env=env)
