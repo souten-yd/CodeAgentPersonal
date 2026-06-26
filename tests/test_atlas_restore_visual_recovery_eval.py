@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+
+SOURCE = Path("tools/run_atlas_restore_visual_recovery_eval.py").read_text(encoding="utf-8")
+
+
+def test_rv7_runner_targets_local_8080_and_records_blocked_unavailable() -> None:
+    assert "http://127.0.0.1:8080" in SOURCE
+    assert "/v1/models" in SOURCE
+    assert "/v1/chat/completions" in SOURCE
+    assert "blocked_live_llm_unavailable" in SOURCE
+
+
+def test_rv7_runner_uses_project_planpool_and_run_api_authority() -> None:
+    assert '"/api/atlas/projects"' in SOURCE
+    assert '"/api/atlas/plan-pools?sync=1"' in SOURCE
+    assert '"/api/atlas/runs"' in SOURCE
+    assert "/api/atlas/continuation/latest" in SOURCE
+    assert "/api/atlas/recovery/latest" in SOURCE
+    assert "/api/atlas/patch-proposals/generate" not in SOURCE
+    assert "/api/atlas/automation/safe-apply-one-and-verify" not in SOURCE
+    assert "runMultiItemAutopilot" not in SOURCE
+
+
+def test_rv7_runner_records_required_live_result_fields() -> None:
+    for marker in [
+        "project_name",
+        "workspace_id",
+        "pool_id",
+        "run_id",
+        "visual_contract_id",
+        "artifact_type",
+        "status",
+        "warnings",
+        "missing_signals",
+        "canvas_exists_absent_from_hard_missing",
+    ]:
+        assert marker in SOURCE
+
+
+def test_rv7_runner_keeps_browser_smoke_unavailable_truthful() -> None:
+    assert "browser_smoke_status" in SOURCE
+    assert "skipped_static_only" in SOURCE
+    assert '"browser_smoke_truthful"' in SOURCE
+
+
+def test_rv7_runner_does_not_treat_live_unavailable_as_passed() -> None:
+    assert 'report.update({"status": "blocked", "blocked_reason": "blocked_live_llm_unavailable"' in SOURCE
+    assert "blocked_live_llm_patch_generation_failed" in SOURCE
+    assert 'if not failed:' in SOURCE
+    assert 'elif failed == ["run_completed"] and final_status.get("error") == "patch_proposal_failed":' in SOURCE
+    assert 'report["status"] = "failed"' in SOURCE
