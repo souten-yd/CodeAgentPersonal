@@ -119,8 +119,8 @@
       // Sync path (server returned the full pool directly): pass through unchanged.
       return started;
     },
-    getPlanPoolStatus(poolId) {
-      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/status`, { timeoutMs: 15000 });
+    getPlanPoolStatus(poolId, workspaceId) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/status${query({ workspace_id: workspaceId })}`, { timeoutMs: 15000 });
     },
     // Local models can take a long time while still making progress. The browser does NOT police
     // generation time: whether the model is still generating tokens, has stalled, or is done is
@@ -142,7 +142,7 @@
       // eslint-disable-next-line no-constant-condition
       while (true) {
         await new Promise((r) => setTimeout(r, intervalMs));
-        const st = await this.getPlanPoolStatus(poolId);
+        const st = await this.getPlanPoolStatus(poolId, workspaceId);
         if (!st.ok) {
           // 404 right after submit just means the job file isn't written yet — keep waiting.
           if (st.status === 404) { unreachableSince = 0; continue; }
@@ -200,8 +200,8 @@
     listPlanPools() {
       return atlasFetch('/api/atlas/plan-pools');
     },
-    getPlanPool(poolId) {
-      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}`);
+    getPlanPool(poolId, workspaceId) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId })}`);
     },
     createRun(payload) {
       return atlasFetch('/api/atlas/runs', { method: 'POST', body: JSON.stringify(payload || {}) });

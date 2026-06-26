@@ -369,6 +369,163 @@ def _atlas_components(request: Request, workspace_id: str = "default") -> tuple[
     return root, AtlasPlanPoolStorage(root), AtlasJournal(root, workspace_id=workspace_id or "default")
 
 
+def build_runtime_scope_key(
+    project_path: str = "",
+    workspace_root: str = "",
+    project_id: str = "",
+) -> str:
+    parts: list[str] = []
+    if project_id:
+        parts.append(f"project:{project_id}")
+    for label, value in (("project_path", project_path), ("workspace_root", workspace_root)):
+        text = str(value or "").strip()
+        if not text:
+            continue
+        try:
+            text = os.path.normcase(str(Path(text).expanduser().resolve()))
+        except Exception:
+            text = os.path.normcase(text)
+        parts.append(f"{label}:{text}")
+    return "|".join(parts)
+
+
+def _project_workspace_path(ca_data_root: Path, workspace_id: str) -> str:
+    ws = str(workspace_id or "").strip()
+    if not ws or ws == "default":
+        return ""
+    if "/" in ws or "\\" in ws or ".." in ws:
+        return ""
+    try:
+        return str((Path(ca_data_root) / "atlas" / "projects" / ws / "work").resolve())
+    except Exception:
+        return str(Path(ca_data_root) / "atlas" / "projects" / ws / "work")
+
+
+def _normalize_scope_path(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return os.path.normcase(str(Path(text).expanduser().resolve()))
+    except Exception:
+        return os.path.normcase(text)
+
+
+def _scope_workspace_from_metadata(metadata: dict[str, Any]) -> str:
+    for key in ("workspace_id", "runtime_workspace_id", "atlas_workspace_id"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            return value
+    runtime_scope = metadata.get("runtime_scope") if isinstance(metadata.get("runtime_scope"), dict) else {}
+    value = str(runtime_scope.get("workspace_id") or "").strip()
+    if value:
+        return value
+    owner = metadata.get("plan_pool_owner") if isinstance(metadata.get("plan_pool_owner"), dict) else {}
+    return str(owner.get("workspace_id") or "").strip()
+
+
+def _scope_project_path_from_metadata(metadata: dict[str, Any]) -> str:
+    runtime_scope = metadata.get("runtime_scope") if isinstance(metadata.get("runtime_scope"), dict) else {}
+    for value in (
+        metadata.get("project_path"),
+        metadata.get("workspace_root"),
+        runtime_scope.get("project_path"),
+        runtime_scope.get("workspace_root"),
+    ):
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _attach_runtime_scope_metadata(pool: AtlasPlanPool, *, ca_data_root: Path, workspace_id: str) -> None:
+    metadata = dict(pool.metadata or {})
+    ws = str(workspace_id or "default")
+    project_path = str(pool.project_path or "")
+    scope_key = build_runtime_scope_key(project_path=project_path, workspace_root=project_path, project_id=ws)
+    metadata["workspace_id"] = ws
+    metadata["runtime_scope_key"] = scope_key
+    metadata["runtime_scope"] = {
+        "workspace_id": ws,
+        "project_path": project_path,
+        "workspace_root": project_path or _project_workspace_path(ca_data_root, ws),
+        "project_id": str(pool.project_name or ws),
+        "pool_id": pool.pool_id,
+        "runtime_scope_key": scope_key,
+    }
+    pool.metadata = metadata
+
+
+def _runtime_restore_rejection_reason(
+    pool: AtlasPlanPool,
+    *,
+    ca_data_root: Path,
+    workspace_id: str,
+    allow_unscoped_legacy_read: bool = False,
+) -> str:
+    current_ws = str(workspace_id or "default").strip() or "default"
+    if current_ws == "default" and allow_unscoped_legacy_read:
+        return ""
+    metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
+    stored_ws = _scope_workspace_from_metadata(metadata)
+    if stored_ws and stored_ws != current_ws:
+        return "project_scope_mismatch"
+    if current_ws == "default":
+        return ""
+
+    expected_project_path = _normalize_scope_path(_project_workspace_path(ca_data_root, current_ws))
+    stored_project_path = _normalize_scope_path(
+        str(pool.project_path or "") or _scope_project_path_from_metadata(metadata)
+    )
+    if stored_ws == current_ws:
+        return ""
+    if expected_project_path and stored_project_path and stored_project_path == expected_project_path:
+        return ""
+    if stored_project_path:
+        return "project_scope_mismatch"
+    return "missing_project_scope"
+
+
+def _restore_rejected_payload(pool_id: str, reason: str) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "pool_id": pool_id,
+        "run_id": "",
+        "runtime_restored": False,
+        "active_runtime": False,
+        "restored_state_rejected": True,
+        "restore_rejected_reason": reason,
+        "phase": "restore_rejected",
+        "status": "inactive",
+        "items_total": 0,
+        "items_started": 0,
+        "items_completed": 0,
+        "current_item_index": 0,
+        "current_item_title": "",
+        "message": "Previous runtime state was ignored because it belongs to another project.",
+        "block_reason": None,
+        "error": None,
+        "requires_user_action": False,
+        "next_actions": ["wait"],
+        "authoritative_source": "Atlas runtime restore scope guard",
+        "pool_status": "",
+        "autopilot_run_id": "",
+        "patch_generation": {},
+        "patch_generation_items": {},
+        "reconciliation_diagnostics": [],
+    }
+
+
+def _job_scope_rejection_reason(data: dict[str, Any], workspace_id: str) -> str:
+    current_ws = str(workspace_id or "default").strip() or "default"
+    stored_ws = str(data.get("workspace_id") or data.get("runtime_workspace_id") or "").strip()
+    if stored_ws and stored_ws != current_ws:
+        return "project_scope_mismatch"
+    if current_ws != "default" and not stored_ws:
+        return "missing_project_scope"
+    return ""
+
+
 def _resolve_pool_workspace_root(*, storage: AtlasPlanPoolStorage, ca_data_root: Path, workspace_id: str, pool_id: str) -> Path:
     project_path = ""
     try:
@@ -1079,7 +1236,15 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
         ca_data_root, _storage, _journal = _atlas_components(request, workspace_id=req.workspace_id)
         pool_id = f"pool_{_uuid.uuid4().hex[:12]}"
         now = datetime.now(timezone.utc).isoformat()
-        _write_plan_pool_job(ca_data_root, pool_id, {"pool_id": pool_id, "status": "queued", "created_at": now})
+        initial_scope = {
+            "workspace_id": req.workspace_id,
+            "runtime_scope_key": build_runtime_scope_key(
+                project_path=req.project_path,
+                workspace_root=req.project_path or _project_workspace_path(ca_data_root, req.workspace_id),
+                project_id=req.workspace_id,
+            ),
+        }
+        _write_plan_pool_job(ca_data_root, pool_id, {"pool_id": pool_id, "status": "queued", "created_at": now, **initial_scope})
         app_ref = request.app
 
         def _runner() -> None:
@@ -1092,6 +1257,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
                 "phase": "starting",
                 "phase_index": 0,
                 "phase_total": 0,
+                **initial_scope,
             })
             pending_progress: dict[str, Any] = {}
             last_write_monotonic = 0.0
@@ -1166,6 +1332,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
                         "phase": str(result.status),
                         "clarification_session_id": str(getattr(result, "clarification_session_id", "") or ""),
                         "questions_count": len(getattr(result, "questions", []) or []),
+                        **initial_scope,
                     })
                     _append_runtime_progress(
                         _journal, pool_id=pool_id, run_id=plan_progress_run_id,
@@ -1180,6 +1347,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
                     "finished_at": _finished_iso,
                     "last_progress_at": _finished_iso,
                     "phase": "ready",
+                    **initial_scope,
                 })
                 _append_runtime_progress(
                     _journal,
@@ -1199,6 +1367,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
                     "error": "プラン作成に失敗しました。再実行してください。",
                     "error_kind": exc.__class__.__name__,
                     "created_at": now, "finished_at": datetime.now(timezone.utc).isoformat(),
+                    **initial_scope,
                 })
                 _append_runtime_progress(
                     _journal,
@@ -1215,7 +1384,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
                 )
 
         threading.Thread(target=_runner, daemon=True).start()
-        return {"pool_id": pool_id, "status": "queued"}
+        return {"pool_id": pool_id, "status": "queued", "workspace_id": req.workspace_id}
 
     return _create_plan_pool_core(req, request.app)
 
@@ -1304,6 +1473,9 @@ def get_plan_pool_status(pool_id: str, request: Request, workspace_id: str = Que
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         data = {"pool_id": pool_id, "status": "running"}
+    rejection_reason = _job_scope_rejection_reason(data, workspace_id)
+    if rejection_reason:
+        return _restore_rejected_payload(pool_id, rejection_reason)
     status = str(data.get("status") or "")
     progress_at = _latest_iso(data.get("last_token_at"), data.get("last_progress_at"), data.get("created_at"))
     seconds_since = _seconds_since_iso(progress_at)
@@ -1966,6 +2138,7 @@ def _create_plan_pool_core(
             if value:
                 pool.metadata.setdefault(key, value)
 
+    _attach_runtime_scope_metadata(pool, ca_data_root=ca_data_root, workspace_id=req.workspace_id)
     storage.save_pool(pool)
     journal.save_plan_pool(pool)
     summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None)
@@ -2126,8 +2299,8 @@ def list_plan_pools(request: Request) -> dict[str, Any]:
 
 
 @router.get("/plan-pools/{pool_id}")
-def get_plan_pool(pool_id: str, request: Request) -> dict[str, Any]:
-    _, storage, journal = _atlas_components(request)
+def get_plan_pool(pool_id: str, request: Request, workspace_id: str = Query("default")) -> dict[str, Any]:
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, pool_id)
     try:
         pool = storage.load_pool(pool_id)
@@ -2135,6 +2308,14 @@ def get_plan_pool(pool_id: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="plan pool not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    rejection_reason = _runtime_restore_rejection_reason(
+        pool,
+        ca_data_root=ca_data_root,
+        workspace_id=workspace_id,
+        allow_unscoped_legacy_read=True,
+    )
+    if rejection_reason:
+        return _restore_rejected_payload(pool_id, rejection_reason)
     payload = _model_dump(pool)
     return {"plan_pool": payload, **payload}
 
@@ -2540,17 +2721,34 @@ def get_plan_pool_runtime_status(pool_id: str, request: Request, workspace_id: s
         raise HTTPException(status_code=404, detail={"error": "plan_pool_not_found", "pool_id": pool_id}) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    rejection_reason = _runtime_restore_rejection_reason(pool, ca_data_root=ca_data_root, workspace_id=workspace_id)
+    if rejection_reason:
+        return _restore_rejected_payload(pool_id, rejection_reason)
     return _runtime_status_from_pool(pool, _latest_autopilot_result_payload(ca_data_root, pool.pool_id), _patch_generation_lifecycle_states(journal, pool.pool_id))
 
 
 @router.get("/plan-pools/{pool_id}/markdown")
-def get_plan_pool_markdown(pool_id: str, request: Request, workspace_id: str = "default") -> dict[str, str]:
-    _, storage, journal = _atlas_components(request, workspace_id=workspace_id)
+def get_plan_pool_markdown(pool_id: str, request: Request, workspace_id: str = "default") -> dict[str, Any]:
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=workspace_id)
     markdown_path = Path(journal.paths(pool_id=pool_id).plan_pool_md)
     try:
         if not markdown_path.exists():
             pool = storage.load_pool(pool_id)
+            rejection_reason = _runtime_restore_rejection_reason(pool, ca_data_root=ca_data_root, workspace_id=workspace_id)
+            if rejection_reason:
+                return {
+                    **_restore_rejected_payload(pool_id, rejection_reason),
+                    "markdown": "",
+                }
             markdown_path = journal.write_plan_pool_markdown(pool)
+        else:
+            pool = storage.load_pool(pool_id)
+            rejection_reason = _runtime_restore_rejection_reason(pool, ca_data_root=ca_data_root, workspace_id=workspace_id)
+            if rejection_reason:
+                return {
+                    **_restore_rejected_payload(pool_id, rejection_reason),
+                    "markdown": "",
+                }
         return {"pool_id": pool_id, "markdown": markdown_path.read_text(encoding="utf-8")}
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="plan pool markdown not found") from exc
