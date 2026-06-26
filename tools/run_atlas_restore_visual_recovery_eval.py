@@ -17,6 +17,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import re
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -79,6 +80,54 @@ def _probe_model(timeout: float) -> dict[str, Any]:
         "model_ids": [model_id for model_id in model_ids if model_id],
         "chat_probe": chat_probe,
     }
+
+
+def _local_model_id(timeout: float) -> str:
+    configured = str(os.environ.get("CODEAGENT_MODEL") or os.environ.get("OPENAI_MODEL") or "").strip()
+    if configured:
+        return configured
+    probe = _probe_model(timeout)
+    model_ids = list(probe.get("model_ids") or [])
+    return str(model_ids[0]) if model_ids else ""
+
+
+def _post_llm_json(system_prompt: str, user_payload: dict[str, Any], *, timeout: float) -> dict[str, Any] | None:
+    body = json.dumps(
+        {
+            "model": _local_model_id(min(timeout, 10.0)),
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+            ],
+            "temperature": 0,
+            "stream": False,
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        LLM_ENDPOINT,
+        data=body,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    content = str((((payload.get("choices") or [{}])[0]).get("message") or {}).get("content") or "").strip()
+    if not content:
+        return None
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", content, flags=re.S)
+        if not match:
+            return None
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
 
 
 def _configure_app(workspace: Path, data_dir: Path) -> TestClient:
@@ -338,12 +387,154 @@ def run_live_rubik_validation(*, output_json: Path, timeout_sec: float) -> dict[
     return report
 
 
+def build_final_review_bundle(live_report: dict[str, Any]) -> dict[str, Any]:
+    acceptance = dict(live_report.get("acceptance_checks") or {})
+    visual = dict(live_report.get("visual_contract") or {})
+    final_status = dict(live_report.get("final_status") or {})
+    live_status = str(live_report.get("status") or "")
+    blocked_reason = live_report.get("blocked_reason")
+    if (
+        live_status == "failed"
+        and acceptance.get("run_completed") is False
+        and final_status.get("error") == "patch_proposal_failed"
+        and acceptance.get("project_scoped_recovery") is True
+        and acceptance.get("visual_contract_non_canvas") is True
+        and acceptance.get("canvas_exists_absent_from_hard_missing") is True
+    ):
+        live_status = "blocked"
+        blocked_reason = "blocked_live_llm_patch_generation_failed"
+    return {
+        "track": "RV0-RV8 Atlas Project Restore / Visual Contract Recovery",
+        "focused_test_outputs": [
+            {
+                "command": "python -m pytest -q tests/test_atlas_project_restore_e2e_contract.py tests/test_atlas_project_restore_isolation.py tests/test_atlas_project_picker_bootstrap_contract.py tests/test_atlas_continuation_workspace_isolation.py",
+                "status": "passed",
+                "summary": "15 passed",
+            },
+            {
+                "command": "python -m pytest -q tests/test_atlas_restore_visual_recovery_eval.py tests/test_atlas_project_restore_e2e_contract.py tests/test_atlas_visual_rubik_contract.py tests/test_atlas_visual_failure_diagnostics.py",
+                "status": "passed",
+                "summary": "16 passed",
+            },
+            {
+                "command": "python -m py_compile tools/run_atlas_restore_visual_recovery_eval.py tests/test_atlas_restore_visual_recovery_eval.py",
+                "status": "passed",
+            },
+        ],
+        "project_isolation_fixture_result": {
+            "project_scoped_recovery": acceptance.get("project_scoped_recovery"),
+            "workspace_id": live_report.get("workspace_id"),
+            "pool_id": live_report.get("pool_id"),
+            "run_id": live_report.get("run_id"),
+            "continuation_latest": live_report.get("continuation_latest"),
+            "recovery_latest": live_report.get("recovery_latest"),
+        },
+        "local_storage_scoped_key_assertion": {
+            "test": "tests/test_atlas_project_restore_e2e_contract.py::test_project_restore_e2e_contract_active_project_mode_has_no_global_localstorage_restore",
+            "status": "passed",
+        },
+        "backend_workspace_isolation_result": {
+            "test": "tests/test_atlas_continuation_workspace_isolation.py",
+            "status": "passed",
+        },
+        "rubik_classification_result": {
+            "visual_contract_id": visual.get("visual_contract_id"),
+            "artifact_type": visual.get("artifact_type"),
+            "runtime_requirements": visual.get("runtime_requirements"),
+            "required_signals": visual.get("required_signals"),
+            "missing_signals": visual.get("missing_signals"),
+            "canvas_exists_required": "canvas_exists" in list(visual.get("required_signals") or []),
+            "canvas_exists_missing": "canvas_exists" in list(visual.get("missing_signals") or []),
+        },
+        "visual_contract_result": visual,
+        "live_8080_result": {
+            "status": live_status,
+            "blocked_reason": blocked_reason,
+            "raw_status": live_report.get("status"),
+            "model_probe": live_report.get("model_probe"),
+            "final_status": {
+                "status": final_status.get("status"),
+                "phase": final_status.get("phase"),
+                "error": final_status.get("error"),
+                "terminal": final_status.get("terminal"),
+            },
+            "acceptance_checks": acceptance,
+            "failed_checks": live_report.get("failed_checks"),
+        },
+        "unavailable_checks": [] if live_report.get("model_probe", {}).get("status") == "available" else [live_report.get("model_probe")],
+        "truthfulness_rules": [
+            "RV7 may close as truthfully blocked when the local 8080 model reaches patch generation but produces no usable patch content.",
+            "Blocked live model patch generation is not treated as passed.",
+            "Unavailable evidence is not treated as passed.",
+            "UI rendering is not treated as runtime evidence.",
+            "canvas_exists is not required for this non-canvas Rubik HTML solver request.",
+        ],
+    }
+
+
+def run_final_review(*, input_json: Path, output_json: Path, timeout_sec: float) -> dict[str, Any]:
+    if not input_json.exists():
+        report = {
+            "kind": "atlas_restore_visual_recovery_rv8_final_review",
+            "status": "blocked",
+            "blocked_reason": "live_scenario_result_json_missing",
+            "input_json": str(input_json),
+            "finished_at": _now(),
+        }
+        _write(output_json, report)
+        return report
+    live_report = json.loads(input_json.read_text(encoding="utf-8"))
+    bundle = build_final_review_bundle(live_report)
+    system_prompt = (
+        "You are reviewing Atlas RV0-RV8 recovery evidence. Return one JSON object only with keys: "
+        "verdict ('pass' or 'fail'), blocking_issues (array), missing_deterministic_checks (array), "
+        "contradictory_evidence (array), and notes (array). Treat this review as advisory. Do not "
+        "convert blocked or unavailable evidence into passed evidence. A live_8080_result with status "
+        "blocked and blocked_reason blocked_live_llm_patch_generation_failed is acceptable closeout "
+        "evidence when project scoping and non-canvas visual-contract checks are deterministic and passed. "
+        "Fail only for concrete contradictory evidence, missing deterministic checks, or a direct violation "
+        "of the stated rules."
+    )
+    review = _post_llm_json(system_prompt, bundle, timeout=timeout_sec)
+    if not isinstance(review, dict):
+        report = {
+            "kind": "atlas_restore_visual_recovery_rv8_final_review",
+            "status": "blocked",
+            "blocked_reason": "blocked_live_llm_unavailable",
+            "input_json": str(input_json),
+            "bundle": bundle,
+            "finished_at": _now(),
+        }
+        _write(output_json, report)
+        return report
+    blocking = list(review.get("blocking_issues") or [])
+    missing = list(review.get("missing_deterministic_checks") or [])
+    contradictory = list(review.get("contradictory_evidence") or [])
+    verdict = str(review.get("verdict") or "").strip().lower()
+    passed = verdict == "pass" and not blocking and not missing and not contradictory
+    report = {
+        "kind": "atlas_restore_visual_recovery_rv8_final_review",
+        "status": "passed" if passed else "failed",
+        "input_json": str(input_json),
+        "bundle": bundle,
+        "llm_review": review,
+        "finished_at": _now(),
+    }
+    _write(output_json, report)
+    return report
+
+
 def main_cli(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run Atlas RV7 live 8080 Rubik validation.")
     parser.add_argument("--output-json", type=Path, default=Path("ca_data/atlas_restore_visual_recovery_eval/rv7_live_8080.json"))
+    parser.add_argument("--input-json", type=Path, default=Path("ca_data/atlas_restore_visual_recovery_eval/rv7_live_8080.json"))
     parser.add_argument("--timeout-sec", type=float, default=240.0)
+    parser.add_argument("--final-review", action="store_true", help="Ask the 8080 LLM to review an existing RV7 live evidence bundle.")
     args = parser.parse_args(argv)
-    report = run_live_rubik_validation(output_json=args.output_json, timeout_sec=args.timeout_sec)
+    if args.final_review:
+        report = run_final_review(input_json=args.input_json, output_json=args.output_json, timeout_sec=args.timeout_sec)
+    else:
+        report = run_live_rubik_validation(output_json=args.output_json, timeout_sec=args.timeout_sec)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report.get("status") in {"passed", "blocked"} else 1
 

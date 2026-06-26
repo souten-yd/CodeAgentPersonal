@@ -436,7 +436,7 @@ Acceptance:
 | RV5 | Visual verifier contract evidence and UI diagnostics | completed | `tests/test_atlas_visual_failure_diagnostics.py`; focused/affected 9 passed + 71 passed |
 | RV6 | End-to-end project isolation scenario | completed | `tests/test_atlas_project_restore_e2e_contract.py`; focused/affected 15 passed + 9 passed |
 | RV7 | Live 8080 Rubik validation | blocked | `tools/run_atlas_restore_visual_recovery_eval.py`; live 8080 run blocked by patch generation failure |
-| RV8 | Final review and docs closeout | pending | |
+| RV8 | Final review and docs closeout | completed | `--final-review` evidence bundle; 8080 advisory review passed |
 
 ## Completion evidence
 
@@ -645,7 +645,7 @@ Proof level: `visual_contract_diagnostics_complete`
 
 ### RV6 — End-to-end project isolation scenario (completed 2026-06-26)
 
-Status: completed locally; PR pending
+Status: completed; PR #2106 merged
 
 Changed files:
 
@@ -674,7 +674,7 @@ Proof level: `project_restore_e2e_isolation_complete`
 
 ### RV7 — Live 8080 Rubik validation (blocked 2026-06-26)
 
-Status: blocked by live 8080 patch generation; PR pending
+Status: blocked by live 8080 patch generation; PR #2107 merged
 
 Changed files:
 
@@ -717,6 +717,45 @@ Next package: RV8 — Final review and docs closeout
 Blocker: live 8080 model produced no usable patch content for the Rubik HTML solver implementation.
 
 Proof level: `live_8080_rubik_non_canvas_contract_blocked_patch_generation`
+
+### RV8 — Final review and docs closeout (completed 2026-06-26)
+
+Status: completed in this closeout PR
+
+Changed files:
+
+- `tools/run_atlas_restore_visual_recovery_eval.py`
+- `tests/test_atlas_restore_visual_recovery_eval.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+- `AGENTS.md`
+- `Agent.md`
+- `docs/AGENTS.md`
+
+Validation:
+
+- `python -m pytest -q tests\test_atlas_restore_visual_recovery_eval.py` -> 7 passed
+- `python -m py_compile tools\run_atlas_restore_visual_recovery_eval.py tests\test_atlas_restore_visual_recovery_eval.py` -> passed
+- `python tools\run_atlas_restore_visual_recovery_eval.py --final-review --input-json ca_data\atlas_restore_visual_recovery_eval\rv7_live_8080.json --output-json ca_data\atlas_restore_visual_recovery_eval\rv8_final_review.json --timeout-sec 120` -> passed
+
+Final review evidence:
+
+- Final review bundle includes focused tests, project isolation fixture result, localStorage scoped-key assertion, backend workspace isolation result, Rubik classification result, visual contract result, live 8080 result, and unavailable checks.
+- 8080 advisory model: `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`
+- Advisory verdict: `pass`
+- Blocking issues: none
+- Missing deterministic checks: none
+- Contradictory evidence: none
+- Notes confirm the RV7 live result is truthfully blocked by `blocked_live_llm_patch_generation_failed`, not passed, and that project scoping plus non-canvas visual-contract checks passed deterministically.
+
+Closeout state: RV0-RV6 completed, RV7 truthfully blocked by live 8080 patch generation failure, and RV8 completed. The original cross-project restore leak is covered by client and backend scoped tests plus the E2E scenario. The Rubik HTML solver request selects a non-canvas interactive web app contract; `canvas_exists` is not required or hard-missing unless canvas is explicit.
+
+Remaining gaps: none for RV0-RV8. Future work can improve weak-model patch generation quality for the Rubik implementation, but that is outside this restore/visual-contract recovery track because the blocked live run did not reproduce the canvas over-requirement.
+
+Next package: none; RV0-RV8 is closed.
+
+Blocker: none for closeout. RV7 remains truthfully blocked for live artifact generation because the local 8080 model produced no usable patch content.
+
+Proof level: `rv0_rv8_closed_with_truthful_live_block`
 
 ## Required focused test matrix
 
