@@ -2,7 +2,7 @@
 
 ## Active Goal
 
-The current active track is **RV0-RV8 Atlas Project Restore / Visual Contract Recovery**.
+The **RV0-RV8 Atlas Project Restore / Visual Contract Recovery** track is closed.
 
 Start here:
 
@@ -26,7 +26,7 @@ docs/AGENTS.md
 
 ## Current State
 
-CS9-CS16 completed the backend Run control, Claude-like CLI, and startup banner work. The current recovery track addresses two regressions observed after that work:
+CS9-CS16 completed the backend Run control, Claude-like CLI, and startup banner work. RV0-RV8 then addressed two regressions observed after that work:
 
 1. a newly-created Atlas project can show a PlanPool/run/failure from another project;
 2. an HTML Rubik-cube solver task can fail visual verification because the selected visual contract requires canvas evidence.
@@ -35,15 +35,15 @@ CS9-CS16 completed the backend Run control, Claude-like CLI, and startup banner 
 
 | # | Goal | Status |
 |---|---|---|
-| RV0 | Baseline proof and reproduction tests | pending |
-| RV1 | Project-scoped client recovery keys | pending |
-| RV2 | Bootstrap order and selected-project load | pending |
-| RV3 | Backend continuation/recovery workspace isolation audit | pending |
-| RV4 | Rubik / cube visual classification fix | pending |
-| RV5 | Visual verifier contract evidence and UI diagnostics | pending |
-| RV6 | End-to-end project isolation scenario | pending |
-| RV7 | Live 8080 Rubik validation | pending |
-| RV8 | Final review and docs closeout | pending |
+| RV0 | Baseline proof and reproduction tests | completed |
+| RV1 | Project-scoped client recovery keys | completed |
+| RV2 | Bootstrap order and selected-project load | completed |
+| RV3 | Backend continuation/recovery workspace isolation audit | completed |
+| RV4 | Rubik / cube visual classification fix | completed |
+| RV5 | Visual verifier contract evidence and UI diagnostics | completed |
+| RV6 | End-to-end project isolation scenario | completed |
+| RV7 | Live 8080 Rubik validation | blocked: live 8080 patch generation produced no usable content |
+| RV8 | Final review and docs closeout | completed |
 
 ## Core Rule
 
@@ -70,7 +70,7 @@ Backend Run control remains the execution authority. Web UI and CLI are clients 
 
 ## Execution Rules
 
-For each RV0-RV8 package:
+For any follow-up package derived from this track:
 
 1. Read `docs/atlas_project_restore_visual_recovery_plan.md`.
 2. Verify current code before editing.
@@ -86,4 +86,4 @@ Stop for destructive migration, authority conflicts, unavailable live evidence w
 
 ## Completion
 
-This track is complete only when RV0-RV8 pass or truthfully block according to `docs/atlas_project_restore_visual_recovery_plan.md`.
+This track is complete: RV0-RV6 passed, RV7 truthfully blocked on live 8080 patch generation, and RV8 final review passed according to `docs/atlas_project_restore_visual_recovery_plan.md`.

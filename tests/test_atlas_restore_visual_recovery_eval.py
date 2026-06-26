@@ -52,3 +52,28 @@ def test_rv7_runner_does_not_treat_live_unavailable_as_passed() -> None:
     assert 'if not failed:' in SOURCE
     assert 'elif failed == ["run_completed"] and final_status.get("error") == "patch_proposal_failed":' in SOURCE
     assert 'report["status"] = "failed"' in SOURCE
+
+
+def test_rv8_final_review_mode_builds_required_evidence_bundle() -> None:
+    assert "--final-review" in SOURCE
+    assert "build_final_review_bundle" in SOURCE
+    for marker in [
+        "focused_test_outputs",
+        "project_isolation_fixture_result",
+        "local_storage_scoped_key_assertion",
+        "backend_workspace_isolation_result",
+        "rubik_classification_result",
+        "visual_contract_result",
+        "live_8080_result",
+        "unavailable_checks",
+    ]:
+        assert marker in SOURCE
+
+
+def test_rv8_final_review_does_not_convert_blocked_evidence_to_passed() -> None:
+    assert "convert blocked or unavailable evidence into passed evidence" in SOURCE
+    assert "blocked_live_llm_patch_generation_failed is acceptable closeout" in SOURCE
+    assert "raw_status" in SOURCE
+    assert "blocking_issues" in SOURCE
+    assert "missing_deterministic_checks" in SOURCE
+    assert "contradictory_evidence" in SOURCE

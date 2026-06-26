@@ -16,7 +16,7 @@ Start from:
 docs/atlas_project_restore_visual_recovery_plan.md
 ```
 
-This is the **RV0-RV8 Atlas Project Restore / Visual Contract Recovery** track.
+The **RV0-RV8 Atlas Project Restore / Visual Contract Recovery** track is closed.
 
 Then read these completed tracks as context only:
 
@@ -25,24 +25,24 @@ docs/atlas_run_control_cli_banner_plan.md
 docs/atlas_server_controlled_ui_cli_plan.md
 ```
 
-## Goal
+## Outcome
 
-Recover two user-visible regressions:
+RV0-RV8 recovered and verified two user-visible regressions:
 
 1. a newly-created Atlas project can re-render a PlanPool/run/failure from another project;
 2. an HTML Rubik-cube solver task can fail visual verification because the selected visual contract incorrectly requires canvas evidence.
 
 ## Package order
 
-1. RV0 — Baseline proof and reproduction tests
-2. RV1 — Project-scoped client recovery keys
-3. RV2 — Bootstrap order and selected-project load
-4. RV3 — Backend continuation/recovery workspace isolation audit
-5. RV4 — Rubik / cube visual classification fix
-6. RV5 — Visual verifier contract evidence and UI diagnostics
-7. RV6 — End-to-end project isolation scenario
-8. RV7 — Live 8080 Rubik validation
-9. RV8 — Final review and docs closeout
+1. RV0 — Baseline proof and reproduction tests: completed
+2. RV1 — Project-scoped client recovery keys: completed
+3. RV2 — Bootstrap order and selected-project load: completed
+4. RV3 — Backend continuation/recovery workspace isolation audit: completed
+5. RV4 — Rubik / cube visual classification fix: completed
+6. RV5 — Visual verifier contract evidence and UI diagnostics: completed
+7. RV6 — End-to-end project isolation scenario: completed
+8. RV7 — Live 8080 Rubik validation: blocked by live patch generation failure, with non-canvas contract evidence preserved
+9. RV8 — Final review and docs closeout: completed
 
 ## Core rule
 

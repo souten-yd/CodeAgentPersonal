@@ -10,7 +10,7 @@ Start from:
 docs/atlas_project_restore_visual_recovery_plan.md
 ```
 
-This is the **RV0-RV8 Atlas Project Restore / Visual Contract Recovery** track.
+The **RV0-RV8 Atlas Project Restore / Visual Contract Recovery** track is closed.
 
 Then read completed tracks as context only:
 
@@ -42,15 +42,15 @@ Backend Run control remains authoritative. UI and CLI send user intent and read 
 
 Use `docs/atlas_project_restore_visual_recovery_plan.md` for package sequence and completion evidence:
 
-1. RV0 — Baseline proof and reproduction tests: pending
-2. RV1 — Project-scoped client recovery keys: pending
-3. RV2 — Bootstrap order and selected-project load: pending
-4. RV3 — Backend continuation/recovery workspace isolation audit: pending
-5. RV4 — Rubik / cube visual classification fix: pending
-6. RV5 — Visual verifier contract evidence and UI diagnostics: pending
-7. RV6 — End-to-end project isolation scenario: pending
-8. RV7 — Live 8080 Rubik validation: pending
-9. RV8 — Final review and docs closeout: pending
+1. RV0 — Baseline proof and reproduction tests: completed
+2. RV1 — Project-scoped client recovery keys: completed
+3. RV2 — Bootstrap order and selected-project load: completed
+4. RV3 — Backend continuation/recovery workspace isolation audit: completed
+5. RV4 — Rubik / cube visual classification fix: completed
+6. RV5 — Visual verifier contract evidence and UI diagnostics: completed
+7. RV6 — End-to-end project isolation scenario: completed
+8. RV7 — Live 8080 Rubik validation: blocked by live patch generation failure, with non-canvas contract evidence preserved
+9. RV8 — Final review and docs closeout: completed
 
 ## Main files
 
@@ -92,7 +92,7 @@ The user may provide a weak OpenAI-compatible LLM on:
 http://127.0.0.1:8080/v1
 ```
 
-For RV7, run the live Rubik/project-isolation checks from `docs/atlas_project_restore_visual_recovery_plan.md`. If the model is unavailable, record the live check as blocked, not passed.
+RV7 live Rubik/project-isolation checks are recorded in `docs/atlas_project_restore_visual_recovery_plan.md`. The local model was reachable, but patch generation produced no usable content; this is recorded as blocked, not passed.
 
 ## Must preserve
 
