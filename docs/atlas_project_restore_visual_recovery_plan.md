@@ -435,7 +435,7 @@ Acceptance:
 | RV4 | Rubik / cube visual classification fix | completed | `agent/atlas_visual_task_classifier.py`; Rubik focused/affected 74 passed |
 | RV5 | Visual verifier contract evidence and UI diagnostics | completed | `tests/test_atlas_visual_failure_diagnostics.py`; focused/affected 9 passed + 71 passed |
 | RV6 | End-to-end project isolation scenario | completed | `tests/test_atlas_project_restore_e2e_contract.py`; focused/affected 15 passed + 9 passed |
-| RV7 | Live 8080 Rubik validation | pending | |
+| RV7 | Live 8080 Rubik validation | blocked | `tools/run_atlas_restore_visual_recovery_eval.py`; live 8080 run blocked by patch generation failure |
 | RV8 | Final review and docs closeout | pending | |
 
 ## Completion evidence
@@ -671,6 +671,52 @@ Next package: RV7 — Live 8080 Rubik validation
 Blocker: none
 
 Proof level: `project_restore_e2e_isolation_complete`
+
+### RV7 — Live 8080 Rubik validation (blocked 2026-06-26)
+
+Status: blocked by live 8080 patch generation; PR pending
+
+Changed files:
+
+- `tools/run_atlas_restore_visual_recovery_eval.py`
+- `tests/test_atlas_restore_visual_recovery_eval.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+
+Validation:
+
+- `python -m pytest -q tests\test_atlas_restore_visual_recovery_eval.py` -> 5 passed
+- `python -m py_compile tools\run_atlas_restore_visual_recovery_eval.py tests\test_atlas_restore_visual_recovery_eval.py` -> passed
+- `python tools\run_atlas_restore_visual_recovery_eval.py --output-json ca_data\atlas_restore_visual_recovery_eval\rv7_live_8080.json --timeout-sec 300` -> live 8080 run completed with truthful blocked evidence
+
+Live 8080 evidence:
+
+- `GET http://127.0.0.1:8080/v1/models` -> available, model `Qwen3.6-35B-A3B-UD-IQ4_XS.gguf`
+- Project: `rv7-rubik-live`
+- Workspace: `rv7-rubik-live`
+- Pool ID: `pool_517501dbf0fe`
+- Run ID: `atlas_run_0c39bcda53c5`
+- Backend Run API executed and reached terminal status `failed`
+- Final error: `patch_proposal_failed`
+- Patch failure summary: `semantic_validation_failed:content_missing,satisfied_requirement_ids_missing,semantic_evidence_missing`
+- Visual contract classification: `interactive_web_app_visual_v1`
+- Artifact type: `interactive_web_app`
+- Required signals: `page_loads`, `controls_exist`, `state_changes_on_interaction`
+- Missing signals: `artifact_missing`
+- `canvas_exists` was absent from required signals and absent from hard missing signals
+
+Interpretation: RV7 did not pass because the live 8080 model failed to generate usable patch content for `index.html`; no artifact was written, so browser/runtime visual verification could not pass. The failure does not reproduce the old canvas over-requirement: the selected contract was non-canvas and `canvas_exists` was not a hard missing signal.
+
+Runner behavior: unavailable model evidence is recorded as `blocked_live_llm_unavailable`, and reachable-model patch generation failure is recorded as `blocked_live_llm_patch_generation_failed`, not passed.
+
+Safety invariants: UI/CLI authority was not expanded. The live flow used project creation, PlanPool creation, and backend Run API execution; it did not bypass Proposal, Safe Apply, Verification, or backend Run control. Browser smoke was recorded as skipped/static-only rather than passed.
+
+Remaining gaps: RV8 final review and docs closeout.
+
+Next package: RV8 — Final review and docs closeout
+
+Blocker: live 8080 model produced no usable patch content for the Rubik HTML solver implementation.
+
+Proof level: `live_8080_rubik_non_canvas_contract_blocked_patch_generation`
 
 ## Required focused test matrix
 
