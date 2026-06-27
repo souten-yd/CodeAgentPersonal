@@ -17,6 +17,7 @@ from agent.atlas_run_recovery import recover_stale_runs
 from agent.atlas_run_retry_policy import retry_decision
 from agent.atlas_run_schema import AtlasRunState, TERMINAL_RUN_STATUSES
 from agent.atlas_run_store import AtlasRunStore
+from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_time_utils import utc_now_iso
 from app.api.atlas_root import resolve_atlas_ca_data_root
 
@@ -112,6 +113,145 @@ def _state_payload(state: AtlasRunState) -> dict[str, Any]:
     return state.model_dump()
 
 
+def _current_llm_max_ctx(request: Request) -> int:
+    provider = getattr(getattr(request, "app", None), "state", None)
+    provider = getattr(provider, "runtime_llm_props_provider", None)
+    if not callable(provider):
+        return 0
+    try:
+        props = provider() or {}
+        return max(0, int(props.get("n_ctx_runtime") or props.get("n_ctx") or 0))
+    except Exception:
+        return 0
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return max(0, int(value))
+    except Exception:
+        return None
+
+
+def _find_first_int(payload: Any, keys: set[str]) -> int | None:
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if str(key) in keys:
+                found = _int_or_none(value)
+                if found is not None:
+                    return found
+        for value in payload.values():
+            found = _find_first_int(value, keys)
+            if found is not None:
+                return found
+    if isinstance(payload, list):
+        for value in payload:
+            found = _find_first_int(value, keys)
+            if found is not None:
+                return found
+    return None
+
+
+def _token_usage_from_payload(payload: Any) -> dict[str, int]:
+    generated = _find_first_int(payload, {"generated_tokens", "tokens_generated", "tokens_total", "output_tokens"})
+    context = _find_first_int(payload, {"context_tokens", "prompt_tokens", "input_tokens"})
+    max_ctx = _find_first_int(payload, {"max_context_tokens", "max_ctx", "n_ctx_runtime", "n_ctx"})
+    usage: dict[str, int] = {}
+    if generated is not None:
+        usage["generated_tokens"] = generated
+    if context is not None:
+        usage["context_tokens"] = context
+    if max_ctx is not None:
+        usage["max_context_tokens"] = max_ctx
+    return usage
+
+
+def _item_patch_generation_sources(pool: Any, state: AtlasRunState) -> list[Any]:
+    sources: list[Any] = []
+    if pool is None:
+        return sources
+    current_item_id = str(state.current_item_id or "")
+    for item in getattr(pool, "items", []) or []:
+        if current_item_id and str(getattr(item, "item_id", "")) != current_item_id:
+            continue
+        metadata = getattr(item, "metadata", {}) or {}
+        patch_generation = metadata.get("patch_generation") if isinstance(metadata, dict) else None
+        if isinstance(patch_generation, dict):
+            sources.append(patch_generation)
+    return sources
+
+
+def _run_token_usage(store: AtlasRunStore, state: AtlasRunState, request: Request, pool: Any) -> dict[str, int]:
+    sources: list[Any] = []
+    try:
+        sources.extend(event.model_dump() for event in reversed(store.read_events(state.run_id, after_sequence=0, limit=1000)))
+    except Exception:
+        pass
+    metadata = dict(state.metadata or {})
+    sources.extend([metadata, metadata.get("patch_generation"), metadata.get("last_apply_verify_result")])
+    sources.extend(_item_patch_generation_sources(pool, state))
+    usage: dict[str, int] = {}
+    for source in sources:
+        if not source:
+            continue
+        candidate = _token_usage_from_payload(source)
+        if candidate:
+            usage.update(candidate)
+            break
+    generated = int(usage.get("generated_tokens") or 0)
+    context = int(usage.get("context_tokens") or 0)
+    max_ctx = int(usage.get("max_context_tokens") or 0) or _current_llm_max_ctx(request)
+    return {
+        "generated_tokens": generated,
+        "tokens_generated": generated,
+        "context_tokens": context,
+        "max_context_tokens": max_ctx,
+        "max_ctx": max_ctx,
+    }
+
+
+def _load_plan_pool_for_run(root_dir: Any, state: AtlasRunState) -> Any | None:
+    try:
+        return AtlasPlanPoolStorage(root_dir).load_pool(state.pool_id)
+    except Exception:
+        return None
+
+
+def _run_item_status(item_id: str, state: AtlasRunState) -> str:
+    if item_id in set(state.completed_item_ids or []):
+        return "completed"
+    if item_id in set(state.failed_item_ids or []):
+        return "failed"
+    if item_id in set(state.blocked_item_ids or []):
+        return "blocked"
+    if item_id in set(state.skipped_item_ids or []):
+        return "skipped"
+    if item_id == state.current_item_id and state.status == "running":
+        return "running"
+    return "pending"
+
+
+def _run_item_progress(pool: Any, state: AtlasRunState) -> list[dict[str, str]]:
+    if pool is None:
+        return []
+    rows: list[dict[str, str]] = []
+    for item in getattr(pool, "items", []) or []:
+        item_id = str(getattr(item, "item_id", "") or "")
+        if not item_id:
+            continue
+        status = _run_item_status(item_id, state)
+        rows.append(
+            {
+                "item_id": item_id,
+                "title": str(getattr(item, "title", "") or getattr(item, "goal", "") or item_id),
+                "status": status,
+                "phase": str(state.phase or "") if status != "pending" else "",
+            }
+        )
+    return rows
+
+
 def _lease_owner(run_id: str) -> str:
     return f"atlas_run_worker:{run_id}:{uuid4().hex[:8]}"
 
@@ -181,8 +321,14 @@ def get_run(run_id: str, request: Request) -> dict[str, Any]:
 
 @router.get("/{run_id}/status")
 def get_run_status(run_id: str, request: Request) -> dict[str, Any]:
-    store = _store(request)
+    root_dir = resolve_atlas_ca_data_root(request)
+    store = AtlasRunStore(root_dir)
     state = _load_state(store, run_id)
+    pool = _load_plan_pool_for_run(root_dir, state)
+    completed_item_ids = list(state.completed_item_ids or [])
+    failed_item_ids = list(state.failed_item_ids or [])
+    blocked_item_ids = list(state.blocked_item_ids or [])
+    skipped_item_ids = list(state.skipped_item_ids or [])
     return {
         "run_id": state.run_id,
         "pool_id": state.pool_id,
@@ -192,6 +338,17 @@ def get_run_status(run_id: str, request: Request) -> dict[str, Any]:
         "current_item_id": state.current_item_id,
         "current_item_index": state.current_item_index,
         "total_items": state.total_items,
+        "completed_item_ids": completed_item_ids,
+        "failed_item_ids": failed_item_ids,
+        "blocked_item_ids": blocked_item_ids,
+        "skipped_item_ids": skipped_item_ids,
+        "completed_count": len(completed_item_ids),
+        "failed_count": len(failed_item_ids),
+        "blocked_count": len(blocked_item_ids),
+        "skipped_count": len(skipped_item_ids),
+        "running_count": 1 if state.status == "running" and state.current_item_id else 0,
+        "item_progress": _run_item_progress(pool, state),
+        "token_usage": _run_token_usage(store, state, request, pool),
         "requires_user_action": state.requires_user_action,
         "block_reason": state.block_reason,
         "error": state.error,

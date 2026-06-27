@@ -1859,12 +1859,37 @@
       try { status = await root.AtlasPipelineAPI.getRunStatus(runId); } catch (_) {}
       if (status && status.ok && status.data) {
         const d = status.data;
+        const itemSteps = normalizeRunItemProgress(d.item_progress, d);
+        if (itemSteps.length) renderPlanSteps(stages, itemSteps);
+        const tokenUsage = runTokenUsagePayload(d);
+        window.dispatchEvent(new CustomEvent('atlas:llm-progress', {
+          detail: {
+            phase: d.phase || d.status,
+            tokens: tokenUsage.generated,
+            maxCtx: tokenUsage.maxCtx,
+            secondsSince: 0,
+            poolId,
+            runId,
+            status: d.status,
+            connectionState: 'live',
+          },
+        }));
         renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
           phase: d.phase || 'server_controlled_run',
           status: d.status || 'running',
           items_total: d.total_items || 0,
+          items_completed: d.completed_count || 0,
+          failed_count: d.failed_count || 0,
+          blocked_count: d.blocked_count || 0,
+          skipped_count: d.skipped_count || 0,
           current_item_index: d.current_item_index || 0,
-          current_item_title: d.current_item_id || '',
+          current_item_id: d.current_item_id || '',
+          current_item_title: currentRunItemTitle(d, itemSteps),
+          token_usage: d.token_usage || {},
+          generated_tokens: tokenUsage.generated,
+          tokens_generated: tokenUsage.generated,
+          context_tokens: tokenUsage.context,
+          max_ctx: tokenUsage.maxCtx,
           message: `Backend run ${d.status || 'running'}`,
           run_id: runId,
           error: d.error || d.block_reason || '',
@@ -2368,6 +2393,64 @@
     scrollTranscriptIfAtBottom();
   }
 
+  function runItemStepState(status) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'completed') return 'done';
+    if (s === 'running') return 'running';
+    if (s === 'failed' || s === 'blocked') return 'failed';
+    if (s === 'skipped') return 'done';
+    return 'pending';
+  }
+
+  function normalizeRunItemProgress(itemProgress, statusPayload) {
+    const rows = Array.isArray(itemProgress) ? itemProgress : [];
+    if (rows.length) {
+      return rows.map((item) => ({
+        item_id: String(item.item_id || item.id || ''),
+        title: String(item.title || item.goal || item.item_id || item.id || 'step'),
+        state: runItemStepState(item.status),
+        note: item.status ? String(item.status) : '',
+        phase: String(item.phase || ''),
+      }));
+    }
+    const d = statusPayload || {};
+    const total = Number(d.total_items || d.items_total || 0);
+    if (!total) return [];
+    const currentIndex = Number(d.current_item_index || 0);
+    const completed = Number(d.completed_count || d.items_completed || 0);
+    const failed = Number(d.failed_count || 0);
+    const blocked = Number(d.blocked_count || 0);
+    const skipped = Number(d.skipped_count || 0);
+    const currentId = String(d.current_item_id || '');
+    const steps = [];
+    for (let idx = 1; idx <= total; idx += 1) {
+      let status = 'pending';
+      if (idx <= completed) status = 'completed';
+      if (idx === currentIndex && d.status === 'running' && currentId) status = 'running';
+      const title = idx === currentIndex && currentId ? currentId : `item ${idx}`;
+      steps.push({ item_id: idx === currentIndex ? currentId : `item_${idx}`, title, state: runItemStepState(status), note: status });
+    }
+    if (failed || blocked || skipped) {
+      const note = `${failed} failed, ${blocked} blocked, ${skipped} skipped`;
+      if (steps[currentIndex - 1]) steps[currentIndex - 1].note = note;
+    }
+    return steps;
+  }
+
+  function runTokenUsagePayload(d) {
+    const usage = (d && d.token_usage) || {};
+    const generated = Number(usage.generated_tokens ?? usage.tokens_generated ?? d?.generated_tokens ?? d?.tokens_generated ?? 0) || 0;
+    const maxCtx = Number(usage.max_context_tokens ?? usage.max_ctx ?? d?.max_context_tokens ?? d?.max_ctx ?? 0) || 0;
+    const context = Number(usage.context_tokens ?? d?.context_tokens ?? 0) || 0;
+    return { generated, maxCtx, context };
+  }
+
+  function currentRunItemTitle(d, steps) {
+    const currentId = String((d && d.current_item_id) || '');
+    const current = (steps || []).find((step) => currentId && String(step.item_id || '') === currentId);
+    return current?.title || currentId || '';
+  }
+
   // Map an internal reason/code to a short, user-facing note for the step checklist.
   function _shortStepReason(reason) {
     const r = String(reason || '').toLowerCase();
@@ -2571,11 +2654,33 @@
         || ['failed', 'blocked'].includes(lc(status))
         || phase === 'failed' || phase === 'blocked_safety_review'
       );
-      // Normal running progress and the "current item" are already shown by the per-item plan-step
-      // checklist and the theme-color indicator, so this panel stays EMPTY during a healthy run and
-      // only surfaces (a) an active self-correction re-run, or (b) a problem (concise reason + action).
       const rows = [];
-      void phaseLabel;
+      const done = Number(view.items_completed || completed || 0);
+      const failed = Number(view.failed_count || 0);
+      const blocked = Number(view.blocked_count || 0);
+      const skipped = Number(view.skipped_count || 0);
+      const currentTitle = String(view.current_item_title || view.current_item_id || '').trim();
+      const usage = view.token_usage || {};
+      const generatedTokens = Number(usage.generated_tokens ?? usage.tokens_generated ?? view.generated_tokens ?? view.tokens_generated ?? 0) || 0;
+      const maxCtx = Number(usage.max_context_tokens ?? usage.max_ctx ?? view.max_context_tokens ?? view.max_ctx ?? 0) || 0;
+      if (status === 'running' || phase || total || currentTitle) {
+        rows.push(`${status === 'running' ? '実行中' : 'フェーズ'}: ${phaseLabel}`);
+      }
+      if (total || done || failed || blocked || skipped) {
+        rows.push(`進捗: ${done} / ${total || 0} 完了, ${failed} 失敗, ${blocked} ブロック, ${skipped} スキップ`);
+      }
+      if (currentTitle) {
+        const currentPrefix = view.current_item_index ? `${view.current_item_index}. ` : '';
+        rows.push(`現在: ${currentPrefix}${currentTitle}`);
+      }
+      if (generatedTokens || maxCtx) {
+        rows.push(`Tokens: ${generatedTokens.toLocaleString()} / ${maxCtx.toLocaleString()} ctx`);
+      }
+      rows.push(`状態: ${runtimeConnectionLabel(connectionState, {
+        ...view,
+        secondsSince: view.progress_age_seconds ?? view.seconds_since_progress,
+        stalledReason: view.stalled_reason,
+      }).slice(0, 200)}`);
       if (incomingPatch.state === 'repairing') {
         rows.push(`🛠 不具合を自動修正して再検証中（attempt ${incomingPatch.attempt || 0}）`);
       }
@@ -2585,7 +2690,7 @@
       if (view.restored_state_rejected) {
         rows.push(`復元なし: ${String(view.restore_rejected_reason || view.message || 'project_scope_mismatch').slice(0, 200)}`);
       }
-      if (connectionState !== 'live' || view.runtime_connection_state || view.progress_age_seconds != null || view.stalled_reason) {
+      if ((connectionState !== 'live' || view.runtime_connection_state || view.progress_age_seconds != null || view.stalled_reason) && !rows.some((row) => row.startsWith('状態:'))) {
         rows.push(`状態: ${runtimeConnectionLabel(connectionState, {
           ...view,
           secondsSince: view.progress_age_seconds ?? view.seconds_since_progress,
