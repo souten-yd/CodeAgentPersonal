@@ -70,6 +70,8 @@ def test_runtime_panel_renders_required_patch_zero_states():
         "Patchを生成・検証しています",
         "view.restored_progress && view.message",
         "復元:",
+        "view.restored_state_rejected",
+        "restore_rejected_reason",
         "状態:",
         "runtimeConnectionLabel",
         "推奨操作:",
@@ -94,3 +96,11 @@ def test_restore_failures_are_not_silently_swallowed():
     assert "console.warn('Atlas runtime status restore failed'" in restore_body
     assert "Run status unavailable" in restore_body
     assert "endpoint=/api/atlas/plan-pools/" in restore_body
+
+
+def test_project_scoped_pool_fetches_include_workspace_id():
+    assert "getPlanPoolStatus(poolId, workspaceId)" in API
+    assert "getPlanPool(poolId, workspaceId)" in API
+    assert "query({ workspace_id: workspaceId })" in API
+    assert "root.AtlasPipelineAPI.getPlanPoolStatus(poolId, workspaceId())" in JS
+    assert "root.AtlasPipelineAPI.getPlanPool(poolId, workspaceId())" in JS

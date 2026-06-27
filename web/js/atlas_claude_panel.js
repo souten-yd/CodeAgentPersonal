@@ -270,7 +270,7 @@
     if (!poolId || !root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPlanPoolStatus) return false;
     let status = '';
     try {
-      const st = await root.AtlasPipelineAPI.getPlanPoolStatus(poolId);
+      const st = await root.AtlasPipelineAPI.getPlanPoolStatus(poolId, workspaceId());
       status = (st && st.ok && st.data && st.data.status) || '';
     } catch (_) { return false; }
     if (status !== 'queued' && status !== 'running' && status !== 'revising') return false;
@@ -1895,7 +1895,7 @@
     try {
       // ── Stage 1: Plan ──
       updateStage(stages, 'plan', 'running', 'fetching items');
-      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
+      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId, workspaceId());
       if (!pool.ok || !pool.data) {
         updateStage(stages, 'plan', 'failed', formatError(pool));
         renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
@@ -2561,11 +2561,13 @@
         completed: '完了',
         failed: '失敗',
         blocked_safety_review: '安全ゲートでブロック',
+        restore_rejected: '復元なし',
       };
       const lc = (value) => String(value || '').toLowerCase();
       const phaseLabel = PHASE_LABELS[phase] || phase;
       const hasProblem = !!(
         view.error || view.block_reason || view.requires_user_action
+        || view.restored_state_rejected
         || ['failed', 'blocked'].includes(lc(status))
         || phase === 'failed' || phase === 'blocked_safety_review'
       );
@@ -2579,6 +2581,9 @@
       }
       if (view.restored_progress && view.message) {
         rows.push(`復元: ${String(view.message).slice(0, 200)}`);
+      }
+      if (view.restored_state_rejected) {
+        rows.push(`復元なし: ${String(view.restore_rejected_reason || view.message || 'project_scope_mismatch').slice(0, 200)}`);
       }
       if (connectionState !== 'live' || view.runtime_connection_state || view.progress_age_seconds != null || view.stalled_reason) {
         rows.push(`状態: ${runtimeConnectionLabel(connectionState, {
@@ -3270,7 +3275,7 @@
     let poolStatus = '';
     let poolMeta = {};
     try {
-      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId);
+      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId, workspaceId());
       if (pool && pool.ok && pool.data) {
         items = pool.data.items || pool.data.plan_items || [];
         poolStatus = String(pool.data.status || (pool.data.plan_pool && pool.data.plan_pool.status) || '');

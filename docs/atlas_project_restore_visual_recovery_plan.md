@@ -761,6 +761,37 @@ Proof level: `rv0_rv8_closed_with_truthful_live_block`
 
 Add/update as work lands:
 
+### Follow-up: Runtime restore scope guard (completed 2026-06-27)
+
+Status: completed in this working tree
+
+Changed files:
+
+- `app/api/atlas_pipeline.py`
+- `web/js/atlas_pipeline_api.js`
+- `web/js/atlas_claude_panel.js`
+- `tests/test_atlas_runtime_status_contract.py`
+- `tests/test_atlas_runtime_status_panel_contract.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+
+Behavior implemented: Atlas now records `workspace_id`, `runtime_scope_key`, and `runtime_scope` metadata on newly-created PlanPools and async plan-pool jobs. Project-scoped PlanPool JSON, markdown, job status, and runtime-status endpoints reject a stored pool/job before serializing renderable plan, failure, blocker, approval, or retry fields when the stored scope does not match the requested workspace. Legacy unscoped runtime state fails closed for concrete project workspaces.
+
+Safe rejection payload: `runtime_restored=false`, `active_runtime=false`, `restored_state_rejected=true`, `restore_rejected_reason=project_scope_mismatch` or `missing_project_scope`, `requires_user_action=false`, `next_actions=["wait"]`. The UI passes `workspace_id` on pool/status reads and may show a bounded "restore ignored" notice without rendering foreign plan or approval/run controls.
+
+Validation:
+
+- `python -m pytest -q tests\test_atlas_runtime_status_contract.py` -> 10 passed
+- `python -m pytest -q tests\test_atlas_runtime_status_panel_contract.py` -> 7 passed
+- `python -m pytest -q tests\test_atlas_project_restore_isolation.py tests\test_atlas_project_restore_e2e_contract.py tests\test_atlas_continuation_workspace_isolation.py` -> 11 passed
+- `python -m pytest -q tests\test_atlas_api_pipeline.py::test_get_plan_pool tests\test_atlas_api_pipeline.py::test_get_plan_pool_markdown tests\test_atlas_api_pipeline.py::test_pipeline_status_requires_pool_id_or_returns_422 tests\test_atlas_api_pipeline.py::test_pipeline_status_returns_saved_state tests\test_atlas_api_pipeline.py::test_pipeline_status_missing_state_returns_404` -> 5 passed
+- `python -m py_compile app\api\atlas_pipeline.py tests\test_atlas_runtime_status_contract.py tests\test_atlas_runtime_status_panel_contract.py` -> passed
+- `node --check web\js\atlas_claude_panel.js` -> passed
+- `node --check web\js\atlas_pipeline_api.js` -> passed
+
+Not counted as pass: `python -m pytest -q tests\test_atlas_plan_pool_project_binding.py tests\test_atlas_api_pipeline.py` and then `python -m pytest -q tests\test_atlas_plan_pool_project_binding.py` were stopped after hanging in the planning path with minimal output. The direct affected API read subset above passed.
+
+Safety invariants: no runtime semantics, Proposal, Safe Apply, Verification, backend run order, Vue default/read-only status, `ui.html` default, execution capability, remote push, self-apply, raw source serving, or startup npm/Vite/Vue build behavior was changed.
+
 ```text
 python -m pytest -q tests/test_atlas_project_restore_isolation.py
 python -m pytest -q tests/test_atlas_project_picker_bootstrap_contract.py
