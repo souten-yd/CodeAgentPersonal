@@ -7,6 +7,7 @@ import main
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_project_identity import ensure_project_metadata
 from agent.atlas_run_store import AtlasRunStore
 
 
@@ -373,6 +374,7 @@ def test_runtime_status_rejects_cross_project_restore_without_foreign_fields(tmp
 
 
 def test_runtime_status_legacy_unscoped_state_fails_closed_for_project(tmp_path):
+    ensure_project_metadata(tmp_path, "project-b")
     pool = AtlasPlanPool(
         pool_id="pool_runtime_legacy_unscoped",
         root_goal="Legacy unscoped plan",
@@ -398,6 +400,7 @@ def test_runtime_status_legacy_unscoped_state_fails_closed_for_project(tmp_path)
 
 
 def test_plan_pool_read_rejects_explicit_project_path_mismatch(tmp_path):
+    ensure_project_metadata(tmp_path, "project-b")
     project_a = (tmp_path / "atlas" / "projects" / "project-a" / "work").resolve()
     pool = AtlasPlanPool(
         pool_id="pool_project_path_foreign",

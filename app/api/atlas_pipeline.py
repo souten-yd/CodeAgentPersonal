@@ -507,6 +507,7 @@ def _runtime_restore_rejection_reason(
     metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
     stored_ws = _scope_workspace_from_metadata(metadata)
     stored_instance = project_instance_id_from_metadata(metadata)
+    expected_instance = _project_instance_from_workspace(ca_data_root, current_ws)
     if stored_ws and stored_ws != current_ws:
         return "project_scope_mismatch"
     if current_instance:
@@ -514,7 +515,7 @@ def _runtime_restore_rejection_reason(
             return "missing_project_instance_scope"
         if stored_instance != current_instance:
             return "project_instance_mismatch"
-    elif current_ws != "default":
+    elif current_ws != "default" and (expected_instance or stored_instance):
         return "missing_project_instance_scope"
     if current_ws == "default":
         return ""
@@ -620,11 +621,18 @@ def _pool_restore_rejection_for_ids(
     )
 
 
-def _job_scope_rejection_reason(data: dict[str, Any], workspace_id: str, project_instance_id: str = "") -> str:
+def _job_scope_rejection_reason(
+    data: dict[str, Any],
+    workspace_id: str,
+    project_instance_id: str = "",
+    *,
+    ca_data_root: Path | None = None,
+) -> str:
     current_ws = str(workspace_id or "default").strip() or "default"
     current_instance = str(project_instance_id or "").strip()
     stored_ws = str(data.get("workspace_id") or data.get("runtime_workspace_id") or "").strip()
     stored_instance = project_instance_id_from_metadata(data)
+    expected_instance = _project_instance_from_workspace(ca_data_root, current_ws) if ca_data_root is not None else ""
     if stored_ws and stored_ws != current_ws:
         return "project_scope_mismatch"
     if current_instance:
@@ -632,7 +640,7 @@ def _job_scope_rejection_reason(data: dict[str, Any], workspace_id: str, project
             return "missing_project_instance_scope"
         if stored_instance != current_instance:
             return "project_instance_mismatch"
-    elif current_ws != "default":
+    elif current_ws != "default" and (expected_instance or stored_instance):
         return "missing_project_instance_scope"
     if current_ws != "default" and not stored_ws:
         return "missing_project_scope"
@@ -1597,7 +1605,12 @@ def get_plan_pool_status(
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         data = {"pool_id": pool_id, "status": "running"}
-    rejection_reason = _job_scope_rejection_reason(data, workspace_id, project_instance_id)
+    rejection_reason = _job_scope_rejection_reason(
+        data,
+        workspace_id,
+        project_instance_id,
+        ca_data_root=ca_data_root,
+    )
     if rejection_reason:
         return _restore_rejected_payload(pool_id, rejection_reason)
     status = str(data.get("status") or "")

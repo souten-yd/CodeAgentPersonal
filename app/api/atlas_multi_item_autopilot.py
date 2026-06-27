@@ -22,7 +22,7 @@ from agent.atlas_multi_item_autopilot_schema import AtlasMultiItemAutopilotReque
 from agent.atlas_multi_item_autopilot_service import AtlasMultiItemAutopilotService
 from agent.atlas_patch_proposal_service import AtlasPatchProposalService
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
-from agent.atlas_project_identity import project_instance_id_from_metadata
+from agent.atlas_project_identity import project_instance_id_from_metadata, read_project_metadata
 from agent.atlas_correction_router_service import AtlasCorrectionRouterService
 from agent.atlas_failure_diagnosis_service import AtlasFailureDiagnosisService
 from agent.atlas_test_harness_provisioner import AtlasTestHarnessProvisioner
@@ -69,9 +69,19 @@ def _scope_workspace_from_metadata(metadata: dict) -> str:
     return str(runtime_scope.get("workspace_id") or "").strip()
 
 
+def _project_instance_from_workspace(ca_data_root, workspace_id: str) -> str:
+    ws = str(workspace_id or "").strip()
+    if not ws or ws == "default":
+        return ""
+    if "/" in ws or "\\" in ws or ".." in ws:
+        return ""
+    return str(read_project_metadata(ca_data_root, ws).get("project_instance_id") or "").strip()
+
+
 def _autopilot_restore_rejection_reason(
     *,
     storage: AtlasPlanPoolStorage,
+    ca_data_root,
     payload: dict,
     pool_id: str,
     workspace_id: str,
@@ -82,6 +92,7 @@ def _autopilot_restore_rejection_reason(
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     stored_ws = str(payload.get("workspace_id") or metadata.get("workspace_id") or "").strip()
     stored_instance = project_instance_id_from_metadata(payload) or project_instance_id_from_metadata(metadata)
+    expected_instance = _project_instance_from_workspace(ca_data_root, current_ws)
     try:
         pool = storage.load_pool(pool_id)
         pool_metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
@@ -96,7 +107,7 @@ def _autopilot_restore_rejection_reason(
             return "missing_project_instance_scope"
         if stored_instance != current_instance:
             return "project_instance_mismatch"
-    elif current_ws != "default":
+    elif current_ws != "default" and (expected_instance or stored_instance):
         return "missing_project_instance_scope"
     if current_ws != "default" and not stored_ws:
         return "missing_project_scope"
@@ -286,6 +297,7 @@ def get_result(
     payload = json.loads(path.read_text(encoding="utf-8"))
     rejection_reason = _autopilot_restore_rejection_reason(
         storage=AtlasPlanPoolStorage(root),
+        ca_data_root=root,
         payload=payload if isinstance(payload, dict) else {},
         pool_id=safe_pool,
         workspace_id=workspace_id,
@@ -307,6 +319,7 @@ def latest(payload: AtlasMultiItemLatestRequest, request: Request):
     result = json.loads(files[0].read_text(encoding="utf-8"))
     rejection_reason = _autopilot_restore_rejection_reason(
         storage=AtlasPlanPoolStorage(data_root),
+        ca_data_root=data_root,
         payload=result if isinstance(result, dict) else {},
         pool_id=safe_pool,
         workspace_id=payload.workspace_id,
