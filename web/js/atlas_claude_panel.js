@@ -40,7 +40,7 @@
     activePresetActive: false,
     // Active Atlas project. name doubles as the workspace_id; projectPath is the
     // working dir the autopilot operates on. Set by app.js's project picker.
-    activeProject: { name: '', projectPath: '', workspaceId: 'default' },
+    activeProject: { name: '', projectPath: '', workspaceId: 'default', projectInstanceId: '' },
     provisional: false,
     loadedProject: '',
     // True while loadProject() re-renders persisted/server state on reload. Render-time status
@@ -75,10 +75,16 @@
     return (state.activeProject && state.activeProject.name) || '';
   }
 
+  function projectInstanceId() {
+    return (state.activeProject && (state.activeProject.projectInstanceId || state.activeProject.project_instance_id)) || '';
+  }
+
   function recoveryScope(wsId) {
     const name = projectName();
     if (!name) return '';
-    return String(wsId || workspaceId() || name || '').trim();
+    const workspace = String(wsId || workspaceId() || name || '').trim();
+    const instance = String(projectInstanceId() || '').trim();
+    return instance ? `${workspace}:${instance}` : workspace;
   }
 
   function projectScopedStorageKey(baseKey, wsId) {
@@ -113,6 +119,13 @@
     try { keys.forEach((key) => localStorage.removeItem(key)); } catch (_) {}
   }
 
+  function clearProjectHints(project) {
+    const prior = state.activeProject;
+    if (project) setActiveProject(project);
+    removeProjectScopedHints(project && (project.workspaceId || project.workspace_id || project.name));
+    if (project) state.activeProject = prior;
+  }
+
   // Called by app.js's picker when a project is selected / created / renamed.
   function setActiveProject(project) {
     if (!project) return;
@@ -121,6 +134,7 @@
       name,
       projectPath: project.projectPath || project.project_path || state.activeProject.projectPath || '',
       workspaceId: project.workspaceId || project.workspace_id || name || 'default',
+      projectInstanceId: project.projectInstanceId || project.project_instance_id || '',
     };
     if (Object.prototype.hasOwnProperty.call(project, 'provisional')) {
       state.provisional = !!project.provisional;
@@ -203,6 +217,8 @@
       if (resp.ok) {
         const data = await resp.json();
         state.provisional = !!(data.meta && data.meta.provisional);
+        const restoredInstance = (data && (data.project_instance_id || (data.meta && data.meta.project_instance_id))) || '';
+        if (restoredInstance) state.activeProject.projectInstanceId = restoredInstance;
         (data.messages || []).forEach((m) => {
           if (!m || !m.text) return;
           // Skip legacy render-time status lines that an earlier bug persisted on every reload
@@ -236,7 +252,7 @@
       try {
         const wsId = state.activeProject.workspaceId || target;
         if (root.AtlasPipelineAPI && root.AtlasPipelineAPI.getContinuationLatest) {
-          const latest = await root.AtlasPipelineAPI.getContinuationLatest(wsId);
+          const latest = await root.AtlasPipelineAPI.getContinuationLatest(wsId, projectInstanceId());
           const latestPoolId = latest && latest.ok && latest.data ? String(latest.data.pool_id || '') : '';
           if (latestPoolId) {
             await renderPlanPoolMarkdown(latestPoolId);
@@ -270,7 +286,7 @@
     if (!poolId || !root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPlanPoolStatus) return false;
     let status = '';
     try {
-      const st = await root.AtlasPipelineAPI.getPlanPoolStatus(poolId, workspaceId());
+      const st = await root.AtlasPipelineAPI.getPlanPoolStatus(poolId, workspaceId(), projectInstanceId());
       status = (st && st.ok && st.data && st.data.status) || '';
     } catch (_) { return false; }
     if (status !== 'queued' && status !== 'running' && status !== 'revising') return false;
@@ -280,7 +296,7 @@
       window.dispatchEvent(new CustomEvent('atlas:llm-progress', { detail: { phase: status, tokens: 0, secondsSince: 0, poolId } }));
     }
     try {
-      await root.AtlasPipelineAPI.pollPlanPoolUntilReady(poolId, workspaceId());
+      await root.AtlasPipelineAPI.pollPlanPoolUntilReady(poolId, workspaceId(), undefined, undefined, projectInstanceId());
     } finally {
       state.planGenerationInFlight = false;
     }
@@ -332,7 +348,7 @@
     const autoStatus = await restoreLatestAutonomousRun(poolId);
     const runActive = !!autoStatus && String(autoStatus.status || '').toLowerCase() === 'running';
     try {
-      const peek = await root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult({ pool_id: poolId });
+      const peek = await root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult({ pool_id: poolId, workspace_id: workspaceId(), project_instance_id: projectInstanceId() });
       const hasAutopilotResult = peek && peek.ok && peek.data && (
         peek.data.autopilot_run_id || peek.data.run_id
         || Number.isFinite(Number(peek.data.processed_count))
@@ -481,7 +497,7 @@
     }
     if (!runId && root.AtlasPipelineAPI.getContinuationPool) {
       try {
-        const cont = await root.AtlasPipelineAPI.getContinuationPool(poolId, '', workspaceId());
+        const cont = await root.AtlasPipelineAPI.getContinuationPool(poolId, '', workspaceId(), projectInstanceId());
         if (cont && cont.ok && cont.data) runId = String(cont.data.run_id || '');
       } catch (_) {}
     }
@@ -983,7 +999,7 @@
     let resp;
     let earlyPoolId = '';
     try {
-      resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_path: projectPath(), metadata: { preset_id: state.selectedPresetId }, capability_preferences: getAtlasCapabilityPreferences(), automation_features: getAtlasAutomationFeatures() }, (queuedPoolId) => {
+      resp = await root.AtlasPipelineAPI.createPlanPool({ input: text, workspace_id: workspaceId(), project_instance_id: projectInstanceId(), project_path: projectPath(), metadata: { preset_id: state.selectedPresetId, project_instance_id: projectInstanceId() }, capability_preferences: getAtlasCapabilityPreferences(), automation_features: getAtlasAutomationFeatures() }, (queuedPoolId) => {
         // The server ACCEPTED the job: persist the per-project recovery pointer the moment it is
         // queued (localStorage + conversation meta), not after the long poll returns. A browser
         // closed mid-generation can then re-attach to the still-running plan on reopen.
@@ -1920,7 +1936,7 @@
     try {
       // ── Stage 1: Plan ──
       updateStage(stages, 'plan', 'running', 'fetching items');
-      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId, workspaceId());
+      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId, workspaceId(), projectInstanceId());
       if (!pool.ok || !pool.data) {
         updateStage(stages, 'plan', 'failed', formatError(pool));
         renderRuntimeStatusPanel(runtimeStatusPayload(poolId, {
@@ -2183,12 +2199,12 @@
           }, 2000);
           try {
             one = await root.AtlasPipelineAPI.runMultiItemAutopilot({
-              pool_id: poolId, run_id: autopilotRunId, item_ids: [itemId], policy_id: 'full_auto_multi_item_v1', max_items: 1,
+              pool_id: poolId, run_id: autopilotRunId, workspace_id: workspaceId(), project_instance_id: projectInstanceId(), item_ids: [itemId], policy_id: 'full_auto_multi_item_v1', max_items: 1,
               max_runtime_seconds: bounds.max_runtime_seconds || 1800,
               max_changed_files_total: bounds.max_files_changed || 25, dry_run: false, require_approval: false,
               include_context_refresh: true, include_evaluator: true, include_bounded_retry: true,
               include_self_correction: true, self_correction_max_attempts: 2,
-              metadata: { ui: 'atlas_claude_panel', envelope_id: envelope.envelope_id, interleaved: true },
+              metadata: { ui: 'atlas_claude_panel', envelope_id: envelope.envelope_id, interleaved: true, workspace_id: workspaceId(), project_instance_id: projectInstanceId() },
             });
           } catch (err) { one = { ok: false, error: true, message: String(err) }; }
           finally { clearInterval(_applyHeartbeat); }
@@ -2530,7 +2546,7 @@
 
   async function loadRuntimeStatus(poolId) {
     if (!root.AtlasPipelineAPI || !root.AtlasPipelineAPI.getPlanRuntimeStatus) return null;
-    const resp = await root.AtlasPipelineAPI.getPlanRuntimeStatus(poolId, workspaceId());
+    const resp = await root.AtlasPipelineAPI.getPlanRuntimeStatus(poolId, workspaceId(), projectInstanceId());
     if (resp && resp.ok && resp.data) return resp.data;
     const errText = resp ? formatError(resp) : 'runtime_status_request_failed';
     // Pool not yet persisted while a plan is still generating (returning from another tab mid-run):
@@ -3380,7 +3396,7 @@
     let poolStatus = '';
     let poolMeta = {};
     try {
-      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId, workspaceId());
+      const pool = await root.AtlasPipelineAPI.getPlanPool(poolId, workspaceId(), projectInstanceId());
       if (pool && pool.ok && pool.data) {
         items = pool.data.items || pool.data.plan_items || [];
         poolStatus = String(pool.data.status || (pool.data.plan_pool && pool.data.plan_pool.status) || '');
@@ -3393,7 +3409,7 @@
     let rawMarkdown = '';
     if (root.AtlasPipelineAPI.getPlanPoolMarkdown) {
       try {
-        const md = await root.AtlasPipelineAPI.getPlanPoolMarkdown(poolId, workspaceId());
+        const md = await root.AtlasPipelineAPI.getPlanPoolMarkdown(poolId, workspaceId(), projectInstanceId());
         if (md && md.ok) rawMarkdown = typeof md.data === 'string' ? md.data : (md.data && (md.data.markdown || md.data.text)) || '';
       } catch (_e) { rawMarkdown = ''; }
     }
@@ -3966,6 +3982,7 @@
     selectProfile,
     startAutonomousLoop,
     setActiveProject,
+    clearProjectHints,
     loadProject,
     setTranscribingStatus,
     showPlanList: showPlanPoolList,

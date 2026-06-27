@@ -36,7 +36,7 @@ def _function_body(name: str) -> str:
 
 
 def test_runtime_status_endpoint_is_exposed_to_panel():
-    assert "getPlanRuntimeStatus(poolId, workspaceId)" in API
+    assert "getPlanRuntimeStatus(poolId, workspaceId, projectInstanceId)" in API
     assert "/runtime-status" in API
     assert "loadRuntimeStatus(poolId)" in JS
     assert "renderRuntimeStatusPanel(runtime" in JS
@@ -134,8 +134,8 @@ def test_restore_failures_are_not_silently_swallowed():
 
 
 def test_project_scoped_pool_fetches_include_workspace_id():
-    assert "getPlanPoolStatus(poolId, workspaceId)" in API
-    assert "getPlanPool(poolId, workspaceId)" in API
-    assert "query({ workspace_id: workspaceId })" in API
-    assert "root.AtlasPipelineAPI.getPlanPoolStatus(poolId, workspaceId())" in JS
-    assert "root.AtlasPipelineAPI.getPlanPool(poolId, workspaceId())" in JS
+    assert "getPlanPoolStatus(poolId, workspaceId, projectInstanceId)" in API
+    assert "getPlanPool(poolId, workspaceId, projectInstanceId)" in API
+    assert "query({ workspace_id: workspaceId, project_instance_id: projectInstanceId })" in API
+    assert "root.AtlasPipelineAPI.getPlanPoolStatus(poolId, workspaceId(), projectInstanceId())" in JS
+    assert "root.AtlasPipelineAPI.getPlanPool(poolId, workspaceId(), projectInstanceId())" in JS

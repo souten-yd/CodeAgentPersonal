@@ -114,13 +114,13 @@
         // per-project recovery pointer immediately. If the browser is closed or the connection drops
         // mid-generation, that pointer lets a reopen re-attach to the still-running job.
         if (typeof onQueued === 'function') { try { onQueued(data.pool_id); } catch (_) {} }
-        return await this.pollPlanPoolUntilReady(data.pool_id, payload && payload.workspace_id);
+        return await this.pollPlanPoolUntilReady(data.pool_id, payload && payload.workspace_id, undefined, undefined, payload && payload.project_instance_id);
       }
       // Sync path (server returned the full pool directly): pass through unchanged.
       return started;
     },
-    getPlanPoolStatus(poolId, workspaceId) {
-      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/status${query({ workspace_id: workspaceId })}`, { timeoutMs: 15000 });
+    getPlanPoolStatus(poolId, workspaceId, projectInstanceId) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/status${query({ workspace_id: workspaceId, project_instance_id: projectInstanceId })}`, { timeoutMs: 15000 });
     },
     // Local models can take a long time while still making progress. The browser does NOT police
     // generation time: whether the model is still generating tokens, has stalled, or is done is
@@ -130,7 +130,7 @@
     // flowing) must never be aborted by a browser stopwatch. We stop only when the server reports a
     // terminal/stalled state, or the status endpoint itself becomes unreachable.
     // maxWaitMs is accepted for backward compatibility but intentionally ignored.
-    async pollPlanPoolUntilReady(poolId, workspaceId, maxWaitMs, intervalMs = 1500) {
+    async pollPlanPoolUntilReady(poolId, workspaceId, maxWaitMs, intervalMs = 1500, projectInstanceId = '') {
       void maxWaitMs;
       // A SINGLE failed status poll (an aborted fetch, a transient network drop, a gateway 502/504
       // HTML page) must NOT end the wait: the server is still the authority and is very likely still
@@ -142,7 +142,7 @@
       // eslint-disable-next-line no-constant-condition
       while (true) {
         await new Promise((r) => setTimeout(r, intervalMs));
-        const st = await this.getPlanPoolStatus(poolId, workspaceId);
+        const st = await this.getPlanPoolStatus(poolId, workspaceId, projectInstanceId);
         if (!st.ok) {
           // 404 right after submit just means the job file isn't written yet — keep waiting.
           if (st.status === 404) { unreachableSince = 0; continue; }
@@ -186,7 +186,7 @@
           };
         }
         if (status === 'ready') {
-          return await atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId })}`, { timeoutMs: 30000 });
+          return await atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId, project_instance_id: projectInstanceId })}`, { timeoutMs: 30000 });
         }
         if (status === 'failed') {
           return {
@@ -200,8 +200,8 @@
     listPlanPools() {
       return atlasFetch('/api/atlas/plan-pools');
     },
-    getPlanPool(poolId, workspaceId) {
-      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId })}`);
+    getPlanPool(poolId, workspaceId, projectInstanceId) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId, project_instance_id: projectInstanceId })}`);
     },
     createRun(payload) {
       return atlasFetch('/api/atlas/runs', { method: 'POST', body: JSON.stringify(payload || {}) });
@@ -228,11 +228,11 @@
     reviseRun(runId, payload) {
       return atlasFetch(`/api/atlas/runs/${encodeURIComponent(runId)}/revise`, { method: 'POST', body: JSON.stringify(payload || {}) });
     },
-    getPlanRuntimeStatus(poolId, workspaceId) {
-      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/runtime-status${query({ workspace_id: workspaceId })}`);
+    getPlanRuntimeStatus(poolId, workspaceId, projectInstanceId) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/runtime-status${query({ workspace_id: workspaceId, project_instance_id: projectInstanceId })}`);
     },
-    getPlanPoolMarkdown(poolId, workspaceId) {
-      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/markdown${query({ workspace_id: workspaceId })}`);
+    getPlanPoolMarkdown(poolId, workspaceId, projectInstanceId) {
+      return atlasFetch(`/api/atlas/plan-pools/${encodeURIComponent(poolId)}/markdown${query({ workspace_id: workspaceId, project_instance_id: projectInstanceId })}`);
     },
     startPipelineDryRun(payload) {
       return atlasFetch('/api/atlas/pipeline/dry-run', { method: 'POST', body: JSON.stringify(payload || {}) });
@@ -243,17 +243,17 @@
     getPipelineEvents(poolId, runId, workspaceId, afterSequence) {
       return atlasFetch(`/api/atlas/pipeline/events/${encodeURIComponent(poolId)}/${encodeURIComponent(runId)}${query({ workspace_id: workspaceId, after_sequence: afterSequence })}`);
     },
-    getRecoveryLatest(workspaceId) {
-      return atlasFetch(`/api/atlas/recovery/latest${query({ workspace_id: workspaceId })}`);
+    getRecoveryLatest(workspaceId, projectInstanceId) {
+      return atlasFetch(`/api/atlas/recovery/latest${query({ workspace_id: workspaceId, project_instance_id: projectInstanceId })}`);
     },
-    getRecoveryPool(poolId, workspaceId) {
-      return atlasFetch(`/api/atlas/recovery/pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId })}`);
+    getRecoveryPool(poolId, workspaceId, projectInstanceId) {
+      return atlasFetch(`/api/atlas/recovery/pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId, project_instance_id: projectInstanceId })}`);
     },
-    getContinuationLatest(workspaceId) {
-      return atlasFetch(`/api/atlas/continuation/latest${query({ workspace_id: workspaceId })}`);
+    getContinuationLatest(workspaceId, projectInstanceId) {
+      return atlasFetch(`/api/atlas/continuation/latest${query({ workspace_id: workspaceId, project_instance_id: projectInstanceId })}`);
     },
-    getContinuationPool(poolId, runId, workspaceId) {
-      return atlasFetch(`/api/atlas/continuation/pools/${encodeURIComponent(poolId)}${query({ run_id: runId, workspace_id: workspaceId })}`);
+    getContinuationPool(poolId, runId, workspaceId, projectInstanceId) {
+      return atlasFetch(`/api/atlas/continuation/pools/${encodeURIComponent(poolId)}${query({ run_id: runId, workspace_id: workspaceId, project_instance_id: projectInstanceId })}`);
     },
     getApprovals(poolId, workspaceId) {
       return atlasFetch(`/api/atlas/approvals/pools/${encodeURIComponent(poolId)}${query({ workspace_id: workspaceId })}`);
@@ -274,7 +274,7 @@
       if (!resp.ok) return resp;
       // Async path: server returned immediately with status "revising" — poll until ready.
       if (resp.data && resp.data.status === 'revising') {
-        return await this.pollPlanPoolUntilReady(poolId, payload && payload.workspace_id);
+        return await this.pollPlanPoolUntilReady(poolId, payload && payload.workspace_id, undefined, undefined, payload && payload.project_instance_id);
       }
       return resp;
     },
@@ -564,8 +564,8 @@
       // Allow up to the server-side max_runtime budget.
       return atlasFetch('/api/atlas/multi-item-autopilot/run', { method: 'POST', body: JSON.stringify(payload || {}), timeoutMs: 1800000 });
     },
-    getMultiItemAutopilotResult(poolId, autopilotRunId) {
-      return atlasFetch(`/api/atlas/multi-item-autopilot/results/${encodeURIComponent(poolId)}/${encodeURIComponent(autopilotRunId)}`);
+    getMultiItemAutopilotResult(poolId, autopilotRunId, workspaceId, projectInstanceId) {
+      return atlasFetch(`/api/atlas/multi-item-autopilot/results/${encodeURIComponent(poolId)}/${encodeURIComponent(autopilotRunId)}${query({ workspace_id: workspaceId, project_instance_id: projectInstanceId })}`);
     },
     getLatestMultiItemAutopilotResult(payload) {
       return atlasFetch('/api/atlas/multi-item-autopilot/latest', { method: 'POST', body: JSON.stringify(payload || {}) });

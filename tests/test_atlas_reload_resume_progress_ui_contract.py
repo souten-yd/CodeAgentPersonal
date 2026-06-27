@@ -13,7 +13,7 @@ def _slice(text: str, start_marker: str, end_marker: str) -> str:
 
 
 def test_pipeline_events_api_supports_progress_replay_cursor():
-    body = _slice(API, "getPipelineEvents(poolId, runId, workspaceId, afterSequence)", "getRecoveryLatest(workspaceId)")
+    body = _slice(API, "getPipelineEvents(poolId, runId, workspaceId, afterSequence)", "getRecoveryLatest(workspaceId, projectInstanceId)")
 
     assert "after_sequence: afterSequence" in body
     assert "/api/atlas/pipeline/events/" in body
@@ -84,7 +84,7 @@ def test_runtime_progress_event_updates_indicator_and_status_panel():
 def test_atlas_activation_fallback_restores_run_from_pool_hint():
     body = _slice(PANEL, "function activate()", "function deactivate()")
 
-    assert "localStorage.getItem(STORAGE_LAST_POOL_ID_KEY)" in body
+    assert "getProjectScopedHint(STORAGE_LAST_POOL_ID_KEY)" in body
     assert "restoreLatestRun(lastPoolId)" in body
 
 

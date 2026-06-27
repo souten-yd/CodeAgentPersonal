@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from app.api.atlas_root import resolve_atlas_ca_data_root
 from agent.atlas_conversation_store import AtlasConversationStore
+from agent.atlas_project_identity import ensure_project_metadata
 
 router = APIRouter(prefix="/api/atlas/projects", tags=["atlas-projects"])
 
@@ -104,10 +105,23 @@ def _project_payload(root: Path, name: str) -> dict:
     store = AtlasConversationStore(root, name)
     meta = store.read_meta()
     work = _work_dir(root, name)
+    project_meta = ensure_project_metadata(
+        root,
+        name,
+        display_name=str(meta.get("display_name") or name),
+        provisional=bool(meta.get("provisional", _is_provisional(name))),
+    )
+    instance_id = str(project_meta.get("project_instance_id") or "")
+    created_at = str(project_meta.get("created_at") or "")
+    if instance_id and meta.get("project_instance_id") != instance_id:
+        meta = store.write_meta({"project_instance_id": instance_id, "project_created_at": created_at})
     display_name = str(meta.get("display_name") or name)
     return {
         "name": name,
         "display_name": display_name,
+        "project_instance_id": instance_id,
+        "projectInstanceId": instance_id,
+        "created_at": created_at,
         "project_path": str(work),
         "workspace_id": name,
         "file_count": _file_count(work),
@@ -161,8 +175,16 @@ def create_project(payload: CreateProjectRequest, request: Request):
         existed = False
     work.mkdir(parents=True, exist_ok=True)
     _workspace_dir(root, name).mkdir(parents=True, exist_ok=True)
+    if not existed:
+        ensure_project_metadata(root, name, display_name=name, provisional=_is_provisional(name))
     store = AtlasConversationStore(root, name)
-    store.write_meta({"provisional": _is_provisional(name), "display_name": name})
+    project_meta = ensure_project_metadata(root, name, display_name=name, provisional=_is_provisional(name))
+    store.write_meta({
+        "provisional": _is_provisional(name),
+        "display_name": name,
+        "project_instance_id": str(project_meta.get("project_instance_id") or ""),
+        "project_created_at": str(project_meta.get("created_at") or ""),
+    })
     return {"created": name, "existed": existed, **_project_payload(root, name)}
 
 
@@ -184,7 +206,13 @@ def rename_project(name: str, payload: RenameProjectRequest, request: Request):
     if not proj_dir.exists():
         raise HTTPException(status_code=404, detail={"error": "not_found", "reason": "project_not_found"})
     store = AtlasConversationStore(root, storage_id)
-    store.write_meta({"provisional": False, "display_name": display_name})
+    project_meta = ensure_project_metadata(root, storage_id, display_name=display_name, provisional=False)
+    store.write_meta({
+        "provisional": False,
+        "display_name": display_name,
+        "project_instance_id": str(project_meta.get("project_instance_id") or ""),
+        "project_created_at": str(project_meta.get("created_at") or ""),
+    })
     return _project_payload(root, storage_id)
 
 
@@ -205,7 +233,13 @@ def get_conversation(name: str, request: Request, limit: int | None = None):
     root = resolve_atlas_ca_data_root(request)
     safe = _require_name(name)
     store = AtlasConversationStore(root, safe)
-    return {"project": safe, "messages": store.list(limit=limit), "meta": store.read_meta()}
+    project_meta = ensure_project_metadata(root, safe)
+    meta = store.read_meta()
+    instance_id = str(project_meta.get("project_instance_id") or "")
+    created_at = str(project_meta.get("created_at") or "")
+    if instance_id and meta.get("project_instance_id") != instance_id:
+        meta = store.write_meta({"project_instance_id": instance_id, "project_created_at": created_at})
+    return {"project": safe, "project_instance_id": instance_id, "messages": store.list(limit=limit), "meta": meta}
 
 
 @router.post("/{name}/conversation")

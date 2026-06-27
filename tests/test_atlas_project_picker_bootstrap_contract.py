@@ -60,3 +60,13 @@ def test_project_picker_bootstrap_must_load_selected_project_after_set_active():
     body = _function_body(APP_JS, "bootstrapProjects")
     assert "setActiveProject(chosen)" in body
     assert "root.AtlasClaudePanel?.loadProject?.(chosen.name)" in body
+
+
+def test_project_picker_threads_project_instance_id_to_panel_and_payloads():
+    set_body = _function_body(APP_JS, "setActiveProject")
+    payload_body = _function_body(APP_JS, "withProjectPath")
+    delete_body = _function_body(APP_JS, "deleteProject")
+    assert "projectInstanceId: project.project_instance_id || project.projectInstanceId || ''" in set_body
+    assert "try { root.AtlasClaudePanel?.setActiveProject?.(activeProject); }" in set_body
+    assert "out.project_instance_id = activeProject.projectInstanceId" in payload_body
+    assert "root.AtlasClaudePanel?.clearProjectHints?.(deleting)" in delete_body

@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import main
+from agent.atlas_journal import AtlasJournal
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
 from agent.atlas_run_store import AtlasRunStore
@@ -302,6 +303,7 @@ def test_runtime_status_surfaces_plan_revision_required_block(tmp_path):
 
 
 def test_runtime_status_same_project_scope_restores_pool(tmp_path):
+    instance_id = "projinst_a"
     pool = AtlasPlanPool(
         pool_id="pool_runtime_project_a",
         root_goal="Project A plan",
@@ -309,12 +311,15 @@ def test_runtime_status_same_project_scope_restores_pool(tmp_path):
         project_name="project-a",
         project_path=str((tmp_path / "atlas" / "projects" / "project-a" / "work").resolve()),
         items=[_item("pool_runtime_project_a", status="ready", metadata={"approval": {"decision": "approved"}})],
-        metadata={"workspace_id": "project-a", "runtime_scope_key": "workspace:project-a"},
+        metadata={"workspace_id": "project-a", "project_instance_id": instance_id, "runtime_scope_key": "workspace:project-a|instance:projinst_a"},
     )
     _save_pool(tmp_path, pool)
     client = _client(tmp_path)
 
-    response = client.get("/api/atlas/plan-pools/pool_runtime_project_a/runtime-status", params={"workspace_id": "project-a"})
+    response = client.get(
+        "/api/atlas/plan-pools/pool_runtime_project_a/runtime-status",
+        params={"workspace_id": "project-a", "project_instance_id": instance_id},
+    )
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -340,6 +345,7 @@ def test_runtime_status_rejects_cross_project_restore_without_foreign_fields(tmp
         ],
         metadata={
             "workspace_id": "project-a",
+            "project_instance_id": "projinst_a",
             "runtime_scope_key": "workspace:project-a",
             "safety_gate_block_reason_after_clarification": "FOREIGN_FAILURE_REASON",
         },
@@ -347,7 +353,10 @@ def test_runtime_status_rejects_cross_project_restore_without_foreign_fields(tmp
     _save_pool(tmp_path, pool)
     client = _client(tmp_path)
 
-    response = client.get("/api/atlas/plan-pools/pool_runtime_foreign/runtime-status", params={"workspace_id": "project-b"})
+    response = client.get(
+        "/api/atlas/plan-pools/pool_runtime_foreign/runtime-status",
+        params={"workspace_id": "project-b", "project_instance_id": "projinst_b"},
+    )
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -383,7 +392,7 @@ def test_runtime_status_legacy_unscoped_state_fails_closed_for_project(tmp_path)
     assert body["active_runtime"] is False
     assert body["runtime_restored"] is False
     assert body["restored_state_rejected"] is True
-    assert body["restore_rejected_reason"] == "missing_project_scope"
+    assert body["restore_rejected_reason"] == "missing_project_instance_scope"
     assert body["requires_user_action"] is False
     assert body["next_actions"] == ["wait"]
 
@@ -412,7 +421,7 @@ def test_plan_pool_read_rejects_explicit_project_path_mismatch(tmp_path):
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["restored_state_rejected"] is True
-    assert body["restore_rejected_reason"] == "project_scope_mismatch"
+    assert body["restore_rejected_reason"] == "missing_project_instance_scope"
     serialized = json.dumps(body, ensure_ascii=False)
     assert "plan_pool" not in body
     assert "FOREIGN PROJECT PATH PLAN" not in serialized
@@ -427,12 +436,15 @@ def test_plan_pool_read_rejects_explicit_workspace_mismatch(tmp_path):
         project_name="project-a",
         project_path=str((tmp_path / "atlas" / "projects" / "project-a" / "work").resolve()),
         items=[_item("pool_workspace_foreign", title="FOREIGN WORKSPACE ITEM")],
-        metadata={"workspace_id": "project-a", "runtime_scope_key": "workspace:project-a"},
+        metadata={"workspace_id": "project-a", "project_instance_id": "projinst_a", "runtime_scope_key": "workspace:project-a|instance:projinst_a"},
     )
     _save_pool(tmp_path, pool)
     client = _client(tmp_path)
 
-    response = client.get("/api/atlas/plan-pools/pool_workspace_foreign", params={"workspace_id": "project-b"})
+    response = client.get(
+        "/api/atlas/plan-pools/pool_workspace_foreign",
+        params={"workspace_id": "project-b", "project_instance_id": "projinst_b"},
+    )
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -499,7 +511,7 @@ def test_runtime_status_unscoped_request_still_rejects_foreign_scoped_pool(tmp_p
                 requires_user_confirmation=True,
             )
         ],
-        metadata={"workspace_id": "project-a", "runtime_scope_key": "workspace:project-a"},
+        metadata={"workspace_id": "project-a", "project_instance_id": "projinst_a", "runtime_scope_key": "workspace:project-a|instance:projinst_a"},
     )
     _save_pool(tmp_path, pool)
     client = _client(tmp_path)
@@ -525,6 +537,7 @@ def test_plan_pool_status_rejects_cross_project_job_failure(tmp_path):
             {
                 "pool_id": "pool_job_foreign",
                 "workspace_id": "project-a",
+                "project_instance_id": "projinst_a",
                 "runtime_scope_key": "workspace:project-a",
                 "status": "failed",
                 "error": "FOREIGN_JOB_FAILURE",
@@ -534,7 +547,10 @@ def test_plan_pool_status_rejects_cross_project_job_failure(tmp_path):
     )
     client = _client(tmp_path)
 
-    response = client.get("/api/atlas/plan-pools/pool_job_foreign/status", params={"workspace_id": "project-b"})
+    response = client.get(
+        "/api/atlas/plan-pools/pool_job_foreign/status",
+        params={"workspace_id": "project-b", "project_instance_id": "projinst_b"},
+    )
 
     assert response.status_code == 200, response.text
     body = response.json()
@@ -543,3 +559,100 @@ def test_plan_pool_status_rejects_cross_project_job_failure(tmp_path):
     assert body["restored_state_rejected"] is True
     assert body["restore_rejected_reason"] == "project_scope_mismatch"
     assert "FOREIGN_JOB_FAILURE" not in json.dumps(body, ensure_ascii=False)
+
+
+def test_deleted_recreated_same_name_rejects_old_instance_restore_surfaces(tmp_path):
+    client = _client(tmp_path)
+    first = client.post("/api/atlas/projects", json={"name": "foo"}).json()
+    first_instance = first["project_instance_id"]
+    pool_id = "pool_deleted_project_foo"
+    pool = AtlasPlanPool(
+        pool_id=pool_id,
+        root_goal="FOREIGN DELETED PROJECT GOAL",
+        status="failed",
+        project_name="foo",
+        project_path=first["project_path"],
+        items=[
+            _item(
+                pool_id,
+                title="FOREIGN DELETED PROJECT ITEM",
+                status="failed",
+                target_files=["index.html"],
+                metadata={
+                    "verification": {
+                        "status": "failed",
+                        "summary": "FOREIGN FAILURE SUMMARY",
+                        "visual_contract_failed": True,
+                    }
+                },
+            )
+        ],
+        failed_item_ids=["item_1"],
+        metadata={
+            "workspace_id": "foo",
+            "project_instance_id": first_instance,
+            "runtime_scope_key": f"project:foo|instance:{first_instance}",
+            "safety_gate_block_reason_after_clarification": "FOREIGN FAILURE SUMMARY",
+        },
+    )
+    _save_pool(tmp_path, pool)
+    jobs_dir = tmp_path / "atlas" / "plan_pool_jobs"
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    (jobs_dir / f"{pool_id}.json").write_text(
+        json.dumps({
+            "pool_id": pool_id,
+            "workspace_id": "foo",
+            "project_instance_id": first_instance,
+            "status": "failed",
+            "error": "FOREIGN JOB ERROR",
+        }),
+        encoding="utf-8",
+    )
+    auto_dir = tmp_path / "atlas" / "multi_item_autopilot" / pool_id
+    auto_dir.mkdir(parents=True, exist_ok=True)
+    (auto_dir / "auto_deleted.json").write_text(
+        json.dumps({
+            "pool_id": pool_id,
+            "run_id": "run_deleted",
+            "autopilot_run_id": "auto_deleted",
+            "workspace_id": "foo",
+            "status": "failed",
+            "failed_count": 1,
+            "item_results": [{"item_id": "item_1", "changed_files": ["index.html"], "reason": "FOREIGN FAILURE SUMMARY"}],
+            "metadata": {"project_instance_id": first_instance},
+        }),
+        encoding="utf-8",
+    )
+    assert client.delete("/api/atlas/projects/foo").status_code == 200
+    second = client.post("/api/atlas/projects", json={"name": "foo"}).json()
+    second_instance = second["project_instance_id"]
+    assert second_instance != first_instance
+    # Simulate old audit/recovery data remaining on disk after a same-name
+    # project generation is recreated. Normal restore must reject it by
+    # project_instance_id before exposing any old goal/item/failure details.
+    journal = AtlasJournal(tmp_path, workspace_id="foo")
+    journal.save_plan_pool(pool)
+    journal.write_plan_pool_markdown(pool)
+
+    surfaces = [
+        client.get(f"/api/atlas/plan-pools/{pool_id}", params={"workspace_id": "foo", "project_instance_id": second_instance}).json(),
+        client.get(f"/api/atlas/plan-pools/{pool_id}/markdown", params={"workspace_id": "foo", "project_instance_id": second_instance}).json(),
+        client.get(f"/api/atlas/plan-pools/{pool_id}/runtime-status", params={"workspace_id": "foo", "project_instance_id": second_instance}).json(),
+        client.get(f"/api/atlas/plan-pools/{pool_id}/status", params={"workspace_id": "foo", "project_instance_id": second_instance}).json(),
+        client.get("/api/atlas/continuation/latest", params={"workspace_id": "foo", "project_instance_id": second_instance}).json(),
+        client.get(f"/api/atlas/continuation/pools/{pool_id}", params={"workspace_id": "foo", "project_instance_id": second_instance}).json(),
+        client.get("/api/atlas/recovery/latest", params={"workspace_id": "foo", "project_instance_id": second_instance}).json(),
+        client.get(f"/api/atlas/recovery/pools/{pool_id}", params={"workspace_id": "foo", "project_instance_id": second_instance}).json(),
+        client.post("/api/atlas/multi-item-autopilot/latest", json={"pool_id": pool_id, "workspace_id": "foo", "project_instance_id": second_instance}).json(),
+        client.get(f"/api/atlas/multi-item-autopilot/results/{pool_id}/auto_deleted", params={"workspace_id": "foo", "project_instance_id": second_instance}).json(),
+    ]
+
+    serialized = json.dumps(surfaces, ensure_ascii=False)
+    assert all("restored_state_rejected" in json.dumps(surface, ensure_ascii=False) for surface in surfaces)
+    assert "project_instance_mismatch" in serialized
+    assert "FOREIGN DELETED PROJECT GOAL" not in serialized
+    assert "FOREIGN DELETED PROJECT ITEM" not in serialized
+    assert "FOREIGN FAILURE SUMMARY" not in serialized
+    assert "FOREIGN JOB ERROR" not in serialized
+    assert "index.html" not in serialized
+    assert "visual_contract_failed" not in serialized

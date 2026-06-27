@@ -71,6 +71,24 @@ def test_delete_removes_project_and_workspace(tmp_path: Path) -> None:
     assert c.get("/api/atlas/projects").json()["projects"] == []
 
 
+def test_recreate_same_name_gets_new_project_instance_id(tmp_path: Path) -> None:
+    c = _client(tmp_path)
+
+    first = c.post("/api/atlas/projects", json={"name": "same"}).json()
+    first_id = first["project_instance_id"]
+    assert first_id
+    assert (tmp_path / "atlas" / "projects" / "same" / "project.json").exists()
+
+    assert c.delete("/api/atlas/projects/same").status_code == 200
+    second = c.post("/api/atlas/projects", json={"name": "same"}).json()
+
+    assert second["name"] == "same"
+    assert second["project_instance_id"]
+    assert second["project_instance_id"] != first_id
+    listed = c.get("/api/atlas/projects").json()["projects"]
+    assert listed[0]["project_instance_id"] == second["project_instance_id"]
+
+
 def test_path_traversal_rejected(tmp_path: Path) -> None:
     c = _client(tmp_path)
     r = c.delete("/api/atlas/projects/..%2f..%2fetc")
