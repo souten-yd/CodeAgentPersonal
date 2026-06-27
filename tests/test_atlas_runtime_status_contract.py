@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 import main
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_run_store import AtlasRunStore
 
 
 def _client(tmp_path):
@@ -56,6 +57,92 @@ def test_runtime_status_approved_pool_is_clear_approved_not_started(tmp_path):
     assert body["message"] == "Patch generation has not started"
     assert body["items_total"] == 1
     assert body["next_actions"]
+
+
+def test_run_status_returns_backend_item_progress_counts_and_token_usage(tmp_path):
+    pool_id = "pool_run_status_progress"
+    pool = AtlasPlanPool(
+        pool_id=pool_id,
+        root_goal="Restore backend progress indicators",
+        status="running",
+        items=[
+            _item(pool_id, "item_1", title="Update UI"),
+            _item(pool_id, "item_2", title="Add tests"),
+            _item(pool_id, "item_3", title="Docs"),
+            _item(pool_id, "item_4", title="Blocked follow-up"),
+            _item(pool_id, "item_5", title="Skipped follow-up"),
+        ],
+    )
+    _save_pool(tmp_path, pool)
+    client = _client(tmp_path)
+    created = client.post("/api/atlas/runs", json={"pool_id": pool_id, "workspace_id": "default"}).json()
+    run_id = created["run_id"]
+    store = AtlasRunStore(tmp_path)
+    store.patch_state(
+        run_id,
+        {
+            "status": "running",
+            "phase": "proposal",
+            "current_item_id": "item_2",
+            "current_item_index": 2,
+            "total_items": 5,
+            "completed_item_ids": ["item_1"],
+            "failed_item_ids": ["item_3"],
+            "blocked_item_ids": ["item_4"],
+            "skipped_item_ids": ["item_5"],
+        },
+    )
+    store.append_event(
+        run_id,
+        event_type="llm_token_delta",
+        phase="proposal",
+        status="running",
+        item_id="item_2",
+        metadata={"tokens_generated": 512, "max_ctx": 16384},
+    )
+
+    response = client.get(f"/api/atlas/runs/{run_id}/status")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["completed_item_ids"] == ["item_1"]
+    assert body["failed_item_ids"] == ["item_3"]
+    assert body["blocked_item_ids"] == ["item_4"]
+    assert body["skipped_item_ids"] == ["item_5"]
+    assert body["completed_count"] == 1
+    assert body["failed_count"] == 1
+    assert body["blocked_count"] == 1
+    assert body["skipped_count"] == 1
+    assert body["running_count"] == 1
+    assert body["token_usage"]["generated_tokens"] == 512
+    assert body["token_usage"]["tokens_generated"] == 512
+    assert body["token_usage"]["max_context_tokens"] == 16384
+    assert body["token_usage"]["max_ctx"] == 16384
+    progress = {item["item_id"]: item for item in body["item_progress"]}
+    assert progress["item_1"]["status"] == "completed"
+    assert progress["item_2"]["status"] == "running"
+    assert progress["item_2"]["phase"] == "proposal"
+    assert progress["item_2"]["title"] == "Add tests"
+    assert progress["item_3"]["status"] == "failed"
+    assert progress["item_4"]["status"] == "blocked"
+    assert progress["item_5"]["status"] == "skipped"
+
+
+def test_run_status_token_usage_absence_does_not_break_item_progress(tmp_path):
+    pool_id = "pool_run_status_no_tokens"
+    _save_pool(tmp_path, AtlasPlanPool(pool_id=pool_id, root_goal="No token progress", items=[_item(pool_id)]))
+    client = _client(tmp_path)
+    run_id = client.post("/api/atlas/runs", json={"pool_id": pool_id, "workspace_id": "default"}).json()["run_id"]
+
+    response = client.get(f"/api/atlas/runs/{run_id}/status")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["token_usage"]["generated_tokens"] == 0
+    assert body["token_usage"]["tokens_generated"] == 0
+    assert body["item_progress"] == [
+        {"item_id": "item_1", "title": "Implement visible patch status", "status": "pending", "phase": ""}
+    ]
 
 
 def test_runtime_status_item_approved_even_if_pool_status_is_stale_approval_required(tmp_path):

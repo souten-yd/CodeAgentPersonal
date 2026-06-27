@@ -76,8 +76,43 @@ def test_runtime_panel_renders_required_patch_zero_states():
         "runtimeConnectionLabel",
         "推奨操作:",
         "Blocked by safety gate:",
+        "実行中",
+        "フェーズ",
+        "進捗:",
+        "現在:",
+        "Tokens:",
+        "failed_count",
+        "blocked_count",
+        "skipped_count",
     ]:
         assert token in body
+
+
+def test_backend_run_watcher_renders_server_item_progress_and_token_indicator():
+    body = _function_body("watchBackendRun")
+    assert "normalizeRunItemProgress(d.item_progress, d)" in body
+    assert "renderPlanSteps(stages, itemSteps)" in body
+    assert "runTokenUsagePayload(d)" in body
+    assert "new CustomEvent('atlas:llm-progress'" in body
+    assert "tokens: tokenUsage.generated" in body
+    assert "maxCtx: tokenUsage.maxCtx" in body
+    assert "items_completed: d.completed_count || 0" in body
+    assert "failed_count: d.failed_count || 0" in body
+    assert "blocked_count: d.blocked_count || 0" in body
+    assert "skipped_count: d.skipped_count || 0" in body
+    assert "current_item_title: currentRunItemTitle(d, itemSteps)" in body
+
+
+def test_run_item_progress_normalizer_uses_backend_status_fields_only():
+    body = _function_body("normalizeRunItemProgress")
+    assert "Array.isArray(itemProgress)" in body
+    assert "item.status" in body
+    assert "d.current_item_id" in body
+    assert "d.completed_count" in body
+    assert "d.failed_count" in body
+    assert "d.blocked_count" in body
+    assert "d.skipped_count" in body
+    assert "runItemStepState(status)" in body
 
 
 def test_runtime_panel_reuses_one_stage_block_for_polling():

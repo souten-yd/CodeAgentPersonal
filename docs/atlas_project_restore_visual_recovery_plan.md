@@ -792,6 +792,34 @@ Not counted as pass: `python -m pytest -q tests\test_atlas_plan_pool_project_bin
 
 Safety invariants: no runtime semantics, Proposal, Safe Apply, Verification, backend run order, Vue default/read-only status, `ui.html` default, execution capability, remote push, self-apply, raw source serving, or startup npm/Vite/Vue build behavior was changed.
 
+### Follow-up: Server-authoritative execution progress indicators (completed 2026-06-27)
+
+Status: completed in this working tree
+
+Changed files:
+
+- `app/api/atlas_runs.py`
+- `web/js/atlas_claude_panel.js`
+- `tests/test_atlas_runtime_status_contract.py`
+- `tests/test_atlas_runtime_status_panel_contract.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+
+Behavior implemented: `/api/atlas/runs/{run_id}/status` now returns read-only progress fields already owned by `AtlasRunState`: completed/failed/blocked/skipped item ids, per-status counts, `running_count`, and a backend-derived `item_progress` list synthesized from the saved PlanPool when available. The endpoint also returns tolerant `token_usage` metadata from latest run events, run metadata, or patch-generation lifecycle metadata, falling back to max-context-only data when token counts are unavailable.
+
+UI behavior implemented: `watchBackendRun()` now renders backend `item_progress` through `renderPlanSteps()`, dispatches `atlas:llm-progress` from run status token data, and passes completed/failed/blocked/skipped counts plus current-item title into `renderRuntimeStatusPanel()`. The runtime panel no longer stays empty during a healthy running backend run; it shows compact progress, current item, token/context indicator when known, and live connection state.
+
+Validation:
+
+- `python -m pytest -q tests/test_atlas_runtime_status_contract.py` -> 17 passed
+- `python -m pytest -q tests/test_atlas_runtime_status_panel_contract.py` -> 9 passed
+- `python -m pytest -q tests/test_atlas_run_api.py tests/test_atlas_run_orchestrator.py tests/test_atlas_run_item_selection.py tests/test_atlas_run_retry_revise.py tests/test_atlas_run_lease_recovery.py` -> 29 passed
+- `python -m pytest -q tests/test_atlas_run_control_hardening_eval.py tests/test_atlas_run_cli.py tests/test_atlas_run_api.py tests/test_atlas_run_schema.py tests/test_atlas_run_retry_revise.py tests/test_atlas_run_item_selection.py tests/test_atlas_run_lease_recovery.py tests/test_atlas_run_orchestrator.py` -> 46 passed
+- `python -m py_compile app/api/atlas_runs.py tests/test_atlas_runtime_status_contract.py tests/test_atlas_runtime_status_panel_contract.py` -> passed
+- `node --check web/js/atlas_claude_panel.js` -> passed
+- `node --check web/js/atlas_pipeline_api.js` -> passed
+
+Safety invariants: this follow-up restores display of server-owned state only. It does not change runtime semantics, approval conditions, clarification blockers, autonomous preflight, backend item order, Proposal, Safe Apply, Verification, retry policy, execution capability, Vue authority/defaults, direct client-side execution authority, remote push, self-apply, raw source serving, fallback redirects, or startup npm/Vite build behavior.
+
 ```text
 python -m pytest -q tests/test_atlas_project_restore_isolation.py
 python -m pytest -q tests/test_atlas_project_picker_bootstrap_contract.py
