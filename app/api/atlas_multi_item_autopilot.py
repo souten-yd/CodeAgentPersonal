@@ -22,6 +22,7 @@ from agent.atlas_multi_item_autopilot_schema import AtlasMultiItemAutopilotReque
 from agent.atlas_multi_item_autopilot_service import AtlasMultiItemAutopilotService
 from agent.atlas_patch_proposal_service import AtlasPatchProposalService
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
+from agent.atlas_project_identity import project_instance_id_from_metadata, read_project_metadata
 from agent.atlas_correction_router_service import AtlasCorrectionRouterService
 from agent.atlas_failure_diagnosis_service import AtlasFailureDiagnosisService
 from agent.atlas_test_harness_provisioner import AtlasTestHarnessProvisioner
@@ -35,6 +36,8 @@ router = APIRouter(prefix="/api/atlas/multi-item-autopilot", tags=["atlas-multi-
 
 class AtlasMultiItemLatestRequest(BaseModel):
     pool_id: str
+    workspace_id: str = "default"
+    project_instance_id: str = ""
 
 
 def _validate_id(value: str, field: str, prefix: str = "") -> str:
@@ -55,6 +58,80 @@ def _resolve_pool_workspace_root(*, storage: AtlasPlanPoolStorage, ca_data_root,
     except Exception:
         project_path = ""
     return resolve_atlas_workspace_root(ca_data_root=ca_data_root, workspace_id=workspace_id, project_path=project_path)
+
+
+def _scope_workspace_from_metadata(metadata: dict) -> str:
+    for key in ("workspace_id", "runtime_workspace_id", "atlas_workspace_id"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            return value
+    runtime_scope = metadata.get("runtime_scope") if isinstance(metadata.get("runtime_scope"), dict) else {}
+    return str(runtime_scope.get("workspace_id") or "").strip()
+
+
+def _project_instance_from_workspace(ca_data_root, workspace_id: str) -> str:
+    ws = str(workspace_id or "").strip()
+    if not ws or ws == "default":
+        return ""
+    if "/" in ws or "\\" in ws or ".." in ws:
+        return ""
+    return str(read_project_metadata(ca_data_root, ws).get("project_instance_id") or "").strip()
+
+
+def _autopilot_restore_rejection_reason(
+    *,
+    storage: AtlasPlanPoolStorage,
+    ca_data_root,
+    payload: dict,
+    pool_id: str,
+    workspace_id: str,
+    project_instance_id: str,
+) -> str:
+    current_ws = str(workspace_id or "default").strip() or "default"
+    current_instance = str(project_instance_id or "").strip()
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    stored_ws = str(payload.get("workspace_id") or metadata.get("workspace_id") or "").strip()
+    stored_instance = project_instance_id_from_metadata(payload) or project_instance_id_from_metadata(metadata)
+    expected_instance = _project_instance_from_workspace(ca_data_root, current_ws)
+    try:
+        pool = storage.load_pool(pool_id)
+        pool_metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
+        stored_ws = stored_ws or _scope_workspace_from_metadata(pool_metadata)
+        stored_instance = stored_instance or project_instance_id_from_metadata(pool_metadata)
+    except Exception:
+        pass
+    if stored_ws and stored_ws != current_ws:
+        return "project_scope_mismatch"
+    if current_instance:
+        if not stored_instance:
+            return "missing_project_instance_scope"
+        if stored_instance != current_instance:
+            return "project_instance_mismatch"
+    elif current_ws != "default" and (expected_instance or stored_instance):
+        return "missing_project_instance_scope"
+    if current_ws != "default" and not stored_ws:
+        return "missing_project_scope"
+    return ""
+
+
+def _autopilot_restore_rejected_payload(pool_id: str, reason: str) -> dict:
+    return {
+        "pool_id": "",
+        "run_id": "",
+        "autopilot_run_id": "",
+        "status": "inactive",
+        "restored_state_rejected": True,
+        "restore_rejected_reason": reason,
+        "rejected_pool_id": pool_id,
+        "processed_count": 0,
+        "completed_count": 0,
+        "failed_count": 0,
+        "blocked_count": 0,
+        "item_results": [],
+        "warnings": [reason],
+        "errors": [],
+        "metadata": {"restored_state_rejected": True, "restore_rejected_reason": reason},
+    }
 
 
 def _service(request: Request | None = None, workspace_id: str = "default", pool_id: str = "") -> AtlasMultiItemAutopilotService:
@@ -151,6 +228,17 @@ def run(payload: AtlasMultiItemAutopilotRequest, request: Request):
     meta = dict(payload.metadata or {})
     meta.setdefault("data_root", str(root))
     meta["orchestrator_run_id"] = progress_run_id
+    meta.setdefault("workspace_id", payload.workspace_id)
+    meta.setdefault("project_instance_id", project_instance_id_from_metadata(meta))
+    if not meta.get("project_instance_id"):
+        try:
+            pool = AtlasPlanPoolStorage(root).load_pool(payload.pool_id)
+            pool_meta = pool.metadata if isinstance(pool.metadata, dict) else {}
+            instance_id = project_instance_id_from_metadata(pool_meta)
+            if instance_id:
+                meta["project_instance_id"] = instance_id
+        except Exception:
+            pass
     payload.metadata = meta
     write_progress(root, payload.pool_id, progress_run_id, {
         "run_id": progress_run_id, "orchestrator_run_id": progress_run_id,
@@ -193,20 +281,50 @@ def get_progress(request: Request, pool_id: str = Query(...), run_id: str = Quer
 
 
 @router.get("/results/{pool_id}/{autopilot_run_id}")
-def get_result(pool_id: str, autopilot_run_id: str):
+def get_result(
+    pool_id: str,
+    autopilot_run_id: str,
+    request: Request,
+    workspace_id: str = Query("default"),
+    project_instance_id: str = Query(""),
+):
     safe_pool = _validate_id(pool_id, "pool_id")
     safe_id = _validate_id(autopilot_run_id, "autopilot_run_id", prefix="auto_")
-    path = Path("ca_data") / "atlas" / "multi_item_autopilot" / safe_pool / f"{safe_id}.json"
+    root = resolve_atlas_ca_data_root(request)
+    path = root / "atlas" / "multi_item_autopilot" / safe_pool / f"{safe_id}.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail={"error": "result_not_found", "reason": "result_not_found"})
-    return json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    rejection_reason = _autopilot_restore_rejection_reason(
+        storage=AtlasPlanPoolStorage(root),
+        ca_data_root=root,
+        payload=payload if isinstance(payload, dict) else {},
+        pool_id=safe_pool,
+        workspace_id=workspace_id,
+        project_instance_id=project_instance_id,
+    )
+    if rejection_reason:
+        return _autopilot_restore_rejected_payload(safe_pool, rejection_reason)
+    return payload
 
 
 @router.post("/latest")
-def latest(payload: AtlasMultiItemLatestRequest):
+def latest(payload: AtlasMultiItemLatestRequest, request: Request):
     safe_pool = _validate_id(payload.pool_id, "pool_id")
-    root = Path("ca_data") / "atlas" / "multi_item_autopilot" / safe_pool
+    data_root = resolve_atlas_ca_data_root(request)
+    root = data_root / "atlas" / "multi_item_autopilot" / safe_pool
     files = sorted(root.glob("auto_*.json"), key=lambda p: p.stat().st_mtime, reverse=True) if root.exists() else []
     if not files:
         raise HTTPException(status_code=404, detail={"error": "result_not_found", "reason": "result_not_found"})
-    return json.loads(files[0].read_text(encoding="utf-8"))
+    result = json.loads(files[0].read_text(encoding="utf-8"))
+    rejection_reason = _autopilot_restore_rejection_reason(
+        storage=AtlasPlanPoolStorage(data_root),
+        ca_data_root=data_root,
+        payload=result if isinstance(result, dict) else {},
+        pool_id=safe_pool,
+        workspace_id=payload.workspace_id,
+        project_instance_id=payload.project_instance_id,
+    )
+    if rejection_reason:
+        return _autopilot_restore_rejected_payload(safe_pool, rejection_reason)
+    return result

@@ -25,12 +25,18 @@ def _client(tmp_path: Path) -> TestClient:
 
 
 def _create_pool(client: TestClient, workspace_id: str, goal: str) -> dict:
+    project_instance_id = ""
+    if workspace_id != "default":
+        project = client.post("/api/atlas/projects", json={"name": workspace_id}).json()
+        project_instance_id = project["project_instance_id"]
     response = client.post(
         "/api/atlas/plan-pools?sync=1",
-        json={"input": goal, "workspace_id": workspace_id},
+        json={"input": goal, "workspace_id": workspace_id, "project_instance_id": project_instance_id},
     )
     assert response.status_code == 200, response.text
-    return response.json()
+    data = response.json()
+    data["project_instance_id"] = project_instance_id
+    return data
 
 
 def _dry_run(client: TestClient, workspace_id: str, pool_id: str) -> dict:
@@ -48,8 +54,8 @@ def test_continuation_latest_is_workspace_scoped_and_does_not_fallback(tmp_path:
     run_a = _dry_run(client, "project_a", pool_a["pool_id"])
     pool_b = _create_pool(client, "project_b", "Project B plan")
 
-    response_a = client.get("/api/atlas/continuation/latest", params={"workspace_id": "project_a"})
-    response_b = client.get("/api/atlas/continuation/latest", params={"workspace_id": "project_b"})
+    response_a = client.get("/api/atlas/continuation/latest", params={"workspace_id": "project_a", "project_instance_id": pool_a["project_instance_id"]})
+    response_b = client.get("/api/atlas/continuation/latest", params={"workspace_id": "project_b", "project_instance_id": pool_b["project_instance_id"]})
     response_missing = client.get("/api/atlas/continuation/latest", params={"workspace_id": "project_missing"})
 
     assert response_a.status_code == 200
@@ -79,7 +85,7 @@ def test_recovery_latest_is_workspace_scoped_and_does_not_fallback_to_default(tm
     run_a = _dry_run(client, "project_a", pool_a["pool_id"])
 
     response_default = client.get("/api/atlas/recovery/latest")
-    response_a = client.get("/api/atlas/recovery/latest", params={"workspace_id": "project_a"})
+    response_a = client.get("/api/atlas/recovery/latest", params={"workspace_id": "project_a", "project_instance_id": pool_a["project_instance_id"]})
     response_missing = client.get("/api/atlas/recovery/latest", params={"workspace_id": "project_missing"})
 
     assert response_default.status_code == 200
@@ -104,12 +110,13 @@ def test_recovery_latest_is_workspace_scoped_and_does_not_fallback_to_default(tm
 
 def test_client_restore_calls_include_workspace_id_for_recovery_and_continuation() -> None:
     for token in [
-        "getContinuationLatest(workspaceId)",
+        "getContinuationLatest(workspaceId, projectInstanceId)",
         "workspace_id: workspaceId",
-        "getContinuationPool(poolId, runId, workspaceId)",
-        "getPlanRuntimeStatus(poolId, workspaceId)",
+        "project_instance_id: projectInstanceId",
+        "getContinuationPool(poolId, runId, workspaceId, projectInstanceId)",
+        "getPlanRuntimeStatus(poolId, workspaceId, projectInstanceId)",
         "getPipelineEvents(poolId, runId, workspaceId, afterSequence)",
-        "getRecoveryLatest(workspaceId)",
-        "getRecoveryPool(poolId, workspaceId)",
+        "getRecoveryLatest(workspaceId, projectInstanceId)",
+        "getRecoveryPool(poolId, workspaceId, projectInstanceId)",
     ]:
         assert token in API_JS

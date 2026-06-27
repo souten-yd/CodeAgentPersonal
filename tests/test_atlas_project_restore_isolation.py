@@ -40,6 +40,9 @@ def test_project_restore_cross_contamination_recovery_keys_are_project_scoped():
     assert "const STORAGE_LAST_RUN_ID_KEY = 'atlas_claude_last_run_id';" in PANEL_JS
     assert "const STORAGE_LAST_EVENT_SEQUENCE_KEY = 'atlas_claude_last_event_sequence';" in PANEL_JS
     assert "function projectScopedStorageKey" in PANEL_JS
+    assert "function projectInstanceId" in PANEL_JS
+    assert "const instance = String(projectInstanceId() || '').trim();" in PANEL_JS
+    assert "return instance ? `${workspace}:${instance}` : workspace;" in PANEL_JS
     assert "`atlas_claude:${encodeURIComponent(scope)}:${suffix}`" in PANEL_JS
     assert "function setProjectScopedHint" in PANEL_JS
     assert "function getProjectScopedHint" in PANEL_JS
@@ -66,7 +69,7 @@ def test_selected_project_without_pool_clears_visible_plan_before_empty_prompt()
     body = _function_body(PANEL_JS, "loadProject")
     assert "dom.transcript.innerHTML = ''" in body
     assert "state.transcript = []" in body
-    assert "getContinuationLatest(wsId)" in body
+    assert "getContinuationLatest(wsId, projectInstanceId())" in body
     assert "removeProjectScopedHints(state.activeProject.workspaceId || target)" in body
     assert "pushSystemMessage('指示を入力してください')" in body
 
@@ -85,3 +88,13 @@ def test_legacy_global_recovery_hint_is_read_only_no_project_fallback():
     assert "if (key) return localStorage.getItem(key) || '';" in helper_body
     assert "return localStorage.getItem(baseKey) || '';" in helper_body
     assert "localStorage.setItem(baseKey" not in PANEL_JS
+
+
+def test_deleted_recreated_project_restore_uses_project_instance_id():
+    assert "projectInstanceId: project.projectInstanceId || project.project_instance_id || ''" in PANEL_JS
+    assert "project_instance_id: projectInstanceId()" in PANEL_JS
+    assert "getPlanRuntimeStatus(poolId, workspaceId(), projectInstanceId())" in PANEL_JS
+    assert "getPlanPool(poolId, workspaceId(), projectInstanceId())" in PANEL_JS
+    assert "getPlanPoolMarkdown(poolId, workspaceId(), projectInstanceId())" in PANEL_JS
+    assert "getLatestMultiItemAutopilotResult({ pool_id: poolId, workspace_id: workspaceId(), project_instance_id: projectInstanceId() })" in PANEL_JS
+    assert "clearProjectHints" in PANEL_JS

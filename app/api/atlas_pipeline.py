@@ -68,6 +68,7 @@ from agent.atlas_pipeline_runner_schema import AtlasPipelineRunRequest
 from agent.atlas_plan_pool_builder import AtlasPlanPoolBuilder
 from agent.atlas_planner_bridge import AtlasPlannerBridge
 from agent.atlas_planner_bridge_schema import AtlasPlannerBridgeRequest
+from agent.atlas_project_identity import project_instance_id_from_metadata, read_project_metadata
 from agent.atlas_input_canonicalizer import ensure_english_text
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_pool_storage import AtlasPlanPoolStorage
@@ -138,6 +139,7 @@ class CreatePlanPoolRequest(BaseModel):
     plan_payload: dict = Field(default_factory=dict)
     metadata: dict = Field(default_factory=dict)
     workspace_id: str = "default"
+    project_instance_id: str = ""
     changed_files: list[str] = Field(default_factory=list)
     target_files: list[str] = Field(default_factory=list)
     enable_repo_context: bool = True
@@ -373,10 +375,13 @@ def build_runtime_scope_key(
     project_path: str = "",
     workspace_root: str = "",
     project_id: str = "",
+    project_instance_id: str = "",
 ) -> str:
     parts: list[str] = []
     if project_id:
         parts.append(f"project:{project_id}")
+    if project_instance_id:
+        parts.append(f"instance:{project_instance_id}")
     for label, value in (("project_path", project_path), ("workspace_root", workspace_root)):
         text = str(value or "").strip()
         if not text:
@@ -438,15 +443,46 @@ def _scope_project_path_from_metadata(metadata: dict[str, Any]) -> str:
     return ""
 
 
-def _attach_runtime_scope_metadata(pool: AtlasPlanPool, *, ca_data_root: Path, workspace_id: str) -> None:
+def _project_instance_from_workspace(ca_data_root: Path, workspace_id: str) -> str:
+    ws = str(workspace_id or "").strip()
+    if not ws or ws == "default":
+        return ""
+    if "/" in ws or "\\" in ws or ".." in ws:
+        return ""
+    return str(read_project_metadata(ca_data_root, ws).get("project_instance_id") or "").strip()
+
+
+def _request_project_instance_id(value: str = "", metadata: dict[str, Any] | None = None) -> str:
+    explicit = str(value or "").strip()
+    if explicit:
+        return explicit
+    return project_instance_id_from_metadata(metadata)
+
+
+def _attach_runtime_scope_metadata(
+    pool: AtlasPlanPool,
+    *,
+    ca_data_root: Path,
+    workspace_id: str,
+    project_instance_id: str = "",
+) -> None:
     metadata = dict(pool.metadata or {})
     ws = str(workspace_id or "default")
     project_path = str(pool.project_path or "")
-    scope_key = build_runtime_scope_key(project_path=project_path, workspace_root=project_path, project_id=ws)
+    instance_id = str(project_instance_id or project_instance_id_from_metadata(metadata) or _project_instance_from_workspace(ca_data_root, ws) or "").strip()
+    scope_key = build_runtime_scope_key(
+        project_path=project_path,
+        workspace_root=project_path,
+        project_id=ws,
+        project_instance_id=instance_id,
+    )
     metadata["workspace_id"] = ws
+    if instance_id:
+        metadata["project_instance_id"] = instance_id
     metadata["runtime_scope_key"] = scope_key
     metadata["runtime_scope"] = {
         "workspace_id": ws,
+        "project_instance_id": instance_id,
         "project_path": project_path,
         "workspace_root": project_path or _project_workspace_path(ca_data_root, ws),
         "project_id": str(pool.project_name or ws),
@@ -461,15 +497,26 @@ def _runtime_restore_rejection_reason(
     *,
     ca_data_root: Path,
     workspace_id: str,
+    project_instance_id: str = "",
     allow_unscoped_legacy_read: bool = False,
 ) -> str:
     current_ws = str(workspace_id or "default").strip() or "default"
-    if current_ws == "default" and allow_unscoped_legacy_read:
+    current_instance = str(project_instance_id or "").strip()
+    if current_ws == "default" and allow_unscoped_legacy_read and not current_instance:
         return ""
     metadata = pool.metadata if isinstance(pool.metadata, dict) else {}
     stored_ws = _scope_workspace_from_metadata(metadata)
+    stored_instance = project_instance_id_from_metadata(metadata)
+    expected_instance = _project_instance_from_workspace(ca_data_root, current_ws)
     if stored_ws and stored_ws != current_ws:
         return "project_scope_mismatch"
+    if current_instance:
+        if not stored_instance:
+            return "missing_project_instance_scope"
+        if stored_instance != current_instance:
+            return "project_instance_mismatch"
+    elif current_ws != "default" and (expected_instance or stored_instance):
+        return "missing_project_instance_scope"
     if current_ws == "default":
         return ""
 
@@ -516,11 +563,85 @@ def _restore_rejected_payload(pool_id: str, reason: str) -> dict[str, Any]:
     }
 
 
-def _job_scope_rejection_reason(data: dict[str, Any], workspace_id: str) -> str:
+def _continuation_restore_rejected(workspace_id: str, pool_id: str, run_id: str, reason: str) -> ContinuationResponse:
+    return ContinuationResponse(
+        workspace_id=str(workspace_id or "default"),
+        pool_id="",
+        run_id="",
+        status="inactive",
+        next_action="Create or select an Atlas plan pool.",
+        warnings=[reason],
+        metadata={
+            "restored_state_rejected": True,
+            "restore_rejected_reason": reason,
+            "rejected_pool_id": pool_id,
+            "rejected_run_id": run_id,
+        },
+    )
+
+
+def _recovery_restore_rejected(workspace_id: str, pool_id: str, run_id: str, reason: str) -> RecoveryResponse:
+    summary = {
+        "workspace_id": str(workspace_id or "default"),
+        "pool_id": "",
+        "run_id": "",
+        "status": "no_plan_pool",
+        "next_action": "Create or select an Atlas plan pool.",
+        "warnings": [reason],
+        "errors": [],
+        "metadata": {
+            "restored_state_rejected": True,
+            "restore_rejected_reason": reason,
+            "rejected_pool_id": pool_id,
+            "rejected_run_id": run_id,
+        },
+    }
+    return RecoveryResponse(recovery_summary=summary, orchestration_summary={})
+
+
+def _pool_restore_rejection_for_ids(
+    storage: AtlasPlanPoolStorage,
+    *,
+    ca_data_root: Path,
+    pool_id: str,
+    workspace_id: str,
+    project_instance_id: str,
+) -> str:
+    if not pool_id:
+        return ""
+    try:
+        pool = storage.load_pool(pool_id)
+    except Exception:
+        return ""
+    return _runtime_restore_rejection_reason(
+        pool,
+        ca_data_root=ca_data_root,
+        workspace_id=workspace_id,
+        project_instance_id=project_instance_id,
+    )
+
+
+def _job_scope_rejection_reason(
+    data: dict[str, Any],
+    workspace_id: str,
+    project_instance_id: str = "",
+    *,
+    ca_data_root: Path | None = None,
+) -> str:
     current_ws = str(workspace_id or "default").strip() or "default"
+    current_instance = str(project_instance_id or "").strip()
     stored_ws = str(data.get("workspace_id") or data.get("runtime_workspace_id") or "").strip()
+    stored_instance = project_instance_id_from_metadata(data)
+    expected_instance = _project_instance_from_workspace(ca_data_root, current_ws) if ca_data_root is not None else ""
     if stored_ws and stored_ws != current_ws:
         return "project_scope_mismatch"
+    if current_instance:
+        if not stored_instance:
+            return "missing_project_instance_scope"
+        if stored_instance != current_instance:
+            return "project_instance_mismatch"
+    elif current_ws != "default" and (expected_instance or stored_instance):
+        return "missing_project_instance_scope"
     if current_ws != "default" and not stored_ws:
         return "missing_project_scope"
     return ""
@@ -1236,12 +1357,18 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
         ca_data_root, _storage, _journal = _atlas_components(request, workspace_id=req.workspace_id)
         pool_id = f"pool_{_uuid.uuid4().hex[:12]}"
         now = datetime.now(timezone.utc).isoformat()
+        project_instance_id = _request_project_instance_id(
+            req.project_instance_id,
+            req.metadata,
+        ) or _project_instance_from_workspace(ca_data_root, req.workspace_id)
         initial_scope = {
             "workspace_id": req.workspace_id,
+            "project_instance_id": project_instance_id,
             "runtime_scope_key": build_runtime_scope_key(
                 project_path=req.project_path,
                 workspace_root=req.project_path or _project_workspace_path(ca_data_root, req.workspace_id),
                 project_id=req.workspace_id,
+                project_instance_id=project_instance_id,
             ),
         }
         _write_plan_pool_job(ca_data_root, pool_id, {"pool_id": pool_id, "status": "queued", "created_at": now, **initial_scope})
@@ -1384,7 +1511,7 @@ def create_plan_pool(req: CreatePlanPoolRequest, request: Request, sync: int = Q
                 )
 
         threading.Thread(target=_runner, daemon=True).start()
-        return {"pool_id": pool_id, "status": "queued", "workspace_id": req.workspace_id}
+        return {"pool_id": pool_id, "status": "queued", "workspace_id": req.workspace_id, "project_instance_id": project_instance_id}
 
     return _create_plan_pool_core(req, request.app)
 
@@ -1464,7 +1591,12 @@ def _append_runtime_progress(
 
 
 @router.get("/plan-pools/{pool_id}/status")
-def get_plan_pool_status(pool_id: str, request: Request, workspace_id: str = Query("default")) -> dict[str, Any]:
+def get_plan_pool_status(
+    pool_id: str,
+    request: Request,
+    workspace_id: str = Query("default"),
+    project_instance_id: str = Query(""),
+) -> dict[str, Any]:
     ca_data_root, _storage, journal = _atlas_components(request, workspace_id=workspace_id)
     path = _plan_pool_jobs_dir(ca_data_root) / f"{pool_id}.json"
     if not path.exists():
@@ -1473,7 +1605,12 @@ def get_plan_pool_status(pool_id: str, request: Request, workspace_id: str = Que
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         data = {"pool_id": pool_id, "status": "running"}
-    rejection_reason = _job_scope_rejection_reason(data, workspace_id)
+    rejection_reason = _job_scope_rejection_reason(
+        data,
+        workspace_id,
+        project_instance_id,
+        ca_data_root=ca_data_root,
+    )
     if rejection_reason:
         return _restore_rejected_payload(pool_id, rejection_reason)
     status = str(data.get("status") or "")
@@ -2138,7 +2275,12 @@ def _create_plan_pool_core(
             if value:
                 pool.metadata.setdefault(key, value)
 
-    _attach_runtime_scope_metadata(pool, ca_data_root=ca_data_root, workspace_id=req.workspace_id)
+    _attach_runtime_scope_metadata(
+        pool,
+        ca_data_root=ca_data_root,
+        workspace_id=req.workspace_id,
+        project_instance_id=_request_project_instance_id(req.project_instance_id, req.metadata),
+    )
     storage.save_pool(pool)
     journal.save_plan_pool(pool)
     summary = AtlasOrchestrationSummaryBuilder().build_from_pool_and_state(pool, None)
@@ -2299,7 +2441,12 @@ def list_plan_pools(request: Request) -> dict[str, Any]:
 
 
 @router.get("/plan-pools/{pool_id}")
-def get_plan_pool(pool_id: str, request: Request, workspace_id: str = Query("default")) -> dict[str, Any]:
+def get_plan_pool(
+    pool_id: str,
+    request: Request,
+    workspace_id: str = Query("default"),
+    project_instance_id: str = Query(""),
+) -> dict[str, Any]:
     ca_data_root, storage, journal = _atlas_components(request, workspace_id=workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, pool_id)
     try:
@@ -2312,6 +2459,7 @@ def get_plan_pool(pool_id: str, request: Request, workspace_id: str = Query("def
         pool,
         ca_data_root=ca_data_root,
         workspace_id=workspace_id,
+        project_instance_id=project_instance_id,
         allow_unscoped_legacy_read=True,
     )
     if rejection_reason:
@@ -2712,7 +2860,12 @@ def _runtime_status_from_pool(pool: AtlasPlanPool, latest_autopilot: dict[str, A
 
 
 @router.get("/plan-pools/{pool_id}/runtime-status")
-def get_plan_pool_runtime_status(pool_id: str, request: Request, workspace_id: str = "default") -> dict[str, Any]:
+def get_plan_pool_runtime_status(
+    pool_id: str,
+    request: Request,
+    workspace_id: str = "default",
+    project_instance_id: str = "",
+) -> dict[str, Any]:
     ca_data_root, storage, journal = _atlas_components(request, workspace_id=workspace_id)
     _sync_pool_from_workspace_snapshot(storage, journal, pool_id)
     try:
@@ -2721,20 +2874,35 @@ def get_plan_pool_runtime_status(pool_id: str, request: Request, workspace_id: s
         raise HTTPException(status_code=404, detail={"error": "plan_pool_not_found", "pool_id": pool_id}) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    rejection_reason = _runtime_restore_rejection_reason(pool, ca_data_root=ca_data_root, workspace_id=workspace_id)
+    rejection_reason = _runtime_restore_rejection_reason(
+        pool,
+        ca_data_root=ca_data_root,
+        workspace_id=workspace_id,
+        project_instance_id=project_instance_id,
+    )
     if rejection_reason:
         return _restore_rejected_payload(pool_id, rejection_reason)
     return _runtime_status_from_pool(pool, _latest_autopilot_result_payload(ca_data_root, pool.pool_id), _patch_generation_lifecycle_states(journal, pool.pool_id))
 
 
 @router.get("/plan-pools/{pool_id}/markdown")
-def get_plan_pool_markdown(pool_id: str, request: Request, workspace_id: str = "default") -> dict[str, Any]:
+def get_plan_pool_markdown(
+    pool_id: str,
+    request: Request,
+    workspace_id: str = "default",
+    project_instance_id: str = "",
+) -> dict[str, Any]:
     ca_data_root, storage, journal = _atlas_components(request, workspace_id=workspace_id)
     markdown_path = Path(journal.paths(pool_id=pool_id).plan_pool_md)
     try:
         if not markdown_path.exists():
             pool = storage.load_pool(pool_id)
-            rejection_reason = _runtime_restore_rejection_reason(pool, ca_data_root=ca_data_root, workspace_id=workspace_id)
+            rejection_reason = _runtime_restore_rejection_reason(
+                pool,
+                ca_data_root=ca_data_root,
+                workspace_id=workspace_id,
+                project_instance_id=project_instance_id,
+            )
             if rejection_reason:
                 return {
                     **_restore_rejected_payload(pool_id, rejection_reason),
@@ -2743,7 +2911,12 @@ def get_plan_pool_markdown(pool_id: str, request: Request, workspace_id: str = "
             markdown_path = journal.write_plan_pool_markdown(pool)
         else:
             pool = storage.load_pool(pool_id)
-            rejection_reason = _runtime_restore_rejection_reason(pool, ca_data_root=ca_data_root, workspace_id=workspace_id)
+            rejection_reason = _runtime_restore_rejection_reason(
+                pool,
+                ca_data_root=ca_data_root,
+                workspace_id=workspace_id,
+                project_instance_id=project_instance_id,
+            )
             if rejection_reason:
                 return {
                     **_restore_rejected_payload(pool_id, rejection_reason),
@@ -2989,12 +3162,25 @@ def run_verification(req: AtlasVerificationRequest, request: Request, sync: int 
     return {"pool_id": req.pool_id, "item_id": req.item_id, "status": "running"}
 
 @router.get("/continuation/latest", response_model=ContinuationResponse)
-def get_continuation_latest(request: Request, workspace_id: str = "default") -> ContinuationResponse:
+def get_continuation_latest(
+    request: Request,
+    workspace_id: str = "default",
+    project_instance_id: str = "",
+) -> ContinuationResponse:
     try:
-        _, _, journal = _atlas_components(request, workspace_id=workspace_id)
+        ca_data_root, storage, journal = _atlas_components(request, workspace_id=workspace_id)
         summary = AtlasContinuationService(journal).build_latest_summary()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    rejection_reason = _pool_restore_rejection_for_ids(
+        storage,
+        ca_data_root=ca_data_root,
+        pool_id=str(summary.pool_id or ""),
+        workspace_id=workspace_id,
+        project_instance_id=project_instance_id,
+    )
+    if rejection_reason:
+        return _continuation_restore_rejected(workspace_id, str(summary.pool_id or ""), str(summary.run_id or ""), rejection_reason)
     return ContinuationResponse(**_model_dump(summary))
 
 
@@ -3004,12 +3190,22 @@ def get_continuation_pool(
     request: Request,
     run_id: str = "",
     workspace_id: str = "default",
+    project_instance_id: str = "",
 ) -> ContinuationResponse:
     try:
-        _, _, journal = _atlas_components(request, workspace_id=workspace_id)
+        ca_data_root, storage, journal = _atlas_components(request, workspace_id=workspace_id)
         summary = AtlasContinuationService(journal).build_pool_summary(pool_id, run_id=run_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    rejection_reason = _pool_restore_rejection_for_ids(
+        storage,
+        ca_data_root=ca_data_root,
+        pool_id=pool_id,
+        workspace_id=workspace_id,
+        project_instance_id=project_instance_id,
+    )
+    if rejection_reason:
+        return _continuation_restore_rejected(workspace_id, pool_id, str(summary.run_id or run_id or ""), rejection_reason)
     return ContinuationResponse(**_model_dump(summary))
 
 
@@ -3417,17 +3613,44 @@ def create_patch_proposal_planitem_draft(req: AtlasPatchProposalPlanItemDraftReq
         result.warnings.append(str(exc) or exc.__class__.__name__)
     return result
 @router.get("/recovery/latest", response_model=RecoveryResponse)
-def get_recovery_latest(request: Request, workspace_id: str = "default") -> RecoveryResponse:
-    _, _, journal = _atlas_components(request, workspace_id=workspace_id)
+def get_recovery_latest(
+    request: Request,
+    workspace_id: str = "default",
+    project_instance_id: str = "",
+) -> RecoveryResponse:
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=workspace_id)
     summary = AtlasRecoveryService(journal).recover_latest()
+    rejection_reason = _pool_restore_rejection_for_ids(
+        storage,
+        ca_data_root=ca_data_root,
+        pool_id=str(summary.pool_id or ""),
+        workspace_id=workspace_id,
+        project_instance_id=project_instance_id,
+    )
+    if rejection_reason:
+        return _recovery_restore_rejected(workspace_id, str(summary.pool_id or ""), str(summary.run_id or ""), rejection_reason)
     orchestration_summary = AtlasOrchestrationSummaryBuilder().build_from_recovery(summary)
     return RecoveryResponse(recovery_summary=_model_dump(summary), orchestration_summary=_model_dump(orchestration_summary))
 
 
 @router.get("/recovery/pools/{pool_id}", response_model=RecoveryResponse)
-def get_recovery_pool(pool_id: str, request: Request, workspace_id: str = "default") -> RecoveryResponse:
-    _, _, journal = _atlas_components(request, workspace_id=workspace_id)
+def get_recovery_pool(
+    pool_id: str,
+    request: Request,
+    workspace_id: str = "default",
+    project_instance_id: str = "",
+) -> RecoveryResponse:
+    ca_data_root, storage, journal = _atlas_components(request, workspace_id=workspace_id)
     summary = AtlasRecoveryService(journal).recover_pool(pool_id)
+    rejection_reason = _pool_restore_rejection_for_ids(
+        storage,
+        ca_data_root=ca_data_root,
+        pool_id=pool_id,
+        workspace_id=workspace_id,
+        project_instance_id=project_instance_id,
+    )
+    if rejection_reason:
+        return _recovery_restore_rejected(workspace_id, pool_id, str(summary.run_id or ""), rejection_reason)
     orchestration_summary = AtlasOrchestrationSummaryBuilder().build_from_recovery(summary)
     return RecoveryResponse(recovery_summary=_model_dump(summary), orchestration_summary=_model_dump(orchestration_summary))
 

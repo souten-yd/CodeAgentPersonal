@@ -104,7 +104,7 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
   let bootstrapped = false;
   // The currently selected Atlas project. Its name doubles as the Atlas
   // workspace_id, and projectPath is the working dir the autopilot operates on.
-  let activeProject = { name: '', projectPath: '', workspaceId: '' };
+  let activeProject = { name: '', projectPath: '', workspaceId: '', projectInstanceId: '' };
   let projectsCache = [];
 
   function escapeHtml(value) {
@@ -129,6 +129,7 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
       name: project.name,
       projectPath: project.project_path || project.projectPath || '',
       workspaceId: project.workspace_id || project.workspaceId || project.name,
+      projectInstanceId: project.project_instance_id || project.projectInstanceId || '',
     };
     writeStoredName(activeProject.name);
     updateButtonLabel();
@@ -141,7 +142,7 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
     const found = projectsCache.find((p) => p.name === name);
     if (found) { setActiveProject(found); }
     else {
-      activeProject = { name, projectPath: activeProject.projectPath, workspaceId: name };
+      activeProject = { name, projectPath: activeProject.projectPath, workspaceId: name, projectInstanceId: activeProject.projectInstanceId || '' };
       writeStoredName(name);
       updateButtonLabel();
       try { root.AtlasClaudePanel?.setActiveProject?.(activeProject); } catch (_err) {}
@@ -470,6 +471,8 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
 
   async function deleteProject(name) {
     if (typeof confirm === 'function' && !confirm(`プロジェクト "${name}" を削除しますか？`)) return;
+    const deleting = projectsCache.find((p) => p.name === name) || (activeProject.name === name ? activeProject : null);
+    try { root.AtlasClaudePanel?.clearProjectHints?.(deleting); } catch (_err) {}
     try {
       await fetch('/api/atlas/projects/' + encodeURIComponent(name), { method: 'DELETE' });
     } catch (_err) { /* non-fatal */ }
@@ -512,6 +515,7 @@ window.KASANE_UI_BOOTSTRAP_LOADED = true;
     const out = { ...base };
     if (activeProject.projectPath) out.project_path = activeProject.projectPath;
     if (activeProject.workspaceId) out.workspace_id = activeProject.workspaceId;
+    if (activeProject.projectInstanceId) out.project_instance_id = activeProject.projectInstanceId;
     return out;
   }
 

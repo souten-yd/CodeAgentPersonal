@@ -820,6 +820,55 @@ Validation:
 
 Safety invariants: this follow-up restores display of server-owned state only. It does not change runtime semantics, approval conditions, clarification blockers, autonomous preflight, backend item order, Proposal, Safe Apply, Verification, retry policy, execution capability, Vue authority/defaults, direct client-side execution authority, remote push, self-apply, raw source serving, fallback redirects, or startup npm/Vite build behavior.
 
+### Follow-up: Deleted-project-safe restore identity (completed 2026-06-27)
+
+Status: completed in this working tree
+
+Changed files:
+
+- `agent/atlas_project_identity.py`
+- `app/api/atlas_projects.py`
+- `app/api/atlas_pipeline.py`
+- `app/api/atlas_multi_item_autopilot.py`
+- `web/js/app.js`
+- `web/js/atlas_claude_panel.js`
+- `web/js/atlas_pipeline_api.js`
+- `tests/test_atlas_projects_api.py`
+- `tests/test_atlas_runtime_status_contract.py`
+- `tests/test_atlas_project_restore_isolation.py`
+- `tests/test_atlas_project_picker_bootstrap_contract.py`
+- `tests/test_atlas_runtime_status_panel_contract.py`
+- `tests/test_atlas_continuation_workspace_isolation.py`
+- `tests/test_atlas_inflight_resume_recovery_contract.py`
+- `tests/test_atlas_reload_resume_progress_ui_contract.py`
+- `docs/atlas_project_restore_visual_recovery_plan.md`
+
+Behavior implemented: Atlas project creation now persists an immutable `project_instance_id` in `atlas/projects/<project_name>/project.json` and returns it to the project picker. New PlanPools, async PlanPool jobs, runtime scope metadata, and compatibility autopilot metadata carry `workspace_id`, `project_name`/project path context, `project_instance_id`, and an instance-bearing `runtime_scope_key`.
+
+Restore guards now reject same-name deleted/recreated project state when the requested `project_instance_id` does not match the stored PlanPool/job/result identity. The guarded surfaces include PlanPool JSON, markdown, runtime status, async PlanPool status, continuation latest/pool, recovery latest/pool, and multi-item autopilot latest/result reads. Rejection payloads are sanitized and do not serialize the foreign root goal, item title, changed files, failure summary, `index.html`, or `visual_contract_failed`.
+
+Frontend behavior implemented: the project picker and Atlas panel keep `projectInstanceId` in active project state. Restore/read-only calls pass `project_instance_id`, project-scoped localStorage hints include the immutable instance, and delete clears hints for the deleted instance. A same-name recreated project therefore starts from its own empty state instead of inheriting a deleted instance's browser hint or backend restore payload.
+
+Validation:
+
+- `python -m py_compile agent\atlas_project_identity.py app\api\atlas_projects.py app\api\atlas_pipeline.py app\api\atlas_multi_item_autopilot.py tests\test_atlas_runtime_status_contract.py tests\test_atlas_projects_api.py` -> passed
+- `node --check web\js\atlas_claude_panel.js` -> passed
+- `node --check web\js\atlas_pipeline_api.js` -> passed
+- `node --check web\js\app.js` -> passed
+- `python -m pytest -q tests\test_atlas_projects_api.py::test_recreate_same_name_gets_new_project_instance_id tests\test_atlas_runtime_status_contract.py` -> 19 passed
+- `python -m pytest -q tests\test_atlas_project_restore_isolation.py tests\test_atlas_project_picker_bootstrap_contract.py tests\test_atlas_runtime_status_panel_contract.py tests\test_atlas_continuation_workspace_isolation.py tests\test_atlas_inflight_resume_recovery_contract.py tests\test_atlas_reload_resume_progress_ui_contract.py` -> 39 passed
+- `python -m pytest -q tests\test_atlas_project_restore_isolation.py` -> 7 passed
+- `python -m pytest -q tests\test_atlas_runtime_status_contract.py` -> 18 passed
+- `python -m pytest -q tests\test_atlas_runtime_status_panel_contract.py` -> 9 passed
+- `python -m pytest -q tests\test_atlas_projects_api.py::test_recreate_same_name_gets_new_project_instance_id` -> 1 passed
+
+Requested wildcard notes:
+
+- `tests/test_atlas_project_lifecycle*.py` has no matching file in this checkout; the closest lifecycle identity coverage is `tests/test_atlas_projects_api.py::test_recreate_same_name_gets_new_project_instance_id`.
+- `python -m pytest -q tests\test_atlas_multi_item_autopilot_service.py tests\test_atlas_multi_item_autopilot_path_resolution.py tests\test_atlas_multi_item_autopilot_docs_contract.py tests\test_atlas_multi_item_autopilot_api.py` -> 18 passed, 1 failed in unrelated docs-contract coverage: `tests/test_atlas_multi_item_autopilot_docs_contract.py::test_docs_mentions_pr45` expects `docs/atlas_unified_autopilot_checkpoint.md` to mention `PR-ATLAS-PIPE-45`.
+
+Safety invariants: no Proposal, Safe Apply, Verification, backend run order, retry, approval, clarification, execution, Vue default, raw source serving, or fallback redirect behavior was changed. This follow-up only tightens restore/read scoping and local hint identity.
+
 ```text
 python -m pytest -q tests/test_atlas_project_restore_isolation.py
 python -m pytest -q tests/test_atlas_project_picker_bootstrap_contract.py

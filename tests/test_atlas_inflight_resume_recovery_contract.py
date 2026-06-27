@@ -31,7 +31,7 @@ def test_poller_rides_through_transient_status_blips():
 def test_create_plan_pool_surfaces_queued_pool_id_before_polling():
     # createPlanPool must hand the queued pool_id to onQueued BEFORE the (long) poll, so the caller
     # can persist the per-project recovery pointer even if the browser is closed mid-generation.
-    body = _slice(API, "async createPlanPool(payload, onQueued)", "getPlanPoolStatus(poolId)")
+    body = _slice(API, "async createPlanPool(payload, onQueued)", "getPlanPoolStatus(poolId, workspaceId, projectInstanceId)")
     assert "if (typeof onQueued === 'function') { try { onQueued(data.pool_id); } catch (_) {} }" in body
     # onQueued fires before pollPlanPoolUntilReady on the same branch.
     on_queued_idx = body.index("onQueued(data.pool_id)")
@@ -61,9 +61,9 @@ def test_restore_resumes_in_flight_plan_generation():
     # Reopening the browser must re-attach to a still-generating plan and resume polling.
     assert "async function resumeInFlightPlanGeneration(poolId)" in PANEL
     helper = _slice(PANEL, "async function resumeInFlightPlanGeneration(poolId)", "async function restoreLatestRun(poolId)")
-    assert "getPlanPoolStatus(poolId)" in helper
+    assert "getPlanPoolStatus(poolId, workspaceId(), projectInstanceId())" in helper
     assert "status !== 'queued' && status !== 'running' && status !== 'revising'" in helper
-    assert "pollPlanPoolUntilReady(poolId, workspaceId())" in helper
+    assert "pollPlanPoolUntilReady(poolId, workspaceId(), undefined, undefined, projectInstanceId())" in helper
     assert "renderPlanPoolMarkdown(poolId)" in helper
     # restoreLatestRun kicks it off (detached) so a reopened browser keeps tracking.
     run_body = _slice(PANEL, "async function restoreLatestRun(poolId)", "async function restoreLatestAutonomousRun(poolId)")
