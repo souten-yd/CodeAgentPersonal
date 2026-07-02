@@ -57,6 +57,11 @@ class NexusContextBuilder:
         items: list[NexusContextItem] = []
         budget = max(500, int(context_budget_chars or 12000))
         selected_project_path = (resolved_project_path or project_path or "").strip()
+        # Scope reusable past requirements/plans to the CURRENT project. Cross-project
+        # plan reuse (e.g. a prior FPS project's plan surfacing for a new "Rubik's cube"
+        # request) is a correctness bug, not helpful context. When the current project
+        # cannot be identified we fall back to the legacy unscoped behavior.
+        current_project_key = self._normalize_project_key(selected_project_path)
 
         try:
             items.extend(self._collect_memory(user_input=user_input, query_terms=query_terms, warnings=warnings))
@@ -68,8 +73,8 @@ class NexusContextBuilder:
                     warnings=warnings,
                 )
             )
-            items.extend(self._collect_past_requirements(query_terms=query_terms, warnings=warnings))
-            items.extend(self._collect_past_plans(query_terms=query_terms, warnings=warnings))
+            items.extend(self._collect_past_requirements(query_terms=query_terms, warnings=warnings, current_project_key=current_project_key))
+            items.extend(self._collect_past_plans(query_terms=query_terms, warnings=warnings, current_project_key=current_project_key))
             items.extend(self._collect_run_logs(query_terms=query_terms, warnings=warnings))
             items.extend(
                 self._collect_nexus_evidence(
@@ -330,15 +335,21 @@ class NexusContextBuilder:
                 break
         return out
 
-    def _collect_past_requirements(self, *, query_terms: list[str], warnings: list[str]) -> list[NexusContextItem]:
+    def _collect_past_requirements(self, *, query_terms: list[str], warnings: list[str], current_project_key: str = "") -> list[NexusContextItem]:
         out: list[NexusContextItem] = []
         req_dir = self._ca_data_path("requirements")
         if req_dir is None or not req_dir.exists():
             return out
-        files = sorted(req_dir.glob("*.json"), key=_mtime_key, reverse=True)[:10]
+        files = sorted(req_dir.glob("*.json"), key=_mtime_key, reverse=True)[:40]
         for p in files:
             try:
                 data = json.loads(_safe_read_text(p, max_chars=12000) or "{}")
+                if current_project_key:
+                    pk = self._normalize_project_key(
+                        str(data.get("resolved_project_path") or data.get("project_path") or "")
+                    )
+                    if pk != current_project_key:
+                        continue  # different project: do not bleed cross-project requirements
                 text = "\n".join(
                     [
                         str(data.get("user_input") or ""),
@@ -373,15 +384,23 @@ class NexusContextBuilder:
                 self._warn(warnings, f"Past requirement read warning ({p.name}): {exc}")
         return out
 
-    def _collect_past_plans(self, *, query_terms: list[str], warnings: list[str]) -> list[NexusContextItem]:
+    def _collect_past_plans(self, *, query_terms: list[str], warnings: list[str], current_project_key: str = "") -> list[NexusContextItem]:
         out: list[NexusContextItem] = []
         plans_dir = self._ca_data_path("plans")
         if plans_dir is None or not plans_dir.exists():
             return out
-        files = sorted(plans_dir.glob("*.plan.json"), key=_mtime_key, reverse=True)[:10]
+        files = sorted(plans_dir.glob("*.plan.json"), key=_mtime_key, reverse=True)[:40]
         for p in files:
             try:
                 data = json.loads(_safe_read_text(p, max_chars=200000) or "{}")
+                if current_project_key:
+                    # Plan files carry no project_path of their own; resolve it via the
+                    # linked requirement so cross-project plans stay out of the context.
+                    plan_key = self._normalize_project_key(
+                        str(data.get("resolved_project_path") or data.get("project_path") or "")
+                    ) or self._requirement_project_key(str(data.get("requirement_id") or ""))
+                    if plan_key != current_project_key:
+                        continue  # different (or unknown) project: skip to avoid plan bleed
                 text = "\n".join(
                     [
                         str(data.get("user_goal") or ""),
@@ -556,6 +575,40 @@ class NexusContextBuilder:
         if not self.ca_data_dir:
             return None
         return Path(self.ca_data_dir) / name
+
+    @staticmethod
+    def _normalize_project_key(project_path: str) -> str:
+        p = str(project_path or "").strip()
+        if not p:
+            return ""
+        try:
+            import os
+            return os.path.normcase(os.path.normpath(p))
+        except Exception:  # noqa: BLE001
+            return p.lower()
+
+    def _requirement_project_key(self, requirement_id: str) -> str:
+        """Resolve which project a stored requirement belongs to, by its project_path.
+
+        Returns a normalized project key, or "" when it cannot be determined. Used to
+        keep past-plan/past-requirement context scoped to the CURRENT project so a
+        different project's plan never bleeds into a new project's planning."""
+        rid = str(requirement_id or "").strip()
+        if not rid:
+            return ""
+        req_dir = self._ca_data_path("requirements")
+        if req_dir is None:
+            return ""
+        p = req_dir / f"{rid}.json"
+        if not p.exists():
+            return ""
+        try:
+            data = json.loads(_safe_read_text(p, max_chars=4000) or "{}")
+        except Exception:  # noqa: BLE001
+            return ""
+        return self._normalize_project_key(
+            str(data.get("resolved_project_path") or data.get("project_path") or "")
+        )
 
     def _warn(self, warnings: list[str], msg: str) -> None:
         warnings.append(msg)

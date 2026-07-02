@@ -19,13 +19,67 @@ def is_full_auto_preset(*, automation_level: str = "", preset_id: str = "") -> b
     return is_full_auto_context(preset_id=preset_id, automation_level=automation_level)
 
 
-def _finding_is_safety_sensitive(finding: dict) -> bool:
-    if str(finding.get("severity") or "").lower() == "critical":
-        return True
+# File extensions that are non-executable browser/frontend assets. A plan whose entire
+# change scope is these (and which does not delete or run commands) is confined to the
+# project's sandbox working folder and carries no safety blast radius of its own.
+_SANDBOX_FRONTEND_EXTENSIONS = (".html", ".htm", ".css", ".js", ".mjs", ".json", ".md", ".txt", ".svg")
+_EXECUTABLE_EXTENSIONS = (".py", ".sh", ".bash", ".ps1", ".bat", ".cmd", ".sql", ".yaml", ".yml", ".toml")
+
+
+def _finding_is_safety_sensitive(finding: dict, *, allow_severity_escalation: bool = True) -> bool:
     haystack = " ".join(
         str(finding.get(k) or "") for k in ("angle", "category", "title", "detail", "recommendation")
     ).lower()
-    return any(kw in haystack for kw in _SAFETY_SENSITIVE_KEYWORDS)
+    if any(kw in haystack for kw in _SAFETY_SENSITIVE_KEYWORDS):
+        return True
+    # A raw "critical" SEVERITY label escalates to a safety decision only when we cannot prove the
+    # change is confined to the project's sandbox. For sandbox-only frontend work a "critical"
+    # QUALITY/logic critique (e.g. "Logical Contradiction") is not a safety risk — it routes through
+    # the normal quality gate (revise/approve or full_auto continuation) instead of a critical
+    # SAFETY event, so the user is not asked to approve a "重大リスク" for a bounded, non-destructive
+    # edit under their own working folder.
+    if allow_severity_escalation and str(finding.get("severity") or "").lower() == "critical":
+        return True
+    return False
+
+
+def _plan_change_scope(plan: dict) -> list[str]:
+    files: list[str] = []
+    steps = plan.get("implementation_steps")
+    if isinstance(steps, list):
+        for step in steps:
+            if isinstance(step, dict):
+                for f in step.get("target_files") or []:
+                    if str(f).strip():
+                        files.append(str(f).strip())
+    for f in plan.get("target_files") or []:
+        if str(f).strip():
+            files.append(str(f).strip())
+    return files
+
+
+def _plan_is_sandbox_frontend_only(plan: dict) -> bool:
+    """True when the plan's whole change scope is non-executable frontend files (no destructive or
+    command-execution steps). Such a plan only edits files under the project's sandbox working
+    folder, so a non-safety-keyword quality critique should not be escalated to a critical safety
+    event. Returns False when the scope is unknown (empty) — we only downgrade when we can PROVE
+    the change is bounded."""
+    files = _plan_change_scope(plan)
+    if not files:
+        return False
+    normalized = [f.replace("\\", "/").lower() for f in files]
+    if any(("/" == n[:1]) or (".." in n.split("/")) for n in normalized):
+        return False  # escapes the project root
+    if any(n.endswith(_EXECUTABLE_EXTENSIONS) for n in normalized):
+        return False
+    if not all(n.endswith(_SANDBOX_FRONTEND_EXTENSIONS) for n in normalized):
+        return False
+    steps = plan.get("implementation_steps")
+    if isinstance(steps, list):
+        for step in steps:
+            if isinstance(step, dict) and str(step.get("action_type") or "").lower() in {"delete", "run_command"}:
+                return False
+    return True
 
 
 def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id: str = "", critical_handling: str = "ask", quality_gate_enforcement: str = "block") -> dict:
@@ -84,7 +138,15 @@ def apply_plan_quality_gate(plan: dict, *, automation_level: str = "", preset_id
         }
 
     blocking = gate["blocking_findings"]
-    safety_sensitive = any(_finding_is_safety_sensitive(f) for f in blocking)
+    # A plan confined to the project's sandbox working folder (frontend/non-executable files, no
+    # destructive or command-execution steps) has no safety blast radius, so a raw "critical"
+    # severity label on a QUALITY/logic finding must not by itself force a critical safety event.
+    # Genuine safety-keyword findings still escalate regardless of scope.
+    sandbox_frontend_only = _plan_is_sandbox_frontend_only(plan)
+    safety_sensitive = any(
+        _finding_is_safety_sensitive(f, allow_severity_escalation=not sandbox_frontend_only)
+        for f in blocking
+    )
     residual_risk = str(critique_dict.get("consensus_risk") or "")
 
     plan_text = " ".join(str(plan.get(k) or "") for k in ("requirement_summary", "goal", "selected_architecture"))

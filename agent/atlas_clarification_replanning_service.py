@@ -8,7 +8,7 @@ from uuid import uuid4
 from agent.atlas_auto_policy_presets import atlas_auto_policy_presets
 from agent.atlas_automation_gate_service import AtlasAutomationGateService
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
-from agent.atlas_plan_quality_gate import apply_plan_quality_gate
+from agent.atlas_plan_quality_gate import apply_plan_quality_gate, is_full_auto_preset
 
 _HIGH_RISK_TERMS = (
     "security", "credential", "secret", "token", "delete", "destructive",
@@ -601,7 +601,16 @@ class AtlasClarificationReplanningService:
                 "revised plan has no gateable items after clarification (empty plan); re-plan required"
             )
         presets = atlas_auto_policy_presets()
-        base_preset = presets.get(preset_id) or presets["guarded_low_risk"]
+        # Resolve the UI/automation preset id (e.g. "autonomous_bounded_dev") to the policy
+        # preset the APPLY-time gate actually uses. The policy dict only holds the canonical
+        # policy presets, so a full-auto-capable selection must map to "full_auto" here.
+        # Otherwise this rerun silently falls back to the strictest "guarded_low_risk"
+        # (low-only, approvals required) and HARD-BLOCKS (risk_not_allowed /
+        # patch_proposal_approval_missing) a plan the user's chosen preset would allow —
+        # diverging from the real apply-time decision (safe_apply relaxes for full_auto).
+        base_preset = presets.get(preset_id)
+        if base_preset is None:
+            base_preset = presets["full_auto"] if is_full_auto_preset(preset_id=preset_id) else presets["guarded_low_risk"]
         # At planning/clarification time, patch content has not been generated yet.
         # Skip the executor-readable-patch requirement; it only applies at apply time.
         preset = base_preset.model_copy(update={"require_executor_readable_patch": False})

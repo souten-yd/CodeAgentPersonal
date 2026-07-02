@@ -37,13 +37,26 @@ class RequirementAnalyzer:
     ) -> RequirementDefinition:
         warnings: list[str] = []
         nexus_text = _format_nexus_context(nexus_context)
-        context_input = "\n\n".join([
-            f"User Input:\n{user_input}",
+        raw_user_input = str((canonical_task_spec or {}).get("raw_user_input") or "").strip()
+        sections = [f"User Input:\n{user_input}"]
+        # The canonical English "User Input" above is a best-effort local normalization and
+        # can silently genericize or drop content (e.g. turn a specific "Rubik's cube" request
+        # into "build the requested software deliverable"). Surface the verbatim original request
+        # so the (multilingual) analyzer honors the user's ACTUAL intent rather than planning from
+        # a lossy summary.
+        if raw_user_input and raw_user_input != str(user_input or "").strip():
+            sections.append(
+                "Original User Request (verbatim, authoritative — the canonical English above is only "
+                "a best-effort normalization and may be incomplete; interpret the goal from THIS):\n"
+                f"{raw_user_input}"
+            )
+        sections.extend([
             f"Requirement Mode: {requirement_mode}",
             f"Planning Mode: {planning_mode}",
             f"Nexus Context:\n{nexus_text}",
             f"Repository Context: {repository_context}",
         ])
+        context_input = "\n\n".join(sections)
         structured = generate_structured(
             self.llm_json_fn,
             prompt,
