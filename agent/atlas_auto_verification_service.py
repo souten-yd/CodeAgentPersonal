@@ -58,18 +58,48 @@ class AtlasAutoVerificationService:
         self.project_intelligence = project_intelligence
         self.verification_bridge = verification_bridge or AtlasVerificationBridge()
 
-    @staticmethod
-    def _defer_whole_app_smoke(item) -> bool:
-        """True when a whole-app browser smoke should be deferred for this item because a later
-        plan item still modifies the running app. Driven by metadata.verification_scope assigned
-        plan-wide (deferred_smoke = not the last app-toucher); falls back to the per-file
-        decomposition group_role for back-compat. Items with no scope (e.g. non-decomposed default
-        plans) are never deferred, so existing behaviour is unchanged."""
+    _APP_RUNTIME_EXTS = (".html", ".htm", ".js", ".mjs", ".css")
+
+    @classmethod
+    def _touches_app_runtime(cls, item) -> bool:
+        for tf in (getattr(item, "target_files", None) or []):
+            if str(tf or "").lower().endswith(cls._APP_RUNTIME_EXTS):
+                return True
+        return False
+
+    def _defer_whole_app_smoke(self, item, pool=None) -> bool:
+        """True when the whole-app browser smoke should be deferred for this item because a LATER
+        plan item still modifies the running app. An explicit metadata.verification_scope wins
+        (integration = run, deferred_smoke = defer). Otherwise it is pool-aware: defer only while a
+        later, not-yet-done item still touches an app-runtime file — the LAST app-touching item is
+        the de-facto integration point and MUST run the smoke, so runtime CROSS-FILE errors (e.g. a
+        renderer calling an ENGINE method the engine never exported) are caught instead of a smoke
+        that is deferred forever and never runs."""
         meta = getattr(item, "metadata", None) or {}
         scope = str(meta.get("verification_scope") or "").lower()
-        if scope:
-            return scope == "deferred_smoke"
-        return str(meta.get("group_role") or "").lower() == "member"
+        if scope == "integration":
+            return False
+        if scope == "deferred_smoke":
+            return True
+        if not self._touches_app_runtime(item):
+            return False  # non-app file -> no whole-app smoke to defer
+        items = list(getattr(pool, "items", []) or [])
+        if not items:
+            # No pool context: fall back to the legacy group_role hint (member => defer).
+            return str(meta.get("group_role") or "").lower() == "member"
+        completed = set(getattr(pool, "completed_item_ids", []) or [])
+        try:
+            idx = next(i for i, it in enumerate(items) if getattr(it, "item_id", None) == getattr(item, "item_id", None))
+        except StopIteration:
+            idx = len(items) - 1
+        for later in items[idx + 1:]:
+            if getattr(later, "item_id", None) in completed:
+                continue
+            if str(getattr(later, "status", "") or "").lower() in {"completed", "skipped"}:
+                continue
+            if self._touches_app_runtime(later):
+                return True  # a later app-toucher remains -> defer to it
+        return False  # last app-touching item -> run the smoke now (the integration point)
 
     def run_after_auto_safe_apply(self, request: AtlasAutoVerificationRequest) -> AtlasAutoVerificationResult:
         pool = self.storage.load_pool(request.pool_id)
@@ -118,7 +148,7 @@ class AtlasAutoVerificationService:
             # derivable test (e.g. pytest) still runs below — only the whole-app smoke is deferred.
             html_rel = self._resolve_visual_html(item, pool)
             if html_rel and self._safe_rel(html_rel):
-                if self._defer_whole_app_smoke(item):
+                if self._defer_whole_app_smoke(item, pool):
                     derived = self._derive_pytest_test_path(item, workspace_root)
                     if not derived:
                         scope = str((item.metadata or {}).get("verification_scope") or "deferred_smoke")
