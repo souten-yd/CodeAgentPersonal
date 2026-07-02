@@ -92,6 +92,19 @@ class AtlasAutoVerificationService:
             return self._blocked(pool, item.item_id, request, "project_path_missing")
 
         self._append_event(pool.pool_id, request.run_id, "auto_verification_started", item.item_id, status="started")
+        # Mandatory, deterministic SYNTAX gate on the applied source files — independent of the
+        # whole-app browser smoke (which is deferrable and only catches a RUNTIME js_error). A
+        # .js/.py file that does not parse is objectively broken and must FAIL here even when the
+        # smoke is deferred; otherwise a syntax error (e.g. a duplicate `const`) ships as "completed".
+        syntax_findings = self._syntax_check_applied_sources(item, workspace_root)
+        if syntax_findings:
+            self._append_event(pool.pool_id, request.run_id, "auto_verification_syntax_failed", item.item_id, status="failed")
+            return AtlasAutoVerificationResult(
+                pool_id=pool.pool_id, item_id=item.item_id, run_id=request.run_id, preset_id=request.preset_id,
+                status="failed", warnings=["syntax_error", *syntax_findings],
+                metadata={"syntax_findings": syntax_findings, "primary_verification_reason": f"syntax_error:{syntax_findings[0]}"},
+                plan_pool=pool.model_dump(),
+            )
         allowlist = atlas_verification_allowlist()
         if request.metadata.get("command"):
             return self._blocked(pool, item.item_id, request, "arbitrary_command_forbidden")
@@ -913,6 +926,31 @@ class AtlasAutoVerificationService:
         if isinstance(value, (list, tuple, set)):
             return [str(v).strip() for v in value if str(v or "").strip()]
         return [str(value).strip()]
+
+    _SYNTAX_TEST_PATH_RE = re.compile(r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*\.|[._-](test|spec)\.[A-Za-z0-9]+$", re.IGNORECASE)
+
+    def _syntax_check_applied_sources(self, item, workspace_root: str) -> list[str]:
+        """`node --check` (JS) / `py_compile` (Python) on each of the item's applied source files.
+        Returns a list of "<path>: <error>" for files that do not parse. Test files are exempt; a
+        missing `node` is a pass (never block on tooling absence). Best-effort — never raises."""
+        from agent.atlas_code_quality_gate import check_syntax
+
+        findings: list[str] = []
+        for tf in (getattr(item, "target_files", None) or []):
+            rel = str(tf or "").strip()
+            if not rel or self._SYNTAX_TEST_PATH_RE.search(rel.replace("\\", "/")):
+                continue
+            full = Path(workspace_root) / rel
+            if not full.is_file():
+                continue
+            try:
+                content = full.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            ok, err = check_syntax(content, rel)
+            if not ok and err:
+                findings.append(f"{rel}: {err}")
+        return findings
 
     def _blocked(self, pool, item_id: str, request: AtlasAutoVerificationRequest, reason: str):
         self._append_event(pool.pool_id, request.run_id, "auto_verification_blocked", item_id, status="blocked", warnings=[reason])

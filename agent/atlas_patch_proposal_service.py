@@ -1042,6 +1042,37 @@ class AtlasPatchProposalService:
             out[path] = {"content": view, "truncated": truncated, "signature_only": signature_mode}
         return out
 
+    def _proposal_source_quality_findings(self, proposal: AtlasPatchProposal, input_payload: dict) -> list[str]:
+        """Deterministic quality findings for the FULL-content source files a proposal would create:
+        a hard syntax error and/or a density of leaked reasoning comments. Only whole-file content
+        (create-mode) is checked (a partial edit fragment is not independently parseable); test files
+        are exempt (weak-model by-products). Empty list = acceptable."""
+        from agent.atlas_code_quality_gate import code_quality_findings
+
+        md = proposal.metadata or {}
+        pairs: list[tuple[str, str]] = []
+        fcs = md.get("file_changes") if isinstance(md.get("file_changes"), list) else []
+        for fc in fcs:
+            if not isinstance(fc, dict):
+                continue
+            path = str(fc.get("path") or "").strip()
+            content = fc.get("proposed_content")
+            if path and isinstance(content, str) and content.strip():
+                pairs.append((path, content))
+        if not pairs:
+            pc = md.get("proposed_content")
+            item = input_payload.get("item") or {}
+            targets = [str(p).strip() for p in (item.get("target_files") or []) if str(p).strip()]
+            if isinstance(pc, str) and pc.strip() and len(targets) == 1:
+                pairs.append((targets[0], pc))
+        findings: list[str] = []
+        for path, content in pairs:
+            if _is_test_path(path):
+                continue
+            for f in code_quality_findings(content, path):
+                findings.append(f"{path}: {f}")
+        return findings
+
     def _plan_item_requires_content(self, input_payload: dict) -> bool:
         # A plan_item that names target files and is not a delete/run_command MUST yield real patch
         # content to be applicable. For these we treat an empty LLM response as a genuine failure
@@ -2387,6 +2418,27 @@ class AtlasPatchProposalService:
                         },
                     )
                     failure.warnings.append("self_review_findings_unresolved")
+                    return failure
+                # Code-quality gate: a non-empty proposal can still be objectively broken — a real
+                # syntax error (e.g. a duplicate `const`) or the weak model's chain-of-thought leaked
+                # into the file as comments. Reject it like a failed attempt so it regenerates; when
+                # attempts are exhausted, return a no-content failure so the orchestrator's create-mode
+                # section recovery rebuilds the file cleanly instead of shipping garbage.
+                quality = self._proposal_source_quality_findings(proposal, input_payload)
+                if quality:
+                    proposal.metadata.setdefault("code_quality_findings", [])
+                    for _q in quality:
+                        if _q not in proposal.metadata["code_quality_findings"]:
+                            proposal.metadata["code_quality_findings"].append(_q)
+                    last_failure = "code_quality_failed: " + "; ".join(quality)[:300]
+                    if attempt < self.MAX_LLM_GENERATION_ATTEMPTS:
+                        self_review_feedback = {"status": "failed", "findings": quality, "advisories": []}
+                        continue
+                    failure = self._no_content_failure_proposal(
+                        input_payload, reason=last_failure,
+                        parse_failures=parse_failures, empty_content_attempts=empty_content_attempts,
+                    )
+                    failure.metadata["code_quality_findings"] = list(proposal.metadata["code_quality_findings"])
                     return failure
                 if attempt > 1:
                     proposal.warnings.append(f"llm_generation_succeeded_on_attempt_{attempt}")
