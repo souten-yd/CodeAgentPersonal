@@ -209,6 +209,10 @@ class AtlasPlannerBridge:
                 capability_scores=capability_scores,
                 known_weaknesses=known_weaknesses,
                 model_id=model_id,
+                # Manual switch: ATLAS_DECOMPOSITION_TIER=frontier disables aggressive splitting
+                # (single self-contained file OK), weak/standard force those tiers, auto/unset keeps
+                # the automatic model-based heuristic.
+                tier_override=os.environ.get("ATLAS_DECOMPOSITION_TIER", ""),
             )
             return render_decomposition_directive(policy)
         except Exception:  # noqa: BLE001 - never block planning on the advisory directive.

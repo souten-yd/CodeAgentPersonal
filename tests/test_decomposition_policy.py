@@ -93,6 +93,65 @@ def test_measured_high_but_core_weakness_not_frontier():
     assert p.tier == "weak"
 
 
+def test_low_active_moe_is_weak_despite_large_total():
+    # A big-looking total (35B) with a small ACTIVE count (A3B) generates like a 3B model, so it
+    # must split aggressively — not be treated as a capable large-file model.
+    p = derive_decomposition_policy(model_id="Qwen3.6-35B-A3B-UD-IQ4_XS.gguf")
+    assert p.tier == "weak"
+    assert p.prefer_split is True
+    assert p.max_file_lines <= 200
+
+    # A2B active is also weak.
+    assert derive_decomposition_policy(model_id="Mixtral-8x7B-A2B").tier == "weak"
+
+
+def test_high_active_moe_or_dense_large_not_forced_weak_by_moe_rule():
+    # A dense/large model without a low-active AxB marker keeps its heuristic tier (not forced weak).
+    assert derive_decomposition_policy(model_id="Qwen2.5-72B-Instruct").tier == "frontier"
+    # Neutral mid-size name stays standard (the MoE rule must not fire without an AxB marker).
+    assert derive_decomposition_policy(model_id="house-model-13b-instruct").tier == "standard"
+
+
+def test_measured_strength_overrides_low_active_moe_heuristic():
+    # A real benchmark still wins over the name-based low-active heuristic.
+    p = derive_decomposition_policy(
+        model_id="Qwen3.6-35B-A3B", capability_scores={"large_file_editing": 0.85})
+    assert p.tier == "frontier"
+
+
+def test_tier_override_forces_frontier_disabling_split():
+    # Splitting not wanted: force frontier even for a model the heuristic would call weak.
+    p = derive_decomposition_policy(model_id="Qwen3.6-35B-A3B-UD-IQ4_XS.gguf", tier_override="frontier")
+    assert p.tier == "frontier"
+    assert p.prefer_split is False
+    assert "ATLAS_DECOMPOSITION_TIER=frontier" in p.rationale
+
+
+def test_tier_override_forces_weak_for_capable_name():
+    p = derive_decomposition_policy(model_id="claude-opus-4-8", tier_override="weak")
+    assert p.tier == "weak"
+    assert p.prefer_split is True
+
+
+def test_tier_override_auto_and_unknown_keep_heuristic():
+    # "auto", empty, and unknown values all fall through to the automatic heuristic.
+    for ov in ("auto", "", "bogus", "AUTO"):
+        p = derive_decomposition_policy(model_id="claude-opus-4-8", tier_override=ov)
+        assert p.tier == "frontier", ov
+    p_weak = derive_decomposition_policy(model_id="Qwen3.6-35B-A3B", tier_override="auto")
+    assert p_weak.tier == "weak"
+
+
+def test_weak_directive_forbids_single_file_and_forces_split():
+    weak = derive_decomposition_policy(model_id="Qwen3.6-35B-A3B-UD-IQ4_XS.gguf")
+    assert weak.tier == "weak"
+    text = render_decomposition_directive(weak).lower()
+    assert "must split" in text
+    assert "not acceptable" in text  # single-file explicitly disallowed for this model
+    # weak tier downgrades a single-file request rather than honoring it
+    assert "still overrides" not in text
+
+
 def test_directive_reflects_split_preference():
     weak = derive_decomposition_policy(model_id="tinyllama-1.5b")
     text = render_decomposition_directive(weak)
