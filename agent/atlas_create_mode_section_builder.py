@@ -36,6 +36,16 @@ _SKELETON_MAX_TOKENS = 1500
 _SECTION_MAX_TOKENS = 1400
 _MAX_SECTIONS = 20
 _SECTION_RETRIES = 2
+_SKELETON_RETRIES = 3
+
+# Declaration lines that define a sibling's cross-file API (classes/functions/exported globals).
+# The skeleton + section fills only need these to stay consistent — NOT each sibling's full body,
+# which for an integration file (many siblings) blows the context window and makes a weak model
+# return an empty completion.
+_SIGNATURE_RE = re.compile(
+    r"^\s*(?:export\s+)?(?:class\s+\w+|(?:async\s+)?function\s+\w+|const\s+[A-Z]\w*\s*=|"
+    r"(?:window|globalThis)\.\w+\s*=|[A-Za-z_]\w*\s*\([^)]*\)\s*\{)",
+)
 
 _SKELETON_SCHEMA = {
     "type": "object",
@@ -119,6 +129,25 @@ def _sibling_digest(sibling_files: dict[str, Any] | None, *, per_file_chars: int
     return "\n\n".join(lines)
 
 
+def _sibling_signatures(sibling_files: dict[str, Any] | None, *, max_lines_per_file: int = 40, max_files: int = 12) -> str:
+    """Compact cross-file API view: each sibling's class/function/global DECLARATION lines only (not
+    bodies). Small enough that an integration file with many siblings still fits the context window,
+    while keeping every symbol the new file must call by its exact name."""
+    out: list[str] = []
+    for i, (path, entry) in enumerate((sibling_files or {}).items()):
+        if i >= max_files:
+            break
+        content = entry.get("content") if isinstance(entry, dict) else entry
+        content = str(content or "")
+        if not content.strip():
+            continue
+        sigs = [ln.strip() for ln in content.splitlines() if _SIGNATURE_RE.match(ln)]
+        if not sigs:
+            continue
+        out.append(f"--- {path} (API) ---\n" + "\n".join(sigs[:max_lines_per_file]))
+    return "\n\n".join(out)
+
+
 def build_file_by_sections(
     *,
     llm_json_fn: Callable[..., Any],
@@ -140,9 +169,12 @@ def build_file_by_sections(
         for k in ("title", "description", "goal")
     ).strip()
     acceptance = [str(c) for c in (item.get("acceptance_criteria") or []) if str(c).strip()]
-    sibling_digest = _sibling_digest(sibling_files)
+    # Skeleton context = sibling API SIGNATURES only (small) so an integration file with many
+    # siblings still fits n_ctx; section fills get a bit more (signatures + short body excerpts).
+    sibling_api = _sibling_signatures(sibling_files)
+    sibling_digest = sibling_api or _sibling_digest(sibling_files, per_file_chars=900, max_files=8)
 
-    # ── 1. Skeleton (the lightweight per-file fast plan) ────────────────────────────────
+    # ── 1. Skeleton (the lightweight per-file fast plan) — bounded retries for weak-model variance ──
     skeleton_user = {
         "instruction": (
             "Produce the COMPLETE structure of the single file below as JSON "
@@ -152,18 +184,22 @@ def build_file_by_sections(
             "(a unique snake_case name). Do NOT implement those bodies now. Trivial one-liners "
             "(getters, simple assignments) may be written inline. Keep it small and syntactically "
             "valid. Match the cross-file API in shared_resource_contract / interface_contract and the "
-            "siblings EXACTLY (same DOM ids, globals, function names, render model)."
+            "sibling_api EXACTLY (same DOM ids, globals, function names, render model)."
         ),
         "target_file": target_path,
         "goal": goal,
         "acceptance_criteria": acceptance,
         "shared_resource_contract": resource_contract or {},
         "interface_contract": interface_contract or {},
-        "sibling_files": sibling_digest,
-        "approach_reference": (research_brief or "")[:2500],
+        "sibling_api": sibling_api,
+        "approach_reference": (research_brief or "")[:2000],
     }
-    skel_out = _call(llm_json_fn, skeleton_user, _SKELETON_SCHEMA, _SKELETON_MAX_TOKENS)
-    skeleton = _strip_code_fence(str((skel_out or {}).get("proposed_content") or ""))
+    skeleton = ""
+    for _sk_attempt in range(1, _SKELETON_RETRIES + 1):
+        skel_out = _call(llm_json_fn, skeleton_user, _SKELETON_SCHEMA, _SKELETON_MAX_TOKENS)
+        skeleton = _strip_code_fence(str((skel_out or {}).get("proposed_content") or ""))
+        if skeleton.strip():
+            break
     if not skeleton.strip():
         return {
             "status": "no_content", "reason": "skeleton_no_content",
