@@ -985,12 +985,31 @@ class AtlasPatchProposalService:
     # Total chars of sibling-file content surfaced to the model (bounded to keep the prompt small).
     MAX_SIBLING_FILE_CHARS = 12000
     MAX_SIBLING_FILES_TOTAL_CHARS = 28000
+    # When the siblings' FULL content would exceed this, switch to a compact SIGNATURE view. An
+    # integration file (many siblings) otherwise packs ~28k chars of siblings, pushing the prompt
+    # past n_ctx (e.g. ~19k tokens > 16384) so the adapter floors output to 512 and no usable code is
+    # produced. Signatures keep every cross-file symbol the new file must call, at a fraction of the
+    # size. Small apps stay under the threshold and get full content (unchanged behaviour).
+    SIBLING_FULL_CONTENT_BUDGET = 9000
+    _SIBLING_SIG_RE = re.compile(
+        r"^\s*(?:export\s+)?(?:class\s+\w+|(?:async\s+)?function\s+\w+|const\s+[A-Za-z_]\w*\s*=|"
+        r"(?:window|globalThis)\.\w+\s*=|[A-Za-z_]\w*\s*[:(])",
+    )
+
+    def _sibling_signature_view(self, content: str, *, max_lines: int = 60) -> str:
+        """Declaration lines (class/function/global/method signatures) of a sibling — its cross-file
+        API without the bodies. Falls back to a small head slice when nothing matches."""
+        sigs = [ln.rstrip() for ln in content.splitlines() if self._SIBLING_SIG_RE.match(ln)]
+        if sigs:
+            return "\n".join(sigs[:max_lines])
+        return content[:1500]
 
     def _plan_sibling_file_contents(self, pool: AtlasPlanPool, item: AtlasPlanItem, request: AtlasPatchProposalRequest, manifest: list[dict]) -> dict[str, dict]:
         """Current on-disk content of OTHER files this plan already produced, so a step that writes
         tests for (or calls) them uses their REAL API instead of inventing one — the root cause of a
         test file that asserts a 'game.movePlayerLeft()' the implementation never defines. Bounded in
-        size; only includes sibling files that already exist on disk.
+        size; only includes sibling files that already exist on disk. For an integration file whose
+        siblings are large in total, the content is reduced to SIGNATURES so the prompt fits n_ctx.
         """
         own = {str(p).strip() for p in (item.target_files or []) if str(p).strip()}
         sibling_paths = [
@@ -1001,18 +1020,26 @@ class AtlasPatchProposalService:
         if not sibling_paths:
             return {}
         raw = self._read_current_target_contents(pool, item, request, target_files_override=sibling_paths)
+        present = [
+            (path, str((raw.get(path) or {}).get("content") or ""), raw.get(path) or {})
+            for path in sibling_paths
+            if (raw.get(path) or {}).get("exists") and str((raw.get(path) or {}).get("content") or "")
+        ]
+        total_full = sum(len(c) for _, c, _ in present)
+        signature_mode = total_full > self.SIBLING_FULL_CONTENT_BUDGET
         out: dict[str, dict] = {}
         budget = self.MAX_SIBLING_FILES_TOTAL_CHARS
-        for path in sibling_paths:
-            entry = raw.get(path) or {}
-            content = str(entry.get("content") or "")
-            if not entry.get("exists") or not content:
-                continue
-            clipped = content[: self.MAX_SIBLING_FILE_CHARS]
-            if budget - len(clipped) < 0:
+        for path, content, entry in present:
+            if signature_mode:
+                view = self._sibling_signature_view(content)
+                truncated = True
+            else:
+                view = content[: self.MAX_SIBLING_FILE_CHARS]
+                truncated = bool(entry.get("truncated") or len(content) > len(view))
+            if budget - len(view) < 0:
                 break
-            budget -= len(clipped)
-            out[path] = {"content": clipped, "truncated": bool(entry.get("truncated") or len(content) > len(clipped))}
+            budget -= len(view)
+            out[path] = {"content": view, "truncated": truncated, "signature_only": signature_mode}
         return out
 
     def _plan_item_requires_content(self, input_payload: dict) -> bool:
