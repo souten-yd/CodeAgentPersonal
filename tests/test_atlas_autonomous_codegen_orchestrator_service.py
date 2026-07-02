@@ -84,6 +84,41 @@ class FakeProposalService:
         )
 
 
+class FakeRecoveringProposalService(FakeProposalService):
+    """Returns no content on the FIRST (normal) attempt for an item, then content on the recovery
+    attempt (request.metadata['create_mode_section_recovery'] set) — mirrors the whole-file
+    generation failing but the create-mode section recovery succeeding."""
+
+    def __init__(self, storage: AtlasPlanPoolStorage):
+        super().__init__(storage, produce_content=False)
+        self.recovery_flags: list[bool] = []
+
+    def propose_for_item(self, request):
+        self.calls.append(request.item_id)
+        recovery = bool((request.metadata or {}).get("create_mode_section_recovery"))
+        self.recovery_flags.append(recovery)
+        pool = self.storage.load_pool(request.pool_id)
+        item = pool.get_item(request.item_id)
+        available = False
+        if item is not None and recovery:
+            item.metadata["proposed_content"] = f"# recovered {request.item_id}\n"
+            self.storage.save_pool(pool)
+            available = True
+        return AtlasPatchProposalResult(
+            pool_id=request.pool_id, item_id=request.item_id, run_id=request.run_id, status="proposed",
+            metadata={
+                "patch_content_available": available,
+                "patch_generation": {
+                    "run_id": request.run_id,
+                    "state": "succeeded" if available else "failed",
+                    "outcome": "success" if available else "failure",
+                    "patch_content_available": available,
+                },
+            },
+            warnings=[] if available else ["llm_no_patch_content_generated"],
+        )
+
+
 class FakeAutopilotService:
     def __init__(self, status: str = "completed"):
         self.status = status
@@ -776,12 +811,57 @@ def test_weak_model_empty_proposal_is_not_counted(tmp_path: Path) -> None:
 
     out = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_1"))
 
-    assert proposal.calls == ["i1"]
+    # A content-missing failure now triggers ONE bounded create-mode section-recovery attempt; when
+    # that also produces nothing it is NOT fabricated into success (no apply, still no_content).
+    assert proposal.calls == ["i1", "i1"]
     assert out.generated_count == 0  # honest: no usable content produced
     assert out.proposal_results[0].patch_content_available is False
     assert out.status == "no_content"
     assert out.stop_reason == "no_patch_content"
     assert autopilot.last_request is None
+
+
+def test_no_content_triggers_section_recovery_then_applies(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ATLAS_CREATE_MODE_SECTION_RECOVERY", "1")
+    storage = AtlasPlanPoolStorage(tmp_path)
+    storage.save_pool(_pool([_item("i1")]))
+    journal = AtlasJournal(tmp_path, workspace_id="default")
+    proposal = FakeRecoveringProposalService(storage)
+    autopilot = FakeAutopilotService(status="completed")
+    svc = AtlasAutonomousCodegenOrchestratorService(
+        storage=storage, journal=journal,
+        patch_proposal_service=proposal, multi_item_autopilot_service=autopilot,
+    )
+
+    out = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_1"))
+
+    # Normal attempt (no recovery flag) failed -> ONE recovery attempt WITH the flag.
+    assert proposal.calls == ["i1", "i1"]
+    assert proposal.recovery_flags == [False, True]
+    # The recovered item was applied and counted.
+    assert autopilot.last_request is not None and "i1" in (autopilot.last_request.item_ids or [])
+    assert out.generated_count == 1
+    assert out.status in {"completed", "partial"}
+
+
+def test_section_recovery_disabled_by_env_keeps_no_content(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ATLAS_CREATE_MODE_SECTION_RECOVERY", "0")
+    storage = AtlasPlanPoolStorage(tmp_path)
+    storage.save_pool(_pool([_item("i1")]))
+    journal = AtlasJournal(tmp_path, workspace_id="default")
+    proposal = FakeRecoveringProposalService(storage)
+    autopilot = FakeAutopilotService(status="completed")
+    svc = AtlasAutonomousCodegenOrchestratorService(
+        storage=storage, journal=journal,
+        patch_proposal_service=proposal, multi_item_autopilot_service=autopilot,
+    )
+
+    out = svc.run(AtlasAutonomousCodegenRequest(pool_id="pool_1"))
+
+    # Gate off => no recovery attempt, no apply, honest no_content (disabled-safe / legacy behaviour).
+    assert proposal.calls == ["i1"]
+    assert autopilot.last_request is None
+    assert out.status == "no_content"
 
 
 def test_matches_prefix_root_sentinel_allows_any_relative_path() -> None:

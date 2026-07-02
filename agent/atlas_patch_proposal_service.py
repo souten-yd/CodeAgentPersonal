@@ -25,6 +25,7 @@ from agent.atlas_interface_contract import (
 )
 from agent.atlas_journal import AtlasJournal
 from agent.atlas_nexus_web_research_client import AtlasNexusWebResearchClient, web_research_enabled
+from agent.atlas_create_mode_section_builder import build_file_by_sections
 from agent.atlas_llm_json_adapter import call_llm_json
 from agent.atlas_edit_format import harvest_search_replace_edits
 from agent.atlas_llm_schemas import patch_proposal_json_schema
@@ -286,6 +287,14 @@ class AtlasPatchProposalService:
         try:
             self.persist_patch_generation_transition(pool, item, run_id=run_id, event_type="patch_generation_started", state="running", outcome="active", reason_code="patch_generation_started", retryable=True)
             payload = self.build_proposal_input(pool, item, request)
+            # Create-mode section recovery (set by the orchestrator's recovery pass after a normal
+            # no_content). Route this generation through the skeleton + per-section builder, grounded
+            # by a focused research brief (approach-level, gated by ATLAS_NEXUS_WEB_RESEARCH).
+            if (request.metadata or {}).get("create_mode_section_recovery"):
+                payload["create_mode_section_recovery"] = True
+                brief = self._targeted_research_brief(payload.get("item") or {})
+                if brief:
+                    payload["research_brief"] = brief
             # Twin Control Plane: carry the compiled instruction (when shadow/active) so the
             # generator receives it as a bounded, advisory control section.
             twin_hints = (request.metadata or {}).get("twin_generation_hints") or {}
@@ -1406,6 +1415,13 @@ class AtlasPatchProposalService:
         Thin wrapper over the core generator so the runtime policy (route/method/injection/
         selection_mode) that reached this generation is recorded on the proposal regardless of
         which internal return path produced it. Advisory only; nothing is applied here."""
+        # Create-mode section recovery: only after a normal no_content failure (the orchestrator sets
+        # the flag on the recovery pass). Build the file as a lightweight skeleton + per-section fills
+        # so each generation call is small enough for a weak model — the whole-file path already failed.
+        if input_payload.get("create_mode_section_recovery"):
+            proposal = self._generate_by_sections(input_payload)
+            self._attach_runtime_policy_delivery(proposal, input_payload)
+            return proposal
         split_targets = self._per_file_split_targets(input_payload)
         if split_targets:
             proposal = self._generate_per_file_split(input_payload, split_targets)
@@ -1413,6 +1429,109 @@ class AtlasPatchProposalService:
             proposal = self._generate_proposal_with_llm_core(input_payload)
         self._attach_runtime_policy_delivery(proposal, input_payload)
         return proposal
+
+    def _targeted_research_brief(self, item: dict) -> str:
+        """Focused, approach-level web-research notes for ONE hard file (e.g. a raycasting renderer),
+        used only on the section-recovery path. Gated by ATLAS_NEXUS_WEB_RESEARCH; best-effort and
+        non-fatal (returns '' on any problem). Approach/conventions only — never verbatim code."""
+        if not web_research_enabled():
+            return ""
+        concept = " ".join(str(item.get(k) or "") for k in ("title", "goal", "description")).strip()
+        target = (item.get("target_files") or [""])[0]
+        if not concept:
+            return ""
+        query = f"how to implement {concept} (file {target}) — algorithm, technique, minimal example conventions"
+        try:
+            result = AtlasNexusWebResearchClient().run_research(SimpleNamespace(query=query, project_id="atlas"))
+        except Exception:  # noqa: BLE001 - research is advisory.
+            return ""
+        summary = str((result or {}).get("summary") or "").strip()[:2000]
+        findings = (result or {}).get("findings") or []
+        ref = "\n".join(
+            f"- {str(f.get('title') or '')[:120]}: {str(f.get('snippet') or '')[:160]}"
+            for f in findings[:5] if isinstance(f, dict)
+        )
+        return (summary + ("\n\nReferences:\n" + ref if ref else "")).strip()
+
+    def _generate_by_sections(self, input_payload: dict) -> AtlasPatchProposal:
+        """Route a single-file CREATE through the section builder (skeleton + per-section fills) and
+        wrap the assembled content as a normal proposal, or an honest no-content failure naming the
+        section(s) the model could not fill (capability_ceiling) — bounded, never a loop."""
+        item = input_payload.get("item") or {}
+        run_id = str(input_payload.get("run_id") or "")
+        targets = [str(t) for t in (item.get("target_files") or []) if str(t).strip()]
+        if len(targets) != 1:
+            # Section recovery is single-file; anything else falls back to the normal core path.
+            return self._generate_proposal_with_llm_core(input_payload)
+        target = targets[0]
+        siblings: dict = dict(input_payload.get("plan_sibling_files") or {})
+        for path, entry in (input_payload.get("current_target_contents") or {}).items():
+            if str(path) != target and isinstance(entry, dict) and str(entry.get("content") or "").strip():
+                siblings.setdefault(str(path), entry)
+        research = str(
+            input_payload.get("research_brief")
+            or input_payload.get("web_research_notes")
+            or ""
+        )
+        result = build_file_by_sections(
+            llm_json_fn=self.llm_json_fn,
+            target_path=target,
+            item=item,
+            sibling_files=siblings,
+            resource_contract=input_payload.get("app_resource_contract") or {},
+            interface_contract=input_payload.get("app_interface_contract") or {},
+            research_brief=research,
+        )
+        status = str(result.get("status") or "")
+        if status == "ok":
+            proposal, has_content = self._build_proposal_from_output(
+                {"proposed_content": result.get("proposed_content") or ""}, input_payload
+            )
+            claim_repair = self._sanitize_requirement_claims_and_infer_coverage(proposal, input_payload)
+            if claim_repair.get("diagnostics"):
+                proposal.metadata.setdefault("requirement_claim_diagnostics", []).extend(claim_repair["diagnostics"])
+            self._infer_semantic_evidence_from_content(proposal, input_payload, has_content=has_content)
+            for w in result.get("warnings", []):
+                if w not in proposal.warnings:
+                    proposal.warnings.append(w)
+            proposal.metadata["create_mode_section_recovery"] = {
+                "status": status,
+                "sections_done": result.get("sections_done", []),
+                "sections_failed": [],
+            }
+            proposal.metadata["patch_generation"] = reduce_patch_generation_state(
+                proposal.metadata.get("patch_generation"),
+                {
+                    "event_type": "patch_generation_succeeded",
+                    "run_id": run_id,
+                    "state": "succeeded",
+                    "outcome": "success",
+                    "attempt": 1,
+                    "strategy": "create_mode_section_recovery",
+                    "reason_code": "patch_generation_succeeded",
+                    "passed_checks": ["create_mode_section_recovery"],
+                    "patch_content_available": has_content,
+                    "candidate_fingerprint": self._candidate_fingerprint(proposal),
+                },
+            )
+            return proposal
+        reason = (
+            "capability_ceiling:" + ",".join(result.get("sections_failed") or [])
+            if status == "capability_ceiling"
+            else "create_mode_section_skeleton_no_content"
+        )
+        failure = self._no_content_failure_proposal(
+            input_payload, reason=reason, parse_failures=0, empty_content_attempts=1
+        )
+        failure.metadata["create_mode_section_recovery"] = {
+            "status": status,
+            "sections_done": result.get("sections_done", []),
+            "sections_failed": result.get("sections_failed", []),
+        }
+        for w in result.get("warnings", []):
+            if w not in failure.warnings:
+                failure.warnings.append(w)
+        return failure
 
     def _generate_per_file_items(self, pool, item, request, base_payload: dict, real_targets: list[str]) -> AtlasPatchProposal:
         """Generate each real target file as its OWN single-file unit through the NORMAL generation path

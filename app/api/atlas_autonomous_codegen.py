@@ -31,7 +31,18 @@ def _orchestrator_service(request: Request | None, workspace_id: str, pool_id: s
     journal = AtlasJournal(root, workspace_id=workspace_id or "default")
     # Patch generation needs the app's LLM json fn; None in tests/offline -> the proposal yields no
     # content and Phase 3 honestly skips uncontented items rather than reporting fake success.
-    llm_json_fn = getattr(getattr(getattr(request, "app", None), "state", None), "atlas_llm_json_fn", None)
+    # Ensure the adapter is registered even when this endpoint is hit WITHOUT a prior plan-pool call
+    # (which is the only other place that registers it) — otherwise the whole run falls back to
+    # no-content. Idempotent + cheap (returns early if already set); best-effort.
+    app_ref = getattr(request, "app", None)
+    if app_ref is not None:
+        try:
+            from app.api.atlas_pipeline import register_atlas_llm_json_adapter
+
+            register_atlas_llm_json_adapter(app_ref)
+        except Exception:  # noqa: BLE001 - never block a run on adapter registration.
+            pass
+    llm_json_fn = getattr(getattr(app_ref, "state", None), "atlas_llm_json_fn", None)
     # Per-run token accumulator: bind the adapter's on_usage so prompt/completion/total +
     # thinking/output tokens are summed into this run's result metadata.
     usage_acc = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
