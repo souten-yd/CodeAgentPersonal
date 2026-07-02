@@ -1545,6 +1545,22 @@ class AtlasPatchProposalService:
             proposal, has_content = self._build_proposal_from_output(
                 {"proposed_content": result.get("proposed_content") or ""}, input_payload
             )
+            # Recovery output is not automatically trustworthy: a weak model can ignore the skeleton
+            # instruction and dump a full (broken) file with a real syntax error / leaked reasoning.
+            # Apply the same code-quality gate as normal generation so recovery cannot ship garbage;
+            # a broken recovery is an honest capability_ceiling, not a success.
+            quality = self._proposal_source_quality_findings(proposal, input_payload)
+            if quality:
+                failure = self._no_content_failure_proposal(
+                    input_payload, reason="code_quality_failed: " + "; ".join(quality)[:300],
+                    parse_failures=0, empty_content_attempts=1,
+                )
+                failure.metadata["code_quality_findings"] = quality
+                failure.metadata["create_mode_section_recovery"] = {
+                    "status": "capability_ceiling_quality", "sections_done": result.get("sections_done", []),
+                    "sections_failed": result.get("sections_failed", []),
+                }
+                return failure
             claim_repair = self._sanitize_requirement_claims_and_infer_coverage(proposal, input_payload)
             if claim_repair.get("diagnostics"):
                 proposal.metadata.setdefault("requirement_claim_diagnostics", []).extend(claim_repair["diagnostics"])
