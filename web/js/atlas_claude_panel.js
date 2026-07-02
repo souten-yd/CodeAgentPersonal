@@ -267,11 +267,9 @@
       }
     }
     if (!poolRestored) {
-      // No server-side pool for this project: drop project-scoped hints for this workspace,
-      // then fall through to the empty prompt.
+      // No server-side pool for this project: drop project-scoped hints for this workspace.
       removeProjectScopedHints(state.activeProject.workspaceId || target);
     }
-    if (!restored) pushSystemMessage('指示を入力してください');
     } finally {
       state.restoring = false;
     }
@@ -349,11 +347,16 @@
     const runActive = !!autoStatus && String(autoStatus.status || '').toLowerCase() === 'running';
     try {
       const peek = await root.AtlasPipelineAPI.getLatestMultiItemAutopilotResult({ pool_id: poolId, workspace_id: workspaceId(), project_instance_id: projectInstanceId() });
-      const hasAutopilotResult = peek && peek.ok && peek.data && (
-        peek.data.autopilot_run_id || peek.data.run_id
-        || Number.isFinite(Number(peek.data.processed_count))
-        || Number.isFinite(Number(peek.data.completed_count))
-        || Number.isFinite(Number(peek.data.failed_count))
+      // A pool that never ran autopilot returns an all-zero result with no run id.
+      // Rendering a pipeline summary for it produces a misleading "完了0 失敗0 ブロック0
+      // スキップ0" line under the empty prompt, so require a real run signal (an actual
+      // run id, or at least one processed/completed/failed item) before summarising.
+      const d0 = peek && peek.ok && peek.data ? peek.data : null;
+      const hasAutopilotResult = !!d0 && (
+        d0.autopilot_run_id || d0.run_id
+        || Number(d0.processed_count) > 0
+        || Number(d0.completed_count) > 0
+        || Number(d0.failed_count) > 0
       );
       if (hasAutopilotResult && !runActive) {
         const d = peek.data;
@@ -574,7 +577,6 @@
     };
 
     bindInputs();
-    appendMessage('system', '指示を入力してください', false);
     refreshPolicies();
     loadAtlasCapabilityPreferences();
     loadAtlasAutomationFeatures();
@@ -1677,8 +1679,15 @@
     node.style.flexDirection = 'column';
     node.style.gap = '6px';
     const text = document.createElement('div');
-    const index = question.index || 1;
-    const total = question.total || Math.max(1, options.length ? 1 : index);
+    // Derive the position from how many questions are already answered rather than
+    // trusting the per-question `index` (which does not advance as answers come in and
+    // could render e.g. "3/3" for the first outstanding question). The numerator now
+    // steps 1/N → 2/N → … as the user works through the queue.
+    const allQuestions = Array.isArray(poolMeta && poolMeta.clarification_questions)
+      ? poolMeta.clarification_questions : [];
+    const total = allQuestions.length || question.total || 1;
+    const answeredCount = allQuestions.filter((q) => String(q.status || 'pending') === 'answered').length;
+    const index = Math.min(total, answeredCount + 1);
     text.textContent = `確認が必要です: ${index}/${total}`;
     node.appendChild(text);
     const prompt = document.createElement('div');

@@ -97,14 +97,33 @@ def is_placeholder_only_content(content: str, *, file_path: str = "") -> bool:
     return substantive <= 2
 
 
-def has_blocking_placeholder_content(content: str, *, file_path: str = "") -> bool:
-    """True when any concrete implementation placeholder is present.
+# Findings that are a genuine MISSING implementation (empty body, pass/…, not-implemented
+# throw, stub return). One of these in production code blocks apply regardless of file size.
+_STRUCTURAL_STUB_TYPES = frozenset({
+    "empty_pass_body",
+    "ellipsis_body",
+    "empty_function_body",
+    "not_implemented_throw",
+    "stub_return_none",
+})
 
-    Unlike ``is_placeholder_only_content``, this is intentionally not ratio-based:
-    one empty critical method or TODO stub in production code is enough to block
-    autonomous generation/apply.
+
+def has_blocking_placeholder_content(content: str, *, file_path: str = "") -> bool:
+    """True when a concrete implementation placeholder is present.
+
+    A STRUCTURAL stub (empty critical method, ``pass``/``...`` body, ``NotImplementedError``,
+    stub return) is a real missing implementation → always blocks, even a single one in an
+    otherwise-large file. But a bare COMMENT marker (e.g. ``// Placeholder for X if needed`` or a
+    lone ``// TODO``) inside otherwise-complete, substantive code is NOT a missing implementation —
+    blocking a full, syntactically-valid file on one such comment is a false positive (see #2055).
+    Comment-only markers therefore block only when the file is placeholder-DOMINANT.
     """
-    return bool(detect_placeholders(content, file_path=file_path))
+    findings = detect_placeholders(content, file_path=file_path)
+    if not findings:
+        return False
+    if any(f.get("type") in _STRUCTURAL_STUB_TYPES for f in findings):
+        return True
+    return is_placeholder_only_content(content, file_path=file_path)
 
 
 def scan_file_for_placeholders(path: str | Path) -> list[dict]:
