@@ -1628,6 +1628,9 @@ class AtlasPatchProposalService:
             pmeta = part.metadata or {}
             fcs = [fc for fc in (pmeta.get("file_changes") or []) if has_file_change_content(fc)]
             own = [fc for fc in fcs if _norm(fc.get("path")) == _norm(f)]
+            # A prior target's byproduct may have already added an entry for THIS path. This target's
+            # own dedicated generation pass must win (see the identical guard in _generate_per_file_split).
+            combined = [c for c in combined if _norm(c.get("path")) != _norm(f)]
             if own:
                 combined.extend(own)
                 per_file_ok[f] = True
@@ -1644,7 +1647,13 @@ class AtlasPatchProposalService:
                 else:
                     content = str(self._proposal_content_by_path(part).get(f) or pmeta.get("proposed_content") or "")
                     if content.strip():
-                        combined.append({"path": f, "content": content, "change_type": "modify"})
+                        # NOTE: "proposed_content"/"action_type" are the keys _normalize_file_changes
+                        # actually keeps (see its explicit key whitelist below) — "content"/"change_type"
+                        # are silently dropped there, which used to turn this recovered content into an
+                        # empty change with no content at all. "create" (not "update") because the safe
+                        # apply executor hard-blocks update_target_missing when the file doesn't exist
+                        # yet, and gracefully downgrades create->update itself when it does.
+                        combined.append({"path": f, "action_type": "create", "proposed_content": content})
                         per_file_ok[f] = True
                     else:
                         per_file_ok[f] = False
@@ -1714,9 +1723,16 @@ class AtlasPatchProposalService:
         total = 0
         for t in targets:
             total += len(str((ctc.get(t) or {}).get("content") or ""))
+        # A pure multi-file CREATE (none of the targets exist yet) has zero existing content, so the
+        # overflow heuristic below never fires for it — but it is exactly the case a single generation
+        # call unreliably completes: the model has to invent N whole files from nothing in one shot,
+        # and repeatedly demonstrated dropping one of them (multi_file_content_missing) even after all
+        # retries. Split unconditionally on file count for that case; the overflow-sized heuristic
+        # still covers multi-file EDIT items where existing content, not file count, is the risk.
+        all_new = all(not bool((ctc.get(t) or {}).get("exists")) for t in targets)
         # Only split when the combined existing content is large enough to risk overflow; a couple of
         # tiny files are cheaper to generate together.
-        if total < self.MULTI_FILE_SPLIT_MIN_CHARS:
+        if not all_new and total < self.MULTI_FILE_SPLIT_MIN_CHARS:
             return []
         return targets
 
@@ -1797,6 +1813,11 @@ class AtlasPatchProposalService:
             # never produced (which then validates as unauthorized under per-file partial scope).
             target_changes = [fc for fc in fcs if _norm(fc.get("path")) == _norm(target) and has_file_change_content(fc)]
             byproduct_changes = [fc for fc in fcs if _norm(fc.get("path")) != _norm(target) and has_file_change_content(fc)]
+            # A prior target's byproduct may have already added an entry for THIS path (e.g. the model
+            # sketched this file while generating a sibling). This target's own dedicated generation
+            # pass must win — drop the earlier byproduct stand-in so it isn't what silently reaches
+            # _normalize_file_changes's first-write-wins duplicate-path dedup.
+            combined_changes = [c for c in combined_changes if _norm(c.get("path")) != _norm(target)]
             if target_changes:
                 combined_changes.extend(target_changes)
                 per_file_ok[target] = True
@@ -1817,7 +1838,13 @@ class AtlasPatchProposalService:
                     content_by_path = self._proposal_content_by_path(part)
                     content = str(content_by_path.get(target) or (next(iter(content_by_path.values()), "") if len(content_by_path) == 1 else "") or pmeta.get("proposed_content") or "")
                     if content.strip():
-                        combined_changes.append({"path": target, "content": content, "change_type": "modify"})
+                        # NOTE: "proposed_content"/"action_type" are the keys _normalize_file_changes
+                        # actually keeps (see its explicit key whitelist below) — "content"/"change_type"
+                        # are silently dropped there, which used to turn this recovered content into an
+                        # empty change with no content at all. "create" (not "update") because the safe
+                        # apply executor hard-blocks update_target_missing when the file doesn't exist
+                        # yet, and gracefully downgrades create->update itself when it does.
+                        combined_changes.append({"path": target, "action_type": "create", "proposed_content": content})
                         per_file_ok[target] = True
                     else:
                         per_file_ok[target] = False
