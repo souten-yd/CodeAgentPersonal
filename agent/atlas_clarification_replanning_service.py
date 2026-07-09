@@ -141,6 +141,13 @@ class AtlasClarificationReplanningService:
         safety_gate_block_reason = self._safety_gate_block_reason(safety_gate)
         metadata.update(
             {
+                # The flag propose_for_item actually checks to hard-block patch generation
+                # (agent/atlas_patch_proposal_service.py). Nothing else ever clears this key once a
+                # prior quality-gate pass set it True, so without this the plan stays permanently
+                # blocked even after the user answers every clarification question and this fresh
+                # re-evaluation passes clean — only re-set it here from the CURRENT gate result, not
+                # left stale from before the revision.
+                "plan_revision_required": bool(critique_gate.get("plan_revision_required")),
                 "clarification_replanning": {
                     "status": "completed",
                     "revision_id": revision_id,
