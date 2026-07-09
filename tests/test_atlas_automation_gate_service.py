@@ -60,3 +60,27 @@ def test_guarded_low_risk_blocks_medium_high_risk():
 def test_guarded_low_risk_requires_project_path():
     pool, item = _pool_item(project_path='', metadata={'approval': {'decision': 'approved'}, 'patch': 'x', 'action_type': 'update', 'source_proposal_id': 'pp1'})
     assert AtlasAutomationGateService().decide_pre_safe_apply(pool, item, atlas_auto_policy_presets()['guarded_low_risk']).decision != 'allow'
+
+
+def test_guarded_low_risk_allows_ordinary_multi_file_low_risk_item():
+    # A left-unset max_changed_files_per_item on the DEFAULT preset falls back to the schema's
+    # floor of 1, which would block nearly any real low-risk step (e.g. an HTML+CSS scaffold)
+    # despite the preset otherwise gating on risk, not file count. 2 files must be allowed.
+    pool, item = _pool_item(
+        target_files=['index.html', 'style.css'],
+        metadata={'approval': {'decision': 'approved'}, 'patch': 'x', 'action_type': 'create', 'source_proposal_id': 'pp1'},
+    )
+    d = AtlasAutomationGateService().decide_pre_safe_apply(pool, item, atlas_auto_policy_presets()['guarded_low_risk'])
+    assert d.decision == 'allow'
+    assert 'target_files_too_many' not in d.reasons
+
+
+def test_guarded_low_risk_still_blocks_excessive_file_count():
+    # The cap must still guard against a "low risk" item ballooning to touch many files.
+    pool, item = _pool_item(
+        target_files=[f'f{i}.py' for i in range(6)],
+        metadata={'approval': {'decision': 'approved'}, 'patch': 'x', 'action_type': 'update', 'source_proposal_id': 'pp1'},
+    )
+    d = AtlasAutomationGateService().decide_pre_safe_apply(pool, item, atlas_auto_policy_presets()['guarded_low_risk'])
+    assert d.decision != 'allow'
+    assert 'target_files_too_many' in d.reasons
