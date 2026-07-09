@@ -96,10 +96,15 @@ def test_system_usage_numeric_helpers_keep_existing_shapes():
 
     assert module._bytes_to_mb(2 * 1024 * 1024) == 2
     assert module._bytes_to_mb(1536 * 1024) == 1
-    assert module._bytes_to_mb("1048576") == -1
+    # rocm-smi's --json output encodes every field as a string (e.g. "34208743424" for a byte
+    # count), not a JSON number, so numeric strings must be accepted rather than rejected as -1.
+    assert module._bytes_to_mb("1048576") == 1
+    assert module._bytes_to_mb("not_a_number") == -1
+    assert module._bytes_to_mb(None) == -1
 
     assert module._kb_to_mb(2048) == 2
     assert module._kb_to_mb(1536) == 1
+    assert module._kb_to_mb("2048") == 2
     assert module._kb_to_mb(None) == -1
 
 
@@ -196,6 +201,45 @@ def test_collect_system_usage_info_exists_and_uses_ports_without_external_gpu_co
     assert diag["gpu_backend"] == "nvidia-smi"
     assert diag["parse_source"] == "direct"
     assert diag["adopted_values"]["gpu_count"] == 1
+
+
+def test_collect_system_usage_info_parses_rocm_smi_json_string_vram_fields(monkeypatch):
+    # Real rocm-smi --json output encodes every value as a JSON string, e.g.
+    # {"card0": {"GPU use (%)": "5", "VRAM Total Memory (B)": "34208743424",
+    #            "VRAM Total Used Memory (B)": "24974798848"}}
+    # A bare isinstance(value, (int, float)) check silently treats these as missing and reports
+    # vram_used_mb/vram_total_mb as -1 even though the data is present.
+    module = importlib.import_module("app.services.system_usage")
+
+    settings = _FakeSettings()
+    settings.values["gpu_usage_backend"] = "rocm-smi"
+    diagnostics = module.InMemoryUsageDiagnostics()
+    ports = module.UsageCollectorPorts(settings=settings, diagnostics=diagnostics)
+
+    monkeypatch.setattr(module, "_probe_gpu_static", lambda backend: [])
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = (
+            '{"card0": {"GPU use (%)": "5", "VRAM Total Memory (B)": "34208743424", '
+            '"VRAM Total Used Memory (B)": "24974798848"}}'
+        )
+        stderr = ""
+
+    def fake_run(cmd, *args, **kwargs):
+        assert cmd[0] == "rocm-smi"
+        return FakeCompleted()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    payload = module.collect_system_usage_info(ports=ports, debug_mode=True)
+
+    assert payload["gpu_backend_selected"] == "rocm-smi"
+    gpu = payload["gpus"][0]
+    assert gpu["util_percent"] == 5.0
+    assert gpu["vram_total_mb"] == 32624
+    assert gpu["vram_used_mb"] == 23817
+    assert gpu["vram_percent"] > 0
 
 
 def test_system_usage_service_source_has_no_stale_mm_time_reference():

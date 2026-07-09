@@ -28,18 +28,41 @@ def _parse_int_maybe(value: Any) -> int:
     return int(text) if text.isdigit() else -1
 
 
+def _to_number(value: Any) -> float | None:
+    """Coerce int/float/numeric-string to float, or ``None`` if not numeric.
+
+    Several `--json` tool outputs (e.g. `rocm-smi`) put every field through JSON string
+    encoding regardless of its logical type, so a byte count arrives as ``"34208743424"``
+    rather than a JSON number. A bare ``isinstance(value, (int, float))`` check silently
+    rejects those and looks identical to genuinely missing data.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        try:
+            return float(text)
+        except ValueError:
+            return None
+    return None
+
+
 def _bytes_to_mb(value: Any) -> int:
     """Convert a byte count to whole MiB, returning ``-1`` for non-numeric input."""
-    if not isinstance(value, (int, float)):
+    number = _to_number(value)
+    if number is None:
         return -1
-    return int(value / (1024 * 1024))
+    return int(number / (1024 * 1024))
 
 
 def _kb_to_mb(value: Any) -> int:
     """Convert a KiB count to whole MiB, returning ``-1`` for non-numeric input."""
-    if not isinstance(value, (int, float)):
+    number = _to_number(value)
+    if number is None:
         return -1
-    return int(value / 1024)
+    return int(number / 1024)
 
 
 def _calculate_percent(used: int | float, total: int | float) -> float:
@@ -246,9 +269,9 @@ def _probe_gpu_static(backend: str) -> list[dict]:
                 for _, info in data.items():
                     if not isinstance(info, dict):
                         continue
-                    total_b = info.get("VRAM Total Memory (B)") or info.get("VRAM Total Used Memory (B)")
+                    total_b = _to_number(info.get("VRAM Total Memory (B)") or info.get("VRAM Total Used Memory (B)"))
                     used_b = info.get("VRAM Total Used Memory (B)")
-                    if isinstance(total_b, (int, float)) and total_b > 0:
+                    if total_b is not None and total_b > 0:
                         total_mb = _bytes_to_mb(total_b)
                         used_mb = _bytes_to_mb(used_b or 0)
                         gpus.append({"name": str(info.get("Card series") or info.get("Card SKU") or "AMD GPU"), "memory_total_mb": total_mb, "memory_free_mb": max(0, total_mb - used_mb)})
@@ -743,25 +766,27 @@ def collect_system_usage_info(*, ports: UsageCollectorPorts, debug_mode: bool = 
                         vram_pct = float(str(info.get("GPU memory use (%)", "0")).replace("%", "") or -1)
                         vram_used_mb = -1
                         vram_total_mb = -1
-                        # --showmeminfo vram provides VRAM Total/Used in bytes
-                        total_b = info.get("VRAM Total Memory (B)")
-                        used_b = info.get("VRAM Total Used Memory (B)")
-                        if isinstance(total_b, (int, float)) and total_b > 0:
+                        # --showmeminfo vram provides VRAM Total/Used in bytes. rocm-smi's --json
+                        # output encodes every field as a JSON string (e.g. "34208743424"), so these
+                        # must be coerced via _to_number rather than isinstance-checked as (int, float).
+                        total_b = _to_number(info.get("VRAM Total Memory (B)"))
+                        used_b = _to_number(info.get("VRAM Total Used Memory (B)"))
+                        if total_b is not None and total_b > 0:
                             vram_total_mb = _bytes_to_mb(total_b)
-                            if isinstance(used_b, (int, float)) and used_b >= 0:
+                            if used_b is not None and used_b >= 0:
                                 vram_used_mb = _bytes_to_mb(used_b)
                                 vram_pct = _calculate_percent(vram_used_mb, vram_total_mb)
                         # --showmemuse provides GPU memory use (%) only; try GTT as fallback for total
                         if vram_total_mb < 0:
                             for key_total in ("VRAM Total Memory (B)", "GTT Total Memory (B)"):
-                                tb = info.get(key_total)
-                                if isinstance(tb, (int, float)) and tb > 0:
+                                tb = _to_number(info.get(key_total))
+                                if tb is not None and tb > 0:
                                     vram_total_mb = _bytes_to_mb(tb)
                                     break
                         if vram_used_mb < 0:
                             for key_used in ("VRAM Total Used Memory (B)", "GTT Total Used Memory (B)"):
-                                ub = info.get(key_used)
-                                if isinstance(ub, (int, float)) and ub >= 0:
+                                ub = _to_number(info.get(key_used))
+                                if ub is not None and ub >= 0:
                                     vram_used_mb = _bytes_to_mb(ub)
                                     break
                         if vram_pct < 0 and vram_used_mb >= 0 and vram_total_mb > 0:
