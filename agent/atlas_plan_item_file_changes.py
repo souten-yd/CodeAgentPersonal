@@ -131,6 +131,15 @@ def detect_duplicate_file_change_paths(item: AtlasPlanItem) -> list[str]:
 def detect_executor_readable_content(item: AtlasPlanItem) -> bool:
     metadata = item.metadata if isinstance(item.metadata, dict) else {}
     patch_proposal = metadata.get("patch_proposal") if isinstance(metadata.get("patch_proposal"), dict) else {}
+    proposal_metadata = patch_proposal.get("metadata") if isinstance(patch_proposal.get("metadata"), dict) else {}
+    # A verified already-satisfied no-op (the step's goal is already met by the file's existing
+    # content -- see AtlasPatchProposalService._mark_already_satisfied_if_verified) is deliberately
+    # executor-readable: the safe-apply executor resolves it as an identity write, not a missing
+    # patch. Without this, every downstream gate that reuses this helper to ask "is there something
+    # the executor can act on" would treat the honest, verified no-op the same as a genuinely empty
+    # generation and block it.
+    if metadata.get("already_satisfied_no_op") or proposal_metadata.get("already_satisfied_no_op"):
+        return True
     top_level = (
         metadata.get("proposed_content"),
         metadata.get("patch"),
