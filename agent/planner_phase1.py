@@ -153,6 +153,15 @@ class PlannerPhase1:
             planner_input,
             json_schema=plan_generation_json_schema(),
             model=PlanGenerationOutput,
+            # Live repro (local model, an elaborate multi-requirement game description): this call's
+            # prompt carries the full nexus + repository context on top of the user request, and this
+            # local model's response time for it routinely exceeds the adapter's per-call timeout,
+            # burning an attempt on a bare "llm_stalled" with zero output. generate_structured's
+            # default max_attempts=2 leaves only one real chance left after that -- far tighter than
+            # patch generation's 5-attempt budget (MAX_LLM_GENERATION_ATTEMPTS in
+            # atlas_patch_proposal_service.py), which reliably recovers from the same kind of stall.
+            # Match that budget here instead of guessing at a larger single-call timeout.
+            max_attempts=5,
         )
         raw_payload = structured.data
         warnings.extend(structured.warnings)
