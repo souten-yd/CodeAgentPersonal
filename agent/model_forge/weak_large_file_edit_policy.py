@@ -20,10 +20,15 @@ from __future__ import annotations
 # re-emit, so it must be patched with surgical edits.
 LARGE_FILE_LINES = 120
 LARGE_FILE_CHARS = 8000
-# Output budget for the forced edits-only mode: enough for a few small old/new edits, far too small
-# to re-emit a large file (so a runaway whole-file output is truncated early instead of after 5 000+
-# tokens). Still capped further by the adapter's n_ctx budget.
-EDIT_ONLY_MAX_OUTPUT_TOKENS = 1800
+# Output budget for the forced edits-only mode: large enough for a genuinely additive edit (a new
+# function/section inserted via an anchored old_string/new_string pair, plus the advisory evidence
+# arrays), far too small to re-emit an 8 000+ char file in full (so a runaway whole-file output is
+# still truncated early instead of after 5 000+ tokens). Still capped further by the adapter's n_ctx
+# budget. Live-model verification (Qwen local, 65 535 ctx): 1 800 was too tight even for a compliant
+# metadata-only response (implemented_symbols/behavioral_cases/verification_cases alone can exceed
+# it), which truncated the response into an unparseable empty string before the model ever got to the
+# edit content.
+EDIT_ONLY_MAX_OUTPUT_TOKENS = 6000
 
 # Prior failure signals that mean "the model already failed to return usable content once" — after
 # these, force edit-only even for a not-large file (the freedom clearly did not help).
@@ -71,12 +76,15 @@ def edit_only_prompt_directive(canvas_safe: bool = True) -> str:
     nested JSON edits array; the service parses either form into edits."""
     return (
         "OUTPUT FORMAT — EDITS ONLY (this is a large existing file; do NOT rewrite the whole file).\n"
-        "Return 1-3 SMALL surgical edits, in EITHER form:\n"
+        "Return a small number of surgical edits, in EITHER form:\n"
         "(a) a JSON \"edits\" array of {\"old_string\" (copied VERBATIM from the current file content), "
         "\"new_string\"}; OR\n"
         "(b) put Aider-style SEARCH/REPLACE blocks in the \"proposed_content\" field, each exactly:\n"
         "<<<<<<< SEARCH\n<the exact current lines to find>\n=======\n<the replacement lines>\n>>>>>>> REPLACE\n"
-        "Do NOT return the whole file or a full-function rewrite over ~40 lines. Change ONLY what the "
-        "task requires and keep every other line untouched. If you cannot express it as a few small "
-        "edits, return the SINGLE smallest edit that makes progress."
+        "Each edit's old_string/SEARCH anchor must stay small and exact — copied verbatim from the "
+        "CURRENT file. Its new_string/REPLACE body MAY be large when the task genuinely requires "
+        "adding new functionality (e.g. a new function or section anchored after an existing one); do "
+        "NOT re-emit the whole file just to add one new part. Keep every line outside your edits "
+        "untouched. If the goal is already fully met by the current file content, return an empty "
+        "\"edits\" array instead of fabricating a change."
     )
