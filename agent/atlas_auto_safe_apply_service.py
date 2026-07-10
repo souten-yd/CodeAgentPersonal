@@ -72,10 +72,20 @@ class AtlasAutoSafeApplyService:
         warnings = list(safe_payload.get("warnings") or [])
         errors = list(safe_payload.get("errors") or [])
 
+        # A verified already-satisfied no-op (see AtlasPatchProposalService.
+        # _mark_already_satisfied_if_verified) applies as a deliberate identity write -- the executor
+        # marks each such file's content_mode "no_op_already_satisfied". Zero actual file change is
+        # then the CORRECT outcome, not a symptom of a silently failed apply, so it must not trip the
+        # "actual_file_not_changed" safety check below (which exists to catch exactly that failure
+        # mode for every other kind of apply).
+        already_satisfied_no_op = any(
+            str((fr or {}).get("content_mode") or (fr or {}).get("mode") or "") == "no_op_already_satisfied"
+            for fr in file_results if isinstance(fr, dict)
+        )
         if final_status == "applied" and not snapshot.get("manifest_path"):
             final_status = "failed"
             errors.append("snapshot_manifest_missing")
-        if final_status == "applied" and not changed:
+        if final_status == "applied" and not changed and not already_satisfied_no_op:
             final_status = "failed"
             errors.append("actual_file_not_changed")
 
