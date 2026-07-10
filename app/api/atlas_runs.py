@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -182,8 +183,38 @@ def _item_patch_generation_sources(pool: Any, state: AtlasRunState) -> list[Any]
     return sources
 
 
-def _run_token_usage(store: AtlasRunStore, state: AtlasRunState, request: Request, pool: Any) -> dict[str, int]:
+def _live_patchgen_job_usage(root_dir: Any, pool_id: str, item_id: str) -> dict[str, Any] | None:
+    """Read the currently-generating item's own progress file directly.
+
+    Per-token progress (llm_first_token / llm_token_delta) is appended to the journal's runtime
+    progress log and to this small per-item job file, NOT to the run's own event stream (which
+    only records coarse lifecycle events like patch_proposal_started/completed) — so while a
+    generation is actively streaming, the run's event history has nothing live to report and
+    _run_token_usage fell through to stale/empty metadata, showing 0 for the whole call. Checking
+    this file first restores the live count that is otherwise sitting right there, unread.
+    """
+    if not pool_id or not item_id:
+        return None
+    try:
+        from app.api.atlas_pipeline import _patchgen_job_key, _patchgen_jobs_dir
+
+        path = _patchgen_jobs_dir(root_dir) / f"{_patchgen_job_key(pool_id, item_id)}.json"
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if str(data.get("status") or "") != "running":
+        return None
+    return data
+
+
+def _run_token_usage(store: AtlasRunStore, state: AtlasRunState, request: Request, pool: Any, root_dir: Any = None) -> dict[str, int]:
     sources: list[Any] = []
+    if root_dir is not None:
+        live = _live_patchgen_job_usage(root_dir, state.pool_id, state.current_item_id)
+        if live:
+            sources.append(live)
     try:
         sources.extend(event.model_dump() for event in reversed(store.read_events(state.run_id, after_sequence=0, limit=1000)))
     except Exception:
@@ -348,7 +379,7 @@ def get_run_status(run_id: str, request: Request) -> dict[str, Any]:
         "skipped_count": len(skipped_item_ids),
         "running_count": 1 if state.status == "running" and state.current_item_id else 0,
         "item_progress": _run_item_progress(pool, state),
-        "token_usage": _run_token_usage(store, state, request, pool),
+        "token_usage": _run_token_usage(store, state, request, pool, root_dir),
         "requires_user_action": state.requires_user_action,
         "block_reason": state.block_reason,
         "error": state.error,
