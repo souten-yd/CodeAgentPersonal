@@ -95,6 +95,29 @@ def test_empty_response_is_accepted_when_existing_content_already_covers_the_goa
     assert "req_counter" in (meta.get("satisfied_requirement_ids") or [])
 
 
+def test_propose_for_item_reports_proposed_status_for_a_verified_no_op(tmp_path: Path) -> None:
+    # Reproduces a 4th-layer real bug found live: propose_for_item (the actual entry point the run
+    # orchestrator's generate_patch_proposal callback calls) independently RE-DERIVES has_content
+    # from raw content fields (proposed_content/edits/file_changes/diff), unaware of
+    # already_satisfied_no_op. Even after _generate_proposal_with_llm_core correctly accepted the
+    # no-op, this outer wrapper saw has_content=False, forced patch_generation back to "failed", and
+    # the orchestrator reported the whole item as patch_proposal_failed -- the run never progressed.
+    (tmp_path / "index.html").write_text(_ALREADY_DONE_CONTENT, encoding="utf-8")
+    item = _item()
+    pool = _pool(tmp_path, item)
+    llm = lambda system, user: {"target_files": ["index.html"], "edits": [], "risk_level": "low"}
+    service = _service(tmp_path, pool, llm)
+
+    result = service.propose_for_item(
+        AtlasPatchProposalRequest(pool_id="pool_1", item_id="item_001", source_type="plan_item"),
+    )
+
+    assert result.status == "proposed"
+    meta = result.proposal.metadata or {}
+    assert meta.get("already_satisfied_no_op") is True
+    assert (meta.get("patch_generation") or {}).get("state") == "succeeded"
+
+
 def test_empty_response_still_fails_when_goal_is_genuinely_unmet(tmp_path: Path) -> None:
     (tmp_path / "index.html").write_text("<html><body>\n<!-- nothing implemented yet -->\n</body></html>\n", encoding="utf-8")
     item = _item()
