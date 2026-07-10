@@ -67,6 +67,27 @@ def test_select_run_items_rejects_explicit_blocked_item() -> None:
         select_run_items(pool, state, "fresh", requested_item_id="item_1")
 
 
+def test_select_run_items_resume_retries_failed_and_blocked_items() -> None:
+    # Reproduces a real bug: "resume" is supposed to be how a fully-autonomous loop keeps going
+    # after a run stops on an item -- but failed/blocked items were excluded from the runnable
+    # status set for every mode, so resume silently skipped past exactly the item it needed to
+    # retry and jumped ahead to the next one, abandoning the stuck item until a human noticed and
+    # manually re-triggered it. "fresh" mode must still exclude them (no reason a *fresh* run
+    # would even select a failed item), but "resume" must pick them back up.
+    pool = _pool([_item("item_1", status="failed"), _item("item_2", status="blocked"), _item("item_3")])
+    state = AtlasRunState(run_id="run_cs10", pool_id=pool.pool_id)
+
+    assert select_run_items(pool, state, "resume") == ["item_1", "item_2", "item_3"]
+    assert select_run_items(pool, state, "fresh") == ["item_3"]
+
+
+def test_select_run_items_resume_can_explicitly_target_a_failed_item() -> None:
+    pool = _pool([_item("item_1", status="failed")])
+    state = AtlasRunState(run_id="run_cs10", pool_id=pool.pool_id)
+
+    assert select_run_items(pool, state, "resume", requested_item_id="item_1") == ["item_1"]
+
+
 def test_run_orchestrator_selects_items_without_client_item_ids(tmp_path: Path) -> None:
     generated: list[str] = []
     callbacks = AtlasRunOrchestratorCallbacks(

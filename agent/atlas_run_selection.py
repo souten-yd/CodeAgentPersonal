@@ -7,6 +7,13 @@ from agent.atlas_run_schema import AtlasRunState
 
 _RUNNABLE_ITEM_STATUSES = {"", "queued", "pending", "ready", "approval_required", "approved"}
 _RERUN_ITEM_STATUSES = {*_RUNNABLE_ITEM_STATUSES, "completed"}
+# "resume" must retry an item the run stopped on (failed/blocked), not silently skip past it —
+# a fully-autonomous loop that stops making progress because "resume" quietly abandons whatever
+# it choked on isn't autonomous. Bounded the same way a human re-invoking resume already was: the
+# orchestrator stops the run again on the very next failure/block within that same call (see
+# AtlasRunOrchestrator.run_items), so this doesn't retry forever within one invocation — it just
+# stops silently *skipping* the item that needs the retry.
+_RESUMABLE_ITEM_STATUSES = {*_RUNNABLE_ITEM_STATUSES, "failed", "blocked"}
 
 
 def select_run_items(pool: Any, state: AtlasRunState, mode: str, requested_item_id: str = "") -> list[str]:
@@ -16,7 +23,7 @@ def select_run_items(pool: Any, state: AtlasRunState, mode: str, requested_item_
         item = _get_item(pool, requested)
         if item is None:
             raise ValueError(f"item_not_found:{requested}")
-        if not _is_runnable_item(item, allow_completed=normalized_mode == "rerun"):
+        if not _is_runnable_item(item, mode=normalized_mode):
             raise ValueError(f"item_not_runnable:{requested}:{_item_status(item)}")
         return [requested]
 
@@ -28,9 +35,7 @@ def select_run_items(pool: Any, state: AtlasRunState, mode: str, requested_item_
             continue
         if normalized_mode == "resume" and item_id in completed:
             continue
-        if normalized_mode != "rerun" and not _is_runnable_item(item, allow_completed=False):
-            continue
-        if normalized_mode == "rerun" and not _is_runnable_item(item, allow_completed=True):
+        if not _is_runnable_item(item, mode=normalized_mode):
             continue
         selected.append(item_id)
     return selected
@@ -45,8 +50,13 @@ def _get_item(pool: Any, item_id: str) -> Any:
     return None
 
 
-def _is_runnable_item(item: Any, *, allow_completed: bool) -> bool:
-    statuses = _RERUN_ITEM_STATUSES if allow_completed else _RUNNABLE_ITEM_STATUSES
+def _is_runnable_item(item: Any, *, mode: str) -> bool:
+    if mode == "rerun":
+        statuses = _RERUN_ITEM_STATUSES
+    elif mode == "resume":
+        statuses = _RESUMABLE_ITEM_STATUSES
+    else:
+        statuses = _RUNNABLE_ITEM_STATUSES
     return _item_status(item) in statuses
 
 
