@@ -2202,20 +2202,6 @@
             <span style="font-size:11px;color:var(--text2)" id="streaming-label">ON</span>
           </label>
         </div>
-        <div style="margin-bottom:6px;font-size:11px;color:var(--text2)">コンテキスト長</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <input type="range" id="ctx-slider" min="512" max="262144" step="1" value="16384"
-            style="flex:1;accent-color:var(--accent);cursor:pointer"
-            oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
-          <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">16384</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
-          <span>512</span><span id="ctx-max-label">max: 262144</span><span id="ctx-slider-max">262144</span>
-        </div>
-        <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">read_file 注入上限（chars）</div>
-        <input type="number" id="read-file-inject-max-chars" min="4000" max="120000" step="1000" value="16000"
-          style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);box-sizing:border-box"
-          onchange="applyReadFileInjectMaxChars(this.value)">
         <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">LLM URL（空=サーバーデフォルト）</div>
         <input type="text" id="llm-url-input" placeholder="http://localhost:8080/v1/chat/completions"
           style="width:100%;padding:6px 8px;font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);box-sizing:border-box"
@@ -2585,7 +2571,6 @@ let editorOpen = false;
 let searchEnabled = false;
 let streamingEnabled = true;  // サーバーデフォルトと同期
 let activeLlmUrl = '';    // 空文字 = サーバーデフォルト(LLM_URL)
-let readFileInjectMaxChars = 16000;
 let pendingPlan = null;   // 承認待ちのプラン
 let progressEl = null;    // 現在のプログレスカード
 let timerInterval = null;
@@ -5837,14 +5822,11 @@ async function loadSettingsFromDb() {
     if (sc) sc.checked = search;
     if (sl2) sl2.textContent = search ? 'ON' : 'OFF';
 
-    // Ctx size
+    // Ctx size (managed per-model in the Forge/Models tab; kept here only as the fallback
+    // default for model-add-ctx, since the settings-modal slider was removed)
     const ctx = normalizeCtxSize(d.ctx_size, DEFAULT_CTX_SIZE);
     _settingsDefaultCtxSize = ctx;
-    const cs = document.getElementById('ctx-slider');
-    const cl = document.getElementById('ctx-label');
     const addCtx = document.getElementById('model-add-ctx');
-    if (cs) cs.value = ctx;
-    if (cl) cl.textContent = ctx;
     if (addCtx) {
       addCtx.value = String(ctx);
       addCtx.placeholder = String(ctx);
@@ -5855,12 +5837,6 @@ async function loadSettingsFromDb() {
     activeLlmUrl = url;
     const ui = document.getElementById('llm-url-input');
     if (ui) ui.value = url;
-
-    // read_file inject max chars
-    const readMax = Math.max(4000, Math.min(120000, parseInt(d.read_file_inject_max_chars, 10) || 16000));
-    readFileInjectMaxChars = readMax;
-    const readMaxEl = document.getElementById('read-file-inject-max-chars');
-    if (readMaxEl) readMaxEl.value = String(readMax);
 
     const em = document.getElementById('ensemble-execution-mode');
     const eas = document.getElementById('ensemble-auto-switch');
@@ -16528,22 +16504,14 @@ async function initCtxSlider() {
     const {data: cd} = await _fetchJson(API+'/llm/ctx', {}, '/llm/ctx');
     const curCtx = Math.max(512, Math.min(maxCtx, normalizeCtxSize(cd.n_ctx, _settingsDefaultCtxSize)));
 
-    const slider = document.getElementById('ctx-slider');
-    const label = document.getElementById('ctx-label');
-    const maxLabel = document.getElementById('ctx-max-label');
-    const maxRight = document.getElementById('ctx-slider-max');
-
-    if (slider) {
-      slider.max = maxCtx;
-      slider.value = curCtx;
-    }
+    // The settings-modal slider was removed (context length is managed per-model in the
+    // Forge/Models tab, which is what actually drives the backend's active context). This still
+    // populates LLM_CONTEXT_STATE, which getCurrentNctxUi() elsewhere relies on for client-side
+    // context-budget calculations.
     LLM_CONTEXT_STATE.maxNctxUi = maxCtx;
     LLM_CONTEXT_STATE.propsAvailable = true;
     LLM_CONTEXT_STATE.lastError = '';
     setCurrentNctxUi(curCtx);
-    if (label) label.textContent = curCtx.toLocaleString();
-    if (maxLabel) maxLabel.textContent = 'max: ' + maxCtx.toLocaleString();
-    if (maxRight) maxRight.textContent = maxCtx.toLocaleString();
 
     addLog('ok', 'ctx', `n_ctx=${curCtx} / max=${maxCtx}`);
   } catch(e) {
@@ -16555,30 +16523,6 @@ async function initCtxSlider() {
 
 
 
-async function applyCtxLen(val) {
-  const n = parseInt(val);
-  try {
-    await fetch(API+'/llm/ctx', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({n_ctx: n})
-    });
-    setCurrentNctxUi(n);
-    _saveSettingDb('ctx_size', n);
-    addLog('ok', 'ctx', 'Context length set to ' + n.toLocaleString());
-  } catch(e) {
-    addLog('err', 'ctx', e.message);
-  }
-}
-
-async function applyReadFileInjectMaxChars(val) {
-  const n = Math.max(4000, Math.min(120000, parseInt(val, 10) || 16000));
-  readFileInjectMaxChars = n;
-  const el = document.getElementById('read-file-inject-max-chars');
-  if (el) el.value = String(n);
-  await _saveSettingDb('read_file_inject_max_chars', String(n));
-  addLog('ok', 'ctx', `read_file_inject_max_chars=${n}`);
-}
 
 
 // ── SEARCH TOGGLE ──

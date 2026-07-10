@@ -30,7 +30,6 @@ _SETTINGS_FALLBACK_DEFAULTS: dict[str, Any] = {
     "streaming_enabled": "true",
     "ctx_size": "4096",
     "summary_max_tokens": "200",
-    "read_file_inject_max_chars": "16000",
     "llm_url": "",
     "orchestration_policy": "ladder_fail_and_quality",
     "coder_primary": "",

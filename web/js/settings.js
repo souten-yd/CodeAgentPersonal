@@ -51,12 +51,6 @@ function applyOrchFeatureModeUi() {
   }
 }
 
-function updateCtxLabel(val) {
-  const n = parseInt(val);
-  const el = document.getElementById('ctx-label');
-  if (el) el.textContent = n.toLocaleString();
-}
-
 function applySearchUI(enabled) {
   searchEnabled = enabled;
   const chk = document.getElementById('search-chk');
@@ -76,6 +70,5 @@ function applyStreamingUI(enabled) {
 window.openSettings = openSettings;
 window.closeSettings = closeSettings;
 window.applyOrchFeatureModeUi = applyOrchFeatureModeUi;
-window.updateCtxLabel = updateCtxLabel;
 window.applySearchUI = applySearchUI;
 window.applyStreamingUI = applyStreamingUI;
