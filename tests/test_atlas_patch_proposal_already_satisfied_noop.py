@@ -129,3 +129,31 @@ def test_already_satisfied_no_op_ignored_without_existing_target() -> None:
     )
 
     assert result == {"status": "blocked", "reason": "content_missing"}
+
+
+def test_apply_plan_item_safe_completes_a_verified_no_op_instead_of_blocking(tmp_path: Path) -> None:
+    # Reproduces a second-layer real bug found live: after _resolve_content_from_metadata resolves a
+    # verified no-op as identity content (content == current_text), apply_plan_item_safe's generic
+    # "no_effective_change" guard -- meant to catch an ACCIDENTAL empty diff -- tripped on this
+    # DELIBERATE, verified one too and reported the whole item as blocked/failed, even though the
+    # step's goal was genuinely already met.
+    target = tmp_path / "index.html"
+    target.write_text(_ALREADY_DONE_CONTENT, encoding="utf-8")
+    item = AtlasPlanItem(
+        item_id="item_001", pool_id="pool_1", title="Render initial counter", goal=_GOAL, status="ready",
+        risk_level="low", target_files=["index.html"],
+        metadata={
+            "action_type": "update",
+            "already_satisfied_no_op": True,
+            "patch_content_available": True,
+        },
+    )
+    pool = AtlasPlanPool(pool_id="pool_1", root_goal="Build a widget page", project_path=str(tmp_path), status="ready", items=[item])
+    executor = AtlasFileSafeApplyExecutor(workspace_root=tmp_path)
+
+    result = executor.apply_plan_item_safe(item=item, pool=pool)
+
+    assert result["status"] == "applied"
+    assert result["actual_file_changed"] is False
+    assert result["changed_files"] == []
+    assert target.read_text(encoding="utf-8") == _ALREADY_DONE_CONTENT
