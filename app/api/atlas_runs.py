@@ -7,6 +7,7 @@ from uuid import uuid4
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from agent.atlas_auto_policy_presets import DEFAULT_AUTO_POLICY_PRESET_ID
 from agent.atlas_run_events import validate_run_storage_id
 from agent.atlas_run_locks import acquire_run_lease, refresh_run_heartbeat, release_run_lease
 from agent.atlas_run_orchestrator import (
@@ -35,7 +36,7 @@ class AtlasRunCreateRequest(BaseModel):
     run_id: str = ""
     item_id: str = ""
     auto_start: bool = False
-    preset_id: str = "guarded_low_risk"
+    preset_id: str = DEFAULT_AUTO_POLICY_PRESET_ID
     command_id: str = ""
     item_ids: list[str] = Field(default_factory=list)
     total_items: int = 0
@@ -60,7 +61,7 @@ class AtlasRunStartRequest(BaseModel):
     item_id: str = ""
     item_ids: list[str] = Field(default_factory=list)
     mode: str = ""
-    preset_id: str = "guarded_low_risk"
+    preset_id: str = DEFAULT_AUTO_POLICY_PRESET_ID
     command_id: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 

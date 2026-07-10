@@ -35,6 +35,7 @@ from agent.model_forge.stage_taxonomy import ForgeStage
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from agent.atlas_auto_policy_presets import DEFAULT_AUTO_POLICY_PRESET_ID
 from agent.atlas_clarification_schema import AtlasClarificationSubmitRequest, AtlasClarificationSubmitResult
 from agent.atlas_clarification_execution_blocker import (
     clarification_execution_block_reasons as _clarification_execution_block_reasons,
@@ -262,7 +263,7 @@ class AtlasAutomationDecisionResponse(BaseModel):
 class AtlasAutoSafeApplyAndVerifyRequest(BaseModel):
     pool_id: str
     item_id: str
-    preset_id: str = "guarded_low_risk"
+    preset_id: str = DEFAULT_AUTO_POLICY_PRESET_ID
     workspace_id: str = "default"
     run_id: str = ""
     command_id: str = ""
@@ -2224,7 +2225,7 @@ def _create_plan_pool_core(
             pool.metadata["safe_default_clarification_mode"] = "auto"
             AtlasClarificationReplanningService().revise_after_answers(
                 pool,
-                preset_id=str((pool.metadata or {}).get("preset_id") or req.metadata.get("preset_id") or "guarded_low_risk"),
+                preset_id=str((pool.metadata or {}).get("preset_id") or req.metadata.get("preset_id") or DEFAULT_AUTO_POLICY_PRESET_ID),
                 automation_level=str(req.automation_level or getattr(pool, "automation_level", "") or ""),
                 critical_handling=str(_features.get("critical_handling") or "ask"),
             )
@@ -3881,7 +3882,7 @@ def clarify_plan_pool(pool_id: str, req: AtlasPlanClarifyRequest, request: Reque
         pool.metadata.pop("clarification_required", None)
         replan_result = AtlasClarificationReplanningService().revise_after_answers(
             pool,
-            preset_id=str((pool.metadata or {}).get("preset_id") or "guarded_low_risk"),
+            preset_id=str((pool.metadata or {}).get("preset_id") or DEFAULT_AUTO_POLICY_PRESET_ID),
             automation_level=str(getattr(pool, "automation_level", "") or ""),
             critical_handling=str(((pool.metadata or {}).get("automation_features") or {}).get("critical_handling") or "ask"),
         )

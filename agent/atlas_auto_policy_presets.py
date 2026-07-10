@@ -2,6 +2,16 @@ from __future__ import annotations
 
 from agent.atlas_auto_policy_schema import AtlasAutoPolicyPreset
 
+# The preset used everywhere a run/safe-apply/verification request doesn't explicitly specify one.
+# "full_auto" auto-approves low/medium/high risk (require_planitem_approval=False,
+# require_patch_proposal_approval=False) while critical risk and delete/run_command stay hard-gated
+# regardless of preset (see AtlasAutomationGateService.decide_pre_safe_apply's unconditional
+# "critical_risk_not_allowed"/forbidden_action_type checks) -- i.e. exactly "fully autonomous except
+# critical". "guarded_low_risk" (low-risk-only, unset default preset_id everywhere) silently blocked
+# any medium/high-risk plan item with risk_not_allowed even when the user had configured full
+# autonomy, which is the opposite of the intended default.
+DEFAULT_AUTO_POLICY_PRESET_ID = "full_auto"
+
 
 def atlas_auto_policy_presets() -> dict[str, AtlasAutoPolicyPreset]:
     return {
