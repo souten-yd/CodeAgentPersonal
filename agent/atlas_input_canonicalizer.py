@@ -154,7 +154,10 @@ def _canonical_requirements_from_multilingual(raw: str) -> tuple[list[CanonicalR
         if not any(existing[1] == text for existing in requirements):
             requirements.append((raw_text, text, category, confidence))
 
-    if any(token in lowered for token in ("fps", "first-person", "ファーストパーソン", "シューティング")):
+    # "シューティング" ("shooting") alone is the generic Japanese word for the whole shooter genre
+    # (2D shmups, rail shooters, FPS, etc.) -- it must NOT by itself imply first-person. Only a
+    # first-person-specific signal (fps / first-person / the compound "ファーストパーソン...") should.
+    if any(token in lowered for token in ("fps", "first-person")) or "ファーストパーソン" in raw:
         add(
             _source_segment(raw, ("fps", "ファーストパーソン", "シューティング", "007")),
             "Build an HTML-based retro first-person shooter game inspired by classic console FPS gameplay.",
@@ -172,14 +175,23 @@ def _canonical_requirements_from_multilingual(raw: str) -> tuple[list[CanonicalR
     if "handgun" in lowered or "ハンドガン" in raw:
         weapons = _detected_weapons(raw, lowered)
         add(_source_segment(raw, ("handgun", "shotgun", "rocket launcher", "ハンドガン", "ショットガン", "ロケットランチャー")), f"Implement player weapons: {weapons}.")
-    if "unlimited" in lowered or "infinite" in lowered or "無限" in raw or "弾" in raw:
+    # "弾" ("bullet/ammo") alone is generic to any shooting mechanic -- it must NOT by itself imply
+    # unlimited ammo. Only an actual unlimited/infinite qualifier should.
+    if "unlimited" in lowered or "infinite" in lowered or "無限" in raw:
         add(_source_segment(raw, ("unlimited", "infinite", "無限", "弾")), "Give player weapons unlimited ammunition.")
     if "alien" in lowered or "宇宙人" in raw:
         add(_source_segment(raw, ("alien", "宇宙人", "敵")), "Add alien enemies.")
     if any(token in lowered for token in ("enemy", "weapon", "combat")) or any(token in raw for token in ("敵", "武器", "ダメージ", "倒")):
         add(_source_segment(raw, ("enemy", "weapon", "combat", "敵", "武器", "ダメージ", "倒")), "Implement combat, damage, enemy defeat, and game state feedback.")
     if any(token in lowered for token in ("movement", "aiming", "first-person")) or any(token in raw for token in ("移動", "照準", "操作")):
-        add(_source_segment(raw, ("movement", "aiming", "移動", "照準", "操作")), "Implement player-controlled first-person movement and aiming.")
+        # Movement/aiming vocabulary is genre-neutral (a top-down or side-view shooter has it too);
+        # only assert "first-person" when that perspective was independently detected above.
+        movement_text = (
+            "Implement player-controlled first-person movement and aiming."
+            if any(token in lowered for token in ("fps", "first-person")) or "ファーストパーソン" in raw
+            else "Implement player-controlled movement and aiming."
+        )
+        add(_source_segment(raw, ("movement", "aiming", "移動", "照準", "操作")), movement_text)
 
     warnings: list[str] = []
     if not requirements:
