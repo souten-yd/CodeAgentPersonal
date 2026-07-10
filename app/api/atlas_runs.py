@@ -720,6 +720,15 @@ def _build_run_orchestrator(request: Request, *, workspace_id: str) -> AtlasRunO
                 requested_by="atlas_run_orchestrator",
                 source_type="plan_item",
                 proposal_mode="standard",
+                # A "resume"/"rerun" retry can land on an item whose PREVIOUS attempt got all the way
+                # to an auto-approved proposal but stalled before safe_apply finished (e.g. blocked by
+                # a since-fixed gate bug) -- validate_item_for_patch_proposal's "already approved"
+                # guard then refuses to regenerate it, permanently wedging the retry. That guard exists
+                # to protect a HUMAN's approval decision from being silently overwritten; every
+                # approval on this server-controlled path is auto-approved by the orchestrator itself
+                # (never a human), so re-generating on a retry is exactly the intended behavior, not a
+                # bypass of anyone's decision.
+                force_regenerate=run_request.mode in {"resume", "rerun"},
                 metadata={"server_controlled_run": True, **dict(run_request.metadata or {})},
             ),
             request=fastapi_request,
