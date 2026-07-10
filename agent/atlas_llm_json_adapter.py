@@ -116,6 +116,7 @@ class AtlasLLMJsonAdapter:
         model: str = "",
         timeout_seconds: int = 120,
         max_tokens: int = 0,
+        n_ctx: int = 0,
         on_progress: Callable[[dict], None] | None = None,
         on_usage: Callable[[dict], None] | None = None,
         gpu_sampler: Callable[[], float | None] | None = None,
@@ -128,6 +129,11 @@ class AtlasLLMJsonAdapter:
         # files (a whole game's index.html/main.js) aren't truncated at the 4096 default, which would
         # produce invalid JSON and trigger endless regeneration.
         self.max_tokens = int(max_tokens or 0)
+        # The served context window, explicitly resolved by the caller (typically from the app's
+        # OWN runtime ctx_size setting, not just an env var) and threaded through here so
+        # _resolve_n_ctx's output-budget math matches what the server is actually running. 0 means
+        # "the caller doesn't know" -> _resolve_n_ctx falls back to env vars / a hardcoded default.
+        self.n_ctx = int(n_ctx or 0)
         self.on_progress = on_progress
         # Liveness probe for GPU-aware timeouts: returns the current GPU utilisation percent (or
         # None when unavailable). Injectable for tests; defaults to the resource-monitor sampler.
@@ -392,20 +398,26 @@ class AtlasLLMJsonAdapter:
         return bool(request.stream or self.on_progress is not None)
 
     def _resolve_n_ctx(self) -> int:
-        """The served context window. Resolved (and cached) from the launcher-set environment
-        (``LLAMA_CTX_SIZE`` / ``DEFAULT_LLM_CTX_SIZE``) with a safe default — deliberately NO network
-        call, so this never contends for the single llama slot and stays test-deterministic."""
+        """The served context window. Prefers ``self.n_ctx`` (explicitly resolved by the caller,
+        typically from the app's own runtime ctx_size setting) over the launcher-set environment
+        (``LLAMA_CTX_SIZE`` / ``DEFAULT_LLM_CTX_SIZE``) with a safe hardcoded default as the last
+        resort — deliberately NO network call, so this never contends for the single llama slot and
+        stays test-deterministic. Without the explicit value, a context configured only through the
+        app's settings UI (not an env var) was silently ignored: the budget math fell back to
+        _DEFAULT_N_CTX (16384) regardless of the actual served/configured window, so a perfectly
+        reasonable prompt for a 64K+ context model was rejected as "over budget"."""
         cached = getattr(self, "_cached_n_ctx", 0)
         if cached:
             return int(cached)
-        n_ctx = 0
-        for env_key in ("ATLAS_LLM_N_CTX", "LLAMA_CTX_SIZE", "DEFAULT_LLM_CTX_SIZE"):
-            try:
-                n_ctx = int(str(os.environ.get(env_key) or "").strip() or 0)
-            except ValueError:
-                n_ctx = 0
-            if n_ctx > 0:
-                break
+        n_ctx = int(getattr(self, "n_ctx", 0) or 0)
+        if n_ctx <= 0:
+            for env_key in ("ATLAS_LLM_N_CTX", "LLAMA_CTX_SIZE", "DEFAULT_LLM_CTX_SIZE"):
+                try:
+                    n_ctx = int(str(os.environ.get(env_key) or "").strip() or 0)
+                except ValueError:
+                    n_ctx = 0
+                if n_ctx > 0:
+                    break
         n_ctx = n_ctx if n_ctx > 0 else _DEFAULT_N_CTX
         self._cached_n_ctx = n_ctx
         return n_ctx

@@ -159,6 +159,46 @@ def test_generate_json_retries_once_on_parse_failure(monkeypatch) -> None:
     assert "valid JSON" in calls["prompts"][1]
 
 
+def test_resolve_n_ctx_prefers_explicit_constructor_value_over_hardcoded_default(monkeypatch) -> None:
+    # Reproduced live: a model served with a large context (e.g. 65535/131072, configured through
+    # the app's OWN settings UI rather than an env var) still had its adapter fall back to the
+    # hardcoded 16384 default, because _resolve_n_ctx only ever consulted env vars. A ~25K-token
+    # patch-generation prompt (very reasonable for editing an existing ~500-line file) was then
+    # rejected as "over budget" (avail < 0), flooring output to 512 tokens and producing an
+    # empty/unusable completion after all retries.
+    for key in ("ATLAS_LLM_N_CTX", "LLAMA_CTX_SIZE", "DEFAULT_LLM_CTX_SIZE"):
+        monkeypatch.delenv(key, raising=False)
+    adapter = AtlasLLMJsonAdapter(base_url="http://127.0.0.1:8080", model="m", n_ctx=65535)
+    assert adapter._resolve_n_ctx() == 65535
+
+
+def test_resolve_n_ctx_falls_back_to_env_then_hardcoded_default(monkeypatch) -> None:
+    for key in ("ATLAS_LLM_N_CTX", "LLAMA_CTX_SIZE", "DEFAULT_LLM_CTX_SIZE"):
+        monkeypatch.delenv(key, raising=False)
+    # No explicit n_ctx and no env vars -> the pre-existing hardcoded default, unchanged.
+    adapter = AtlasLLMJsonAdapter(base_url="http://127.0.0.1:8080", model="m")
+    assert adapter._resolve_n_ctx() == 16384
+
+    monkeypatch.setenv("LLAMA_CTX_SIZE", "32768")
+    adapter_env = AtlasLLMJsonAdapter(base_url="http://127.0.0.1:8080", model="m")
+    assert adapter_env._resolve_n_ctx() == 32768
+
+
+def test_budgeted_max_tokens_uses_the_real_served_context_not_the_hardcoded_default(monkeypatch) -> None:
+    for key in ("ATLAS_LLM_N_CTX", "LLAMA_CTX_SIZE", "DEFAULT_LLM_CTX_SIZE"):
+        monkeypatch.delenv(key, raising=False)
+    # A ~15K-char (roughly ~4-5K token) prompt: comfortably fits a real 65535 context with room
+    # for a full-file output, but would floor to the 512-token minimum under the old hardcoded
+    # 16384 default once twin/requirement/context overhead pushed the estimated prompt over it.
+    messages = [{"role": "user", "content": "x" * 60000}]
+
+    starved = AtlasLLMJsonAdapter(base_url="http://127.0.0.1:8080", model="m", n_ctx=16384)
+    assert starved._budgeted_max_tokens(messages, requested=0) == 512
+
+    healthy = AtlasLLMJsonAdapter(base_url="http://127.0.0.1:8080", model="m", n_ctx=65535)
+    assert healthy._budgeted_max_tokens(messages, requested=0) > 512
+
+
 def test_adapter_has_no_forbidden_side_effect_tokens() -> None:
     source = Path("agent/atlas_llm_json_adapter.py").read_text(encoding="utf-8")
     for forbidden in [
