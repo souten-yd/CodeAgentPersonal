@@ -40,6 +40,20 @@ def test_guarded_low_risk_blocks_content_missing():
     assert d.decision in {'block', 'require_manual'} and 'content_missing' in d.reasons
 
 
+def test_guarded_low_risk_allows_verified_already_satisfied_no_op():
+    # Reproduces a 5th layer of the same live bug chain (#2128-#2131): a verified no-op (the step's
+    # goal is already met by the file's existing content) carries no proposed_content/edits/etc, so
+    # this gate's detect_executor_readable_content() saw it as content_missing and blocked
+    # safe-apply even though proposal generation (fixed earlier) had already accepted it.
+    pool, item = _pool_item(metadata={
+        'approval': {'decision': 'approved'}, 'action_type': 'update', 'source_proposal_id': 'pp1',
+        'already_satisfied_no_op': True,
+    })
+    d = AtlasAutomationGateService().decide_pre_safe_apply(pool, item, atlas_auto_policy_presets()['guarded_low_risk'])
+    assert d.decision == 'allow'
+    assert 'content_missing' not in d.reasons
+
+
 def test_guarded_low_risk_blocks_unapproved_item():
     pool, item = _pool_item(metadata={'patch': 'x', 'action_type': 'update', 'source_proposal_id': 'pp1'})
     assert AtlasAutomationGateService().decide_pre_safe_apply(pool, item, atlas_auto_policy_presets()['guarded_low_risk']).decision != 'allow'
