@@ -350,7 +350,15 @@ class AtlasPatchProposalService:
             _pmeta = proposal.metadata or {}
             _file_changes = _pmeta.get("file_changes") if isinstance(_pmeta.get("file_changes"), list) else []
             has_file_changes_content = bool(_file_changes) and all(has_file_change_content(fc) for fc in _file_changes)
-            has_content = bool(proposal.unified_diff_preview or _pmeta.get("proposed_content") or _pmeta.get("edits") or has_file_changes_content)
+            # A verified already-satisfied no-op (see _mark_already_satisfied_if_verified) legitimately
+            # carries none of unified_diff_preview/proposed_content/edits/file_changes — there is
+            # nothing to apply. Without this it looked identical to "the model produced nothing" and
+            # this wrapper independently re-derived has_content=False, silently overriding the inner
+            # generation loop's success outcome and forcing the whole proposal back to "failed".
+            has_content = bool(
+                proposal.unified_diff_preview or _pmeta.get("proposed_content") or _pmeta.get("edits")
+                or has_file_changes_content or _pmeta.get("already_satisfied_no_op")
+            )
             # Weak-model recovery: the model explained the fix but emitted NO patch content. Retry the
             # change as a minimal "where + what" extraction (single concrete target) before failing.
             # Gate strictly so this never overrides a QUALITY rejection of content the model DID
