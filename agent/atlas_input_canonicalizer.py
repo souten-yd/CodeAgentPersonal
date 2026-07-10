@@ -147,69 +147,32 @@ def _english_requirements(raw: str) -> list[CanonicalRequirement]:
 
 
 def _canonical_requirements_from_multilingual(raw: str) -> tuple[list[CanonicalRequirement], list[str]]:
-    lowered = raw.lower()
-    requirements: list[tuple[str, str, str, float]] = []
+    """Deterministic, non-semantic fallback for CJK/mixed-language input.
 
-    def add(raw_text: str, text: str, category: str = "functional", confidence: float = 0.95) -> None:
-        if not any(existing[1] == text for existing in requirements):
-            requirements.append((raw_text, text, category, confidence))
-
-    # "シューティング" ("shooting") alone is the generic Japanese word for the whole shooter genre
-    # (2D shmups, rail shooters, FPS, etc.) -- it must NOT by itself imply first-person. Only a
-    # first-person-specific signal (fps / first-person / the compound "ファーストパーソン...") should.
-    if any(token in lowered for token in ("fps", "first-person")) or "ファーストパーソン" in raw:
-        add(
-            _source_segment(raw, ("fps", "ファーストパーソン", "シューティング", "007")),
-            "Build an HTML-based retro first-person shooter game inspired by classic console FPS gameplay.",
-        )
-    elif any(token in raw for token in ("作って", "作成", "生成", "実装")) or any(token in lowered for token in ("build", "create", "make", "implement")):
-        add(
-            _source_segment(raw, ("作って", "作成", "生成", "実装", "build", "create")),
-            "Build the requested software deliverable.",
-            confidence=0.75,
-        )
-    if "html" in lowered:
-        add(_source_segment(raw, ("HTML", "html")), "Produce the deliverable as browser-runnable HTML.")
-    if "space station" in lowered or "宇宙ステーション" in raw:
-        add(_source_segment(raw, ("space station", "宇宙ステーション")), "Set the experience in a space station environment.")
-    if "handgun" in lowered or "ハンドガン" in raw:
-        weapons = _detected_weapons(raw, lowered)
-        add(_source_segment(raw, ("handgun", "shotgun", "rocket launcher", "ハンドガン", "ショットガン", "ロケットランチャー")), f"Implement player weapons: {weapons}.")
-    # "弾" ("bullet/ammo") alone is generic to any shooting mechanic -- it must NOT by itself imply
-    # unlimited ammo. Only an actual unlimited/infinite qualifier should.
-    if "unlimited" in lowered or "infinite" in lowered or "無限" in raw:
-        add(_source_segment(raw, ("unlimited", "infinite", "無限", "弾")), "Give player weapons unlimited ammunition.")
-    if "alien" in lowered or "宇宙人" in raw:
-        add(_source_segment(raw, ("alien", "宇宙人", "敵")), "Add alien enemies.")
-    if any(token in lowered for token in ("enemy", "weapon", "combat")) or any(token in raw for token in ("敵", "武器", "ダメージ", "倒")):
-        add(_source_segment(raw, ("enemy", "weapon", "combat", "敵", "武器", "ダメージ", "倒")), "Implement combat, damage, enemy defeat, and game state feedback.")
-    if any(token in lowered for token in ("movement", "aiming", "first-person")) or any(token in raw for token in ("移動", "照準", "操作")):
-        # Movement/aiming vocabulary is genre-neutral (a top-down or side-view shooter has it too);
-        # only assert "first-person" when that perspective was independently detected above.
-        movement_text = (
-            "Implement player-controlled first-person movement and aiming."
-            if any(token in lowered for token in ("fps", "first-person")) or "ファーストパーソン" in raw
-            else "Implement player-controlled movement and aiming."
-        )
-        add(_source_segment(raw, ("movement", "aiming", "移動", "照準", "操作")), movement_text)
-
-    warnings: list[str] = []
-    if not requirements:
-        requirements.append((raw, "Implement the requested behavior described in the source request.", "functional", 0.45))
-        warnings.append("canonicalization_used_generic_fallback")
-    if contains_cjk(raw) and any(req[3] < 0.8 for req in requirements):
+    This used to guess structured requirements (genre, setting, weapons, ...) from surface keyword
+    matches (e.g. "space station" -> a hardcoded English sentence). That guessing was inherently
+    unsound: a keyword shared across unrelated domains (e.g. the generic Japanese word for
+    "shooting", or bare "bullet") would false-positive-match a narrow, hardcoded example sentence
+    and inject it into the planning prompt as if it were an actual requirement -- corrupting
+    planning for any request that happened to share vocabulary with the example it was tuned on.
+    The real requirement-analysis LLM call already derives proper structured requirements directly
+    from the raw input (see PlannerPhase1.build_requirement), so this layer only needs to hand the
+    planner a safe, CJK-free anchor string -- not a semantic guess it cannot make reliably.
+    """
+    canonical_text = ensure_english_text(
+        raw, fallback="Implement the requested behavior described in the source request."
+    )
+    requirements = [CanonicalRequirement(
+        id="req_001",
+        raw_text=raw,
+        canonical_text_en=canonical_text,
+        category="functional",
+        confidence=0.5,
+    )]
+    warnings = ["canonicalization_used_generic_fallback"]
+    if contains_cjk(canonical_text):
         warnings.append("canonicalization_low_confidence_segment")
-
-    return [
-        CanonicalRequirement(
-            id=f"req_{index:03d}",
-            raw_text=raw_text,
-            canonical_text_en=text,
-            category=category,
-            confidence=confidence,
-        )
-        for index, (raw_text, text, category, confidence) in enumerate(requirements, start=1)
-    ], warnings
+    return requirements, warnings
 
 
 def _canonical_request_from_requirements(requirements: list[CanonicalRequirement]) -> str:
@@ -228,29 +191,6 @@ def _split_segments(raw: str) -> list[str]:
         for part in re.split(r"[\n。.!?]+", str(raw or ""))
         if part.strip()
     ]
-
-
-def _source_segment(raw: str, tokens: tuple[str, ...]) -> str:
-    for segment in _split_segments(raw):
-        s_lower = segment.lower()
-        if any(token.lower() in s_lower for token in tokens):
-            return segment
-    return raw
-
-
-def _detected_weapons(raw: str, lowered: str) -> str:
-    weapons: list[str] = []
-    for raw_term, canonical in (
-        ("ハンドガン", "handgun"),
-        ("handgun", "handgun"),
-        ("ショットガン", "shotgun"),
-        ("shotgun", "shotgun"),
-        ("ロケットランチャー", "rocket launcher"),
-        ("rocket launcher", "rocket launcher"),
-    ):
-        if raw_term.lower() in lowered or raw_term in raw:
-            weapons.append(canonical)
-    return ", ".join(dict.fromkeys(weapons)) or "handgun, shotgun, and rocket launcher"
 
 
 def _glossary(raw: str) -> list[CanonicalGlossaryEntry]:
