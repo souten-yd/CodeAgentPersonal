@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from agent.atlas_auto_policy_presets import DEFAULT_AUTO_POLICY_PRESET_ID
 from agent.atlas_run_schema import AtlasRunState, TERMINAL_RUN_STATUSES
-from agent.atlas_run_selection import select_run_items
+from agent.atlas_run_selection import RESUME_RETRYABLE_STATUSES, select_run_items
 from agent.atlas_run_store import AtlasRunStore
 from agent.atlas_time_utils import utc_now_iso
 
@@ -187,7 +187,7 @@ class AtlasRunOrchestrator:
                 item_id=item.item_id,
                 message="Backend selected one PlanItem for execution.",
             )
-            blocker = self._blocker(pool, item)
+            blocker = self._blocker(pool, item, mode=request.mode)
             if blocker:
                 return self._block(state, item.item_id, blocker)
 
@@ -399,12 +399,18 @@ class AtlasRunOrchestrator:
         return 0
 
     @staticmethod
-    def _blocker(pool: Any, item: Any) -> str:
+    def _blocker(pool: Any, item: Any, *, mode: str = "fresh") -> str:
         pool_status = str(getattr(pool, "status", "") or "")
         item_status = str(getattr(item, "status", "") or "")
         if pool_status in {"needs_scope_confirmation", "waiting_for_critical_decision", "blocked_safety_review", "blocked", "failed", "cancelled"}:
             return f"pool_not_runnable:{pool_status}"
-        if item_status in {"waiting_for_critical_decision", "blocked_safety_review", "blocked", "failed", "cancelled", "needs_revision"}:
+        # "resume" must retry the item the run stopped on (failed/blocked) instead of treating that
+        # very item as permanently unrunnable — mirrors select_run_items's RESUME_RETRYABLE_STATUSES
+        # so both gates agree on what resume may retry.
+        blocking_item_statuses = {"waiting_for_critical_decision", "blocked_safety_review", "blocked", "failed", "cancelled", "needs_revision"}
+        if str(mode or "").strip() == "resume":
+            blocking_item_statuses -= RESUME_RETRYABLE_STATUSES
+        if item_status in blocking_item_statuses:
             return f"item_not_runnable:{item_status}"
         pool_critical = dict((getattr(pool, "metadata", {}) or {}).get("critical_event") or {})
         item_critical = dict((getattr(item, "metadata", {}) or {}).get("critical_event") or {})

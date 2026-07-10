@@ -13,7 +13,10 @@ _RERUN_ITEM_STATUSES = {*_RUNNABLE_ITEM_STATUSES, "completed"}
 # orchestrator stops the run again on the very next failure/block within that same call (see
 # AtlasRunOrchestrator.run_items), so this doesn't retry forever within one invocation — it just
 # stops silently *skipping* the item that needs the retry.
-_RESUMABLE_ITEM_STATUSES = {*_RUNNABLE_ITEM_STATUSES, "failed", "blocked"}
+# Exported (no leading underscore) so AtlasRunOrchestrator's separate item-blocker check can stay
+# in sync with this instead of hardcoding its own copy of "which statuses resume may retry".
+RESUME_RETRYABLE_STATUSES = frozenset({"failed", "blocked"})
+_RESUMABLE_ITEM_STATUSES = {*_RUNNABLE_ITEM_STATUSES, *RESUME_RETRYABLE_STATUSES}
 
 
 def select_run_items(pool: Any, state: AtlasRunState, mode: str, requested_item_id: str = "") -> list[str]:
