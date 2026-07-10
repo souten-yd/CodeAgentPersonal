@@ -102,6 +102,23 @@ def test_patch_proposal_generation_blocked_after_approved(tmp_path):
     assert 'patch_proposal_already_approved' in body['warnings']
 
 
+def test_patch_proposal_generation_with_force_regenerate_bypasses_already_approved_block(tmp_path):
+    # Reproduces a 6th real bug found live: a "resume" retry on an item whose PREVIOUS attempt got
+    # all the way to an auto-approved proposal but stalled before safe_apply finished (e.g. blocked
+    # by a since-fixed gate bug) hit this exact "already approved" guard and could never regenerate,
+    # permanently wedging the retry. The guard exists to protect a HUMAN's approval decision from
+    # being silently overwritten -- force_regenerate is the documented escape hatch for callers (like
+    # the run orchestrator's own retry, which only ever auto-approves, never a human) that know
+    # regenerating is intentional.
+    c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
+    _set_debug_review(c, pool['pool_id'], item['item_id'])
+    p = _propose(c, pool['pool_id'], item['item_id'], run_id='rf1')
+    c.post('/api/atlas/patch-proposals/decide', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'proposal_id': p['proposal']['proposal_id'], 'run_id': 'rf2', 'decision': 'approved'})
+    body = c.post('/api/atlas/patch-proposals/generate', json={'pool_id': pool['pool_id'], 'item_id': item['item_id'], 'run_id': 'rf3', 'force_regenerate': True}).json()
+    assert body['status'] != 'blocked'
+    assert 'patch_proposal_already_approved' not in body.get('warnings', [])
+
+
 def test_patch_proposal_generation_blocked_after_rejected(tmp_path):
     c = _client(tmp_path); pool = _create_pool(c); item = pool['plan_pool']['items'][0]
     _set_debug_review(c, pool['pool_id'], item['item_id'])
