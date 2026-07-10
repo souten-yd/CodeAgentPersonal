@@ -744,7 +744,26 @@ def register_atlas_llm_json_adapter(app: Any) -> None:
         # Anvil 詳細設定 drawer / Models DB, matched to the resolved codegen model. Lazy import so
         # this module stays importable without the main app, and never fatal.
         max_tokens = _resolve_model_db_max_output_tokens(model)
-    app.state.atlas_llm_json_fn = AtlasLLMJsonAdapter(base_url=base_url, model=model, max_tokens=max_tokens)
+    # Served context window for the adapter's output-budget math (agent/atlas_llm_json_adapter.py's
+    # _resolve_n_ctx). Without this, the adapter only ever saw ATLAS_LLM_N_CTX/LLAMA_CTX_SIZE env
+    # vars, which nothing sets when the user configures ctx_size through the app's own settings UI
+    # (main.py's runtime_llm_props_provider / _current_n_ctx) instead — it silently fell back to a
+    # hardcoded 16384, rejecting perfectly reasonable prompts as "over budget" on a model actually
+    # served with a much larger context.
+    n_ctx = 0
+    try:
+        n_ctx = int(str(os.environ.get("ATLAS_LLM_N_CTX") or "").strip() or 0)
+    except ValueError:
+        n_ctx = 0
+    if n_ctx <= 0:
+        props_provider = getattr(app.state, "runtime_llm_props_provider", None)
+        if callable(props_provider):
+            try:
+                props = props_provider() or {}
+                n_ctx = int(props.get("n_ctx_runtime") or props.get("n_ctx") or 0)
+            except Exception:  # noqa: BLE001 - advisory; adapter falls back to its own default.
+                n_ctx = 0
+    app.state.atlas_llm_json_fn = AtlasLLMJsonAdapter(base_url=base_url, model=model, max_tokens=max_tokens, n_ctx=n_ctx)
 
 
 def _resolve_model_db_max_output_tokens(model: str) -> int:

@@ -100,6 +100,45 @@ def test_state_max_tokens_used_when_env_absent(monkeypatch) -> None:
     assert app.state.atlas_llm_json_fn.max_tokens == 12000
 
 
+def test_runtime_n_ctx_provider_used_when_env_absent(monkeypatch) -> None:
+    # Reproduced live: without this wiring, the adapter's output-budget math used a hardcoded
+    # 16384 fallback regardless of the app's actual configured ctx_size (65535 here), rejecting
+    # reasonable patch-generation prompts as "over budget". main.py exposes the current context
+    # via app.state.runtime_llm_props_provider (n_ctx_runtime) -- register_atlas_llm_json_adapter
+    # must read it when no ATLAS_LLM_N_CTX env override is set.
+    _clear_backend_env(monkeypatch)
+    monkeypatch.delenv("ATLAS_LLM_N_CTX", raising=False)
+    app = _app()
+    app.state.runtime_llm_props_provider = lambda: {"n_ctx_runtime": 65535, "n_ctx": 65535}
+
+    register_atlas_llm_json_adapter(app)
+
+    assert app.state.atlas_llm_json_fn.n_ctx == 65535
+
+
+def test_env_n_ctx_overrides_runtime_provider(monkeypatch) -> None:
+    _clear_backend_env(monkeypatch)
+    monkeypatch.setenv("ATLAS_LLM_N_CTX", "8192")
+    app = _app()
+    app.state.runtime_llm_props_provider = lambda: {"n_ctx_runtime": 65535, "n_ctx": 65535}
+
+    register_atlas_llm_json_adapter(app)
+
+    assert app.state.atlas_llm_json_fn.n_ctx == 8192
+    monkeypatch.delenv("ATLAS_LLM_N_CTX", raising=False)
+
+
+def test_n_ctx_defaults_to_zero_when_no_provider_or_env(monkeypatch) -> None:
+    # No runtime_llm_props_provider (matches _app()'s bare SimpleNamespace state) and no env var:
+    # must not error, leaving the adapter to fall back to its own hardcoded default.
+    _clear_backend_env(monkeypatch)
+    app = _app()
+
+    register_atlas_llm_json_adapter(app)
+
+    assert app.state.atlas_llm_json_fn.n_ctx == 0
+
+
 def test_existing_callable_is_not_overwritten(monkeypatch) -> None:
     _clear_backend_env(monkeypatch)
     app = _app()
