@@ -29,27 +29,21 @@ JA_INVADERS_PROMPT = (
 )
 
 
-def test_canonicalization_extracts_japanese_fps_requirements_in_english() -> None:
+def test_canonicalization_of_japanese_input_is_english_and_non_semantic() -> None:
+    # Canonicalization no longer guesses structured requirement content from keywords (that
+    # guessing was the source of the FPS/Invaders misclassification bug -- see
+    # test_generic_shooting_genre_word_does_not_imply_first_person below). For CJK/mixed input it
+    # now only guarantees a single, CJK-free anchor requirement via mechanical known-term
+    # substitution; the real requirement-analysis LLM call does the actual translation.
     spec = AtlasInputCanonicalizer().canonicalize(JA_FPS_PROMPT)
 
     assert spec.source_language == "ja"
     assert spec.canonical_language == "en"
     assert not contains_cjk(spec.canonical_request_en)
-    assert [req.id for req in spec.canonical_requirements] == [f"req_{i:03d}" for i in range(1, 8)]
-    canonical_text = " ".join(req.canonical_text_en for req in spec.canonical_requirements)
-    assert not contains_cjk(canonical_text)
-    for expected in (
-        "first-person shooter",
-        "HTML",
-        "space station",
-        "handgun",
-        "shotgun",
-        "rocket launcher",
-        "unlimited ammunition",
-        "alien enemies",
-    ):
-        assert expected.lower() in canonical_text.lower()
-    assert any(req.raw_text for req in spec.canonical_requirements)
+    assert [req.id for req in spec.canonical_requirements] == ["req_001"]
+    assert not contains_cjk(spec.canonical_requirements[0].canonical_text_en)
+    assert spec.canonical_requirements[0].raw_text == JA_FPS_PROMPT
+    assert "canonicalization_used_generic_fallback" in spec.normalization_warnings
 
 
 def test_generic_shooting_genre_word_does_not_imply_first_person() -> None:
