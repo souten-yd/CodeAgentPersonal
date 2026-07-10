@@ -63,6 +63,14 @@ def classify_plan_item_patchability(item: AtlasPlanItem) -> dict:
 
 def _has_single_file_patch_content(metadata: dict) -> bool:
     patch_proposal = metadata.get("patch_proposal") if isinstance(metadata.get("patch_proposal"), dict) else {}
+    proposal_metadata = patch_proposal.get("metadata") if isinstance(patch_proposal.get("metadata"), dict) else {}
+    # A verified already-satisfied no-op (see AtlasPatchProposalService.
+    # _mark_already_satisfied_if_verified) legitimately carries none of the keys below -- there is
+    # nothing to patch, the goal is already met by the file's existing content. Same exemption as
+    # detect_executor_readable_content() in atlas_plan_item_file_changes.py; this is a distinct
+    # duplicate "has content" check on the same item, hit one step later in the safe-apply pipeline.
+    if metadata.get("already_satisfied_no_op") or proposal_metadata.get("already_satisfied_no_op"):
+        return True
     for key in _PATCH_CONTENT_KEYS:
         val = metadata.get(key) or (patch_proposal.get(key) if isinstance(patch_proposal, dict) else None)
         if key == "edits":

@@ -135,6 +135,16 @@ def test_create_with_append_content_is_eligible():
     assert result['patchable'] is True
 
 
+def test_verified_already_satisfied_no_op_is_eligible():
+    # Reproduces a 7th layer of the same live bug chain (#2128-#2133): a verified no-op (the step's
+    # goal is already met by the file's existing content) carries none of the _PATCH_CONTENT_KEYS,
+    # so this gate -- one step later in the safe-apply pipeline than the automation gate fixed in
+    # #2132 -- independently saw patch_content_missing and blocked it too.
+    item = _item(metadata={'already_satisfied_no_op': True})
+    result = classify_plan_item_patchability(item)
+    assert result['patchable'] is True
+
+
 def test_create_with_unified_diff_preview_is_eligible():
     item = _item(metadata={'unified_diff_preview': '@@ -1 +1 @@\n-old\n+new\n'})
     result = classify_plan_item_patchability(item)
