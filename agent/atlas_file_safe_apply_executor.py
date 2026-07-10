@@ -97,6 +97,27 @@ class AtlasFileSafeApplyExecutor:
                 effective_action = "update"
 
         if existed and content == current_text:
+            if parse.get("mode") == "no_op_already_satisfied":
+                # A verified no-op (see _resolve_content_from_metadata): the goal is already met by
+                # the file's existing content, so an identical write is the CORRECT outcome, not a
+                # symptom of a broken proposal. Skip the disk write (nothing to write) and report it
+                # as applied so the item completes instead of tripping the generic no-op guard below,
+                # which exists to catch an ACCIDENTAL empty diff, not a deliberately verified one.
+                change_id = "fc_" + rel_target.replace("/", "_").replace("\\", "_")
+                return {
+                    "status": "applied",
+                    "actual_file_changed": False,
+                    "changed_files": [],
+                    "file_results": [{
+                        "change_id": change_id,
+                        "path": rel_target,
+                        "status": "applied",
+                        "action_type": action_type,
+                        "content_mode": parse.get("mode", "content"),
+                        "mode": parse.get("mode", "content"),
+                    }],
+                    "summary": f"{rel_target} already satisfies the step goal; no change applied.",
+                }
             return self._blocked("no_effective_change")
 
         change_id = "fc_" + rel_target.replace("/", "_").replace("\\", "_")
