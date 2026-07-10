@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent.atlas_code_quality_gate import check_syntax, code_quality_findings, detect_reasoning_leak
+from agent.atlas_code_quality_gate import check_syntax, code_quality_findings, detect_reasoning_leak, detect_self_test_leak
 
 
 _LEAKY = """\
@@ -23,6 +23,38 @@ function fire() {
 
 _DUP_CONST = "function f(){ const a = 1; const a = 2; return a; }\n"
 _CLEAN_JS = "function add(a, b) {\n  return a + b;\n}\n"
+
+# Reproduces a real live-model defect (FPS game session): a self-verification harness the model
+# used internally to check its own step_3 output leaked into the shipped index.html as executable
+# code, not comments -- syntactically valid, so the syntax check alone did not catch it.
+_SELF_TEST_LEAK_JS = """\
+window.onload = () => {
+  GameCore.init();
+  runInputTests();
+};
+
+function runInputTests() {
+  console.log('Running focused input tests...');
+  let passed = 0;
+  InputManager.keys['w'] = true;
+  if (InputManager.keys['w'] === true) { console.log('PASS: Keyboard state tracks keydown'); passed++; } else { console.log('FAIL: Keyboard state'); }
+  InputManager.touch.lookX = 10;
+  if (InputManager.touch.lookX === 10) { console.log('PASS: Touch look delta calculates correctly'); passed++; } else { console.log('FAIL: Touch look delta'); }
+}
+"""
+
+# Reproduces a second real live-model defect: the SAME leaked test harness above, but embedded
+# inline in an .html file (a single-file game) rather than a standalone .js file -- previously
+# invisible to check_syntax entirely, since the extension dispatch had no .html branch.
+_HTML_WITH_BROKEN_INLINE_SCRIPT = """\
+<!doctype html>
+<html><body>
+<canvas id="gameCanvas"></canvas>
+<script>
+function f(){ const a = 1; const a = 2; return a; }
+</script>
+</body></html>
+"""
 
 
 # ── pure gate ─────────────────────────────────────────────────────────────────
@@ -58,6 +90,38 @@ def test_reasoning_leak_density():
 def test_code_quality_findings_combines_syntax_and_leak():
     findings = code_quality_findings(_DUP_CONST + "// I'll x\n// I will y\n// Let's z\n", "js/f.js")
     assert any("syntax" in f for f in findings)
+
+
+def test_self_test_leak_density():
+    assert detect_self_test_leak(_SELF_TEST_LEAK_JS)  # >= 2 PASS/FAIL assertion lines
+    assert detect_self_test_leak(_CLEAN_JS) == []
+    # a single incidental PASS/FAIL-shaped log must NOT trip it
+    assert detect_self_test_leak("console.log('PASS: ok');\nconst a = 1;\n") == []
+
+
+def test_code_quality_findings_flags_self_test_leak():
+    findings = code_quality_findings(_SELF_TEST_LEAK_JS, "js/game.js")
+    assert any("self_test_leak" in f for f in findings)
+
+
+def test_syntax_check_extracts_and_checks_inline_html_script():
+    # Previously .html files had no branch in check_syntax at all -> always a silent pass, even for
+    # a broken inline <script>. A single-file HTML game embeds its JS inline, not as a separate .js.
+    ok, err = check_syntax(_HTML_WITH_BROKEN_INLINE_SCRIPT, "index.html")
+    assert ok is False
+    assert "syntax" in err.lower()
+
+
+def test_syntax_check_passes_clean_inline_html_script():
+    clean_html = "<!doctype html><html><body><script>function add(a,b){return a+b;}</script></body></html>"
+    ok, err = check_syntax(clean_html, "index.html")
+    assert ok is True and err == ""
+
+
+def test_code_quality_findings_flags_self_test_leak_inside_html():
+    html = f"<!doctype html><html><body><script>{_SELF_TEST_LEAK_JS}</script></body></html>"
+    findings = code_quality_findings(html, "index.html")
+    assert any("self_test_leak" in f for f in findings)
 
 
 # ── generation wiring: broken content is rejected, not shipped ──────────────────
