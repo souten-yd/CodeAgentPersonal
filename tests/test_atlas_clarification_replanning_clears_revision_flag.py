@@ -20,6 +20,14 @@ def _pool(tmp_path: Path, *, plan_revision_required: bool = True) -> AtlasPlanPo
                 pool_id="pool_clar",
                 title="Create index.html",
                 goal="Create the tool.",
+                # Structurally complete (non-empty description + acceptance_criteria): the
+                # plan-quality gate's structural-completeness check only runs under a full-auto
+                # preset (see agent/atlas_plan_quality_gate.py's _plan_structure_findings), which
+                # is now the default preset_id revise_after_answers resolves to when the caller
+                # doesn't override it -- a degenerate synthetic item would legitimately (and
+                # correctly) trip that check, which isn't what these tests are about.
+                description="Create a minimal index.html scaffold for the tool.",
+                acceptance_criteria=["index.html exists and loads without errors."],
                 item_type="implementation",
                 status="approval_required",
                 risk_level="low",

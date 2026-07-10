@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from agent.atlas_auto_policy_presets import DEFAULT_AUTO_POLICY_PRESET_ID
 from agent.atlas_run_schema import AtlasRunState, TERMINAL_RUN_STATUSES
 from agent.atlas_run_selection import select_run_items
 from agent.atlas_run_store import AtlasRunStore
@@ -20,7 +21,7 @@ class AtlasRunOrchestratorRequest:
     item_id: str = ""
     item_ids: list[str] = field(default_factory=list)
     mode: str = "fresh"
-    preset_id: str = "guarded_low_risk"
+    preset_id: str = DEFAULT_AUTO_POLICY_PRESET_ID
     command_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 

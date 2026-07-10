@@ -4,11 +4,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from agent.atlas_auto_policy_presets import DEFAULT_AUTO_POLICY_PRESET_ID
+
 
 class AtlasAutoSafeApplyRequest(BaseModel):
     pool_id: str
     item_id: str
-    preset_id: str = "guarded_low_risk"
+    preset_id: str = DEFAULT_AUTO_POLICY_PRESET_ID
     workspace_id: str = "default"
     run_id: str = ""
     dry_run_decision_only: bool = False

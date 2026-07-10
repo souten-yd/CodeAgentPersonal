@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from agent.atlas_auto_policy_presets import atlas_auto_policy_presets
+from agent.atlas_auto_policy_presets import DEFAULT_AUTO_POLICY_PRESET_ID, atlas_auto_policy_presets
 from agent.atlas_automation_gate_service import AtlasAutomationGateService
 from agent.atlas_plan_pool_schema import AtlasPlanItem, AtlasPlanPool
 from agent.atlas_plan_quality_gate import apply_plan_quality_gate, is_full_auto_preset
@@ -55,7 +55,7 @@ class AtlasClarificationReplanningService:
         self,
         pool: AtlasPlanPool,
         *,
-        preset_id: str = "guarded_low_risk",
+        preset_id: str = DEFAULT_AUTO_POLICY_PRESET_ID,
         automation_level: str = "",
         critical_handling: str = "ask",
     ) -> dict:
@@ -73,7 +73,7 @@ class AtlasClarificationReplanningService:
         self,
         pool: AtlasPlanPool,
         *,
-        preset_id: str = "guarded_low_risk",
+        preset_id: str = DEFAULT_AUTO_POLICY_PRESET_ID,
         automation_level: str = "",
         critical_handling: str = "ask",
     ) -> dict:
@@ -595,6 +595,14 @@ class AtlasClarificationReplanningService:
                             "risk_level": item.risk_level,
                             "source": "clarification_implementation_directive",
                             "clarification_signal": signal_name,
+                            # These synthetic steps never carried acceptance_criteria, which the
+                            # plan-quality gate's structural-completeness check (only active under a
+                            # full-auto preset) flags as empty_step_acceptance_criteria — harmless
+                            # while guarded_low_risk was the default (that check never ran), but a
+                            # real stuck-loop now that full_auto is: virtually any clarification
+                            # answer mentioning canvas/requestAnimationFrame/hsl/etc. synthesizes one
+                            # of these steps.
+                            "acceptance_criteria": [f"{signal_name}: {instruction}"],
                         }
                     )
         return steps
