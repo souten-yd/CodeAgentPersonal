@@ -6252,11 +6252,18 @@ def _default_llm_root_folder() -> str:
     return os.path.join(os.path.expanduser("~"), "LLMs")
 
 
+# Ceiling for a user-configured context window. Was 65535, which silently clamped any attempt to
+# configure a genuinely long-context local model (e.g. served with `llama-server -c 131072`) back
+# down to 65535 -- the app's own settings never let ctx_size reach what the server actually
+# supports. Raised to 256K per explicit user request.
+_MAX_LLM_CTX_SIZE = 262144
+
+
 def _default_llm_ctx_size() -> int:
     for key in ("LLAMA_CTX_SIZE", "DEFAULT_LLM_CTX_SIZE", "NEXUS_ANSWER_LLM_MAX_CONTEXT_TOKENS"):
         raw = str(os.environ.get(key, "")).strip()
         if raw.isdigit():
-            return max(512, min(65535, int(raw)))
+            return max(512, min(_MAX_LLM_CTX_SIZE, int(raw)))
     return 16384
 
 
@@ -6267,7 +6274,7 @@ def _parse_ctx_size_or_none(value) -> int | None:
         return None
     if parsed <= 0:
         return None
-    return max(512, min(65535, parsed))
+    return max(512, min(_MAX_LLM_CTX_SIZE, parsed))
 
 
 def _resolve_default_ctx_size() -> int:
@@ -6537,7 +6544,7 @@ def _restore_settings_from_db():
             _llm_streaming = str(all_s["streaming_enabled"]).lower() in ("true", "1", "yes")
         if "ctx_size" in all_s:
             try:
-                _current_n_ctx = max(512, min(int(all_s["ctx_size"]), 65535))
+                _current_n_ctx = max(512, min(int(all_s["ctx_size"]), _MAX_LLM_CTX_SIZE))
             except Exception:
                 pass
         _sync_ensemble_settings_to_opencode_json()
@@ -15848,7 +15855,7 @@ def runtime_llm_ctx_payload():
 def runtime_llm_ctx_set_payload(ctx_size: int):
     """UIからコンテキスト長を変更する（llm_urlのmax_tokensに反映）"""
     global _current_n_ctx
-    _current_n_ctx = max(512, min(65535, int(ctx_size)))
+    _current_n_ctx = max(512, min(_MAX_LLM_CTX_SIZE, int(ctx_size)))
     return {"n_ctx": _current_n_ctx}
 
 # =========================
@@ -17263,7 +17270,7 @@ def save_settings_api(req: dict):
         _llm_streaming = str(req["streaming_enabled"]).lower() in ("true", "1", "yes")
     if "ctx_size" in req:
         try:
-            _current_n_ctx = max(512, min(65535, int(req["ctx_size"])))
+            _current_n_ctx = max(512, min(_MAX_LLM_CTX_SIZE, int(req["ctx_size"])))
         except Exception:
             pass
     return {"ok": True, "saved": list(req.keys())}

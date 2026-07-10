@@ -1510,7 +1510,7 @@
           style="width:100%;padding:4px 8px;margin-bottom:4px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
         <input id="model-add-url" type="text" placeholder="LLM URL (空でOK)"
           style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
-        <input id="model-add-ctx" type="number" min="512" max="65535" value="16384" placeholder="context length (ctx_size)"
+        <input id="model-add-ctx" type="number" min="512" max="262144" value="16384" placeholder="context length (ctx_size)"
           style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
         <div style="display:flex;gap:10px;margin-bottom:6px">
           <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
@@ -2204,22 +2204,14 @@
         </div>
         <div style="margin-bottom:6px;font-size:11px;color:var(--text2)">コンテキスト長</div>
         <div style="display:flex;align-items:center;gap:8px">
-          <input type="range" id="ctx-slider" min="512" max="65535" step="1" value="16384"
+          <input type="range" id="ctx-slider" min="512" max="262144" step="1" value="16384"
             style="flex:1;accent-color:var(--accent);cursor:pointer"
             oninput="updateCtxLabel(this.value)" onchange="applyCtxLen(this.value)">
           <span id="ctx-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:52px;text-align:right">16384</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--font-mono);margin-top:2px">
-          <span>512</span><span id="ctx-max-label">max: 65535</span><span id="ctx-slider-max">65535</span>
+          <span>512</span><span id="ctx-max-label">max: 262144</span><span id="ctx-slider-max">262144</span>
         </div>
-        <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">要約トークン上限</div>
-        <select id="summary-max-tokens-select"
-          style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text)"
-          onchange="applySummaryMaxTokens(this.value)">
-          <option value="200">200 (light)</option>
-          <option value="400">400 (balanced)</option>
-          <option value="800">800 (detailed)</option>
-        </select>
         <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">read_file 注入上限（chars）</div>
         <input type="number" id="read-file-inject-max-chars" min="4000" max="120000" step="1000" value="16000"
           style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);box-sizing:border-box"
@@ -2530,10 +2522,13 @@ const LLM_CONTEXT_STATE = {
   lastError: '',
 };
 
+// Ceiling mirrors main.py's _MAX_LLM_CTX_SIZE.
+const MAX_CTX_SIZE = 262144;
+
 function normalizeCtxSize(value, fallback = _settingsDefaultCtxSize) {
   const n = Number(value);
-  if (Number.isFinite(n) && n > 0) return Math.max(512, Math.min(65535, Math.trunc(n)));
-  return Math.max(512, Math.min(65535, Math.trunc(Number(fallback) || DEFAULT_CTX_SIZE)));
+  if (Number.isFinite(n) && n > 0) return Math.max(512, Math.min(MAX_CTX_SIZE, Math.trunc(n)));
+  return Math.max(512, Math.min(MAX_CTX_SIZE, Math.trunc(Number(fallback) || DEFAULT_CTX_SIZE)));
 }
 
 function getCurrentNctxUi() {
@@ -2590,7 +2585,6 @@ let editorOpen = false;
 let searchEnabled = false;
 let streamingEnabled = true;  // サーバーデフォルトと同期
 let activeLlmUrl = '';    // 空文字 = サーバーデフォルト(LLM_URL)
-let summaryMaxTokens = 200;
 let readFileInjectMaxChars = 16000;
 let pendingPlan = null;   // 承認待ちのプラン
 let progressEl = null;    // 現在のプログレスカード
@@ -5861,14 +5855,6 @@ async function loadSettingsFromDb() {
     activeLlmUrl = url;
     const ui = document.getElementById('llm-url-input');
     if (ui) ui.value = url;
-
-    // Summary max tokens
-    const sumMax = [200, 400, 800].includes(parseInt(d.summary_max_tokens, 10))
-      ? parseInt(d.summary_max_tokens, 10)
-      : 200;
-    summaryMaxTokens = sumMax;
-    const sumSel = document.getElementById('summary-max-tokens-select');
-    if (sumSel) sumSel.value = String(sumMax);
 
     // read_file inject max chars
     const readMax = Math.max(4000, Math.min(120000, parseInt(d.read_file_inject_max_chars, 10) || 16000));
@@ -16533,8 +16519,10 @@ function updateStepsLabel(val) {
 async function initCtxSlider() {
   try {
     // llama-serverの最大コンテキスト長を取得
+    // Ceiling mirrors main.py's _MAX_LLM_CTX_SIZE. This client-side clamp was still capping the
+    // slider at 65535 even after the backend was fixed to allow a larger configured ctx_size.
     const {data: d} = await _fetchJson(API+'/llm/props', {}, '/llm/props');
-    const maxCtx = Math.min(65535, (d.n_ctx || 65535));
+    const maxCtx = Math.min(262144, (d.n_ctx || 262144));
 
     // サーバー側の現在値も取得
     const {data: cd} = await _fetchJson(API+'/llm/ctx', {}, '/llm/ctx');
@@ -16581,15 +16569,6 @@ async function applyCtxLen(val) {
   } catch(e) {
     addLog('err', 'ctx', e.message);
   }
-}
-
-async function applySummaryMaxTokens(val) {
-  const n = [200, 400, 800].includes(parseInt(val, 10)) ? parseInt(val, 10) : 200;
-  summaryMaxTokens = n;
-  const el = document.getElementById('summary-max-tokens-select');
-  if (el) el.value = String(n);
-  await _saveSettingDb('summary_max_tokens', String(n));
-  addLog('ok', 'ctx', `summary_max_tokens=${n}`);
 }
 
 async function applyReadFileInjectMaxChars(val) {

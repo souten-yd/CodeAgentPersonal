@@ -28,6 +28,16 @@ class CtxSizeDeadlockRegressionTests(unittest.TestCase):
             value = main._resolve_default_ctx_size()
         self.assertEqual(value, 16384)
 
+    def test_ctx_size_ceiling_is_256k(self) -> None:
+        # A user-configured context matching a long-context local model (e.g. served with
+        # `llama-server -c 131072`, or larger) must not be silently clamped back down to a much
+        # smaller ceiling. Was 65535.
+        self.assertEqual(main._MAX_LLM_CTX_SIZE, 262144)
+        self.assertEqual(main._parse_ctx_size_or_none(262144), 262144)
+        self.assertEqual(main._parse_ctx_size_or_none(300000), 262144)
+        self.assertEqual(main._resolve_ctx_size(262144), 262144)
+        self.assertEqual(main.runtime_llm_ctx_set_payload(262144), {"n_ctx": 262144})
+
     def test_critical_endpoints_respond_within_five_seconds(self) -> None:
         for path in ("/settings", "/models/db", "/system/summary", "/ensemble/vram"):
             started = time.perf_counter()

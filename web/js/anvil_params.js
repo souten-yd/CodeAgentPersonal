@@ -19,7 +19,7 @@
 
   const GROUPS = [
     { group: '基本', items: [
-      { key: 'ctx_size', label: 'CTX (context length)', type: 'num', opts: [4096, 8192, 16384, 32768, 65536, 131072] },
+      { key: 'ctx_size', label: 'CTX (context length)', type: 'num', opts: [4096, 8192, 16384, 32768, 65536, 131072, 262144] },
       { key: 'gpu_layers', label: 'n-gpu-layers', type: 'num', opts: [0, 999] },
       { key: 'n_cpu_moe', label: 'n-cpu-moe', type: 'num', opts: [0, 8, 14, 24, 36] },
       { key: 'threads', label: 'threads', type: 'num', opts: [4, 8, 12, 16, 24] },
@@ -49,7 +49,7 @@
     { group: '生成', items: [
       // Per-request generation cap (max_tokens), NOT a llama-server launch arg. Atlas codegen reads
       // this so large files aren't truncated at the default and then endlessly regenerated.
-      { key: 'max_output_tokens', label: '出力トークン上限 (max_tokens)', type: 'num', opts: [2048, 4096, 8192, 16384, 32768] },
+      { key: 'max_output_tokens', label: '出力トークン上限 (max_tokens)', type: 'num', opts: [2048, 4096, 8192, 16384, 32768, 65536, 131072] },
     ] },
   ];
 

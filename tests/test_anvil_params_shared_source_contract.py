@@ -59,6 +59,8 @@ def test_shared_module_defines_groups_flat_and_output_token_cap() -> None:
         "pay_empty:A.toPayloadValue({type:'num'},''),"
         "pay_num:A.toPayloadValue({type:'num'},'16384'),"
         "pay_text:A.toPayloadValue({type:'text'},'  q8_0 '),"
+        "ctx_opts:A.FLAT.find(f=>f.key==='ctx_size').opts,"
+        "max_tokens_opts:A.FLAT.find(f=>f.key==='max_output_tokens').opts,"
         "}));"
     )
     proc = subprocess.run([node, "-e", script, str(ANVIL_JS)],
@@ -73,3 +75,8 @@ def test_shared_module_defines_groups_flat_and_output_token_cap() -> None:
     assert data["pay_empty"] == -1
     assert data["pay_num"] == 16384
     assert data["pay_text"] == "q8_0"
+    # Ceiling raised to 256K per explicit user request (mirrors main.py's _MAX_LLM_CTX_SIZE); the
+    # output-token cap presets were raised alongside it so a 256K-context model isn't stuck
+    # picking from options capped at 32768.
+    assert 262144 in data["ctx_opts"]
+    assert max(data["max_tokens_opts"]) >= 131072
