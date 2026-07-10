@@ -877,6 +877,29 @@ def _checkpoint_next_action(status: str) -> str:
     return "Review the latest Atlas checkpoint."
 
 
+def _promote_ready_pool_for_ui_reachability(pool: Any, *, planner_status: str = "") -> None:
+    """An LLM-planned pool must never be left at status "ready".
+
+    "ready" has zero rendering branch in the human-in-the-loop panel (web/js/atlas_claude_panel.js
+    only renders action controls for approval_required / blocked_safety_review /
+    waiting_for_critical_decision / clarification-pending), and nothing downstream of plan-pool
+    creation auto-starts a run. A plan that reaches "ready" here -- e.g. via full_auto's
+    quality_gate["require_approval"]=False continuation, which intentionally skips the
+    approval_required promotion above so a non-safety critique finding doesn't force a hard approval
+    gate -- is stranded forever with no visible approve/revise/cancel controls (reported live: a
+    full_auto plan with an unresolved high-severity critique finding sat on a button-less "ready"
+    card with no way to proceed). Apply the same "ready has no UI controls" promotion already used
+    after post-clarification replanning (see clarify_plan_pool) so this path's plans stay reachable
+    too.
+
+    Only applies to an actual planner run (planner_status != "skipped"): a caller-supplied
+    plan_payload intentionally bypasses the interactive planner and the UI entirely (e.g. tests,
+    programmatic tooling), and "ready" is its correct, expected terminal status there.
+    """
+    if pool.status == "ready" and planner_status != "skipped":
+        pool.status = "approval_required"
+
+
 def _sp_str(value: Any, limit: int = 600) -> str:
     s = str(value or "").strip()
     return s[:limit]
@@ -2234,6 +2257,7 @@ def _create_plan_pool_core(
             pool.warnings.append(_w)
     if quality_gate["require_approval"] and pool.status != "needs_scope_confirmation":
         pool.status = "waiting_for_critical_decision" if quality_gate.get("critical_event") else "approval_required"
+    _promote_ready_pool_for_ui_reachability(pool, planner_status=planner_status)
 
     # ── Requirement trace + repair intent (PR-8d): persist on pool metadata so the autopilot
     # final-status rollup can compute coverage and detect test-only repair plans. ──
