@@ -2220,6 +2220,12 @@ class AtlasPatchProposalService:
                 claim_repair = self._sanitize_requirement_claims_and_infer_coverage(proposal, input_payload)
                 if claim_repair.get("diagnostics"):
                     proposal.metadata.setdefault("requirement_claim_diagnostics", []).extend(claim_repair["diagnostics"])
+                # A step's goal can already be fully met by code an EARLIER step wrote to the same
+                # shared file (plan steps commonly build on one target file). When the model correctly
+                # returns no edits for such a step, verify that deterministically against the file's
+                # EXISTING content instead of treating the empty response as content_missing forever.
+                if not has_content and self._mark_already_satisfied_if_verified(proposal, input_payload):
+                    has_content = True
                 # Deterministically backfill semantic evidence (implemented_symbols / behavioral_cases /
                 # verification_cases) from the generated content + plan-item metadata when the (weak)
                 # model omitted these advisory fields. Mirrors the content-based requirement-coverage
@@ -2907,6 +2913,57 @@ class AtlasPatchProposalService:
         proposal.metadata = metadata
         return {"diagnostics": diagnostics}
 
+    def _mark_already_satisfied_if_verified(self, proposal: AtlasPatchProposal, input_payload: dict) -> bool:
+        """Detect a step whose goal is already fully met by an EARLIER step's code in the same
+        shared target file, so an honest empty response is not endlessly retried and failed.
+
+        Plan steps for a single-file app (e.g. one index.html built up over several steps) routinely
+        edit the same target; a capable model can front-load a later step's work while completing an
+        earlier one. When that happens, the later step correctly has nothing left to add and returns
+        no edits/content — reuses the SAME deterministic keyword-coverage check that already grades
+        newly generated content (`_infer_requirement_coverage_from_content`), run against the file's
+        EXISTING content instead, so only a verified match is trusted. An unverified empty response
+        (the goal genuinely not met yet) still fails normally and keeps retrying.
+        """
+        item = input_payload.get("item") or {}
+        if not self._plan_item_requires_content(input_payload):
+            return False
+        if str(item.get("patch_task_kind") or "") == "structural_change":
+            return False
+        if not item.get("target_file_exists"):
+            return False
+        current_content = str(item.get("current_file_content") or "")
+        if not current_content.strip() or bool(item.get("current_file_content_sliced")):
+            return False
+        item_requirement_ids = {str(v) for v in (item.get("requirement_ids") or []) if str(v)}
+        covered: set[str] = set()
+        if item_requirement_ids:
+            # Strict keyword coverage only — no "non-empty content" leniency fallback, which is
+            # calibrated for freshly generated content and would rubber-stamp any pre-existing file.
+            covered = self._requirement_coverage_by_keyword_match(input_payload, current_content)
+            if item_requirement_ids - covered:
+                return False
+        else:
+            criteria = [str(c) for c in (item.get("acceptance_criteria") or []) if str(c).strip()]
+            if not criteria:
+                return False
+            tokens = self._requirement_tokens(" ".join(criteria))
+            if not tokens:
+                return False
+            content_l = current_content.lower()
+            matched = [tok for tok in tokens if tok in content_l]
+            required_count = max(1, min(len(tokens), (len(tokens) + 1) // 2))
+            if len(matched) < required_count:
+                return False
+        metadata = proposal.metadata or {}
+        metadata["already_satisfied_no_op"] = True
+        metadata["already_satisfied_reason"] = "existing_file_content_already_covers_goal"
+        metadata["patch_content_available"] = True
+        if covered:
+            metadata["satisfied_requirement_ids"] = sorted(set(metadata.get("satisfied_requirement_ids") or []) | covered)
+        proposal.metadata = metadata
+        return True
+
     def _infer_semantic_evidence_from_content(self, proposal: AtlasPatchProposal, input_payload: dict, *, has_content: bool) -> None:
         """Backfill semantic evidence deterministically when the LLM omitted the advisory fields.
 
@@ -2965,7 +3022,16 @@ class AtlasPatchProposalService:
             metadata["semantic_evidence_inferred"] = inferred
         proposal.metadata = metadata
 
-    def _infer_requirement_coverage_from_content(self, input_payload: dict, content: str) -> set[str]:
+    def _requirement_coverage_by_keyword_match(self, input_payload: dict, content: str) -> set[str]:
+        """Strict half-of-tokens keyword overlap between a requirement's description and ``content``.
+
+        No leniency fallback: an empty result here means the words genuinely do not overlap, not
+        "trust it anyway because something was produced". `_infer_requirement_coverage_from_content`
+        layers a leniency fallback on top of this for NEWLY generated content (where "some content
+        was produced" is itself weak evidence of effort); callers judging EXISTING, already-on-disk
+        content (e.g. `_mark_already_satisfied_if_verified`) must use this strict form directly, since
+        "the file is non-empty" says nothing about whether THIS item's goal was ever addressed.
+        """
         item = input_payload.get("item") or {}
         item_requirement_ids = {str(v) for v in (item.get("requirement_ids") or []) if str(v)}
         content_l = (content or "").lower()
@@ -2989,6 +3055,13 @@ class AtlasPatchProposalService:
             required_count = max(1, min(len(tokens), (len(tokens) + 1) // 2))
             if len(matched) >= required_count:
                 covered.add(req_id)
+        return covered
+
+    def _infer_requirement_coverage_from_content(self, input_payload: dict, content: str) -> set[str]:
+        item = input_payload.get("item") or {}
+        item_requirement_ids = {str(v) for v in (item.get("requirement_ids") or []) if str(v)}
+        content_l = (content or "").lower()
+        covered = self._requirement_coverage_by_keyword_match(input_payload, content)
         if not covered and content_l.strip():
             # Content is present but keyword inference matched nothing. For a SINGLE-requirement item this
             # already credited the lone requirement. Generalize that to scaffolding/create items: a

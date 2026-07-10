@@ -407,6 +407,13 @@ class AtlasFileSafeApplyExecutor:
                     return {"status": "blocked", "reason": "unsupported_patch_format"}
                 return {"status": "ok", "content": parsed, "mode": "diff_extract"}
 
+        # 6. Verified no-op: the target file's EXISTING content was deterministically confirmed to
+        #    already satisfy this step's goal (see _mark_already_satisfied_if_verified). There is
+        #    nothing to change; applying is a genuine identity transform, not a missing-content error.
+        proposal_metadata = patch_proposal.get("metadata") if isinstance(patch_proposal.get("metadata"), dict) else {}
+        if target_exists and (metadata.get("already_satisfied_no_op") or proposal_metadata.get("already_satisfied_no_op")):
+            return {"status": "ok", "content": current_text, "mode": "no_op_already_satisfied"}
+
         return {"status": "blocked", "reason": "content_missing"}
 
     @staticmethod
