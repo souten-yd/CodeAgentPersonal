@@ -12,6 +12,22 @@ JA_FPS_PROMPT = """007ゴールデンアイみたいなファーストパーソ�
 弾は無限。
 敵は宇宙人。"""
 
+# Reproduces a real live-model defect: a follow-up request for an unrelated 2D shooter genre
+# (Space Invaders) shares generic shooting-game vocabulary with the FPS example above --
+# "シューティング" ("shooting", the generic genre word) and bare "弾" ("bullet") -- which the
+# canonicalizer's keyword heuristic mistook for first-person-shooter-specific and
+# unlimited-ammo-specific signals. That injected a hardcoded "Build an HTML-based retro
+# first-person shooter" canonical requirement into the planning prompt for a request that never
+# mentioned FPS or unlimited ammo, corrupting the requirement analysis and breaking plan
+# generation entirely (0 implementation_steps).
+JA_INVADERS_PROMPT = (
+    "スペースインベーダー風の2Dシューティングゲームを単一のHTMLファイルで作って。"
+    "プレイヤーは画面下部の自機を左右に移動して弾を発射し、画面上部に整列した複数の敵編隊を全滅させるとクリア。"
+    "敵は左右に一斉移動しながら徐々に降下し、敵も反撃してくる。"
+    "キーボード操作(矢印キーまたはWASD+スペースで発射)に対応。"
+    "スコア表示、残機、ゲームオーバー/クリア画面も実装して。"
+)
+
 
 def test_canonicalization_extracts_japanese_fps_requirements_in_english() -> None:
     spec = AtlasInputCanonicalizer().canonicalize(JA_FPS_PROMPT)
@@ -34,6 +50,15 @@ def test_canonicalization_extracts_japanese_fps_requirements_in_english() -> Non
     ):
         assert expected.lower() in canonical_text.lower()
     assert any(req.raw_text for req in spec.canonical_requirements)
+
+
+def test_generic_shooting_genre_word_does_not_imply_first_person() -> None:
+    spec = AtlasInputCanonicalizer().canonicalize(JA_INVADERS_PROMPT)
+
+    canonical_text = " ".join(req.canonical_text_en for req in spec.canonical_requirements).lower()
+    assert "first-person" not in canonical_text
+    assert "fps" not in canonical_text
+    assert "unlimited ammunition" not in canonical_text
 
 
 def test_mixed_language_canonicalization_outputs_english_only() -> None:
