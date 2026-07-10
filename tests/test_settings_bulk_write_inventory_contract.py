@@ -89,6 +89,9 @@ def test_post_settings_response_shape_and_side_effect_paths_without_db_write(mon
             "llm_port": "1234",
             "ctx_size": "not-directly-used",
             "summary_max_tokens": "999",
+            # No longer a user-settable field (see save_settings_api / _get_read_file_inject_max_chars,
+            # which now auto-scales with the active context size) -- included here to assert it's
+            # silently dropped, not saved.
             "read_file_inject_max_chars": "2000",
             "ensemble_execution_mode": "SERIAL",
             "ensemble_auto_switch_on_low_vram": "off",
@@ -102,7 +105,6 @@ def test_post_settings_response_shape_and_side_effect_paths_without_db_write(mon
     expected_saved = [
         "ctx_size",
         "summary_max_tokens",
-        "read_file_inject_max_chars",
         "ensemble_execution_mode",
         "ensemble_auto_switch_on_low_vram",
         "asr_engine",
@@ -112,7 +114,6 @@ def test_post_settings_response_shape_and_side_effect_paths_without_db_write(mon
     expected_write = {
         "ctx_size": "4096",
         "summary_max_tokens": "400",
-        "read_file_inject_max_chars": "4000",
         "ensemble_execution_mode": "serial",
         "ensemble_auto_switch_on_low_vram": "false",
         "asr_engine": "whisper_cpp",

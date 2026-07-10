@@ -127,13 +127,11 @@ MOVED_SETTINGS_MODAL_WINDOW_EXPORTS = (
 )
 MOVED_SETTINGS_UI_HELPER_FUNCTION_DEFINITIONS = (
     "function applyOrchFeatureModeUi",
-    "function updateCtxLabel",
     "function applySearchUI",
     "function applyStreamingUI",
 )
 MOVED_SETTINGS_UI_HELPER_WINDOW_EXPORTS = (
     "window.applyOrchFeatureModeUi = applyOrchFeatureModeUi",
-    "window.updateCtxLabel = updateCtxLabel",
     "window.applySearchUI = applySearchUI",
     "window.applyStreamingUI = applyStreamingUI",
 )

@@ -28,7 +28,7 @@ def test_llm_context_state_is_initialized_before_startup_paths():
 
 def test_init_ctx_slider_props_failure_is_non_fatal_and_stateful():
     html = load_root_ui_html_text()
-    body = _slice(html, "async function initCtxSlider()", "async function applyCtxLen")
+    body = _slice(html, "async function initCtxSlider()", "async function initSearch")
 
     assert "setCurrentNctxUi(curCtx)" in body
     assert "LLM_CONTEXT_STATE.propsAvailable = true" in body

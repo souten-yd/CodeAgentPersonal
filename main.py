@@ -963,12 +963,15 @@ def _get_summary_token_limit() -> int:
 
 
 def _get_read_file_inject_max_chars() -> int:
-    raw = _safe_settings_get("read_file_inject_max_chars", "16000")
-    try:
-        val = int(raw)
-    except Exception:
-        val = 16000
-    return max(4000, min(val, 120000))
+    """Ceiling for how much of a single read_file tool result gets injected into the
+    conversation, on top of the dynamic remaining-context calculation at each call site. Scales
+    with the model's actual active context window (_current_n_ctx) instead of a fixed value, so a
+    large-context model isn't held to the same cap as a small one -- a static default (previously
+    a user-tunable setting, always 16000 chars unless manually raised) silently over-truncated
+    large file reads on big-context models even when plenty of context room was free. 16000 is the
+    floor (matches prior behavior for typical small local-model context windows); 120000 is a sane
+    ceiling regardless of context size."""
+    return max(16000, min(120000, _current_n_ctx * 4 // 8))
 
 
 def _is_quality_output_ok(output: str) -> bool:
@@ -6301,7 +6304,6 @@ SETTINGS_DEFAULTS = {
     "streaming_enabled":  "true",
     "ctx_size":           str(_default_llm_ctx_size()),
     "summary_max_tokens": "200",
-    "read_file_inject_max_chars": "16000",
     "llm_url":            "",
     "orchestration_policy": "ladder_fail_and_quality",
     "coder_primary": "",
@@ -17235,7 +17237,9 @@ app.state.settings_set_provider = settings_set_payload
 
 def save_settings_api(req: dict):
     """複数設定を一括保存"""
-    req = {k: v for k, v in req.items() if k not in ("max_output_tokens", "llm_port")}
+    # read_file_inject_max_chars is no longer a user-settable field (see
+    # _get_read_file_inject_max_chars, which now auto-scales with the active context size).
+    req = {k: v for k, v in req.items() if k not in ("max_output_tokens", "llm_port", "read_file_inject_max_chars")}
     if "ctx_size" in req:
         req["ctx_size"] = str(_resolve_ctx_size(req.get("ctx_size")))
     if "summary_max_tokens" in req:
@@ -17244,11 +17248,6 @@ def save_settings_api(req: dict):
             req["summary_max_tokens"] = str(v if v in (200, 400, 800) else _get_summary_token_limit())
         except Exception:
             req.pop("summary_max_tokens", None)
-    if "read_file_inject_max_chars" in req:
-        try:
-            req["read_file_inject_max_chars"] = str(max(4000, min(120000, int(req["read_file_inject_max_chars"]))))
-        except Exception:
-            req.pop("read_file_inject_max_chars", None)
     if "ensemble_execution_mode" in req:
         req["ensemble_execution_mode"] = str(req.get("ensemble_execution_mode", "parallel")).strip().lower()
         if req["ensemble_execution_mode"] not in ("parallel", "serial"):
