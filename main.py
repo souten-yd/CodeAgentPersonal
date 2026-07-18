@@ -635,6 +635,10 @@ UI_DIR = os.path.join(BASE_DIR, "ui")
 os.makedirs(UI_DIR, exist_ok=True)
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 WEB_DIR = os.path.join(BASE_DIR, "web")
+# 新UI (ui_next)。KASANE_UI_VARIANT=legacy で旧UIへフォールバック。
+# docs/ui_next_master_plan.md 参照。
+UI_NEXT_DIR = os.path.join(BASE_DIR, "ui_next")
+UI_VARIANT = os.environ.get("KASANE_UI_VARIANT", "legacy").strip().lower()
 
 # =========================
 # Web検索 有効/無効フラグ（デフォルトON）
@@ -17624,8 +17628,18 @@ def serve_existing_ui_index() -> FileResponse | RedirectResponse:
     return RedirectResponse(_LEGACY_UI_ROUTE)
 
 
+def serve_ui_next_index() -> FileResponse | RedirectResponse:
+    """Serve the ui_next UI, falling back to legacy when the build is absent."""
+    index = os.path.join(UI_NEXT_DIR, "index.html")
+    if os.path.exists(index):
+        return FileResponse(index, media_type="text/html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+    return serve_existing_ui_index()
+
+
 @app.get("/")
 def root():
+    if UI_VARIANT != "legacy":
+        return serve_ui_next_index()
     return serve_existing_ui_index()
 
 @app.get("/ui")
@@ -17639,6 +17653,7 @@ configure_static_assets(
     ui_dir=UI_DIR,
     assets_dir=ASSETS_DIR,
     web_dir=WEB_DIR,
+    ui_next_dir=UI_NEXT_DIR,
 )
 
 def _apply_tts_language_routing(req: dict, *, model_version: str | None) -> dict:
