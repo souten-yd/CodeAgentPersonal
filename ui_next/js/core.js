@@ -1,0 +1,14414 @@
+
+const API = window.location.origin;
+function _clipForError(text, max = 140) {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  return raw.length > max ? raw.slice(0, max) + '…' : raw;
+}
+async function _readJsonResponse(res, label = 'request') {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    const contentType = res.headers?.get('content-type') || 'unknown';
+    throw new Error(`${label} returned non-JSON (status=${res.status}, type=${contentType}): ${_clipForError(text)}`);
+  }
+}
+async function _fetchJson(url, options = {}, label = 'request') {
+  const response = await fetch(url, options);
+  const data = await _readJsonResponse(response, label);
+  if (!response.ok) {
+    throw new Error(data?.detail || `${label} failed (${response.status})`);
+  }
+  return {response, data};
+}
+async function _fetchWithTimeout(url, options = {}, timeoutMs = 7000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(100, Number(timeoutMs) || 7000));
+  try {
+    const merged = {...(options || {}), signal: controller.signal};
+    return await fetch(url, merged);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+const DEFAULT_CTX_SIZE = 16384;
+let _settingsDefaultCtxSize = DEFAULT_CTX_SIZE;
+const LLM_CONTEXT_STATE = {
+  currentNctxUi: DEFAULT_CTX_SIZE,
+  maxNctxUi: null,
+  initialized: false,
+  propsAvailable: false,
+  lastError: '',
+};
+
+// Ceiling mirrors main.py's _MAX_LLM_CTX_SIZE.
+const MAX_CTX_SIZE = 262144;
+
+function normalizeCtxSize(value, fallback = _settingsDefaultCtxSize) {
+  const n = Number(value);
+  if (Number.isFinite(n) && n > 0) return Math.max(512, Math.min(MAX_CTX_SIZE, Math.trunc(n)));
+  return Math.max(512, Math.min(MAX_CTX_SIZE, Math.trunc(Number(fallback) || DEFAULT_CTX_SIZE)));
+}
+
+function getCurrentNctxUi() {
+  return normalizeCtxSize(LLM_CONTEXT_STATE.currentNctxUi, DEFAULT_CTX_SIZE);
+}
+
+function setCurrentNctxUi(value) {
+  const n = normalizeCtxSize(value, _settingsDefaultCtxSize);
+  LLM_CONTEXT_STATE.currentNctxUi = n;
+  LLM_CONTEXT_STATE.initialized = true;
+  return n;
+}
+
+try {
+  Object.defineProperty(globalThis, '_current_n_ctx_ui', {
+    configurable: true,
+    get: getCurrentNctxUi,
+    set: setCurrentNctxUi,
+  });
+} catch (_) {}
+
+let mode = 'chat';
+const UI_LAST_MODE_KEY = 'kasane:lastMode';
+const UI_LAST_SUBTABS_KEY = 'kasane:lastSubtabsByMode';
+const UI_VALID_MODES = ['chat','atlas','echo','nexus','forge','portal','agent'];
+const UI_PRIMARY_MODES = ['chat','atlas','echo','nexus','forge','portal'];
+const UI_MODE_DEFAULT_SUBTABS = {chat: 'chat', echo: 'echo', atlas: 'start', nexus: 'dashboard', portal: 'catalog', forge: 'overview'};
+const UI_MODE_SUBTABS = {
+  // Lumen は会話のみ。Log/Skill/Memory/Models のサブタブは Nexus/Forge に集約済み。
+  chat: ['chat'],
+  echo: ['echo','vault'],
+  atlas: ['start'],
+  // Nexus subtabs are managed by switchNexusTab. Memory/Skill (Lumen) are consolidated into this
+  // same row, so they persist/restore alongside research/library/evidence/reports/settings.
+  nexus: ['dashboard','research','library','evidence','reports','settings','memory','skills','log'],
+  portal: ['catalog'],
+  // Forge owns Overview (forge.js shell) + the relocated Lumen Models + Echo ASR/TTS panels in its
+  // own subtab row (switchForgeTab). Same panels/JS/endpoints.
+  forge: ['overview','models','asr','tts'],
+};
+let asrRuntimeConfig = {is_windows:false,is_runpod:false,gpu_vendor:'unknown',asr_engine:'faster_whisper',whisper_cpp_ready:false};
+const CHAT_TASK_TOGGLE_KEY = 'chat_task_enabled';
+let isTaskEnabled = false; // Chat/Atlas separation: legacy Chat task planning is disabled.
+// Compatibility guard intentionally remains disabled: if (false && mode === 'chat' && isTaskEnabled)
+const PHASE1_PLAN_DRAWER_KEY = 'phase1_plan_drawer_open';
+let isPhase1PlanOpen = localStorage.getItem(PHASE1_PLAN_DRAWER_KEY) === 'true';
+let busy = false;
+let maxSteps = 20;
+let autoSelectOption = true; // プランナーLLMによる自動選択
+let autoSkillGeneration = true; // 失敗時にSKILLを自動生成
+let currentProject = 'default';
+let htmlFiles = [];
+let editorOpen = false;
+let searchEnabled = false;
+let streamingEnabled = true;  // サーバーデフォルトと同期
+let activeLlmUrl = '';    // 空文字 = サーバーデフォルト(LLM_URL)
+let pendingPlan = null;   // 承認待ちのプラン
+let progressEl = null;    // 現在のプログレスカード
+let timerInterval = null;
+let startTime = null;
+let ensembleVramTimer = null;
+let systemSummaryPollTimer = null;
+let currentLlmLabel = 'NoLoad';
+let currentLlmState = '—';
+let currentModelStatus = 'unknown';
+const THEME_STORAGE_KEY = 'kc_theme_next';
+const SVG_SUPPORTED = !!(document.createElementNS && document.createElementNS('http://www.w3.org/2000/svg', 'svg').createSVGRect);
+if (SVG_SUPPORTED) document.documentElement.classList.add('logo-svg-ready');
+
+const UI_THEMES = {
+  aurora: {
+    label: 'Aurora',
+    vars: {
+      '--bg':'#0b0d13','--bg1':'#10131b','--bg2':'#161a24','--bg3':'#1f2432',
+      '--border':'#262c3b','--border2':'#39415a',
+      '--text':'#e7eaf3','--text2':'#8a92ad','--text3':'#535c78',
+      '--accent':'#8b7cff','--accent-bg':'rgba(139,124,255,.10)','--accent-border':'rgba(139,124,255,.38)',
+      '--accent-soft':'rgba(139,124,255,.14)','--accent-softer':'rgba(139,124,255,.07)','--accent-glow':'rgba(139,124,255,.40)',
+      '--logo-accent':'var(--accent)','--logo-accent-strong':'#6d5bff','--logo-text':'#eef0ff',
+      '--blue':'#5ea8ff','--blue-bg':'rgba(94,168,255,.12)',
+      '--red':'#ff5d7e','--amber':'#f5b453'
+    }
+  },
+  nocturne: {
+    label: 'Nocturne',
+    vars: {
+      '--bg':'#071018','--bg1':'#0b1622','--bg2':'#101e2e','--bg3':'#17293e',
+      '--border':'#21374e','--border2':'#325272',
+      '--text':'#e4f0fa','--text2':'#8fa9c0','--text3':'#54708c',
+      '--accent':'#3ec6ff','--accent-bg':'rgba(62,198,255,.10)','--accent-border':'rgba(62,198,255,.38)',
+      '--accent-soft':'rgba(62,198,255,.14)','--accent-softer':'rgba(62,198,255,.07)','--accent-glow':'rgba(62,198,255,.38)',
+      '--logo-accent':'var(--accent)','--logo-accent-strong':'#19a8e8','--logo-text':'#e9f7ff',
+      '--blue':'#6ea9ff','--blue-bg':'rgba(110,169,255,.12)',
+      '--red':'#ff6584','--amber':'#f0b45c'
+    }
+  },
+  daylight: {
+    label: 'Daylight',
+    vars: {
+      '--bg':'#f3f5fa','--bg1':'#ffffff','--bg2':'#e9edf6','--bg3':'#dfe5f2',
+      '--border':'#d0d8e8','--border2':'#aab7d0',
+      '--text':'#1c2333','--text2':'#4d5a75','--text3':'#8b96ad',
+      '--accent':'#4f5df0','--accent-bg':'rgba(79,93,240,.09)','--accent-border':'rgba(79,93,240,.34)',
+      '--accent-soft':'rgba(79,93,240,.12)','--accent-softer':'rgba(79,93,240,.06)','--accent-glow':'rgba(79,93,240,.30)',
+      '--logo-accent':'var(--accent)','--logo-accent-strong':'#3948d6','--logo-text':'#232c56',
+      '--blue':'#2f78e0','--blue-bg':'rgba(47,120,224,.10)',
+      '--red':'#d6446b','--amber':'#b8862e'
+    }
+  }
+};
+
+function setTheme(themeName, persist = true) {
+  const _legacyThemeMap = {cyber:'aurora', midnight:'nocturne', kasane:'daylight'};
+  const normalized = _legacyThemeMap[themeName] || themeName;
+  const chosen = UI_THEMES[normalized] ? normalized : 'aurora';
+  const rootStyle = document.documentElement.style;
+  Object.entries(UI_THEMES[chosen].vars).forEach(([k, v]) => rootStyle.setProperty(k, v));
+  document.documentElement.setAttribute('data-theme', chosen);
+  document.querySelectorAll('.js-theme-select').forEach((themeSelect) => {
+    themeSelect.value = chosen;
+  });
+  if (persist) localStorage.setItem(THEME_STORAGE_KEY, chosen);
+}
+
+
+
+function onThemeSelectChange(selectEl) {
+  if (!selectEl) return;
+  setTheme(selectEl.value);
+  // iOS Safari で選択UIが残留するケース対策としてフォーカスを確実に解除
+  if (typeof selectEl.blur === 'function') selectEl.blur();
+  setTimeout(() => {
+    if (document.activeElement === selectEl && typeof selectEl.blur === 'function') selectEl.blur();
+  }, 0);
+}
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_STORAGE_KEY) || 'aurora';
+  setTheme(saved, false);
+}
+
+function updateSystemLlmName() {
+  const llmEl = document.getElementById('sys-llm-name');
+  if (!llmEl) return;
+  const name = (currentLlmLabel || 'NoLoad').trim();
+  llmEl.textContent = name;
+  llmEl.title = name;
+}
+
+function _isMobileViewport() {
+  return window.innerWidth <= 768;
+}
+
+function _formatUsageLine({cpu='--', ram='--/--', gpu='--', vram='--/--', backend='none'}) {
+  if (_isMobileViewport()) return `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram}`;
+  return `CPU ${cpu} | RAM ${ram} | GPU ${gpu} | VRAM ${vram} [${backend}]`;
+}
+let _lastSystemUsageText = '';
+let voiceRecorder = null;
+let voiceChunks = [];
+let voiceRecording = false;
+let voiceAnalyserCtx = null;
+let voiceAnalyserNode = null;
+let voiceAnalyserSource = null;
+let voiceAnalyserData = null;
+let voiceMeterRaf = null;
+let voiceLastSampleTs = 0;
+let voiceSpeechAccumMs = 0;
+let voiceDetectedSpeech = false;
+let voiceSilenceDeadlineTs = 0;
+let voiceNoiseFloor = 0.005;
+let voiceAutoStopping = false;
+let voiceTarget = 'chat';
+let voiceContinuousEnabled = false;
+let voiceContinuousRestartTimer = null;
+const voiceAsrSettings = {
+  silenceMs: Math.max(600, Math.min(10000, parseInt(localStorage.getItem('asr_silence_ms') || '1800', 10) || 1800)),
+  minSpeechMs: Math.max(200, Math.min(5000, parseInt(localStorage.getItem('asr_min_speech_ms') || '700', 10) || 700)),
+  autoSendAfterAsr: localStorage.getItem('asr_auto_send_after') === 'true',
+};
+
+function _voiceMonitorEls(target = voiceTarget) {
+  const pre = target === 'agent' ? 'agent-' : '';
+  return {
+    wrap: document.getElementById(`${pre}voice-monitor`),
+    fill: document.getElementById(`${pre}voice-meter-fill`),
+    text: document.getElementById(`${pre}voice-monitor-text`),
+  };
+}
+
+function _setVoiceMonitor(level = 0, text = '待機中', active = false, target = voiceTarget) {
+  const {wrap, fill, text: textEl} = _voiceMonitorEls(target);
+  if (wrap) wrap.classList.toggle('active', !!active);
+  if (fill) fill.style.width = `${Math.max(0, Math.min(1, level)) * 100}%`;
+  if (textEl) textEl.textContent = text;
+}
+
+function _stopVoiceLevelMonitoring(target = voiceTarget) {
+  if (voiceMeterRaf) {
+    cancelAnimationFrame(voiceMeterRaf);
+    voiceMeterRaf = null;
+  }
+  try { if (voiceAnalyserSource) voiceAnalyserSource.disconnect(); } catch {}
+  try { if (voiceAnalyserNode) voiceAnalyserNode.disconnect(); } catch {}
+  voiceAnalyserSource = null;
+  voiceAnalyserNode = null;
+  voiceAnalyserData = null;
+  voiceLastSampleTs = 0;
+  voiceSpeechAccumMs = 0;
+  voiceDetectedSpeech = false;
+  voiceSilenceDeadlineTs = 0;
+  voiceNoiseFloor = 0.005;
+  voiceAutoStopping = false;
+  if (voiceAnalyserCtx) {
+    voiceAnalyserCtx.close().catch(() => {});
+    voiceAnalyserCtx = null;
+  }
+  _setVoiceMonitor(0, '待機中', false, target);
+}
+
+function _startVoiceLevelMonitoring(stream, target = voiceTarget) {
+  _stopVoiceLevelMonitoring(target);
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  voiceAnalyserCtx = new Ctx();
+  voiceAnalyserSource = voiceAnalyserCtx.createMediaStreamSource(stream);
+  voiceAnalyserNode = voiceAnalyserCtx.createAnalyser();
+  voiceAnalyserNode.fftSize = 2048;
+  voiceAnalyserData = new Float32Array(voiceAnalyserNode.fftSize);
+  voiceAnalyserSource.connect(voiceAnalyserNode);
+  voiceLastSampleTs = performance.now();
+  _setVoiceMonitor(0, '話し始めると自動終了が有効になります', true, target);
+
+  const loop = () => {
+    if (!voiceRecording || !voiceRecorder || !voiceAnalyserNode || !voiceAnalyserData) return;
+    voiceAnalyserNode.getFloatTimeDomainData(voiceAnalyserData);
+    let sum = 0;
+    for (let i = 0; i < voiceAnalyserData.length; i++) sum += voiceAnalyserData[i] * voiceAnalyserData[i];
+    const rms = Math.sqrt(sum / voiceAnalyserData.length);
+    voiceNoiseFloor = voiceDetectedSpeech
+      ? voiceNoiseFloor
+      : Math.max(0.001, Math.min(0.03, voiceNoiseFloor * 0.95 + rms * 0.05));
+    const speechThreshold = Math.max(0.012, voiceNoiseFloor * 2.4);
+    const hasSpeechNow = rms > speechThreshold;
+    const now = performance.now();
+    const dt = Math.max(0, now - voiceLastSampleTs);
+    voiceLastSampleTs = now;
+    if (hasSpeechNow) {
+      voiceDetectedSpeech = true;
+      voiceSpeechAccumMs += dt;
+      voiceSilenceDeadlineTs = 0;
+    } else if (voiceDetectedSpeech && voiceSpeechAccumMs >= voiceAsrSettings.minSpeechMs) {
+      if (!voiceSilenceDeadlineTs) voiceSilenceDeadlineTs = now + voiceAsrSettings.silenceMs;
+      const remainMs = Math.max(0, voiceSilenceDeadlineTs - now);
+      const remainSec = Math.ceil(remainMs / 1000);
+      _setVoiceMonitor(Math.min(1, rms * 18), `自動確定まで${remainSec}秒`, true, target);
+      if (remainMs <= 0 && !voiceAutoStopping && voiceRecorder.state !== 'inactive') {
+        voiceAutoStopping = true;
+        voiceRecording = false;
+        _setMicState(false, true, target);
+        voiceRecorder.stop();
+        return;
+      }
+    }
+    if (!(voiceDetectedSpeech && voiceSpeechAccumMs >= voiceAsrSettings.minSpeechMs && !hasSpeechNow)) {
+      const hint = !voiceDetectedSpeech
+        ? '話し始めてください'
+        : (voiceSpeechAccumMs < voiceAsrSettings.minSpeechMs
+          ? `音声を検出中 (${Math.floor(voiceSpeechAccumMs)}ms)`
+          : '録音中');
+      _setVoiceMonitor(Math.min(1, rms * 18), hint, true, target);
+    }
+    voiceMeterRaf = requestAnimationFrame(loop);
+  };
+  voiceMeterRaf = requestAnimationFrame(loop);
+}
+
+function _migrateEchoTtsTranslateSettings() {
+  const migratedKey = 'echo_tts_translate_migrated';
+  if (localStorage.getItem(migratedKey) === 'true') return;
+  const keys = ['enabled', 'mode', 'en2ja_enabled', 'ja2en_enabled', 'autoplay'];
+  for (const key of keys) {
+    const echoKey = `echo_tts_translate_${key}`;
+    if (localStorage.getItem(echoKey) !== null) continue;
+    const legacyKey = `tts_translate_${key}`;
+    const legacyVal = localStorage.getItem(legacyKey);
+    if (legacyVal !== null) localStorage.setItem(echoKey, legacyVal);
+  }
+  localStorage.setItem(migratedKey, 'true');
+}
+
+function _ttsGetTranslateSettings(context = 'main') {
+  const prefix = context === 'echo' ? 'echo_tts_translate_' : 'tts_translate_';
+  const mode = localStorage.getItem(prefix + 'mode') || 'auto';
+  const en2jaRaw = localStorage.getItem(prefix + 'en2ja_enabled');
+  const ja2enRaw = localStorage.getItem(prefix + 'ja2en_enabled');
+  const enabledRaw = localStorage.getItem(prefix + 'enabled');
+  return {
+    enabled: enabledRaw !== null ? enabledRaw === 'true' : (context !== 'echo'),
+    mode,
+    en2jaEnabled: en2jaRaw !== null ? en2jaRaw === 'true' : (mode === 'auto' || mode === 'ja'),
+    ja2enEnabled: ja2enRaw !== null ? ja2enRaw === 'true' : (mode === 'auto' || mode === 'en'),
+    autoplay: localStorage.getItem(prefix + 'autoplay') === 'true',
+  };
+}
+
+_migrateEchoTtsTranslateSettings();
+
+// ── TTS (Text-to-Speech) ──
+let ttsManualUnlocked = false;
+let ttsNeedsUserGesture = false;
+let _lastAutoplayBlockedAt = 0;
+let ttsAudioQueue = [];
+let isTtsPlaying = false;
+
+const tts = {
+  enabled:      localStorage.getItem('tts_enabled')    === 'true',
+  autoSpeak:    localStorage.getItem('tts_auto_speak') === 'true',
+  engine:       'style_bert_vits2',
+  voice:        localStorage.getItem('tts_voice')      || '',
+  speed:        parseFloat(localStorage.getItem('tts_speed') || '1.0'),
+  styleBertVits2Model: localStorage.getItem('tts_style_bert_vits2_model')
+                    || localStorage.getItem('tts_stylebertvits2_model')
+                    || localStorage.getItem('tts_style-bert-vits2_model')
+                    || '',
+  ttsDevice:    localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cuda',
+  translateEnabled: _ttsGetTranslateSettings('main').enabled,
+  translateMode:    _ttsGetTranslateSettings('main').mode,
+  translateEnToJaEnabled: _ttsGetTranslateSettings('main').en2jaEnabled,
+  translateJaToEnEnabled: _ttsGetTranslateSettings('main').ja2enEnabled,
+  translateAutoplay: _ttsGetTranslateSettings('main').autoplay,
+  _queue:       [],
+  _playing:     false,
+  _audio:       null,
+  _utt:         null,
+  _autoplayUnlocked: false,
+  _autoplayBlockedNoticeShown: false,
+};
+const agentTts = {
+  enabled: (() => {
+    const raw = localStorage.getItem('agent_tts_enabled');
+    return raw !== null ? raw === 'true' : tts.enabled;
+  })(),
+  autoSpeak: (() => {
+    const raw = localStorage.getItem('agent_tts_auto_speak');
+    return raw !== null ? raw === 'true' : tts.autoSpeak;
+  })(),
+};
+
+const _SUPPORTED_TTS_ENGINES = new Set(['style_bert_vits2']);
+const DEFAULT_STYLE_BERT_VITS2_MODEL = 'koharune-ami';
+const _TTS_ENGINE_COMPAT_ALIASES = {
+  stylebertvits2: 'style_bert_vits2',
+  'style-bert-vits2': 'style_bert_vits2',
+};
+const _styleBertVits2PrepareState = {
+  prepared: false,
+  inFlight: null,
+};
+const _styleBertVits2ModelMeta = new Map();
+function _normalizeTtsEngine(engine) {
+  return 'style_bert_vits2';
+}
+function _normalizeStyleBertVits2Model(model) {
+  const value = String(model || '').trim();
+  return value || DEFAULT_STYLE_BERT_VITS2_MODEL;
+}
+tts.engine = _normalizeTtsEngine(tts.engine);
+function cleanupDeprecatedQwen3TtsStorage() {
+  try {
+    ['tts_qwen3model','tsasr_qwen3model','echo_qwen3model'].forEach((key) => {
+      const value = localStorage.getItem(key);
+      if (!value) return;
+      if (/qwen3|qwen_tts|qwen3tts/i.test(value)) localStorage.removeItem(key);
+    });
+    ['tts_engine', 'echo_tts_engine', 'engine', 'engine_key', 'selected_tts_engine'].forEach((key) => localStorage.removeItem(key));
+    localStorage.removeItem('qwen3_ref_text');
+    localStorage.removeItem('qwen3_clone_require_ref_text');
+    localStorage.removeItem('qwen3_clone_test_text');
+  } catch (_) {}
+}
+cleanupDeprecatedQwen3TtsStorage();
+if (!tts.styleBertVits2Model) {
+  tts.styleBertVits2Model = localStorage.getItem('echo_style_bert_vits2_model')
+                         || localStorage.getItem('echo_stylebertvits2_model')
+                         || localStorage.getItem('echo_style-bert-vits2_model')
+                         || '';
+}
+tts.styleBertVits2Model = _normalizeStyleBertVits2Model(tts.styleBertVits2Model);
+localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model);
+
+// ── TALK MODE (EchoVault) グローバル状態 ──
+const echo = {
+  recording:      false,
+  sessionId:      '',
+  ws:             null,
+  mediaRecorder:  null,
+  audioCtx:       null,
+  processorNode:  null,
+  sourceNode:     null,
+  pcmTargetRate:  16000,
+  pcmChunkSeconds: 2,
+  pcmPendingInt16: new Int16Array(0),
+  stream:         null,
+  startTime:      null,
+  durationTimer:  null,
+  sentences:      [],        // [{id, text, lang, translated}]
+  pendingChunks:  [],        // WS切断中に蓄積した音声チャンク
+  reconnectCount: 0,
+  _reconnectTimer: null,
+  autoPlayTts:    (() => {
+    const autoPlayTtsStored = localStorage.getItem('echo_autoplay_tts');
+    if (autoPlayTtsStored === null) {
+      localStorage.setItem('echo_autoplay_tts', 'false');
+      return false;
+    }
+    return autoPlayTtsStored === 'true';
+  })(),
+  ttsEngine:      'style_bert_vits2',
+  ttsOutputDeviceId: localStorage.getItem('echo_tts_output_device_id') || 'default',
+  styleBertVits2Model: localStorage.getItem('echo_style_bert_vits2_model')
+                    || localStorage.getItem('echo_stylebertvits2_model')
+                    || localStorage.getItem('echo_style-bert-vits2_model')
+                    || '',
+  asrLang:        localStorage.getItem('echo.asrLanguage') || localStorage.getItem('echo_asr_lang') || 'auto',
+  outputLanguage: localStorage.getItem('echo.outputLanguage') || 'same',
+  ttsLanguage:    localStorage.getItem('echo.ttsLanguage') || 'auto',
+  ttsVoiceId:     localStorage.getItem('echo.ttsVoiceId') || 'auto',
+  asrInputDeviceId: localStorage.getItem('echo_asr_input_device_id') || 'default',
+  asrModel:       localStorage.getItem('echo_asr_model')   || 'large-v3-turbo',
+  asrProfile:     localStorage.getItem('echo_asr_profile') || 'balanced',
+  asrNoSpeechThreshold: Math.min(1, Math.max(0, _numOr(localStorage.getItem('echo_asr_no_speech_threshold'), 0.6))),
+  asrLogProbThreshold: _numOr(localStorage.getItem('echo_asr_log_prob_threshold'), -1.0),
+  asrCompressionRatioThreshold: Math.max(1, _numOr(localStorage.getItem('echo_asr_compression_ratio_threshold'), 2.4)),
+  asrDevice:      localStorage.getItem('asr_device')       || 'cuda',
+  asrFilterEnabled: localStorage.getItem('echo_asr_filter_enabled') !== 'false',
+  asrRejectShortTextEnabled: localStorage.getItem('echo_asr_reject_short_text_enabled') !== 'false',
+  asrRejectNoSpeechEnabled: localStorage.getItem('echo_asr_reject_no_speech_enabled') !== 'false',
+  asrRejectLogprobEnabled: localStorage.getItem('echo_asr_reject_logprob_enabled') !== 'false',
+  asrRejectShortWordLowConfEnabled: localStorage.getItem('echo_asr_reject_short_word_lowconf_enabled') !== 'false',
+  asrMinChars:    Math.max(1, parseInt(localStorage.getItem('echo_asr_min_chars') || '2', 10) || 2),
+  asrShortTextMaxChars: Math.max(1, parseInt(localStorage.getItem('echo_asr_short_max_chars') || '4', 10) || 4),
+  asrNoSpeechReject: Math.min(0.99, Math.max(0, _numOr(localStorage.getItem('echo_asr_no_speech_reject'), 0.72))),
+  asrLowLogprobReject: _numOr(localStorage.getItem('echo_asr_low_logprob_reject'), -1.05),
+  asrShortWordMaxWords: Math.max(1, Math.min(4, parseInt(localStorage.getItem('echo_asr_short_word_max_words') || '2', 10) || 2)),
+  asrShortWordLowLogprobReject: _numOr(localStorage.getItem('echo_asr_short_word_low_logprob_reject'), -0.85),
+  noiseGateEnabled: localStorage.getItem('echo_noise_gate_enabled') === 'true',
+  noiseGateThreshold: Math.max(0.002, Math.min(0.1, _numOr(localStorage.getItem('echo_noise_gate_threshold'), 0.012))),
+  highpassEnabled: localStorage.getItem('echo_highpass_enabled') !== 'false',
+  highpassHz: Math.max(20, Math.min(240, _numOr(localStorage.getItem('echo_highpass_hz'), 120))),
+  vadEnabled: localStorage.getItem('echo_vad_enabled') !== 'false',
+  vadMode: Math.max(0, Math.min(3, parseInt(localStorage.getItem('echo_vad_mode') || '1', 10) || 1)),
+  vadStartWindowFrames: Math.max(4, Math.min(20, parseInt(localStorage.getItem('echo_vad_start_window_frames') || '10', 10) || 10)),
+  vadStartSpeechFrames: Math.max(1, Math.min(20, parseInt(localStorage.getItem('echo_vad_start_speech_frames') || '7', 10) || 7)),
+  vadEndNonSpeechFrames: Math.max(15, Math.min(20, parseInt(localStorage.getItem('echo_vad_end_nonspeech_frames') || '18', 10) || 18)),
+  vadMinSpeechMs: Math.max(100, Math.min(2000, parseInt(localStorage.getItem('echo_vad_min_speech_ms') || '200', 10) || 200)),
+  vadRmsThreshold: Math.max(0.001, Math.min(0.2, _numOr(localStorage.getItem('echo_vad_rms_threshold'), 0.012))),
+  vadMinAvgRms: Math.max(0.001, Math.min(0.2, _numOr(localStorage.getItem('echo_vad_min_avg_rms'), 0.008))),
+  vadOverlapEnabled: localStorage.getItem('echo_vad_overlap_enabled') === 'true',
+  vadOverlapMs: Math.max(200, Math.min(400, parseInt(localStorage.getItem('echo_vad_overlap_ms') || '280', 10) || 280)),
+  vadFrameMs: 20,
+  _vadOverlapTail: new Int16Array(0),
+  _highpassLastX: 0,
+  _highpassLastY: 0,
+  ttsTranslateEnabled: _ttsGetTranslateSettings('echo').enabled,
+  ttsTranslateMode: _ttsGetTranslateSettings('echo').mode,
+  ttsTranslateEnToJaEnabled: _ttsGetTranslateSettings('echo').en2jaEnabled,
+  ttsTranslateJaToEnEnabled: _ttsGetTranslateSettings('echo').ja2enEnabled,
+  ttsTranslateAutoplay: _ttsGetTranslateSettings('echo').autoplay,
+  ttsSbv2Language: (() => {
+    const raw = (localStorage.getItem('echo_tts_sbv2_language') || 'JP').trim();
+    const normalized = raw.toUpperCase();
+    return ['AUTO', 'JP', 'EN', 'ZH'].includes(normalized) ? (normalized === 'AUTO' ? 'auto' : normalized) : 'JP';
+  })(),
+  ttsUseTranslation: false,
+  ttsTextSource: (localStorage.getItem('echo_tts_text_source') || 'raw') === 'translated' ? 'translated' : 'raw',
+  sbv2Length: _numOr(localStorage.getItem('echo_sbv2_length'), 1.0),
+  sbv2SdpRatio: _numOr(localStorage.getItem('echo_sbv2_sdp_ratio'), 0.2),
+  sbv2Noise: _numOr(localStorage.getItem('echo_sbv2_noise'), 0.6),
+  sbv2NoiseW: _numOr(localStorage.getItem('echo_sbv2_noise_w'), 0.8),
+  sbv2StyleWeight: _numOr(localStorage.getItem('echo_sbv2_style_weight'), 1.0),
+  sbv2SplitInterval: _numOr(localStorage.getItem('echo_sbv2_split_interval'), 0.5),
+  sbv2LineSplit: localStorage.getItem('echo_sbv2_line_split') !== 'false',
+  sbv2PitchScale: _numOr(localStorage.getItem('echo_sbv2_pitch_scale'), 1.0),
+  sbv2IntonationScale: _numOr(localStorage.getItem('echo_sbv2_intonation_scale'), 1.0),
+  autoGenerateMinutes: localStorage.getItem('echo_auto_generate_minutes') === 'true',
+  displayStyle:    localStorage.getItem('echo_display_style') || 'lang_serial',
+  displayFilter:   localStorage.getItem('echo_display_filter') || 'all',
+  groupOverflowMode: localStorage.getItem('echo_group_overflow_mode') || 'rolling',
+  parallelMaxSentences: Math.max(1, parseInt(localStorage.getItem('echo_parallel_max_sentences') || '20', 10) || 20),
+  textRevealSeconds: Math.max(0, _numOr(localStorage.getItem('echo_text_reveal_seconds'), 1.5)),
+  _animTimers:     new Map(),
+  _parallelDomCache: null,
+  nextChunkSeq:   1,
+  unackedChunks:  new Map(), // seq -> ArrayBuffer(先頭4byte=seq)
+  _stopResolver:  null,
+  _isStoppingOrSaving: false,
+  _connState: 'disconnected',
+};
+echo.ttsEngine = _normalizeTtsEngine(echo.ttsEngine);
+// Chat/Task のTTSは Echo TTS 設定を既定値として使う
+tts.engine = echo.ttsEngine;
+
+// 旧表示モードの互換変換
+if (!localStorage.getItem('echo_display_style')) {
+  const legacyMode = localStorage.getItem('echo_display_mode') || 'paired';
+  if (legacyMode === 'parallel') echo.displayStyle = 'lang_parallel';
+  else echo.displayStyle = 'lang_serial';
+}
+if (!localStorage.getItem('echo_display_filter')) {
+  const legacyMode = localStorage.getItem('echo_display_mode') || 'paired';
+  if (legacyMode === 'ja_only') echo.displayFilter = 'ja';
+  else if (legacyMode === 'en_only') echo.displayFilter = 'en';
+  else if (legacyMode === 'paired') echo.displayFilter = 'all';
+  else echo.displayFilter = 'all';
+}
+
+// 旧設定との互換: start判定フレーム数が開始窓を超えるとVAD開始が永遠に成立しないため補正
+echo.vadStartSpeechFrames = Math.max(1, Math.min(echo.vadStartWindowFrames, parseInt(echo.vadStartSpeechFrames, 10) || 7));
+
+// Echo 自動スクロール状態
+let _echoAutoScroll = true;
+// Echo MD プレビューモード
+let _echoPreviewMode = false;
+
+function _ttsStripMarkdown(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, '')   // コードブロック除去
+    .replace(/`[^`]*`/g, '')           // インラインコード除去
+    .replace(/!\[.*?\]\(.*?\)/g, '')   // 画像除去
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // リンクはテキストのみ
+    .replace(/^#{1,6}\s+/gm, '')       // 見出し記号除去
+    .replace(/[*_~]{1,3}([^*_~]*)[*_~]{1,3}/g, '$1') // 強調除去
+    .replace(/^\s*[-*+]\s+/gm, '')     // リスト記号除去
+    .replace(/^\s*\d+\.\s+/gm, '')     // 番号付きリスト除去
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function _ttsSplitSentences(text) {
+  const clean = _ttsStripMarkdown(text);
+  // 日英両方の文末区切り
+  const parts = clean.split(/(?<=[。！？\n])|(?<=[.!?])\s+/);
+  const result = [];
+  let buf = '';
+  for (const p of parts) {
+    buf += p;
+    if (buf.trim().length >= 5) {
+      result.push(buf.trim());
+      buf = '';
+    }
+  }
+  if (buf.trim().length > 0) result.push(buf.trim());
+  return result.filter(s => s.length > 0);
+}
+
+function _isAutoSpeakEnabled(sourceMode = 'chat') {
+  if (sourceMode === 'agent') {
+    return !!(agentTts.enabled && agentTts.autoSpeak);
+  }
+  if (sourceMode === 'echo') {
+    return !!echo.autoPlayTts;
+  }
+  return !!(tts.enabled && tts.autoSpeak);
+}
+
+function _logTtsError(err, sourceMode = 'chat', prefix = 'TTS failed') {
+  const message = err?.message || String(err || 'unknown error');
+  addLog('err', 'tts', `[${sourceMode}] ${prefix}: ${message}`);
+}
+
+const _lastPlayedTtsBySource = new Map();
+function playTTS(text, sourceMode = 'chat', extraOpts = {}) {
+  const speechText = String(text || '').trim();
+  if (!speechText) return false;
+  if (!_isAutoSpeakEnabled(sourceMode)) return false;
+  const last = _lastPlayedTtsBySource.get(sourceMode);
+  const now = Date.now();
+  if (last && last.text === speechText && (now - last.at) < 2500) return false;
+  _lastPlayedTtsBySource.set(sourceMode, {text: speechText, at: now});
+  try {
+    const context = sourceMode === 'agent' ? 'agent' : (sourceMode === 'echo' ? 'echo' : 'main');
+    const engine = sourceMode === 'echo' ? echo.ttsEngine : tts.engine;
+    ttsSpeak(speechText, {context, engine, ...extraOpts});
+    return true;
+  } catch (e) {
+    _logTtsError(e, sourceMode, 'playTTS exception');
+    return false;
+  }
+}
+
+function _ttsPreviewText(text, limit = 80) {
+  const v = String(text || '').replace(/\s+/g, ' ').trim();
+  return v.length > limit ? `${v.slice(0, limit)}…` : v;
+}
+
+function _ttsLooksSpeakable(text) {
+  const v = String(text || '').trim();
+  if (!v) return false;
+  return /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}A-Za-z0-9]/u.test(v);
+}
+
+function _normalizeForSbv2JpExtraChunk(text) {
+  const original = String(text || '');
+  let normalized = original.normalize('NFKC');
+  normalized = normalized.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0E}\u{FE0F}]/gu, ' ');
+  normalized = normalized.replace(/\s+/g, ' ').trim();
+  const operations = [];
+  if (normalized !== original) operations.push('client_nfkc_or_emoji_cleanup');
+  return { original, normalized_text: normalized, operations };
+}
+
+function _prepareSpeakableChunksForSbv2(text, source = 'main') {
+  const chunks = _ttsSplitSentences(text);
+  const speakable = [];
+  let skipped = 0;
+  console.info(`[TTSText][split_start] source=${source} text_len=${String(text || '').length}`);
+  chunks.forEach((chunk, index) => {
+    const result = _normalizeForSbv2JpExtraChunk(chunk);
+    const normalized = String(result.normalized_text || '').trim();
+    if (!normalized) {
+      skipped += 1;
+      console.info(`[TTSText][chunk_skip] index=${index} reason=empty_after_normalize original=${JSON.stringify(_ttsPreviewText(chunk))}`);
+      console.info(`[TTS][chunk_skip] index=${index} reason=empty_after_normalize`);
+      return;
+    }
+    const speakableFlag = _ttsLooksSpeakable(normalized);
+    if (!speakableFlag) {
+      skipped += 1;
+      console.info(`[TTSText][chunk_skip] index=${index} reason=unspeakable original=${JSON.stringify(_ttsPreviewText(chunk))} normalized=${JSON.stringify(_ttsPreviewText(normalized))}`);
+      console.info(`[TTS][chunk_skip] index=${index} reason=unspeakable`);
+      return;
+    }
+    console.info(`[TTSText][chunk] index=${index} original=${JSON.stringify(_ttsPreviewText(chunk))} normalized=${JSON.stringify(_ttsPreviewText(normalized))} speakable=true`);
+    speakable.push({ text: normalized, original: chunk });
+  });
+  console.info(`[TTSText][split_done] total=${chunks.length} speakable=${speakable.length} skipped=${skipped}`);
+  return { chunks, speakable, skipped };
+}
+
+function ttsSpeak(text, opts = {}) {
+  const context = opts.context || 'main';
+  const isForced = opts.force === true;
+  let enabled = false;
+  let enabledReason = 'unknown_context';
+  if (context === 'echo') {
+    enabled = isForced || !!echo.autoPlayTts;
+    enabledReason = isForced ? 'force' : `echo.autoPlayTts=${!!echo.autoPlayTts}`;
+  } else if (context === 'agent') {
+    enabled = !!agentTts.enabled;
+    enabledReason = `agentTts.enabled=${!!agentTts.enabled}`;
+  } else {
+    enabled = !!tts.enabled;
+    enabledReason = `tts.enabled=${!!tts.enabled}`;
+  }
+  console.info(`[TTS][gate] context=${context} enabled=${enabled} reason=${enabledReason} flags=${JSON.stringify({
+    force: isForced,
+    ttsEnabled: !!tts.enabled,
+    ttsAutoSpeak: !!tts.autoSpeak,
+    agentEnabled: !!agentTts.enabled,
+    agentAutoSpeak: !!agentTts.autoSpeak,
+    echoAutoPlayTts: !!echo.autoPlayTts,
+    echoTtsTranslateAutoplay: !!echo.ttsTranslateAutoplay,
+    echoTtsTextSource: echo.ttsTextSource || 'raw',
+  })}`);
+  if (!enabled) return;
+  const defaultEngine = context === 'echo' ? echo.ttsEngine : tts.engine;
+  const engine = _normalizeTtsEngine(opts.engine || defaultEngine || null);
+  const source = context === 'agent' ? 'agent' : (context === 'echo' ? 'echo' : 'chat');
+  const splitResult = engine === 'style_bert_vits2'
+    ? _prepareSpeakableChunksForSbv2(text, source)
+    : { speakable: _ttsSplitSentences(text).map((s) => ({ text: s, original: s })) };
+  const sentences = splitResult.speakable.map((s) => s.text).filter(Boolean);
+  const skipTranslate = !!opts.skipTranslate;
+  if (!sentences.length) {
+    _showTtsNoticeOnce('読み上げ可能なテキストがありません');
+    console.info(`[TTS][no_speakable_text] source=${source}`);
+    return;
+  }
+  if (engine === 'style_bert_vits2' && sentences.length > 1) {
+    tts._queue.push({
+      kind: 'style_bert_vits2_batch',
+      context,
+      engine,
+      skipTranslate,
+      sentences,
+      rawText: opts.rawText || text,
+      translatedText: opts.translatedText || '',
+    });
+    if (!tts._playing) _ttsPlayNext();
+    return;
+  }
+  for (const s of sentences) {
+    tts._queue.push({text: s, context, engine, skipTranslate, rawText: opts.rawText || s, translatedText: opts.translatedText || ''});
+  }
+  if (!tts._playing) _ttsPlayNext();
+}
+
+function ttsStop() {
+  if (_ttsStreamAbortController) {
+    try { _ttsStreamAbortController.abort(); } catch (_e) {}
+    _ttsStreamAbortController = null;
+  }
+  tts._queue = [];
+  ttsAudioQueue = [];
+  isTtsPlaying = false;
+  tts._playing = false;
+  releaseCurrentTtsObjectUrl({clearPlayer: true});
+  tts._audio = null;
+  clearTtsBlockedState();
+  hideFloatingTtsPlayer();
+  tts._autoplayBlockedNoticeShown = false;
+  _setSbv2TestPlayToggle(false);
+  _syncSbv2TestUi();
+  _syncRecordingControlsWithTts();
+}
+
+let _currentTtsObjectUrl = null;
+let _lastAudioBlockedSystemNoticeAt = 0;
+let _lastTtsNoticeMessage = '';
+let _lastTtsNoticeAt = 0;
+
+function getTtsPlayer() {
+  return document.getElementById('tts-audio');
+}
+
+function setAudioStatus(text) {
+  return text;
+}
+
+function clearTtsBlockedState() {
+  ttsNeedsUserGesture = false;
+}
+
+function _syncFloatingNativeControls() {
+  const slot = document.getElementById('tts-floating-native-slot');
+  const audio = getTtsPlayer();
+  if (!slot || !audio) return;
+  const showNative = false;
+  audio.controls = showNative;
+  slot.classList.toggle('visible', showNative);
+  if (showNative && !slot.contains(audio)) slot.appendChild(audio);
+}
+
+function showFloatingTtsPlayer(reason = '音声の再生待ち') {
+  const wrap = document.getElementById('tts-floating-player');
+  if (!wrap) return;
+  const title = document.getElementById('tts-floating-title');
+  if (title) title.textContent = reason;
+  wrap.classList.remove('hidden');
+  _syncFloatingNativeControls();
+  console.info(`[TTS][floating_show] queue_len=${ttsAudioQueue.length}`);
+}
+
+function hideFloatingTtsPlayer() {
+  const wrap = document.getElementById('tts-floating-player');
+  if (!wrap) return;
+  wrap.classList.add('hidden');
+  const audio = getTtsPlayer();
+  if (audio && audio.parentElement && audio.parentElement.id === 'tts-floating-native-slot') {
+    document.body.appendChild(audio);
+  }
+}
+
+function toggleNativeAudioPanel() {
+  // 互換用 no-op: ネイティブプレイヤーパネルは廃止
+}
+
+function moveTtsPlayerTo() {
+  // 互換用 no-op: 常設バーのためDOM移動は行わない
+}
+
+async function toggleTtsPlayPause() {
+  await tryPlayTtsQueue({userGesture: true});
+}
+
+function _showTtsNoticeOnce(message) {
+  const msg = String(message || '').trim();
+  if (!msg) return;
+  const now = Date.now();
+  if (_lastTtsNoticeMessage === msg && (now - _lastTtsNoticeAt) < 8000) return;
+  _lastTtsNoticeMessage = msg;
+  _lastTtsNoticeAt = now;
+  addMsg('system', `TTS通知: ${msg}`);
+}
+
+function releaseCurrentTtsObjectUrl({clearPlayer = false} = {}) {
+  const player = getTtsPlayer();
+  if (clearPlayer && player) {
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
+  }
+  if (_currentTtsObjectUrl) {
+    URL.revokeObjectURL(_currentTtsObjectUrl);
+    _currentTtsObjectUrl = null;
+  }
+}
+
+async function enableAudioFromUserGesture() {
+  ttsManualUnlocked = true;
+  clearTtsBlockedState();
+  tts._autoplayBlockedNoticeShown = false;
+  await tryPlayTtsQueue({userGesture: true});
+  return true;
+}
+
+async function playTtsQueueFromFloatingGesture() {
+  ttsManualUnlocked = true;
+  await tryPlayTtsQueue({userGesture: true});
+}
+
+function ttsSpeakSelectedText() {
+  const selected = window.getSelection?.()?.toString?.().trim() || '';
+  if (!selected) {
+    addMsg('system', '読み上げたいテキストを選択してから 🔊 を押してください。');
+    return;
+  }
+  ttsStop();
+  tts.enabled = true;
+  ttsSpeak(selected, {context: mode === 'echo' ? 'echo' : 'main', engine: mode === 'echo' ? echo.ttsEngine : tts.engine, skipTranslate: false});
+  tts.enabled = localStorage.getItem('tts_enabled') === 'true';
+}
+
+function ttsSpeakMsg(btn) {
+  const bubble = btn.closest('.msg').querySelector('.msg-bubble');
+  if (!bubble) return;
+  const text = bubble.dataset.raw || bubble.textContent || '';
+  if (!text.trim()) return;
+  ttsStop();
+  tts.enabled = true;  // ボタンクリック時は enabled に関わらず再生
+  ttsSpeak(text, {context: mode === 'echo' ? 'echo' : 'main', engine: mode === 'echo' ? echo.ttsEngine : tts.engine});
+  tts.enabled = localStorage.getItem('tts_enabled') === 'true'; // 元に戻す
+}
+
+// テキストの言語を簡易判定（日本語文字があれば 'ja'、なければ 'en'）
+function _ttsDetectLang(text) {
+  return /[\u3040-\u9fff]/.test(text) ? 'ja' : 'en';
+}
+
+function _ttsFlagsFromMode(mode) {
+  if (mode === 'ja') return {en2ja: true,  ja2en: false};
+  if (mode === 'en') return {en2ja: false, ja2en: true};
+  if (mode === 'off') return {en2ja: false, ja2en: false};
+  return {en2ja: true, ja2en: true}; // auto (default)
+}
+
+function _ttsModeFromFlags(en2ja, ja2en) {
+  if (en2ja && ja2en) return 'auto';
+  if (en2ja && !ja2en) return 'ja';
+  if (!en2ja && ja2en) return 'en';
+  return 'off';
+}
+
+// TTS 翻訳が必要かどうかを判定し、必要なら翻訳テキストを返す
+async function _ttsMaybeTranslate(text, context = 'main', engine = '') {
+  const normalizedEngine = _normalizeTtsEngine(engine || (context === 'echo' ? echo.ttsEngine : tts.engine));
+  const isSbv2EchoProfile = normalizedEngine === 'style_bert_vits2' && (context === 'echo' || context === 'main');
+  // Echo/SBV2 プロファイルでは echo.ttsUseTranslation のみを翻訳実行フラグとして扱う。
+  // OFF の場合は translate-text を絶対に呼ばない。
+  if (isSbv2EchoProfile && !echo.ttsUseTranslation) return text;
+  const cfg = context === 'echo'
+    ? {
+        translateEnabled: echo.ttsTranslateEnabled,
+        translateJaToEnEnabled: echo.ttsTranslateJaToEnEnabled,
+        translateEnToJaEnabled: echo.ttsTranslateEnToJaEnabled,
+      }
+    : tts;
+  const srcLang = _ttsDetectLang(text);
+  const needTranslate = isSbv2EchoProfile
+    ? !!echo.ttsUseTranslation
+    : (
+      !!cfg.translateEnabled
+      && (srcLang === 'ja'
+        ? !!cfg.translateJaToEnEnabled
+        : !!cfg.translateEnToJaEnabled)
+    );
+  if (!needTranslate) return text;
+  try {
+    if (isSbv2EchoProfile && !echo.ttsUseTranslation) {
+      console.error('[Echo][TTS][BUG] translate-text was called while echo_tts_use_translation=false');
+      return text;
+    }
+    const r = await fetch(API + '/tts/translate-text', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({text, src_lang: srcLang})
+    });
+    const d = await r.json();
+    return d.translated || text;
+  } catch(e) {
+    console.warn('[TTS] translation failed:', e);
+    return text;
+  }
+}
+
+async function _ttsPlayNext() {
+  if (tts._queue.length === 0) {
+    tts._playing = false;
+    _syncRecordingControlsWithTts();
+    return;
+  }
+  tts._playing = true;
+  _syncRecordingControlsWithTts();
+  const queueItem = tts._queue.shift();
+  let sentence = typeof queueItem === 'string' ? queueItem : queueItem?.text;
+  const context = typeof queueItem === 'string' ? 'main' : (queueItem?.context || 'main');
+  const defaultEngine = context === 'echo' ? echo.ttsEngine : tts.engine;
+  const playEngine = _normalizeTtsEngine(
+    typeof queueItem === 'string' ? defaultEngine : (queueItem?.engine || defaultEngine)
+  );
+  const skipTranslate = typeof queueItem === 'string' ? false : !!queueItem?.skipTranslate;
+  const rawText = typeof queueItem === 'string' ? sentence : (queueItem?.rawText || sentence);
+  const translatedText = typeof queueItem === 'string' ? '' : (queueItem?.translatedText || '');
+  if (queueItem && typeof queueItem === 'object' && queueItem.kind === 'style_bert_vits2_batch') {
+    try {
+      await _ttsPlayStyleBertVits2Batch(queueItem);
+    } catch(e) {
+      console.warn('[TTS][SBV2 batch] playback error:', e);
+      _logTtsError(e, context, 'SBV2 batch playback error');
+      if (e?.name === 'TTSNoSpeakableTextError') {
+        _showTtsNoticeOnce('読み上げ可能なテキストがありません');
+      } else if (e?.name === 'NotSupportedError') {
+        addMsg('error', '音声形式エラー');
+      } else if (e?.name === 'TTSNetworkError') {
+        addMsg('error', 'TTS接続エラー');
+      } else if (e?.name === 'TTSModelError') {
+        addMsg('error', `TTS生成エラー: ${e?.message || 'unknown'}`);
+      } else {
+        addMsg('error', `TTS生成エラー: ${e?.message || e}`);
+      }
+    }
+    _ttsPlayNext();
+    return;
+  }
+  if (!sentence) {
+    tts._playing = false;
+    _syncRecordingControlsWithTts();
+    return;
+  }
+  try {
+    // 翻訳TTS処理（有効な場合）
+    sentence = skipTranslate ? sentence : await _ttsMaybeTranslate(sentence, context, playEngine);
+    {
+      const blob = await _ttsFetchAudio(sentence, playEngine, context, {rawText, translatedText});
+      const result = await enqueueTtsAudioBlob(blob, `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, {
+        context,
+        source: context === 'echo' ? 'echo' : (context === 'agent' ? 'agent' : 'chat'),
+        engine: playEngine,
+        textPreview: String(sentence || '').slice(0, 60),
+      });
+      if (result?.reason === 'blocked') return;
+    }
+  } catch(e) {
+    _logTtsError(e, context, 'ttsPlayNext error');
+    if (e?.name === 'TTSNoSpeakableTextError') {
+      _showTtsNoticeOnce('読み上げ可能なテキストがありません');
+    } else if (e?.name === 'NotSupportedError') {
+      addMsg('error', '音声形式エラー');
+    } else if (e?.name === 'TTSNetworkError') {
+      addMsg('error', 'TTS接続エラー');
+    } else if (e?.name === 'TTSModelError') {
+      addMsg('error', `TTS生成エラー: ${e?.message || 'unknown'}`);
+    } else {
+      console.warn('[TTS][play_error] playback error:', e);
+      addMsg('error', `TTS生成エラー: ${e?.message || e}`);
+    }
+  }
+  _ttsPlayNext();
+}
+
+function _shouldForceSbv2LineSplitOff(sentences = []) {
+  if (!Array.isArray(sentences) || sentences.length < 2) return false;
+  const shortCount = sentences.filter((s) => String(s || '').trim().length <= 60).length;
+  return shortCount >= Math.ceil(sentences.length * 0.5);
+}
+
+function _pickStyleBertBatchItemProps(payload = {}) {
+  const keys = [
+    'style', 'style_weight', 'speaker', 'speaker_name', 'language', 'speed',
+    'caller', 'route', 'use_translation', 'text_source', 'raw_text', 'translated_text', 'length', 'sdp_ratio', 'noise', 'noise_w',
+    'split_interval', 'line_split', 'pitch_scale', 'intonation_scale'
+  ];
+  const out = {};
+  keys.forEach((k) => {
+    if (Object.prototype.hasOwnProperty.call(payload, k)) out[k] = payload[k];
+  });
+  return out;
+}
+
+async function _ttsPlayStyleBertVits2Batch(queueItem = {}) {
+  const context = queueItem.context || 'main';
+  const sentences = Array.isArray(queueItem.sentences)
+    ? queueItem.sentences.map((s) => String(s || '').trim()).filter(Boolean)
+    : [];
+  if (sentences.length < 2) throw new Error('style_bert_vits2 batch requires multi sentences');
+  const skipTranslate = !!queueItem.skipTranslate;
+  const translatedSentences = [];
+  const translatedPairs = [];
+  let skippedAfterTranslate = 0;
+  for (let index = 0; index < sentences.length; index += 1) {
+    const sentence = sentences[index];
+    const translated = skipTranslate ? sentence : await _ttsMaybeTranslate(sentence, context, 'style_bert_vits2');
+    const result = _normalizeForSbv2JpExtraChunk(translated);
+    const normalized = String(result.normalized_text || '').trim();
+    if (!normalized || !_ttsLooksSpeakable(normalized)) {
+      skippedAfterTranslate += 1;
+      console.info(`[TTSText][chunk_skip] index=${index} reason=empty_or_unspeakable_after_translate original=${JSON.stringify(_ttsPreviewText(sentence))}`);
+      console.info(`[TTS][chunk_skip] index=${index} reason=empty_or_unspeakable_after_translate`);
+      continue;
+    }
+    translatedSentences.push(normalized);
+    translatedPairs.push({raw: sentence, text: normalized});
+  }
+  if (!translatedSentences.length) {
+    console.info('[TTS][no_speakable_text] reason=all_chunks_skipped_after_translate');
+    _showTtsNoticeOnce('読み上げ可能なテキストがありません');
+    return;
+  }
+  if (skippedAfterTranslate > 0) {
+    console.info(`[TTS][notice] skipped ${skippedAfterTranslate} empty/emoji-only chunks`);
+  }
+  const forceLineSplitOff = _shouldForceSbv2LineSplitOff(translatedSentences);
+  const common = _buildStyleBertVits2RequestBody({
+    text: translatedSentences[0],
+    engine: 'style_bert_vits2',
+    context,
+    opts: {
+      rawText: translatedPairs[0]?.raw || sentences[0],
+      translatedText: translatedSentences[0],
+      forceLineSplitOff,
+    },
+  });
+  const items = translatedSentences.map((text, index) => {
+    const payload = _buildStyleBertVits2RequestBody({
+      text,
+      engine: 'style_bert_vits2',
+      context,
+      opts: {
+        rawText: translatedPairs[index]?.raw || text,
+        translatedText: translatedSentences[index] || '',
+        forceLineSplitOff,
+      },
+    });
+    return {
+      id: `seg-${String(index + 1).padStart(3, '0')}`,
+      text,
+      ..._pickStyleBertBatchItemProps(payload),
+    };
+  });
+  // まずSSEストリーミング合成を試す: 文単位で合成完了したセグメントから順に受信し、
+  // 受信即キュー投入→自動連続再生されるため、最初の音声までの待ち時間が大幅に減る。
+  const streamBody = {
+    ...common,
+    text: translatedSentences.join(' '),
+    route: '/tts/synthesize-stream',
+    items,
+  };
+  const streamResult = await _ttsStreamBatchAudio(streamBody, {context, translatedSentences});
+  if (streamResult?.ok) return;
+  console.warn(`[TTS][stream_fallback_to_batch] reason=${streamResult?.reason || 'unknown'}`);
+
+  const body = {
+    ...common,
+    text: translatedSentences.join(' '),
+    route: '/tts/synthesize-batch',
+    output: 'wav',
+    items,
+  };
+  const blob = await _ttsFetchBatchAudio(body, {fallbackMessage: 'Style-Bert-VITS2 バッチ音声合成に失敗しました。'});
+  const result = await enqueueTtsAudioBlob(blob, `tts-batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, {
+    context,
+    source: context === 'echo' ? 'echo' : (context === 'agent' ? 'agent' : 'chat'),
+    engine: 'style_bert_vits2',
+    engine_key: 'style_bert_vits2',
+    kind: 'batch',
+    textPreview: String(translatedSentences[0] || '').slice(0, 60),
+  });
+  if (result?.reason === 'blocked') return;
+}
+
+// SSEストリーミング版バッチTTS受信: /tts/synthesize-stream からセグメント単位の
+// 音声(base64)を受信し、届いた順に再生キューへ投入する。再生は ttsAudioQueue が
+// 逐次処理するため、後続セグメントの合成中でも先頭から連続再生される。
+// 失敗時は {ok:false, reason} を返し、呼び出し元が従来のバッチ合成へフォールバックする。
+let _ttsStreamAbortController = null;
+
+async function _ttsStreamBatchAudio(body = {}, opts = {}) {
+  const context = opts.context || 'main';
+  if (_ttsStreamAbortController) {
+    try { _ttsStreamAbortController.abort(); } catch (_e) {}
+  }
+  const abortController = new AbortController();
+  _ttsStreamAbortController = abortController;
+  let resp = null;
+  try {
+    resp = await fetch(API + '/tts/synthesize-stream', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+      signal: abortController.signal,
+    });
+  } catch (e) {
+    if (_ttsStreamAbortController === abortController) _ttsStreamAbortController = null;
+    return {ok: false, reason: `network_error:${e?.message || e}`};
+  }
+  const ct = String(resp.headers.get('Content-Type') || '').toLowerCase();
+  if (!resp.ok || !ct.startsWith('text/event-stream') || !resp.body) {
+    return {ok: false, reason: `http_${resp.status}_ct_${ct || 'none'}`};
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let enqueued = 0;
+  let failed = 0;
+  let serverError = '';
+  const startedAt = Date.now();
+  try {
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      let sep;
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const rawEvent = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        const dataLine = rawEvent.split('\n').find((l) => l.startsWith('data: '));
+        if (!dataLine) continue;
+        let ev = null;
+        try { ev = JSON.parse(dataLine.slice(6)); } catch (_e) { continue; }
+        if (ev.type === 'segment' && ev.audio_base64) {
+          let blob = null;
+          try {
+            const bin = atob(ev.audio_base64);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+            blob = new Blob([bytes], {type: ev.media_type || 'audio/wav'});
+          } catch (_e) {
+            blob = null;
+          }
+          if (!blob || blob.size <= 0) {
+            failed += 1;
+            console.warn(`[TTS][stream_segment_decode_error] id=${ev.id || ''}`);
+            continue;
+          }
+          enqueued += 1;
+          if (enqueued === 1) {
+            console.info(`[TTS][stream_first_segment] id=${ev.id || ''} latency_ms=${Date.now() - startedAt}`);
+          }
+          // await しない: 再生完了を待つとストリーム読み出しが止まるため、
+          // キュー（ttsAudioQueue）の逐次再生に委ねる。
+          enqueueTtsAudioBlob(blob, `tts-stream-${ev.id || enqueued}-${Date.now()}`, {
+            context,
+            source: context === 'echo' ? 'echo' : (context === 'agent' ? 'agent' : 'chat'),
+            engine: 'style_bert_vits2',
+            engine_key: 'style_bert_vits2',
+            kind: 'stream',
+            textPreview: String((opts.translatedSentences || [])[(ev.index || 1) - 1] || '').slice(0, 60),
+          });
+        } else if (ev.type === 'segment_error') {
+          failed += 1;
+          console.warn(`[TTS][stream_segment_error] id=${ev.id || ''} error=${ev.error || ''}`);
+        } else if (ev.type === 'error') {
+          serverError = String(ev.error || 'stream error');
+          console.warn(`[TTS][stream_error] error=${serverError}`);
+        } else if (ev.type === 'done') {
+          console.info(`[TTS][stream_done] total=${ev.total} succeeded=${ev.succeeded} failed=${ev.failed} elapsed_ms=${ev.elapsed_ms}`);
+        }
+      }
+    }
+  } catch (e) {
+    // 受信途中の中断（ttsStop含む）: 既に受信済みのセグメントの扱いは呼び出し元に委ねる
+    console.warn(`[TTS][stream_read_error] err=${e?.message || e}`);
+    if (enqueued > 0) return {ok: true, enqueued, failed, partial: true};
+    return {ok: false, reason: `read_error:${e?.message || e}`};
+  } finally {
+    if (_ttsStreamAbortController === abortController) _ttsStreamAbortController = null;
+  }
+  if (enqueued > 0) return {ok: true, enqueued, failed};
+  return {ok: false, reason: serverError || (failed > 0 ? 'all_segments_failed' : 'no_segments')};
+}
+
+async function _ttsFetchAudio(text, engine = tts.engine, context = 'main', opts = {}) {
+  engine = _normalizeTtsEngine(engine);
+  if (engine === 'style_bert_vits2') {
+    const prepared = await _ensureStyleBertVits2Prepared({context});
+    if (!prepared?.ready) throw new Error(prepared?.message || 'Style-Bert-VITS2 の初期セットアップに失敗しました。');
+  }
+  const body = _buildTtsRequestBodyByEngine({ text, engine, context, opts });
+  const resp = await fetch(API + '/tts/synthesize', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const detail = _getUserFacingApiErrorMessage(err, '音声合成に失敗しました。');
+    const statusCode = Number(err?.status_code || err?.detail?.status_code || resp.status || 0);
+    const isNoSpeakable = statusCode === 422 && /読み上げ可能なテキストがありません/.test(detail);
+    if (isNoSpeakable) {
+      console.info('[TTS][no_speakable_text] status=422');
+      const ex = new Error(detail);
+      ex.name = 'TTSNoSpeakableTextError';
+      throw ex;
+    }
+    if (resp.status >= 500 || resp.status === 0) {
+      console.warn(`[TTS][network_error] status=${resp.status} detail=${JSON.stringify(detail)}`);
+      const ex = new Error('TTS接続エラー');
+      ex.name = 'TTSNetworkError';
+      throw ex;
+    }
+    const message = detail;
+    console.warn(`[TTS][model_error] status=${resp.status} detail=${JSON.stringify(message)}`);
+    const ex = new Error(message || 'TTS生成エラー');
+    ex.name = 'TTSModelError';
+    throw ex;
+  }
+  if (engine === 'style_bert_vits2') {
+    console.info(`[Style-Bert-VITS2][input] final_text=${JSON.stringify(_ttsPreviewText(text, 120))} looks_japanese=${_ttsLooksSpeakable(text)}`);
+  }
+  return await _ttsReadValidatedAudioBlob(resp, {route: '/tts/synthesize', engine});
+}
+
+async function _ttsFetchBatchAudio(body = {}, opts = {}) {
+  const resp = await fetch(API + '/tts/synthesize-batch', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const fallback = opts.fallbackMessage || 'バッチ音声合成に失敗しました。';
+    throw new Error(_getUserFacingApiErrorMessage(err, fallback));
+  }
+  return await _ttsReadValidatedAudioBlob(resp, {route: '/tts/synthesize-batch', engine: body?.engine || 'unknown'});
+}
+
+async function _ttsReadValidatedAudioBlob(resp, meta = {}) {
+  const ct = String(resp.headers.get('Content-Type') || '').toLowerCase();
+  if (!ct.startsWith('audio/')) {
+    const text = await resp.text().catch(() => '');
+    console.warn(`[TTS][response_not_audio] route=${meta.route || 'unknown'} engine=${meta.engine || 'unknown'} content_type=${ct || 'none'} body_preview=${JSON.stringify(String(text || '').slice(0, 120))}`);
+    const ex = new Error('TTSレスポンスが音声形式ではありません');
+    ex.name = 'TTSModelError';
+    throw ex;
+  }
+  const blob = await resp.blob();
+  if (!blob || blob.size <= 0) {
+    console.warn(`[TTS][empty_blob] route=${meta.route || 'unknown'} engine=${meta.engine || 'unknown'} content_type=${ct || blob?.type || 'none'} blob_size=${blob?.size || 0}`);
+    const ex = new Error('TTS音声が空です');
+    ex.name = 'TTSModelError';
+    throw ex;
+  }
+  if (!String(blob.type || ct).toLowerCase().startsWith('audio/')) {
+    console.warn(`[TTS][not_supported] route=${meta.route || 'unknown'} engine=${meta.engine || 'unknown'} content_type=${ct || 'none'} blob_type=${blob.type || 'none'} blob_size=${blob.size}`);
+    const ex = new Error('音声形式エラー');
+    ex.name = 'NotSupportedError';
+    throw ex;
+  }
+  return blob;
+}
+
+function _getUserFacingApiErrorMessage(err, fallback = '処理に失敗しました。') {
+  if (!err || typeof err !== 'object') return fallback;
+  const userMessage = typeof err.user_message === 'string' ? err.user_message.trim() : '';
+  if (userMessage) return userMessage;
+  const detail = typeof err.detail === 'string' ? err.detail.trim() : '';
+  if (!detail && err.detail && typeof err.detail === 'object' && typeof err.detail.error === 'string') {
+    return err.detail.error;
+  }
+  if (!detail) return fallback;
+  return detail.length > 200 ? fallback : detail;
+}
+
+function _buildTtsRequestBodyByEngine({text, engine, context = 'main', opts = {}}) {
+  return _buildStyleBertVits2RequestBody({
+    text,
+    engine: 'style_bert_vits2',
+    context,
+    opts,
+  });
+}
+
+function _buildDefaultTtsRequestBody({text, engine}) {
+  return {text, engine, speed: tts.speed};
+}
+
+function _buildStyleBertVits2RequestBody({text, engine, context, opts = {}}) {
+  const modelId = context === 'echo'
+    ? _normalizeStyleBertVits2Model(echo.styleBertVits2Model || tts.styleBertVits2Model)
+    : _normalizeStyleBertVits2Model(tts.styleBertVits2Model || echo.styleBertVits2Model);
+  const selectedDevice = context === 'echo'
+    ? (echo.ttsDevice || tts.ttsDevice || localStorage.getItem('tsasr_tts_device') || localStorage.getItem('tts_device') || 'cpu')
+    : (tts.ttsDevice || echo.ttsDevice || localStorage.getItem('tts_device') || localStorage.getItem('tsasr_tts_device') || 'cpu');
+  const explicitLanguage = (opts.language || '').trim();
+  const selectedEchoLanguage = _normalizeEchoSbv2Language(
+    (context === 'echo' || context === 'main') ? echo.ttsSbv2Language : 'JP'
+  );
+  const fallbackLang = selectedEchoLanguage === 'auto' ? 'JP' : selectedEchoLanguage;
+  const effectiveLanguage = context === 'echo' ? _effectiveEchoSbv2Language() : fallbackLang;
+  const selectedMeta = _getSelectedSbv2Meta();
+  const isJpExtra = _isJpExtraModelMeta(selectedMeta);
+  const language = isJpExtra ? 'JP' : (explicitLanguage || effectiveLanguage);
+  const forceLineSplitOff = !!opts.forceLineSplitOff;
+  const body = {
+    text,
+    engine,
+    engine_key: 'style_bert_vits2',
+    model: modelId,
+    device: selectedDevice,
+    language,
+    caller: context === 'echo' ? 'echo' : 'chat',
+    route: '/tts/synthesize',
+    text_source: echo.ttsTextSource || 'raw',
+    raw_text: String(opts.rawText || text || ''),
+    translated_text: String(opts.translatedText || ''),
+    length: _numOr(echo.sbv2Length, 1.0),
+    sdp_ratio: _numOr(echo.sbv2SdpRatio, 0.2),
+    noise: _numOr(echo.sbv2Noise, 0.6),
+    noise_w: _numOr(echo.sbv2NoiseW, 0.8),
+    style_weight: _numOr(echo.sbv2StyleWeight, 1.0),
+    split_interval: forceLineSplitOff ? 0.0 : _numOr(echo.sbv2SplitInterval, 0.5),
+    line_split: forceLineSplitOff ? false : !!echo.sbv2LineSplit,
+    pitch_scale: _numOr(echo.sbv2PitchScale, 1.0),
+    intonation_scale: _numOr(echo.sbv2IntonationScale, 1.0),
+  };
+  _applyReservedTtsOptions(body, opts, {
+    allowStyle: true,
+    allowSpeaker: true,
+    allowSpeed: true,
+    allowLanguage: true,
+  });
+  _validateStyleBertVits2RequestBodyOrThrow(body);
+  if (context === 'main') {
+    console.debug('[TTS][SBV2][main] request payload', {
+      text_preview: String(text || '').slice(0, 140),
+      payload: body,
+    });
+  }
+  return body;
+}
+
+function _applyReservedTtsOptions(body, opts = {}, allow = {}) {
+  if (allow.allowStyle && typeof opts.style === 'string' && opts.style.trim()) body.style = opts.style.trim();
+  if (allow.allowSpeaker && typeof opts.speaker === 'string' && opts.speaker.trim()) body.speaker = opts.speaker.trim();
+  if (allow.allowLanguage && typeof opts.language === 'string' && opts.language.trim()) body.language = opts.language.trim();
+  if (allow.allowSpeed && Number.isFinite(Number(opts.speed))) body.speed = Number(opts.speed);
+}
+
+function _validateStyleBertVits2RequestBodyOrThrow(body = {}) {
+  const requiredKeys = ['text', 'engine', 'model'];
+  const missing = requiredKeys.filter((k) => !String(body[k] || '').trim());
+  if (!missing.length) return;
+  const labelMap = {text: 'text', engine: 'engine', model: 'model'};
+  addMsg('system', `Style-Bert-VITS2 の送信前チェックで不足があります: ${missing.map((k) => labelMap[k]).join(', ')}`);
+  throw new Error(`Style-Bert-VITS2 requires ${missing.join(', ')}`);
+}
+
+
+
+let _sbv2TestAudioBlob = null;
+let _sbv2TestBusy = false;
+let _sbv2TestVoiceRecorder = null;
+let _sbv2TestVoiceRecording = false;
+let _sbv2TestVoiceChunks = [];
+
+
+function _isRecordingBlockedByTts() {
+  return !!(tts._playing || _sbv2TestBusy || ttsAudioQueue.length > 0);
+}
+
+function _isEchoRecordingBlockedByTts() {
+  // Echo は TTS再生中でも常時録音を継続可能にする
+  return false;
+}
+
+async function _echoRefreshAudioDeviceSelectors() {
+  const inSel = document.getElementById('echo-asr-input-device');
+  const outSel = document.getElementById('echo-tts-output-device');
+  const inNote = document.getElementById('echo-asr-input-device-note');
+  const outNote = document.getElementById('echo-tts-output-device-note');
+  if (!inSel && !outSel) return;
+  const fallbackIn = [{id: 'default', label: 'システム既定'}];
+  const fallbackOut = [{id: 'default', label: 'システム既定（iPhoneはOS側で切替）'}];
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    if (inSel) {
+      inSel.innerHTML = fallbackIn.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      inSel.value = echo.asrInputDeviceId || 'default';
+    }
+    if (outSel) {
+      outSel.innerHTML = fallbackOut.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      outSel.value = echo.ttsOutputDeviceId || 'default';
+    }
+    if (inNote) inNote.textContent = 'このブラウザは入力デバイス一覧取得に未対応です。';
+    if (outNote) outNote.textContent = 'このブラウザは出力デバイス一覧取得に未対応です。';
+    return;
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const ins = devices.filter((d) => d.kind === 'audioinput');
+    const outs = devices.filter((d) => d.kind === 'audiooutput');
+    if (inSel) {
+      const inputOpts = [
+        {id: 'default', label: 'システム既定'},
+        ...ins.map((d, idx) => ({id: d.deviceId, label: d.label || `マイク ${idx + 1}`})),
+      ];
+      inSel.innerHTML = inputOpts.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      inSel.value = inputOpts.some((x) => x.id === echo.asrInputDeviceId) ? echo.asrInputDeviceId : 'default';
+    }
+    if (outSel) {
+      const outputOpts = [
+        {id: 'default', label: 'システム既定（iPhoneはOS側で切替）'},
+        ...outs.map((d, idx) => ({id: d.deviceId, label: d.label || `出力 ${idx + 1}`})),
+      ];
+      outSel.innerHTML = outputOpts.map((x) => `<option value="${x.id}">${x.label}</option>`).join('');
+      outSel.value = outputOpts.some((x) => x.id === echo.ttsOutputDeviceId) ? echo.ttsOutputDeviceId : 'default';
+    }
+    if (inNote) inNote.textContent = ins.length ? '接続済みマイク/イヤホンを選択できます。' : 'マイク一覧を取得するには一度録音許可が必要な場合があります。';
+    if (outNote) {
+      outNote.textContent = outs.length
+        ? '対応ブラウザではTTS出力先を選択できます。iPhone/SafariではOS側切替を利用してください。'
+        : '出力先の列挙不可。iPhone/SafariではOS側の出力切替を利用してください。';
+    }
+  } catch (e) {
+    if (inNote) inNote.textContent = `入力デバイス一覧取得に失敗: ${e.message || String(e)}`;
+    if (outNote) outNote.textContent = `出力デバイス一覧取得に失敗: ${e.message || String(e)}`;
+  }
+}
+
+function _syncRecordingControlsWithTts() {
+  const blocked = _isRecordingBlockedByTts();
+  const reason = blocked ? 'TTS生成/再生中は録音を開始できません。' : '';
+  _setMicState(voiceRecording, blocked || voiceRecording, voiceTarget || 'chat');
+  const sbv2Btn = document.getElementById('sbv2-test-asr-btn');
+  if (sbv2Btn && !_sbv2TestVoiceRecording) {
+    sbv2Btn.disabled = blocked || _sbv2TestBusy;
+    sbv2Btn.title = reason;
+  }
+  const echoBtn = document.getElementById('echo-record-btn');
+  if (echoBtn && !echo.recording) {
+    const echoBlocked = _isEchoRecordingBlockedByTts();
+    echoBtn.disabled = echoBlocked;
+    echoBtn.title = echoBlocked ? reason : '';
+  }
+  if (blocked && voiceRecording && voiceRecorder) {
+    voiceRecording = false;
+    _stopVoiceLevelMonitoring(voiceTarget);
+    _setMicState(false, true, voiceTarget || 'chat');
+    voiceRecorder.stop();
+  }
+}
+
+
+function _setSbv2TestStatus(msg = '待機中', isError = false) {
+  const el = document.getElementById('sbv2-test-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = isError ? 'var(--red)' : 'var(--text3)';
+}
+
+function _setSbv2TestPlayToggle(isPlaying = false) {
+  const btn = document.getElementById('sbv2-test-play-btn');
+  if (!btn) return;
+  const hasAudio = !!_sbv2TestAudioBlob;
+  btn.textContent = isPlaying ? '停止' : '再生';
+  btn.style.background = (isPlaying || hasAudio) ? 'var(--red)' : 'var(--bg3)';
+  btn.style.color = (isPlaying || hasAudio) ? 'var(--bg)' : 'var(--text2)';
+}
+
+function _syncSbv2TestUi() {
+  const row = document.getElementById('tsasr-sbv2-test-row');
+  if (!row) return;
+  const isSbv2 = _isEchoStyleBertVits2Selected();
+  row.style.display = isSbv2 ? '' : 'none';
+  if (!isSbv2) return;
+  const hasModel = !!(echo.styleBertVits2Model || '').trim();
+  const canPlay = hasModel && !!_sbv2TestAudioBlob && !_sbv2TestBusy;
+  const genBtn = document.getElementById('sbv2-test-generate-btn');
+  const asrBtn = document.getElementById('sbv2-test-asr-btn');
+  const playBtn = document.getElementById('sbv2-test-play-btn');
+  const dlBtn = document.getElementById('sbv2-test-download-btn');
+  const input = document.getElementById('sbv2-test-text');
+  if (genBtn) genBtn.disabled = _sbv2TestBusy || !hasModel;
+  if (asrBtn) asrBtn.disabled = _sbv2TestBusy || _isRecordingBlockedByTts();
+  if (playBtn) playBtn.disabled = !canPlay;
+  if (dlBtn) dlBtn.disabled = _sbv2TestBusy || !_sbv2TestAudioBlob;
+  if (input) input.disabled = _sbv2TestBusy;
+  _setSbv2TestPlayToggle(false);
+  if (!hasModel) _setSbv2TestStatus('Style-Bert-VITS2 モデルを選択してください', true);
+}
+
+async function runSbv2TestGenerate() {
+  if (!_isEchoStyleBertVits2Selected()) {
+    _setSbv2TestStatus('Style-Bert-VITS2 選択時のみ利用可能', true);
+    return;
+  }
+  const modelId = (echo.styleBertVits2Model || '').trim();
+  if (!modelId) {
+    _setSbv2TestStatus('Style-Bert-VITS2 モデル未選択です', true);
+    _syncSbv2TestUi();
+    return;
+  }
+  if (_sbv2TestBusy) return;
+  const input = document.getElementById('sbv2-test-text');
+  const text = input?.value?.trim() || '';
+  if (!text) {
+    _setSbv2TestStatus('テスト文を入力してください', true);
+    input?.focus();
+    return;
+  }
+  _sbv2TestBusy = true;
+  _sbv2TestAudioBlob = null;
+  _syncRecordingControlsWithTts();
+  _syncSbv2TestUi();
+  try {
+    ttsStop();
+    _setSbv2TestStatus('生成中...');
+    const selectedLanguage = _effectiveEchoSbv2Language();
+    const blob = await _ttsFetchAudio(text, 'style_bert_vits2', 'echo', {
+      rawText: text,
+      translatedText: text,
+      language: selectedLanguage,
+    });
+    if (!blob || blob.size <= 0) throw new Error('音声データが空です');
+    _sbv2TestAudioBlob = blob;
+    _setSbv2TestStatus('生成完了');
+  } catch (e) {
+    _setSbv2TestStatus(`生成失敗: ${e.message || e}`, true);
+    _logTtsError(e, 'echo', 'SBV2 test generate failed');
+  } finally {
+    _sbv2TestBusy = false;
+    _syncRecordingControlsWithTts();
+    _syncSbv2TestUi();
+  }
+}
+
+async function toggleSbv2TestPlayback() {
+  if (tts._playing) {
+    ttsStop();
+    _setSbv2TestStatus('停止');
+    _setSbv2TestPlayToggle(false);
+    _syncSbv2TestUi();
+    return;
+  }
+  if (!_sbv2TestAudioBlob) {
+    _setSbv2TestStatus('先に生成してください', true);
+    return;
+  }
+  _setSbv2TestPlayToggle(true);
+  _setSbv2TestStatus('再生中...');
+  const result = await enqueueTtsAudioBlob(_sbv2TestAudioBlob, `sbv2-test-${Date.now()}`, {
+    context: 'echo',
+    source: 'echo',
+    engine: 'style_bert_vits2',
+    kind: 'sbv2_test',
+  });
+  _setSbv2TestPlayToggle(false);
+  if (result?.ok === false) _setSbv2TestStatus('再生できませんでした', true);
+  else _setSbv2TestStatus('✓ 再生完了');
+  _syncSbv2TestUi();
+}
+
+function downloadSbv2TestAudio() {
+  if (!_sbv2TestAudioBlob || _sbv2TestAudioBlob.size <= 0) {
+    _setSbv2TestStatus('ダウンロード対象の音声がありません（先に生成してください）', true);
+    return;
+  }
+  try {
+    const model = _normalizeStyleBertVits2Model(echo.styleBertVits2Model).replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 40);
+    const ts = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, 'Z');
+    const filename = `sbv2-sample-${model}-${ts}.wav`;
+    const url = URL.createObjectURL(_sbv2TestAudioBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    _setSbv2TestStatus('✓ 生成音声をダウンロードしました');
+  } catch (e) {
+    _setSbv2TestStatus(`ダウンロード失敗: ${e.message || e}`, true);
+  }
+}
+
+async function toggleSbv2TestVoiceInput() {
+  if (!_sbv2TestVoiceRecording && _isRecordingBlockedByTts()) {
+    _setSbv2TestStatus('TTS生成/再生中は録音できません。', true);
+    return;
+  }
+  if (_sbv2TestVoiceRecording && _sbv2TestVoiceRecorder) {
+    _sbv2TestVoiceRecording = false;
+    const btn = document.getElementById('sbv2-test-asr-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '■ 停止';
+    }
+    _sbv2TestVoiceRecorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    _setSbv2TestStatus('このブラウザは音声録音に対応していません。', true);
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    _sbv2TestVoiceRecorder = new MediaRecorder(stream, {mimeType});
+    _sbv2TestVoiceChunks = [];
+    _sbv2TestVoiceRecorder.ondataavailable = (e) => { if (e.data?.size > 0) _sbv2TestVoiceChunks.push(e.data); };
+    _sbv2TestVoiceRecorder.onstop = async () => {
+      _sbv2TestVoiceRecording = false;
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(_sbv2TestVoiceChunks, {type: mimeType});
+      _sbv2TestVoiceRecorder = null;
+      _sbv2TestVoiceChunks = [];
+      await transcribeVoiceBlob(blob, {
+        targetInputId: 'sbv2-test-text',
+        statusFn: _setSbv2TestStatus,
+        replace: false,
+        skipChatError: true,
+        skipMainMicState: true,
+      });
+      const btn = document.getElementById('sbv2-test-asr-btn');
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🎙 ASR入力';
+        btn.style.borderColor = 'var(--border)';
+        btn.style.color = 'var(--text2)';
+      }
+      _syncSbv2TestUi();
+    };
+    _sbv2TestVoiceRecorder.start();
+    _sbv2TestVoiceRecording = true;
+    const btn = document.getElementById('sbv2-test-asr-btn');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '■ 停止';
+      btn.style.borderColor = 'var(--red)';
+      btn.style.color = 'var(--red)';
+    }
+    _setSbv2TestStatus('録音中... もう一度押すと停止します');
+  } catch (e) {
+    _sbv2TestVoiceRecording = false;
+    _setSbv2TestStatus('マイク起動に失敗: ' + (e.message || String(e)), true);
+    const btn = document.getElementById('sbv2-test-asr-btn');
+    if (btn) {
+      btn.textContent = '🎙 ASR入力';
+      btn.style.borderColor = 'var(--border)';
+      btn.style.color = 'var(--text2)';
+    }
+  }
+}
+
+
+
+function enqueueTtsAudioBlob(blob, id, meta = {}) {
+  return new Promise((resolve) => {
+    const item = {blob, id: id || `tts-${Date.now()}`, meta, resolve};
+    ttsAudioQueue.push(item);
+    const source = item.meta?.source || item.meta?.context || 'chat';
+    console.info(`[TTS][enqueue] source=${source} id=${item.id} queue_len=${ttsAudioQueue.length}`);
+    tryPlayTtsQueue({userGesture: false});
+  });
+}
+
+function _cleanupCurrentTtsSource({clearPlayer = false} = {}) {
+  const player = getTtsPlayer();
+  if (clearPlayer && player) {
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
+  }
+  if (_currentTtsObjectUrl) {
+    URL.revokeObjectURL(_currentTtsObjectUrl);
+    _currentTtsObjectUrl = null;
+  }
+}
+
+async function tryPlayTtsQueue({userGesture = false} = {}) {
+  if (isTtsPlaying) return;
+  if (document.visibilityState !== 'visible') {
+    console.info('[TTS][play_waiting_visible]');
+    return;
+  }
+  if (ttsAudioQueue.length === 0) {
+    tts._audio = null;
+    tts._playing = false;
+    _syncRecordingControlsWithTts();
+    hideFloatingTtsPlayer();
+    clearTtsBlockedState();
+    console.info('[TTS][queue_empty_hide_floating]');
+    return;
+  }
+  const item = ttsAudioQueue.shift();
+  const {blob, id, resolve} = item;
+  const player = getTtsPlayer();
+  if (!player) {
+    console.warn('[TTS][play_error] reason=missing_player');
+    if (typeof resolve === 'function') resolve({ok: false, reason: 'missing_player'});
+    return;
+  }
+  const requestedSinkId = item?.meta?.context === 'echo'
+    ? (echo.ttsOutputDeviceId || 'default')
+    : 'default';
+  if (requestedSinkId && requestedSinkId !== 'default' && typeof player.setSinkId === 'function') {
+    try {
+      await player.setSinkId(requestedSinkId);
+    } catch (e) {
+      console.warn(`[TTS][sink_change_failed] id=${id} sink=${requestedSinkId} err=${e?.message || e}`);
+    }
+  }
+  _cleanupCurrentTtsSource({clearPlayer: false});
+  const url = URL.createObjectURL(blob);
+  _currentTtsObjectUrl = url;
+  player.src = url;
+  tts._audio = player;
+  tts._playing = true;
+  isTtsPlaying = true;
+  _syncRecordingControlsWithTts();
+  console.info('[TTS][audio_reuse] same_element=true');
+  console.info(`[TTS][${userGesture ? 'manual_play_attempt' : 'autoplay_attempt'}] id=${id}`);
+
+  const done = (result = {ok: true, reason: 'ended'}) => {
+    player.onended = null;
+    player.onerror = null;
+    player.onabort = null;
+    _cleanupCurrentTtsSource({clearPlayer: true});
+    tts._audio = null;
+    tts._playing = false;
+    isTtsPlaying = false;
+    _syncRecordingControlsWithTts();
+    if (typeof resolve === 'function') resolve(result);
+    tryPlayTtsQueue({userGesture: false});
+    if (ttsAudioQueue.length === 0 && voiceContinuousEnabled) {
+      _scheduleContinuousVoiceRestart('tts_done', 300);
+    }
+  };
+
+  player.onended = () => {
+    console.info(`[TTS][play_done] id=${id} reason=ended`);
+    done({ok: true, reason: 'ended'});
+  };
+  player.onerror = () => {
+    console.warn(`[TTS][play_error] id=${id} reason=audio_error`);
+    _logTtsError(new Error('audio playback error'), item?.meta?.source || item?.meta?.context || 'chat', 'audio element error');
+    done({ok: false, reason: 'audio_error'});
+  };
+  player.onabort = () => {
+    console.warn(`[TTS][play_error] id=${id} reason=abort`);
+    _logTtsError(new Error('audio playback aborted'), item?.meta?.source || item?.meta?.context || 'chat', 'audio element abort');
+    done({ok: false, reason: 'abort'});
+  };
+
+  const p = player.play();
+  if (p && typeof p.catch === 'function') {
+    p.then(() => {
+      clearTtsBlockedState();
+      ttsManualUnlocked = ttsManualUnlocked || !!userGesture;
+      if (userGesture) {
+        console.info(`[TTS][manual_play_success] id=${id}`);
+      } else {
+        console.info(`[TTS][autoplay_success] id=${id}`);
+      }
+      hideFloatingTtsPlayer();
+    }).catch((e) => {
+      player.onended = null;
+      player.onerror = null;
+      player.onabort = null;
+      _cleanupCurrentTtsSource({clearPlayer: true});
+      tts._audio = null;
+      tts._playing = false;
+      isTtsPlaying = false;
+      _syncRecordingControlsWithTts();
+      if (e?.name === 'NotAllowedError') {
+        ttsAudioQueue.unshift(item);
+        ttsNeedsUserGesture = true;
+        _lastAutoplayBlockedAt = Date.now();
+        console.info(`[TTS][autoplay_blocked] id=${id} name=NotAllowedError`);
+        showFloatingTtsPlayer('音声の再生待ち');
+        if (typeof resolve === 'function') resolve({ok: false, reason: 'blocked'});
+        return;
+      }
+      if (userGesture) console.warn(`[TTS][manual_play_failed] id=${id} name=${e?.name || 'play_error'}`);
+      else console.warn(`[TTS][play_error] id=${id} reason=${e?.name || 'play_error'}`);
+      _logTtsError(e, item?.meta?.source || item?.meta?.context || 'chat', 'audio play() failed');
+      if (typeof resolve === 'function') resolve({ok: false, reason: e?.name || 'play_error'});
+      tryPlayTtsQueue({userGesture: false});
+    });
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  const state = document.visibilityState === 'visible' ? 'visible' : 'hidden';
+  console.info(`[Audio][visibility] state=${state}`);
+  if (document.visibilityState !== 'visible') return;
+  if (!isTtsPlaying && ttsAudioQueue.length > 0) {
+    tryPlayTtsQueue({userGesture: false});
+  }
+});
+window.addEventListener('pagehide', () => {
+  console.info('[Audio][pagehide]');
+});
+window.addEventListener('pageshow', () => {
+  console.info('[Audio][pageshow]');
+  _echoRefreshAudioDeviceSelectors();
+});
+if (navigator.mediaDevices?.addEventListener) {
+  navigator.mediaDevices.addEventListener('devicechange', () => {
+    _echoRefreshAudioDeviceSelectors();
+  });
+}
+
+function saveTtsSettings() {
+  tts.engine     = 'style_bert_vits2';
+  tts.voice      = document.getElementById('tts-voice-sel')?.value || tts.voice;
+  tts.speed      = parseFloat(document.getElementById('tts-speed-slider')?.value || `${tts.speed || 1.0}`);
+  const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
+  if (styleSel) tts.styleBertVits2Model = _normalizeStyleBertVits2Model(styleSel.value || tts.styleBertVits2Model);
+  const devRadio = document.querySelector('input[name="tts-device"]:checked');
+  if (devRadio) _syncTtsDeviceState(devRadio.value);
+  localStorage.setItem('tts_voice',      tts.voice);
+  localStorage.setItem('tts_speed',      tts.speed);
+  localStorage.setItem('tts_style_bert_vits2_model', _normalizeStyleBertVits2Model(tts.styleBertVits2Model));
+}
+
+function _syncTtsDeviceState(device) {
+  const dev = (device === 'cuda') ? 'cuda' : 'cpu';
+  tts.ttsDevice = dev;
+  localStorage.setItem('tts_device', dev);
+  localStorage.setItem('tsasr_tts_device', dev);
+  const mainRadio = document.querySelector(`input[name="tts-device"][value="${dev}"]`);
+  if (mainRadio) mainRadio.checked = true;
+  const tsasrRadio = document.querySelector(`input[name="tsasr-device"][value="${dev}"]`);
+  if (tsasrRadio) tsasrRadio.checked = true;
+}
+
+function _syncAsrDeviceState(device) {
+  const dev = (device === 'cuda') ? 'cuda' : 'cpu';
+  echo.asrDevice = dev;
+  localStorage.setItem('asr_device', dev);
+  const settingsRadio = document.querySelector(`input[name="asr-device"][value="${dev}"]`);
+  if (settingsRadio) settingsRadio.checked = true;
+  const echoRadio = document.querySelector(`input[name="echo-asr-device"][value="${dev}"]`);
+  if (echoRadio) echoRadio.checked = true;
+}
+
+function _numOr(v, fallback) {
+  if (v === null || v === undefined) return fallback;
+  if (typeof v === 'string' && v.trim() === '') return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function _normalizeEchoSbv2AdvancedDefaults() {
+  const defaults = {
+    sbv2Length: 1.0,
+    sbv2SdpRatio: 0.2,
+    sbv2Noise: 0.6,
+    sbv2NoiseW: 0.8,
+    sbv2StyleWeight: 1.0,
+    sbv2SplitInterval: 0.5,
+    sbv2PitchScale: 1.0,
+    sbv2IntonationScale: 1.0,
+  };
+  Object.entries(defaults).forEach(([key, fallback]) => {
+    const current = _numOr(echo[key], fallback);
+    echo[key] = current > 0 ? current : fallback;
+  });
+}
+
+async function onTtsEngineChange() {
+  saveTtsSettings();
+  _ttsSyncUnloadBtn('style_bert_vits2');
+}
+
+
+function _isEchoStyleBertVits2Selected() {
+  return true;
+}
+
+async function _ttsLoadVoicesFromServer(engine) {
+  const sel = document.getElementById('tts-voice-sel');
+  const row = document.getElementById('tts-voice-row');
+  sel.innerHTML = '<option value="">読み込み中...</option>';
+  try {
+    const resp = await fetch(API + '/tts/voices?engine=' + engine);
+    const data = await resp.json();
+    const voices = data.voices || [];
+    sel.innerHTML = '<option value="">（デフォルト）</option>';
+    voices.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = String(v.id);
+      opt.textContent = v.name;
+      if (String(v.id) === tts.voice) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    row.style.display = voices.length > 0 ? '' : 'none';
+  } catch(e) {
+    sel.innerHTML = '<option value="">（取得失敗）</option>';
+  }
+}
+
+function _setStyleBertModelOptions(models = []) {
+  const rows = [
+    {selId: 'tsasr-style-bert-vits2-model-sel', context: 'echo'},
+  ];
+  rows.forEach(({selId, context}) => {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    const current = context === 'echo'
+      ? _normalizeStyleBertVits2Model(echo.styleBertVits2Model || tts.styleBertVits2Model)
+      : _normalizeStyleBertVits2Model(tts.styleBertVits2Model || echo.styleBertVits2Model);
+    sel.innerHTML = '';
+    const resolvedModels = Array.from(new Set([DEFAULT_STYLE_BERT_VITS2_MODEL, ...models.filter(Boolean)]));
+    resolvedModels.forEach(modelId => {
+      const meta = _styleBertVits2ModelMeta.get(modelId) || {};
+      const isJpExtra = !!meta.is_jp_extra;
+      const opt = document.createElement('option');
+      opt.value = modelId;
+      opt.textContent = isJpExtra ? `${modelId} (JP-Extra / JP only)` : modelId;
+      if (modelId === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    if (!resolvedModels.includes(current)) sel.value = DEFAULT_STYLE_BERT_VITS2_MODEL;
+    if (context === 'echo') {
+      echo.styleBertVits2Model = _normalizeStyleBertVits2Model(sel.value);
+      tts.styleBertVits2Model = echo.styleBertVits2Model;
+      localStorage.setItem('echo_style_bert_vits2_model', echo.styleBertVits2Model);
+      localStorage.setItem('tts_style_bert_vits2_model', tts.styleBertVits2Model);
+    }
+  });
+}
+
+let _styleBertVits2AutoLoadPromise = null;
+async function ensureStyleBertVits2LoadedForEcho() {
+  if (_styleBertVits2AutoLoadPromise) return _styleBertVits2AutoLoadPromise;
+  _styleBertVits2AutoLoadPromise = (async () => {
+    const model = _normalizeStyleBertVits2Model(echo.styleBertVits2Model || tts.styleBertVits2Model);
+    try {
+      _setStyleBertVits2Status('モデル読み込み状態を確認中...');
+      const statusResp = await fetch(API + '/tts/status');
+      const status = await statusResp.json().catch(() => ({}));
+      const loadedEngine = status?.engine || status?.current_engine || status?.tts_engine || '';
+      const loadedModel = status?.model || status?.model_id || status?.tts_model || status?.style_bert_vits2_model || '';
+      const isLoaded = status?.loaded === true || status?.is_loaded === true || status?.style_bert_vits2_loaded === true;
+      if (String(loadedEngine) === 'style_bert_vits2' && isLoaded && (!loadedModel || String(loadedModel) === model)) {
+        _setStyleBertVits2Status('Style-Bert-VITS2 読み込み済み');
+        return true;
+      }
+      _setStyleBertVits2Status(`${model} をロード中...`);
+      const resp = await fetch(API + '/tts/load', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({engine: 'style_bert_vits2', model, model_id: model}),
+      });
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => '');
+        console.warn('[Echo TTS] Style-Bert-VITS2 auto-load failed:', detail);
+        _setStyleBertVits2Status('Style-Bert-VITS2 自動ロード失敗');
+        return false;
+      }
+      _setStyleBertVits2Status('Style-Bert-VITS2 読み込み済み');
+      return true;
+    } catch (e) {
+      console.warn('[Echo TTS] Style-Bert-VITS2 auto-load error:', e);
+      _setStyleBertVits2Status('Style-Bert-VITS2 自動ロード失敗');
+      return false;
+    } finally {
+      _styleBertVits2AutoLoadPromise = null;
+    }
+  })();
+  return _styleBertVits2AutoLoadPromise;
+}
+
+function _normalizeEchoSbv2Language(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return 'JP';
+  if (raw.toLowerCase() === 'auto') return 'auto';
+  const upper = raw.toUpperCase();
+  if (['JP', 'EN', 'ZH'].includes(upper)) return upper;
+  return 'JP';
+}
+
+function _normalizeEchoSbv2NonJapanesePolicy(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return 'normalize_then_block';
+  const legacyMap = {
+    skip: 'normalize_then_block',
+    rule: 'normalize_then_warn',
+    llm: 'normalize_then_allow',
+    none: 'normalize_then_allow',
+    normalize_then_skip: 'normalize_then_block',
+    normalize_then_rule: 'normalize_then_warn',
+    normalize_then_llm: 'normalize_then_allow',
+    normalize_then_none: 'normalize_then_allow',
+  };
+  const mapped = legacyMap[raw] || raw;
+  return ['normalize_then_block', 'normalize_then_warn', 'normalize_then_allow'].includes(mapped)
+    ? mapped
+    : 'normalize_then_block';
+}
+
+function _isJpExtraModelMeta(meta = null) {
+  if (!meta || typeof meta !== 'object') return false;
+  return !!meta.is_jp_extra;
+}
+
+function _getSelectedSbv2Meta() {
+  const modelId = echo.styleBertVits2Model || '';
+  return _styleBertVits2ModelMeta.get(modelId) || null;
+}
+
+function _effectiveEchoSbv2Language() {
+  const selected = _normalizeEchoSbv2Language(echo.ttsSbv2Language);
+  const meta = _getSelectedSbv2Meta();
+  if (_isJpExtraModelMeta(meta)) return 'JP';
+  if (selected === 'auto') return 'JP';
+  return selected;
+}
+
+let _echoTtsPreviewSeq = 0;
+
+async function _updateEchoTtsPreview({rawText = '', translatedText = ''} = {}) {
+  const previewSeq = ++_echoTtsPreviewSeq;
+  const selectedLanguage = _normalizeEchoSbv2Language(echo.ttsSbv2Language);
+  const sourceEl = document.getElementById('echo-tts-preview-source');
+  const translationRouteEl = document.getElementById('echo-tts-preview-translation-route');
+  const modelKindEl = document.getElementById('echo-tts-preview-model-kind');
+  const langEl = document.getElementById('echo-tts-preview-language');
+  const effEl = document.getElementById('echo-tts-preview-effective-language');
+  const routeEl = document.getElementById('echo-tts-preview-route');
+  const needsTranslationEl = document.getElementById('echo-tts-preview-needs-translation');
+  const orgEl = document.getElementById('echo-tts-preview-original-text');
+  const afterTranslationEl = document.getElementById('echo-tts-preview-after-translation');
+  const normEl = document.getElementById('echo-tts-preview-normalized-text');
+  const finalEl = document.getElementById('echo-tts-preview-final-text');
+  const jpEl = document.getElementById('echo-tts-preview-looks-japanese');
+  const opsEl = document.getElementById('echo-tts-preview-operations');
+  const warningsEl = document.getElementById('echo-tts-preview-warnings');
+  const fmtPreview = (value) => String(value || '').replace(/\n/g, '\\n').slice(0, 160) || '-';
+  if (sourceEl) sourceEl.textContent = `TTS text source: ...`;
+  if (translationRouteEl) translationRouteEl.textContent = `Translation route: auto`;
+  if (modelKindEl) modelKindEl.textContent = `Model kind: ...`;
+  if (langEl) langEl.textContent = `Language: ${selectedLanguage === 'auto' ? 'Auto' : selectedLanguage}`;
+  if (effEl) effEl.textContent = `Effective language: ...`;
+  if (routeEl) routeEl.textContent = `source/output/tts: ... / ... / ...`;
+  if (needsTranslationEl) needsTranslationEl.textContent = `needs_translation: ... (target: ...)`;
+  if (orgEl) orgEl.textContent = `Original text preview: ...`;
+  if (afterTranslationEl) afterTranslationEl.textContent = `After translation: ...`;
+  if (normEl) normEl.textContent = `Normalized text preview: ...`;
+  if (finalEl) finalEl.textContent = `Final text preview: ...`;
+  if (jpEl) jpEl.textContent = `Looks Japanese: ...`;
+  if (opsEl) opsEl.textContent = `Operations: ...`;
+  if (warningsEl) warningsEl.textContent = `Warnings: ...`;
+  try {
+    const resp = await fetch(API + '/api/tts/style-bert-vits2/preview-normalization', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model: echo.styleBertVits2Model || '',
+        language: echo.ttsSbv2Language || 'JP',
+            text_source: echo.ttsTextSource || 'raw',
+        raw_text: String(rawText || ''),
+        translated_text: String(translatedText || ''),
+      })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error((data && data.detail) ? String(data.detail) : `HTTP ${resp.status}`);
+    if (previewSeq !== _echoTtsPreviewSeq) return;
+    const source = String(data.text_source || 'raw');
+    const sourceReason = String(data.source_reason || 'selected');
+    const sourceNote =
+      sourceReason === 'fallback_raw_translation_disabled'
+        ? ' (translated選択 / translation OFF のため raw を使用)'
+        : sourceReason === 'fallback_raw_translation_empty'
+        ? ' (translated選択だが翻訳結果が空のため raw を使用)'
+        : '';
+    if (sourceEl) sourceEl.textContent = `TTS text source: ${source}${sourceNote}`;
+    const translationRouteText = data.needs_translation
+      ? `Translation: needed -> ${String(data.translation_target_language || '-')}`
+      : 'Translation route: auto';
+    if (translationRouteEl) translationRouteEl.textContent = translationRouteText;
+    if (modelKindEl) modelKindEl.textContent = `Model kind: ${String(data.model_kind || '-')}, JP-Extra: ${data.is_jp_extra ? 'true' : 'false'}`;
+    if (effEl) effEl.textContent = `Effective language: ${String(data.effective_language || 'JP')}`;
+    if (routeEl) routeEl.textContent = `source/output/tts: ${String(data.source_language || 'auto')} / ${String(data.output_language || '-')} / ${String(data.tts_language || '-')}`;
+    if (needsTranslationEl) needsTranslationEl.textContent = `needs_translation: ${data.needs_translation ? 'true' : 'false'} (target: ${String(data.translation_target_language || '-')})`;
+    if (orgEl) orgEl.textContent = `Original text preview: ${fmtPreview(data.original_text)}`;
+    if (afterTranslationEl) {
+      const at = String(data.after_translation || '').trim();
+      afterTranslationEl.textContent = `After translation: ${at ? fmtPreview(at) : 'same/empty'}`;
+    }
+    if (normEl) normEl.textContent = `Normalized text preview: ${fmtPreview(data.normalized_text)}`;
+    if (finalEl) finalEl.textContent = `Final text preview: ${fmtPreview(data.final_preview)}`;
+    if (jpEl) jpEl.textContent = `Looks Japanese: ${data.looks_japanese ? 'yes' : 'no'}`;
+    const ops = Array.isArray(data.normalization_operations) ? data.normalization_operations : [];
+    if (opsEl) opsEl.textContent = `Operations: ${ops.length ? ops.join(', ') : '-'}`;
+    const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+    if (warningsEl) warningsEl.textContent = `Warnings: ${warnings.length ? warnings.map((w) => String(w)).join(' | ') : '-'}`;
+  } catch (e) {
+    if (previewSeq !== _echoTtsPreviewSeq) return;
+    if (sourceEl) sourceEl.textContent = `TTS text source: raw`;
+    if (effEl) effEl.textContent = `Effective language: ${_effectiveEchoSbv2Language()}`;
+    if (orgEl) orgEl.textContent = `Original text preview: ${fmtPreview(rawText)}`;
+    if (afterTranslationEl) afterTranslationEl.textContent = `After translation: -`;
+    if (normEl) normEl.textContent = `Normalized text preview: -`;
+    if (finalEl) finalEl.textContent = `Final text preview: ${fmtPreview(rawText)}`;
+    if (jpEl) jpEl.textContent = `Looks Japanese: -`;
+    if (opsEl) opsEl.textContent = `Operations: preview API unavailable`;
+    if (warningsEl) warningsEl.textContent = `Warnings: preview API unavailable`;
+  }
+}
+
+function _updateEchoSbv2LanguageNote() {
+  const outputSel = document.getElementById('echo-output-language');
+  const ttsLangSel = document.getElementById('echo-tts-language');
+  const asrLangUnifiedSel = document.getElementById('echo-asr-lang-unified');
+  const asrLangSel = document.getElementById('echo-asr-lang');
+  const jpExtraNote = document.getElementById('echo-sbv2-jp-extra-note');
+  const isForced = _isJpExtraModelMeta(_getSelectedSbv2Meta());
+
+  if (ttsLangSel) {
+    const autoOpt = ttsLangSel.querySelector('option[value="auto"]');
+    const jaOpt = ttsLangSel.querySelector('option[value="ja"]');
+    const enOpt = ttsLangSel.querySelector('option[value="en"]');
+    if (autoOpt) autoOpt.disabled = false;
+    if (jaOpt) jaOpt.disabled = false;
+    if (enOpt) enOpt.disabled = !!isForced;
+  }
+
+  if (isForced) {
+    echo.outputLanguage = 'ja';
+    echo.ttsLanguage = 'ja';
+    echo.asrLang = 'auto';
+    echo.asrLanguage = 'auto';
+    echo.ttsSbv2Language = 'JP';
+    if (outputSel) outputSel.value = 'ja';
+    if (ttsLangSel) ttsLangSel.value = 'ja';
+    if (asrLangUnifiedSel) asrLangUnifiedSel.value = 'auto';
+    if (asrLangSel) asrLangSel.value = 'auto';
+  } else {
+    const requestedTtsLang = (echo.ttsLanguage || 'auto').toLowerCase();
+    echo.ttsSbv2Language = requestedTtsLang === 'en' ? 'EN' : 'JP';
+  }
+
+  if (jpExtraNote) jpExtraNote.style.display = isForced ? 'block' : 'none';
+}
+
+async function refreshStyleBertVits2Models(context = 'echo') {
+  const statusEl = document.getElementById('tsasr-style-bert-vits2-status');
+  const refreshBtn = document.getElementById('tsasr-style-bert-vits2-refresh-btn');
+  if (refreshBtn) refreshBtn.disabled = true;
+  if (statusEl) statusEl.textContent = 'モデル一覧を取得中...';
+  try {
+    const resp = await fetch(API + '/api/tts/style-bert-vits2/models');
+    const data = await resp.json();
+    const models = Array.isArray(data.models) ? data.models : [];
+    const details = Array.isArray(data.model_details) ? data.model_details : [];
+    _styleBertVits2ModelMeta.clear();
+    details.forEach((item) => {
+      if (item && item.model) _styleBertVits2ModelMeta.set(item.model, item);
+    });
+    _setStyleBertModelOptions(models);
+    _updateEchoSbv2LanguageNote();
+    if (statusEl) statusEl.textContent = models.length ? `モデル ${models.length} 件` : 'モデルがありません';
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `取得失敗: ${e.message}`;
+  } finally {
+    if (refreshBtn) refreshBtn.disabled = false;
+    if (context === 'echo') saveEchoSettings();
+  }
+}
+
+async function _ensureStyleBertVits2Prepared({force = false, context = 'echo'} = {}) {
+  if (!force && _styleBertVits2PrepareState.prepared) return {ready: true, message: ''};
+  if (_styleBertVits2PrepareState.inFlight) return _styleBertVits2PrepareState.inFlight;
+  const statusEl = document.getElementById('tsasr-style-bert-vits2-status');
+  _styleBertVits2PrepareState.inFlight = (async () => {
+    if (statusEl) statusEl.textContent = '初期セットアップ中...';
+    try {
+      const resp = await fetch(API + '/api/tts/style-bert-vits2/prepare', {method: 'POST'});
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(_getUserFacingApiErrorMessage(data, '初期セットアップに失敗しました。'));
+      }
+      const setupReady = !!(data.setup_ready ?? data.ready);
+      const runtimeReady = !!(data.runtime_ready ?? false);
+      _styleBertVits2PrepareState.prepared = setupReady;
+      const backendDetail = String(data.detail || data.reason || '').trim();
+      if (statusEl) {
+        if (setupReady) {
+          statusEl.textContent = runtimeReady ? (data.initialized_now ? '初期セットアップ完了' : '初期セットアップ済み') : '音声モデルの事前ロードに失敗しました';
+        } else {
+          statusEl.textContent = backendDetail || '初期セットアップ未完了';
+        }
+      }
+      if (setupReady) {
+        await refreshStyleBertVits2Models(context);
+        if (statusEl) {
+          statusEl.textContent = data.initialized_now ? '初期セットアップ完了' : '初期セットアップ済み';
+        }
+      }
+      return {ready: setupReady, message: backendDetail || (runtimeReady ? '' : '音声モデルの事前ロードに失敗しました')};
+    } catch (e) {
+      _styleBertVits2PrepareState.prepared = false;
+      if (statusEl) statusEl.textContent = `初期セットアップ失敗: ${e.message || e}`;
+      return {ready: false, message: String(e?.message || e || '初期セットアップに失敗しました。')};
+    } finally {
+      _styleBertVits2PrepareState.inFlight = null;
+    }
+  })();
+  return _styleBertVits2PrepareState.inFlight;
+}
+
+async function onStyleBertVits2ModelSelectionChange() {
+  saveEchoSettings();
+  _styleBertVits2PrepareState.prepared = false;
+  try {
+    await _ensureStyleBertVits2Prepared({force: true, context: 'echo'});
+  } catch (e) {
+    console.warn('[Style-Bert-VITS2] auto prepare after model selection failed:', e);
+  }
+}
+
+async function runStyleBertVits2InitialSetup(context = 'echo') {
+  const statusEl = document.getElementById('tsasr-style-bert-vits2-status');
+  const setupBtn = document.getElementById('tsasr-style-bert-vits2-setup-btn');
+  const wasPrepared = !!_styleBertVits2PrepareState.prepared;
+  if (setupBtn) setupBtn.disabled = true;
+  let ready = false;
+  if (statusEl) statusEl.textContent = '初期セットアップ中...';
+  try {
+    const prepareResult = await _ensureStyleBertVits2Prepared({force: false, context});
+    ready = !!prepareResult?.ready;
+  } catch (_e) {
+    ready = false;
+  } finally {
+    await refreshStyleBertVits2Models(context);
+    if (setupBtn) setupBtn.disabled = false;
+  }
+  if (statusEl) {
+    statusEl.textContent = ready ? (wasPrepared ? '初期セットアップ済み' : '初期セットアップ完了') : '初期設定に失敗しました。時間をおいて再試行してください。';
+  }
+  return ready;
+}
+
+async function uploadStyleBertVits2ModelZip(input, context = 'echo') {
+  const statusEl = document.getElementById('tsasr-style-bert-vits2-status');
+  const file = input?.files?.[0];
+  if (!file) return;
+  if (statusEl) statusEl.textContent = 'ZIPアップロード中...';
+  try {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    const resp = await fetch(API + '/api/tts/style-bert-vits2/models/upload', {method: 'POST', body: fd});
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(_getUserFacingApiErrorMessage(data, 'アップロードに失敗しました。'));
+    await refreshStyleBertVits2Models(context);
+    const imported = data?.model_id || '';
+    if (imported) {
+      const sel = document.getElementById('tsasr-style-bert-vits2-model-sel');
+      if (sel) sel.value = imported;
+      echo.styleBertVits2Model = imported;
+      tts.styleBertVits2Model = imported;
+      localStorage.setItem('echo_style_bert_vits2_model', imported);
+      localStorage.setItem('tts_style_bert_vits2_model', imported);
+    }
+    if (statusEl) statusEl.textContent = `アップロード完了: ${imported || file.name}`;
+  } catch (e) {
+    const safeMessage = e?.message || 'アップロードに失敗しました。';
+    if (statusEl) statusEl.textContent = `アップロード失敗: ${safeMessage}`;
+  } finally {
+    if (input) input.value = '';
+    if (context === 'echo') saveEchoSettings();
+  }
+}
+
+function _ttsSyncUnloadBtn(engine) {
+  const unloadBtn = document.getElementById('tts-unload-btn');
+  const loadBtn   = document.getElementById('tts-engine-load-btn');
+  if (!unloadBtn || !loadBtn) return;
+  fetch(API + '/tts/status').then(r => r.json()).then(s => {
+    _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
+    const loaded = false;
+    unloadBtn.style.display = loaded ? '' : 'none';
+    loadBtn.style.display   = loaded ? 'none' : '';
+  }).catch(() => {});
+}
+
+async function loadTtsEngine() {
+  const engine = _normalizeTtsEngine(tts.engine);
+  const btn    = document.getElementById('tts-engine-load-btn');
+  btn.disabled = true;
+  const status = document.getElementById('tsasr-style-bert-vits2-status');
+  if (status) status.textContent = '接続中...';
+  const reqBody = { engine };
+  let loadMsgEl = addMsg('system', 'TTS エンジンをロード中です...');
+  try {
+    const resp = await fetch(API + '/tts/load', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(reqBody)
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+        if (ev.type === 'loading') {
+          if (loadMsgEl) loadMsgEl.remove();
+          loadMsgEl = addMsg('system', ev.message);
+        } else if (ev.type === 'done') {
+          if (loadMsgEl) { loadMsgEl.remove(); loadMsgEl = null; }
+          if (status) status.textContent = 'ロード完了';
+          document.getElementById('tts-unload-btn').style.display = '';
+          btn.style.display = 'none';
+        } else if (ev.type === 'error') {
+          if (loadMsgEl) { loadMsgEl.remove(); loadMsgEl = null; }
+          _logTtsError(new Error(ev.detail || 'load stream error'), 'chat', 'TTS load stream error');
+          addMsg('error', 'TTS ロードに失敗: ' + (ev.detail || '不明なエラー'));
+          if (status) status.textContent = 'エラー';
+        }
+      }
+    }
+  } catch(e) {
+    if (loadMsgEl) loadMsgEl.remove();
+    _logTtsError(e, 'chat', 'TTS load failed');
+    addMsg('error', 'TTS ロードに失敗: ' + e.message);
+    if (status) status.textContent = 'エラー';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function saveEchoSettings() {
+  echo.autoPlayTts = document.getElementById('echo-autoplay-tts')?.checked || false;
+  echo.ttsEngine   = 'style_bert_vits2';
+  echo.ttsOutputDeviceId = document.getElementById('echo-tts-output-device')?.value || echo.ttsOutputDeviceId || 'default';
+  // Chat/Task 側のTTSエンジンも Echo 設定を参照する
+  tts.engine = echo.ttsEngine;
+  const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
+  if (styleSel) {
+    echo.styleBertVits2Model = _normalizeStyleBertVits2Model(styleSel.value);
+    tts.styleBertVits2Model = echo.styleBertVits2Model;
+  }
+  const requestedTtsLang = (echo.ttsLanguage || 'auto').toLowerCase();
+  echo.ttsSbv2Language = requestedTtsLang === 'en' ? 'EN' : 'JP';
+  echo.ttsUseTranslation = false;
+  echo.ttsTextSource = 'raw';
+  echo.sbv2Length = _numOr(document.getElementById('echo-tts-sbv2-length')?.value, echo.sbv2Length || 1.0);
+  echo.sbv2SdpRatio = _numOr(document.getElementById('echo-tts-sbv2-sdp-ratio')?.value, echo.sbv2SdpRatio || 0.2);
+  echo.sbv2Noise = _numOr(document.getElementById('echo-tts-sbv2-noise')?.value, echo.sbv2Noise || 0.6);
+  echo.sbv2NoiseW = _numOr(document.getElementById('echo-tts-sbv2-noise-w')?.value, echo.sbv2NoiseW || 0.8);
+  echo.sbv2StyleWeight = _numOr(document.getElementById('echo-tts-sbv2-style-weight')?.value, echo.sbv2StyleWeight || 1.0);
+  echo.sbv2SplitInterval = _numOr(document.getElementById('echo-tts-sbv2-split-interval')?.value, echo.sbv2SplitInterval || 0.5);
+  echo.sbv2LineSplit = document.getElementById('echo-tts-sbv2-line-split')?.checked !== false;
+  echo.sbv2PitchScale = _numOr(document.getElementById('echo-tts-sbv2-pitch-scale')?.value, echo.sbv2PitchScale || 1.0);
+  echo.sbv2IntonationScale = _numOr(document.getElementById('echo-tts-sbv2-intonation-scale')?.value, echo.sbv2IntonationScale || 1.0);
+  echo.displayStyle = document.getElementById('echo-display-style')?.value || echo.displayStyle || 'lang_serial';
+  echo.displayFilter = document.getElementById('echo-display-filter')?.value || echo.displayFilter || 'all';
+  echo.groupOverflowMode = document.getElementById('echo-group-overflow-mode')?.value || echo.groupOverflowMode || 'rolling';
+  echo.parallelMaxSentences = Math.max(1, parseInt(document.getElementById('echo-parallel-max-sentences')?.value || `${echo.parallelMaxSentences || 20}`, 10) || 20);
+  echo.textRevealSeconds = Math.max(0, _numOr(document.getElementById('echo-text-reveal-seconds')?.value, echo.textRevealSeconds ?? 1.5));
+  echo.asrLang     = document.getElementById('echo-asr-lang-unified')?.value || document.getElementById('echo-asr-lang')?.value || 'auto';
+  echo.asrLanguage = echo.asrLang || 'auto';
+  const asrLangControl = document.getElementById('echo-asr-lang');
+  if (asrLangControl) asrLangControl.value = echo.asrLang;
+  const asrLangUnifiedControl = document.getElementById('echo-asr-lang-unified');
+  if (asrLangUnifiedControl) asrLangUnifiedControl.value = echo.asrLang;
+  echo.outputLanguage = document.getElementById('echo-output-language')?.value || echo.outputLanguage || 'same';
+  echo.ttsLanguage = document.getElementById('echo-tts-language')?.value || echo.ttsLanguage || 'auto';
+  if (_isJpExtraModelMeta(_getSelectedSbv2Meta())) {
+    echo.outputLanguage = 'ja';
+    echo.ttsLanguage = 'ja';
+    echo.asrLang = 'auto';
+    echo.asrLanguage = 'auto';
+    const outputSel = document.getElementById('echo-output-language');
+    if (outputSel) outputSel.value = 'ja';
+    const ttsLangSel = document.getElementById('echo-tts-language');
+    if (ttsLangSel) ttsLangSel.value = 'ja';
+    const asrUnifiedSel = document.getElementById('echo-asr-lang-unified');
+    if (asrUnifiedSel) asrUnifiedSel.value = 'auto';
+    const asrSel = document.getElementById('echo-asr-lang');
+    if (asrSel) asrSel.value = 'auto';
+    echo.ttsSbv2Language = 'JP';
+  }
+  echo.asrInputDeviceId = document.getElementById('echo-asr-input-device')?.value || echo.asrInputDeviceId || 'default';
+  echo.asrModel    = document.getElementById('echo-asr-model')?.value      || 'large-v3-turbo';
+  echo.asrProfile  = document.getElementById('echo-asr-profile')?.value    || 'balanced';
+  echo.asrNoSpeechThreshold = Math.min(
+    1,
+    Math.max(0, _numOr(document.getElementById('echo-asr-no-speech-threshold')?.value, echo.asrNoSpeechThreshold ?? 0.6))
+  );
+  echo.asrLogProbThreshold = _numOr(
+    document.getElementById('echo-asr-log-prob-threshold')?.value,
+    echo.asrLogProbThreshold ?? -1.0
+  );
+  echo.asrCompressionRatioThreshold = Math.max(
+    1,
+    _numOr(document.getElementById('echo-asr-compression-ratio-threshold')?.value, echo.asrCompressionRatioThreshold ?? 2.4)
+  );
+  echo.asrFilterEnabled = document.getElementById('echo-asr-filter-enabled')?.checked !== false;
+  echo.asrRejectShortTextEnabled = document.getElementById('echo-asr-reject-short-text-enabled')?.checked !== false;
+  echo.asrRejectNoSpeechEnabled = document.getElementById('echo-asr-reject-no-speech-enabled')?.checked !== false;
+  echo.asrRejectLogprobEnabled = document.getElementById('echo-asr-reject-logprob-enabled')?.checked !== false;
+  echo.asrRejectShortWordLowConfEnabled = document.getElementById('echo-asr-reject-short-word-lowconf-enabled')?.checked !== false;
+  echo.asrMinChars = Math.max(1, parseInt(document.getElementById('echo-asr-min-chars')?.value || `${echo.asrMinChars || 2}`, 10) || 2);
+  echo.asrShortTextMaxChars = Math.max(
+    echo.asrMinChars,
+    parseInt(document.getElementById('echo-asr-short-max-chars')?.value || `${echo.asrShortTextMaxChars || 4}`, 10) || 4
+  );
+  echo.asrNoSpeechReject = Math.min(
+    0.99,
+    Math.max(0, _numOr(document.getElementById('echo-asr-no-speech-reject')?.value, echo.asrNoSpeechReject || 0.72))
+  );
+  echo.asrLowLogprobReject = _numOr(
+    document.getElementById('echo-asr-low-logprob-reject')?.value,
+    echo.asrLowLogprobReject || -1.05
+  );
+  echo.asrShortWordMaxWords = Math.max(
+    1,
+    Math.min(4, parseInt(document.getElementById('echo-asr-short-word-max')?.value || `${echo.asrShortWordMaxWords || 2}`, 10) || 2)
+  );
+  echo.asrShortWordLowLogprobReject = _numOr(
+    document.getElementById('echo-asr-short-word-low-logprob-reject')?.value,
+    echo.asrShortWordLowLogprobReject || -0.85
+  );
+  echo.noiseGateEnabled = document.getElementById('echo-noise-gate-enabled')?.checked !== false;
+  echo.noiseGateThreshold = Math.max(
+    0.002,
+    Math.min(0.1, _numOr(document.getElementById('echo-noise-gate-threshold')?.value, echo.noiseGateThreshold || 0.012))
+  );
+  echo.highpassEnabled = document.getElementById('echo-highpass-enabled')?.checked !== false;
+  echo.highpassHz = Math.max(
+    20,
+    Math.min(240, _numOr(document.getElementById('echo-highpass-hz')?.value, echo.highpassHz || 120))
+  );
+  echo.vadEnabled = document.getElementById('echo-vad-enabled')?.checked !== false;
+  echo.vadMode = Math.max(0, Math.min(3, parseInt(document.getElementById('echo-vad-mode')?.value || `${echo.vadMode || 1}`, 10) || 1));
+  {
+    const ratioRaw = (document.getElementById('echo-vad-start-ratio')?.value || `${echo.vadStartWindowFrames || 10}/${echo.vadStartSpeechFrames || 7}`).trim();
+    const m = ratioRaw.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (m) {
+      echo.vadStartWindowFrames = Math.max(4, Math.min(20, parseInt(m[1], 10) || 10));
+      echo.vadStartSpeechFrames = Math.max(1, Math.min(echo.vadStartWindowFrames, parseInt(m[2], 10) || 7));
+    }
+  }
+  echo.vadEndNonSpeechFrames = Math.max(15, Math.min(20, parseInt(document.getElementById('echo-vad-end-nonspeech-frames')?.value || `${echo.vadEndNonSpeechFrames || 18}`, 10) || 18));
+  echo.vadMinSpeechMs = Math.max(100, Math.min(2000, parseInt(document.getElementById('echo-vad-min-speech-ms')?.value || `${echo.vadMinSpeechMs || 200}`, 10) || 200));
+  echo.vadRmsThreshold = Math.max(0.001, Math.min(0.2, _numOr(document.getElementById('echo-vad-rms-threshold')?.value, echo.vadRmsThreshold || 0.012)));
+  echo.vadMinAvgRms = Math.max(0.001, Math.min(0.2, _numOr(document.getElementById('echo-vad-min-avg-rms')?.value, echo.vadMinAvgRms || 0.008)));
+  echo.vadOverlapEnabled = document.getElementById('echo-vad-overlap-enabled')?.checked === true;
+  echo.vadOverlapMs = Math.max(
+    200,
+    Math.min(400, parseInt(document.getElementById('echo-vad-overlap-ms')?.value || `${echo.vadOverlapMs || 280}`, 10) || 280)
+  );
+  const asrDev = document.querySelector('input[name="echo-asr-device"]:checked')?.value || echo.asrDevice || localStorage.getItem('asr_device') || 'cuda';
+  _syncAsrDeviceState(asrDev);
+  localStorage.setItem('echo_autoplay_tts', echo.autoPlayTts);
+  localStorage.setItem('echo_tts_output_device_id', echo.ttsOutputDeviceId || 'default');
+  localStorage.setItem('echo_style_bert_vits2_model', _normalizeStyleBertVits2Model(echo.styleBertVits2Model));
+  localStorage.setItem('tts_style_bert_vits2_model', _normalizeStyleBertVits2Model(tts.styleBertVits2Model || echo.styleBertVits2Model));
+  localStorage.setItem('echo_tts_sbv2_language', `${echo.ttsSbv2Language}`);
+  localStorage.setItem('echo_tts_text_source', echo.ttsTextSource || 'raw');
+  localStorage.setItem('echo_sbv2_length', `${echo.sbv2Length}`);
+  localStorage.setItem('echo_sbv2_sdp_ratio', `${echo.sbv2SdpRatio}`);
+  localStorage.setItem('echo_sbv2_noise', `${echo.sbv2Noise}`);
+  localStorage.setItem('echo_sbv2_noise_w', `${echo.sbv2NoiseW}`);
+  localStorage.setItem('echo_sbv2_style_weight', `${echo.sbv2StyleWeight}`);
+  localStorage.setItem('echo_sbv2_split_interval', `${echo.sbv2SplitInterval}`);
+  localStorage.setItem('echo_sbv2_line_split', `${echo.sbv2LineSplit}`);
+  localStorage.setItem('echo_sbv2_pitch_scale', `${echo.sbv2PitchScale}`);
+  localStorage.setItem('echo_sbv2_intonation_scale', `${echo.sbv2IntonationScale}`);
+  localStorage.setItem('echo_tts_translate_enabled', `${echo.ttsTranslateEnabled}`);
+  localStorage.setItem('echo_display_style', echo.displayStyle);
+  localStorage.setItem('echo_display_filter', echo.displayFilter);
+  localStorage.setItem('echo_group_overflow_mode', echo.groupOverflowMode);
+  localStorage.setItem('echo_parallel_max_sentences', `${echo.parallelMaxSentences}`);
+  localStorage.setItem('echo_text_reveal_seconds', `${echo.textRevealSeconds}`);
+  localStorage.setItem('echo_asr_lang',     echo.asrLang);
+  localStorage.setItem('echo.asrLanguage', echo.asrLanguage || echo.asrLang);
+  localStorage.setItem('echo.outputLanguage', echo.outputLanguage || 'same');
+  localStorage.setItem('echo.ttsLanguage', echo.ttsLanguage || 'auto');
+  localStorage.setItem('echo.ttsVoiceId', echo.ttsVoiceId || 'auto');
+  localStorage.setItem('echo_asr_input_device_id', echo.asrInputDeviceId || 'default');
+  localStorage.setItem('echo_asr_model',    echo.asrModel);
+  localStorage.setItem('echo_asr_profile', echo.asrProfile);
+  localStorage.setItem('echo_asr_no_speech_threshold', `${echo.asrNoSpeechThreshold}`);
+  localStorage.setItem('echo_asr_log_prob_threshold', `${echo.asrLogProbThreshold}`);
+  localStorage.setItem('echo_asr_compression_ratio_threshold', `${echo.asrCompressionRatioThreshold}`);
+  localStorage.setItem('echo_asr_filter_enabled', `${echo.asrFilterEnabled}`);
+  localStorage.setItem('echo_asr_reject_short_text_enabled', `${echo.asrRejectShortTextEnabled}`);
+  localStorage.setItem('echo_asr_reject_no_speech_enabled', `${echo.asrRejectNoSpeechEnabled}`);
+  localStorage.setItem('echo_asr_reject_logprob_enabled', `${echo.asrRejectLogprobEnabled}`);
+  localStorage.setItem('echo_asr_reject_short_word_lowconf_enabled', `${echo.asrRejectShortWordLowConfEnabled}`);
+  localStorage.setItem('echo_asr_min_chars', `${echo.asrMinChars}`);
+  localStorage.setItem('echo_asr_short_max_chars', `${echo.asrShortTextMaxChars}`);
+  localStorage.setItem('echo_asr_no_speech_reject', `${echo.asrNoSpeechReject}`);
+  localStorage.setItem('echo_asr_low_logprob_reject', `${echo.asrLowLogprobReject}`);
+  localStorage.setItem('echo_asr_short_word_max_words', `${echo.asrShortWordMaxWords}`);
+  localStorage.setItem('echo_asr_short_word_low_logprob_reject', `${echo.asrShortWordLowLogprobReject}`);
+  localStorage.setItem('echo_noise_gate_enabled', `${echo.noiseGateEnabled}`);
+  localStorage.setItem('echo_noise_gate_threshold', `${echo.noiseGateThreshold}`);
+  localStorage.setItem('echo_highpass_enabled', `${echo.highpassEnabled}`);
+  localStorage.setItem('echo_highpass_hz', `${echo.highpassHz}`);
+  localStorage.setItem('echo_vad_enabled', `${echo.vadEnabled}`);
+  localStorage.setItem('echo_vad_mode', `${echo.vadMode}`);
+  localStorage.setItem('echo_vad_start_window_frames', `${echo.vadStartWindowFrames}`);
+  localStorage.setItem('echo_vad_start_speech_frames', `${echo.vadStartSpeechFrames}`);
+  localStorage.setItem('echo_vad_end_nonspeech_frames', `${echo.vadEndNonSpeechFrames}`);
+  localStorage.setItem('echo_vad_min_speech_ms', `${echo.vadMinSpeechMs}`);
+  localStorage.setItem('echo_vad_rms_threshold', `${echo.vadRmsThreshold}`);
+  localStorage.setItem('echo_vad_min_avg_rms', `${echo.vadMinAvgRms}`);
+  localStorage.setItem('echo_vad_overlap_enabled', `${echo.vadOverlapEnabled}`);
+  localStorage.setItem('echo_vad_overlap_ms', `${echo.vadOverlapMs}`);
+  _updateEchoSbv2LanguageNote();
+  _updateEchoTtsPreview();
+
+  _syncSbv2TestUi();
+  _syncRecordingControlsWithTts();
+  if (echo.ttsEngine === 'style_bert_vits2') {
+    _ensureStyleBertVits2Prepared({context: 'echo'});
+  }
+  const autoLbl = document.getElementById('echo-autoplay-label');
+  if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
+  const toolbarTranslateBtn = document.getElementById('echo-toolbar-translate-enable');
+  const toolbarTranslateLabel = document.getElementById('echo-toolbar-translate-enable-label');
+  if (toolbarTranslateBtn) toolbarTranslateBtn.classList.toggle('enabled', !!echo.ttsTranslateEnabled);
+  if (toolbarTranslateLabel) toolbarTranslateLabel.textContent = echo.ttsTranslateEnabled ? 'ON' : 'OFF';
+  const displayStyleInput = document.getElementById('echo-display-style');
+  const displayFilterInput = document.getElementById('echo-display-filter');
+  const overflowModeInput = document.getElementById('echo-group-overflow-mode');
+  const parallelMaxInput = document.getElementById('echo-parallel-max-sentences');
+  const revealSecondsInput = document.getElementById('echo-text-reveal-seconds');
+  if (displayStyleInput) displayStyleInput.value = echo.displayStyle;
+  if (displayFilterInput) displayFilterInput.value = echo.displayFilter;
+  if (overflowModeInput) overflowModeInput.value = echo.groupOverflowMode;
+  if (parallelMaxInput) parallelMaxInput.value = `${echo.parallelMaxSentences}`;
+  if (revealSecondsInput) revealSecondsInput.value = `${echo.textRevealSeconds}`;
+  if (parallelMaxInput) parallelMaxInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle);
+  if (overflowModeInput) overflowModeInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle);
+  _echoRenderTranscript(true);
+  const minCharsInput = document.getElementById('echo-asr-min-chars');
+  const shortCharsInput = document.getElementById('echo-asr-short-max-chars');
+  const noSpeechInput = document.getElementById('echo-asr-no-speech-reject');
+  const lowLogprobInput = document.getElementById('echo-asr-low-logprob-reject');
+  const filterEnabledInput = document.getElementById('echo-asr-filter-enabled');
+  const filterEnabledLabel = document.getElementById('echo-asr-filter-enabled-label');
+  const rejectShortInput = document.getElementById('echo-asr-reject-short-text-enabled');
+  const rejectNoSpeechInput = document.getElementById('echo-asr-reject-no-speech-enabled');
+  const rejectLogprobInput = document.getElementById('echo-asr-reject-logprob-enabled');
+  const rejectShortWordLowConfInput = document.getElementById('echo-asr-reject-short-word-lowconf-enabled');
+  const shortWordMaxInput = document.getElementById('echo-asr-short-word-max');
+  const shortWordLowLogprobInput = document.getElementById('echo-asr-short-word-low-logprob-reject');
+  const noiseGateEnabledInput = document.getElementById('echo-noise-gate-enabled');
+  const noiseGateThresholdInput = document.getElementById('echo-noise-gate-threshold');
+  const highpassEnabledInput = document.getElementById('echo-highpass-enabled');
+  const highpassHzInput = document.getElementById('echo-highpass-hz');
+  const vadEnabledInput = document.getElementById('echo-vad-enabled');
+  const vadEnabledLabel = document.getElementById('echo-vad-enabled-label');
+  const vadOverlapEnabledInput = document.getElementById('echo-vad-overlap-enabled');
+  const vadOverlapEnabledLabel = document.getElementById('echo-vad-overlap-enabled-label');
+  const vadOverlapMsInput = document.getElementById('echo-vad-overlap-ms');
+  const vadModeInput = document.getElementById('echo-vad-mode');
+  const vadStartRatioInput = document.getElementById('echo-vad-start-ratio');
+  const vadEndNonSpeechInput = document.getElementById('echo-vad-end-nonspeech-frames');
+  const vadMinSpeechMsInput = document.getElementById('echo-vad-min-speech-ms');
+  const vadRmsThresholdInput = document.getElementById('echo-vad-rms-threshold');
+  const vadMinAvgRmsInput = document.getElementById('echo-vad-min-avg-rms');
+  if (minCharsInput) minCharsInput.value = `${echo.asrMinChars}`;
+  if (shortCharsInput) shortCharsInput.value = `${echo.asrShortTextMaxChars}`;
+  if (noSpeechInput) noSpeechInput.value = `${echo.asrNoSpeechReject}`;
+  if (lowLogprobInput) lowLogprobInput.value = `${echo.asrLowLogprobReject}`;
+  if (filterEnabledInput) filterEnabledInput.checked = !!echo.asrFilterEnabled;
+  if (filterEnabledLabel) filterEnabledLabel.textContent = echo.asrFilterEnabled ? 'ON' : 'OFF';
+  if (rejectShortInput) rejectShortInput.checked = !!echo.asrRejectShortTextEnabled;
+  if (rejectNoSpeechInput) rejectNoSpeechInput.checked = !!echo.asrRejectNoSpeechEnabled;
+  if (rejectLogprobInput) rejectLogprobInput.checked = !!echo.asrRejectLogprobEnabled;
+  if (rejectShortWordLowConfInput) rejectShortWordLowConfInput.checked = !!echo.asrRejectShortWordLowConfEnabled;
+  if (shortWordMaxInput) shortWordMaxInput.value = `${echo.asrShortWordMaxWords}`;
+  if (shortWordLowLogprobInput) shortWordLowLogprobInput.value = `${echo.asrShortWordLowLogprobReject}`;
+  if (noiseGateEnabledInput) noiseGateEnabledInput.checked = !!echo.noiseGateEnabled;
+  if (noiseGateThresholdInput) noiseGateThresholdInput.value = `${echo.noiseGateThreshold}`;
+  if (highpassEnabledInput) highpassEnabledInput.checked = !!echo.highpassEnabled;
+  if (highpassHzInput) highpassHzInput.value = `${echo.highpassHz}`;
+  if (vadEnabledInput) vadEnabledInput.checked = !!echo.vadEnabled;
+  if (vadEnabledLabel) vadEnabledLabel.textContent = echo.vadEnabled ? 'ON' : 'OFF';
+  if (vadOverlapEnabledInput) vadOverlapEnabledInput.checked = !!echo.vadOverlapEnabled;
+  if (vadOverlapEnabledLabel) vadOverlapEnabledLabel.textContent = echo.vadOverlapEnabled ? 'ON' : 'OFF';
+  if (vadOverlapMsInput) vadOverlapMsInput.value = `${echo.vadOverlapMs}`;
+  if (vadModeInput) vadModeInput.value = `${echo.vadMode}`;
+  if (vadStartRatioInput) vadStartRatioInput.value = `${echo.vadStartWindowFrames}/${echo.vadStartSpeechFrames}`;
+  if (vadEndNonSpeechInput) vadEndNonSpeechInput.value = `${echo.vadEndNonSpeechFrames}`;
+  if (vadMinSpeechMsInput) vadMinSpeechMsInput.value = `${echo.vadMinSpeechMs}`;
+  if (vadRmsThresholdInput) vadRmsThresholdInput.value = `${echo.vadRmsThreshold}`;
+  if (vadMinAvgRmsInput) vadMinAvgRmsInput.value = `${echo.vadMinAvgRms}`;
+  if (minCharsInput) minCharsInput.disabled = !echo.asrFilterEnabled;
+  if (shortCharsInput) shortCharsInput.disabled = !echo.asrFilterEnabled;
+  if (noSpeechInput) noSpeechInput.disabled = !echo.asrFilterEnabled;
+  if (lowLogprobInput) lowLogprobInput.disabled = !echo.asrFilterEnabled;
+  if (shortWordMaxInput) shortWordMaxInput.disabled = !echo.asrFilterEnabled || !echo.asrRejectShortWordLowConfEnabled;
+  if (shortWordLowLogprobInput) shortWordLowLogprobInput.disabled = !echo.asrFilterEnabled || !echo.asrRejectShortWordLowConfEnabled;
+  if (noiseGateThresholdInput) noiseGateThresholdInput.disabled = !echo.noiseGateEnabled;
+  if (highpassHzInput) highpassHzInput.disabled = !echo.highpassEnabled;
+  if (vadModeInput) vadModeInput.disabled = !echo.vadEnabled;
+  if (vadStartRatioInput) vadStartRatioInput.disabled = !echo.vadEnabled;
+  if (vadEndNonSpeechInput) vadEndNonSpeechInput.disabled = !echo.vadEnabled;
+  if (vadMinSpeechMsInput) vadMinSpeechMsInput.disabled = !echo.vadEnabled;
+  if (vadRmsThresholdInput) vadRmsThresholdInput.disabled = !echo.vadEnabled;
+  if (vadMinAvgRmsInput) vadMinAvgRmsInput.disabled = !echo.vadEnabled;
+  if (vadOverlapEnabledInput) vadOverlapEnabledInput.disabled = !echo.vadEnabled;
+  if (vadOverlapMsInput) vadOverlapMsInput.disabled = !echo.vadEnabled || !echo.vadOverlapEnabled;
+}
+
+function _echoInitSettingsUI() {
+  _normalizeEchoSbv2AdvancedDefaults();
+  if (localStorage.getItem('echo_auto_generate_minutes') === null) {
+    localStorage.setItem('echo_auto_generate_minutes', 'false');
+    echo.autoGenerateMinutes = false;
+  }
+  if (localStorage.getItem('echo_autoplay_tts') === null) {
+    localStorage.setItem('echo_autoplay_tts', 'false');
+    echo.autoPlayTts = false;
+  }
+  if (localStorage.getItem('echo_text_reveal_seconds') === null) {
+    localStorage.setItem('echo_text_reveal_seconds', '1.5');
+    echo.textRevealSeconds = 1.5;
+  }
+  const autoChk = document.getElementById('echo-autoplay-tts');
+  if (autoChk) autoChk.checked = echo.autoPlayTts;
+  const autoLbl = document.getElementById('echo-autoplay-label');
+  if (autoLbl) autoLbl.textContent = echo.autoPlayTts ? 'ON' : 'OFF';
+  const echoOutSel = document.getElementById('echo-tts-output-device');
+  if (echoOutSel) echoOutSel.value = echo.ttsOutputDeviceId || 'default';
+  const styleSel = document.getElementById('tsasr-style-bert-vits2-model-sel');
+  if (styleSel) styleSel.value = echo.styleBertVits2Model || tts.styleBertVits2Model || '';
+  const textSourceSel = document.getElementById('echo-tts-text-source');
+  if (textSourceSel) textSourceSel.value = echo.ttsTextSource || 'raw';
+  const sbv2Length = document.getElementById('echo-tts-sbv2-length');
+  if (sbv2Length) sbv2Length.value = `${echo.sbv2Length ?? 1.0}`;
+  const sbv2Sdp = document.getElementById('echo-tts-sbv2-sdp-ratio');
+  if (sbv2Sdp) sbv2Sdp.value = `${echo.sbv2SdpRatio ?? 0.2}`;
+  const sbv2Noise = document.getElementById('echo-tts-sbv2-noise');
+  if (sbv2Noise) sbv2Noise.value = `${echo.sbv2Noise ?? 0.6}`;
+  const sbv2NoiseW = document.getElementById('echo-tts-sbv2-noise-w');
+  if (sbv2NoiseW) sbv2NoiseW.value = `${echo.sbv2NoiseW ?? 0.8}`;
+  const sbv2StyleWeight = document.getElementById('echo-tts-sbv2-style-weight');
+  if (sbv2StyleWeight) sbv2StyleWeight.value = `${echo.sbv2StyleWeight ?? 1.0}`;
+  const sbv2SplitInterval = document.getElementById('echo-tts-sbv2-split-interval');
+  if (sbv2SplitInterval) sbv2SplitInterval.value = `${echo.sbv2SplitInterval ?? 0.5}`;
+  const sbv2LineSplit = document.getElementById('echo-tts-sbv2-line-split');
+  if (sbv2LineSplit) sbv2LineSplit.checked = !!echo.sbv2LineSplit;
+  const sbv2Pitch = document.getElementById('echo-tts-sbv2-pitch-scale');
+  if (sbv2Pitch) sbv2Pitch.value = `${echo.sbv2PitchScale ?? 1.0}`;
+  const sbv2Intonation = document.getElementById('echo-tts-sbv2-intonation-scale');
+  if (sbv2Intonation) sbv2Intonation.value = `${echo.sbv2IntonationScale ?? 1.0}`;
+  const selectedEchoTtsEngine = echo.ttsEngine;
+  if (selectedEchoTtsEngine === 'style_bert_vits2') {
+    _ensureStyleBertVits2Prepared({context: 'echo'});
+  } else {
+    refreshStyleBertVits2Models('echo');
+  }
+  _updateEchoSbv2LanguageNote();
+  _updateEchoTtsPreview();
+  _syncSbv2TestUi();
+  syncEchoTranslateUi();
+  const displayStyleInput = document.getElementById('echo-display-style');
+  const displayFilterInput = document.getElementById('echo-display-filter');
+  const overflowModeInput = document.getElementById('echo-group-overflow-mode');
+  const parallelMaxInput = document.getElementById('echo-parallel-max-sentences');
+  const revealSecondsInput = document.getElementById('echo-text-reveal-seconds');
+  if (displayStyleInput) displayStyleInput.value = echo.displayStyle || 'lang_serial';
+  if (displayFilterInput) displayFilterInput.value = echo.displayFilter || 'all';
+  if (overflowModeInput) overflowModeInput.value = echo.groupOverflowMode || 'rolling';
+  if (parallelMaxInput) parallelMaxInput.value = `${echo.parallelMaxSentences || 20}`;
+  if (revealSecondsInput) revealSecondsInput.value = `${echo.textRevealSeconds ?? 1.5}`;
+  if (parallelMaxInput) parallelMaxInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'lang_serial');
+  if (overflowModeInput) overflowModeInput.disabled = !['lang_serial', 'lang_parallel'].includes(echo.displayStyle || 'lang_serial');
+  const asrLangSel = document.getElementById('echo-asr-lang');
+  if (asrLangSel) asrLangSel.value = echo.asrLang;
+  const asrLangUnifiedSel = document.getElementById('echo-asr-lang-unified');
+  if (asrLangUnifiedSel) asrLangUnifiedSel.value = echo.asrLang;
+  const echoOutputLanguageSel = document.getElementById('echo-output-language');
+  if (echoOutputLanguageSel) echoOutputLanguageSel.value = echo.outputLanguage || 'same';
+  const echoTtsLanguageSel = document.getElementById('echo-tts-language');
+  if (echoTtsLanguageSel) echoTtsLanguageSel.value = echo.ttsLanguage || 'auto';
+  const asrInputSel = document.getElementById('echo-asr-input-device');
+  if (asrInputSel) asrInputSel.value = echo.asrInputDeviceId || 'default';
+  const modelSel = document.getElementById('echo-asr-model');
+  if (modelSel) modelSel.value = echo.asrModel;
+  const profileSel = document.getElementById('echo-asr-profile');
+  if (profileSel) profileSel.value = echo.asrProfile || 'balanced';
+  const noSpeechThresholdInput = document.getElementById('echo-asr-no-speech-threshold');
+  const logProbThresholdInput = document.getElementById('echo-asr-log-prob-threshold');
+  const compressionRatioThresholdInput = document.getElementById('echo-asr-compression-ratio-threshold');
+  if (noSpeechThresholdInput) noSpeechThresholdInput.value = `${echo.asrNoSpeechThreshold ?? 0.6}`;
+  if (logProbThresholdInput) logProbThresholdInput.value = `${echo.asrLogProbThreshold ?? -1.0}`;
+  if (compressionRatioThresholdInput) compressionRatioThresholdInput.value = `${echo.asrCompressionRatioThreshold ?? 2.4}`;
+  const filterEnabledInput = document.getElementById('echo-asr-filter-enabled');
+  const filterEnabledLabel = document.getElementById('echo-asr-filter-enabled-label');
+  const rejectShortInput = document.getElementById('echo-asr-reject-short-text-enabled');
+  const rejectNoSpeechInput = document.getElementById('echo-asr-reject-no-speech-enabled');
+  const rejectLogprobInput = document.getElementById('echo-asr-reject-logprob-enabled');
+  const rejectShortWordLowConfInput = document.getElementById('echo-asr-reject-short-word-lowconf-enabled');
+  const minCharsInput = document.getElementById('echo-asr-min-chars');
+  const shortCharsInput = document.getElementById('echo-asr-short-max-chars');
+  const noSpeechInput = document.getElementById('echo-asr-no-speech-reject');
+  const lowLogprobInput = document.getElementById('echo-asr-low-logprob-reject');
+  const shortWordMaxInput = document.getElementById('echo-asr-short-word-max');
+  const shortWordLowLogprobInput = document.getElementById('echo-asr-short-word-low-logprob-reject');
+  if (filterEnabledInput) filterEnabledInput.checked = !!echo.asrFilterEnabled;
+  if (filterEnabledLabel) filterEnabledLabel.textContent = echo.asrFilterEnabled ? 'ON' : 'OFF';
+  if (rejectShortInput) rejectShortInput.checked = !!echo.asrRejectShortTextEnabled;
+  if (rejectNoSpeechInput) rejectNoSpeechInput.checked = !!echo.asrRejectNoSpeechEnabled;
+  if (rejectLogprobInput) rejectLogprobInput.checked = !!echo.asrRejectLogprobEnabled;
+  if (rejectShortWordLowConfInput) rejectShortWordLowConfInput.checked = !!echo.asrRejectShortWordLowConfEnabled;
+  if (minCharsInput) minCharsInput.disabled = !echo.asrFilterEnabled;
+  if (shortCharsInput) shortCharsInput.disabled = !echo.asrFilterEnabled;
+  if (noSpeechInput) noSpeechInput.disabled = !echo.asrFilterEnabled;
+  if (lowLogprobInput) lowLogprobInput.disabled = !echo.asrFilterEnabled;
+  if (shortWordMaxInput) shortWordMaxInput.disabled = !echo.asrFilterEnabled || !echo.asrRejectShortWordLowConfEnabled;
+  if (shortWordLowLogprobInput) shortWordLowLogprobInput.disabled = !echo.asrFilterEnabled || !echo.asrRejectShortWordLowConfEnabled;
+  if (minCharsInput) minCharsInput.value = `${echo.asrMinChars}`;
+  if (shortCharsInput) shortCharsInput.value = `${echo.asrShortTextMaxChars}`;
+  if (noSpeechInput) noSpeechInput.value = `${echo.asrNoSpeechReject}`;
+  if (lowLogprobInput) lowLogprobInput.value = `${echo.asrLowLogprobReject}`;
+  if (shortWordMaxInput) shortWordMaxInput.value = `${echo.asrShortWordMaxWords}`;
+  if (shortWordLowLogprobInput) shortWordLowLogprobInput.value = `${echo.asrShortWordLowLogprobReject}`;
+  const noiseGateEnabledInput = document.getElementById('echo-noise-gate-enabled');
+  const noiseGateThresholdInput = document.getElementById('echo-noise-gate-threshold');
+  const highpassEnabledInput = document.getElementById('echo-highpass-enabled');
+  const highpassHzInput = document.getElementById('echo-highpass-hz');
+  const vadEnabledInput = document.getElementById('echo-vad-enabled');
+  const vadEnabledLabel = document.getElementById('echo-vad-enabled-label');
+  const vadOverlapEnabledInput = document.getElementById('echo-vad-overlap-enabled');
+  const vadOverlapEnabledLabel = document.getElementById('echo-vad-overlap-enabled-label');
+  const vadOverlapMsInput = document.getElementById('echo-vad-overlap-ms');
+  const vadModeInput = document.getElementById('echo-vad-mode');
+  const vadStartRatioInput = document.getElementById('echo-vad-start-ratio');
+  const vadEndNonSpeechInput = document.getElementById('echo-vad-end-nonspeech-frames');
+  const vadMinSpeechMsInput = document.getElementById('echo-vad-min-speech-ms');
+  const vadRmsThresholdInput = document.getElementById('echo-vad-rms-threshold');
+  const vadMinAvgRmsInput = document.getElementById('echo-vad-min-avg-rms');
+  if (noiseGateEnabledInput) noiseGateEnabledInput.checked = !!echo.noiseGateEnabled;
+  if (noiseGateThresholdInput) noiseGateThresholdInput.value = `${echo.noiseGateThreshold}`;
+  if (highpassEnabledInput) highpassEnabledInput.checked = !!echo.highpassEnabled;
+  if (highpassHzInput) highpassHzInput.value = `${echo.highpassHz}`;
+  if (vadEnabledInput) vadEnabledInput.checked = !!echo.vadEnabled;
+  if (vadEnabledLabel) vadEnabledLabel.textContent = echo.vadEnabled ? 'ON' : 'OFF';
+  if (vadOverlapEnabledInput) vadOverlapEnabledInput.checked = !!echo.vadOverlapEnabled;
+  if (vadOverlapEnabledLabel) vadOverlapEnabledLabel.textContent = echo.vadOverlapEnabled ? 'ON' : 'OFF';
+  if (vadOverlapMsInput) vadOverlapMsInput.value = `${echo.vadOverlapMs}`;
+  if (vadModeInput) vadModeInput.value = `${echo.vadMode}`;
+  if (vadStartRatioInput) vadStartRatioInput.value = `${echo.vadStartWindowFrames}/${echo.vadStartSpeechFrames}`;
+  if (vadEndNonSpeechInput) vadEndNonSpeechInput.value = `${echo.vadEndNonSpeechFrames}`;
+  if (vadMinSpeechMsInput) vadMinSpeechMsInput.value = `${echo.vadMinSpeechMs}`;
+  if (vadRmsThresholdInput) vadRmsThresholdInput.value = `${echo.vadRmsThreshold}`;
+  if (vadMinAvgRmsInput) vadMinAvgRmsInput.value = `${echo.vadMinAvgRms}`;
+  _echoRefreshAudioDeviceSelectors();
+  if (noiseGateThresholdInput) noiseGateThresholdInput.disabled = !echo.noiseGateEnabled;
+  if (highpassHzInput) highpassHzInput.disabled = !echo.highpassEnabled;
+  if (vadModeInput) vadModeInput.disabled = !echo.vadEnabled;
+  if (vadStartRatioInput) vadStartRatioInput.disabled = !echo.vadEnabled;
+  if (vadEndNonSpeechInput) vadEndNonSpeechInput.disabled = !echo.vadEnabled;
+  if (vadMinSpeechMsInput) vadMinSpeechMsInput.disabled = !echo.vadEnabled;
+  if (vadRmsThresholdInput) vadRmsThresholdInput.disabled = !echo.vadEnabled;
+  if (vadMinAvgRmsInput) vadMinAvgRmsInput.disabled = !echo.vadEnabled;
+  if (vadOverlapEnabledInput) vadOverlapEnabledInput.disabled = !echo.vadEnabled;
+  if (vadOverlapMsInput) vadOverlapMsInput.disabled = !echo.vadEnabled || !echo.vadOverlapEnabled;
+  _syncAsrDeviceState(localStorage.getItem('asr_device') || echo.asrDevice || 'cuda');
+
+  _echoRenderTranscript(true);
+}
+
+function toggleEchoToolbarTranslate() {
+  echo.ttsTranslateEnabled = !echo.ttsTranslateEnabled;
+  localStorage.setItem('echo_tts_translate_enabled', `${echo.ttsTranslateEnabled}`);
+  syncEchoTranslateUi();
+  _ttsSyncTranslateDirectionChecks('echo');
+  _echoRenderTranscript(true);
+}
+
+async function echoGenerateMinutesNow() {
+  if (echo.recording) {
+    _echoSetStatus('録音中は議事録作成設定を変更できません。停止後に実行してください。');
+    return;
+  }
+  echo.autoGenerateMinutes = !echo.autoGenerateMinutes;
+  localStorage.setItem('echo_auto_generate_minutes', echo.autoGenerateMinutes ? 'true' : 'false');
+  _echoSetStatus(echo.autoGenerateMinutes ? 'Minutes: ON（停止時に自動生成）' : 'Minutes: OFF（停止時に生成しません）');
+  _syncEchoMinutesButtonUi();
+}
+
+// ── TTS/ASR タブ設定 ──
+function saveTsAsrSettings() {
+  const asrPreload = document.getElementById('tsasr-asr-preload');
+  const ttsPreload = document.getElementById('tsasr-tts-preload');
+  const asrDir   = document.getElementById('tsasr-asr-dir');
+  const ttsDir   = document.getElementById('tsasr-tts-dir');
+  if (asrPreload) {
+    localStorage.setItem('tsasr_asr_preload', asrPreload.checked);
+    const lbl = document.getElementById('tsasr-asr-preload-label');
+    if (lbl) lbl.textContent = asrPreload.checked ? 'ON' : 'OFF';
+  }
+  if (ttsPreload) {
+    localStorage.setItem('tsasr_tts_preload', ttsPreload.checked);
+    const lbl = document.getElementById('tsasr-tts-preload-label');
+    if (lbl) lbl.textContent = ttsPreload.checked ? 'ON' : 'OFF';
+  }
+  if (asrDir) localStorage.setItem('tsasr_asr_dir', asrDir.value);
+  if (ttsDir) localStorage.setItem('tsasr_tts_dir', ttsDir.value);
+  const devRadio = document.querySelector('input[name="tsasr-device"]:checked');
+  if (devRadio) _syncTtsDeviceState(devRadio.value);
+}
+
+function saveTtsTranslateSettings(context = 'echo') {
+  const isEcho = context === 'echo';
+  const prefix = isEcho ? 'echo_tts_translate_' : 'tts_translate_';
+  const target = isEcho ? echo : tts;
+  const enableChk = document.getElementById('tts-translate-enable');
+  const modeSel   = document.getElementById('tts-translate-mode');
+  const en2jaChk  = document.getElementById('tts-translate-en2ja-enable');
+  const ja2enChk  = document.getElementById('tts-translate-ja2en-enable');
+  const autoChk   = document.getElementById('tts-translate-autoplay');
+  if (enableChk) {
+    target[isEcho ? 'ttsTranslateEnabled' : 'translateEnabled'] = enableChk.checked;
+    localStorage.setItem(prefix + 'enabled', enableChk.checked);
+    const lbl = document.getElementById('tts-translate-enable-label');
+    if (lbl) lbl.textContent = enableChk.checked ? 'ON' : 'OFF';
+    if (isEcho) syncEchoTranslateUi();
+  }
+  // 旧 mode 選択は互換用途として残しつつ、新しい方向別トグルを優先
+  if (modeSel && document.activeElement === modeSel) {
+    const f = _ttsFlagsFromMode(modeSel.value);
+    target[isEcho ? 'ttsTranslateEnToJaEnabled' : 'translateEnToJaEnabled'] = f.en2ja;
+    target[isEcho ? 'ttsTranslateJaToEnEnabled' : 'translateJaToEnEnabled'] = f.ja2en;
+    if (en2jaChk) en2jaChk.checked = f.en2ja;
+    if (ja2enChk) ja2enChk.checked = f.ja2en;
+  } else {
+    if (en2jaChk) target[isEcho ? 'ttsTranslateEnToJaEnabled' : 'translateEnToJaEnabled'] = en2jaChk.checked;
+    if (ja2enChk) target[isEcho ? 'ttsTranslateJaToEnEnabled' : 'translateJaToEnEnabled'] = ja2enChk.checked;
+  }
+  const en2ja = !!target[isEcho ? 'ttsTranslateEnToJaEnabled' : 'translateEnToJaEnabled'];
+  const ja2en = !!target[isEcho ? 'ttsTranslateJaToEnEnabled' : 'translateJaToEnEnabled'];
+  const mode = _ttsModeFromFlags(en2ja, ja2en);
+  target[isEcho ? 'ttsTranslateMode' : 'translateMode'] = mode;
+  localStorage.setItem(prefix + 'mode', mode);
+  localStorage.setItem(prefix + 'en2ja_enabled', en2ja);
+  localStorage.setItem(prefix + 'ja2en_enabled', ja2en);
+  const en2jaLbl = document.getElementById('tts-translate-en2ja-enable-label');
+  const ja2enLbl = document.getElementById('tts-translate-ja2en-enable-label');
+  if (en2jaLbl) en2jaLbl.textContent = en2ja ? 'ON' : 'OFF';
+  if (ja2enLbl) ja2enLbl.textContent = ja2en ? 'ON' : 'OFF';
+  if (modeSel) {
+    modeSel.value = mode;
+  }
+  if (autoChk) {
+    target[isEcho ? 'ttsTranslateAutoplay' : 'translateAutoplay'] = autoChk.checked;
+    localStorage.setItem(prefix + 'autoplay', autoChk.checked);
+    const lbl = document.getElementById('tts-translate-autoplay-label');
+    if (lbl) lbl.textContent = autoChk.checked ? 'ON' : 'OFF';
+  }
+}
+
+function refreshAsrTab() {
+  _echoInitSettingsUI();
+  _loadAsrRuntimeConfig().then(()=>_renderAsrRuntimeUi());
+  fetch(API + '/voice/status').then(r => r.json()).then(s => {
+    const statusEl = document.getElementById('tsasr-asr-status');
+    const loadBtn  = document.getElementById('tsasr-asr-load-btn');
+    const unloadBtn = document.getElementById('tsasr-asr-unload-btn');
+    const asrDevice = s.device || localStorage.getItem('asr_device') || echo.asrDevice || 'cuda';
+    _syncAsrDeviceState(asrDevice);
+    if (statusEl) statusEl.textContent = s.loaded ? `✓ ロード済み (${s.model || ''}, ${asrDevice})` : '未ロード';
+    if (loadBtn)  loadBtn.style.display  = s.loaded ? 'none' : '';
+    if (unloadBtn) unloadBtn.style.display = s.loaded ? '' : 'none';
+  }).catch(() => {});
+  const asrPreload = document.getElementById('tsasr-asr-preload');
+  const asrDir   = document.getElementById('tsasr-asr-dir');
+  if (asrPreload) { asrPreload.checked = localStorage.getItem('tsasr_asr_preload') === 'true'; const lbl = document.getElementById('tsasr-asr-preload-label'); if (lbl) lbl.textContent = asrPreload.checked ? 'ON' : 'OFF'; }
+  if (asrDir)  asrDir.value  = localStorage.getItem('tsasr_asr_dir') || '';
+}
+
+function refreshTtsTab() {
+  _echoInitSettingsUI();
+  const savedStyleBertModel = _normalizeStyleBertVits2Model(localStorage.getItem('echo_style_bert_vits2_model')
+    || localStorage.getItem('tts_style_bert_vits2_model')
+    || localStorage.getItem('echo_stylebertvits2_model')
+    || localStorage.getItem('tts_stylebertvits2_model')
+    || localStorage.getItem('echo_style-bert-vits2_model')
+    || localStorage.getItem('tts_style-bert-vits2_model')
+    || echo.styleBertVits2Model
+    || tts.styleBertVits2Model
+    || '');
+  echo.styleBertVits2Model = savedStyleBertModel;
+  tts.styleBertVits2Model = savedStyleBertModel;
+  localStorage.setItem('echo_style_bert_vits2_model', savedStyleBertModel);
+  localStorage.setItem('tts_style_bert_vits2_model', savedStyleBertModel);
+  refreshStyleBertVits2Models('echo').finally(() => {
+    setTimeout(() => { ensureStyleBertVits2LoadedForEcho().catch((e) => console.warn(e)); }, 0);
+  });
+  fetch(API + '/tts/status').then(r => r.json()).then(s => {
+    _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
+    const sb = s?.engines?.style_bert_vits2 || s?.style_bert_vits2 || {};
+    const backend = String(sb?.selected_tts_backend || '').toLowerCase();
+    const isWindows = String(navigator.platform || '').toLowerCase().includes('win');
+    if (isWindows && backend.includes('onnx directml')) {
+      echo.ttsEngine = 'style_bert_vits2';
+      tts.engine = 'style_bert_vits2';
+      localStorage.setItem('echo_tts_engine', 'style_bert_vits2');
+      localStorage.setItem('tts_engine', 'style_bert_vits2');
+    }
+  }).catch(() => {});
+  const ttsPreload = document.getElementById('tsasr-tts-preload');
+  const ttsDir   = document.getElementById('tsasr-tts-dir');
+  if (ttsPreload) { ttsPreload.checked = localStorage.getItem('tsasr_tts_preload') === 'true'; const lbl = document.getElementById('tsasr-tts-preload-label'); if (lbl) lbl.textContent = ttsPreload.checked ? 'ON' : 'OFF'; }
+  if (ttsDir)  ttsDir.value  = localStorage.getItem('tsasr_tts_dir') || '';
+
+
+  _syncTtsDeviceState(localStorage.getItem('tsasr_tts_device') || tts.ttsDevice || 'cuda');
+  const modeSel   = document.getElementById('tts-translate-mode');
+  const en2jaChk  = document.getElementById('tts-translate-en2ja-enable');
+  const ja2enChk  = document.getElementById('tts-translate-ja2en-enable');
+  const autoChk   = document.getElementById('tts-translate-autoplay');
+  const echoTranslate = _ttsGetTranslateSettings('echo');
+  echo.ttsTranslateEnabled = echoTranslate.enabled;
+  echo.ttsTranslateMode = echoTranslate.mode;
+  echo.ttsTranslateEnToJaEnabled = echoTranslate.en2jaEnabled;
+  echo.ttsTranslateJaToEnEnabled = echoTranslate.ja2enEnabled;
+  echo.ttsTranslateAutoplay = echoTranslate.autoplay;
+  syncEchoTranslateUi();
+  if (modeSel)   modeSel.value = _ttsModeFromFlags(!!echo.ttsTranslateEnToJaEnabled, !!echo.ttsTranslateJaToEnEnabled);
+  if (en2jaChk)  { en2jaChk.checked = !!echo.ttsTranslateEnToJaEnabled; const lbl = document.getElementById('tts-translate-en2ja-enable-label'); if (lbl) lbl.textContent = echo.ttsTranslateEnToJaEnabled ? 'ON' : 'OFF'; }
+  if (ja2enChk)  { ja2enChk.checked = !!echo.ttsTranslateJaToEnEnabled; const lbl = document.getElementById('tts-translate-ja2en-enable-label'); if (lbl) lbl.textContent = echo.ttsTranslateJaToEnEnabled ? 'ON' : 'OFF'; }
+  if (autoChk)   { autoChk.checked = echo.ttsTranslateAutoplay; const lbl = document.getElementById('tts-translate-autoplay-label'); if (lbl) lbl.textContent = echo.ttsTranslateAutoplay ? 'ON' : 'OFF'; }
+}
+
+async function loadAsrModelFromTab() {
+  const loadBtn   = document.getElementById('tsasr-asr-load-btn');
+  const statusEl  = document.getElementById('tsasr-asr-status');
+  const modelSel  = document.getElementById('echo-asr-model');
+  const devRadio  = document.querySelector('input[name="echo-asr-device"]:checked');
+  const model     = modelSel?.value || 'large-v3-turbo';
+  const device    = devRadio?.value || localStorage.getItem('asr_device') || echo.asrDevice || 'cuda';
+  _syncAsrDeviceState(device);
+  if (loadBtn) loadBtn.disabled = true;
+  if (statusEl) statusEl.textContent = 'ロード中...';
+  try {
+    const r = await fetch(API + '/voice/load', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({model, device})
+    });
+    const d = await r.json();
+    if (d.status === 'loaded' || d.loaded) {
+      _syncAsrDeviceState(d.device || device);
+      if (statusEl) statusEl.textContent = `✓ ロード済み (${d.model || model}, ${d.device || device})`;
+      document.getElementById('tsasr-asr-load-btn')?.setAttribute('style','display:none');
+      document.getElementById('tsasr-asr-unload-btn')?.removeAttribute('style');
+    } else {
+      if (statusEl) statusEl.textContent = 'ロード失敗: ' + (d.error || JSON.stringify(d));
+    }
+  } catch(e) {
+    if (statusEl) statusEl.textContent = 'エラー: ' + e.message;
+  }
+  if (loadBtn) loadBtn.disabled = false;
+}
+
+async function unloadAsrModelFromTab() {
+  const statusEl = document.getElementById('tsasr-asr-status');
+  if (statusEl) statusEl.textContent = 'アンロード中...';
+  try {
+    await fetch(API + '/voice/unload', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({})});
+    if (statusEl) statusEl.textContent = '未ロード';
+    document.getElementById('tsasr-asr-unload-btn')?.setAttribute('style','display:none');
+    document.getElementById('tsasr-asr-load-btn')?.removeAttribute('style');
+  } catch(e) {
+    if (statusEl) statusEl.textContent = 'エラー: ' + e.message;
+  }
+}
+
+async function unloadTtsEngineFromTab() {
+  return;
+}
+
+function _ttsInitSettingsUI() {
+  _asrInitSettingsUI();
+}
+
+// ── ASR 設定 JS ──
+
+async function _loadAsrRuntimeConfig() {
+  try {
+    const r = await fetch(API + '/asr/config');
+    asrRuntimeConfig = await r.json();
+  } catch(_) {}
+}
+
+function _asrInitSettingsUI() {
+  const silenceEl = document.getElementById('asr-silence-ms');
+  const minSpeechEl = document.getElementById('asr-min-speech-ms');
+  const autoSendEl = document.getElementById('asr-auto-send-after');
+  if (silenceEl) silenceEl.value = String(voiceAsrSettings.silenceMs);
+  if (minSpeechEl) minSpeechEl.value = String(voiceAsrSettings.minSpeechMs);
+  if (autoSendEl) autoSendEl.checked = !!voiceAsrSettings.autoSendAfterAsr;
+  _loadAsrRuntimeConfig().then(()=>_renderAsrRuntimeUi());
+  fetch(API + '/voice/status').then(r => r.json()).then(s => {
+    const statusTxt = document.getElementById('asr-status-txt');
+    const unloadBtn = document.getElementById('asr-unload-btn');
+    const loadBtn   = document.getElementById('asr-load-btn');
+    const modelSel  = document.getElementById('asr-model-sel');
+    if (!statusTxt) return;
+    if (s.loaded) {
+      statusTxt.textContent = `ロード済み: ${s.model}（${s.device || 'cpu'}）`;
+      if (unloadBtn) unloadBtn.style.display = '';
+      if (loadBtn)   loadBtn.style.display   = 'none';
+    } else {
+      statusTxt.textContent = '未ロード';
+      if (unloadBtn) unloadBtn.style.display = 'none';
+      if (loadBtn)   loadBtn.style.display   = '';
+    }
+    if (modelSel && s.model) modelSel.value = s.model;
+    _syncAsrDeviceState(s.device || localStorage.getItem('asr_device') || echo.asrDevice || 'cuda');
+  }).catch(() => {});
+}
+
+function saveAsrSettings() {
+  const dev = document.querySelector('input[name="asr-device"]:checked')?.value || localStorage.getItem('asr_device') || echo.asrDevice || 'cuda';
+  _syncAsrDeviceState(dev);
+  const silenceEl = document.getElementById('asr-silence-ms');
+  const minSpeechEl = document.getElementById('asr-min-speech-ms');
+  const autoSendEl = document.getElementById('asr-auto-send-after');
+  voiceAsrSettings.silenceMs = Math.max(600, Math.min(10000, parseInt(silenceEl?.value || `${voiceAsrSettings.silenceMs}`, 10) || 1800));
+  voiceAsrSettings.minSpeechMs = Math.max(200, Math.min(5000, parseInt(minSpeechEl?.value || `${voiceAsrSettings.minSpeechMs}`, 10) || 700));
+  voiceAsrSettings.autoSendAfterAsr = !!autoSendEl?.checked;
+  if (silenceEl) silenceEl.value = String(voiceAsrSettings.silenceMs);
+  if (minSpeechEl) minSpeechEl.value = String(voiceAsrSettings.minSpeechMs);
+  localStorage.setItem('asr_silence_ms', String(voiceAsrSettings.silenceMs));
+  localStorage.setItem('asr_min_speech_ms', String(voiceAsrSettings.minSpeechMs));
+  localStorage.setItem('asr_auto_send_after', voiceAsrSettings.autoSendAfterAsr ? 'true' : 'false');
+  _saveSettingDb('silence_ms', voiceAsrSettings.silenceMs);
+  _saveSettingDb('min_speech_ms', voiceAsrSettings.minSpeechMs);
+  _saveSettingDb('auto_send_after_asr', voiceAsrSettings.autoSendAfterAsr);
+  const engineSel=document.getElementById('asr-engine-sel');
+  const fwSel=document.getElementById('asr-fw-device-sel');
+  const cppSel=document.getElementById('asr-cpp-backend-sel');
+  if(engineSel) _saveSettingDb('asr_engine', engineSel.value);
+  if(fwSel) _saveSettingDb('faster_whisper_device', fwSel.value);
+  if(cppSel) _saveSettingDb('whisper_cpp_backend', cppSel.value);
+}
+
+async function loadAsrModel() {
+  const modelSel  = document.getElementById('asr-model-sel');
+  const devRadio  = document.querySelector('input[name="asr-device"]:checked');
+  const statusTxt = document.getElementById('asr-status-txt');
+  const loadBtn   = document.getElementById('asr-load-btn');
+  const model  = modelSel ? modelSel.value : 'large-v3-turbo';
+  const device = devRadio ? devRadio.value : 'cuda';
+  _syncAsrDeviceState(device);
+  if (loadBtn) loadBtn.disabled = true;
+  if (statusTxt) statusTxt.textContent = 'ロード中...';
+  try {
+    const r = await fetch(API + '/voice/load', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ model, device })
+    });
+    const s = await r.json();
+    _syncAsrDeviceState(s.device || device);
+    if (statusTxt) statusTxt.textContent = `ロード済み: ${s.model}（${s.device || device}）`;
+    const unloadBtn = document.getElementById('asr-unload-btn');
+    if (unloadBtn) unloadBtn.style.display = '';
+    if (loadBtn)   loadBtn.style.display   = 'none';
+    addMsg('system', `ASR モデル ${s.model} をロードしました（${s.device || device}）。`);
+  } catch(e) {
+    if (statusTxt) statusTxt.textContent = 'エラー';
+    addMsg('error', 'ASR ロードに失敗: ' + e.message);
+  } finally {
+    if (loadBtn) loadBtn.disabled = false;
+  }
+}
+
+async function unloadAsrModel() {
+  const statusTxt = document.getElementById('asr-status-txt');
+  try {
+    await fetch(API + '/voice/unload', { method: 'POST' });
+    if (statusTxt) statusTxt.textContent = '未ロード';
+    const unloadBtn = document.getElementById('asr-unload-btn');
+    const loadBtn   = document.getElementById('asr-load-btn');
+    if (unloadBtn) unloadBtn.style.display = 'none';
+    if (loadBtn)   loadBtn.style.display   = '';
+    addMsg('system', 'ASR モデルをアンロードしました。');
+  } catch(e) {
+    addMsg('error', 'ASR アンロードに失敗: ' + e.message);
+  }
+}
+
+// ── 音声クローン（ref-audio）JS ──
+
+let _refRecorder = null;
+let _refChunks   = [];
+
+async function uploadRefAudio(input) {
+  if (!input.files || !input.files[0]) return;
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  try {
+    const r = await fetch(API + '/tts/ref-audio/upload', { method: 'POST', body: fd });
+    if (!r.ok) { const e = await r.json().catch(()=>{}); throw new Error(e?.detail || r.status); }
+    await refreshRefAudioList();
+    addMsg('system', `参照音声 "${input.files[0].name}" をアップロードしました。`);
+  } catch(e) {
+    addMsg('error', '参照音声のアップロードに失敗: ' + e.message);
+  }
+  input.value = '';
+}
+
+async function refreshRefAudioList() {
+  const sel = document.getElementById('ref-audio-sel');
+  if (!sel) return;
+  try {
+    const r = await fetch(API + '/tts/ref-audio/list');
+    const data = await r.json();
+    const current = sel.value;
+    sel.innerHTML = '<option value="">（参照音声なし・通常合成）</option>';
+    (data.files || []).forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.filename;
+      const kb = (f.size / 1024).toFixed(1);
+      opt.textContent = `${f.filename} (${kb}KB)`;
+      if (f.filename === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(e) { /* ignore */ }
+}
+
+async function deleteRefAudio() {
+  const sel = document.getElementById('ref-audio-sel');
+  if (!sel || !sel.value) { addMsg('system', '削除する音声を選択してください。'); return; }
+  const fname = sel.value;
+  try {
+    const r = await fetch(API + '/tts/ref-audio/' + encodeURIComponent(fname), { method: 'DELETE' });
+    if (!r.ok) { const e = await r.json().catch(()=>{}); throw new Error(e?.detail || r.status); }
+    await refreshRefAudioList();
+    addMsg('system', `参照音声 "${fname}" を削除しました。`);
+  } catch(e) {
+    addMsg('error', '参照音声の削除に失敗: ' + e.message);
+  }
+}
+
+async function toggleRefRecording() {
+  const btn = document.getElementById('ref-record-btn');
+  if (!_refRecorder) {
+    // 録音開始
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      _refChunks = [];
+      _refRecorder = new MediaRecorder(stream);
+      _refRecorder.ondataavailable = e => { if (e.data.size > 0) _refChunks.push(e.data); };
+      _refRecorder.onstop = async () => {
+        const blob = new Blob(_refChunks, { type: 'audio/webm' });
+        const fname = `recording_${Date.now()}.webm`;
+        const file = new File([blob], fname, { type: 'audio/webm' });
+        const fd = new FormData();
+        fd.append('file', file);
+        try {
+          const r = await fetch(API + '/tts/ref-audio/upload', { method: 'POST', body: fd });
+          if (!r.ok) throw new Error((await r.json().catch(()=>{}))?.detail || r.status);
+          await refreshRefAudioList();
+          addMsg('system', `録音した音声 "${fname}" を保存しました。`);
+        } catch(e) {
+          addMsg('error', '録音データの保存に失敗: ' + e.message);
+        }
+        stream.getTracks().forEach(t => t.stop());
+        _refRecorder = null;
+      };
+      _refRecorder.start();
+      if (btn) { btn.textContent = '⏹️ 録音停止'; btn.style.background = 'var(--accent)'; }
+    } catch(e) {
+      addMsg('error', '録音開始に失敗: ' + e.message);
+    }
+  } else {
+    // 録音停止
+    _refRecorder.stop();
+    if (btn) { btn.textContent = '🔴 録音'; btn.style.background = 'var(--bg2)'; }
+  }
+}
+
+// ── iOS Safari キーボード対応 ──
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    const body = document.querySelector('.app-body');
+    if (!body) return;
+    const headerH = (document.querySelector('header') || {offsetHeight:52}).offsetHeight;
+    const mob = document.querySelector('.mob-tabs');
+    const tabsH = mob && getComputedStyle(mob).display !== 'none' ? mob.offsetHeight : 0;
+    body.style.height = (window.visualViewport.height - headerH - tabsH) + 'px';
+  });
+}
+
+// ── SETTINGS DB 連動 ──
+
+// KasaneCore 本体を git pull して FastAPI サーバを再起動する。再起動後は /health の復帰を
+// ポーリングして自動でページをリロードする（手動 pull + 再起動の手間をワンクリックに置換）。
+async function kasaneCoreSelfUpdate() {
+  const btn = document.getElementById('self-update-btn');
+  const statusEl = document.getElementById('self-update-status');
+  const setMsg = (m) => { if (statusEl) statusEl.textContent = m; };
+  if (!confirm('最新コードを pull してサーバを再起動します。再起動中は数秒接続が切れます。続行しますか？')) return;
+  if (btn) btn.disabled = true;
+  setMsg('更新を実行中…');
+  try {
+    const res = await fetch(API + '/system/self-update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acknowledge: true, restart: true }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.ok) {
+      const pull = d.pull || {};
+      const reason = (pull.reason || d.reason || ('http_' + res.status));
+      setMsg('更新に失敗しました: ' + reason + (pull.stderr ? '\n' + String(pull.stderr).trim() : ''));
+      if (btn) btn.disabled = false;
+      return;
+    }
+    if (d.stage === 'restarting') {
+      setMsg((d.pull && d.pull.reason === 'already_up_to_date'
+        ? '既に最新でした。サーバを再起動します…'
+        : '更新を取得しました。サーバを再起動します…') + '\n復帰を待っています…');
+      waitForServerBack(statusEl);
+    } else {
+      setMsg(d.message || '完了しました。');
+      if (btn) btn.disabled = false;
+    }
+  } catch (err) {
+    setMsg('更新リクエストに失敗: ' + (err && err.message ? err.message : 'error'));
+    if (btn) btn.disabled = false;
+  }
+}
+
+// 再起動中はサーバが一時的に落ちるので、/health が再び 200 を返すまでポーリングしてリロード。
+async function waitForServerBack(statusEl) {
+  const setMsg = (m) => { if (statusEl) statusEl.textContent = m; };
+  const deadline = Date.now() + 90000;
+  // まずダウンを確認してから復帰を待つ（即時 200 で誤検知しないように軽く待つ）。
+  await new Promise((r) => setTimeout(r, 2500));
+  const poll = async () => {
+    try {
+      const r = await fetch(API + '/health', { cache: 'no-store' });
+      if (r.ok) { setMsg('サーバが復帰しました。リロードします…'); setTimeout(() => location.reload(), 800); return; }
+    } catch (_e) { /* まだ落ちている */ }
+    if (Date.now() > deadline) { setMsg('再起動の確認がタイムアウトしました。手動でリロードしてください。'); return; }
+    setTimeout(poll, 1500);
+  };
+  poll();
+}
+
+async function loadSettingsFromDb() {
+  try {
+    const r = await fetch(API+'/settings');
+    const d = await r.json();
+
+    // ルートフォルダ
+    const folder = d.llm_root_folder || '';
+    const rf1 = document.getElementById('model-root-folder');
+    const rf2 = document.getElementById('settings-root-folder');
+    if (rf1) rf1.value = folder;
+    if (rf2) rf2.value = folder;
+
+    // Max Steps
+    const steps = parseInt(d.max_steps) || 20;
+    maxSteps = steps;
+    const sl = document.getElementById('steps-slider');
+    const ll = document.getElementById('steps-label');
+    if (sl) sl.value = steps;
+    if (ll) ll.textContent = steps;
+
+    // Auto select
+    const autoSel = d.auto_select_option !== 'false';
+    autoSelectOption = autoSel;
+    const ast = document.getElementById('auto-select-toggle');
+    if (ast) ast.checked = autoSel;
+
+    // Auto skill gen
+    const autoSkill = d.auto_skill_gen !== 'false';
+    autoSkillGeneration = autoSkill;
+    const askg = document.getElementById('auto-skill-toggle');
+    if (askg) askg.checked = autoSkill;
+
+    // Streaming
+    const streaming = d.streaming_enabled !== 'false';
+    streamingEnabled = streaming;
+    const schk = document.getElementById('streaming-chk');
+    const slbl = document.getElementById('streaming-label');
+    if (schk) schk.checked = streaming;
+    if (slbl) slbl.textContent = streaming ? 'ON' : 'OFF';
+
+    // Search
+    const search = String(d.search_enabled ?? 'true').toLowerCase() !== 'false';
+    searchEnabled = search;
+    const sc = document.getElementById('search-chk');
+    const sl2 = document.getElementById('search-label');
+    if (sc) sc.checked = search;
+    if (sl2) sl2.textContent = search ? 'ON' : 'OFF';
+
+    // Ctx size (managed per-model in the Forge/Models tab; kept here only as the fallback
+    // default for model-add-ctx, since the settings-modal slider was removed)
+    const ctx = normalizeCtxSize(d.ctx_size, DEFAULT_CTX_SIZE);
+    _settingsDefaultCtxSize = ctx;
+    const addCtx = document.getElementById('model-add-ctx');
+    if (addCtx) {
+      addCtx.value = String(ctx);
+      addCtx.placeholder = String(ctx);
+    }
+
+    // LLM URL
+    const url = d.llm_url || '';
+    activeLlmUrl = url;
+    const ui = document.getElementById('llm-url-input');
+    if (ui) ui.value = url;
+
+    const em = document.getElementById('ensemble-execution-mode');
+    const eas = document.getElementById('ensemble-auto-switch');
+    if (em) em.value = (d.ensemble_execution_mode === 'serial') ? 'serial' : 'parallel';
+    if (eas) eas.checked = d.ensemble_auto_switch_on_low_vram !== 'false';
+
+    // Role lock (default: unlocked)
+    _roleLocked = d.role_lock === 'true';
+    _updateRoleLockBtn();
+
+    // Main mic ASR silence settings
+    const silenceMs = Math.max(600, Math.min(10000, parseInt(d.silence_ms, 10) || voiceAsrSettings.silenceMs));
+    const minSpeechMs = Math.max(200, Math.min(5000, parseInt(d.min_speech_ms, 10) || voiceAsrSettings.minSpeechMs));
+    const autoSendAfterAsr = d.auto_send_after_asr === 'true' || (d.auto_send_after_asr == null && voiceAsrSettings.autoSendAfterAsr);
+    voiceAsrSettings.silenceMs = silenceMs;
+    voiceAsrSettings.minSpeechMs = minSpeechMs;
+    voiceAsrSettings.autoSendAfterAsr = !!autoSendAfterAsr;
+    localStorage.setItem('asr_silence_ms', String(silenceMs));
+    localStorage.setItem('asr_min_speech_ms', String(minSpeechMs));
+    localStorage.setItem('asr_auto_send_after', autoSendAfterAsr ? 'true' : 'false');
+    const silenceEl = document.getElementById('asr-silence-ms');
+    const minSpeechEl = document.getElementById('asr-min-speech-ms');
+    const autoSendEl = document.getElementById('asr-auto-send-after');
+    if (silenceEl) silenceEl.value = String(silenceMs);
+    if (minSpeechEl) minSpeechEl.value = String(minSpeechMs);
+    if (autoSendEl) autoSendEl.checked = !!autoSendAfterAsr;
+
+  } catch(e) { console.warn('loadSettingsFromDb error', e); }
+}
+
+// 設定変更をDBに保存するラッパー（既存の各toggle関数から呼ぶ）
+async function _saveSettingDb(key, value) {
+  try {
+    await fetch(API+'/settings', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({[key]: String(value)})
+    });
+  } catch(e) {}
+}
+
+function applyUiFontSettings() {
+  const chatSlider = document.getElementById('chat-font-size-slider');
+  const echoSlider = document.getElementById('echo-font-size-slider');
+  const chatSize = Math.max(11, Math.min(20, parseInt(chatSlider?.value || localStorage.getItem('chat_font_size') || '13', 10) || 13));
+  const echoSize = Math.max(11, Math.min(24, parseInt(echoSlider?.value || localStorage.getItem('echo_font_size') || '13', 10) || 13));
+  document.documentElement.style.setProperty('--chat-font-size', `${chatSize}px`);
+  document.documentElement.style.setProperty('--echo-font-size', `${echoSize}px`);
+  if (chatSlider) chatSlider.value = `${chatSize}`;
+  if (echoSlider) echoSlider.value = `${echoSize}`;
+  const chatLabel = document.getElementById('chat-font-size-label');
+  const echoLabel = document.getElementById('echo-font-size-label');
+  if (chatLabel) chatLabel.textContent = `${chatSize}px`;
+  if (echoLabel) echoLabel.textContent = `${echoSize}px`;
+  localStorage.setItem('chat_font_size', `${chatSize}`);
+  localStorage.setItem('echo_font_size', `${echoSize}`);
+}
+
+const _PANEL_WIDTH_KEY = 'panel_col_width_pc';
+const _PANEL_MIN_WIDTH = 260;
+function _applyPanelWidth(widthPx, persist = true) {
+  const maxWidth = Math.floor(window.innerWidth * 0.75);
+  const next = Math.max(_PANEL_MIN_WIDTH, Math.min(maxWidth, Math.round(widthPx || 0)));
+  if (window.innerWidth <= 768) return;
+  document.documentElement.style.setProperty('--panel-col-width', `${next}px`);
+  if (persist) localStorage.setItem(_PANEL_WIDTH_KEY, String(next));
+}
+
+function _restorePanelWidth() {
+  if (window.innerWidth <= 768) return;
+  const saved = parseInt(localStorage.getItem(_PANEL_WIDTH_KEY) || '', 10);
+  if (Number.isFinite(saved) && saved > 0) {
+    _applyPanelWidth(saved, false);
+    return;
+  }
+  const panelCol = document.getElementById('panel-col');
+  if (panelCol) _applyPanelWidth(panelCol.getBoundingClientRect().width || 420, false);
+}
+
+function initPanelResizer() {
+  const handle = document.getElementById('panel-resizer');
+  const panelCol = document.getElementById('panel-col');
+  if (!handle || !panelCol) return;
+  let dragging = false;
+
+  const onMove = (ev) => {
+    if (!dragging) return;
+    _applyPanelWidth(window.innerWidth - ev.clientX, false);
+  };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('active');
+    const width = panelCol.getBoundingClientRect().width;
+    _applyPanelWidth(width, true);
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+  };
+
+  handle.addEventListener('mousedown', (ev) => {
+    if (window.innerWidth <= 768) return;
+    dragging = true;
+    handle.classList.add('active');
+    ev.preventDefault();
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+
+  window.addEventListener('resize', () => {
+    if (window.innerWidth <= 768) {
+      document.documentElement.style.removeProperty('--panel-col-width');
+      return;
+    }
+    const current = parseInt(localStorage.getItem(_PANEL_WIDTH_KEY) || '', 10);
+    if (Number.isFinite(current) && current > 0) _applyPanelWidth(current, false);
+  });
+
+  _restorePanelWidth();
+}
+
+// ── INIT ──
+addEventListener('load', async () => {
+  initTheme();
+_echoRefreshStatusLine();
+  if (window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window) {
+    bindModeAndNexusTapHandlers();
+  }
+  if (mode === 'task') mode = 'chat';
+  syncChatTaskToggle();
+  syncAllTtsToggles();
+  // Relocate the Forge panels (Models/ASR/TTS) into forge-col before restore can enter Forge mode.
+  relocateForgePanels();
+  // Restore persisted mode/subtab before async startup work can delay or abort later init.
+  restoreUiNavigationState();
+  localStorage.removeItem('llm_endpoints'); // 旧LLMエンドポイント設定をクリーンアップ
+  await loadSettingsFromDb();   // DBから設定を復元（localStorage優先ではなくDB優先）
+  syncAllTtsToggles();
+  await refreshSystemSummary();
+  loadProjects();
+  initCtxSlider();
+  loadNexusDeepResearchForm();
+  onNexusResearchTypeChange();
+  document.getElementById('nexus-research-type')?.addEventListener('change', onNexusResearchTypeChange);
+  if (typeof bindNexusAdvancedSettingsToggleState === 'function') bindNexusAdvancedSettingsToggleState();
+  loadNexusSettingsTab();
+  bindNexusDeepResearchFormPersistence();
+  refreshModelDb();
+  refreshModelRoles();
+  refreshSkills();
+  await loadHistory(currentProject);
+  await loadJobs(currentProject);
+  applyUiFontSettings();
+  initPanelResizer();
+  initNexusLibraryDropzone();
+  startSystemSummaryPolling();
+  // Echo スクロールリスナーを初期化
+  _echoInitScrollListener();
+  // Clear ボタン初期状態
+  _echoUpdateClearBtn();
+  setAudioStatus('Ready');
+  hideFloatingTtsPlayer();
+  restoreUiNavigationState();
+  const floatingPlayBtn = document.getElementById('tts-floating-play');
+  if (floatingPlayBtn) {
+    floatingPlayBtn.addEventListener('touchend', async (ev) => {
+      ev.preventDefault();
+      await playTtsQueueFromFloatingGesture();
+    }, {passive: false});
+    floatingPlayBtn.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      await playTtsQueueFromFloatingGesture();
+    });
+  }
+  const floatingCloseBtn = document.getElementById('tts-floating-close');
+  if (floatingCloseBtn) {
+    floatingCloseBtn.addEventListener('click', () => hideFloatingTtsPlayer());
+  }
+  syncAgentSessionUi();
+});
+
+// ── SYSTEM SUMMARY / HEALTH ──
+async function refreshSystemSummary() {
+  const usageEl = document.getElementById('sys-usage');
+  const usageRow = document.getElementById('sys-usage-row');
+  try {
+    const {data: d} = await _fetchJson(API + '/system/summary', {signal: AbortSignal.timeout(7000)}, '/system/summary');
+
+    const md = d.model || {};
+    const health = d.health || {};
+    const usage = d.usage || {};
+
+    const badge = document.getElementById('model-badge');
+    currentModelStatus = md.status || 'unknown';
+    if (badge && md.current_name) {
+      badge.style.display = 'inline';
+      currentLlmLabel = formatModelShortName(md.current_name);
+      badge.textContent = currentLlmLabel;
+      badge.style.color = md.status === 'switching' ? 'var(--amber)' : 'var(--text3)';
+      badge.style.borderColor = md.status === 'switching' ? 'var(--amber)' : 'var(--border)';
+      badge.title = md.current_name + ' | VRAM: ' + md.vram_gb + 'GB | ' + md.status;
+    } else if (badge) {
+      currentLlmLabel = 'NoLoad';
+      badge.title = 'NoLoad';
+    }
+
+    const llmOk = health.llm === 'ok';
+    currentLlmState = llmOk ? 'LLM ready' : 'LLM loading...';
+    setStatus(llmOk ? 'ok' : 'warn', currentLlmState);
+    if (!llmOk && !currentLlmLabel) currentLlmLabel = 'NoLoad';
+    updateSystemLlmName();
+
+    if (usageEl) {
+      const cpu = _fmtPct(usage.cpu_percent);
+      const ram = `${_fmtGbInt(usage.ram_used_mb)}/${_fmtGbInt(usage.ram_total_mb)}`;
+      const gpuInfo = Array.isArray(usage.gpus) && usage.gpus.length ? usage.gpus[0] : null;
+      const gpu = gpuInfo ? _fmtPct(gpuInfo.util_percent) : '--';
+      const vram = (_isValidMb(gpuInfo?.vram_used_mb) || _isValidMb(gpuInfo?.vram_total_mb))
+        ? `${_fmtGbInt(gpuInfo?.vram_used_mb)}/${_fmtGbInt(gpuInfo?.vram_total_mb)}`
+        : '--';
+      const backend = usage.vram_source_backend || usage.gpu_backend || 'none';
+      usageEl.textContent = _formatUsageLine({cpu, ram, gpu, vram, backend});
+      usageEl.title = `CPU ${cpu}, RAM ${ram}, GPU ${gpu}, VRAM ${vram}, backend ${backend} (updated: ${usage.updated_at || '-'})`;
+      usageEl.style.display = 'block';
+      if (usageRow) usageRow.style.display = 'flex';
+    }
+  } catch (e) {
+    // /system/summary が一時失敗しても usage/health 個別APIで表示を維持する
+    try {
+      const [usageRes, healthRes] = await Promise.allSettled([
+        fetch(API + '/system/usage', {signal: AbortSignal.timeout(7000)}),
+        fetch(API + '/health', {signal: AbortSignal.timeout(5000)}),
+      ]);
+      const usageData = usageRes.status === 'fulfilled' && usageRes.value.ok
+        ? await _readJsonResponse(usageRes.value, '/system/usage')
+        : null;
+      const healthData = healthRes.status === 'fulfilled' && healthRes.value.ok
+        ? await _readJsonResponse(healthRes.value, '/health')
+        : null;
+
+      const llmOk = healthData?.llm === 'ok';
+      currentLlmState = llmOk ? 'LLM ready' : 'LLM unstable';
+      setStatus(llmOk ? 'ok' : 'warn', currentLlmState);
+      if (!currentLlmLabel || currentLlmLabel === 'LLM') currentLlmLabel = 'NoLoad';
+      updateSystemLlmName();
+
+      if (usageEl && usageData) {
+        const cpu = _fmtPct(usageData.cpu_percent);
+        const ram = `${_fmtGbInt(usageData.ram_used_mb)}/${_fmtGbInt(usageData.ram_total_mb)}`;
+        const gpuInfo = Array.isArray(usageData.gpus) && usageData.gpus.length ? usageData.gpus[0] : null;
+        const gpu = gpuInfo ? _fmtPct(gpuInfo.util_percent) : '--';
+        const vram = (_isValidMb(gpuInfo?.vram_used_mb) || _isValidMb(gpuInfo?.vram_total_mb))
+          ? `${_fmtGbInt(gpuInfo?.vram_used_mb)}/${_fmtGbInt(gpuInfo?.vram_total_mb)}`
+          : '--';
+        const backend = usageData.vram_source_backend || usageData.gpu_backend || 'none';
+        usageEl.textContent = _formatUsageLine({cpu, ram, gpu, vram, backend});
+        usageEl.title = `fallback APIs used (summary failed): ${String(e?.message || e || '-')}`;
+        usageEl.style.display = 'block';
+        if (usageRow) usageRow.style.display = 'flex';
+      } else if (usageEl) {
+        usageEl.textContent = 'CPU -- | RAM --/-- | GPU -- | VRAM --/--';
+        usageEl.style.display = 'block';
+        if (usageRow) usageRow.style.display = 'flex';
+      }
+    } catch (_) {
+      currentModelStatus = 'offline';
+      currentLlmState = 'offline';
+      setStatus('err', 'offline');
+      if (!currentLlmLabel || currentLlmLabel === 'LLM') currentLlmLabel = 'NoLoad';
+      updateSystemLlmName();
+      if (usageEl) {
+        usageEl.textContent = 'CPU -- | RAM --/-- | GPU -- | VRAM --/--';
+        usageEl.style.display = 'block';
+        if (usageRow) usageRow.style.display = 'flex';
+      }
+    }
+  }
+}
+
+function _getSystemSummaryPollIntervalMs() {
+  return currentModelStatus === 'switching' ? 2000 : 10000;
+}
+
+function stopSystemSummaryPolling() {
+  if (systemSummaryPollTimer) clearTimeout(systemSummaryPollTimer);
+  systemSummaryPollTimer = null;
+}
+
+function scheduleSystemSummaryPoll(delayMs) {
+  stopSystemSummaryPolling();
+  systemSummaryPollTimer = setTimeout(async () => {
+    if (document.hidden) {
+      scheduleSystemSummaryPoll(30000);
+      return;
+    }
+    try {
+      await refreshSystemSummary();
+    } catch (e) {
+      addLog('warn', 'sys', `system summary poll failed: ${e?.message || e}`);
+    }
+    scheduleSystemSummaryPoll(_getSystemSummaryPollIntervalMs());
+  }, Math.max(0, Number(delayMs) || 0));
+}
+
+function startSystemSummaryPolling() {
+  scheduleSystemSummaryPoll(0);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopSystemSummaryPolling();
+    return;
+  }
+  scheduleSystemSummaryPoll(0);
+});
+
+function setStatus(cls, text) {
+  document.getElementById('sdot').className = 'sdot '+cls;
+  document.getElementById('stext').textContent = text;
+}
+
+function _fmtPct(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? `${n.toFixed(0)}%` : '--';
+}
+function _fmtGbInt(mb) {
+  const n = Number(mb);
+  return Number.isFinite(n) && n >= 0 ? `${Math.round(n / 1024)}GB` : '--';
+}
+function _isValidMb(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0;
+}
+
+// 互換性維持（旧呼び出し用）
+async function checkHealth() {
+  await refreshSystemSummary();
+}
+async function refreshSystemUsage() {
+  await refreshSystemSummary();
+}
+
+function formatModelShortName(name) {
+  const raw = (name || '').trim();
+  if (!raw) return 'LLM';
+  const lower = raw.toLowerCase();
+
+  let family = 'LLM';
+  if (lower.includes('gpt-oss') || lower.includes('gpt_oss')) family = 'GPT';
+  else if (lower.includes('qwen')) family = 'Qwen';
+  else if (lower.includes('mistral')) family = 'Mistral';
+  else if (lower.includes('llama')) family = 'Llama';
+  else if (lower.includes('gemma')) family = 'Gemma';
+  else if (lower.includes('phi')) family = 'Phi';
+
+  const sizeMatch = lower.match(/(\d+(?:\.\d+)?)\s*b\b/);
+  const size = sizeMatch ? sizeMatch[1].replace(/\.0$/, '') + 'B' : '';
+  return size ? `${family}-${size}` : family;
+}
+
+// ── MODE ──
+// Chat/Task モード用パネルタブID (Lumen は会話のみ。Log/Skill/Memory/Models は Nexus/Forge に集約済みのため空)
+const _CHAT_PANEL_TAB_IDS = [];
+// Echo モード用パネルタブID
+const _ECHO_PANEL_TAB_IDS = ['tab-btn-vault'];
+// Forge モード用パネルタブID: Models/ASR/TTS は forge-col の subtab 行へ移動済みのため panel-col では空。
+const _FORGE_PANEL_TAB_IDS = [];
+// Nexus モード用パネルタブID: Memory/Skill は nexus-col の subtab 行へ統合済みのため panel-col では空。
+const _NEXUS_PANEL_TAB_IDS = [];
+// Chat/Task モード用モバイルタブID
+// Lumen submenu removed: chat shows only the conversation tab on mobile (panel tabs moved to
+// Nexus/Forge). The orphaned mob-log/skills/memory/models buttons stay in DOM but are never shown.
+const _CHAT_MOB_TAB_IDS = ['mob-chat'];
+// Agent モード用モバイルタブID
+const _AGENT_MOB_TAB_IDS = ['mob-agent-chat','mob-agent-tasks'];
+// Atlas モード用モバイルタブID
+const _ATLAS_MOB_TAB_IDS = ['mob-atlas'];
+// Echo モード用モバイルタブID
+const _ECHO_MOB_TAB_IDS = ['mob-echo','mob-vault'];
+// Nexus モード用モバイルタブID（単一ビューのためタブ不要）
+const _NEXUS_MOB_TAB_IDS = ['mob-nexus'];
+const _FORGE_MOB_TAB_IDS = ['mob-forge'];
+const _PORTAL_MOB_TAB_IDS = ['mob-portal'];
+
+const MODE_SUBTAB_BUTTON_IDS = {
+  // Lumen は会話のみ。Log/Skill/Memory/Models は Nexus/Forge に集約済み。
+  chat: {
+    chat: 'mob-chat',
+  },
+  echo: {
+    echo: 'mob-echo',
+    vault: 'mob-vault',
+  },
+  atlas: { atlas: 'mob-atlas' },
+  nexus: { nexus: 'mob-nexus' },
+  portal: { catalog: 'mob-portal' },
+  agent: { agent_chat: 'mob-agent-chat', agent_tasks: 'mob-agent-tasks' },
+};
+const MODE_PANEL_TAB_BUTTON_IDS = {
+  // Lumen (chat) has no panel tabs anymore; Log/Skill/Memory/Models live in Nexus/Forge.
+  echo: {
+    vault: 'tab-btn-vault',
+  },
+  // Forge Models/ASR/TTS moved to the forge-col subtab row (switchForgeTab), not panel-col tabs.
+  // Nexus Memory/Skill/Log moved to the nexus-col subtab row (switchNexusTab), not panel-col tabs.
+};
+
+function isValidUiMode(m) {
+  return UI_VALID_MODES.includes(String(m || ''));
+}
+
+function isValidSubtabForMode(m, name) {
+  return (UI_MODE_SUBTABS[m] || []).includes(String(name || ''));
+}
+
+function readLastSubtabsByMode() {
+  try {
+    const raw = localStorage.getItem(UI_LAST_SUBTABS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveLastSubtab(currentMode, name) {
+  const m = currentMode === 'task' ? 'chat' : String(currentMode || mode || 'chat');
+  const subtab = String(name || '');
+  if (!isValidSubtabForMode(m, subtab)) return;
+  try {
+    const subtabs = readLastSubtabsByMode();
+    subtabs[m] = subtab;
+    localStorage.setItem(UI_LAST_SUBTABS_KEY, JSON.stringify(subtabs));
+  } catch (_) {}
+}
+
+function saveLastMode(m) {
+  const normalized = m === 'task' ? 'chat' : String(m || '');
+  if (!isValidUiMode(normalized)) return;
+  try { localStorage.setItem(UI_LAST_MODE_KEY, normalized); } catch (_) {}
+}
+
+function getLastSubtabForMode(m) {
+  const subtabs = readLastSubtabsByMode();
+  const saved = String(subtabs[m] || '');
+  if (isValidSubtabForMode(m, saved)) return saved;
+  return UI_MODE_DEFAULT_SUBTABS[m] || '';
+}
+
+function restoreLastSubtabForMode(m, options = {}) {
+  const subtab = getLastSubtabForMode(m);
+  if (!subtab) return;
+  const shouldPersistSubtab = options.persist !== false;
+  if (m === 'chat') {
+    if (window.innerWidth <= 768) mobSwitch(subtab, {restore: true, persist: shouldPersistSubtab});
+    else if (subtab === 'chat') _setPanelTabActiveButton(document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'log');
+    else switchTab(subtab, {persist: shouldPersistSubtab});
+    if (shouldPersistSubtab) saveLastSubtab('chat', subtab);
+    return;
+  }
+  if (m === 'echo') {
+    if (window.innerWidth <= 768) mobSwitch(subtab, {restore: true, persist: shouldPersistSubtab});
+    else if (subtab === 'echo') _setPanelTabActiveButton(document.querySelector('.tab-content.active')?.id?.replace('tab-','') || 'vault');
+    else switchTab(subtab, {persist: shouldPersistSubtab});
+    if (shouldPersistSubtab) saveLastSubtab('echo', subtab);
+    return;
+  }
+}
+
+function restoreUiNavigationState() {
+  try {
+    const savedMode = localStorage.getItem(UI_LAST_MODE_KEY) || '';
+    const hasValidSavedMode = isValidUiMode(savedMode);
+    const targetMode = hasValidSavedMode ? savedMode : 'chat';
+    setMode(targetMode, {restore: true, persist: false});
+  } catch (err) {
+    console.warn('restoreUiNavigationState failed', err);
+  }
+}
+
+let agentSessionActive = false;
+let agentSessionId = '';
+let agentHistory = [];
+let agentTaskCache = [];
+let agentTaskSearchQuery = '';
+const agentSessionActiveByProject = {};
+const agentHistoryByProject = {};
+const agentTaskCacheByProject = {};
+
+function _restoreAgentStateForProject(project) {
+  const key = String(project || 'default');
+  agentSessionActive = !!agentSessionActiveByProject[key];
+  agentHistory = Array.isArray(agentHistoryByProject[key]) ? [...agentHistoryByProject[key]] : [];
+  agentTaskCache = Array.isArray(agentTaskCacheByProject[key]) ? [...agentTaskCacheByProject[key]] : [];
+  if (!agentSessionActive) agentSessionId = '';
+  syncAgentSessionUi();
+}
+
+function _persistAgentStateForProject(project) {
+  const key = String(project || 'default');
+  agentSessionActiveByProject[key] = !!agentSessionActive;
+  agentHistoryByProject[key] = Array.isArray(agentHistory) ? [...agentHistory] : [];
+  agentTaskCacheByProject[key] = Array.isArray(agentTaskCache) ? [...agentTaskCache] : [];
+}
+
+function _renderAgentMessagesFromHistory() {
+  const agentMsg = document.getElementById('agent-messages');
+  if (!agentMsg) return;
+  const entries = Array.isArray(agentHistory) ? agentHistory : [];
+  if (!entries.length) {
+    agentMsg.innerHTML = `<div class="msg system">
+      <div class="msg-role">system</div>
+      <div class="msg-bubble">Agent mode ready. Agent画面入場時にセッションを開始します。</div>
+    </div>`;
+    return;
+  }
+  agentMsg.innerHTML = '';
+  entries.forEach((entry) => {
+    const kind = String(entry.kind || '');
+    if (kind === 'conversation') {
+      addAgentConversationMsg(entry.role || 'system', entry.text || '', false);
+      return;
+    }
+    if (kind === 'execution') {
+      addAgentExecutionCard(entry.executed || [], false);
+    }
+  });
+}
+
+function _setEchoTabVisibility(isEcho) {
+  // Panel tabs now belong to four sets: chat/task, echo, forge (Models + ASR/TTS) and nexus
+  // (Memory/Skill/Log). Derive from the global `mode` (already set before this runs) so each mode
+  // shows only its own set; chat/echo keep their prior behaviour.
+  const isForge = mode === 'forge';
+  const isNexus = mode === 'nexus';
+  const showChat = !isEcho && !isForge && !isNexus;
+  _CHAT_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = showChat ? '' : 'none'; });
+  _ECHO_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
+  if (typeof _FORGE_PANEL_TAB_IDS !== 'undefined') {
+    _FORGE_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isForge ? '' : 'none'; });
+  }
+  if (typeof _NEXUS_PANEL_TAB_IDS !== 'undefined') {
+    _NEXUS_PANEL_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isNexus ? '' : 'none'; });
+  }
+}
+
+function _updateMobTabs(m) {
+  const mobTabs = document.querySelector('.mob-tabs');
+  const isEcho = (m === 'echo');
+  const isAgent = (m === 'agent');
+  const isNexus = (m === 'nexus');
+  const isAtlas = (m === 'atlas');
+  const isPortal = (m === 'portal');
+  const isForge = (m === 'forge');
+  const isChatTask = !isEcho && !isAgent && !isNexus && !isAtlas && !isPortal && !isForge;
+  mobTabs?.classList.toggle('echo-mode', isEcho);
+  mobTabs?.classList.toggle('chat-task-mode', isChatTask);
+  // Atlas/Portal/Forge have no mobile sub-tabs, so the lone tab (rendered active = green
+  // text + full-width green underline) is redundant. Hide the whole row in those modes.
+  mobTabs?.classList.toggle('atlas-mode', isAtlas || isPortal || isForge);
+
+  _CHAT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isChatTask ? '' : 'none'; });
+  _AGENT_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAgent ? '' : 'none'; });
+  _ATLAS_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isAtlas ? '' : 'none'; });
+  _ECHO_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isEcho ? '' : 'none'; });
+  _NEXUS_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isNexus ? '' : 'none'; });
+  _FORGE_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isForge ? '' : 'none'; });
+  _PORTAL_MOB_TAB_IDS.forEach(id => { const el=document.getElementById(id); if(el) el.style.display = isPortal ? '' : 'none'; });
+}
+
+function _setPanelTabActiveButton(name) {
+  const allBtnIds = [..._CHAT_PANEL_TAB_IDS, ..._ECHO_PANEL_TAB_IDS, ...(typeof _FORGE_PANEL_TAB_IDS !== 'undefined' ? _FORGE_PANEL_TAB_IDS : []), ...(typeof _NEXUS_PANEL_TAB_IDS !== 'undefined' ? _NEXUS_PANEL_TAB_IDS : [])];
+  allBtnIds.forEach(id => document.getElementById(id)?.classList.remove('active'));
+  const activeBtnId = MODE_PANEL_TAB_BUTTON_IDS[mode]?.[name] || 'tab-btn-' + name;
+  document.getElementById(activeBtnId)?.classList.add('active');
+}
+
+function syncChatTaskToggle() {
+  const toggle = document.getElementById('chat-task-toggle');
+  const label = document.getElementById('chat-task-toggle-label');
+  toggle?.classList.toggle('on', !!isTaskEnabled);
+  if (label) label.textContent = isTaskEnabled ? 'ON' : 'OFF';
+  syncPhase1PlanPanel();
+}
+
+function syncPhase1PlanPanel() {
+  const toggle = document.getElementById('phase1-plan-toggle');
+  const panel = document.getElementById('phase1-plan-panel');
+  if (!toggle || !panel) return;
+  const isChatMode = mode === 'chat';
+  toggle.style.display = isChatMode ? '' : 'none';
+  const canShowPanel = isChatMode && (isTaskEnabled || isPhase1PlanOpen);
+  panel.style.display = canShowPanel ? 'flex' : 'none';
+  panel.classList.toggle('collapsed', !isPhase1PlanOpen);
+  panel.setAttribute('aria-hidden', isPhase1PlanOpen ? 'false' : 'true');
+  toggle.classList.toggle('on', isPhase1PlanOpen);
+  toggle.setAttribute('aria-expanded', isPhase1PlanOpen ? 'true' : 'false');
+}
+
+function togglePhase1PlanPanel(nextState = null) {
+  const next = typeof nextState === 'boolean' ? nextState : !isPhase1PlanOpen;
+  isPhase1PlanOpen = !!next;
+  localStorage.setItem(PHASE1_PLAN_DRAWER_KEY, isPhase1PlanOpen ? 'true' : 'false');
+  syncPhase1PlanPanel();
+}
+
+function syncChatTtsToggle() {
+  const toggle = document.getElementById('chat-tts-toggle');
+  const label = document.getElementById('chat-tts-toggle-label');
+  const isOn = !!(tts.enabled && tts.autoSpeak);
+  toggle?.classList.toggle('on', isOn);
+  if (label) label.textContent = isOn ? 'TTS ON' : 'TTS OFF';
+}
+
+function syncAgentTtsToggle() {
+  const toggle = document.getElementById('agent-tts-toggle');
+  const label = document.getElementById('agent-tts-toggle-label');
+  const isOn = !!(agentTts.enabled && agentTts.autoSpeak);
+  toggle?.classList.toggle('on', isOn);
+  if (label) label.textContent = isOn ? 'TTS ON' : 'TTS OFF';
+}
+
+function syncAllTtsToggles() {
+  syncChatTtsToggle();
+  syncAgentTtsToggle();
+}
+
+function toggleChatTtsUnified(nextState = null) {
+  const next = typeof nextState === 'boolean' ? nextState : !(tts.enabled && tts.autoSpeak);
+  tts.enabled = !!next;
+  tts.autoSpeak = !!next;
+  localStorage.setItem('tts_enabled', next ? 'true' : 'false');
+  localStorage.setItem('tts_auto_speak', next ? 'true' : 'false');
+  syncAllTtsToggles();
+}
+
+function toggleAgentTts(nextState = null) {
+  const next = typeof nextState === 'boolean' ? nextState : !(agentTts.enabled && agentTts.autoSpeak);
+  agentTts.enabled = !!next;
+  agentTts.autoSpeak = !!next;
+  localStorage.setItem('agent_tts_enabled', next ? 'true' : 'false');
+  localStorage.setItem('agent_tts_auto_speak', next ? 'true' : 'false');
+  syncAgentTtsToggle();
+  if (agentTts.enabled && !ttsManualUnlocked) {
+    enableAudioFromUserGesture().catch((e) => {
+      console.warn('[Agent][TTS] audio unlock failed:', e);
+    });
+  }
+}
+
+function openLegacyTaskFromAtlas() {
+  setMode('chat');
+  if (typeof window.setChatTaskMode === 'function') {
+    window.setChatTaskMode('task');
+    return;
+  }
+  if (!isTaskEnabled && typeof toggleChatTaskMode === 'function') {
+    toggleChatTaskMode();
+  }
+}
+
+function toggleChatTaskMode() {
+  isTaskEnabled = !isTaskEnabled;
+  localStorage.setItem(CHAT_TASK_TOGGLE_KEY, isTaskEnabled ? 'true' : 'false');
+  syncChatTaskToggle();
+}
+
+function getChatModeBadge() {
+  if (mode !== 'chat') return mode;
+  return isTaskEnabled ? 'chat/task:on' : 'chat/task:off';
+}
+
+function _bindTapClick(el, handler) {
+  if (!el || typeof handler !== 'function') return;
+  if (el.dataset.tapBound === '1') return;
+  el.dataset.tapBound = '1';
+
+  let lastTouchTs = 0;
+  el.addEventListener('touchend', (ev) => {
+    lastTouchTs = Date.now();
+    if (ev) ev.preventDefault();
+    handler();
+  }, {passive:false});
+
+  el.addEventListener('click', () => {
+    // touchend直後に発火する合成clickを無視
+    if (Date.now() - lastTouchTs < 700) return;
+    handler();
+  });
+}
+
+function bindModeAndNexusTapHandlers() {
+  ['chat','atlas','agent','echo','nexus'].forEach((name) => {
+    _bindTapClick(document.getElementById('btn-' + name), () => setMode(name));
+  });
+  ['dashboard','library','research','sources','evidence','reports','settings','news','market','web-scout','deep-research','compare','formula'].forEach((name) => {
+    _bindTapClick(document.getElementById('nexus-btn-' + name), () => switchNexusTab(name));
+  });
+}
+
+function setMode(m, options = {}) {
+  if (m === 'task') m = 'chat';
+  if (!isValidUiMode(m)) m = 'chat';
+  if (m !== 'atlas') {
+    try { window.AtlasClaudePanel?.deactivate(); } catch (_err) {}
+  }
+  const shouldRestoreSubtab = options.restore !== false;
+  const shouldPersistMode = options.persist !== false;
+  const prevMode = mode;
+  mode = m;
+  if (shouldPersistMode) saveLastMode(m);
+  ['chat','atlas','agent','echo','nexus','forge','portal'].forEach(x => document.getElementById('btn-'+x)?.classList.toggle('active', x===m));
+  syncChatTaskToggle();
+  const chatCol  = document.getElementById('chat-col');
+  const echoCol  = document.getElementById('echo-col');
+  const panelCol = document.getElementById('panel-col');
+  const agentCol = document.getElementById('agent-col');
+  const agentPanelCol = document.getElementById('agent-panel-col');
+  const nexusCol = document.getElementById('nexus-col');
+  const portalCol = document.getElementById('portal-col');
+  const forgeCol = document.getElementById('forge-col');
+  const atlasPanelCol = document.getElementById('atlas-panel-col');
+  const resizer = document.getElementById('panel-resizer');
+  const appBody  = document.querySelector('.app-body');
+  _updateMobTabs(m);
+  const sharedModeTitleRow = document.getElementById('mode-title-row') || document.querySelector('.mode-title-row,.mobile-mode-title,.mobile-mode-title-row,.agent-head.mode-title-row');
+  if (sharedModeTitleRow) sharedModeTitleRow.style.display = 'none';
+  // Portal/Forge columns are hidden by default; only their branch below re-shows them.
+  if (portalCol) portalCol.style.display = 'none';
+  if (forgeCol) forgeCol.style.display = 'none';
+
+  if (prevMode === 'agent' && m !== 'agent') stopAgentSession(false);
+  if (prevMode === 'nexus' && m !== 'nexus') stopNexusPolling();
+  if (prevMode === 'portal' && m !== 'portal') { try { window.Portal?.onLeave?.(); } catch (_e) {} }
+  if (prevMode === 'forge' && m !== 'forge') { try { window.Forge?.onLeave?.(); } catch (_e) {} }
+
+  if (m === 'echo') {
+    appBody?.classList.add('echo-active');
+    panelCol?.classList.add('echo-tabs-equal');
+    panelCol?.classList.remove('chat-task-tabs-equal');
+    chatCol.style.display  = 'none';
+    echoCol.style.display  = '';
+    panelCol.style.display = '';
+    if (agentCol) agentCol.style.display = 'none';
+    if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (nexusCol) nexusCol.style.display = 'none';
+    if (resizer) resizer.style.display = '';
+    _setEchoTabVisibility(true);
+  } else if (m === 'agent') {
+    appBody?.classList.remove('echo-active');
+    panelCol?.classList.remove('echo-tabs-equal');
+    panelCol?.classList.remove('chat-task-tabs-equal');
+    chatCol.style.display = 'none';
+    echoCol.style.display = 'none';
+    panelCol.style.display = 'none';
+    if (agentCol) agentCol.style.display = '';
+    if (agentPanelCol) agentPanelCol.style.display = '';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (nexusCol) nexusCol.style.display = 'none';
+    if (resizer) resizer.style.display = 'none';
+    _setEchoTabVisibility(false);
+    if (prevMode !== 'agent') startAgentSession();
+    if (window.innerWidth <= 768) {
+      mobSwitch('agent_chat');
+      return;
+    }
+  } else if (m === 'atlas') {
+    appBody?.classList.remove('echo-active');
+    panelCol?.classList.remove('echo-tabs-equal');
+    panelCol?.classList.remove('chat-task-tabs-equal');
+    chatCol.style.display = 'none';
+    echoCol.style.display = 'none';
+    panelCol.style.display = 'none';
+    if (agentCol) agentCol.style.display = 'none';
+    if (agentPanelCol) agentPanelCol.style.display = 'none';
+    const atlasClaudeCol = document.getElementById('atlas-claude-col');
+    // Claude shell is the only Atlas shell. Legacy #atlas-panel-col stays in
+    // DOM (hidden) so AtlasDashboard JS lookups still resolve. Use both an
+    // inline !important display:none AND the mob-hidden class so prior mobile
+    // sessions that stripped the class cannot leak the legacy panel onto the
+    // chat shell.
+    if (atlasPanelCol) {
+      atlasPanelCol.style.setProperty('display', 'none', 'important');
+      atlasPanelCol.classList.add('mob-hidden');
+    }
+    if (atlasClaudeCol) {
+      atlasClaudeCol.style.setProperty('display', 'flex', 'important');
+      atlasClaudeCol.classList.remove('mob-hidden');
+      if (window.AtlasClaudePanel && typeof window.AtlasClaudePanel.activate === 'function') {
+        try { window.AtlasClaudePanel.activate(); } catch (err) { console.warn('Atlas Claude panel activate failed:', err); }
+      } else {
+        // atlas_claude_panel.js will activate itself on DOMContentLoaded / load.
+        // No legacy fallback: the Claude shell is the only Atlas surface.
+        console.warn('AtlasClaudePanel not yet ready when Atlas mode was entered.');
+      }
+    } else if (atlasPanelCol) {
+      // Defensive: should never happen — Claude shell DOM is always present.
+      atlasPanelCol.classList.remove('mob-hidden');
+      atlasPanelCol.style.setProperty('display', '', '');
+      atlasPanelCol.style.display = '';
+      try {
+        restoreAtlasSubviewState();
+      } catch (err) {
+        console.warn('Atlas legacy restore failed:', err);
+        try { setAtlasSubview('start'); } catch (_e) {}
+        try { ensureAtlasWorkbenchHost(); } catch (_e) {}
+      }
+    }
+    if (nexusCol) nexusCol.style.display = 'none';
+    if (resizer) resizer.style.display = 'none';
+    _setEchoTabVisibility(false);
+  } else if (m === 'nexus') {
+    appBody?.classList.remove('echo-active');
+    panelCol?.classList.remove('echo-tabs-equal');
+    panelCol?.classList.add('chat-task-tabs-equal');
+    chatCol.style.display  = 'none';
+    echoCol.style.display  = 'none';
+    // Nexus owns its panels (incl. the consolidated Lumen Memory/Skill) inside nexus-col's subtab
+    // row, so the shared side panel-col is not used here (works on desktop AND mobile).
+    panelCol.style.display = 'none';
+    if (agentCol) agentCol.style.display = 'none';
+    if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (nexusCol) nexusCol.style.display = '';
+    if (resizer) resizer.style.display = 'none';
+    _setEchoTabVisibility(false);
+    // Restore the last Nexus subtab (research/library/.../memory/skills) — switchNexusTab handles all.
+    {
+      const _nsub = (typeof getLastSubtabForMode === 'function') ? getLastSubtabForMode('nexus') : '';
+      const _valid = ['research','library','evidence','reports','settings','memory','skills','log'];
+      switchNexusTab(_valid.includes(_nsub) ? _nsub : (window._nexusTab || 'research'));
+    }
+    startNexusPolling();
+  } else if (m === 'forge') {
+    appBody?.classList.remove('echo-active');
+    panelCol?.classList.remove('echo-tabs-equal');
+    panelCol?.classList.add('chat-task-tabs-equal');
+    chatCol.style.display  = 'none';
+    echoCol.style.display  = 'none';
+    // Forge owns its panels (Overview shell + relocated Models/ASR/TTS) in forge-col's subtab row,
+    // so the shared side panel-col is not used here (works on desktop AND mobile).
+    panelCol.style.display = 'none';
+    if (agentCol) agentCol.style.display = 'none';
+    if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (nexusCol) nexusCol.style.display = 'none';
+    if (forgeCol) forgeCol.style.display = '';
+    if (resizer) resizer.style.display = 'none';
+    _setEchoTabVisibility(false);
+    // Restore the last Forge subtab (overview/models/asr/tts) — switchForgeTab also activates the
+    // forge.js Overview shell when needed.
+    {
+      const _fsub = (typeof getLastSubtabForMode === 'function') ? getLastSubtabForMode('forge') : '';
+      const _fvalid = ['overview','models','asr','tts'];
+      switchForgeTab(_fvalid.includes(_fsub) ? _fsub : (window._forgeTab || 'overview'));
+    }
+  } else if (m === 'portal') {
+    appBody?.classList.remove('echo-active');
+    panelCol?.classList.remove('echo-tabs-equal');
+    panelCol?.classList.remove('chat-task-tabs-equal');
+    chatCol.style.display  = 'none';
+    echoCol.style.display  = 'none';
+    panelCol.style.display = 'none';
+    if (agentCol) agentCol.style.display = 'none';
+    if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (nexusCol) nexusCol.style.display = 'none';
+    if (portalCol) portalCol.style.display = '';
+    if (resizer) resizer.style.display = 'none';
+    _setEchoTabVisibility(false);
+    try { window.Portal?.activate?.(); } catch (_e) {}
+  } else {
+    appBody?.classList.remove('echo-active');
+    panelCol?.classList.remove('echo-tabs-equal');
+    panelCol?.classList.remove('chat-task-tabs-equal');
+    chatCol.style.display  = '';
+    echoCol.style.display  = 'none';
+    // Lumen submenu removed: chat is just the conversation. The panel-col tabs (Log/Skill/Memory/
+    // Models) live in Nexus/Forge now, so the side panel + resizer are hidden in chat mode.
+    panelCol.style.display = 'none';
+    if (agentCol) agentCol.style.display = 'none';
+    if (agentPanelCol) agentPanelCol.style.display = 'none';
+    if (atlasPanelCol) atlasPanelCol.style.display = 'none';
+    if (nexusCol) nexusCol.style.display = 'none';
+    if (resizer) resizer.style.display = 'none';
+    _setEchoTabVisibility(false);
+  }
+
+  if (window.innerWidth > 768) {
+    chatCol?.classList.remove('mob-hidden');
+    echoCol?.classList.remove('mob-hidden');
+    panelCol?.classList.remove('mob-hidden');
+    agentCol?.classList.remove('mob-hidden');
+    agentPanelCol?.classList.remove('mob-hidden');
+    atlasPanelCol?.classList.remove('mob-hidden');
+    nexusCol?.classList.remove('mob-hidden');
+    portalCol?.classList.remove('mob-hidden');
+    forgeCol?.classList.remove('mob-hidden');
+  }
+
+  syncAgentSessionUi();
+
+  if (window.innerWidth <= 768) {
+    const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ATLAS_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS, ..._FORGE_MOB_TAB_IDS, ..._PORTAL_MOB_TAB_IDS];
+    // Portal/Forge columns are hidden on mobile by default; their branch re-shows them.
+    if (m !== 'portal') portalCol?.classList.add('mob-hidden');
+    if (m !== 'forge') forgeCol?.classList.add('mob-hidden');
+    if (m === 'forge') {
+      chatCol?.classList.add('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.add('mob-hidden');
+      agentCol?.classList.add('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.add('mob-hidden');
+      nexusCol?.classList.add('mob-hidden');
+      portalCol?.classList.add('mob-hidden');
+      forgeCol?.classList.remove('mob-hidden');
+      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+      document.getElementById('mob-forge')?.classList.add('active');
+    } else if (m === 'portal') {
+      chatCol?.classList.add('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.add('mob-hidden');
+      agentCol?.classList.add('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.add('mob-hidden');
+      nexusCol?.classList.add('mob-hidden');
+      portalCol?.classList.remove('mob-hidden');
+      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+      document.getElementById('mob-portal')?.classList.add('active');
+    } else if (m === 'echo') {
+      chatCol?.classList.add('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.remove('mob-hidden');
+      agentCol?.classList.add('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.add('mob-hidden');
+      nexusCol?.classList.add('mob-hidden');
+      if (!shouldRestoreSubtab) {
+        allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+        document.getElementById('mob-echo')?.classList.add('active');
+      }
+    } else if (m === 'agent') {
+      chatCol?.classList.add('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.add('mob-hidden');
+      agentCol?.classList.remove('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.add('mob-hidden');
+      nexusCol?.classList.add('mob-hidden');
+      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+      document.getElementById('mob-agent-chat')?.classList.add('active');
+    } else if (m === 'atlas') {
+      chatCol?.classList.add('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.add('mob-hidden');
+      agentCol?.classList.add('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.remove('mob-hidden');
+      nexusCol?.classList.add('mob-hidden');
+      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+      document.getElementById('mob-atlas')?.classList.add('active');
+    } else if (m === 'nexus') {
+      chatCol?.classList.add('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.add('mob-hidden');
+      agentCol?.classList.add('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.add('mob-hidden');
+      nexusCol?.classList.remove('mob-hidden');
+      allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+      document.getElementById('mob-nexus')?.classList.add('active');
+    } else {
+      chatCol?.classList.remove('mob-hidden');
+      panelCol?.classList.add('mob-hidden');
+      echoCol?.classList.add('mob-hidden');
+      agentCol?.classList.add('mob-hidden');
+      agentPanelCol?.classList.add('mob-hidden');
+      atlasPanelCol?.classList.add('mob-hidden');
+      nexusCol?.classList.add('mob-hidden');
+      if (!shouldRestoreSubtab) {
+        allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+        document.getElementById('mob-chat')?.classList.add('active');
+      }
+    }
+  }
+
+  if (shouldRestoreSubtab && (m === 'chat' || m === 'echo')) {
+    restoreLastSubtabForMode(m, {persist: shouldPersistMode});
+  }
+}
+
+function normalizeNexusTabName(name) {
+  const raw = String(name || '').trim();
+  if (raw === 'sources') return 'evidence';
+  if (raw === 'dashboard') return 'research';
+  return raw || 'research';
+}
+
+function switchNexusTab(name) {
+  // Lumen Memory/Skill/Log moved into the Nexus subtab row (same panels/JS, relocated into nexus-body).
+  const tabs = ['research','library','evidence','reports','settings','memory','skills','log'];
+  const normalized = normalizeNexusTabName(name);
+  const target = tabs.includes(normalized) ? normalized : 'research';
+  window._nexusTab = target;
+  // Persist so re-entering Nexus (or reload) restores the same subtab, like other modes.
+  if (mode === 'nexus' && typeof saveLastSubtab === 'function') saveLastSubtab('nexus', target);
+  document.querySelectorAll('[data-nexus-tab]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.nexusTab === target);
+  });
+  document.querySelectorAll('[data-nexus-panel]').forEach((panel) => {
+    const active = panel.dataset.nexusPanel === target;
+    panel.classList.toggle('active', active);
+    panel.hidden = !active;
+    panel.style.display = active ? '' : 'none';
+  });
+  const dashboardPanel = document.querySelector('[data-nexus-panel="dashboard"]');
+  if (dashboardPanel) {
+    document.querySelectorAll('.nexus-dashboard-grid').forEach((grid) => {
+      if (!dashboardPanel.contains(grid)) dashboardPanel.appendChild(grid);
+    });
+  }
+  const root = document.getElementById('nexus-panel-col') || document.getElementById('nexus-col');
+  if (root) root.dataset.nexusCurrentTab = target;
+  tabs.forEach((tab) => {
+    document.getElementById('nexus-btn-' + tab)?.classList.toggle('active', tab === target);
+  });
+  ['news','market','web-scout','compare','formula'].forEach(old => {
+    document.getElementById('nexus-tab-' + old)?.classList.remove('active');
+    document.getElementById('nexus-btn-' + old)?.classList.remove('active');
+  });
+  if (target === 'library') {
+    refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
+    refreshNexusJobs();
+  }
+  if (target === 'research' && !nexusDeepResearchEvents.length) {
+    renderNexusDeepTimeline([]);
+    renderNexusDeepSourcesTable(nexusDeepResearchSources);
+  }
+  if (target === 'evidence') runNexusEvidenceMvp();
+  if (target === 'reports') runNexusReportMvp();
+  if (target === 'memory' && typeof refreshMemory === 'function') refreshMemory();
+  if (target === 'skills' && typeof refreshSkills === 'function') refreshSkills();
+}
+
+function showNexusTab(name) {
+  return switchNexusTab(name);
+}
+
+// ── FORGE SUBTABS ──
+// Forge hosts its own Overview (forge.js shell) plus the relocated Lumen Models + Echo ASR/TTS
+// panels in a single subtab row. The panels keep their original IDs (#tab-models/#tab-asr/#tab-tts)
+// and JS (refreshModelDb/refreshAsrTab/refreshTtsTab); they are moved into #forge-panel-host at load
+// so forge.js (which rewrites #forge-body) never clobbers them.
+function relocateForgePanels() {
+  const host = document.getElementById('forge-panel-host');
+  if (!host) return;
+  ['tab-models', 'tab-asr', 'tab-tts', 'tab-twin'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && el.parentElement !== host) host.appendChild(el);
+  });
+}
+
+function switchForgeTab(name) {
+  const tabs = ['overview', 'models', 'asr', 'tts', 'twin'];
+  const target = tabs.includes(name) ? name : 'overview';
+  window._forgeTab = target;
+  document.querySelectorAll('[data-forge-tab]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.forgeTab === target);
+  });
+  const shell = document.getElementById('forge-shell');
+  const host = document.getElementById('forge-panel-host');
+  const isOverview = target === 'overview';
+  if (shell) shell.style.display = isOverview ? '' : 'none';
+  if (host) host.style.display = isOverview ? 'none' : '';
+  if (mode === 'forge' && typeof saveLastSubtab === 'function') saveLastSubtab('forge', target);
+  if (isOverview) {
+    try { window.Forge?.activate?.(); } catch (_e) {}
+    return;
+  }
+  // Show the selected panel inside the host and trigger its existing refresh.
+  host?.querySelectorAll('.tab-content').forEach((c) => c.classList.remove('active'));
+  document.getElementById('tab-' + target)?.classList.add('active');
+  if (target === 'models' && typeof refreshModelDb === 'function') refreshModelDb();
+  if (target === 'asr' && typeof refreshAsrTab === 'function') refreshAsrTab();
+  if (target === 'tts' && typeof refreshTtsTab === 'function') refreshTtsTab();
+  if (target === 'twin' && typeof renderTwinPanel === 'function') renderTwinPanel();
+}
+
+// ---- Twin Control Plane panel (/api/twin) ----------------------------------------
+async function _twinApi(path, options) {
+  const r = await fetch('/api/twin' + path, options || {});
+  if (!r.ok) throw new Error('twin api ' + path + ' -> ' + r.status);
+  return r.json();
+}
+
+function _twinEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+async function twinSetSetting(patch) {
+  try {
+    await _twinApi('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+  } catch (e) { /* surfaced on re-render */ }
+  renderTwinPanel();
+}
+
+async function twinRunEvaluation() {
+  const model = (document.getElementById('twin-eval-model') || {}).value || '';
+  const baseUrl = (document.getElementById('twin-eval-baseurl') || {}).value || '';
+  const out = document.getElementById('twin-eval-result');
+  if (!model) { if (out) out.textContent = 'Enter a model id.'; return; }
+  if (out) out.textContent = 'Running capability evaluation…';
+  try {
+    const res = await _twinApi('/evaluate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_id: model, base_url: baseUrl }) });
+    if (out) out.textContent = 'verdict=' + res.verdict + ' · recorded=' + res.recorded + ' · passed=' + res.passed + '/failed=' + res.failed + '/unavailable=' + res.unavailable;
+  } catch (e) { if (out) out.textContent = 'evaluation failed: ' + e.message; }
+  renderTwinPanel();
+}
+
+async function twinTokenProbe() {
+  const model = (document.getElementById('twin-eval-model') || {}).value || '';
+  const baseUrl = (document.getElementById('twin-eval-baseurl') || {}).value || '';
+  const out = document.getElementById('twin-token-result');
+  if (out) out.textContent = 'Measuring token usage…';
+  try {
+    const r = await _twinApi('/token-probe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_id: model, base_url: baseUrl }) });
+    if (!r.available) { if (out) out.textContent = 'unavailable: ' + (r.reason || 'model down'); return; }
+    const kind = r.has_thinking ? 'thinking + output' : 'output only (no thinking)';
+    if (out) out.innerHTML = 'prompt: <b>' + r.prompt_tokens + '</b> · think: <b style="color:#c47">' + r.thinking_tokens + '</b> · output: <b style="color:#5a7">' + r.output_tokens + '</b> · total: <b>' + r.total_tokens + '</b> · <i>' + _twinEsc(kind) + '</i>';
+  } catch (e) { if (out) out.textContent = 'probe failed: ' + e.message; }
+}
+
+async function renderTwinPanel() {
+  const body = document.getElementById('twin-panel-body');
+  if (!body) return;
+  let settings = {}, profiles = { profiles: [], count: 0 };
+  try { settings = await _twinApi('/settings'); } catch (e) { body.innerHTML = '<div class="forge-status">Twin API unavailable: ' + _twinEsc(e.message) + '</div>'; return; }
+  try { profiles = await _twinApi('/profiles'); } catch (e) {}
+  const modeOpt = (v) => '<option value="' + v + '"' + (settings.mode === v ? ' selected' : '') + '>' + v + '</option>';
+  const toggle = (id, key, label) => '<label style="display:flex;gap:8px;align-items:center;margin:4px 0"><input type="checkbox" id="' + id + '"' + (settings[key] ? ' checked' : '') + ' onchange="twinSetSetting({' + key + ': this.checked})"> <span>' + label + '</span></label>';
+  const rows = (profiles.profiles || []).map((p) => {
+    const dims = Object.entries(p.dimension_scores || {}).map(([k, v]) => k + '=' + (Math.round(v * 100) / 100)).join(', ');
+    const weak = (p.known_weaknesses || []).join(', ') || '—';
+    return '<tr><td>' + _twinEsc(p.model_id) + '</td><td>' + _twinEsc(p.provider_id) + '</td><td>' + p.sample_count + '</td><td style="color:#5a7">' + _twinEsc(p.best_route || '—') + '</td><td style="font-size:12px">' + _twinEsc(dims || '—') + '</td><td style="color:#c47">' + _twinEsc(weak) + '</td></tr>';
+  }).join('');
+  body.innerHTML =
+    '<div class="forge-head"><div class="forge-title">Twin Control Plane</div></div>' +
+    '<div class="forge-status">Mode/gates are process-scoped and reversible; they take effect on the next autonomous run. The seam stays advisory for execution authority.</div>' +
+    '<fieldset style="border:1px solid #333;border-radius:8px;padding:10px"><legend>Pipeline settings</legend>' +
+      '<label style="display:flex;gap:8px;align-items:center;margin:4px 0"><span style="min-width:140px">Pipeline mode</span>' +
+        '<select id="twin-mode" onchange="twinSetSetting({mode: this.value})">' + ['off', 'shadow', 'active'].map(modeOpt).join('') + '</select></label>' +
+      toggle('twin-gate-blocking', 'gate_blocking', 'Gate blocking (hard boundaries block)') +
+      toggle('twin-block-unverified', 'block_unverified', 'Block unverified changes (aggressive)') +
+      toggle('twin-block-schema', 'block_schema', 'Block breaking schema changes') +
+      toggle('twin-build-project', 'build_project', 'Build Project Twin in-run (re-run impact)') +
+    '</fieldset>' +
+    '<fieldset style="border:1px solid #333;border-radius:8px;padding:10px"><legend>Capability evaluation</legend>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+        '<input id="twin-eval-model" placeholder="model id" style="flex:1;min-width:200px" value="Mistral-Small-3.2-24B-Instruct-2506-Q3_K_S.gguf">' +
+        '<input id="twin-eval-baseurl" placeholder="base url (optional)" style="flex:1;min-width:160px" value="">' +
+        '<button type="button" class="forge-action-btn" onclick="twinRunEvaluation()">Run evaluation</button>' +
+      '</div>' +
+      '<div id="twin-eval-result" class="forge-status" style="margin-top:6px"></div>' +
+    '</fieldset>' +
+    '<fieldset style="border:1px solid #333;border-radius:8px;padding:10px"><legend>Token usage (think vs output)</legend>' +
+      '<div style="display:flex;gap:8px;align-items:center"><button type="button" class="forge-action-btn" onclick="twinTokenProbe()">Measure tokens</button>' +
+        '<span class="atlas-claude-muted-inline">one real call; shows whether tokens were reasoning or output</span></div>' +
+      '<div id="twin-token-result" class="forge-status" style="margin-top:6px"></div>' +
+    '</fieldset>' +
+    '<fieldset style="border:1px solid #333;border-radius:8px;padding:10px"><legend>Capability profiles (drive Twin injection) · ' + profiles.count + '</legend>' +
+      (rows ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th align="left">model</th><th align="left">provider</th><th align="left">samples</th><th align="left">best route</th><th align="left">dimensions</th><th align="left">known weaknesses</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div class="forge-status">No capability profiles yet — run an evaluation or let autonomous runs accumulate evidence.</div>') +
+    '</fieldset>';
+}
+
+
+const NEXUS_POLL_MS = 2500;
+let nexusDocSearchTimer = null;
+let nexusJobsPollTimer = null;
+let nexusExecutePollTimer = null;
+let nexusTrackers = {};
+let nexusSelectedDocumentId = null;
+let nexusEventTimeline = [];
+let nexusSavedEvidence = [];
+let nexusEvidenceRows = [];
+let nexusReportRows = [];
+let nexusSelectedReportId = null;
+let nexusDeepResearchJobId = '';
+let nexusDeepResearchAfterSeq = -1;
+let nexusDeepResearchEvents = [];
+let nexusDeepResearchStubMode = false;
+let nexusDeepProviderHealthWarning = { show: false, severity: "info", message: "" };
+let nexusDeepResearchSources = [];
+let nexusDeepResearchAnswer = {};
+let nexusDeepResearchEvidence = [];
+let nexusDeepResearchReferences = [];
+let nexusDeepResearchHealth = {};
+let nexusDeepResearchPollTimer = null;
+let nexusDeepResearchCurrentRunMeta = null;
+let nexusDeepResearchPreviousRuns = [];
+let nexusDeepPreviousRunsCollapsed = true;
+let nexusDeepPreviousRunsVisibleCount = 3;
+let nexusDeepPreviousRunsLoaded = false;
+let nexusDeepResearchResumeStarted = false;
+let nexusDeepResearchResumeCompleted = false;
+let nexusDeepResearchResumeRetryScheduled = false;
+let nexusMaxUploadMb = 200;
+let nexusMaxUploadBytes = nexusMaxUploadMb * 1024 * 1024;
+const nexusAllowedUploadExt = new Set(['.pdf', '.txt', '.md', '.csv', '.html']);
+let nexusDropDragDepth = 0;
+
+function formatBytes(bytes) {
+  const b = Number(bytes || 0);
+  if (!Number.isFinite(b) || b <= 0) return '0 B';
+  const units = ['B','KB','MB','GB'];
+  let v = b;
+  let idx = 0;
+  while (v >= 1024 && idx < units.length - 1) { v /= 1024; idx += 1; }
+  return `${v.toFixed(v >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+async function selectNexusDocument(documentId) {
+  nexusSelectedDocumentId = documentId;
+  const query = '?project=' + encodeURIComponent(currentProject);
+  try {
+    const r = await fetch(API + '/nexus/documents/' + encodeURIComponent(documentId) + query);
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    renderNexusDocumentDetail(d.document || null);
+  } catch (e) {
+    renderNexusDocumentDetail(null);
+    updateNexusJobBanner('Detail load failed: ' + e.message, true);
+  }
+}
+
+async function fetchNexusCanonicalWithAlias(canonicalPath, aliasPath, init) {
+  const canonicalUrl = API + canonicalPath;
+  const canonicalRes = await fetch(canonicalUrl, init);
+  if (canonicalRes.ok || canonicalRes.status !== 404 || !aliasPath) return canonicalRes;
+  const aliasUrl = API + aliasPath;
+  return fetch(aliasUrl, init);
+}
+
+
+function fetchWithTimeout(url, options = {}, timeoutMs = 3000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error(`timeout:${timeoutMs}`)), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .catch((err) => {
+      const errName = String(err?.name || '').toLowerCase();
+      const errMessage = String(err?.message || '').toLowerCase();
+      if (errName.includes('timeout') || errName.includes('abort') || errMessage.includes('timeout') || errMessage.includes('aborted')) {
+        err.timeout = true;
+      }
+      throw err;
+    })
+    .finally(() => clearTimeout(timer));
+}
+
+async function fetchNexusCanonicalWithAliasWithTimeout(canonicalPath, aliasPath, init, timeoutMs = 5000) {
+  const canonicalUrl = API + canonicalPath;
+  const canonicalRes = await fetchWithTimeout(canonicalUrl, init, timeoutMs);
+  if (canonicalRes.ok || canonicalRes.status !== 404 || !aliasPath) return canonicalRes;
+  const aliasUrl = API + aliasPath;
+  return fetchWithTimeout(aliasUrl, init, timeoutMs);
+}
+
+async function refreshNexusDocuments(q = '', options = {}) {
+  try {
+    const query = '?project=' + encodeURIComponent(currentProject) + '&q=' + encodeURIComponent(q || '');
+    const r = options.initialLoad ? await fetchNexusCanonicalWithAliasWithTimeout('/nexus/documents' + query, '/nexus/library/documents' + query, undefined, 5000) : await fetchNexusCanonicalWithAlias('/nexus/documents' + query, '/nexus/library/documents' + query);
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    renderNexusDocuments(d.documents || []);
+  } catch (e) {
+    addLog('err', 'nexus', 'documents load failed: ' + e.message);
+    renderNexusDocuments([]);
+  }
+}
+
+function searchNexusDocuments(q) {
+  clearTimeout(nexusDocSearchTimer);
+  nexusDocSearchTimer = setTimeout(() => refreshNexusDocuments(q), 250);
+}
+
+async function deleteNexusDocument(documentId) {
+  if (!confirm('この文書を削除しますか？')) return;
+  try {
+    const suffix = '/' + encodeURIComponent(documentId) + '?project=' + encodeURIComponent(currentProject);
+    const r = await fetchNexusCanonicalWithAlias('/nexus/documents' + suffix, '/nexus/library/documents' + suffix, { method: 'DELETE' });
+    if (!r.ok) throw new Error(await r.text());
+    updateNexusJobBanner('Document deleted.');
+    await refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
+    await refreshNexusExecuteSummary();
+  } catch (e) {
+    updateNexusJobBanner('Delete failed: ' + e.message, true);
+  }
+}
+
+function downloadNexusDocument(documentId) {
+  const url = API + '/nexus/library/documents/' + encodeURIComponent(documentId) + '/download?project=' + encodeURIComponent(currentProject);
+  window.open(url, '_blank', 'noopener');
+}
+
+function downloadNexusExtractedText(documentId) {
+  const url = API + '/nexus/library/documents/' + encodeURIComponent(documentId) + '/download/text?project=' + encodeURIComponent(currentProject);
+  window.open(url, '_blank', 'noopener');
+}
+
+async function refreshNexusJobs() {
+  try {
+    const r = await fetch(API + '/nexus/jobs/active?limit=20');
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    renderNexusJobs(d.jobs || []);
+  } catch (e) {
+    addLog('err', 'nexus', 'jobs load failed: ' + e.message);
+  }
+}
+
+async function refreshNexusExecuteSummary(options = {}) {
+  try {
+    const query = '?project=' + encodeURIComponent(currentProject);
+    const r = options.initialLoad ? await fetchNexusCanonicalWithAliasWithTimeout('/nexus/summary' + query, '/nexus/dashboard/summary' + query, undefined, 5000) : await fetchNexusCanonicalWithAlias('/nexus/summary' + query, '/nexus/dashboard/summary' + query);
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    document.getElementById('nexus-metric-documents').textContent = d.documents ?? 0;
+    document.getElementById('nexus-metric-chunks').textContent = d.chunks ?? 0;
+    document.getElementById('nexus-metric-reports').textContent = d.reports ?? 0;
+    document.getElementById('nexus-metric-active-jobs').textContent = d.active_jobs ?? 0;
+    nexusMaxUploadMb = Number(d?.limits?.max_upload_mb || nexusMaxUploadMb || 200);
+    nexusMaxUploadBytes = Number(d?.limits?.max_upload_bytes || (nexusMaxUploadMb * 1024 * 1024));
+
+    const deepLimitEntries = [
+      {
+        inputId: 'nexus-deep-max-download-mb',
+        storageKey: NEXUS_DEEP_STORAGE.maxDownloadMb,
+        summaryValue: d?.limits?.max_download_mb,
+        min: 1,
+        max: 500,
+      },
+      {
+        inputId: 'nexus-deep-max-total-download-mb',
+        storageKey: NEXUS_DEEP_STORAGE.maxTotalDownloadMb,
+        summaryValue: d?.limits?.max_total_download_mb,
+        min: 1,
+        max: 2048,
+      },
+      {
+        inputId: 'nexus-deep-max-downloads',
+        storageKey: NEXUS_DEEP_STORAGE.maxDownloads,
+        summaryValue: d?.limits?.max_downloads,
+        min: 1,
+        max: 200,
+      },
+      {
+        inputId: 'nexus-deep-download-timeout-sec',
+        storageKey: NEXUS_DEEP_STORAGE.timeoutSec,
+        summaryValue: d?.limits?.download_timeout_sec,
+        min: 1,
+        max: 600,
+      },
+    ];
+
+    let appliedDeepLimitFallback = false;
+    deepLimitEntries.forEach(({ inputId, storageKey, summaryValue, min, max }) => {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      const saved = localStorage.getItem(storageKey);
+      if (saved !== null && String(saved).trim() !== '') return;
+      const fallback = clampInt(summaryValue, min, max);
+      if (fallback == null) return;
+      input.value = String(fallback);
+      appliedDeepLimitFallback = true;
+    });
+
+    if (appliedDeepLimitFallback) {
+      saveNexusDeepResearchForm({
+        topic: (document.getElementById('nexus-deep-topic')?.value || '').trim(),
+        depth: (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase(),
+        scope: (document.getElementById('nexus-deep-scope')?.value || 'web').trim().toLowerCase(),
+        maxDownloadMb: clampInt(document.getElementById('nexus-deep-max-download-mb')?.value, 1, 500),
+        maxTotalDownloadMb: clampInt(document.getElementById('nexus-deep-max-total-download-mb')?.value, 1, 2048),
+        maxDownloads: clampInt(document.getElementById('nexus-deep-max-downloads')?.value, 1, 200),
+        downloadTimeoutSec: clampInt(document.getElementById('nexus-deep-download-timeout-sec')?.value, 1, 600),
+        continueOnDownloadError: document.getElementById('nexus-deep-continue-on-download-error')?.checked !== false,
+        preferPdf: document.getElementById('nexus-deep-prefer-pdf')?.checked !== false,
+        officialFirst: document.getElementById('nexus-deep-official-first')?.checked !== false,
+      });
+    }
+  } catch (e) {
+    addLog('err', 'nexus', 'summary load failed: ' + e.message);
+  }
+}
+
+function nexusGetExt(name = '') {
+  const idx = String(name).lastIndexOf('.');
+  return idx >= 0 ? String(name).slice(idx).toLowerCase() : '';
+}
+
+function validateNexusUploadFiles(files = []) {
+  const normalized = Array.from(files || []);
+  for (const file of normalized) {
+    const ext = nexusGetExt(file?.name || '');
+    if (!nexusAllowedUploadExt.has(ext)) {
+      return { ok: false, message: `非対応拡張子です: ${file?.name || '(unknown)'}` };
+    }
+    if (Number(file?.size || 0) > nexusMaxUploadBytes) {
+      return {
+        ok: false,
+        message: `サイズ超過: ${file?.name || '(unknown)'}（最大 ${nexusMaxUploadMb} MB）`,
+      };
+    }
+  }
+  return { ok: true, files: normalized };
+}
+
+function initNexusLibraryDropzone() {
+  const dz = document.getElementById('nexus-lib-dropzone');
+  const input = document.getElementById('nexus-lib-upload');
+  if (!dz || !input) return;
+
+  if (!input.dataset.nexusBound) {
+    input.addEventListener('change', () => {
+      const files = Array.from(input.files || []);
+      if (!files.length) return;
+      const check = validateNexusUploadFiles(files);
+      if (!check.ok) {
+        updateNexusJobBanner(check.message, true);
+        input.value = '';
+      }
+    });
+    input.dataset.nexusBound = '1';
+  }
+
+  if (dz.dataset.nexusBound) return;
+  dz.addEventListener('dragenter', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    nexusDropDragDepth += 1;
+    setNexusDropzoneActive(true);
+  });
+  dz.addEventListener('dragover', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    setNexusDropzoneActive(true);
+  });
+  dz.addEventListener('dragleave', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    nexusDropDragDepth = Math.max(0, nexusDropDragDepth - 1);
+    if (nexusDropDragDepth === 0) setNexusDropzoneActive(false);
+  });
+  dz.addEventListener('drop', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    nexusDropDragDepth = 0;
+    setNexusDropzoneActive(false);
+    const files = Array.from(ev.dataTransfer?.files || []);
+    if (!files.length) return;
+    nexusUploadDocuments(files);
+  });
+  dz.dataset.nexusBound = '1';
+}
+
+async function trackNexusJob(jobId) {
+  nexusTrackers[jobId] = { after: -1, done: false };
+  updateNexusJobBanner(`Job ${jobId} queued...`);
+  pushNexusTimelineEvent(jobId, 'queued');
+  const terminalStatuses = new Set(['completed', 'failed', 'degraded']);
+  while (!nexusTrackers[jobId]?.done) {
+    try {
+      const after = nexusTrackers[jobId].after;
+      const evRes = await fetch(API + '/nexus/jobs/' + encodeURIComponent(jobId) + '/events?after=' + after);
+      if (evRes.ok) {
+        const evData = await evRes.json();
+        const events = evData.events || [];
+        events.forEach((ev) => {
+          nexusTrackers[jobId].after = Math.max(nexusTrackers[jobId].after, Number(ev.seq ?? -1));
+          const label = ev.data?.label || ev.type;
+          updateNexusJobBanner(`Job ${jobId}: ${label}`);
+          pushNexusTimelineEvent(jobId, label, ev.created_at || ev.timestamp || '');
+        });
+      }
+      const jobRes = await fetch(API + '/nexus/jobs/' + encodeURIComponent(jobId));
+      if (jobRes.ok) {
+        const jobData = await jobRes.json();
+        const st = jobData?.job?.status || '';
+        const err = jobData?.job?.error;
+        if (terminalStatuses.has(st)) {
+          nexusTrackers[jobId].done = true;
+          if (st === 'completed') {
+            pushNexusTimelineEvent(jobId, 'completed', jobData?.job?.updated_at || '');
+            updateNexusJobBanner(`Job ${jobId} completed`);
+          } else if (st === 'degraded') {
+            const reason = err || jobData?.job?.message || 'dependency missing';
+            pushNexusTimelineEvent(jobId, `degraded: ${reason}`, jobData?.job?.updated_at || '');
+            updateNexusJobBanner(`Job ${jobId} degraded: ${reason}`, true);
+          } else {
+            pushNexusTimelineEvent(jobId, `failed: ${err || ''}`, jobData?.job?.updated_at || '');
+            updateNexusJobBanner(`Job ${jobId} failed: ${err || ''}`, true);
+          }
+        }
+      }
+      await refreshNexusJobs();
+      await new Promise((resolve) => setTimeout(resolve, NEXUS_POLL_MS));
+    } catch (e) {
+      updateNexusJobBanner(`Job ${jobId} polling error: ${e.message}`, true);
+      break;
+    }
+  }
+  await refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '');
+  await refreshNexusExecuteSummary();
+}
+
+async function nexusUploadDocuments(droppedFiles = null) {
+  const input = document.getElementById('nexus-lib-upload');
+  const btn = document.getElementById('nexus-lib-upload-btn');
+  const files = Array.from(droppedFiles || input?.files || []);
+  if (!files.length) {
+    updateNexusJobBanner('ファイルを選択してください', true);
+    return;
+  }
+  const check = validateNexusUploadFiles(files);
+  if (!check.ok) {
+    updateNexusJobBanner(check.message, true);
+    return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('project', currentProject);
+      const r = await fetch(API + '/nexus/upload', { method: 'POST', body: fd });
+      if (!r.ok) throw new Error(await r.text());
+      const d = await r.json();
+      if (d.job_id) trackNexusJob(d.job_id);
+    }
+    if (input) input.value = '';
+    updateNexusJobBanner('Upload accepted. Processing started...');
+  } catch (e) {
+    updateNexusJobBanner('Upload failed: ' + e.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function setNexusNewsResult(payload, isErr = false) {
+  const el = document.getElementById('nexus-news-result');
+  if (!el) return;
+  if (isErr || typeof payload === 'string') {
+    el.innerHTML = `<div class="nexus-job" style="color:${isErr ? 'var(--red)' : 'var(--text2)'}">${esc(typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2))}</div>`;
+    return;
+  }
+  renderNexusSearchResultPanel(el, payload, 'news');
+}
+
+function setNexusMarketResult(payload, isErr = false) {
+  const el = document.getElementById('nexus-market-result');
+  if (!el) return;
+  if (isErr || typeof payload === 'string') {
+    el.innerHTML = `<div class="nexus-job" style="color:${isErr ? 'var(--red)' : 'var(--text2)'}">${esc(typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2))}</div>`;
+    return;
+  }
+  renderNexusSearchResultPanel(el, payload, 'market');
+}
+
+function setNexusWebResult(payload, isErr = false) {
+  const el = document.getElementById('nexus-web-result');
+  if (!el) return;
+  if (isErr || typeof payload === 'string') {
+    el.innerHTML = `<div class="nexus-job" style="color:${isErr ? 'var(--red)' : 'var(--text2)'}">${esc(typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2))}</div>`;
+    return;
+  }
+  const searchItems = payload?.search?.items || [];
+  const searchQueries = payload?.generated_queries || payload?.queries || [];
+  const highlights = payload?.highlights || [];
+  const trace = payload?.trace || {};
+  const provider = payload?.provider || payload?.selected_provider || payload?.search?.selected_provider || payload?.search?.provider || 'unknown';
+  const engine = payload?.engine || searchItems?.[0]?.engine || searchItems?.[0]?.provider || provider || 'unknown';
+  const isStub = Boolean(
+    payload?.is_stub
+    ?? payload?.search?.is_stub
+    ?? (searchItems.length ? searchItems.every((item) => Boolean(item?.is_stub)) : false)
+  );
+  const fallbackUsed = Boolean(payload?.fallback_used ?? payload?.search?.fallback_used);
+  const providerErrors = payload?.provider_errors || payload?.search?.provider_errors || {};
+  const genericErrors = payload?.errors || payload?.search?.errors || [];
+  const providerErrorText = Object.entries(providerErrors)
+    .map(([key, errs]) => `${key}: ${(Array.isArray(errs) ? errs : [errs]).filter(Boolean).join(' / ')}`)
+    .filter(Boolean);
+  const userInputText = [trace?.input_query || payload?.query || '-', trace?.scope ? `scope:${trace.scope}` : '', trace?.language ? `language:${trace.language}` : '', trace?.depth ? `depth:${trace.depth}` : '']
+    .filter(Boolean)
+    .join(' ');
+  const resultPreview = searchItems.slice(0, 5).map((item, idx) => `#${idx + 1} [${item.query || '-'}] ${item.title || '(untitled)'}`);
+  el.innerHTML = `
+    <div class="nexus-result-item">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">Research Summary</div>
+      <div style="font-size:11px;color:var(--text3)">${esc(payload?.summary || 'summary unavailable')}</div>
+      <div class="nexus-result-meta">queries: ${searchQueries.length} / hits: ${searchItems.length}</div>
+      <div class="nexus-result-meta">provider: ${esc(String(provider))} / engine: ${esc(String(engine))} / is_stub: ${isStub ? 'true' : 'false'} / fallback_used: ${fallbackUsed ? 'true' : 'false'}</div>
+      ${providerErrorText.length ? `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:10px;color:var(--amber)">provider_errors (${providerErrorText.length})</summary>${providerErrorText.map((line) => `<div class="nexus-result-meta">${esc(line)}</div>`).join('')}</details>` : ''}
+      ${Array.isArray(genericErrors) && genericErrors.length ? `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:10px;color:var(--amber)">errors (${genericErrors.length})</summary>${genericErrors.map((line) => `<div class="nexus-result-meta">${esc(String(line))}</div>`).join('')}</details>` : ''}
+    </div>
+    <div class="nexus-result-item">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">Trace: Input → Actual Queries → Results</div>
+      <div class="nexus-result-meta">入力値: ${esc(userInputText || '-')}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">実クエリ:</div>
+      <div class="nexus-result-meta">${searchQueries.map((q) => esc(q)).join(' / ') || '(none)'}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">取得結果(先頭5件):</div>
+      ${(resultPreview.length ? resultPreview.map((line) => `<div class="nexus-result-meta">${esc(line)}</div>`).join('') : '<div class="nexus-empty">取得結果なし</div>')}
+    </div>
+    <div class="nexus-result-item">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">Highlights</div>
+      ${(highlights.length ? highlights.map((h) => `<div style="font-size:11px;color:var(--text3)">• ${esc(h)}</div>`).join('') : '<div class="nexus-empty">highlights なし</div>')}
+    </div>
+  `;
+}
+
+function formatNexusWebStatus(status = {}, runtimeMeta = {}) {
+  const searxngState = String(status?.searxng_state || runtimeMeta?.searxng_state || '').trim().toLowerCase();
+  if (searxngState) return [searxngState];
+
+  const labels = [];
+  const activeProvider = String(status?.active_provider || status?.provider || runtimeMeta?.provider || '').toLowerCase();
+  const isStub = Boolean(runtimeMeta?.is_stub ?? runtimeMeta?.non_fatal ?? status?.last_non_fatal ?? status?.non_fatal);
+  const fallbackUsed = Boolean(runtimeMeta?.fallback_used);
+  const providerStatus = status?.provider_status;
+  const activeFromDict = providerStatus && typeof providerStatus === 'object' && !Array.isArray(providerStatus)
+    ? providerStatus?.[activeProvider]
+    : null;
+  const active = status?.provider_status_active || activeFromDict || providerStatus || {};
+  const providerEnabled = active?.enabled !== false;
+  const braveKeySet = status?.brave_search_api_key_set !== false;
+  const searxngMessage = String(active?.message || status?.message || '');
+  const searxngUnavailable = activeProvider === 'searxng' && /疎通確認に失敗|想定外レスポンス|接続/i.test(searxngMessage);
+
+  labels.push(isStub ? 'スタブ応答中' : '実検索利用可能');
+  if (searxngUnavailable) labels.push('SearXNG接続不可');
+  if (!braveKeySet) labels.push('Brave APIキー未設定');
+  if (!providerEnabled || (status?.free_only && !status?.paid_providers_enabled)) labels.push('有料provider無効');
+  if (fallbackUsed) labels.push('fallback使用中');
+  return labels;
+}
+
+function setNexusWebStatus(status = {}, runtimeMeta = {}, isErr = false) {
+  const el = document.getElementById('nexus-web-status');
+  if (!el) return;
+  if (isErr) {
+    el.style.color = 'var(--red)';
+    el.textContent = `状態: ${runtimeMeta?.message || '取得失敗'}`;
+    return;
+  }
+  const labels = formatNexusWebStatus(status, runtimeMeta);
+  const searxngState = String(status?.searxng_state || runtimeMeta?.searxng_state || '').trim().toLowerCase();
+  const provider = runtimeMeta?.provider || status?.active_provider || status?.provider || '-';
+  const providerStatus = status?.provider_status;
+  const providerKey = String(status?.active_provider || status?.provider || provider || '').toLowerCase();
+  const activeFromDict = providerStatus && typeof providerStatus === 'object' && !Array.isArray(providerStatus)
+    ? providerStatus?.[providerKey]
+    : null;
+  const active = status?.provider_status_active || activeFromDict || providerStatus || {};
+  const engine = runtimeMeta?.engine || '-';
+  const extra = [];
+  const lastProviderErrors = status?.last_provider_errors || {};
+  const lastProviderErrorText = Object.entries(lastProviderErrors)
+    .map(([key, errs]) => `${key}: ${(Array.isArray(errs) ? errs : [errs]).filter(Boolean).join(' / ')}`)
+    .filter(Boolean);
+  const nonFatalState = Boolean(runtimeMeta?.is_stub ?? runtimeMeta?.non_fatal ?? status?.last_non_fatal ?? status?.non_fatal);
+  if (status?.searxng_state_message) extra.push(status.searxng_state_message);
+  if (active?.message) extra.push(active.message);
+  if (status?.message && status.message !== active?.message) extra.push(status.message);
+  if (status?.last_search_at) extra.push(`last_search_at:${status.last_search_at}`);
+  if (status?.last_message) extra.push(`last_message:${status.last_message}`);
+  if (lastProviderErrorText.length) extra.push(`last_provider_errors:${lastProviderErrorText.join(' | ')}`);
+  if (runtimeMeta?.message) extra.push(runtimeMeta.message);
+  el.style.color = nonFatalState ? 'var(--amber)' : 'var(--text2)';
+  el.textContent = `状態: ${labels.join(' / ')} | provider:${provider} | engine:${engine}${searxngState ? ` | searxng_state:${searxngState}` : ''}${extra.length ? ` | ${extra.join(' | ')}` : ''}`;
+
+  const providerEl = document.getElementById('search-provider-status');
+  if (providerEl) {
+    const providerName = String(status?.active_provider || status?.provider || provider || '-');
+    if (!status?.configured || nonFatalState) {
+      const msg = String(status?.message || runtimeMeta?.message || 'unknown');
+      providerEl.style.color = 'var(--amber)';
+      providerEl.textContent = `Web検索は許可されていますが、検索プロバイダが未接続です: ${msg}`;
+    } else {
+      providerEl.style.color = 'var(--text3)';
+      providerEl.textContent = `現在のプロバイダ: ${providerName} / 状態: 接続済み`;
+    }
+  }
+}
+
+
+async function refreshNexusWebStatus(runtimeMeta = {}, options = {}) {
+  try {
+    const r = options.initialLoad ? await fetchWithTimeout(API + '/nexus/web/status', {}, 3000) : await fetch(API + '/nexus/web/status');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    setNexusWebStatus(d, runtimeMeta, false);
+    return d;
+  } catch (e) {
+    setNexusWebStatus({}, { message: `Web status failed: ${e.message}` }, true);
+    return null;
+  }
+}
+
+function nexusCitationLabel(item, idx) {
+  return item.citation_label || item.citation || `[web-${idx + 1}]`;
+}
+
+function normalizeNexusEvidenceKeyPart(value) {
+  return String(value || '').trim();
+}
+
+function buildNexusSavedEvidenceKey(jobId, item, idx) {
+  const evidenceId = normalizeNexusEvidenceKeyPart(item?.evidence_id);
+  if (evidenceId) return `eid:${evidenceId}`;
+  const normalizedJobId = normalizeNexusEvidenceKeyPart(jobId || item?.job_id || '');
+  const normalizedUrl = normalizeNexusEvidenceKeyPart(item?.url || item?.source_url || '');
+  const normalizedCitation = normalizeNexusEvidenceKeyPart(nexusCitationLabel(item || {}, idx));
+  if (!normalizedJobId && !normalizedUrl && !normalizedCitation) return '';
+  return `tuple:${normalizedJobId}::${normalizedUrl}::${normalizedCitation}`;
+}
+
+function hasNexusSavedEvidence(jobId, item, idx) {
+  const key = buildNexusSavedEvidenceKey(jobId, item, idx);
+  if (!key) return false;
+  return nexusSavedEvidence.some((row) => row?.dedupe_key === key);
+}
+
+function renderNexusSearchResultPanel(container, payload, mode = 'news') {
+  const items = payload?.search?.items || [];
+  const jobId = payload?.job_id || '';
+  const summary = payload?.digest?.summary || payload?.snapshot?.summary || '';
+  const hasServerSavedEvidence = Number(payload?.saved_evidence || 0) > 0;
+  const itemsHtml = items.length
+    ? items.map((item, idx) => {
+      const citation = nexusCitationLabel(item, idx);
+      const pStart = item.page_start ?? item.page ?? '-';
+      const pEnd = item.page_end ?? item.page ?? '-';
+      const snippet = item.snippet || item.quote || '(snippetなし)';
+      const isSaved = hasServerSavedEvidence || hasNexusSavedEvidence(jobId, item, idx);
+      const openSourceButton = item.url
+        ? `<button onclick="window.open('${esc(item.url)}','_blank','noopener')">Open Source</button>`
+        : '';
+      return `<div class="nexus-result-item">
+        <div style="font-size:11px;color:var(--text2);font-weight:700">${esc(item.title || '(untitled)')}</div>
+        <div class="nexus-result-meta">citation_label: ${esc(citation)} / page_start: ${esc(String(pStart))} / page_end: ${esc(String(pEnd))}</div>
+        <div style="font-size:11px;color:var(--text3)">${esc(snippet)}</div>
+        <div class="nexus-doc-actions">
+          <button ${isSaved ? 'disabled' : ''} onclick="saveSingleNexusEvidence('${esc(jobId)}','${esc(mode)}',${idx}, this)">${isSaved ? '保存済み' : 'Evidence保存'}</button>
+          ${openSourceButton}
+        </div>
+      </div>`;
+    }).join('')
+    : '<div class="nexus-empty">検索結果がありません</div>';
+  container.innerHTML = `
+    <div class="nexus-result-head">
+      <div style="font-size:11px;color:var(--text2)">${esc(summary || '検索結果')}</div>
+      <button class="settings-btn" style="font-size:10px;padding:3px 8px" onclick="saveNexusAllEvidence('${esc(jobId)}','${esc(mode)}')">Evidence保存</button>
+    </div>
+    <div class="nexus-result-meta">job: ${esc(jobId || '-')} / saved_evidence: ${Number(payload?.saved_evidence || 0)} / hits: ${items.length}</div>
+    ${itemsHtml}
+  `;
+  if (!container._payloadCache) container._payloadCache = {};
+  container._payloadCache[mode] = payload;
+}
+
+function saveSingleNexusEvidence(jobId, mode, idx, btn) {
+  const root = document.getElementById(mode === 'news' ? 'nexus-news-result' : 'nexus-market-result');
+  const payload = root?._payloadCache?.[mode];
+  const item = payload?.search?.items?.[idx];
+  if (!item) return;
+  const dedupeKey = buildNexusSavedEvidenceKey(jobId, item, idx);
+  if (dedupeKey && nexusSavedEvidence.some((row) => row?.dedupe_key === dedupeKey)) {
+    if (btn) {
+      btn.textContent = '保存済み';
+      btn.disabled = true;
+    }
+    return;
+  }
+  nexusSavedEvidence.push({
+    dedupe_key: dedupeKey,
+    evidence_id: item.evidence_id || '',
+    job_id: jobId,
+    mode,
+    url: item.url || item.source_url || '',
+    citation_label: nexusCitationLabel(item, idx),
+    page_start: item.page_start ?? item.page ?? null,
+    page_end: item.page_end ?? item.page ?? null,
+    snippet: item.snippet || item.quote || '',
+    saved_at: new Date().toISOString(),
+  });
+  if (nexusSavedEvidence.length > 400) nexusSavedEvidence = nexusSavedEvidence.slice(-400);
+  if (btn) {
+    btn.textContent = '保存済み';
+    btn.disabled = true;
+  }
+  updateNexusJobBanner(`Evidence保存: ${jobId} (${mode})`);
+}
+
+function saveNexusAllEvidence(jobId, mode) {
+  const root = document.getElementById(mode === 'news' ? 'nexus-news-result' : 'nexus-market-result');
+  const payload = root?._payloadCache?.[mode];
+  const items = payload?.search?.items || [];
+  const before = nexusSavedEvidence.length;
+  items.forEach((_, idx) => saveSingleNexusEvidence(jobId, mode, idx, null));
+  const saved = Math.max(0, nexusSavedEvidence.length - before);
+  updateNexusJobBanner(`Evidenceをまとめて保存: ${saved}件 (${mode})`);
+}
+
+async function buildNexusRequestFailureMessage(resp, method, path) {
+  const safeMethod = String(method || 'GET').toUpperCase();
+  const safePath = String(path || resp?.url || '').trim();
+  let detail = '';
+  try {
+    const bodyText = await resp.text();
+    if (bodyText) {
+      try {
+        const parsed = JSON.parse(bodyText);
+        detail = String(parsed?.detail || parsed?.message || bodyText).trim();
+      } catch (_err) {
+        detail = String(bodyText).trim();
+      }
+    }
+  } catch (_err) {
+    detail = '';
+  }
+  if (!detail) detail = `HTTP ${resp?.status || 'unknown'}`;
+  return `Nexus request failed: ${safeMethod} ${safePath} returned ${resp?.status || 'unknown'}: ${detail}`;
+}
+
+async function runNexusNewsMvp() {
+  const topic = (document.getElementById('nexus-news-topic')?.value || '').trim();
+  const btn = document.getElementById('nexus-news-run-btn');
+  if (!topic) {
+    setNexusNewsResult('topic を入力してください。', true);
+    return;
+  }
+  if (btn) btn.disabled = true;
+  setNexusNewsResult('実行中...');
+  try {
+    let endpointPath = '/nexus/news/search';
+    let r = await fetch(API + endpointPath, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ topic, max_results_per_query: 5 }),
+    });
+    if (r.status === 404) {
+      endpointPath = '/nexus/news/mvp';
+      r = await fetch(API + endpointPath, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ topic, max_results_per_query: 5 }),
+      });
+    }
+    if (!r.ok) throw new Error(await buildNexusRequestFailureMessage(r, 'POST', endpointPath));
+    const d = await r.json().catch(() => ({}));
+    const payload = d?.result || d;
+    setNexusNewsResult(payload);
+    if (payload?.job_id) refreshNexusJobs();
+  } catch (e) {
+    setNexusNewsResult('News MVP failed: ' + e.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runNexusMarketMvp() {
+  const symbolOrTheme = (document.getElementById('nexus-market-symbol')?.value || '').trim();
+  const btn = document.getElementById('nexus-market-run-btn');
+  if (!symbolOrTheme) {
+    setNexusMarketResult('symbol/theme を入力してください。', true);
+    return;
+  }
+  if (btn) btn.disabled = true;
+  setNexusMarketResult('実行中...');
+  try {
+    let endpointPath = '/nexus/market/research';
+    let r = await fetch(API + endpointPath, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ symbol_or_theme: symbolOrTheme, max_results_per_query: 5 }),
+    });
+    if (r.status === 404) {
+      endpointPath = '/nexus/market/mvp';
+      r = await fetch(API + endpointPath, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ symbol_or_theme: symbolOrTheme, max_results_per_query: 5 }),
+      });
+    }
+    if (!r.ok) throw new Error(await buildNexusRequestFailureMessage(r, 'POST', endpointPath));
+    const d = await r.json().catch(() => ({}));
+    const payload = d?.result || d;
+    setNexusMarketResult(payload);
+    if (payload?.job_id) refreshNexusJobs();
+  } catch (e) {
+    setNexusMarketResult('Market MVP failed: ' + e.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runNexusWebScoutMvp() {
+  const topic = (document.getElementById('nexus-web-topic')?.value || '').trim();
+  const depth = (document.getElementById('nexus-web-depth')?.value || 'standard').trim() || 'standard';
+  const scope = (document.getElementById('nexus-web-scope')?.value || '').trim();
+  const language = (document.getElementById('nexus-web-language')?.value || '').trim();
+  const btn = document.getElementById('nexus-web-run-btn');
+  if (!topic) {
+    setNexusWebResult('topic を入力してください。', true);
+    return;
+  }
+  const maxQueries = depth === 'deep' ? 6 : 3;
+  const maxResultsPerQuery = depth === 'deep' ? 8 : 4;
+  if (btn) btn.disabled = true;
+  const preStatus = await refreshNexusWebStatus();
+  setNexusWebResult('実行中...');
+  try {
+    const payload = { query: topic, mode: depth, depth, scope, language, max_queries: maxQueries, max_results_per_query: maxResultsPerQuery };
+    const [searchRes, researchRes] = await Promise.all([
+      fetch(API + '/nexus/web/search', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }),
+      fetch(API + '/nexus/web/research', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) }),
+    ]);
+    const searchData = await searchRes.json();
+    const researchData = await researchRes.json();
+    if (!searchRes.ok) throw new Error(searchData?.detail || JSON.stringify(searchData));
+    if (!researchRes.ok) throw new Error(researchData?.detail || JSON.stringify(researchData));
+    const merged = {
+      query: topic,
+      depth,
+      scope,
+      language,
+      queries: researchData?.result?.queries || searchData?.result?.queries || [],
+      generated_queries: researchData?.result?.generated_queries || searchData?.result?.generated_queries || [],
+      search: searchData?.result?.search || {},
+      highlights: researchData?.result?.highlights || [],
+      summary: researchData?.result?.summary || `${topic} に関する Web Scout summary`,
+      provider: researchData?.result?.selected_provider || searchData?.result?.selected_provider || researchData?.result?.provider || searchData?.result?.provider || '',
+      engine: (searchData?.result?.search?.items?.[0]?.engine || researchData?.result?.search?.items?.[0]?.engine || ''),
+      is_stub: Boolean(researchData?.result?.search?.is_stub ?? searchData?.result?.search?.is_stub),
+      fallback_used: Boolean(researchData?.result?.fallback_used ?? searchData?.result?.fallback_used),
+      provider_errors: researchData?.result?.provider_errors || searchData?.result?.provider_errors || {},
+      errors: researchData?.result?.errors || searchData?.result?.errors || [],
+      trace: {
+        input_query: topic,
+        scope,
+        language,
+        depth,
+      },
+    };
+    setNexusWebResult(merged, false);
+    setNexusWebStatus(preStatus || {}, {
+      provider: merged.provider,
+      engine: merged.engine,
+      is_stub: merged.is_stub,
+      fallback_used: merged.fallback_used,
+      message: researchData?.result?.message || searchData?.result?.message || '',
+    });
+  } catch (e) {
+    setNexusWebResult('Web Scout MVP failed: ' + e.message, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function setNexusDeepStatus(message, isErr = false, isStub = false) {
+  const el = document.getElementById('nexus-deep-status');
+  if (!el) return;
+  const providerWarning = (typeof formatNexusProviderHealthWarning === 'function')
+    ? formatNexusProviderHealthWarning(nexusDeepProviderHealthWarning || {})
+    : { show: false, severity: 'info', message: '' };
+  el.style.color = isErr ? 'var(--red)' : 'var(--text2)';
+  if (message && typeof message === 'object') {
+    const compact = message;
+    const notices = [];
+    if (compact.notice) notices.push(String(compact.notice));
+    if (providerWarning.show && providerWarning.message) notices.push(String(providerWarning.message));
+    const notice = `<div>注意: ${esc(notices.join(' / ') || '-')}</div>`;
+    const debug = compact.debug ? `<details class="nexus-debug-details"><summary>Debug Details</summary><pre>${esc(String(compact.debug))}</pre></details>` : '';
+    el.innerHTML = `<div class="nexus-status-compact severity-${esc(String(compact.severity || 'info'))}">
+      <div>状態: ${esc(String(compact.title || '-'))}</div>
+      <div>進捗: ${esc(String(compact.progress || '-'))}</div>
+      <div>収集: ${esc(String(compact.collection || '-'))}</div>
+      ${notice}
+    </div>${debug}`;
+    return;
+  }
+  const statusMessage = String(message || '-');
+  const warn = providerWarning.show && providerWarning.message ? ` / 注意: ${providerWarning.message}` : '';
+  el.textContent = `状態: ${statusMessage}${warn}`;
+}
+
+const NEXUS_TIMELINE_STATE_META = {
+  planning: { label: 'planning', className: 'state-planning' },
+  web_search: { label: 'web_search', className: 'state-searching' },
+  source_collection: { label: 'source_collection', className: 'state-collecting_sources' },
+  searching: { label: 'searching', className: 'state-searching' },
+  download: { label: 'downloading', className: 'state-downloading' },
+  downloading: { label: 'downloading', className: 'state-downloading' },
+  source_ingest: { label: 'source_ingest', className: 'state-collecting_sources' },
+  evidence_retrieval: { label: 'evidence_retrieval', className: 'state-retrieving_evidence' },
+  evidence_compression: { label: 'evidence_compression', className: 'state-retrieving_evidence' },
+  answer_llm_generating: { label: 'answer_llm_generating', className: 'state-answering' },
+  answer_validation: { label: 'answer_validation', className: 'state-answering' },
+  answer_save: { label: 'answer_save', className: 'state-answering' },
+  completed: { label: 'completed', className: 'state-completed' },
+};
+
+function renderNexusDeepTimeline(events = []) {
+  const importantTypes = new Set(['download_progress','download_source_failed','download_stalled_warning','answer_llm_request_started','answer_llm_request_finished','answer_llm_request_degraded','answer_llm_request_failed']);
+  const el = document.getElementById('nexus-deep-timeline');
+  if (!el) return;
+  if (!events.length) {
+    el.innerHTML = '<div class="nexus-empty">No timeline events</div>';
+    return;
+  }
+  el.innerHTML = events.slice(0, 150).map((ev) => {
+    const ts = String(ev?.created_at || ev?.timestamp || '').replace('T', ' ').slice(0, 19) || '-';
+    const seq = Number(ev?.seq ?? -1);
+    const state = String(ev?.data?.state || '').trim();
+    const stateMeta = NEXUS_TIMELINE_STATE_META[state] || { label: state || '-', className: 'state-unknown' };
+    const type = String(ev?.type || '').trim();
+    const data = (ev?.data && typeof ev.data === 'object') ? ev.data : {};
+    const label = (() => {
+      const iteration = Number(data?.iteration ?? data?.iteration_index);
+      if (type === 'recursive_iteration_started') return `Iteration ${Number.isFinite(iteration) ? iteration : '?'} started`;
+      if (type === 'recursive_gap_analysis_started') return 'Gap analysis started';
+      if (type === 'recursive_gap_analysis_finished') {
+        const rawConfidence = data?.confidence ?? data?.analysis?.confidence;
+        const conf = clampFloat(rawConfidence, 0, 1);
+        return `Gap analysis finished: confidence ${conf == null ? '-' : conf.toFixed(2)}`;
+      }
+      if (type === 'recursive_followup_queries_generated') {
+        const fallbackCount = Array.isArray(data?.queries) ? data.queries.length : null;
+        const count = Number(data?.followup_query_count ?? data?.count ?? fallbackCount);
+        return `Follow-up queries: ${Number.isFinite(count) ? count : '-'}`;
+      }
+      if (type === 'recursive_followup_search_started') return 'Follow-up search started';
+      if (type === 'recursive_followup_search_finished') {
+        const added = Number(data?.added_sources ?? data?.new_sources ?? data?.sources_added);
+        return `Added sources: ${Number.isFinite(added) ? added : '-'}`;
+      }
+      if (type === 'recursive_iteration_finished') {
+        const executed = data?.followup_search_executed;
+        if (executed === true) return `Iteration ${Number.isFinite(iteration) ? iteration : '?'} finished (follow-up search executed)`;
+        if (executed === false) return `Iteration ${Number.isFinite(iteration) ? iteration : '?'} finished (no follow-up search)`;
+        return `Iteration ${Number.isFinite(iteration) ? iteration : '?'} finished`;
+      }
+      if (type === 'recursive_stopped') return `Recursive stopped: ${String(data?.stop_reason || data?.reason || '-').trim() || '-'}`;
+      return data?.state || data?.label || type || 'event';
+    })();
+    const bodyDetails = (() => {
+      const lines = [];
+      if (type === 'recursive_followup_queries_generated') {
+        const queries = Array.isArray(data?.queries) ? data.queries.map((q) => String(q || '').trim()).filter(Boolean) : [];
+        if (queries.length) {
+          lines.push('Follow-up queries:');
+          queries.slice(0, 10).forEach((q) => lines.push(`- ${q}`));
+          if (queries.length > 10) lines.push(`- ...and ${queries.length - 10} more`);
+        }
+      }
+      if (type === 'recursive_gap_analysis_finished') {
+        const analysis = (data?.analysis && typeof data.analysis === 'object') ? data.analysis : {};
+        const gaps = Array.isArray(analysis?.gaps) ? analysis.gaps.map((g) => String(g || '').trim()).filter(Boolean) : [];
+        const unresolved = Array.isArray(analysis?.unresolved_items) ? analysis.unresolved_items.map((item) => String(item || '').trim()).filter(Boolean) : [];
+        if (gaps.length) lines.push(`Gaps: ${gaps.join(', ')}`);
+        if (unresolved.length) {
+          lines.push('Unresolved:');
+          unresolved.slice(0, 10).forEach((item) => lines.push(`- ${item}`));
+          if (unresolved.length > 10) lines.push(`- ...and ${unresolved.length - 10} more`);
+        }
+      }
+      if (!lines.length) return '';
+      return `<div style="margin-top:4px;white-space:pre-wrap">${esc(lines.join('\n'))}</div>`;
+    })();
+    const importantBadge = importantTypes.has(type) ? '<span class="nexus-status-badge degraded">event</span> ' : '';
+    return `<div class="nexus-tl-item ${esc(stateMeta.className)}">
+      <div class="nexus-tl-head">#${Number.isFinite(seq) ? seq : '-'} · ${esc(ts)}</div>
+      <div class="nexus-tl-body">${importantBadge}<span class="nexus-tl-state ${esc(stateMeta.className)}">${esc(stateMeta.label)}</span> ${esc(String(label))}${bodyDetails}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderNexusDeepAnswer(answer = {}) {
+  const el = document.getElementById('nexus-deep-answer');
+  if (!el) return;
+  const md = String(answer?.answer_markdown || '').trim();
+  const generation = answer?.generation;
+  const generationMode = String(generation?.mode || answer?.generation_mode || '').trim();
+  const hasGeneration = generation !== undefined && generation !== null && (
+    typeof generation !== 'string' || generation.trim() !== ''
+  );
+  const generationNotice = String(generation?.notice || '').trim();
+  const outputIncomplete = Boolean(answer?.output_incomplete ?? generation?.output_incomplete);
+  const outputTruncated = Boolean(answer?.output_truncated ?? generation?.output_truncated);
+  const compression = (generation?.compression && typeof generation.compression === 'object') ? generation.compression : {};
+  const compressionHtml = generation
+    ? `<div class="nexus-answer-subtitle" style="margin-top:8px">Evidence Compression</div>
+       <div style="font-size:10px;color:var(--text3);display:flex;flex-wrap:wrap;gap:10px">
+         <span>ctx: <b style="color:var(--text2)">${esc(String(generation?.max_context_tokens || '-'))}</b></span>
+         <span>profile: <b style="color:var(--text2)">${esc(String(generation?.compression_profile || '-'))}</b></span>
+         <span>budget: <b style="color:var(--text2)">${esc(String(generation?.evidence_budget_tokens || '-'))}</b></span>
+         <span>est_prompt: <b style="color:var(--text2)">${esc(String(generation?.estimated_prompt_tokens || '-'))}</b></span>
+         <span>chunks: <b style="color:var(--text2)">${esc(String(compression?.chunks_input ?? '-'))} / ${esc(String(compression?.chunks_used ?? '-'))}</b></span>
+         <span>sources: <b style="color:var(--text2)">${esc(String(compression?.sources_input ?? '-'))} / ${esc(String(compression?.sources_used ?? '-'))}</b></span>
+         <span>retry: <b style="color:var(--text2)">${esc(String(generation?.retry_count ?? 0))}</b></span>
+         <span>truncated: <b style="color:var(--text2)">${esc(String(Boolean(compression?.evidence_truncated)))}</b></span>
+       </div>`
+    : '';
+  const verification = (answer?.citation_verification && typeof answer.citation_verification === 'object')
+    ? answer.citation_verification
+    : {};
+  const warningsHtml = renderNexusDeepCitationWarnings(answer, { shouldMount: false });
+  const recursiveSearch = answer?.recursive_search;
+  const iterations = answer?.iterations;
+  const confidence = answer?.confidence;
+  const iterationCount = Array.isArray(iterations) ? iterations.length : 0;
+  const confidenceDisplay = (typeof confidence === 'number' && Number.isFinite(confidence)) ? confidence.toFixed(2) : (confidence == null ? '-' : String(confidence));
+  const unresolvedItems = Array.isArray(answer?.unresolved_items) ? answer.unresolved_items : [];
+  const stopReason = String(answer?.stop_reason || '').trim();
+  const followupSearchCount = Number(answer?.followup_search_count ?? 0);
+  const followupQueriesCount = Number(answer?.followup_queries_count ?? 0);
+  const addedSourcesTotal = Number(answer?.added_sources_total ?? 0);
+  const recursiveStopReason = String(answer?.recursive_stop_reason || stopReason || '').trim();
+  const hasRecursiveMeta = [recursiveSearch, iterations, confidence, stopReason].some((v) => v !== undefined && v !== null && String(v).trim() !== '') || unresolvedItems.length > 0;
+  const recursiveMetaHtml = hasRecursiveMeta ? `<div class="nexus-answer-section">
+      <div class="nexus-answer-subtitle">Recursive Research</div>
+      <div style="font-size:11px;color:var(--text2);line-height:1.5">
+        <div>- Enabled: <b>${esc(String(Boolean(recursiveSearch)))}</b></div>
+        <div>- Final confidence: <b>${esc(confidenceDisplay)}</b></div>
+        <div>- Follow-up searches executed: <b>${esc(Number.isFinite(followupSearchCount) ? String(followupSearchCount) : '-')}</b></div>
+        <div>- Follow-up queries generated: <b>${esc(Number.isFinite(followupQueriesCount) ? String(followupQueriesCount) : '-')}</b></div>
+        <div>- Added sources total: <b>${esc(Number.isFinite(addedSourcesTotal) ? String(addedSourcesTotal) : '-')}</b></div>
+        <div>- Stop reason: <b>${esc(recursiveStopReason || '-')}</b></div>
+        <div>- Iterations: <b>${esc(String(iterationCount))}</b></div>
+        <div>- Unresolved items:</div>
+        <ul style="margin:4px 0 0 18px;padding:0">${(unresolvedItems.length ? unresolvedItems : ['-']).map((item) => `<li>${esc(String(item || '-'))}</li>`).join('')}</ul>
+        ${Array.isArray(iterations) ? `<details style="margin-top:6px"><summary>Iteration details JSON</summary><pre class="nexus-answer-json" style="margin-top:6px">${esc(JSON.stringify(iterations, null, 2))}</pre></details>` : ''}
+      </div>
+    </div>` : '';
+  el.innerHTML = `
+    <div class="nexus-answer-section">
+      <div class="nexus-answer-subtitle">Markdown</div>
+      ${md ? `<div class="md">${renderMd(md)}</div>` : '<div class="nexus-empty">回答はまだ生成されていません</div>'}
+      ${(() => {
+        const notice = (typeof classifyNexusAnswerGenerationNotice === 'function')
+          ? classifyNexusAnswerGenerationNotice(answer)
+          : { severity: (outputTruncated ? 'warning' : 'none'), message: '', showToUser: outputTruncated };
+        if (!notice.showToUser || !notice.message) return '';
+        const color = notice.severity === 'warning' ? 'var(--amber)' : 'var(--text2)';
+        return `<div class="nexus-generation-notice severity-${esc(String(notice.severity || 'info'))}" style="color:${color}">${esc(notice.message)}</div>`;
+      })()}
+    </div>
+    <div class="nexus-answer-section">
+      <details class="nexus-debug-details"><summary>Debug Details</summary>
+      <pre class="nexus-answer-json">${esc(hasGeneration ? JSON.stringify(generation, null, 2) : 'generation unavailable')}</pre>
+      ${generation ? `<div style="font-size:10px;color:var(--text3);display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">
+        <span>max_tokens: <b style="color:var(--text2)">${esc(String(generation?.max_tokens ?? '-'))}</b></span>
+        <span>initial_len: <b style="color:var(--text2)">${esc(String(generation?.initial_response_length_chars ?? '-'))}</b></span>
+        <span>continuation_len: <b style="color:var(--text2)">${esc(String(generation?.continuation_response_length_chars ?? '-'))}</b></span>
+        <span>final_len: <b style="color:var(--text2)">${esc(String(generation?.final_response_length_chars ?? '-'))}</b></span>
+        <span>output_incomplete: <b style="color:var(--text2)">${esc(String(Boolean(generation?.final_output_incomplete ?? outputIncomplete)))}</b></span>
+        <span>output_truncated: <b style="color:var(--text2)">${esc(String(Boolean(generation?.final_output_truncated ?? outputTruncated)))}</b></span>
+        <span>finish: <b style="color:var(--text2)">${esc(String(generation?.finish_reason || '-'))}</b></span>
+        <span>final_finish: <b style="color:var(--text2)">${esc(String(generation?.final_finish_reason || '-'))}</b></span>
+      </div>` : ''}
+      ${compressionHtml}
+      ${(() => {
+        const notice = (typeof classifyNexusAnswerGenerationNotice === 'function')
+          ? classifyNexusAnswerGenerationNotice(answer)
+          : { severity: (outputTruncated ? 'warning' : 'none'), message: '', showToUser: outputTruncated };
+        if (!notice.showToUser || !notice.message) return '';
+        const color = notice.severity === 'warning' ? 'var(--amber)' : 'var(--text2)';
+        return `<div class="nexus-generation-notice severity-${esc(String(notice.severity || 'info'))}" style="color:${color}">${esc(notice.message)}</div>`;
+      })()}
+      ${(generationMode === 'template_fallback' || generationNotice)
+        ? `<div class="nexus-generation-notice">${
+          esc(generationNotice || 'Answer LLM is disabled. Deep Research generated a template fallback answer. Citation quality may be weak because no LLM synthesis was performed. Check DEEP_RESEARCH_LLM_ENABLED and endpoint settings.')
+        }</div>`
+        : ''}
+      </details>
+    </div>
+    <div class="nexus-answer-section nexus-citation-verification">
+      <details>
+        <summary>Citation Verification: ${esc(String(Array.isArray(verification?.warnings) ? verification.warnings.filter((item) => String(item?.sentence || item?.claim || '').trim() && String(item?.sentence || item?.claim || '').trim() !== '---').length : 0))} issues</summary>
+        ${warningsHtml || '<div class="nexus-empty">warnings はありません</div>'}
+        <pre class="nexus-answer-json">${esc(JSON.stringify(verification, null, 2) || '{}')}</pre>
+      </details>
+    </div>
+    ${recursiveMetaHtml}`;
+  renderNexusDeepCitationWarnings(answer, { shouldMount: true, forceEmpty: true });
+}
+
+function renderNexusDeepCitationWarnings(answer = {}, options = {}) {
+  const root = document.getElementById('nexus-deep-citation-warnings');
+  const shouldMount = options?.shouldMount !== false;
+  const forceEmpty = options?.forceEmpty === true;
+  const warnings = (Array.isArray(answer?.citation_verification?.warnings) ? answer.citation_verification.warnings : [])
+    .filter((item) => {
+      const sentence = String(item?.sentence || item?.claim || '').trim();
+      return sentence && sentence !== '---';
+    });
+  const html = warnings
+    .map((item, idx) => {
+      const status = String(item?.status || '').trim().toLowerCase();
+      const isUnsupported = status === 'unsupported';
+      const isWeak = status === 'weak';
+      const className = isUnsupported ? 'unsupported' : (isWeak ? 'weak' : '');
+      const label = isUnsupported ? 'Unsupported' : (isWeak ? 'Weak' : (status || 'Warning'));
+      const sentenceIndex = Number(item?.sentence_index);
+      const reason = String(item?.reason || '').trim() || '-';
+      const sentence = String(item?.sentence || '').trim() || '(sentence unavailable)';
+      return `<div class="nexus-citation-warning ${className}">
+        <div><strong>${esc(label)}</strong> · #${Number.isFinite(sentenceIndex) ? sentenceIndex : idx + 1} · reason: ${esc(reason)}</div>
+        <div>${esc(sentence)}</div>
+      </div>`;
+    })
+    .join('');
+  if (!shouldMount) return html;
+  if (!root) return;
+  if (forceEmpty || !warnings.length) {
+    root.innerHTML = '';
+    return;
+  }
+  root.innerHTML = html;
+}
+
+function renderNexusDeepViewer(payload = {}) {
+  const root = document.getElementById('nexus-deep-viewer');
+  if (!root) return;
+  const mode = String(payload?.mode || '').trim();
+  const sourceId = String(payload?.sourceId || '-');
+  const title = String(payload?.title || '');
+  if (!mode) {
+    root.innerHTML = '<div class="nexus-empty">Reference Card の操作を選ぶとここに表示されます</div>';
+    return;
+  }
+  const head = `<div class="nexus-viewer-header"><div class="nexus-viewer-mode">source_id: ${esc(sourceId)}</div><div class="nexus-viewer-mode">mode: ${esc(mode)}</div></div>`;
+  if (mode === 'url') {
+    const url = String(payload?.url || '');
+    root.innerHTML = `${head}<div class="nexus-viewer-content">${url
+      ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`
+      : '<span class="nexus-empty">url unavailable</span>'}</div>`;
+    return;
+  }
+  if (mode === 'chunks') {
+    const chunks = Array.isArray(payload?.chunks) ? payload.chunks : [];
+    const selectedIndex = Number(payload?.selectedChunkIndex ?? -1);
+    if (!chunks.length) {
+      root.innerHTML = `${head}<div class="nexus-empty">chunk/page 情報がありません</div>`;
+      return;
+    }
+    root.innerHTML = `${head}
+      <div class="nexus-viewer-content">
+        <div class="nexus-chunk-list">
+          ${chunks.map((chunk, idx) => {
+            const page = [chunk?.page_start, chunk?.page_end].filter((v) => v !== null && v !== undefined).join('-') || '-';
+            const chunkId = chunk?.chunk_id || chunk?.citation_label || `chunk-${idx + 1}`;
+            const text = String(chunk?.chunk_text || chunk?.text || chunk?.quote || '').slice(0, 380);
+            return `<div class="nexus-chunk-item${idx === selectedIndex ? ' active' : ''}" onclick="selectNexusDeepViewerChunk(${idx})">
+              <div class="nexus-chunk-head">#${idx + 1} page:${esc(page)} / chunk:${esc(chunkId)}</div>
+              <div class="nexus-chunk-body">${esc(text || '(text unavailable)')}</div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    return;
+  }
+  const rawText = String(payload?.content || '');
+  const activeChunk = payload?.activeChunk && typeof payload.activeChunk === 'object' ? payload.activeChunk : null;
+  const activeLabel = String(activeChunk?.chunk_id || activeChunk?.citation_label || '').trim();
+  const activeNeedle = String(activeChunk?.chunk_text || activeChunk?.text || activeChunk?.quote || '').trim();
+  let highlighted = esc(rawText);
+  if (activeNeedle && activeNeedle.length >= 6) {
+    const needleEsc = esc(activeNeedle.slice(0, 180));
+    if (needleEsc) highlighted = highlighted.split(needleEsc).join(`<mark>${needleEsc}</mark>`);
+  } else if (activeLabel) {
+    const labelEsc = esc(activeLabel);
+    highlighted = highlighted.split(labelEsc).join(`<mark>${labelEsc}</mark>`);
+  }
+  const activeChunkMeta = activeChunk
+    ? `<div class="nexus-ref-meta">highlight: ${esc(activeLabel || '(chunk)')}</div>`
+    : '';
+  const body = mode === 'markdown'
+    ? `<div class="md">${renderMd(rawText)}</div><div class="nexus-ref-meta">一致箇所プレビュー（chunk選択時）</div><pre class="nexus-viewer-pre">${highlighted}</pre>`
+    : `<pre class="nexus-viewer-pre">${highlighted}</pre>`;
+  root.innerHTML = `${head}<div class="nexus-ref-meta">${esc(title || '')}</div>${activeChunkMeta}<div class="nexus-viewer-content">${body}</div>`;
+}
+
+function renderNexusDeepReferences(references = [], sources = [], evidence = []) {
+  const root = document.getElementById('nexus-deep-references');
+  if (!root) return;
+  if (!references.length) {
+    root.innerHTML = '<div class="nexus-empty">References はまだありません</div>';
+    return;
+  }
+  const sourceMap = {};
+  (Array.isArray(sources) ? sources : []).forEach((row) => {
+    const sourceId = String(row?.source_id || '').trim();
+    if (sourceId) sourceMap[sourceId] = row;
+  });
+  const evidenceMap = {};
+  const statusBadgeLabel = {
+    downloaded: 'Downloaded',
+    degraded: 'Degraded',
+    skipped_size_limit: 'Skipped(size)',
+    skipped_download_limit: 'Skipped(count)',
+    failed: 'Failed',
+  };
+  (Array.isArray(evidence) ? evidence : []).forEach((row) => {
+    const sid = String(row?.source_id || '').trim();
+    if (!sid) return;
+    if (!evidenceMap[sid]) evidenceMap[sid] = [];
+    evidenceMap[sid].push(row);
+  });
+  root.innerHTML = references.map((reference, idx) => {
+    const sourceId = String(reference?.source_id || '');
+    const source = sourceMap[sourceId] || {};
+    const citationLabel = String(reference?.citation_label || `[S${idx + 1}]`);
+    const localPath = String(source?.local_markdown_path || source?.local_text_path || source?.local_original_path || '');
+    const url = String(reference?.url || source?.final_url || source?.url || '');
+    const status = String(source?.status || '-').trim() || '-';
+    const statusClass = statusBadgeLabel[status] ? ` ${status}` : '';
+    const statusBadge = statusBadgeLabel[status]
+      ? `<span class="nexus-status-badge${statusClass}">${statusBadgeLabel[status]}</span>`
+      : `<span class="nexus-status-badge">${esc(status)}</span>`;
+    const sourceScore = reference?.source_score ?? source?.source_score ?? '-';
+    const sourceError = String(reference?.error || source?.error || '-');
+    const refs = evidenceMap[sourceId] || [];
+    const firstQuote = String(refs?.[0]?.quote || refs?.[0]?.chunk_text || '').trim();
+    const hint = refs.slice(0, 2).map((row) => {
+      const page = row?.page_start ?? row?.page_end;
+      const chunk = row?.chunk_id || row?.citation_label || '';
+      return [page !== undefined && page !== null ? `page:${page}` : '', chunk ? `chunk:${chunk}` : ''].filter(Boolean).join(' / ');
+    }).filter(Boolean).join(' | ');
+    const sourceIdEnc = encodeURIComponent(sourceId);
+    const urlEnc = encodeURIComponent(url);
+    return `<div class="nexus-ref-card">
+      <div class="nexus-ref-title">${citationLabel} ${esc(reference?.title || source?.title || sourceId || '(untitled source)')}</div>
+      <div class="nexus-ref-meta">source_id: ${esc(sourceId || '-')} / type: ${esc(reference?.source_type || source?.source_type || '-')} / status: ${statusBadge}</div>
+      <div class="nexus-ref-meta">source_score: ${esc(String(sourceScore))} / error: ${esc(sourceError)}</div>
+      <div class="nexus-ref-meta">${esc(url || '(url unavailable)')}</div>
+      <div class="nexus-ref-meta">local: ${esc(localPath || '-')}</div>
+      <div class="nexus-ref-meta">quote: ${esc(firstQuote || '引用断片はまだありません')}</div>
+      <div class="nexus-ref-meta">chunk/page: ${esc(hint || 'bundle evidence/chunk 情報を確認してください')}</div>
+      <div class="nexus-doc-actions">
+        <button onclick="viewNexusDeepSourceText('${sourceIdEnc}')">全文表示</button>
+        <button onclick="viewNexusDeepSourceMarkdown('${sourceIdEnc}')">Markdown表示</button>
+        <button onclick="viewNexusDeepSourceChunks('${sourceIdEnc}', this)">該当箇所</button>
+        <button ${url ? '' : 'disabled'} onclick="showNexusDeepReferenceUrl('${urlEnc}','${sourceIdEnc}')">元URL</button>
+        <button onclick="downloadNexusDeepSourceOriginal('${sourceIdEnc}')">ダウンロード</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderNexusDeepSourcesTable(sources = []) {
+  const root = document.getElementById('nexus-deep-sources-table');
+  if (!root) return;
+  if (!Array.isArray(sources) || !sources.length) {
+    root.innerHTML = '<div class="nexus-empty" style="padding:10px">Sources はまだありません</div>';
+    return;
+  }
+  const statusToBadge = (statusRaw) => {
+    const status = String(statusRaw || '').trim().toLowerCase();
+    if (status === 'downloaded') return { label: 'Downloaded', className: 'downloaded' };
+    if (status === 'degraded') return { label: 'Degraded', className: 'degraded' };
+    if (status === 'failed') return { label: 'Failed', className: 'failed' };
+    if (status.startsWith('skipped')) return { label: 'Skipped', className: 'skipped' };
+    return { label: status || '-', className: '' };
+  };
+  root.innerHTML = `
+    <table class="nexus-table nexus-deep-sources-table">
+      <thead>
+        <tr>
+          <th>title</th>
+          <th>url</th>
+          <th>source_score</th>
+          <th>status</th>
+          <th>error</th>
+          <th>content_type</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${sources.map((source) => {
+          const badge = statusToBadge(source?.status);
+          const title = String(source?.title || source?.citation_label || source?.source_id || '-');
+          const url = String(source?.final_url || source?.url || '-');
+          const score = source?.source_score ?? '-';
+          const error = String(source?.error || '-');
+          const contentType = String(source?.content_type || '-');
+          const statusBadge = `<span class="nexus-status-badge${badge.className ? ` ${badge.className}` : ''}">${esc(badge.label)}</span>`;
+          return `<tr>
+            <td title="${esc(title)}">${esc(title)}</td>
+            <td class="nexus-table-cell-url" title="${esc(url)}">${esc(url)}</td>
+            <td>${esc(String(score))}</td>
+            <td>${statusBadge}</td>
+            <td title="${esc(error)}">${esc(error)}</td>
+            <td>${esc(contentType)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+
+function nexusApi(path) {
+  const suffix = String(path || '');
+  return suffix.startsWith('/nexus/') ? suffix : `/nexus/${suffix.replace(/^\/+/, '')}`;
+}
+
+async function parseNexusApiResponse(resp) {
+  const bodyText = await resp.text();
+  const contentType = String(resp.headers?.get('content-type') || '').toLowerCase();
+  const isJson = contentType.includes('application/json');
+  if (!isJson) return { bodyText, data: null };
+  try {
+    const data = JSON.parse(bodyText || '{}');
+    return { bodyText, data };
+  } catch (_err) {
+    return { bodyText, data: null };
+  }
+}
+
+function buildNexusApiErrorMessage(endpoint, resp, parsed) {
+  const detail = parsed?.data?.detail;
+  const fallback = String(parsed?.bodyText || '').trim();
+  const message = String(detail || fallback || `HTTP ${resp.status}`).trim();
+  return `${endpoint} [status:${resp.status}] ${message}`;
+}
+
+function formatNexusDeepErrorMessage(err) {
+  return `Deep Research failed: ${err?.name || 'Error'}: ${err?.message || String(err)}`;
+}
+
+function stopNexusDeepResearchPolling() {
+  if (nexusDeepResearchPollTimer) {
+    clearTimeout(nexusDeepResearchPollTimer);
+    nexusDeepResearchPollTimer = null;
+  }
+}
+
+function renderNexusDeepPreviousRuns() {
+  const root = document.getElementById('nexus-deep-previous-runs');
+  const title = document.getElementById('nexus-prev-runs-title');
+  if (!root) return;
+  const total = Array.isArray(nexusDeepResearchPreviousRuns) ? nexusDeepResearchPreviousRuns.length : 0;
+  if (title) title.textContent = `Previous Runs (${total})`;
+  if (!total) {
+    root.innerHTML = '<div class="nexus-empty">No previous runs</div>';
+    return;
+  }
+  if (nexusDeepPreviousRunsCollapsed) {
+    root.innerHTML = '<div class="nexus-doc-actions"><button onclick="toggleNexusPreviousRuns(false)">Show previous runs</button></div>';
+    return;
+  }
+  const shown = nexusDeepResearchPreviousRuns.slice(0, nexusDeepPreviousRunsVisibleCount);
+  const rows = shown.map((row) => {
+    const id = String(row?.job_id || '');
+    const idEnc = encodeURIComponent(id);
+    return `<div class="nexus-result-item"><div><b>${esc(id || '-')}</b></div><div class="nexus-result-meta">query: ${esc(row?.query || '-')} / status: ${esc(row?.status || '-')} / created_at: ${esc(row?.created_at || '-')}</div><div class="nexus-doc-actions"><button onclick="showNexusDeepPreviousRun('${idEnc}')">再表示</button><button onclick="downloadNexusDeepBundleByJobId('${idEnc}')">bundle download</button></div></div>`;
+  }).join('');
+  const moreBtn = total > nexusDeepPreviousRunsVisibleCount ? `<button onclick="showMoreNexusPreviousRuns()">Show more</button>` : '';
+  root.innerHTML = `${rows}<div class="nexus-doc-actions"><button onclick="toggleNexusPreviousRuns(true)">Hide</button>${moreBtn}</div>`;
+}
+
+function toggleNexusPreviousRuns(collapsed = true) {
+  nexusDeepPreviousRunsCollapsed = Boolean(collapsed);
+  if (!nexusDeepPreviousRunsCollapsed) {
+    nexusDeepPreviousRunsVisibleCount = 3;
+    if (!nexusDeepPreviousRunsLoaded) refreshNexusDeepPreviousRuns();
+  }
+  renderNexusDeepPreviousRuns();
+}
+
+async function refreshNexusDeepPreviousRuns() {
+  nexusDeepPreviousRunsLoaded = true;
+  try {
+    const endpoint = nexusApi('/nexus/research/jobs?limit=20');
+    const res = await fetch(endpoint);
+    const parsed = await parseNexusApiResponse(res);
+    if (!res.ok) return;
+    const rows = Array.isArray(parsed?.data?.items) ? parsed.data.items : [];
+    nexusDeepResearchPreviousRuns = rows
+      .filter((row) => String(row?.job_id || '').trim())
+      .map((row) => ({ job_id: row.job_id, query: row.query, status: row.status, created_at: row.created_at }));
+    renderNexusDeepPreviousRuns();
+  } catch (_err) {}
+}
+
+function showMoreNexusPreviousRuns() {
+  nexusDeepPreviousRunsVisibleCount += 5;
+  renderNexusDeepPreviousRuns();
+}
+
+function pushNexusDeepPreviousRun(meta = null) {
+  if (!meta || !meta.job_id) return;
+  if (nexusDeepResearchPreviousRuns.some((row) => row.job_id === meta.job_id)) return;
+  nexusDeepResearchPreviousRuns.unshift(meta);
+  if (nexusDeepResearchPreviousRuns.length > 20) nexusDeepResearchPreviousRuns = nexusDeepResearchPreviousRuns.slice(0, 20);
+  renderNexusDeepPreviousRuns();
+}
+
+function resetNexusDeepResearchView(options = {}) {
+  const keepQuery = options?.keepQuery === true;
+  stopNexusDeepResearchPolling();
+  if (!keepQuery) {
+    const topicEl = document.getElementById('nexus-deep-topic');
+    if (topicEl) topicEl.value = '';
+  }
+  nexusDeepResearchJobId = '';
+  nexusDeepResearchAfterSeq = -1;
+  nexusDeepResearchEvents = [];
+  nexusDeepResearchStubMode = false;
+  nexusDeepResearchSources = [];
+  nexusDeepResearchAnswer = {};
+  nexusDeepResearchReferences = [];
+  nexusDeepResearchEvidence = [];
+  nexusDeepResearchHealth = {};
+  window.__nexusDeepViewer = null;
+  window.__nexusDeepViewerLastBody = '';
+  window.__nexusDeepViewerLastTextMode = '';
+  const bundleBtn = document.getElementById('nexus-deep-bundle-btn');
+  if (bundleBtn) bundleBtn.disabled = true;
+  const collected = document.getElementById('nexus-collected-results');
+  if (collected) collected.innerHTML = '<div class="nexus-empty">検索結果はここに表示されます。</div>';
+  const followup = document.getElementById('nexus-deep-followup-answer');
+  if (followup) followup.innerHTML = '<div class="nexus-empty">Follow-up answer はここに表示されます。</div>';
+  renderNexusDeepTimeline([]);
+  renderNexusDeepSourcesTable([]);
+  renderNexusDeepAnswer({});
+  renderNexusDeepReferences([], [], []);
+  renderNexusDeepViewer({});
+  setNexusDeepStatus('未実行');
+}
+
+function setNexusDeepCurrentJob(jobMeta = null) {
+  nexusDeepResearchCurrentRunMeta = jobMeta && jobMeta.job_id ? { ...jobMeta } : null;
+  nexusDeepResearchJobId = String(jobMeta?.job_id || '');
+}
+
+function isNexusResearchJobLike(job = {}) {
+  const id = String(job?.job_id || job?.id || '').trim();
+  const meta = (job?.metadata && typeof job.metadata === 'object') ? job.metadata : {};
+  return meta.is_research_job === true || meta.created_by === 'nexus_research' || id.startsWith('research_');
+}
+
+function isNexusResearchTerminalStatus(job = {}) {
+  const status = String(job?.status || '').toLowerCase();
+  return TERMINAL_RESEARCH_STATUSES.has(status);
+}
+
+function rankNexusResearchJob(job = {}) {
+  const updatedAt = Date.parse(job?.updated_at || job?.created_at || 0) || 0;
+  const status = String(job?.status || '').toLowerCase();
+  const running = status === 'running' ? 2 : (status === 'queued' ? 1 : 0);
+  const typed = isNexusResearchJobLike(job) ? 1 : 0;
+  return (typed * 100_000_000_000_000) + (running * 10_000_000_000_000) + updatedAt;
+}
+
+async function hydrateNexusDeepTerminalLatest(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return;
+  try { await refreshNexusDeepBundle(id); } catch (_err) {}
+  if (typeof refreshNexusDeepAnswer === 'function') {
+    try { await refreshNexusDeepAnswer(id); } catch (_err) {}
+  }
+}
+
+async function resumeLatestNexusResearchJob() {
+  if (nexusDeepResearchResumeStarted && !nexusDeepResearchResumeCompleted) return;
+  nexusDeepResearchResumeStarted = true;
+  nexusDeepResearchResumeCompleted = false;
+  const tryRestore = async (job, source = 'server') => {
+    if (!isNexusResearchJobLike(job)) return false;
+    const id = String(job?.job_id || job?.id || '').trim();
+    if (!id) return false;
+    const status = String(job?.status || '').toLowerCase();
+    const normalized = {
+      job_id: id,
+      query: String(job?.metadata?.query || job?.title || job?.query || job?.message || id).trim(),
+      status: status || 'queued',
+      created_at: String(job?.created_at || job?.updated_at || new Date().toISOString()).replace('T', ' ').slice(0, 19),
+    };
+    if (isNexusResearchTerminalStatus(job)) {
+      pushNexusDeepPreviousRun(normalized);
+      await hydrateNexusDeepTerminalLatest(id);
+      return false;
+    }
+    setNexusDeepCurrentJob(normalized);
+    const bundleBtn = document.getElementById('nexus-deep-bundle-btn');
+    if (bundleBtn) bundleBtn.disabled = false;
+    setNexusDeepStatus(`復元中... (${source})`);
+    await refreshNexusDeepBundle(id);
+    await refreshNexusDeepDebug(id);
+    await pollNexusDeepResearch(id, 50);
+    return true;
+  };
+  let restored = false;
+  let activeTimedOut = false;
+  try {
+    const activeUrl = API + '/nexus/jobs/active?limit=20';
+    const activeRes = await fetchWithTimeout(activeUrl, {}, 2200);
+    const activeData = activeRes.ok ? await activeRes.json() : {};
+    const activeJobs = Array.isArray(activeData?.jobs) ? activeData.jobs : [];
+    const runningCandidate = activeJobs
+      .filter((job) => isNexusResearchJobLike(job) && ['queued', 'running'].includes(String(job?.status || '').toLowerCase()))
+      .sort((a, b) => rankNexusResearchJob(b) - rankNexusResearchJob(a))[0];
+    restored = await tryRestore(runningCandidate, 'active');
+    if (restored) console.debug('[NexusDeep][resume] resume source: active');
+    if (restored) { nexusDeepResearchResumeCompleted = true; return; }
+  } catch (err) {
+    const errName = String(err?.name || '').toLowerCase();
+    const errMessage = String(err?.message || '').toLowerCase();
+    activeTimedOut = err?.timeout === true
+      || errName.includes('timeout')
+      || errName.includes('abort')
+      || errMessage.includes('timeout')
+      || errMessage.includes('aborted');
+    if (activeTimedOut) console.debug('[NexusDeep][resume] resume retry: active_timeout');
+  }
+  try {
+    const latestUrl = API + '/nexus/jobs/latest?project=' + encodeURIComponent(currentProject || 'default') + '&limit=1&include_terminal=true';
+    const latestRes = await fetchWithTimeout(latestUrl, {}, 2200);
+    const latestData = latestRes.ok ? await latestRes.json() : {};
+    const latestItems = Array.isArray(latestData?.items) ? latestData.items : (latestData?.job ? [latestData.job] : []);
+    restored = await tryRestore(latestItems[0], 'latest');
+    if (restored) console.debug('[NexusDeep][resume] resume source: latest');
+    if (restored) { nexusDeepResearchResumeCompleted = true; return; }
+  } catch (_err) {}
+  try {
+    const storageKey = 'nexus.deepResearch.lastJobId';
+    const savedId = String(localStorage.getItem(storageKey) || '').trim();
+    if (savedId) {
+      restored = await tryRestore({ job_id: savedId, status: 'running', metadata: { is_research_job: true } }, 'localStorage');
+      if (restored) console.debug('[NexusDeep][resume] resume source: localStorage');
+    }
+  } catch (_err) {}
+  if (restored) { nexusDeepResearchResumeCompleted = true; return; }
+  nexusDeepResearchResumeStarted = false;
+  nexusDeepResearchResumeCompleted = false;
+  if (activeTimedOut && !nexusDeepResearchResumeRetryScheduled) {
+    nexusDeepResearchResumeRetryScheduled = true;
+    setTimeout(() => {
+      nexusDeepResearchResumeRetryScheduled = false;
+      resumeLatestNexusResearchJob();
+    }, 7000);
+  }
+  if (!restored) console.debug('[NexusDeep][resume] resume skipped: non_research_job');
+}
+
+
+function updateNexusDeepCurrentStatus(status) {
+  if (!nexusDeepResearchCurrentRunMeta) return;
+  nexusDeepResearchCurrentRunMeta.status = status || nexusDeepResearchCurrentRunMeta.status || '-';
+}
+
+function downloadNexusDeepBundleByJobId(jobIdEnc) {
+  const id = decodeURIComponent(String(jobIdEnc || ''));
+  if (!id) return;
+  const url = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/bundle.zip');
+  window.open(url, '_blank', 'noopener');
+}
+
+async function showNexusDeepPreviousRun(jobIdEnc) {
+  const id = decodeURIComponent(String(jobIdEnc || ''));
+  if (!id) return;
+  await refreshNexusDeepBundle(id);
+}
+
+async function refreshNexusDeepSources(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) {
+    nexusDeepResearchSources = [];
+    renderNexusDeepSourcesTable([]);
+    return [];
+  }
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/sources');
+  try {
+    const resp = await fetch(endpoint);
+    const parsed = await parseNexusApiResponse(resp);
+    if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+    const data = parsed?.data || {};
+    const sources = Array.isArray(data?.sources) ? data.sources : [];
+    nexusDeepResearchSources = sources;
+    renderNexusDeepSourcesTable(sources);
+    renderNexusDeepReferences(nexusDeepResearchReferences, sources, nexusDeepResearchEvidence);
+    return sources;
+  } catch (err) {
+    console.error('[NexusDeep] refresh sources failed', { url: endpoint, name: err?.name, message: err?.message, stack: err?.stack, err });
+    throw err;
+  }
+}
+
+async function refreshNexusDeepEvents(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return [];
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/events?after=' + encodeURIComponent(String(nexusDeepResearchAfterSeq)));
+  try {
+    const resp = await fetch(endpoint);
+    const parsed = await parseNexusApiResponse(resp);
+    if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+    const data = parsed?.data || {};
+    const events = Array.isArray(data?.events) ? data.events : [];
+    events.forEach((ev) => {
+      const seq = Number(ev?.seq ?? -1);
+      if (seq > nexusDeepResearchAfterSeq) nexusDeepResearchAfterSeq = seq;
+      nexusDeepResearchEvents.unshift(ev);
+    });
+    renderNexusDeepTimeline(nexusDeepResearchEvents);
+    return events;
+  } catch (err) {
+    console.error('[NexusDeep] refresh events failed', { url: endpoint, name: err?.name, message: err?.message, stack: err?.stack, err });
+    throw err;
+  }
+}
+
+function normalizeNexusDeepAnswerPayload(answerPayload = {}) {
+  const answer = (answerPayload && typeof answerPayload === 'object') ? answerPayload : {};
+  const directReferences = Array.isArray(answer?.references) ? answer.references : [];
+  const directEvidence = Array.isArray(answer?.evidence) ? answer.evidence : [];
+  const dbEvidence = Array.isArray(answer?.evidence_json) ? answer.evidence_json : [];
+  const fallbackReferences = directEvidence.length ? directEvidence : dbEvidence;
+  return {
+    answer,
+    references: directReferences.length ? directReferences : fallbackReferences,
+    evidence: directEvidence.length ? directEvidence : dbEvidence,
+  };
+}
+
+
+async function refreshNexusDeepDebug(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return {};
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/debug');
+  try {
+    const resp = await fetch(endpoint);
+    const parsed = await parseNexusApiResponse(resp);
+    if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+    const data = parsed?.data || {};
+    const health = (data?.health && typeof data.health === 'object') ? data.health : {};
+    if (Object.keys(health).length) {
+      nexusDeepResearchHealth = { ...nexusDeepResearchHealth, ...health };
+    }
+    const generation = (data?.answer?.generation && typeof data.answer.generation === 'object') ? data.answer.generation : {};
+    if (Object.keys(generation).length) {
+      nexusDeepResearchAnswer = {
+        ...nexusDeepResearchAnswer,
+        generation: { ...(nexusDeepResearchAnswer?.generation || {}), ...generation },
+        output_incomplete: data?.answer?.output_incomplete ?? nexusDeepResearchAnswer?.output_incomplete,
+        output_truncated: data?.answer?.output_truncated ?? nexusDeepResearchAnswer?.output_truncated,
+        finish_reason: data?.answer?.finish_reason ?? nexusDeepResearchAnswer?.finish_reason,
+      };
+    }
+    return data;
+  } catch (err) {
+    console.warn('[NexusDeep] refresh debug failed', { url: endpoint, name: err?.name, message: err?.message });
+    return {};
+  }
+}
+async function refreshNexusDeepAnswer(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) {
+    nexusDeepResearchAnswer = {};
+    nexusDeepResearchReferences = [];
+    nexusDeepResearchEvidence = [];
+    renderNexusDeepAnswer({});
+    renderNexusDeepReferences([], nexusDeepResearchSources, []);
+    renderNexusDeepViewer({});
+    return {};
+  }
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/answer');
+  try {
+    const resp = await fetch(endpoint);
+    const parsed = await parseNexusApiResponse(resp);
+    if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+    const data = parsed?.data || {};
+    const normalized = normalizeNexusDeepAnswerPayload(data?.answer || {});
+    const fetchedAnswer = (normalized.answer && typeof normalized.answer === 'object') ? normalized.answer : {};
+    if (Object.keys(fetchedAnswer).length || !Object.keys(nexusDeepResearchAnswer || {}).length) {
+      nexusDeepResearchAnswer = fetchedAnswer;
+    }
+    nexusDeepResearchReferences = normalized.references;
+    nexusDeepResearchEvidence = normalized.evidence;
+    renderNexusDeepAnswer(nexusDeepResearchAnswer);
+    renderNexusDeepReferences(nexusDeepResearchReferences, nexusDeepResearchSources, nexusDeepResearchEvidence);
+    return nexusDeepResearchAnswer;
+  } catch (err) {
+    console.error('[NexusDeep] refresh answer failed', { url: endpoint, name: err?.name, message: err?.message, stack: err?.stack, err });
+    throw err;
+  }
+}
+
+function getNexusDeepTerminalState() {
+  const latestState = String(nexusDeepResearchEvents?.[0]?.data?.state || '').toLowerCase();
+  if (TERMINAL_RESEARCH_STATUSES.has(latestState)) return latestState;
+  const jobState = String(nexusDeepResearchHealth?.job_status || '').toLowerCase();
+  if (TERMINAL_RESEARCH_STATUSES.has(jobState)) return jobState;
+  return '';
+}
+
+
+function getLatestNexusDeepDownloadProgress() {
+  const events = Array.isArray(nexusDeepResearchEvents) ? nexusDeepResearchEvents : [];
+  for (let i = 0; i < events.length; i += 1) {
+    const ev = events[i] || {};
+    if (String(ev.type || '') === 'download_progress') {
+      const data = ev.data && typeof ev.data === 'object' ? ev.data : {};
+      return data;
+    }
+  }
+  return {};
+}
+
+function getLatestNexusDeepActiveSource() {
+  const events = Array.isArray(nexusDeepResearchEvents) ? nexusDeepResearchEvents : [];
+  for (let i = 0; i < events.length; i += 1) {
+    const ev = events[i] || {};
+    if (String(ev.type || '') === 'download_source_started') {
+      const data = ev.data && typeof ev.data === 'object' ? ev.data : {};
+      return data;
+    }
+  }
+  return {};
+}
+
+function formatNexusDeepProgressStatus() {
+  const h = (nexusDeepResearchHealth && typeof nexusDeepResearchHealth === 'object') ? nexusDeepResearchHealth : {};
+  const phase = String(h.current_phase || h.phase || '-');
+  const hbAgo = Number(h.seconds_since_last_heartbeat);
+  const hbText = Number.isFinite(hbAgo) ? `${hbAgo.toFixed(1)}秒前` : '-';
+  const generation = nexusDeepResearchAnswer?.generation || {};
+  const chunksIn = generation?.compression?.chunks_input ?? '-';
+  const chunksUsed = generation?.compression?.chunks_used ?? '-';
+  const promptTokens = generation?.estimated_prompt_tokens ?? generation?.prompt_tokens ?? '-';
+  const maxTokens = generation?.max_tokens ?? generation?.context_budget?.reserved_output_tokens ?? '-';
+  const msg = String(h.current_message || h.message || '').trim();
+  const elapsed = Number(generation?.elapsed_sec || 0);
+  const dl = (h.latest_download_progress && typeof h.latest_download_progress === 'object')
+    ? h.latest_download_progress
+    : getLatestNexusDeepDownloadProgress();
+  const activeSource = getLatestNexusDeepActiveSource();
+  const total = Number(h.download_total ?? dl.total ?? 0);
+  const completed = Number(h.download_completed ?? dl.completed ?? 0);
+  const active = Number(h.download_active ?? dl.active ?? 0);
+  const degraded = Number(h.download_degraded ?? dl.degraded ?? 0);
+  const failed = Number(h.download_failed ?? dl.failed ?? 0);
+  const skipped = Number(h.download_skipped ?? dl.skipped ?? 0);
+  const totalMb = Number(dl.total_downloaded_bytes || 0) / (1024 * 1024);
+  const srcTitle = String(activeSource.title || activeSource.domain || activeSource.url || '').trim();
+  const generationMode = String(generation?.mode || nexusDeepResearchAnswer?.generation_mode || '-').trim() || '-';
+  const outputIncomplete = Boolean(nexusDeepResearchAnswer?.output_incomplete ?? generation?.output_incomplete);
+  const outputTruncated = Boolean(nexusDeepResearchAnswer?.output_truncated ?? generation?.output_truncated);
+  const secSinceEvent = Number(h.seconds_since_last_event);
+  const eventText = Number.isFinite(secSinceEvent) ? `${secSinceEvent.toFixed(1)}秒前` : '-';
+  const downloadSummary = total > 0
+    ? ` / ソース収集中 ${completed}/${total} 件完了、${active}件処理中、${degraded}件degraded、${failed}件failed、${skipped}件skipped、${totalMb.toFixed(1)}MB`
+    : '';
+  const activeSummary = srcTitle ? ` / 処理中:${srcTitle}` : '';
+  const finishReason = String(generation?.final_finish_reason || generation?.finish_reason || nexusDeepResearchAnswer?.finish_reason || '').trim();
+  const generationError = String(generation?.error || nexusDeepResearchAnswer?.error || '').trim();
+  const notice = (typeof classifyNexusAnswerGenerationNotice === 'function')
+    ? classifyNexusAnswerGenerationNotice(nexusDeepResearchAnswer || {})
+    : { showToUser: outputTruncated || (finishReason && finishReason !== 'stop') || Boolean(generationError), message: '回答生成の確認が必要です。' };
+  const outWarn = notice.showToUser && notice.message
+    ? ` / ${notice.severity === 'warning' ? '⚠ ' : ''}${notice.message}`
+    : '';
+  const stallReason = String(h.stalled_reason || '-').trim();
+  const suggestedAction = String(h.suggested_action || '-').trim();
+  return `phase:${phase} / progress:${Math.round(Number(h.progress || 0) * 100)}% / ${msg || '-'}${downloadSummary}${activeSummary} / generation:${generationMode}${outWarn} / 経過${elapsed || '-'}秒 / 最終heartbeat ${hbText} / 最終event ${eventText} / stalled:${String(Boolean(h.is_stalled))} / reason:${stallReason} / action:${suggestedAction} / sources:${nexusDeepResearchSources.length} / chunks:${chunksIn}/${chunksUsed} / prompt:${promptTokens} / max:${maxTokens}`;
+}
+
+async function refreshNexusDeepBundle(jobId, options = {}) {
+  const id = String(jobId || '').trim();
+  if (!id) return null;
+  const onlyIfCurrent = options?.onlyIfCurrent === true;
+  const endpoint = nexusApi('/nexus/research/jobs/' + encodeURIComponent(id) + '/bundle');
+  const resp = await fetch(endpoint);
+  const parsed = await parseNexusApiResponse(resp);
+  if (!resp.ok) throw new Error(buildNexusApiErrorMessage(endpoint, resp, parsed));
+  const data = parsed?.data || {};
+  if (onlyIfCurrent && String(nexusDeepResearchJobId || '') !== id) return null;
+  const events = Array.isArray(data?.events) ? data.events : [];
+  nexusDeepResearchEvents = events.slice().reverse();
+  nexusDeepResearchSources = Array.isArray(data?.sources) ? data.sources : [];
+  const normalized = normalizeNexusDeepAnswerPayload(data?.answer || {});
+  nexusDeepResearchAnswer = normalized.answer || {};
+  nexusDeepResearchReferences = normalized.references || [];
+  nexusDeepResearchEvidence = normalized.evidence || [];
+  const health = (data?.health && typeof data.health === 'object') ? data.health : {};
+  const job = (data?.job && typeof data.job === 'object') ? data.job : {};
+  nexusDeepResearchHealth = {
+    ...health,
+    job_status: String(job?.status || ''),
+    progress: Number(job?.progress || 0),
+    message: String(job?.message || ''),
+  };
+  renderNexusDeepTimeline(nexusDeepResearchEvents);
+  renderNexusDeepSourcesTable(nexusDeepResearchSources);
+  renderNexusDeepAnswer(nexusDeepResearchAnswer);
+  renderNexusDeepReferences(nexusDeepResearchReferences, nexusDeepResearchSources, nexusDeepResearchEvidence);
+  return data;
+}
+
+async function pollNexusDeepResearch(jobId, maxTicks = 300) {
+  const id = String(jobId || '').trim();
+  if (!id) return;
+  stopNexusDeepResearchPolling();
+  let tick = 0;
+  const runTick = async () => {
+    if (String(nexusDeepResearchJobId || '') !== id) return;
+    tick += 1;
+    const requestJobId = id;
+    await refreshNexusDeepBundle(requestJobId, { onlyIfCurrent: true });
+    if (String(nexusDeepResearchJobId || '') !== requestJobId) return;
+    await refreshNexusDeepDebug(requestJobId);
+    if (String(nexusDeepResearchJobId || '') !== requestJobId) return;
+    const state = getNexusDeepTerminalState();
+    const health = nexusDeepResearchHealth && typeof nexusDeepResearchHealth === 'object' ? nexusDeepResearchHealth : {};
+    const stalled = health.is_stalled === true;
+    const stallReason = String(health.stalled_reason || 'heartbeat停止').trim();
+    const suggestedAction = String(health.suggested_action || '').trim();
+    const stallMsg = stalled
+      ? `警告: heartbeatが120秒以上更新されていません。サーバー処理停止の可能性があります。（${stallReason}${suggestedAction ? ` / ${suggestedAction}` : ''}）`
+      : '';
+    const compactStatus = (typeof formatNexusResearchStatusCompact === 'function')
+      ? formatNexusResearchStatusCompact({ status: state || 'running', progress: health.progress }, { ...health, sources: nexusDeepResearchSources }, nexusDeepResearchAnswer)
+      : { title: state || 'running', progress: formatNexusDeepProgressStatus(), collection: `ソース${nexusDeepResearchSources.length}件`, notice: '', severity: 'info' };
+    compactStatus.notice = [compactStatus.notice, stallMsg].filter(Boolean).join(' / ');
+    compactStatus.severity = state === 'failed' || stalled ? 'error' : compactStatus.severity;
+    compactStatus.debug = `job:${id} / state:${state || '-'} / ${formatNexusDeepProgressStatus()}`;
+    setNexusDeepStatus(compactStatus, state === 'failed' || stalled, nexusDeepResearchStubMode);
+    updateNexusDeepCurrentStatus(state || 'running');
+    if (TERMINAL_RESEARCH_STATUSES.has(String(state || '').toLowerCase())) {
+      stopNexusDeepResearchPolling();
+      const btn = document.getElementById('nexus-deep-run-btn');
+      const bundleBtn = document.getElementById('nexus-deep-bundle-btn');
+      if (btn) btn.disabled = false;
+      if (bundleBtn) bundleBtn.disabled = false;
+      await refreshNexusDeepBundle(requestJobId, { onlyIfCurrent: true });
+      return;
+    }
+    if (tick >= maxTicks) {
+      stopNexusDeepResearchPolling();
+      return;
+    }
+    nexusDeepResearchPollTimer = setTimeout(runTick, 1200);
+  };
+  await runTick();
+}
+
+async function viewNexusDeepSourceText(sourceIdEnc) {
+  const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
+  if (!sourceId) return;
+  try {
+    const r = await fetch(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/text');
+    const body = await r.text();
+    if (!r.ok) throw new Error(body || 'text 読み込み失敗');
+    window.__nexusDeepViewerLastTextMode = 'text';
+    window.__nexusDeepViewerLastBody = body;
+    renderNexusDeepViewer({ mode: 'text', sourceId, content: body, title: '全文表示' });
+  } catch (e) {
+    renderNexusDeepViewer({ mode: 'text', sourceId, content: '読み込み失敗: ' + e.message, title: '全文表示' });
+  }
+}
+
+async function viewNexusDeepSourceMarkdown(sourceIdEnc) {
+  const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
+  if (!sourceId) return;
+  try {
+    const r = await fetch(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/markdown');
+    const body = await r.text();
+    if (!r.ok) throw new Error(body || 'markdown 読み込み失敗');
+    window.__nexusDeepViewerLastTextMode = 'markdown';
+    window.__nexusDeepViewerLastBody = body;
+    renderNexusDeepViewer({ mode: 'markdown', sourceId, content: body, title: 'Markdown表示' });
+  } catch (e) {
+    renderNexusDeepViewer({ mode: 'markdown', sourceId, content: '読み込み失敗: ' + e.message, title: 'Markdown表示' });
+  }
+}
+
+function downloadNexusDeepSourceOriginal(sourceIdEnc) {
+  const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
+  if (!sourceId) return;
+  const link = document.createElement('a');
+  link.href = API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/original';
+  link.rel = 'noopener';
+  link.target = '_self';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function showNexusDeepReferenceUrl(urlEnc, sourceIdEnc) {
+  const url = decodeURIComponent(String(urlEnc || ''));
+  const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
+  renderNexusDeepViewer({ mode: 'url', sourceId, url, title: '元URL' });
+}
+
+async function viewNexusDeepSourceChunks(sourceIdEnc, btn = null) {
+  const sourceId = decodeURIComponent(String(sourceIdEnc || ''));
+  if (!sourceId) return;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(API + '/nexus/sources/' + encodeURIComponent(sourceId) + '/chunks');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    const chunks = Array.isArray(d?.chunks) ? d.chunks : [];
+    window.__nexusDeepViewer = { mode: 'chunks', sourceId, chunks, selectedChunkIndex: chunks.length ? 0 : -1 };
+    renderNexusDeepViewer(window.__nexusDeepViewer);
+    if (chunks.length) selectNexusDeepViewerChunk(0);
+  } catch (e) {
+    renderNexusDeepViewer({ mode: 'chunks', sourceId, chunks: [], title: 'chunk 読み込み失敗: ' + e.message });
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function selectNexusDeepViewerChunk(index) {
+  const state = window.__nexusDeepViewer && typeof window.__nexusDeepViewer === 'object' ? window.__nexusDeepViewer : null;
+  if (!state || state.mode !== 'chunks') return;
+  const chunks = Array.isArray(state.chunks) ? state.chunks : [];
+  if (!chunks.length) return;
+  const selectedIndex = Math.max(0, Math.min(Number(index || 0), chunks.length - 1));
+  state.selectedChunkIndex = selectedIndex;
+  renderNexusDeepViewer(state);
+  const selectedChunk = chunks[selectedIndex];
+  const selectedMode = String(window.__nexusDeepViewerLastTextMode || 'text');
+  const endpoint = selectedMode === 'markdown' ? '/markdown' : '/text';
+  fetch(API + '/nexus/sources/' + encodeURIComponent(String(state.sourceId || '')) + endpoint)
+    .then((r) => r.text().then((body) => ({ ok: r.ok, body })))
+    .then((response) => {
+      if (!response.ok) throw new Error(response.body || '読み込み失敗');
+      window.__nexusDeepViewerLastBody = String(response.body || '');
+    renderNexusDeepViewer({
+      mode: selectedMode,
+      sourceId: String(state.sourceId || ''),
+      content: window.__nexusDeepViewerLastBody,
+      title: selectedMode === 'markdown' ? 'Markdown表示' : '全文表示',
+      activeChunk: selectedChunk,
+    });
+    window.__nexusDeepViewer = state;
+    })
+    .catch((err) => {
+    renderNexusDeepViewer({
+      mode: selectedMode,
+      sourceId: String(state.sourceId || ''),
+      content: `読み込み失敗: ${err.message}`,
+      title: selectedMode === 'markdown' ? 'Markdown表示' : '全文表示',
+      activeChunk: selectedChunk,
+    });
+    window.__nexusDeepViewer = state;
+  });
+}
+
+function downloadNexusDeepBundle() {
+  if (!nexusDeepResearchJobId) return;
+  const url = nexusApi('/nexus/research/jobs/' + encodeURIComponent(nexusDeepResearchJobId) + '/bundle.zip');
+  try {
+    window.open(url, '_blank', 'noopener');
+  } catch (err) {
+    console.error('[NexusDeep] download bundle failed', { url, name: err?.name, message: err?.message, stack: err?.stack, err });
+    setNexusDeepStatus(formatNexusDeepErrorMessage(err), true, nexusDeepResearchStubMode);
+  }
+}
+
+function nexusDepthToConfig(depth) {
+  const key = String(depth || 'standard').toLowerCase();
+  if (key === 'quick') return { maxQueries: 2, maxResultsPerQuery: 3 };
+  if (key === 'deep') return { maxQueries: 6, maxResultsPerQuery: 8 };
+  if (key === 'exhaustive') return { maxQueries: 10, maxResultsPerQuery: 10 };
+  return { maxQueries: 4, maxResultsPerQuery: 6 };
+}
+
+const NEXUS_DEEP_STORAGE = {
+  topic: 'nexus_deep_topic',
+  depth: 'nexus_deep_depth',
+  scope: 'nexus_deep_scope',
+  maxDownloadMb: 'nexus.deepResearch.maxDownloadMb',
+  maxTotalDownloadMb: 'nexus.deepResearch.maxTotalDownloadMb',
+  maxDownloads: 'nexus.deepResearch.maxDownloads',
+  timeoutSec: 'nexus.deepResearch.timeoutSec',
+  preferPdf: 'nexus.deepResearch.preferPdf',
+  officialFirst: 'nexus.deepResearch.officialFirst',
+  continueOnError: 'nexus.deepResearch.continueOnError',
+  recursiveSearch: 'nexus.deepResearch.recursiveSearch',
+  maxIterations: 'nexus.deepResearch.maxIterations',
+  maxFollowupQueries: 'nexus.deepResearch.maxFollowupQueries',
+  confidenceThreshold: 'nexus.deepResearch.confidenceThreshold',
+  stopWhenSufficient: 'nexus.deepResearch.stopWhenSufficient',
+};
+
+const NEXUS_DEEP_LEGACY_STORAGE = {
+  maxDownloadMb: 'nexus_deep_max_download_mb',
+  maxTotalDownloadMb: 'nexus_deep_max_total_download_mb',
+  maxDownloads: 'nexus_deep_max_downloads',
+  timeoutSec: 'nexus_deep_download_timeout_sec',
+  preferPdf: 'nexus_deep_prefer_pdf',
+  officialFirst: 'nexus_deep_official_first',
+  continueOnError: 'nexus_deep_continue_on_download_error',
+};
+
+const NEXUS_DEEP_MIGRATION_DONE_KEY = 'nexus.deepResearch.migrationDone.v1';
+
+const TERMINAL_RESEARCH_STATUSES = new Set(["completed", "degraded", "failed", "cancelled"]);
+
+
+function migrateNexusDeepResearchStorageOnce() {
+  if (localStorage.getItem(NEXUS_DEEP_MIGRATION_DONE_KEY) === 'true') return;
+
+  Object.keys(NEXUS_DEEP_LEGACY_STORAGE).forEach((key) => {
+    const nextKey = NEXUS_DEEP_STORAGE[key];
+    const legacyKey = NEXUS_DEEP_LEGACY_STORAGE[key];
+    if (!nextKey || !legacyKey) return;
+    if (localStorage.getItem(nextKey) !== null) return;
+    const legacyValue = localStorage.getItem(legacyKey);
+    if (legacyValue !== null) {
+      localStorage.setItem(nextKey, legacyValue);
+    }
+  });
+
+  localStorage.setItem(NEXUS_DEEP_MIGRATION_DONE_KEY, 'true');
+}
+
+function clampInt(value, min, max) {
+  const num = parseInt(String(value ?? '').trim(), 10);
+  if (!Number.isFinite(num)) return null;
+  return Math.min(max, Math.max(min, num));
+}
+
+function clampFloat(value, min, max) {
+  const num = Number.parseFloat(String(value ?? '').trim());
+  if (!Number.isFinite(num)) return null;
+  return Math.min(max, Math.max(min, num));
+}
+
+function normalizeNexusRecursiveSettings(raw = {}) {
+  const enabled = Boolean(raw?.recursiveSearch);
+  if (!enabled) {
+    return {
+      recursive_search: false,
+      max_iterations: 1,
+      max_followup_queries: 4,
+      confidence_threshold: 0.75,
+      stop_when_sufficient: true,
+    };
+  }
+  return {
+    recursive_search: true,
+    max_iterations: clampInt(raw?.maxIterations, 1, 5) ?? 2,
+    max_followup_queries: clampInt(raw?.maxFollowupQueries, 1, 10) ?? 4,
+    confidence_threshold: clampFloat(raw?.confidenceThreshold, 0, 1) ?? 0.75,
+    stop_when_sufficient: raw?.stopWhenSufficient !== false,
+  };
+}
+
+function updateNexusRecursiveControls(options = {}) {
+  const recursiveEl = document.getElementById('nexus-deep-recursive-search');
+  const maxIterationsEl = document.getElementById('nexus-deep-max-iterations');
+  const maxFollowupEl = document.getElementById('nexus-deep-max-followup-queries');
+  const confidenceEl = document.getElementById('nexus-deep-confidence-threshold');
+  const stopWhenSufficientEl = document.getElementById('nexus-deep-stop-when-sufficient');
+  const enabled = recursiveEl?.checked === true;
+  [maxIterationsEl, maxFollowupEl, confidenceEl, stopWhenSufficientEl].forEach((el) => { if (el) el.disabled = !enabled; });
+  if (enabled && options?.preferRecommendedOnEnable && maxIterationsEl) {
+    const parsed = clampInt(maxIterationsEl.value, 1, 5);
+    if (parsed === null || parsed === 1) maxIterationsEl.value = '2';
+  }
+}
+
+function loadNexusDeepResearchForm() {
+  migrateNexusDeepResearchStorageOnce();
+  const topicEl = document.getElementById('nexus-deep-topic');
+  const depthEl = document.getElementById('nexus-deep-depth');
+  const scopeEl = document.getElementById('nexus-deep-scope');
+  const maxDownloadMbEl = document.getElementById('nexus-deep-max-download-mb');
+  const maxTotalDownloadMbEl = document.getElementById('nexus-deep-max-total-download-mb');
+  const maxDownloadsEl = document.getElementById('nexus-deep-max-downloads');
+  const downloadTimeoutSecEl = document.getElementById('nexus-deep-download-timeout-sec');
+  const continueOnDownloadErrorEl = document.getElementById('nexus-deep-continue-on-download-error');
+  const preferPdfEl = document.getElementById('nexus-deep-prefer-pdf');
+  const officialFirstEl = document.getElementById('nexus-deep-official-first');
+  const recursiveSearchEl = document.getElementById('nexus-deep-recursive-search');
+  const maxIterationsEl = document.getElementById('nexus-deep-max-iterations');
+  const maxFollowupQueriesEl = document.getElementById('nexus-deep-max-followup-queries');
+  const confidenceThresholdEl = document.getElementById('nexus-deep-confidence-threshold');
+  const stopWhenSufficientEl = document.getElementById('nexus-deep-stop-when-sufficient');
+
+  if (topicEl) topicEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.topic) || '';
+  if (depthEl) depthEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.depth) || 'standard';
+  if (scopeEl) scopeEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.scope) || 'web';
+  if (maxDownloadMbEl) maxDownloadMbEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxDownloadMb) || '';
+  if (maxTotalDownloadMbEl) maxTotalDownloadMbEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxTotalDownloadMb) || '';
+  if (maxDownloadsEl) maxDownloadsEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxDownloads) || '';
+  if (downloadTimeoutSecEl) downloadTimeoutSecEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.timeoutSec) || '';
+  if (continueOnDownloadErrorEl) {
+    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.continueOnError);
+    continueOnDownloadErrorEl.checked = raw === null ? true : raw === 'true';
+  }
+  if (preferPdfEl) {
+    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.preferPdf);
+    preferPdfEl.checked = raw === null ? true : raw === 'true';
+  }
+  if (officialFirstEl) {
+    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.officialFirst);
+    officialFirstEl.checked = raw === null ? true : raw === 'true';
+  }
+  if (recursiveSearchEl) {
+    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.recursiveSearch);
+    recursiveSearchEl.checked = raw === 'true';
+  }
+  if (maxIterationsEl) maxIterationsEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxIterations) || '1';
+  if (maxFollowupQueriesEl) maxFollowupQueriesEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.maxFollowupQueries) || '4';
+  if (confidenceThresholdEl) confidenceThresholdEl.value = localStorage.getItem(NEXUS_DEEP_STORAGE.confidenceThreshold) || '0.75';
+  if (stopWhenSufficientEl) {
+    const raw = localStorage.getItem(NEXUS_DEEP_STORAGE.stopWhenSufficient);
+    stopWhenSufficientEl.checked = raw === null ? true : raw === 'true';
+  }
+  updateNexusRecursiveControls();
+}
+
+function saveNexusDeepResearchForm(values) {
+  localStorage.setItem(NEXUS_DEEP_STORAGE.topic, values.topic || '');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.depth, values.depth || 'standard');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.scope, values.scope || 'web');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.maxDownloadMb, values.maxDownloadMb == null ? '' : String(values.maxDownloadMb));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.maxTotalDownloadMb, values.maxTotalDownloadMb == null ? '' : String(values.maxTotalDownloadMb));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.maxDownloads, values.maxDownloads == null ? '' : String(values.maxDownloads));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.timeoutSec, values.downloadTimeoutSec == null ? '' : String(values.downloadTimeoutSec));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.continueOnError, values.continueOnDownloadError ? 'true' : 'false');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.preferPdf, values.preferPdf ? 'true' : 'false');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.officialFirst, values.officialFirst ? 'true' : 'false');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.recursiveSearch, values.recursiveSearch ? 'true' : 'false');
+  localStorage.setItem(NEXUS_DEEP_STORAGE.maxIterations, values.maxIterations == null ? '1' : String(values.maxIterations));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.maxFollowupQueries, values.maxFollowupQueries == null ? '4' : String(values.maxFollowupQueries));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.confidenceThreshold, values.confidenceThreshold == null ? '0.75' : String(values.confidenceThreshold));
+  localStorage.setItem(NEXUS_DEEP_STORAGE.stopWhenSufficient, values.stopWhenSufficient === false ? 'false' : 'true');
+}
+
+function bindNexusDeepResearchFormPersistence() {
+  if (window.__nexusDeepPersistenceBound) return;
+  window.__nexusDeepPersistenceBound = true;
+  const ids = [
+    'nexus-deep-topic',
+    'nexus-deep-depth',
+    'nexus-deep-scope',
+    'nexus-deep-max-download-mb',
+    'nexus-deep-max-total-download-mb',
+    'nexus-deep-max-downloads',
+    'nexus-deep-download-timeout-sec',
+    'nexus-deep-continue-on-download-error',
+    'nexus-deep-prefer-pdf',
+    'nexus-deep-official-first',
+    'nexus-deep-recursive-search',
+    'nexus-deep-max-iterations',
+    'nexus-deep-max-followup-queries',
+    'nexus-deep-confidence-threshold',
+    'nexus-deep-stop-when-sufficient',
+  ];
+  const persist = () => {
+    const maxDownloadMb = clampInt(document.getElementById('nexus-deep-max-download-mb')?.value, 1, 500);
+    const maxTotalDownloadMb = clampInt(document.getElementById('nexus-deep-max-total-download-mb')?.value, 1, 2048);
+    const maxDownloads = clampInt(document.getElementById('nexus-deep-max-downloads')?.value, 1, 200);
+    const downloadTimeoutSec = clampInt(document.getElementById('nexus-deep-download-timeout-sec')?.value, 1, 600);
+    const recursiveSearch = document.getElementById('nexus-deep-recursive-search')?.checked === true;
+    const recursiveValues = normalizeNexusRecursiveSettings({
+      recursiveSearch,
+      maxIterations: document.getElementById('nexus-deep-max-iterations')?.value,
+      maxFollowupQueries: document.getElementById('nexus-deep-max-followup-queries')?.value,
+      confidenceThreshold: document.getElementById('nexus-deep-confidence-threshold')?.value,
+      stopWhenSufficient: document.getElementById('nexus-deep-stop-when-sufficient')?.checked !== false,
+    });
+    saveNexusDeepResearchForm({
+      topic: (document.getElementById('nexus-deep-topic')?.value || '').trim(),
+      depth: (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase(),
+      scope: (document.getElementById('nexus-deep-scope')?.value || 'web').trim().toLowerCase(),
+      maxDownloadMb,
+      maxTotalDownloadMb,
+      maxDownloads,
+      downloadTimeoutSec,
+      continueOnDownloadError: document.getElementById('nexus-deep-continue-on-download-error')?.checked !== false,
+      preferPdf: document.getElementById('nexus-deep-prefer-pdf')?.checked !== false,
+      officialFirst: document.getElementById('nexus-deep-official-first')?.checked !== false,
+      recursiveSearch: recursiveValues.recursive_search,
+      maxIterations: recursiveValues.max_iterations,
+      maxFollowupQueries: recursiveValues.max_followup_queries,
+      confidenceThreshold: recursiveValues.confidence_threshold,
+      stopWhenSufficient: recursiveValues.stop_when_sufficient,
+    });
+  };
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (id === 'nexus-deep-recursive-search') {
+      el.addEventListener('change', () => {
+        updateNexusRecursiveControls({ preferRecommendedOnEnable: true });
+        persist();
+      });
+    } else {
+      el.addEventListener('change', persist);
+    }
+    if (id === 'nexus-deep-topic') el.addEventListener('blur', persist);
+  });
+}
+
+function onNexusResearchTypeChange() {
+  const type = (document.getElementById('nexus-research-type')?.value || 'general').trim().toLowerCase();
+  const noteEl = document.getElementById('nexus-deep-status');
+  const btn = document.getElementById('nexus-deep-run-btn');
+  if (!noteEl || !btn) return;
+  btn.disabled = false;
+  if (type === 'technical_research') noteEl.textContent = '状態: Technical / Academic sources を優先します';
+  else if (type === 'standards_legal') noteEl.textContent = '状態: Official Sources を優先します';
+  else if (type === 'news_scan' || type === 'market_research') noteEl.textContent = '状態: News / Market sources を優先します';
+  else noteEl.textContent = '状態: 未実行';
+}
+
+async function runNexusDeepResearch() {
+  const topic = (document.getElementById('nexus-deep-topic')?.value || '').trim();
+  const depth = (document.getElementById('nexus-deep-depth')?.value || 'standard').trim().toLowerCase();
+  const researchType = (document.getElementById('nexus-research-type')?.value || 'general').trim().toLowerCase();
+  const autoSettings = (typeof resolveNexusResearchAutoSettings === 'function')
+    ? resolveNexusResearchAutoSettings({ searchType: researchType, depth })
+    : { scope: 'web', source_profile: 'web', max_queries: 4, max_results_per_query: 6, max_sources: 24, max_downloads: 10, recursive_search: false, max_iterations: 1, max_followup_queries: 4, confidence_threshold: 0.76, prefer_pdf: true, official_first: true, continue_on_download_error: true, stop_when_sufficient: true };
+  const advancedOverrides = (typeof collectNexusAdvancedOverrides === 'function')
+    ? collectNexusAdvancedOverrides()
+    : {};
+  const effectiveSettings = { ...autoSettings, ...advancedOverrides };
+
+  saveNexusDeepResearchForm({
+    topic,
+    depth,
+    scope: effectiveSettings.scope || 'web',
+    maxDownloadMb: effectiveSettings.max_download_mb,
+    maxTotalDownloadMb: effectiveSettings.max_total_download_mb,
+    maxQueries: effectiveSettings.max_queries,
+    maxResultsPerQuery: effectiveSettings.max_results_per_query,
+    maxSources: effectiveSettings.max_sources,
+    maxDownloads: effectiveSettings.max_downloads,
+    downloadTimeoutSec: effectiveSettings.download_timeout_sec,
+    continueOnDownloadError: effectiveSettings.continue_on_download_error !== false,
+    preferPdf: effectiveSettings.prefer_pdf !== false,
+    officialFirst: effectiveSettings.official_first !== false,
+    recursiveSearch: effectiveSettings.recursive_search === true,
+    maxIterations: effectiveSettings.max_iterations,
+    maxFollowupQueries: effectiveSettings.max_followup_queries,
+    confidenceThreshold: effectiveSettings.confidence_threshold,
+    stopWhenSufficient: effectiveSettings.stop_when_sufficient !== false,
+  });
+
+  const btn = document.getElementById('nexus-deep-run-btn');
+  const bundleBtn = document.getElementById('nexus-deep-bundle-btn');
+  if (!topic) {
+    setNexusDeepStatus('調査テーマを入力してください', true);
+    return;
+  }
+  if (nexusDeepResearchCurrentRunMeta?.job_id) {
+    pushNexusDeepPreviousRun({ ...nexusDeepResearchCurrentRunMeta });
+  }
+  resetNexusDeepResearchView({ keepQuery: true });
+  renderNexusDeepPreviousRuns();
+  setNexusDeepCurrentJob(null);
+  if (btn) btn.disabled = true;
+  try {
+    const webStatus = await refreshNexusWebStatus();
+    nexusDeepProviderHealthWarning = webStatus || {};
+    const braveUnset = webStatus?.brave_search_api_key_set === false;
+    const searxngState = String(webStatus?.searxng_state || '').toLowerCase();
+    const searxngUnavailable = !searxngState || searxngState !== 'connected';
+    nexusDeepResearchStubMode = braveUnset && searxngUnavailable;
+    if (nexusDeepResearchStubMode) {
+      setNexusDeepStatus('research job を起動中...', false, true);
+    } else {
+      setNexusDeepStatus('research job を起動中...');
+    }
+
+    const payload = {
+      query: topic,
+      project: currentProject || 'default',
+      mode: depth,
+      depth,
+      research_type: researchType,
+      ...autoSettings,
+      ...advancedOverrides,
+    };
+    const effectiveScope = String(payload.scope || 'web').trim().toLowerCase();
+    payload.scope = [effectiveScope];
+    payload.source_profile = payload.source_profile || effectiveScope;
+    if (Object.keys(advancedOverrides).length === 0) window.__nexusAdvancedOverridesEnabled = false;
+    const runEndpoint = nexusApi('/nexus/research/run');
+    const runRes = await fetch(runEndpoint, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const runParsed = await parseNexusApiResponse(runRes);
+    if (!runRes.ok) throw new Error(buildNexusApiErrorMessage(runEndpoint, runRes, runParsed));
+    const runData = runParsed?.data || {};
+
+    const newJobId = String(runData?.job_id || '');
+    const createdAt = String(runData?.created_at || new Date().toISOString()).replace('T', ' ').slice(0, 19);
+    setNexusDeepCurrentJob({ job_id: newJobId, query: topic, status: String(runData?.status || 'queued'), created_at: createdAt });
+    if (bundleBtn) bundleBtn.disabled = !nexusDeepResearchJobId;
+    nexusDeepResearchSources = Array.isArray(runData?.sources) ? runData.sources : [];
+    const initialAnswer = normalizeNexusDeepAnswerPayload(runData?.answer || {});
+    nexusDeepResearchAnswer = initialAnswer.answer;
+    nexusDeepResearchReferences = initialAnswer.references;
+    nexusDeepResearchEvidence = initialAnswer.evidence;
+    renderNexusDeepSourcesTable(nexusDeepResearchSources);
+    renderNexusDeepAnswer(nexusDeepResearchAnswer);
+    renderNexusDeepReferences(nexusDeepResearchReferences, nexusDeepResearchSources, nexusDeepResearchEvidence);
+
+    if (!nexusDeepResearchJobId) {
+      setNexusDeepStatus('job_id が返されませんでした', true, nexusDeepResearchStubMode);
+      return;
+    }
+
+    stopNexusDeepResearchPolling();
+    await pollNexusDeepResearch(nexusDeepResearchJobId, 50);
+  } catch (err) {
+    console.error('[NexusDeep] run failed', { url: nexusApi('/nexus/research/run'), name: err?.name, message: err?.message, stack: err?.stack, err });
+    setNexusDeepStatus(formatNexusDeepErrorMessage(err), true, nexusDeepResearchStubMode);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function openCurrentRunInSources() {
+  const scopeEl = document.getElementById('nexus-sources-scope');
+  if (scopeEl) scopeEl.value = 'current_research_job';
+  switchNexusTab('sources');
+}
+
+async function searchInSourcesWorkspace() {
+  const query = (document.getElementById('nexus-sources-query')?.value || '').trim();
+  const root = document.getElementById('nexus-sources-results');
+  if (!root) return;
+  if (!query) { root.innerHTML = '<div class="nexus-empty">query を入力してください。</div>'; return; }
+  const scope = (document.getElementById('nexus-sources-scope')?.value || 'current_research_job').trim();
+  const limit = Number(document.getElementById('nexus-sources-limit')?.value || 20);
+  const sourceTypes = [];
+  if (document.getElementById('nexus-sources-type-pdf')?.checked) sourceTypes.push('pdf');
+  if (document.getElementById('nexus-sources-type-html')?.checked) sourceTypes.push('html');
+  const payload = { query, scope, job_id: nexusDeepResearchJobId || null, source_ids: [], source_types: sourceTypes, limit };
+  try {
+    const res = await fetch(nexusApi('/nexus/sources/search'), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const parsed = await parseNexusApiResponse(res);
+    if (!res.ok) throw new Error(buildNexusApiErrorMessage('/nexus/sources/search', res, parsed));
+    const rows = parsed?.data?.results || [];
+    if (!rows.length) { root.innerHTML = '<div class="nexus-empty">ヒットなし。</div>'; return; }
+    root.innerHTML = rows.map(r => {
+      const status = r.status || r.fetch_status || r.download_status || '-';
+      const contentType = r.content_type || r.source_type || '-';
+      return `<div class="nexus-result-item"><div><b>${esc(r.title || '-')}</b></div><div class="nexus-result-meta">URL: ${esc(r.url || '-')}</div><div class="nexus-result-meta">status:${esc(status)} / source_score:${esc(String(r.source_score??'-'))} / content_type:${esc(contentType)} / score:${esc(String(r.score??'-'))} / p.${esc(String(r.page_start||'-'))}-${esc(String(r.page_end||'-'))}</div><div style="font-size:11px">${esc(r.snippet || '')}</div><div class="nexus-result-meta">${esc(r.citation_label || '-')}</div><div class="nexus-doc-actions"><button disabled title="Coming soon">Add selected chunks to evidence</button><button disabled title="Coming soon">この結果で再回答</button></div></div>`;
+    }).join('');
+  } catch (e) {
+    root.innerHTML = `<div class="nexus-empty">検索失敗: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+function runNexusCompareMvp() {
+  const topic = (document.getElementById('nexus-compare-topic')?.value || '').trim();
+  const scope = (document.getElementById('nexus-compare-scope')?.value || '').trim();
+  const root = document.getElementById('nexus-compare-result');
+  if (!root) return;
+  root.innerHTML = `
+    <div class="nexus-result-item">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">Compare MVP Placeholder</div>
+      <div class="nexus-result-meta">phase: 2 / status: extension-point</div>
+      <div style="font-size:11px;color:var(--text3)">topic: ${esc(topic || '-')} / scope: ${esc(scope || '-')}</div>
+    </div>
+    <div class="nexus-empty">次フェーズで source-pair scoring / contradiction matrix / consensus map を接続予定。</div>
+  `;
+}
+
+function runNexusFormulaMvp() {
+  const topic = (document.getElementById('nexus-formula-topic')?.value || '').trim();
+  const depth = (document.getElementById('nexus-formula-depth')?.value || '').trim();
+  const scope = (document.getElementById('nexus-formula-scope')?.value || '').trim();
+  const language = (document.getElementById('nexus-formula-language')?.value || '').trim();
+  const root = document.getElementById('nexus-formula-result');
+  if (!root) return;
+  root.innerHTML = `
+    <div class="nexus-result-item">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">Formula MVP Placeholder</div>
+      <div class="nexus-result-meta">phase: 3 / status: extension-point</div>
+      <div style="font-size:11px;color:var(--text3)">topic: ${esc(topic || '-')} / depth: ${esc(depth || '-')} / scope: ${esc(scope || '-')} / language: ${esc(language || '-')}</div>
+    </div>
+    <div class="nexus-empty">次フェーズで variable extraction / formula graph / scenario simulation API を接続予定。</div>
+  `;
+}
+
+async function loadNexusSettingsTab() {
+  const map = {web:'nexus-settings-web', defaults:'nexus-settings-defaults', answer:'nexus-settings-answer', debug:'nexus-settings-debug'};
+  try {
+    const res = await fetch(nexusApi('/nexus/summary'));
+    const parsed = await parseNexusApiResponse(res);
+    const d = parsed?.data || {};
+    const set = (k,v)=>{ const el=document.getElementById(map[k]); if(el) el.innerHTML=v; };
+    set('web', `Web search enabled: ${esc(String(Boolean(d.web_search_enabled)))}<br>Provider: ${esc(d.web_search_provider||'-')}<br>SearXNG URL: ${esc(d.searxng_url||'-')}<br>Brave API key status: ${d.brave_search_api_key_set ? 'configured':'not configured'}`);
+    set('defaults', `max_download_mb: ${esc(String(d.max_download_mb??'-'))}<br>max_total_download_mb: ${esc(String(d.max_total_download_mb??'-'))}<br>max_downloads: ${esc(String(d.max_downloads??'-'))}<br>download_timeout_sec: ${esc(String(d.download_timeout_sec??'-'))}`);
+    set('answer', `Enable answer LLM: ${esc(String(Boolean(d.answer_llm_enabled)))}<br>LLM endpoint: ${esc(d.answer_llm_endpoint||'-')}<br>LLM model: ${esc(d.answer_llm_model||'-')}<br>citation verifier mode: heuristic support`);
+    set('debug', `active jobs count: ${esc(String(d.active_jobs_count??'-'))}<br>last web search provider: ${esc(d.last_web_provider||'-')}<br><button disabled title="Coming soon">Rebuild FTS</button> <button disabled title="Coming soon">Clear failed jobs</button> <button disabled title="Coming soon">Clear temp downloads</button>`);
+  } catch (e) {
+    Object.values(map).forEach((id)=>{ const el=document.getElementById(id); if (el) el.textContent = `Load failed: ${e.message || e}`; });
+  }
+}
+
+function nexusEvidenceScore(row) {
+  const rel = Number(row?.relevance || 0);
+  const cred = Number(row?.credibility || 0);
+  const fresh = Number(row?.freshness || 0);
+  const score = (rel + cred + fresh) / 3;
+  return Number.isFinite(score) ? score : 0;
+}
+
+function renderNexusEvidenceRows(rows = []) {
+  const root = document.getElementById('nexus-evidence-result');
+  if (!root) return;
+  if (!rows.length) {
+    root.innerHTML = '<div class="nexus-empty">一致する evidence がありません</div>';
+    return;
+  }
+  root.innerHTML = `
+    <div class="nexus-evidence-scroll">
+      <table class="nexus-table">
+        <thead>
+          <tr>
+            <th>title</th>
+            <th>source_type</th>
+            <th>job_id</th>
+            <th>source_id</th>
+            <th>citation_label</th>
+            <th>url</th>
+            <th>quote snippet</th>
+            <th>created_at</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => {
+            const quoteSnippet = String(row.quote || row.snippet || row.note || '');
+            return `
+            <tr>
+              <td title="${esc(row.title || '-')}">${esc((row.title || '-').slice(0, 120))}</td>
+              <td>${esc(row.source_type || '-')}</td>
+              <td>${esc(row.job_id || '-')}</td>
+              <td>${esc(row.source_id || '-')}</td>
+              <td>${esc(row.citation_label || '-')}</td>
+              <td title="${esc(row.url || '-')}">${esc((row.url || '-').slice(0, 120))}</td>
+              <td title="${esc(quoteSnippet || '-')}">${esc((quoteSnippet || '-').slice(0, 120))}</td>
+              <td>${esc(row.created_at || '-')}</td>
+            </tr>
+          `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function runNexusEvidenceMvp() {
+  const sourceType = (document.getElementById('nexus-evidence-source-type')?.value || '').trim().toLowerCase();
+  const filter = (document.getElementById('nexus-evidence-filter')?.value || '').trim().toLowerCase();
+  const advancedJobId = (document.getElementById('nexus-evidence-job-id-adv')?.value || '').trim();
+  const btn = document.getElementById('nexus-evidence-run-btn');
+  const root = document.getElementById('nexus-evidence-result');
+  if (btn) btn.disabled = true;
+  if (root) root.innerHTML = '<div class="nexus-job">実行中...</div>';
+  try {
+    const params = new URLSearchParams();
+    params.set('project', 'default');
+    params.set('source_type', sourceType);
+    params.set('filter', filter);
+    params.set('limit', '50');
+    if (advancedJobId) params.set('job_id', advancedJobId);
+    const query = '?' + params.toString();
+    const r = await fetchNexusCanonicalWithAlias('/nexus/evidence' + query, '/nexus/library/evidence' + query);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    const rowsRaw = Array.isArray(d?.evidence) ? d.evidence : (Array.isArray(d?.items) ? d.items : []);
+    const normalized = rowsRaw.map((row) => ({ ...row }));
+    normalized.sort((a, b) => nexusEvidenceScore(b) - nexusEvidenceScore(a));
+    nexusEvidenceRows = normalized;
+    renderNexusEvidenceRows(normalized);
+  } catch (e) {
+    if (root) root.innerHTML = `<div class="nexus-job" style="color:var(--red)">Evidence MVP failed: ${esc(e.message)}</div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderNexusReportList(rows = []) {
+  const root = document.getElementById('nexus-report-list');
+  if (!root) return;
+  if (!rows.length) {
+    nexusSelectedReportId = null;
+    renderNexusReportDetail(null);
+    root.innerHTML = '<div class="nexus-empty">一致する report がありません</div>';
+    return;
+  }
+  root.innerHTML = rows.map((row) => `
+    <div class="nexus-result-item ${nexusSelectedReportId === row.report_id ? 'active' : ''}" onclick="selectNexusReport('${esc(row.report_id || '')}')">
+      <div style="font-size:11px;color:var(--text2);font-weight:700">${esc(row.title || row.report_id || '(untitled report)')}</div>
+      <div class="nexus-result-meta">report_id: ${esc(row.report_id || '-')} / job_id: ${esc(row.job_id || '-')} / type: ${esc(row.report_type || '-')}</div>
+    </div>
+  `).join('');
+}
+
+function renderNexusReportDetail(report = null) {
+  const preview = document.getElementById('nexus-report-preview');
+  if (!preview) return;
+  if (!report) {
+    preview.innerHTML = '<div class="nexus-empty">一覧からレポートを選択すると詳細を表示します</div>';
+    return;
+  }
+  const generated = String(report.generated_at || '').replace('T', ' ').slice(0, 19) || '-';
+  const mdExists = !!report.report_md?.exists;
+  const jsonExists = !!report.report_json?.exists;
+  const htmlExists = !!report.report_html?.exists;
+  preview.innerHTML = `
+    <div class="nexus-detail-row"><b>タイトル:</b> ${esc(report.title || '-')}</div>
+    <div class="nexus-detail-row"><b>report_id:</b> ${esc(report.report_id || '-')}</div>
+    <div class="nexus-detail-row"><b>job_id:</b> ${esc(report.job_id || '-')}</div>
+    <div class="nexus-detail-row"><b>種別:</b> ${esc(report.report_type || '-')}</div>
+    <div class="nexus-detail-row"><b>生成日時:</b> ${esc(generated)}</div>
+    <div class="nexus-detail-row"><b>Artifacts:</b></div>
+    <pre class="nexus-detail-pre">${esc(JSON.stringify({
+      report_md_path: report.report_md_path || '',
+      report_md_exists: mdExists,
+      report_json_path: report.report_json_path || '',
+      report_json_exists: jsonExists,
+      report_html_path: report.report_html_path || '',
+      report_html_exists: htmlExists,
+    }, null, 2))}</pre>
+    <div class="nexus-doc-actions">
+      <button ${mdExists ? '' : 'disabled'} onclick="previewNexusReportMarkdown('${esc(report.report_id || '')}')">Preview Markdown</button>
+      <button ${mdExists ? '' : 'disabled'} onclick="downloadNexusReportArtifact('${esc(report.report_id || '')}', 'md')">MD</button>
+      <button ${htmlExists ? '' : 'disabled'} onclick="downloadNexusReportArtifact('${esc(report.report_id || '')}', 'html')">HTML</button>
+      <button ${jsonExists ? '' : 'disabled'} onclick="downloadNexusReportArtifact('${esc(report.report_id || '')}', 'json')">JSON</button>
+      <button ${report.job_id ? '' : 'disabled'} onclick="downloadNexusReportBundle('${esc(report.job_id || '')}')">ZIP</button>
+    </div>
+  `;
+}
+
+async function selectNexusReport(reportId) {
+  if (!reportId) return;
+  nexusSelectedReportId = reportId;
+  renderNexusReportList(nexusReportRows);
+  const preview = document.getElementById('nexus-report-preview');
+  if (preview) preview.innerHTML = '<div class="nexus-job">レポート詳細をロード中...</div>';
+  try {
+    const query = '?project=' + encodeURIComponent(currentProject);
+    const r = await fetch(API + '/nexus/reports/' + encodeURIComponent(reportId) + query);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    renderNexusReportDetail(d.report || null);
+  } catch (e) {
+    if (preview) preview.innerHTML = `<div class="nexus-job" style="color:var(--red)">Detail failed: ${esc(e.message)}</div>`;
+  }
+}
+
+async function runNexusReportMvp() {
+  const filter = (document.getElementById('nexus-report-filter')?.value || '').trim().toLowerCase();
+  const btn = document.getElementById('nexus-report-run-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const query = '?project=' + encodeURIComponent(currentProject) + '&limit=100';
+    let r = await fetchNexusCanonicalWithAlias('/nexus/reports' + query, '/nexus/report/list' + query);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d?.detail || JSON.stringify(d));
+    const rows = (d.reports || []).filter((row) => {
+      if (!filter) return true;
+      const index = `${row.title || ''} ${row.job_id || ''} ${row.report_id || ''}`.toLowerCase();
+      return index.includes(filter);
+    });
+    nexusReportRows = rows;
+    renderNexusReportList(rows);
+    if (rows.length) {
+      const hasSelected = rows.some((row) => row.report_id === nexusSelectedReportId);
+      await selectNexusReport(hasSelected ? nexusSelectedReportId : rows[0].report_id);
+    } else {
+      renderNexusReportDetail(null);
+    }
+  } catch (e) {
+    const root = document.getElementById('nexus-report-list');
+    if (root) root.innerHTML = `<div class="nexus-job" style="color:var(--red)">Report MVP failed: ${esc(e.message)}</div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function downloadNexusReportArtifact(reportId, format = 'md') {
+  if (!reportId) return;
+  let path = '/nexus/export/download/report/' + encodeURIComponent(reportId);
+  if (format === 'html') path += '/html';
+  if (format === 'json') path += '/json';
+  const url = API + path;
+  window.open(url, '_blank', 'noopener');
+}
+
+function downloadNexusReportBundle(jobId) {
+  if (!jobId) return;
+  const url = API + '/nexus/export/download/bundle/' + encodeURIComponent(jobId);
+  window.open(url, '_blank', 'noopener');
+}
+
+async function previewNexusReportMarkdown(reportId) {
+  const preview = document.getElementById('nexus-report-preview');
+  if (!preview) return;
+  if (!reportId) {
+    preview.innerHTML = '<div class="nexus-empty">report_id が不正です</div>';
+    return;
+  }
+  preview.innerHTML = '<div class="nexus-job">Markdown preview をロード中...</div>';
+  try {
+    const r = await fetch(API + '/nexus/export/download/report/' + encodeURIComponent(reportId));
+    if (!r.ok) throw new Error(await r.text());
+    const md = await r.text();
+    preview.innerHTML = `<pre class="nexus-report-preview">${esc(md || '')}</pre>`;
+  } catch (e) {
+    preview.innerHTML = `<div class="nexus-job" style="color:var(--red)">Preview failed: ${esc(e.message)}</div>`;
+  }
+}
+
+function startNexusPolling() {
+  stopNexusPolling();
+  const defer = (fn, timeout = 0) => {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(() => fn(), { timeout: Math.max(50, timeout || 200) });
+      return;
+    }
+    setTimeout(() => fn(), timeout);
+  };
+  Promise.allSettled([
+    refreshNexusWebStatus({}, { initialLoad: true }),
+    resumeLatestNexusResearchJob(),
+  ]);
+  defer(() => Promise.allSettled([
+    refreshNexusExecuteSummary({ initialLoad: true }),
+    refreshNexusDocuments(document.getElementById('nexus-lib-search')?.value || '', { initialLoad: true }),
+  ]), 100);
+  renderNexusTimeline();
+  if (nexusDeepResearchJobId) {
+    refreshNexusJobs();
+    nexusJobsPollTimer = setInterval(refreshNexusJobs, NEXUS_POLL_MS);
+  }
+  if (nexusDeepResearchJobId || (window.__atlasActivePanel && String(window.__atlasActivePanel).includes('execute'))) {
+    nexusExecutePollTimer = setInterval(refreshNexusExecuteSummary, 5000);
+  }
+}
+
+function stopNexusPolling() {
+  if (nexusJobsPollTimer) clearInterval(nexusJobsPollTimer);
+  if (nexusExecutePollTimer) clearInterval(nexusExecutePollTimer);
+  nexusJobsPollTimer = null;
+  nexusExecutePollTimer = null;
+}
+
+function _agentMessages() {
+  return document.getElementById('agent-messages');
+}
+function addAgentHistoryItem(kind, payload) {
+  agentHistory.push({kind, ...payload, at: Date.now()});
+  _persistAgentStateForProject(currentProject);
+}
+function addAgentConversationMsg(role, text, record = true) {
+  const w = _agentMessages();
+  if (!w) return;
+  const d = document.createElement('div');
+  d.className = 'msg ' + role;
+  const labels = {user:'Boss', assistant:'Agent', system:'System', error:'Error'};
+  d.innerHTML = `<div class="msg-role">${labels[role]||role}</div><div class="msg-bubble">${esc(String(text||''))}</div>`;
+  w.appendChild(d);
+  w.scrollTop = w.scrollHeight;
+  if (record) addAgentHistoryItem('conversation', {role, text: String(text || '')});
+}
+
+function addAgentExecutionCard(executed = [], record = true) {
+  const w = _agentMessages();
+  if (!w || !Array.isArray(executed) || !executed.length) return;
+  const d = document.createElement('div');
+  d.className = 'msg system';
+  const body = executed.map((item, idx) => {
+    const st = String(item.status || 'unknown');
+    const color = st === 'done' ? 'var(--accent)' : st === 'error' ? 'var(--red)' : 'var(--amber)';
+    return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg2);margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <span style="font-size:11px;font-weight:700;color:var(--text)">${idx + 1}. ${esc(item.title || item.task_id || 'task')}</span>
+        <span style="font-size:10px;color:${color};border:1px solid ${color};border-radius:10px;padding:1px 6px">${esc(st)}</span>
+      </div>
+      ${item.output ? `<div style="font-size:11px;color:var(--text2);margin-top:4px;white-space:pre-wrap">${esc(String(item.output).slice(0, 300))}</div>` : ''}
+    </div>`;
+  }).join('');
+  d.innerHTML = `<div class="msg-role">Task Execution</div><div class="msg-bubble">${body}</div>`;
+  w.appendChild(d);
+  w.scrollTop = w.scrollHeight;
+  executed.forEach((item) => {
+    const ev = item?.search_event;
+    if (!ev || !ev.type) return;
+    // backward compatibility: old backend may still emit agent_web_search_used/not_used.
+    const level = (ev.type === 'agent_nexus_web_search_used' || ev.type === 'agent_web_search_used') ? 'ok' : 'info';
+    addLog(level, 'agent-search', `${ev.type} task=${item.task_id || '-'} count=${Number(ev.count || 0)}`);
+  });
+  if (record) addAgentHistoryItem('execution', {executed});
+}
+
+function handleAgentTaskSearch(query) {
+  agentTaskSearchQuery = String(query || '').trim().toLowerCase();
+  renderAgentTasks(agentTaskCache, agentSessionActive ? 'running' : 'idle');
+}
+
+function renderAgentTaskHistory(tasks = []) {
+  const el = document.getElementById('agent-task-history');
+  if (!el) return;
+  const rows = [];
+  (tasks || []).forEach((t) => {
+    (t.revision_history || []).forEach((rev, idx) => {
+      rows.push({task: t, rev, idx});
+    });
+  });
+  if (!rows.length) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3)">変更履歴はまだありません。</div>';
+    return;
+  }
+  el.innerHTML = rows.reverse().slice(0, 20).map(({task, rev, idx}) => `
+    <div style="border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg2);margin-bottom:6px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">${esc(task.title || task.id)} #${idx + 1}</div>
+      <div style="font-size:10px;color:var(--text2);margin-bottom:2px">before: ${esc((rev.before?.detail || '').slice(0, 120) || '-')}</div>
+      <div style="font-size:10px;color:var(--accent)">after: ${esc((rev.after?.detail || '').slice(0, 120) || '-')}</div>
+    </div>
+  `).join('');
+}
+
+function renderAgentTasks(tasks = [], state = '') {
+  const list = document.getElementById('agent-task-list');
+  const label = document.getElementById('agent-status-label');
+  if (label) label.textContent = state || (agentSessionActive ? 'running' : 'idle');
+  if (!list) return;
+  const visible = (Array.isArray(tasks) ? tasks : []).filter((t) => {
+    if (!agentTaskSearchQuery) return true;
+    const title = String(t.title || '').toLowerCase();
+    const aliases = Array.isArray(t.aliases) ? t.aliases.join(' ').toLowerCase() : '';
+    return title.includes(agentTaskSearchQuery) || aliases.includes(agentTaskSearchQuery);
+  });
+  renderAgentTaskHistory(Array.isArray(tasks) ? tasks : []);
+  if (!visible.length) {
+    list.innerHTML = '<div style="font-size:11px;color:var(--text3)">まだ提案タスクはありません。</div>';
+    return;
+  }
+  list.innerHTML = visible.map((t, i) => {
+    const st = String(t.status || t.state || 'proposed');
+    const color = st === 'done' ? 'var(--accent)' : st === 'failed' || st === 'rejected' ? 'var(--red)' : st === 'accepted' || st === 'running' ? 'var(--blue)' : 'var(--amber)';
+    const canDecide = st === 'proposed';
+    return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--bg2)">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px">
+        <span style="font-size:11px;font-weight:700;color:var(--text)">${i+1}. ${esc(t.title || t.task || 'task')}</span>
+        <span style="font-size:10px;color:${color};border:1px solid ${color};border-radius:10px;padding:1px 6px">${esc(st)}</span>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:4px">
+        priority: ${esc(String(t.priority ?? '-'))} / confidence: ${esc(String(t.confidence ?? '-'))}<br>
+        source turn: ${esc(String(t.source_turn_id || '-').slice(0, 12))}
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">${esc(t.description || t.detail || '')}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+        <button onclick="runAgentTask('${esc(t.id)}')" style="font-size:10px;padding:4px 8px;border:1px solid var(--blue);background:var(--blue-bg);color:var(--blue);border-radius:4px;cursor:pointer">実行</button>
+        <button onclick="openAgentTaskEdit('${esc(t.id)}')" style="font-size:10px;padding:4px 8px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">編集</button>
+        <button onclick="cancelAgentTask('${esc(t.id)}')" style="font-size:10px;padding:4px 8px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:4px;cursor:pointer">キャンセル</button>
+      </div>
+      ${canDecide ? `
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="decideAgentTask('${esc(t.id)}','accept')" style="font-size:10px;padding:4px 8px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">承諾</button>
+        <button onclick="decideAgentTask('${esc(t.id)}','reject')" style="font-size:10px;padding:4px 8px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:4px;cursor:pointer">却下</button>
+        <button onclick="decideAgentTask('${esc(t.id)}','defer')" style="font-size:10px;padding:4px 8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text2);border-radius:4px;cursor:pointer">後で実行</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function runAgentTask(taskId) {
+  if (!taskId) return;
+  try {
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/run`, {project: currentProject});
+    await refreshAgentTasks('running');
+  } catch (e) {
+    addAgentConversationMsg('error', `Run failed: ${e.message}`);
+  }
+}
+
+async function cancelAgentTask(taskId) {
+  if (!taskId) return;
+  try {
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/cancel`, {project: currentProject});
+    await refreshAgentTasks('running');
+  } catch (e) {
+    addAgentConversationMsg('error', `Cancel failed: ${e.message}`);
+  }
+}
+
+async function openAgentTaskEdit(taskId) {
+  const current = (agentTaskCache.find(t => t.id === taskId)?.detail || '');
+  const revised = prompt('タスク内容を編集:', current);
+  if (revised === null) return;
+  const instruction = String(revised || '').trim();
+  if (!instruction) return;
+  try {
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/revise`, {project: currentProject, instruction});
+    await refreshAgentTasks('running');
+  } catch (e) {
+    addAgentConversationMsg('error', `Revise failed: ${e.message}`);
+  }
+}
+
+async function _agentApi(path, payload = null, method = 'POST') {
+  const m = String(method || 'POST').toUpperCase();
+  const init = (m === 'GET')
+    ? {method:'GET'}
+    : (payload == null
+      ? {method:m}
+      : {method:m, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  const res = await fetch(API + path, init);
+  let data = {};
+  try { data = await res.json(); } catch(_) {}
+  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+  return data;
+}
+
+function syncAgentSessionUi() {
+  const label = document.getElementById('agent-session-label');
+  const stopBtn = document.getElementById('agent-stop-btn');
+  if (label) {
+    const sid = agentSessionId || '-';
+    label.textContent = `Agent session: ${sid}`;
+  }
+  if (stopBtn) stopBtn.disabled = !agentSessionActive;
+}
+
+function handleAgentStopClick() {
+  console.info(`[Agent][stop_click] session_id=${agentSessionId || '-'}`);
+  stopAgentSession(true);
+}
+
+async function stopAgentSession(notify = true) {
+  if (!agentSessionActive) return;
+  try {
+    await _agentApi('/agent/stop', {project: currentProject});
+    addLog('ok','agent','agent stopped');
+    if (notify) addAgentConversationMsg('system', 'Agent session stopped.');
+  } catch (e) {
+    addLog('err','agent',`agent stop error: ${e.message}`);
+    if (notify) addAgentConversationMsg('error', `Stop failed: ${e.message}`);
+  }
+  agentSessionActive = false;
+  agentSessionId = '';
+  agentTaskCache = [];
+  renderAgentTasks([], 'idle');
+  syncAgentSessionUi();
+  _persistAgentStateForProject(currentProject);
+}
+
+async function startAgentSession() {
+  if (agentSessionActive) return;
+  try {
+    const started = await _agentApi('/agent/start', {project: currentProject, initial_context: agentHistory});
+    agentSessionActive = true;
+    agentSessionId = String(started?.session_id || started?.id || agentSessionId || Date.now());
+    addLog('ok','agent','agent started');
+    syncAgentSessionUi();
+    await refreshAgentTasks('running');
+    _persistAgentStateForProject(currentProject);
+  } catch (e) {
+    addLog('err','agent',`agent start error: ${e.message}`);
+    addAgentConversationMsg('error', `Start failed: ${e.message}`);
+    syncAgentSessionUi();
+  }
+}
+
+async function refreshAgentTasks(state = '') {
+  if (!agentSessionActive) {
+    agentTaskCache = [];
+    renderAgentTasks([], state || 'idle');
+    return;
+  }
+  try {
+    const data = await _agentApi(`/agent/tasks?project=${encodeURIComponent(currentProject)}`, null, 'GET');
+    agentTaskCache = Array.isArray(data?.tasks) ? data.tasks : [];
+    renderAgentTasks(agentTaskCache, state || 'running');
+    _persistAgentStateForProject(currentProject);
+  } catch (e) {
+    addLog('err','agent',`agent tasks fetch error: ${e.message}`);
+  }
+}
+
+async function decideAgentTask(taskId, decision) {
+  if (!taskId || !decision) return;
+  try {
+    await _agentApi(`/agent/tasks/${encodeURIComponent(taskId)}/decision`, {project: currentProject, decision});
+    addLog('ok','agent', `task decision: ${taskId} -> ${decision}`);
+    await refreshAgentTasks('running');
+  } catch (e) {
+    addLog('err','agent',`task decision error: ${e.message}`);
+    addAgentConversationMsg('error', `Decision failed: ${e.message}`);
+  }
+}
+
+function _extractTextFromAgentTerminalEvent(ev) {
+  if (!ev || typeof ev !== 'object') return '';
+  const data = (ev.data && typeof ev.data === 'object') ? ev.data : ev;
+  const candidates = [
+    data.final_text,
+    data.reply,
+    data.summary,
+    data.message,
+    data.result,
+    data.output,
+    data.text,
+    data.completed_text,
+  ];
+  for (const v of candidates) {
+    const s = String(v || '').trim();
+    if (s) return s;
+  }
+  return '';
+}
+
+function _extractAgentTerminalSpeechText(payload) {
+  const terminalTypes = new Set(['done', 'completed', 'summary']);
+  const eventLists = [
+    payload?.events,
+    payload?.conversation?.events,
+    payload?.execution?.events,
+    payload?.job?.events,
+    payload?.sse_events,
+  ];
+  for (const list of eventLists) {
+    if (!Array.isArray(list) || !list.length) continue;
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const ev = list[i];
+      if (!terminalTypes.has(String(ev?.type || '').toLowerCase())) continue;
+      const text = _extractTextFromAgentTerminalEvent(ev);
+      if (text) return text;
+    }
+  }
+  return '';
+}
+
+function _extractAgentSpeakText(data) {
+  const directReply = String(data?.conversation?.reply || '').trim();
+  if (directReply) return directReply;
+  const events = Array.isArray(data?.execution?.events) ? data.execution.events : [];
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const ev = events[i];
+    if (String(ev?.type || '').toLowerCase() !== 'done') continue;
+    const txt = String(ev?.data?.final_text || ev?.final_text || '').trim();
+    if (txt) return txt;
+  }
+  const executionFinalText = String(data?.execution?.final_text || '').trim();
+  if (executionFinalText) return executionFinalText;
+  return String(data?.reply || '').trim();
+}
+
+function _agentAudioBase64ToBlob(audioBase64) {
+  const raw = String(audioBase64 || '').trim();
+  if (!raw) return null;
+  let mime = 'audio/wav';
+  let base64Data = raw;
+  const match = raw.match(/^data:([^;]+);base64,(.+)$/i);
+  if (match) {
+    mime = match[1] || mime;
+    base64Data = match[2] || '';
+  }
+  if (!base64Data) return null;
+  const binary = atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], {type: mime});
+}
+
+let _lastAgentTtsKey = '';
+async function _maybeSpeakAgentTurn(data) {
+  if (!_isAutoSpeakEnabled('agent')) return;
+  const speechText = _extractAgentSpeakText(data);
+  const sessionId = String(data?.session_id || data?.conversation?.session_id || '').trim();
+  const turnId = String(data?.turn_id || data?.conversation?.turn_id || data?.execution?.turn_id || '').trim();
+  const responseId = String(data?.response_id || data?.conversation?.response_id || '').trim();
+  const textSig = `${speechText.length}:${speechText.slice(0, 120)}`;
+  const key = `${sessionId}:${turnId}:${responseId}:${textSig}`;
+  if (key && key === _lastAgentTtsKey) return;
+  if (!speechText) return;
+  _lastAgentTtsKey = key;
+
+  const audioBase64 = data?.conversation?.audio_base64 || data?.turn?.audio_base64 || data?.audio_base64 || '';
+  if (audioBase64) {
+    try {
+      const blob = _agentAudioBase64ToBlob(audioBase64);
+      if (blob && blob.size > 0) {
+        await enqueueTtsAudioBlob(blob, `agent-server-audio-${Date.now()}`, {
+          context: 'agent',
+          source: 'agent',
+          engine: tts.engine,
+          kind: 'agent_server_audio',
+          textPreview: speechText.slice(0, 60),
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn('[Agent][TTS] audio_base64 playback failed, fallback to text:', e);
+    }
+  }
+  playTTS(speechText, 'agent');
+}
+
+async function sendAgentMessage(msg) {
+  const text = String(msg || '').trim();
+  if (!text || busy || mode !== 'agent') return;
+  if (!agentSessionActive) await startAgentSession();
+  if (!agentSessionActive) return;
+  if (_isAutoSpeakEnabled('agent') && !ttsManualUnlocked) {
+    await enableAudioFromUserGesture();
+  }
+  setBusy(true);
+  addAgentConversationMsg('user', text);
+  addLog('info','agent', text);
+  const agentMsgWrap = _agentMessages();
+  let runningNode = null;
+  if (agentMsgWrap) {
+    runningNode = document.createElement('div');
+    runningNode.className = 'msg system';
+    runningNode.innerHTML = `<div class="msg-role">System</div><div class="msg-bubble">nexus_web_search を実行中...</div>`;
+    agentMsgWrap.appendChild(runningNode);
+    agentMsgWrap.scrollTop = agentMsgWrap.scrollHeight;
+  }
+  try {
+    const payload = {message: text, project: currentProject, search_enabled: searchEnabled};
+    const data = await _agentApi('/agent/turn', payload);
+    if (runningNode?.parentNode) runningNode.parentNode.removeChild(runningNode);
+    const reply = _extractAgentSpeakText(data) || data?.result || data?.message || '(no response)';
+    addAgentConversationMsg('assistant', reply);
+    const loopLogs = Array.isArray(data?.conversation?.logs) ? data.conversation.logs : [];
+    loopLogs.forEach((item, idx) => {
+      addLog('info', 'agent-raw', `step=${idx + 1} raw_model_output=${String(item?.raw_model_output || '').slice(0, 500)}`);
+      addLog('info', 'agent-parse', `step=${idx + 1} parsed_action=${item?.parsed_action || '-'} selected_tool=${item?.selected_tool || '-'} parse_error=${item?.parse_error || '-'}`);
+      if (item?.selected_tool) {
+        addLog('info', 'agent-tool', `step=${idx + 1} tool_arguments=${JSON.stringify(item?.tool_arguments || {})} tool_result_summary=${String(item?.tool_result_summary || '').slice(0, 240)}`);
+      }
+    });
+    const executed = data?.execution?.executed || [];
+    if (executed.length) addAgentExecutionCard(executed);
+    await _maybeSpeakAgentTurn(data);
+    await refreshAgentTasks(data?.execution?.status || 'running');
+  } catch (e) {
+    if (runningNode?.parentNode) runningNode.parentNode.removeChild(runningNode);
+    addAgentConversationMsg('error', e.message);
+    addLog('err','agent',`agent request error: ${e.message}`);
+  }
+  setBusy(false);
+}
+
+function handleAgentKey(ev) {
+  if (ev.key === 'Enter' && !ev.shiftKey) {
+    ev.preventDefault();
+    sendAgentInput();
+  }
+}
+
+function sendAgentInput() {
+  const input = document.getElementById('agent-input');
+  const msg = (input?.value || '').trim();
+  if (!msg) return;
+  if (input) { input.value = ''; input.style.height = 'auto'; }
+  sendAgentMessage(msg);
+}
+
+// ── MOBILE ──
+function mobSwitch(name, options = {}) {
+  const allMob = [..._CHAT_MOB_TAB_IDS, ..._AGENT_MOB_TAB_IDS, ..._ATLAS_MOB_TAB_IDS, ..._ECHO_MOB_TAB_IDS, ..._NEXUS_MOB_TAB_IDS, ..._FORGE_MOB_TAB_IDS, ..._PORTAL_MOB_TAB_IDS];
+  allMob.forEach(id => document.getElementById(id)?.classList.remove('active'));
+
+  const activeMode = mode === 'echo' ? 'echo'
+    : mode === 'agent' ? 'agent'
+    : mode === 'atlas' ? 'atlas'
+    : mode === 'nexus' ? 'nexus'
+    : mode === 'forge' ? 'forge'
+    : mode === 'portal' ? 'portal'
+    : 'chat';
+  const activeId = MODE_SUBTAB_BUTTON_IDS[activeMode]?.[name] || MODE_SUBTAB_BUTTON_IDS.chat[name] || ('mob-' + name);
+  document.getElementById(activeId)?.classList.add('active');
+
+  const cc = document.getElementById('chat-col');
+  const ec = document.getElementById('echo-col');
+  const pc = document.getElementById('panel-col');
+  const ac = document.getElementById('agent-col');
+  const ap = document.getElementById('agent-panel-col');
+  const nc = document.getElementById('nexus-col');
+  const atc = document.getElementById('atlas-panel-col');
+  const poc = document.getElementById('portal-col');
+  const foc = document.getElementById('forge-col');
+
+  const shouldPersistSubtab = options.persist !== false;
+
+  if (name === 'chat') {
+    if (mode !== 'chat') setMode('chat', {restore: false, persist: shouldPersistSubtab});
+    if (shouldPersistSubtab) saveLastSubtab('chat', 'chat');
+    cc.classList.remove('mob-hidden'); pc.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
+  } else if (name === 'agent_chat') {
+    if (mode !== 'agent') { setMode('agent'); return; }
+    ac?.classList.remove('mob-hidden');
+    ap?.classList.add('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
+  } else if (name === 'agent_tasks') {
+    if (mode !== 'agent') { setMode('agent'); return; }
+    ac?.classList.add('mob-hidden');
+    ap?.classList.remove('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
+  } else if (name === 'echo') {
+    if (mode !== 'echo') setMode('echo', {restore: false, persist: shouldPersistSubtab});
+    if (shouldPersistSubtab) saveLastSubtab('echo', 'echo');
+    ec?.classList.remove('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
+  } else if (name === 'atlas') {
+    if (mode !== 'atlas') { setMode('atlas'); return; }
+    const claudeCol = document.getElementById('atlas-claude-col');
+    if (claudeCol) {
+      claudeCol.classList.remove('mob-hidden');
+      claudeCol.style.display = '';
+      try { window.AtlasClaudePanel?.activate(); } catch (_err) {}
+      atc?.classList.add('mob-hidden');
+    } else {
+      restoreAtlasSubviewState();
+      atc?.classList.remove('mob-hidden');
+    }
+    ap?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
+  } else if (name === 'nexus') {
+    if (mode !== 'nexus') { setMode('nexus'); return; }
+    nc?.classList.remove('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    poc?.classList.add('mob-hidden');
+  } else if (name === 'portal') {
+    if (mode !== 'portal') { setMode('portal'); return; }
+    poc?.classList.remove('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    foc?.classList.add('mob-hidden');
+  } else if (name === 'forge') {
+    if (mode !== 'forge') { setMode('forge'); return; }
+    foc?.classList.remove('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    ec?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
+    atc?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
+    pc?.classList.add('mob-hidden');
+    poc?.classList.add('mob-hidden');
+  } else if (name === 'vault') {
+    if (mode !== 'echo') { setMode('echo', {restore: false, persist: shouldPersistSubtab}); }
+    if (shouldPersistSubtab) saveLastSubtab('echo', 'vault');
+    ec?.classList.add('mob-hidden');
+    cc?.classList.add('mob-hidden');
+    ac?.classList.add('mob-hidden');
+    ap?.classList.add('mob-hidden');
+    nc?.classList.add('mob-hidden');
+    pc.classList.remove('mob-hidden');
+    switchTab('vault', {persist: shouldPersistSubtab});
+  }
+  // asr/tts and the legacy log/skills/memory/models subtabs were moved into Forge/Nexus's own
+  // subtab rows (switchForgeTab/switchNexusTab); no mobile button routes those names here anymore.
+}
+
+// ── SKILL PROPOSALS ──
+function _renderSkillProposals(proposals, stats) {
+  if (!proposals.length) return;
+  addLog('info','skill', `⚙ スキル提案: ${proposals.length}件 (tool_calls:${stats.tool_calls||0} errors:${stats.errors||0})`);
+  const el = document.getElementById('skill-proposals');
+  if (!el) return;
+  el._proposals = proposals;
+  el.innerHTML = `<div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:8px;padding:6px 8px;background:rgba(255,170,0,.08);border:1px solid rgba(255,170,0,.25);border-radius:6px">
+    ⚙ ${proposals.length}件のスキル提案があります（保存してSKILL一覧に追加できます）
+  </div>` +
+    proposals.map((p,i) => `
+      <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px 12px;background:var(--accent-bg);margin-bottom:8px">
+        <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:4px">${esc(p.name)}</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:4px">${esc(p.description)}</div>
+        ${p.rationale ? `<div style="font-size:10px;color:var(--text3);margin-bottom:6px;font-style:italic">${esc(p.rationale)}</div>` : ''}
+        <details style="margin-bottom:6px"><summary style="font-size:10px;color:var(--text3);cursor:pointer">▶ code</summary>
+          <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);white-space:pre-wrap;word-break:break-all;margin:4px 0 0;padding:6px;background:var(--bg3);border-radius:4px;max-height:160px;overflow-y:auto">${esc(p.tool_code||'')}</pre>
+        </details>
+        <div style="display:flex;gap:6px">
+          <button onclick="saveSkillProposal(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">✓ Save</button>
+          <button onclick="planSkillImpl(${i})" style="flex:1;padding:5px;font-size:11px;font-weight:600;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">⚙ Implement</button>
+          <button onclick="discardSkillProposal(${i})" style="padding:5px 10px;font-size:11px;font-weight:600;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>`).join('');
+  // Skill パネルは Nexus の subtab 行に統合済み。Nexus 表示中なら Skill タブへ切り替えてスクロール表示。
+  if (mode === 'nexus' && typeof switchNexusTab === 'function') {
+    switchNexusTab('skills');
+    setTimeout(() => el.scrollIntoView({behavior:'smooth', block:'nearest'}), 150);
+  }
+}
+
+async function saveSkillProposal(i) {
+  const el = document.getElementById('skill-proposals');
+  const proposals = el?._proposals || [];
+  const p = proposals[i];
+  if (!p) return;
+  try {
+    const r = await fetch(API+'/skills', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(p)
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || d.error || 'save failed');
+    addLog('ok','skill', `${d.action === 'updated' ? 'Updated' : 'Saved'} skill: ${d.skill_name || p.name}${d.version ? ` v${d.version}` : ''}`);
+    await refreshSkills();
+    discardSkillProposal(i, false);
+  } catch(e) {
+    addLog('err','skill', `save failed: ${e.message}`);
+  }
+}
+
+async function planSkillImpl(i) {
+  const el = document.getElementById('skill-proposals');
+  const proposals = el?._proposals || [];
+  const p = proposals[i];
+  if (!p) return;
+  try {
+    const r = await fetch(API+'/skills', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(p)
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || d.error || 'save failed');
+    addLog('ok','skill', `${d.action === 'updated' ? 'Updated' : 'Saved'} skill: ${d.skill_name || p.name}${d.version ? ` v${d.version}` : ''}`);
+    await refreshSkills();
+    discardSkillProposal(i, false);
+    if (mode !== 'chat') setMode('chat');
+    if (!isTaskEnabled) toggleChatTaskMode();
+    const targetInputId = opts.targetInputId || 'input';
+    const input = document.getElementById(targetInputId);
+    const statusFn = typeof opts.statusFn === 'function' ? opts.statusFn : null;
+    const replaceMode = !!opts.replace;
+    if (input) {
+      input.value = `スキル ${p.name} を実装・改善してください。説明: ${p.description || ''}`;
+      input.focus();
+    }
+    addLog('ok','skill', `Saved and prepared implementation task: ${p.name}`);
+  } catch(e) {
+    addLog('err','skill', `implement prep failed: ${e.message}`);
+  }
+}
+
+function discardSkillProposal(i, logIt = true) {
+  const el = document.getElementById('skill-proposals');
+  const proposals = [...(el?._proposals || [])];
+  if (!proposals[i]) return;
+  const removed = proposals[i];
+  proposals.splice(i, 1);
+  if (el) el._proposals = proposals;
+  if (!proposals.length) {
+    if (el) el.innerHTML = '';
+  } else {
+    _renderSkillProposals(proposals, {});
+  }
+  if (logIt) addLog('warn','skill', `Discarded proposal: ${removed.name}`);
+}
+
+// ── GIT ──
+async function refreshGitStatus() {
+  const el = document.getElementById('git-status-out');
+  if (el) el.textContent = 'Loading...';
+  try {
+    const r = await fetch(API+'/git/status?project='+encodeURIComponent(currentProject));
+    const d = await r.json();
+    if (el) el.textContent = d.status || '(clean)';
+    await refreshGitLog();
+  } catch(e) { if (el) el.textContent = 'Error: '+e.message; }
+}
+
+async function refreshGitLog() {
+  try {
+    const r = await fetch(API+'/git/log?project='+encodeURIComponent(currentProject)+'&limit=10');
+    const d = await r.json();
+    const el = document.getElementById('git-log-list');
+    if (!el) return;
+    if (!d.commits || !d.commits.length) {
+      el.innerHTML = '<div style="font-size:11px;color:var(--text3)">No commits yet</div>';
+      return;
+    }
+    el.innerHTML = d.commits.map(c =>
+      `<div style="border:1px solid var(--border);border-radius:5px;padding:6px 8px;background:var(--bg2)">
+        <div style="display:flex;gap:6px;align-items:baseline">
+          <code style="font-size:10px;color:var(--amber)">${esc(c.hash)}</code>
+          <span style="font-size:11px;color:var(--text);flex:1">${esc(c.message)}</span>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${esc(c.author)} · ${esc(c.when)}</div>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+function gitCommitUI() {
+  document.getElementById('git-commit-form').style.display='block';
+  document.getElementById('git-branch-form').style.display='none';
+  document.getElementById('git-diff-out').style.display='none';
+  document.getElementById('git-commit-msg').focus();
+}
+
+function gitBranchUI() {
+  document.getElementById('git-branch-form').style.display='block';
+  document.getElementById('git-commit-form').style.display='none';
+  document.getElementById('git-branch-name').focus();
+}
+
+async function gitResetUI() {
+  if (!confirm('git reset --hard で全変更を破棄しますか？この操作は取り消せません。')) return;
+  try {
+    const r = await fetch(API+'/git/reset', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project: currentProject, mode:'hard'})
+    });
+    const d = await r.json();
+    showGitResult(d.result);
+    refreshGitStatus();
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+async function gitDiffUI() {
+  const diffEl = document.getElementById('git-diff-out');
+  if (diffEl.style.display !== 'none') { diffEl.style.display='none'; return; }
+  try {
+    const r = await fetch(API+'/git/diff?project='+encodeURIComponent(currentProject));
+    const d = await r.json();
+    document.getElementById('git-diff-content').textContent = d.diff || '(no diff)';
+    diffEl.style.display = 'block';
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+async function doGitCommit() {
+  const msg = document.getElementById('git-commit-msg').value.trim();
+  if (!msg) { alert('Commit message required'); return; }
+  try {
+    const r = await fetch(API+'/git/commit', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project: currentProject, message: msg})
+    });
+    const d = await r.json();
+    document.getElementById('git-commit-form').style.display='none';
+    document.getElementById('git-commit-msg').value='';
+    showGitResult(d.result);
+    refreshGitStatus();
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+async function doGitBranch(create) {
+  const name = document.getElementById('git-branch-name').value.trim();
+  if (!name) { alert('Branch name required'); return; }
+  try {
+    const r = await fetch(API+'/git/checkout', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({project: currentProject, name, create})
+    });
+    const d = await r.json();
+    document.getElementById('git-branch-form').style.display='none';
+    document.getElementById('git-branch-name').value='';
+    showGitResult(d.result);
+    refreshGitStatus();
+  } catch(e) { showGitResult('Error: '+e.message); }
+}
+
+function showGitResult(text) {
+  const el = document.getElementById('git-result');
+  if (!el) return;
+  el.textContent = text;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display='none', 5000);
+}
+
+// ── MODEL DATABASE ──
+let _allModels = [];
+let _modelBenchmarkView = {};
+let _scanPollTimer = null;
+let _modelRoleState = null;
+
+function asText(value) {
+  return value == null ? '' : String(value);
+}
+
+function getFirstPositive(...values) {
+  for (const v of values) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return -1;
+}
+
+function getModelProfiles(model) {
+  try {
+    return typeof model?.benchmark_profiles === 'string' && model.benchmark_profiles
+      ? JSON.parse(model.benchmark_profiles)
+      : (model?.benchmark_profiles || {});
+  } catch(_) {
+    return {};
+  }
+}
+
+function getModelBenchmarkMode(model) {
+  if (!model?.has_mmproj) return 'text';
+  return _modelBenchmarkView[model.id] || 'text';
+}
+
+function updateModelDbStats(models, stat = null) {
+  const statEl = document.getElementById('model-db-stats');
+  if (!statEl) return;
+  const list = Array.isArray(models) ? models : [];
+  const total = list.length;
+  const enabled = list.filter(m => Number(m?.enabled ?? 1) !== 0).length;
+  const benchmarked = stat?.benchmarked ?? list.filter(m => Number(m?.tok_per_sec ?? -1) > 0).length;
+  const hasVlm = stat?.has_vlm ?? list.some(m => !!m?.is_vlm);
+  if (stat && stat.db_exists === false && total === 0) {
+    statEl.textContent = 'No model DB yet. Run benchmark to create it.';
+    return;
+  }
+  statEl.textContent = `${total} models (enabled: ${enabled}) ? benchmarked: ${benchmarked} ? VLM: ${hasVlm ? 'yes' : 'no'}`;
+}
+
+async function refreshModelDb(prefetchedModels = null, prefetchedStat = null) {
+  try {
+    let stat = prefetchedStat;
+    let models = prefetchedModels;
+    if (!stat || !Array.isArray(models)) {
+      const [statRes, listRes] = await Promise.all([
+        _fetchWithTimeout(API+'/models/db/status', {}, 7000),
+        _fetchWithTimeout(API+'/models/db', {}, 7000)
+      ]);
+      const statData = await _readJsonResponse(statRes, '/models/db/status');
+      const listData = await _readJsonResponse(listRes, '/models/db');
+      if (!statRes.ok) throw new Error(statData?.detail || '/models/db/status failed');
+      if (!listRes.ok) throw new Error(listData?.detail || '/models/db failed');
+      stat = statData;
+      models = listData.models;
+    }
+    _allModels = Array.isArray(models) ? models : [];
+    updateModelDbStats(_allModels, stat);
+    filterModelList(document.getElementById('model-filter')?.value || '');
+  } catch(e) {
+    console.warn('model db error', e);
+    const el = document.getElementById('model-db-list');
+    if (el) el.innerHTML = '<div style="font-size:11px;color:var(--red);padding:8px">Failed to load models.</div>';
+  }
+}
+
+let _roleLocked = false;
+
+function _updateRoleLockBtn() {
+  const btn = document.getElementById('role-lock-btn');
+  if (!btn) return;
+  btn.textContent = _roleLocked ? '🔒' : '🔓';
+  btn.title = _roleLocked
+    ? 'ロック中: ベンチマークによる自動ロール更新を禁止（クリックで解錠）'
+    : '解錠中: ベンチマーク後にロールが自動更新されます（クリックで施錠）';
+  btn.style.borderColor = _roleLocked ? 'var(--amber)' : 'var(--border)';
+}
+
+async function toggleRoleLock() {
+  _roleLocked = !_roleLocked;
+  _updateRoleLockBtn();
+  await _saveSettingDb('role_lock', _roleLocked ? 'true' : 'false');
+}
+
+async function refreshModelRoles() {
+  const el = document.getElementById('model-role-list');
+  if (!el) return;
+  try {
+    const r = await fetch(API+'/models/roles');
+    if (!r.ok) throw new Error('failed to load model roles');
+    const d = await r.json();
+    _modelRoleState = d;
+    const plannerKey = d.planner_key || '';
+    const modelMap = Object.fromEntries((d.models || []).map(m => [m.model_key, m]));
+    const visibleRoles = (d.roles || []).filter(role => ['plan','chat','search','verify','multi','translate'].includes(role));
+    el.innerHTML = visibleRoles.map(role => {
+      const a = d.assignments?.[role] || {};
+      const selectedKey = a.model_key || plannerKey || '';
+      const source = a.source || 'unassigned';
+      const badgeColor = source === 'explicit' ? 'var(--accent)' : (source === 'auto' ? 'var(--blue)' : 'var(--amber)');
+      const options = (d.models || [])
+        .filter(m => Number(m.enabled ?? 1) !== 0)
+        .filter(m => role !== 'multi' || (!!Number(m.is_vlm ?? 0) && Number(m.vlm_enabled ?? 1) !== 0))
+        .map(m => `<option value="${esc(m.model_key)}" ${m.model_key===selectedKey?'selected':''}>${esc(formatModelShortName(m.name || m.model_key))}</option>`)
+        .join('');
+      const roleCtx = normalizeCtxSize(modelMap[selectedKey]?.ctx_size, _settingsDefaultCtxSize);
+      return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:5px">
+          <span style="font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--text2);text-transform:uppercase">${esc(role)}</span>
+          <span style="font-size:9px;color:${badgeColor}">${esc(source)}</span>
+        </div>
+        <select onchange="saveRoleModel('${esc(role)}', this.value)"
+          style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-ui)">
+          ${options}
+        </select>
+        <div style="font-size:9px;color:var(--text3);margin-top:4px">${esc(modelMap[selectedKey]?.name || plannerKey || 'unassigned')} · ctx ${Number(roleCtx).toLocaleString()}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div style="font-size:11px;color:var(--red)">Failed to load roles: ${esc(e.message)}</div>`;
+  }
+  loadOrchestrationSettings();
+}
+
+async function saveRoleModel(role, modelKey) {
+  try {
+    const r = await fetch(API+'/models/roles', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({assignments: {[role]: modelKey}})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'failed to save role assignment');
+    addLog('ok', 'models', `Role ${role} -> ${modelKey}`);
+    await refreshModelRoles();
+  } catch(e) {
+    addLog('err', 'models', e.message);
+  }
+}
+
+function filterModelList(query) {
+  const q = asText(query).toLowerCase();
+  const enabledOnly = document.getElementById('filter-enabled-only')?.checked;
+  const vlmOnly = document.getElementById('filter-vlm-only')?.checked;
+  let models = Array.isArray(_allModels) ? [..._allModels] : [];
+  if (q) {
+    models = models.filter(m => [m?.name, m?.model_key, m?.notes, m?.quantization].some(v => asText(v).toLowerCase().includes(q)));
+  }
+  if (enabledOnly) models = models.filter(m => Number(m?.enabled ?? 1) !== 0);
+  if (vlmOnly) models = models.filter(m => !!m?.is_vlm);
+  renderModelDb(models);
+}
+
+function renderModelCard(m) {
+  try {
+    const enabled = Number(m?.enabled ?? 1) !== 0;
+    const profiles = getModelProfiles(m);
+    const mode = getModelBenchmarkMode(m);
+    const activeProfile = profiles[mode] || profiles.text || profiles.vlm || {};
+    const activeTps = getFirstPositive(
+      activeProfile?.tok_per_sec,
+      activeProfile?.inference?.gen,
+      m?.tok_per_sec
+    );
+    const modelTps = getFirstPositive(m?.tok_per_sec);
+    const vramMb = getFirstPositive(
+      activeProfile?.vram_mb,
+      activeProfile?.vramMiB,
+      m?.vram_mb,
+      Number(m?.vram_gb) > 0 ? Number(m.vram_gb) * 1024 : -1
+    );
+    const ramMb = getFirstPositive(
+      activeProfile?.ram_mb,
+      activeProfile?.ramMiB,
+      m?.ram_mb,
+      Number(m?.ram_gb) > 0 ? Number(m.ram_gb) * 1024 : -1
+    );
+    const loadSec = getFirstPositive(
+      activeProfile?.load_sec,
+      activeProfile?.load_time_sec,
+      m?.load_sec
+    );
+    const vram = vramMb > 0 ? `${(vramMb/1024).toFixed(1)}GB` : '-';
+    const ram = ramMb > 0 ? `${(ramMb/1024).toFixed(1)}GB` : '-';
+    const tps = activeTps > 0 ? `${activeTps} tok/s` : (modelTps > 0 ? `${modelTps} tok/s` : '-');
+    const load = loadSec > 0 ? `${Number(loadSec).toFixed(1).replace(/\.0$/, '')}s` : '-';
+    const benchCtx = normalizeCtxSize(activeProfile.ctx_size || m?.ctx_size, _settingsDefaultCtxSize);
+    const ctxWarning = (Number(m?.ctx_size || 0) >= 24576 && Number(vramMb) > 0 && Number(vramMb) < 8192)
+      ? '<span style="color:var(--amber)">High context may require more VRAM</span>'
+      : '';
+    const size = Number(m?.file_size_mb) > 0 ? `${(Number(m.file_size_mb)/1024).toFixed(1)}GB` : '';
+    const enabledBorder = enabled ? 'var(--border)' : 'rgba(255,68,102,.25)';
+    const enabledBg = enabled ? 'var(--bg2)' : 'rgba(255,68,102,.04)';
+    const name = asText(m?.name || m?.model_key || '(unnamed model)');
+    const vlmBadge = m?.is_vlm ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--amber);color:var(--amber);border-radius:3px">VLM</span>` : '';
+    const vlmEnabled = Number(m?.vlm_enabled ?? 1) !== 0;
+    const mmprojBadge = m?.has_mmproj ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--blue);color:var(--blue);border-radius:3px">mmproj</span>` : '';
+    const benchBtn = `<button onclick="doBenchmark('${esc(asText(m?.id))}')" title="Run benchmark"
+           style="font-size:10px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">Bench</button>`;
+    const toggleLabel = enabled ? 'On' : 'Off';
+    const toggleColor = enabled ? 'var(--accent)' : 'var(--text3)';
+    return `
+    <div style="border:1px solid ${enabledBorder};border-radius:6px;padding:9px 10px;background:${enabledBg};transition:all .15s">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;flex:1;min-width:0">
+          <span style="font-size:11px;font-weight:700;color:${enabled?'var(--accent)':'var(--text3)'};font-family:var(--font-mono);word-break:break-all">${esc(name)}</span>
+          ${vlmBadge}
+          ${mmprojBadge}
+          ${m?.quantization ? `<span style="font-size:9px;padding:1px 5px;border:1px solid var(--border);color:var(--text3);border-radius:3px">${esc(asText(m.quantization))}</span>` : ''}
+          ${size ? `<span style="font-size:9px;color:var(--text3)">${size}</span>` : ''}
+        </div>
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+          <button onclick="toggleModelEnabled('${esc(asText(m?.id))}', ${!enabled})"
+            style="font-size:10px;padding:2px 8px;border:1px solid ${toggleColor};background:${enabled?'var(--accent-soft)':'rgba(255,68,102,.08)'};color:${toggleColor};border-radius:10px;cursor:pointer;font-weight:700">
+            ${toggleLabel}
+          </button>
+          ${m?.is_vlm ? `<button onclick="toggleModelVlmEnabled('${esc(asText(m?.id))}', ${!vlmEnabled})"
+            style="font-size:10px;padding:2px 8px;border:1px solid ${vlmEnabled?'var(--amber)':'var(--text3)'};background:${vlmEnabled?'rgba(255,209,102,.15)':'var(--bg3)'};color:${vlmEnabled?'var(--amber)':'var(--text3)'};border-radius:10px;cursor:pointer;font-weight:700">
+            Vision ${vlmEnabled?'On':'Off'}
+          </button>` : ''}
+          ${benchBtn}
+          <button onclick="openAnvilParamModal('${esc(asText(m?.id))}')" title="llama-server 起動パラメータの詳細設定"
+            style="font-size:10px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:3px;cursor:pointer">⚙ 詳細設定</button>
+          <button onclick="deleteModelDb('${esc(asText(m?.id))}')"
+            style="font-size:10px;padding:2px 6px;border:1px solid rgba(255,68,102,.3);background:rgba(255,68,102,.08);color:var(--red);border-radius:3px;cursor:pointer">Delete</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--text3);margin-bottom:2px">
+        <span>Mode: <b style="color:var(--text2)">${esc(asText(mode).toUpperCase())}</b></span>
+        <span>Model ctx: <b style="color:var(--text2)">${normalizeCtxSize(m?.ctx_size, _settingsDefaultCtxSize).toLocaleString()}</b></span>
+        <span>Bench ctx: <b style="color:var(--text2)">${benchCtx}</b></span>
+        <span>VRAM: <b style="color:var(--text2)">${vram}</b></span>
+        <span>RAM: <b style="color:var(--text2)">${ram}</b></span>
+        <span>Speed: <b style="color:${activeTps>0 || modelTps>0?'var(--accent)':'var(--text3)'}">${tps}</b></span>
+        <span>Load: <b style="color:var(--text2)">${load}</b></span>
+        ${ctxWarning}
+        ${m?.is_vlm ? `<span>Vision: <b style="color:${vlmEnabled?'var(--amber)':'var(--text3)'}">${vlmEnabled?'Enabled':'Disabled'}</b></span>` : ''}
+      </div>
+      ${m?.has_mmproj ? `<div style="display:flex;justify-content:flex-end;margin:4px 0 0">
+        <label style="font-size:10px;color:var(--text2);display:flex;align-items:center;gap:6px">
+          benchmark view
+          <select onchange="_modelBenchmarkView['${esc(asText(m?.id))}']=this.value; filterModelList(document.getElementById('model-filter')?.value || '')"
+            style="padding:3px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+            <option value="text" ${mode==='text'?'selected':''}>Text</option>
+            <option value="vlm" ${mode==='vlm'?'selected':''}>VLM</option>
+          </select>
+        </label>
+      </div>` : ''}
+      <div class="model-edit-grid">
+        <input id="roles-${esc(asText(m?.id))}" type="text" value="${esc(asText(m?.auto_roles||''))}" placeholder="roles: plan,chat,code"
+          style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+        <input id="parser-${esc(asText(m?.id))}" type="text" value="${esc(asText(m?.parser||'json'))}" placeholder="parser"
+          list="parser-options"
+          style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+        <input id="key-${esc(asText(m?.id))}" type="text" value="${esc(asText(m?.model_key||''))}" placeholder="model_key"
+          style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
+        <button onclick="saveModelDb('${esc(asText(m?.id))}')" style="font-size:10px;padding:4px 10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">Save</button>
+      </div>
+      <div class="model-edit-grid2">
+        <input id="ctx-${esc(asText(m?.id))}" type="number" min="512" max="32768" value="${esc(asText(normalizeCtxSize(m?.ctx_size, _settingsDefaultCtxSize)))}"
+          style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+        <input id="gpu-${esc(asText(m?.id))}" type="number" min="0" max="999" value="${esc(asText(m?.gpu_layers||999))}"
+          style="padding:4px 6px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+        <label style="font-size:10px;color:var(--text2);display:flex;align-items:center;gap:5px">
+          <input id="enabled-${esc(asText(m?.id))}" type="checkbox" ${enabled?'checked':''} style="accent-color:var(--accent)"> enabled
+        </label>
+      </div>
+      ${m?.notes ? `<div style="font-size:10px;color:var(--text3)">${esc(asText(m.notes))}</div>` : ''}
+      ${m?.mmproj_path ? `<div style="font-size:9px;font-family:var(--font-mono);color:var(--amber);margin-top:2px">mmproj: ${esc(asText(m.mmproj_path))}</div>` : ''}
+      ${m?.llm_url ? `<div style="font-size:9px;font-family:var(--font-mono);color:var(--blue);margin-top:1px;word-break:break-all">${esc(asText(m.llm_url))}</div>` : ''}
+    </div>`;
+  } catch (err) {
+    console.warn('render model error', err, m);
+    return `<div style="border:1px solid rgba(255,68,102,.3);border-radius:6px;padding:9px 10px;background:rgba(255,68,102,.04);font-size:11px;color:var(--red)">Failed to render model: ${esc(asText(m?.name || m?.model_key || m?.id || 'unknown'))}</div>`;
+  }
+}
+
+function renderModelDb(models) {
+  const el = document.getElementById('model-db-list');
+  if (!el) return;
+  if (!Array.isArray(models) || !models.length) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:8px">No models yet. Set the root folder and run benchmark.</div>';
+    return;
+  }
+  el.innerHTML = models.map(renderModelCard).join('');
+}
+
+function setScanButtonsState(running) {
+  const modelBtn = document.getElementById('model-scan-btn');
+  const settingsBtn = document.getElementById('settings-scan-btn');
+  [modelBtn, settingsBtn].forEach(btn => {
+    if (!btn) return;
+    btn.disabled = !!running;
+    btn.textContent = running ? 'Benchmarking...' : 'Benchmark';
+    btn.style.opacity = running ? '0.8' : '1';
+    btn.style.cursor = running ? 'progress' : 'pointer';
+  });
+}
+
+function setModelScanResult(message, kind='info') {
+  const colors = {
+    info: ['var(--bg2)', 'var(--text2)', 'var(--border)'],
+    ok: ['var(--accent-bg)', 'var(--accent)', 'var(--accent-border)'],
+    err: ['rgba(255,68,102,.08)', 'var(--red)', 'rgba(255,68,102,.3)']
+  };
+  const [bg, fg, border] = colors[kind] || colors.info;
+  const resultEl = document.getElementById('model-scan-result');
+  if (resultEl) {
+    resultEl.textContent = message;
+    resultEl.style.display = 'block';
+    resultEl.style.background = bg;
+    resultEl.style.color = fg;
+    resultEl.style.border = `1px solid ${border}`;
+  }
+  const sResultEl = document.getElementById('settings-scan-result');
+  if (sResultEl) {
+    sResultEl.textContent = message;
+    sResultEl.style.display = 'block';
+    sResultEl.style.color = fg;
+  }
+}
+
+function formatScanProgress(state) {
+  const current = Number(state?.current || 0);
+  const total = Number(state?.total || 0);
+  const summary = asText(state?.summary || 'Waiting...');
+  return `${current}/${total} : ${summary}`;
+}
+
+async function pollModelScanStatus() {
+  try {
+    const r = await fetch(API+'/models/db/scan/status');
+    const state = await r.json();
+    if (!state || (!state.running && !state.done && !state.error && !state.total)) {
+      setScanButtonsState(false);
+      return;
+    }
+    setModelScanResult(formatScanProgress(state), state.error ? 'err' : (state.done ? 'ok' : 'info'));
+    if (state.running) {
+      clearTimeout(_scanPollTimer);
+      _scanPollTimer = setTimeout(pollModelScanStatus, 1200);
+      return;
+    }
+    setScanButtonsState(false);
+    if (state.error) {
+      setModelScanResult(`${formatScanProgress(state)} / error: ${state.error}`, 'err');
+      addLog('err','models', state.error);
+      return;
+    }
+    const prefetchedModels = Array.isArray(state.models) ? state.models : null;
+    const prefetchedStat = prefetchedModels
+      ? { benchmarked: state.benchmarked, has_vlm: prefetchedModels.some(m => !!m?.is_vlm), db_exists: true, total: prefetchedModels.length }
+      : null;
+    const total = Number(state.total || state.found || 0);
+    const doneMessage = `${total}/${total} : Benchmark complete / found ${state.found || 0} / added ${state.added || 0} / updated ${state.updated || 0} / benchmarked ${state.benchmarked || 0}${state.initialized_roles ? ` / roles ${state.initialized_roles}` : ''}${state.planner_model ? ` / planner ${state.planner_model}` : ''}`;
+    setModelScanResult(doneMessage, 'ok');
+    await refreshModelDb(prefetchedModels, prefetchedStat);
+    if ((!_allModels || !_allModels.length) && prefetchedModels?.length) {
+      _allModels = prefetchedModels;
+      updateModelDbStats(_allModels, prefetchedStat);
+      filterModelList(document.getElementById('model-filter')?.value || '');
+    }
+    addLog('ok','models', doneMessage);
+  } catch(e) {
+    setScanButtonsState(false);
+    setModelScanResult('0/0 : Failed to read benchmark status', 'err');
+    addLog('err','models', e.message);
+  }
+}
+
+async function doModelScan(useRootFolder) {
+  const folder = useRootFolder
+    ? (document.getElementById('model-root-folder')?.value || '').trim()
+    : (document.getElementById('model-scan-folder')?.value || '').trim();
+  if (!folder) { alert('Please set the root folder first.'); return; }
+  setScanButtonsState(true);
+  setModelScanResult('0/0 : Preparing benchmark...', 'info');
+  try {
+    const r = await fetch(API+'/models/db/scan', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({folder})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || d.error || 'scan request failed');
+    if (d.ok === false && d.running) {
+      setModelScanResult('0/0 : Another benchmark is already running', 'info');
+      pollModelScanStatus();
+      return;
+    }
+    setModelScanResult('0/0 : Scanning folder...', 'info');
+    addLog('info','models', `Benchmark started from ${folder}`);
+    clearTimeout(_scanPollTimer);
+    pollModelScanStatus();
+  } catch(e) {
+    setScanButtonsState(false);
+    setModelScanResult(`0/0 : Error ${e.message}`, 'err');
+    addLog('err','models', e.message);
+  }
+}
+
+async function doModelScanFromSettings() {
+  const folder = document.getElementById('settings-root-folder')?.value.trim();
+  if (!folder) { alert('Please set the root folder first.'); return; }
+  const rf = document.getElementById('model-root-folder');
+  if (rf) rf.value = folder;
+  await doModelScan(true);
+}
+
+function openModelAddForm() {
+  const form = document.getElementById('model-add-form');
+  if (form) form.style.display = 'block';
+  const ctxEl = document.getElementById('model-add-ctx');
+  if (ctxEl) {
+    ctxEl.value = String(_settingsDefaultCtxSize);
+    ctxEl.placeholder = String(_settingsDefaultCtxSize);
+  }
+}
+
+async function doModelAdd() {
+  const name = document.getElementById('model-add-name').value.trim();
+  const path = document.getElementById('model-add-path').value.trim();
+  const llm_url = document.getElementById('model-add-url').value.trim();
+  const ctx_size = normalizeCtxSize(document.getElementById('model-add-ctx')?.value, _settingsDefaultCtxSize);
+  const is_vlm = document.getElementById('model-add-vlm').checked;
+  const enabled = document.getElementById('model-add-enabled')?.checked !== false;
+  if (!name || !path) { alert('Name and path are required'); return; }
+  try {
+    const r = await fetch(API+'/models/db', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, path, llm_url, ctx_size, is_vlm, enabled: enabled ? 1 : 0})
+    });
+    const d = await r.json();
+    document.getElementById('model-add-form').style.display='none';
+    ['model-add-name','model-add-path','model-add-url'].forEach(id => document.getElementById(id).value='');
+    const addCtxEl = document.getElementById('model-add-ctx');
+    if (addCtxEl) addCtxEl.value = String(_settingsDefaultCtxSize);
+    await refreshModelDb();
+    addLog('ok','models', 'Added: '+name);
+  } catch(e) { addLog('err','models', e.message); }
+}
+
+async function deleteModelDb(mid) {
+  if (!confirm('このモデルをDBから削除しますか？')) return;
+  try {
+    await fetch(API+'/models/db/'+mid, {method:'DELETE'});
+    refreshModelDb();
+    addLog('ok','models','Deleted model '+mid);
+  } catch(e) { addLog('err','models',e.message); }
+}
+
+async function doBenchmark(mid) {
+  addLog('info','models', 'Benchmarking model '+mid+'...');
+  try {
+    const r = await fetch(API+'/models/db/benchmark/'+mid, {method:'POST'});
+    const d = await r.json();
+    addLog('ok','models', d.message || 'Benchmark started');
+    const refreshAll = async () => { await refreshModelDb(); await refreshModelRoles(); };
+    setTimeout(refreshAll, 5000);
+    setTimeout(refreshAll, 15000);
+    setTimeout(refreshAll, 30000);
+  } catch(e) { addLog('err','models', e.message); }
+}
+
+async function saveModelDb(mid) {
+  const payload = {
+    model_key: (document.getElementById(`key-${mid}`)?.value || '').trim(),
+    parser: (document.getElementById(`parser-${mid}`)?.value || 'json').trim() || 'json',
+    auto_roles: (document.getElementById(`roles-${mid}`)?.value || '').trim(),
+    ctx_size: normalizeCtxSize(document.getElementById(`ctx-${mid}`)?.value, _settingsDefaultCtxSize),
+    gpu_layers: Number(document.getElementById(`gpu-${mid}`)?.value || 999),
+    enabled: document.getElementById(`enabled-${mid}`)?.checked ? 1 : 0
+  };
+  try {
+    const r = await fetch(API+'/models/db/'+mid, {
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'save failed');
+    await refreshModelDb();
+    await refreshModelRoles();
+    addLog('ok','models','Saved '+mid);
+  } catch (e) {
+    addLog('err','models', e.message);
+  }
+}
+
+// ── Anvil モデル詳細設定（llama-server 起動パラメータ）────────────────────────
+// フィールド定義と値変換は共有モジュール web/js/anvil_params.js（単一の真実の源）に集約。
+// Forge 側の「⚙ 詳細設定」ドロワー（forge.js）と同じ定義を参照するので、項目を1つ変えれば
+// 両方の UI に反映される。window.AnvilParams は anvil_params.js が先に読み込まれて公開する。
+// 値は Models DB の各カラムに対応し、main.py の _runtime_spec_from_row / _try_start_once /
+// register_atlas_llm_json_adapter が消費する。GROUPS/FLAT はモーダル操作時（全 script ロード後）
+// に参照するため、ここではトップレベルで束縛せず関数内で都度取得する。
+let _anvilParamCurrentId = '';
+
+// 保存値（-1/''/null = 未指定）→ 入力欄の値（'' = 未指定）。共有モジュールに委譲。
+function _anvilStoredToInput(field, raw) {
+  return window.AnvilParams.storedToInput(field, raw);
+}
+
+function _anvilParamFieldHtml(f, rawVal) {
+  const val = _anvilStoredToInput(f, rawVal);
+  const labelStyle = 'display:flex;flex-direction:column;gap:3px;font-size:10px;color:var(--text2)';
+  const selStyle = 'padding:5px 7px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)';
+  if (f.type === 'tri') {
+    const opt = (v, lbl) => `<option value="${v}" ${val === v ? 'selected' : ''}>${lbl}</option>`;
+    return `<label style="${labelStyle}">${esc(f.label)}
+      <select data-anvil-p="${f.key}" style="${selStyle}">${opt('', '未指定（既定）')}${opt('1', 'ON')}${opt('0', 'OFF')}</select></label>`;
+  }
+  const opts = (f.opts || []).map(String);
+  const isCustom = val !== '' && opts.indexOf(val) < 0;
+  const optionHtml = [`<option value="" ${val === '' ? 'selected' : ''}>未指定（既定）</option>`]
+    .concat(opts.map((o) => `<option value="${esc(o)}" ${!isCustom && val === o ? 'selected' : ''}>${esc(o)}</option>`))
+    .concat([`<option value="__custom__" ${isCustom ? 'selected' : ''}>カスタム…</option>`])
+    .join('');
+  const inStyle = selStyle + (isCustom ? '' : ';display:none');
+  const inMode = f.type === 'num' ? ' inputmode="decimal"' : '';
+  return `<label style="${labelStyle}">${esc(f.label)}
+    <select data-anvil-p="${f.key}" onchange="_anvilToggleCustom(this)" style="${selStyle}">${optionHtml}</select>
+    <input data-anvil-custom="${f.key}"${inMode} placeholder="カスタム値" value="${esc(isCustom ? val : '')}" style="${inStyle}"></label>`;
+}
+
+function _anvilToggleCustom(sel) {
+  const key = sel.getAttribute('data-anvil-p');
+  const box = document.querySelector(`#anvil-param-body [data-anvil-custom="${key}"]`);
+  if (box) box.style.display = sel.value === '__custom__' ? '' : 'none';
+}
+
+function renderAnvilParamModalBody(model) {
+  const grid = (items) => `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">`
+    + items.map((f) => _anvilParamFieldHtml(f, model[f.key])).join('') + `</div>`;
+  return window.AnvilParams.GROUPS.map((g) =>
+    `<div class="section-label" style="margin-top:6px">${esc(g.group)}</div>${grid(g.items)}`
+  ).join('');
+}
+
+async function openAnvilParamModal(mid) {
+  _anvilParamCurrentId = mid;
+  let model = null;
+  try {
+    const r = await fetch(API + '/models/db');
+    const d = await r.json();
+    model = (d.models || []).find((m) => String(m.id || '') === String(mid)) || null;
+  } catch (e) { /* fall through */ }
+  if (!model) { addLog('err', 'models', 'モデルが見つかりません: ' + mid); return; }
+  document.getElementById('anvil-param-model-name').textContent = '· ' + (model.name || model.model_key || mid);
+  document.getElementById('anvil-param-body').innerHTML = renderAnvilParamModalBody(model);
+  document.getElementById('anvil-param-modal').classList.add('open');
+}
+
+function closeAnvilParamModal() {
+  document.getElementById('anvil-param-modal')?.classList.remove('open');
+  _anvilParamCurrentId = '';
+}
+
+async function saveAnvilParamModal() {
+  const mid = _anvilParamCurrentId;
+  if (!mid) return;
+  const body = document.getElementById('anvil-param-body');
+  const payload = {};
+  window.AnvilParams.FLAT.forEach((f) => {
+    const sel = body.querySelector(`select[data-anvil-p="${f.key}"]`);
+    let v = sel ? sel.value : '';
+    if (v === '__custom__') {
+      const box = body.querySelector(`[data-anvil-custom="${f.key}"]`);
+      v = box ? box.value : '';
+    }
+    payload[f.key] = window.AnvilParams.toPayloadValue(f, v);
+  });
+  const ctxNum = normalizeCtxSize(payload.ctx_size, _settingsDefaultCtxSize);
+  if (!ctxNum || ctxNum < 512) { addLog('err', 'models', 'CTX が無効です（512 以上）'); return; }
+  payload.ctx_size = ctxNum;
+  const btn = document.getElementById('anvil-param-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  try {
+    const r = await fetch(API + '/models/db/' + mid, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'save failed');
+    await refreshModelDb();
+    addLog('ok', 'models', '詳細設定を保存しました: ' + mid);
+    closeAnvilParamModal();
+  } catch (e) {
+    addLog('err', 'models', '詳細設定の保存に失敗: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '保存'; }
+  }
+}
+
+async function toggleModelEnabled(mid, enabled) {
+  try {
+    const r = await fetch(API+'/models/db/toggle/'+mid, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({enabled: !!enabled})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'toggle failed');
+    await refreshModelDb();
+    await refreshModelRoles();
+  } catch (e) { addLog('err','models', e.message); }
+}
+
+async function toggleModelVlmEnabled(mid, vlmEnabled) {
+  try {
+    const r = await fetch(API+'/models/db/toggle_vlm/'+mid, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({vlm_enabled: !!vlmEnabled})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'vision toggle failed');
+    await refreshModelDb();
+    await refreshModelRoles();
+  } catch (e) { addLog('err','models', e.message); }
+}
+
+function _buildOrchModelOptions(models, selected) {
+  const opts = [`<option value="">(auto)</option>`];
+  (models || [])
+    .filter(m => !!asText(m?.model_key))
+    .forEach(m => {
+    const k = asText(m.model_key);
+    const name = asText(m.name || k);
+    opts.push(`<option value="${esc(k)}" ${k===selected?'selected':''}>${esc(formatModelShortName(name))}</option>`);
+  });
+  return opts.join('');
+}
+
+function _recommendTierModels(models = []) {
+  const candidates = (models || [])
+    .filter(m => Number(m?.enabled ?? 1) !== 0)
+    .map(m => {
+      const name = asText(m?.name || m?.model_key).toLowerCase();
+      const tps = Number(m?.tok_per_sec ?? -1);
+      const coderHint = /(coder|code|qwen)/.test(name) ? 1 : 0;
+      return { key: asText(m?.model_key), score: (tps > 0 ? tps : 0) + coderHint * 1000 };
+    })
+    .filter(x => !!x.key)
+    .sort((a, b) => b.score - a.score);
+  const uniq = [];
+  for (const c of candidates) {
+    if (!uniq.includes(c.key)) uniq.push(c.key);
+    if (uniq.length >= 3) break;
+  }
+  return {
+    tier3: uniq[0] || '',
+    tier2: uniq[1] || uniq[0] || '',
+    tier1: uniq[2] || uniq[1] || uniq[0] || '',
+  };
+}
+
+
+
+async function loadOrchestrationSettings() {
+  try {
+    const r = await fetch(API+'/models/orchestration');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'failed to load orchestration');
+    let models = (d.models || []).filter(m => !!asText(m?.model_key));
+    if (!models.length) {
+      try {
+        const rr = await fetch(API+'/models/roles');
+        const rd = await rr.json();
+        models = (rd.models || []).filter(m => !!asText(m?.model_key));
+      } catch(_) {}
+    }
+    const policyEl = document.getElementById('orch-policy');
+    const qEl = document.getElementById('orch-quality-enabled');
+    const t1 = document.getElementById('orch-tier1');
+    const t2 = document.getElementById('orch-tier2');
+    const t3 = document.getElementById('orch-tier3');
+    const fm = document.getElementById('orch-feature-mode');
+    if (fm) fm.value = d.feature_mode === 'ensemble' ? 'ensemble' : 'model_orchestration';
+    if (policyEl) policyEl.value = d.policy || 'ladder_fail_and_quality';
+    if (qEl) qEl.checked = d.quality_check_enabled !== false;
+    const rec = _recommendTierModels(models);
+    const tier3 = d.coder_tertiary || rec.tier3;
+    const tier2 = d.coder_secondary || rec.tier2;
+    const tier1 = d.coder_primary || rec.tier1;
+    if (t3) t3.innerHTML = _buildOrchModelOptions(models, tier3);
+    if (t2) t2.innerHTML = _buildOrchModelOptions(models, tier2);
+    if (t1) t1.innerHTML = _buildOrchModelOptions(models, tier1);
+    const autoAssigned = (!d.coder_tertiary && !!tier3) || (!d.coder_secondary && !!tier2) || (!d.coder_primary && !!tier1);
+    if (autoAssigned) {
+      await fetch(API+'/models/orchestration', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          feature_mode: d.feature_mode || 'model_orchestration',
+          policy: d.policy || 'ladder_fail_and_quality',
+          quality_check_enabled: d.quality_check_enabled !== false,
+          coder_primary: tier1,
+          coder_secondary: tier2,
+          coder_tertiary: tier3
+        })
+      });
+    }
+    applyOrchFeatureModeUi();
+  } catch (e) {
+    addLog('err','models', e.message);
+  }
+}
+
+async function saveOrchestrationSettings() {
+  const payload = {
+    feature_mode: document.getElementById('orch-feature-mode')?.value || 'model_orchestration',
+    policy: document.getElementById('orch-policy')?.value || 'ladder_fail_and_quality',
+    quality_check_enabled: document.getElementById('orch-quality-enabled')?.checked !== false,
+    // Tier1->primary, Tier2->secondary, Tier3->tertiary
+    coder_primary: document.getElementById('orch-tier1')?.value || '',
+    coder_secondary: document.getElementById('orch-tier2')?.value || '',
+    coder_tertiary: document.getElementById('orch-tier3')?.value || ''
+  };
+  try {
+    const r = await fetch(API+'/models/orchestration', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'failed to save orchestration');
+    addLog('ok','models','Orchestration saved');
+  } catch (e) {
+    addLog('err','models', e.message);
+  }
+}
+
+async function refreshEnsembleVramStatus() {
+  const box = document.getElementById('ensemble-vram-status');
+  if (!box) return;
+  try {
+    const r = await _fetchWithTimeout(API+'/ensemble/vram', {}, 7000);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'failed to read ensemble vram');
+    const free = fmtGbFromMb(d.free_vram_mb);
+    const needP = fmtGbFromMb(d.required_vram_parallel_mb);
+    const needS = fmtGbFromMb(d.required_vram_serial_mb);
+    const warn = d.warning ? '⚠️' : '✅';
+    box.innerHTML = `${warn} Free VRAM: <b>${free}</b> / parallel要件 <b>${needP}</b> / serial要件 <b>${needS}</b><br>` +
+      `推奨: <b>${esc(d.recommended_mode || 'parallel')}</b> (${esc(d.reason || '-')})`;
+    box.style.borderColor = d.warning ? 'rgba(255,153,0,.35)' : 'var(--border)';
+    box.style.color = d.warning ? 'var(--amber)' : 'var(--text3)';
+  } catch (e) {
+    box.textContent = `VRAM情報取得失敗: ${e.message}`;
+    box.style.color = 'var(--danger)';
+  }
+}
+
+async function saveEnsembleSettings(applyRecommended = false) {
+  const mode = document.getElementById('orch-feature-mode')?.value || 'model_orchestration';
+  if (mode !== 'ensemble') {
+    addLog('warn', 'ensemble', 'Ensembleモード有効時のみ変更できます');
+    return;
+  }
+  const modeEl = document.getElementById('ensemble-execution-mode');
+  const autoEl = document.getElementById('ensemble-auto-switch');
+  if (!modeEl || !autoEl) return;
+  let executionMode = modeEl.value || 'parallel';
+  const autoSwitch = autoEl.checked !== false;
+  try {
+    if (applyRecommended) {
+      const rr = await _fetchWithTimeout(API+'/ensemble/vram', {}, 7000);
+      const rd = await rr.json();
+      if (rr.ok && rd?.recommended_mode) {
+        executionMode = rd.recommended_mode;
+        modeEl.value = executionMode;
+      }
+    }
+    const r = await fetch(API+'/ensemble/settings', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        execution_mode: executionMode,
+        auto_switch_on_low_vram: autoSwitch
+      })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'failed to save ensemble settings');
+    addLog('ok', 'ensemble', `execution_mode=${d.execution_mode}`);
+    await _saveSettingDb('ensemble_execution_mode', executionMode);
+    await _saveSettingDb('ensemble_auto_switch_on_low_vram', autoSwitch ? 'true' : 'false');
+    refreshEnsembleVramStatus();
+  } catch (e) {
+    addLog('err', 'ensemble', e.message);
+  }
+}
+
+function fmtGbFromMb(mb) {
+  const n = Number(mb || 0);
+  return n > 0 ? `${(n/1024).toFixed(1)}GB` : '-';
+}
+
+function fmtGbFromBytes(bytes) {
+  const n = Number(bytes || 0);
+  return n > 0 ? `${(n/(1024*1024*1024)).toFixed(2)}GB` : '-';
+}
+
+let ggufDownloadPollTimer = null;
+let ggufActiveProgressElId = '';
+let ggufResultsCollapsed = false;
+
+function setGgufResultsVisibility(collapsed) {
+  ggufResultsCollapsed = !!collapsed;
+  const panel = document.getElementById('gguf-search-panel');
+  if (panel) panel.classList.toggle('gguf-results-hidden', ggufResultsCollapsed);
+  const btn = document.getElementById('gguf-results-toggle-btn');
+  if (btn) btn.textContent = ggufResultsCollapsed ? '結果を再表示' : '結果を非表示';
+}
+
+function toggleGgufResultsVisibility() {
+  setGgufResultsVisibility(!ggufResultsCollapsed);
+}
+
+function setInlineGgufProgress(progressElId, text, color='var(--text3)') {
+  if (!progressElId) return;
+  const el = document.getElementById(progressElId);
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.color = color;
+  el.textContent = text;
+}
+
+function stopGgufDownloadPolling() {
+  if (ggufDownloadPollTimer) {
+    clearInterval(ggufDownloadPollTimer);
+    ggufDownloadPollTimer = null;
+  }
+}
+
+function startGgufDownloadPolling(jobId, progressElId) {
+  ggufActiveProgressElId = progressElId;
+  stopGgufDownloadPolling();
+  ggufDownloadPollTimer = setInterval(async () => {
+    try {
+      const r = await fetch(API+`/models/gguf/download/status?job_id=${encodeURIComponent(jobId)}`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'status failed');
+      if (d.error) {
+        setInlineGgufProgress(progressElId, `DL error: ${d.error}`, 'var(--red)');
+        stopGgufDownloadPolling();
+        return;
+      }
+      const pct = Number(d.progress) >= 0 ? `${(Number(d.progress)*100).toFixed(1)}%` : '--';
+      setInlineGgufProgress(progressElId, `DL ${pct} | ${fmtGbFromBytes(d.downloaded_bytes)} / ${fmtGbFromBytes(d.total_bytes)} | ${Number(d.speed_mbps||0).toFixed(2)} MB/s`);
+      if (d.done) {
+        setInlineGgufProgress(progressElId, `DL完了 | ${fmtGbFromBytes(d.downloaded_bytes)} / ${fmtGbFromBytes(d.total_bytes)}`, 'var(--accent)');
+        stopGgufDownloadPolling();
+        await refreshModelDb();
+        await refreshModelRoles();
+      }
+    } catch (e) {
+      setInlineGgufProgress(progressElId, `DL error: ${e.message}`, 'var(--red)');
+      stopGgufDownloadPolling();
+    }
+  }, 900);
+}
+
+function renderGgufSearchResults(payload) {
+  const fmtMaybeGbFromMb = (mb) => {
+    const n = Number(mb);
+    if (Number.isNaN(n) || n < 0) return '不明';
+    if (n === 0) return '0.0GB';
+    return fmtGbFromMb(n);
+  };
+  const yesNoUnknown = (v, yes='可', no='不可') => {
+    if (v === true) return yes;
+    if (v === false) return no;
+    return '不明';
+  };
+  const hw = payload?.hardware || {};
+  const hwEl = document.getElementById('gguf-hw-info');
+  if (hwEl) {
+    const gpu = Number(hw?.vram_total_mb || 0) > 0
+      ? `${fmtMaybeGbFromMb(hw.vram_free_mb)} free / ${fmtMaybeGbFromMb(hw.vram_total_mb)} total`
+      : 'N/A';
+    hwEl.textContent = `Hardware: RAM ${fmtMaybeGbFromMb(hw.ram_available_mb)} free / ${fmtMaybeGbFromMb(hw.ram_total_mb)} total, VRAM ${gpu}, GPU API=${esc(hw.gpu_backend || 'none')}, Runpod=${hw.is_runpod ? 'yes' : 'no'}`;
+  }
+  const el = document.getElementById('gguf-search-result');
+  if (!el) return;
+  const rows = payload?.results || [];
+  if (!rows.length) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--text3)">No GGUF models found.</div>';
+    return;
+  }
+  el.innerHTML = rows.slice(0, 20).map((r, ridx) => {
+    const ggufs = (r.ggufs || []).slice(0, 6).map((g, gidx) => {
+      const ok = g.downloadable;
+      const runtimeOk = g.runtime_feasible;
+      const off = g.full_offload_possible;
+      const progressElId = `gguf-dl-progress-${ridx}-${gidx}`;
+      return `<div style="border:1px solid var(--border);border-radius:5px;padding:6px;background:var(--bg);margin-top:4px">
+        <div style="font-size:10px;color:var(--text2);word-break:break-all">${esc(g.filename)}</div>
+        <div style="font-size:9px;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
+          <span>size ${fmtMaybeGbFromMb(g.size_mb)}</span>
+          <span>quant ${esc(g.quantization || 'unknown')}</span>
+          <span>ctx ${normalizeCtxSize(g.ctx_size, _settingsDefaultCtxSize).toLocaleString()}</span>
+          <span>gpu_layers(想定) ${Number(g.gpu_layers_assumed) > 0 ? Number(g.gpu_layers_assumed) : '不明'}</span>
+          <span>est VRAM ${fmtMaybeGbFromMb(g.estimated_vram_mb)}</span>
+          <span>est RAM ${fmtMaybeGbFromMb(g.estimated_ram_mb)}</span>
+          <span>KV ${fmtMaybeGbFromMb(g.estimated_kv_cache_mb)}</span>
+          <span style="color:${ok===true?'var(--accent)':'var(--red)'}">保存 ${yesNoUnknown(ok, '可能', '不可')}</span>
+          <span style="color:${runtimeOk===true?'var(--accent)':'var(--amber)'}">実行 ${yesNoUnknown(runtimeOk, '可能', '不可')}</span>
+          <span style="color:${off===true?'var(--accent)':'var(--amber)'}">全層GPU ${yesNoUnknown(off, '可能', '不可')}</span>
+          <span>confidence ${esc(g.estimate_confidence || 'low')}</span>
+          <span style="max-width:100%;word-break:break-word">理由: ${esc(g.reason || '情報不足')}</span>
+        </div>
+        <div style="margin-top:5px">
+          <button onclick="downloadGgufFile('${esc(r.model_id)}', '${esc(g.filename)}', '${esc(progressElId)}')" style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">LLMsへDL</button>
+        </div>
+        <div id="${esc(progressElId)}" style="display:none;margin-top:4px;font-size:9px;color:var(--text3)"></div>
+      </div>`;
+    }).join('');
+    return `<div style="border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg2)">
+      <div style="font-size:11px;font-weight:700;color:var(--accent);word-break:break-all">${esc(r.model_id)}</div>
+      <div style="font-size:9px;color:var(--text3);margin-top:2px">downloads: ${Number(r.downloads||0).toLocaleString()} / updated: ${esc((r.last_modified||'').slice(0,19).replace('T',' '))}</div>
+      ${ggufs}
+    </div>`;
+  }).join('');
+}
+
+async function searchGgufModels() {
+  const q = (document.getElementById('gguf-search-q')?.value || '').trim();
+  const sort = (document.getElementById('gguf-sort')?.value || 'downloads');
+  if (!q) { alert('検索キーワードを入力してください'); return; }
+  setGgufResultsVisibility(false);
+  const el = document.getElementById('gguf-search-result');
+  if (el) el.innerHTML = '<div style="font-size:11px;color:var(--text3)">Searching...</div>';
+  try {
+    const {data: d} = await _fetchJson(
+      API+`/models/gguf/search?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}&limit=20`,
+      {},
+      '/models/gguf/search'
+    );
+    renderGgufSearchResults(d);
+    addLog('ok', 'models', `GGUF search: ${q}`);
+  } catch (e) {
+    if (el) el.innerHTML = `<div style="font-size:11px;color:var(--red)">Search failed: ${esc(e.message)}</div>`;
+    addLog('err', 'models', e.message);
+  }
+}
+
+async function downloadGgufFile(modelId, filename, progressElId='') {
+  const folder = (document.getElementById('model-root-folder')?.value || '').trim();
+  if (!folder) { alert('LLMルートフォルダを先に設定してください'); return; }
+  if (!confirm(`Download ${filename} to ${folder}?`)) return;
+  if (ggufActiveProgressElId && ggufActiveProgressElId !== progressElId) {
+    setInlineGgufProgress(ggufActiveProgressElId, '待機中', 'var(--text3)');
+  }
+  setInlineGgufProgress(progressElId, 'DL開始...', 'var(--text3)');
+  try {
+    const r = await fetch(API+'/models/gguf/download', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({model_id: modelId, filename, folder, ctx_size: _settingsDefaultCtxSize})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'download failed');
+    if (!d.job_id) throw new Error('download job was not created');
+    startGgufDownloadPolling(d.job_id, progressElId);
+  } catch (e) {
+    addLog('err', 'models', e.message);
+    setInlineGgufProgress(progressElId, `DL error: ${e.message}`, 'var(--red)');
+    alert(`download error: ${e.message}`);
+  }
+}
+
+// ── DRAWER ──
+function toggleDrawer() {
+  const open = document.getElementById('drawer').classList.contains('open');
+  open ? closeDrawer() : (document.getElementById('drawer').classList.add('open'), document.getElementById('overlay').classList.add('open'), loadProjects());
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+}
+async function loadProjects() {
+  try {
+    const r = await fetch(API+'/projects');
+    const d = await r.json();
+    renderProjects(d.projects || []);
+  } catch(e) {}
+}
+async function loadJobs(project) {
+  try {
+    const r = await fetch(API+`/projects/${encodeURIComponent(project)}/jobs?limit=10`);
+    const d = await r.json();
+    const jobs = d.jobs || [];
+    renderJobs(jobs);
+    // ページロード時に実行中ジョブがあれば自動再接続
+    const runningJob = jobs.find(j => j.status === 'running');
+    if (runningJob && !busy) {
+      addLog('info','job', `実行中のジョブを検出 — 自動再接続: ${runningJob.message.slice(0,40)}`);
+      resumeJob(runningJob.id);
+    }
+  } catch(e) {}
+}
+function renderJobs(jobs) {
+  const el = document.getElementById('job-list');
+  if (!el) return;
+  if (!jobs.length) { el.innerHTML='<div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">No jobs yet</div>'; return; }
+  el.innerHTML = jobs.map(j => {
+    const isRunning = j.status === 'running';
+    const icon = j.status==='done'?'✓':j.status==='error'?'✗':isRunning?'▶':'○';
+    const col = j.status==='done'?'var(--accent)':j.status==='error'?'var(--red)':isRunning?'var(--amber)':'var(--text3)';
+    const ts = j.created_at ? j.created_at.slice(11,16) : '';
+    const liveBadge = isRunning ? `<span style="font-size:9px;background:var(--amber);color:#000;border-radius:3px;padding:1px 4px;flex-shrink:0">LIVE</span>` : '';
+    const clickFn = isRunning ? `resumeJob('${esc(j.id)}')` : `replayJob('${esc(j.id)}')`;
+    return `<div style="display:flex;align-items:center;gap:7px;padding:5px 7px;background:var(--bg2);border:1px solid ${isRunning?'var(--amber)':'var(--border)'};border-radius:5px;cursor:pointer;font-size:11px" onclick="${clickFn}">
+      <span style="color:${col};flex-shrink:0">${icon}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono)">${esc(j.message.slice(0,40))}</span>
+      ${liveBadge}
+      <span style="color:var(--text3);flex-shrink:0;font-family:var(--font-mono)">${ts}</span>
+    </div>`;
+  }).join('');
+}
+async function resumeJob(jobId) {
+  closeDrawer();
+  if (busy) { addLog('warn','job','別のジョブが実行中です'); return; }
+  setBusy(true);
+  startTimer();
+  try {
+    const r = await fetch(API+`/jobs/${jobId}?project=${encodeURIComponent(currentProject)}`);
+    const d = await r.json();
+    addMsg('user', d.message);
+    addToHistory('user', d.message);
+    const planStep = (d.steps||[]).find(s => s.type === 'plan');
+    const allPlannedTasks = planStep ? (planStep.data.tasks || []) : [];
+    const label = d.status === 'running'
+      ? `Resuming job (${allPlannedTasks.length} tasks)...`
+      : `Replaying job (${allPlannedTasks.length} tasks)...`;
+    const progCard = addProgressCard(label, allPlannedTasks.length);
+    await _watchJobPolling(jobId, allPlannedTasks, {}, progCard, true);
+  } catch(e) {
+    stopTimer();
+    addMsg('error', 'Resume error: '+e.message);
+    addLog('err','job', e.message);
+  }
+  setBusy(false);
+  loadProjects();
+  refreshFileBrowser();
+}
+async function replayJob(jobId) {
+  closeDrawer();
+  try {
+    const r = await fetch(API+`/jobs/${jobId}?project=${encodeURIComponent(currentProject)}`);
+    const d = await r.json();
+    addLog('ok','replay',`Job ${jobId}: ${d.status}`);
+
+    // ユーザーメッセージ
+    addMsg('user', d.message);
+
+    // ステップを分類
+    const steps = d.steps || [];
+    const allToolCalls = steps
+      .filter(s => s.type === 'tool_call')
+      .map(s => ({...s.data, type:'tool_call'}));
+    const doneStep = steps.find(s => s.type === 'done');
+    const taskSteps = steps.filter(s => s.type === 'task_done').map(s => s.data);
+
+    // タスク結果ブロック
+    if (taskSteps.length) {
+      addTaskBlock(taskSteps);
+    }
+
+    // ツールチェイン
+    if (allToolCalls.length) {
+      addStepsBlock(allToolCalls);
+      renderStepsToOutput(allToolCalls);
+    }
+
+    // 最終結果メッセージ
+    if (doneStep) {
+      const res = doneStep.data;
+      const msg = d.mode === 'task'
+        ? (res.summary || `${(res.tasks||[]).length} tasks completed`)
+        : (res.result || '');
+      if (msg) {
+        const successClass = (d.status === 'done') ? 'assistant' : 'error';
+        const modeLabel = d.mode === 'task' ? 'chat/task:on' : (d.mode || 'chat/task:off');
+        addMsg(successClass, `📂 [復元:${modeLabel}] ${msg}`);
+      }
+    } else {
+      addMsg('system', `📂 Job ${jobId} [${d.status}] — ${d.step_count} steps`);
+    }
+
+    // HTML検出してPreviewに表示
+    detectHtml({steps: allToolCalls});
+
+  } catch(e) { addLog('err','replay',e.message); }
+}
+function renderProjects(list) {
+  const el = document.getElementById('proj-list');
+  if (!list.length) { el.innerHTML='<div style="padding:12px;font-size:12px;color:var(--text3)">No projects</div>'; return; }
+  el.innerHTML = list.map(p => `
+    <div class="proj-item${p.name===currentProject?' active':''}" onclick="selectProject('${esc(p.name)}')">
+      <span>◈</span>
+      <div style="flex:1;min-width:0">
+        <div class="proj-iname">${esc(p.name)}</div>
+        <div class="proj-icount">${p.file_count} file${p.file_count!==1?'s':''}</div>
+      </div>
+      <button class="proj-dl" onclick="event.stopPropagation();downloadProjectZip('${esc(p.name)}')">DL</button>
+      <button class="proj-del" onclick="event.stopPropagation();deleteProject('${esc(p.name)}')">✕</button>
+    </div>`).join('');
+}
+async function downloadProjectZip(name) {
+  try {
+    const url = API+'/projects/'+encodeURIComponent(name)+'/download';
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    addLog('ok','project',`Download started: ${name}.zip`);
+  } catch(e) {
+    addLog('err','project',`Download failed: ${e.message}`);
+    alert(`Download failed: ${e.message}`);
+  }
+}
+async function selectProject(name) {
+  _persistAgentStateForProject(currentProject);
+  currentProject = name;
+  syncChatTaskToggle();
+  document.getElementById('proj-display').textContent = name;
+  closeDrawer();
+  document.getElementById('messages').innerHTML = `<div class="msg system"><div class="msg-role">system</div><div class="msg-bubble">Project: ${esc(name)}</div></div>`;
+  chatHistory = [];
+  _restoreAgentStateForProject(name);
+  _renderAgentMessagesFromHistory();
+  renderAgentTasks(agentTaskCache, agentSessionActive ? 'running' : 'idle');
+  await loadHistory(name);
+  await loadJobs(name);
+  await refreshFileBrowser();
+  await refreshProjectFileManager();
+  refreshSkills();
+  refreshMemory();
+  addLog('info','project','Switched to: '+name);
+  // 最終ジョブ結果を復元（リロード後の再表示）
+  try {
+    const raw = localStorage.getItem('lastJob_' + name);
+    if (raw) {
+      const d = JSON.parse(raw);
+      const age = (Date.now() - (d.savedAt||0)) / 1000 / 3600; // hours
+      if (age < 72 && (d.taskResults||[]).length) { // 3日以内のみ
+        addMsg('system', `📋 前回のジョブ結果を復元しました (${new Date(d.savedAt).toLocaleString()})`);
+        addTaskBlock(d.taskResults, d.allPlannedTasks||[], d.planMeta||{});
+      }
+    }
+  } catch(e) {}
+}
+async function createProject() {
+  const input = document.getElementById('new-proj-input');
+  const name = input.value.trim(); if (!name) return;
+  const safeName = name.replace(/[^a-zA-Z0-9_\-]/g,'_') || 'default';
+  let r = await fetch(API+'/projects', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name})
+  });
+  let d = await r.json();
+  if (d.existed && !d.overwritten) {
+    const ok = confirm(`Project "${safeName}" already exists. Reset its files and reuse it?`);
+    if (!ok) {
+      addLog('warn','project',`Project exists: ${safeName}`);
+      return;
+    }
+    r = await fetch(API+'/projects', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name, overwrite:true})
+    });
+    d = await r.json();
+  }
+  input.value = '';
+  selectProject(safeName);
+  loadProjects();
+}
+async function deleteProject(name) {
+  if (!confirm(`Delete project "${name}"?`)) return;
+  await fetch(API+'/projects/'+encodeURIComponent(name), {method:'DELETE'});
+  try { localStorage.removeItem('lastJob_' + name); } catch(e) {}
+  if (currentProject===name) selectProject('default');
+  loadProjects();
+}
+
+// ── HISTORY LOADING ──
+async function loadHistory(project) {
+  try {
+    const {data: d} = await _fetchJson(
+      API+'/projects/'+encodeURIComponent(project)+'/history',
+      {},
+      '/projects/history'
+    );
+    if (!d.sessions?.length) return;
+    for (const s of d.sessions) renderHistorySession(s);
+    addLog('ok','history',`Loaded ${d.sessions.length} sessions for ${project}`);
+  } catch(e) { addLog('err','history', e.message); }
+}
+function renderHistorySession(s) {
+  const ts = s.timestamp ? s.timestamp.slice(0,16).replace('T',' ') : '';
+  // user message
+  const um = document.createElement('div');
+  um.className = 'msg user history';
+  um.innerHTML = `<div class="msg-role">Boss</div><div class="msg-bubble">${esc(s.message)}</div><div class="msg-ts">${ts}</div>`;
+  messages().appendChild(um);
+  addToHistory('user', s.message); // chatHistory に追加して後続メッセージでコンテキスト維持
+  addLog('ok','history', `[${ts}] ${s.message.slice(0,50)}`);
+
+  if (!s.result) return;
+
+  if (s.mode === 'task' && s.result.tasks) {
+    // task block
+    const tb = document.createElement('div');
+    tb.className = 'msg system history';
+    const items = s.result.tasks.map(t => {
+      const cls = t.status==='done'?'bd-done':t.status==='error'?'bd-err':'bd-skip';
+      const ic = t.status==='done'?'✓':t.status==='error'?'✗':'—';
+      const col = t.status==='done'?'var(--accent)':t.status==='error'?'var(--red)':'var(--text3)';
+      return `<div class="task-item"><span style="color:${col};flex-shrink:0;width:14px">${ic}</span><span style="flex:1;font-size:12px">${esc(t.title)}</span><span class="tbadge ${cls}">${t.status}</span></div>`;
+    }).join('');
+    tb.innerHTML = `<div class="msg-role">Plan</div><div class="task-block">${items}</div>`;
+    messages().appendChild(tb);
+    // final result
+    const summary = s.result.summary || '';
+    const am = document.createElement('div');
+    am.className = 'msg assistant history';
+    am.innerHTML = `<div class="msg-role">Agent</div><div class="msg-bubble">${esc(summary)}</div><div class="msg-ts">${ts}</div>`;
+    messages().appendChild(am);
+    addToHistory('assistant', summary);
+  } else if (s.mode === 'chat' && s.result.output) {
+    const am = document.createElement('div');
+    am.className = 'msg assistant history';
+    const mdHtml = mdRenderer ? renderMd(s.result.output) : `<span style="white-space:pre-wrap">${esc(s.result.output)}</span>`;
+    am.innerHTML = `<div class="msg-role">Agent</div><div class="msg-bubble md" data-raw="${esc(s.result.output).replace(/"/g,'&quot;')}">${mdHtml}</div><button class="md-toggle active" onclick="toggleMdBubble(this)" title="Toggle Markdown/Raw">MD</button><div class="msg-ts">${ts}</div>`;
+    messages().appendChild(am);
+    addToHistory('assistant', s.result.output);
+  }
+  scrollMsgs();
+}
+
+// ── INPUT ──
+function autoResize(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,110)+'px'; }
+function handleKey(e) { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();} }
+function messages() { return document.getElementById('messages'); }
+function scrollMsgs() { const m=messages(); m.scrollTop=m.scrollHeight; }
+
+// ── TOKEN TRACKING ──
+let totalPromptTokens = 0;
+let totalCompTokens = 0;
+
+function updateTokenDisplay(compTokens, tps) {
+  totalCompTokens += compTokens;
+  const disp = document.getElementById('tok-display');
+  const totEl = document.getElementById('tok-total');
+  const tpsEl = document.getElementById('tok-tps');
+  if (!disp) return;
+  disp.style.display = 'flex';
+  if (totEl) totEl.textContent = totalCompTokens.toLocaleString();
+  if (tpsEl && tps > 0) tpsEl.textContent = tps.toFixed(1) + ' t/s';
+}
+
+function resetTokenDisplay() {
+  totalCompTokens = 0;
+  const totEl = document.getElementById('tok-total');
+  const tpsEl = document.getElementById('tok-tps');
+  if (totEl) totEl.textContent = '';
+  if (tpsEl) tpsEl.textContent = '';
+}
+
+// ── PREVIEW RUN CURRENT FILE ──
+function runCurrentFile() {
+  if (fbActiveFile) runFile(fbActiveFile);
+}
+
+// ── CLARIFY CARD ──
+let _currentJobId = null;   // 実行中のjob_id（respond APIに使う）
+
+function showClarifyCard(jobId, question, options) {
+  _currentJobId = jobId;
+  const w = messages();
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.id = 'clarify-card-' + jobId;
+
+  const optionsHtml = options.map((opt, i) =>
+    `<button class="clarify-option" onclick="respondToClarify(${JSON.stringify(jobId)}, ${JSON.stringify(opt)}, this.closest('.clarify-card'))">${esc(opt)}</button>`
+  ).join('');
+
+  div.innerHTML = `
+    <div class="msg-role">Clarification Needed</div>
+    <div class="clarify-card">
+      <div class="clarify-header">
+        <span>❓</span>
+        <span>選択してください</span>
+      </div>
+      <div class="clarify-question">${esc(question)}</div>
+      <div class="clarify-options">${optionsHtml}</div>
+      <div class="clarify-free">
+        <div class="clarify-free-row">
+          <input class="clarify-free-input" id="clarify-input-${esc(jobId)}"
+            placeholder="または自由入力..."
+            onkeydown="if(event.key==='Enter')respondToClarify(${JSON.stringify(jobId)}, this.value, this.closest('.clarify-card'))">
+          <button class="clarify-send" onclick="respondToClarify(${JSON.stringify(jobId)}, document.getElementById('clarify-input-${esc(jobId)}').value, this.closest('.clarify-card'))">送信</button>
+        </div>
+      </div>
+    </div>`;
+  w.appendChild(div);
+  scrollMsgs();
+  // モバイルの場合はchatタブに切り替え
+  if (window.innerWidth <= 768) mobSwitch('chat');
+}
+
+async function respondToClarify(jobId, answer, cardEl) {
+  const text = (answer || '').trim();
+  if (!text) return;
+  // カードを無効化
+  cardEl.querySelectorAll('button, input').forEach(el => el.disabled = true);
+  cardEl.style.opacity = '0.5';
+  // ユーザーの選択をメッセージとして表示
+  addMsg('user', `回答: ${text}`);
+  addToHistory('user', `回答: ${text}`);
+  try {
+    await fetch(API+`/jobs/${jobId}/respond`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({answer: text, project: currentProject})
+    });
+    addLog('ok', 'clarify', `Job ${jobId} resumed: ${text}`);
+  } catch(e) {
+    addLog('err', 'clarify', e.message);
+    addMsg('error', 'Failed to send answer: ' + e.message);
+  }
+}
+
+// ── CHAT HISTORY ──
+let chatHistory = [];
+function addToHistory(role, text) { chatHistory.push({role, text}); }
+
+function truncateHistoryAfter(msgEl) {
+  const w = messages();
+  const allMsgs = Array.from(w.querySelectorAll('.msg.user,.msg.assistant,.msg.error'));
+  const idx = allMsgs.indexOf(msgEl);
+  if (idx < 0) return;
+  for (let i = idx; i < allMsgs.length; i++) {
+    let sib = allMsgs[i].nextElementSibling;
+    while (sib && !sib.classList.contains('msg')) { const tmp = sib.nextElementSibling; sib.remove(); sib = tmp; }
+    allMsgs[i].remove();
+  }
+  const usersBefore = allMsgs.slice(0, idx).filter(e => e.classList.contains('user')).length;
+  chatHistory = chatHistory.slice(0, usersBefore * 2);
+}
+
+function startEditMsg(btn) {
+  if (busy) return;
+  const msgEl = btn.closest('.msg');
+  const bubble = msgEl.querySelector('.msg-bubble');
+  const originalText = msgEl.dataset.msgText || bubble.textContent || '';
+  bubble.style.display = 'none';
+  btn.style.display = 'none';
+  const ta = document.createElement('textarea');
+  ta.className = 'msg-edit-area';
+  ta.value = originalText;
+  ta.rows = Math.min(originalText.split('\n').length + 1, 8);
+  const acts = document.createElement('div');
+  acts.className = 'msg-edit-actions';
+  acts.innerHTML = '<button class="msg-edit-cancel" onclick="cancelEdit(this.closest(\'.msg\'))">Cancel</button>'
+    + '<button class="msg-edit-send" onclick="submitEdit(this.closest(\'.msg\'))">↩ Re-run</button>';
+  msgEl.appendChild(ta);
+  msgEl.appendChild(acts);
+  ta.focus();
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitEdit(msgEl);
+    if (e.key === 'Escape') cancelEdit(msgEl);
+  });
+}
+
+function cancelEdit(msgEl) {
+  const bubble = msgEl.querySelector('.msg-bubble');
+  const btn = msgEl.querySelector('.msg-edit-btn');
+  if (bubble) bubble.style.display = '';
+  if (btn) btn.style.display = '';
+  msgEl.querySelector('.msg-edit-area')?.remove();
+  msgEl.querySelector('.msg-edit-actions')?.remove();
+}
+
+function _micBtn(target='chat'){
+  if (target === 'agent') return document.getElementById('agent-mic-btn');
+  if (target === 'atlas-claude') return document.getElementById('atlas-claude-mic-btn');
+  return document.getElementById('mic-btn');
+}
+function _setMicState(recording=false, disabled=false, target='chat'){
+  const btn = _micBtn(target);
+  if (!btn) return;
+  const ttsBlocked = _isRecordingBlockedByTts && _isRecordingBlockedByTts();
+  btn.disabled = !!disabled || (!recording && ttsBlocked);
+  btn.classList.toggle('recording', !!recording);
+  btn.textContent = recording ? '■' : '🎙';
+  if (!recording && ttsBlocked) {
+    btn.title = 'TTS生成/再生中は録音を開始できません。';
+  } else {
+    btn.title = recording ? '録音停止' : (target === 'agent' ? '音声入力 (Agent)' : '音声入力 (日本語/英語)');
+  }
+}
+
+function _arrayBufferToBase64(buffer){
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function _maybeRestartContinuousVoice() {
+  _scheduleContinuousVoiceRestart('maybe', 350);
+}
+
+function _clearContinuousVoiceRestartTimer() {
+  if (!voiceContinuousRestartTimer) return;
+  clearTimeout(voiceContinuousRestartTimer);
+  voiceContinuousRestartTimer = null;
+}
+
+function _canRestartContinuousVoice() {
+  return voiceContinuousEnabled && !busy && !voiceRecording && !voiceRecorder && !_isRecordingBlockedByTts();
+}
+
+function _scheduleContinuousVoiceRestart(reason = 'unknown', delay = 350) {
+  if (!voiceContinuousEnabled) {
+    _clearContinuousVoiceRestartTimer();
+    return;
+  }
+  _clearContinuousVoiceRestartTimer();
+  voiceContinuousRestartTimer = setTimeout(() => {
+    voiceContinuousRestartTimer = null;
+    if (!voiceContinuousEnabled) return;
+    if (_canRestartContinuousVoice()) {
+      toggleVoiceInput(voiceTarget, true);
+      return;
+    }
+    _scheduleContinuousVoiceRestart(reason, delay);
+  }, delay);
+}
+
+async function toggleVoiceInput(target = 'chat', autoRestart = false){
+  if (busy && !autoRestart) return;
+  if (_isRecordingBlockedByTts() && !voiceRecording) {
+    if (autoRestart) {
+      _scheduleContinuousVoiceRestart('tts_blocked', 500);
+      return;
+    }
+    addMsg('system', 'TTS生成/再生中は録音を開始できません。');
+    return;
+  }
+  if (!autoRestart) {
+    if (voiceContinuousEnabled && target === voiceTarget) {
+      voiceContinuousEnabled = false;
+      _clearContinuousVoiceRestartTimer();
+      if (voiceRecording && voiceRecorder) {
+        voiceRecording = false;
+        _stopVoiceLevelMonitoring(voiceTarget);
+        _setMicState(false, true, voiceTarget);
+        voiceRecorder.stop();
+      } else {
+        _setMicState(false, false, voiceTarget);
+      }
+      return;
+    }
+    voiceTarget = target;
+    voiceContinuousEnabled = true;
+  }
+  if (voiceRecording && voiceRecorder) {
+    voiceRecording = false;
+    _stopVoiceLevelMonitoring(voiceTarget);
+    _setMicState(false, true, voiceTarget);
+    voiceRecorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    addMsg('error', 'このブラウザは音声録音に対応していません。');
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    voiceRecorder = new MediaRecorder(stream, {mimeType});
+    voiceChunks = [];
+    voiceRecorder.ondataavailable = (e) => { if (e.data?.size > 0) voiceChunks.push(e.data); };
+    voiceRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      _stopVoiceLevelMonitoring(voiceTarget);
+      const blob = new Blob(voiceChunks, {type: mimeType});
+      const _targetInputId = voiceTarget === 'agent' ? 'agent-input' : (voiceTarget === 'atlas-claude' ? 'atlas-claude-input' : 'input');
+      // Atlas: ASR result only populates the input (user reviews/edits, then sends).
+      await transcribeVoiceBlob(blob, {targetInputId: _targetInputId, autoSendAfterAsr: voiceTarget !== 'atlas-claude', target: voiceTarget});
+      voiceRecorder = null;
+      voiceChunks = [];
+      if (voiceContinuousEnabled) _maybeRestartContinuousVoice();
+    };
+    voiceRecorder.start();
+    voiceRecording = true;
+    _setMicState(true, false, voiceTarget);
+    _startVoiceLevelMonitoring(stream, voiceTarget);
+    addLog('info','voice',`recording started (${voiceTarget})`);
+  } catch (e) {
+    _stopVoiceLevelMonitoring(voiceTarget);
+    addMsg('error', 'マイク起動に失敗: ' + (e.message || String(e)));
+    _setMicState(false, false, voiceTarget);
+  }
+}
+
+async function transcribeVoiceBlob(blob, opts = {}){
+  let downloadMsgEl = null;
+  const isAtlasTarget = opts.target === 'atlas-claude' || (opts.targetInputId || 'input') === 'atlas-claude-input';
+  try {
+    voiceRecording = false;
+    _setMicState(false, true);
+    const arr = await blob.arrayBuffer();
+    const b64 = _arrayBufferToBase64(arr);
+    const targetInputId = opts.targetInputId || 'input';
+    const input = document.getElementById(targetInputId);
+    const statusFn = typeof opts.statusFn === 'function' ? opts.statusFn : null;
+    const replaceMode = !!opts.replace;
+    const langSel = document.getElementById('echo-asr-lang');
+    const selectedLang = (echo.asrLang || langSel?.value || 'auto').toLowerCase();
+    const lang = (selectedLang === 'ja' || selectedLang === 'en') ? selectedLang : 'auto';
+    const resp = await fetch(API + '/voice/transcribe', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        audio_base64: b64,
+        audio_format: 'webm',
+        language: lang,
+        model: echo.asrModel || 'large-v3-turbo',
+        asr_profile: echo.asrProfile || 'balanced',
+        no_speech_threshold: echo.asrNoSpeechThreshold,
+        log_prob_threshold: echo.asrLogProbThreshold,
+        compression_ratio_threshold: echo.asrCompressionRatioThreshold,
+        auto_unload: false,
+        asr_override: !!document.getElementById('asr-engine-wrap')?.open,
+        asr_engine: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-engine-sel')?.value || '') : '',
+        faster_whisper_device: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-fw-device-sel')?.value || '') : '',
+        whisper_cpp_backend: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-cpp-backend-sel')?.value || '') : ''
+      })
+    });
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.detail || 'transcribe failed');
+    }
+    // SSEストリームを読み込む
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let done = false;
+    while (!done) {
+      const {value, done: streamDone} = await reader.read();
+      done = streamDone;
+      if (value) buffer += decoder.decode(value, {stream: !done});
+      // バッファから完結した行を処理
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // 未完結行を次回へ持ち越す
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const jsonStr = line.slice(6).trim();
+        if (!jsonStr) continue;
+        let ev;
+        try { ev = JSON.parse(jsonStr); } catch { continue; }
+        if (ev.type === 'downloading') {
+          // Atlas: show progress on the title; Lumen: in the message list.
+          if (isAtlasTarget) { try { window.AtlasClaudePanel?.setTranscribingStatus?.(true); } catch (_e) {} }
+          else { if (downloadMsgEl) { downloadMsgEl.remove(); } downloadMsgEl = addMsg('system', ev.message); }
+          addLog('info','voice','model downloading...');
+        } else if (ev.type === 'transcribing') {
+          if (isAtlasTarget) { try { window.AtlasClaudePanel?.setTranscribingStatus?.(true); } catch (_e) {} }
+          else { if (downloadMsgEl) { downloadMsgEl.remove(); } downloadMsgEl = addMsg('system', ev.message); }
+          addLog('info','voice','transcribing...');
+        } else if (ev.type === 'result') {
+          if (isAtlasTarget) { try { window.AtlasClaudePanel?.setTranscribingStatus?.(false); } catch (_e) {} }
+          if (downloadMsgEl) { downloadMsgEl.remove(); downloadMsgEl = null; }
+          const t = (ev.text || '').trim();
+          if (!t) {
+            if (!opts.skipChatError) addMsg('error', '音声認識結果が空でした。');
+            if (statusFn) statusFn('音声認識結果が空でした。', true);
+            return;
+          }
+          if (input) {
+            input.value = replaceMode ? t : ((input.value ? input.value + '\n' : '') + t);
+            autoResize(input);
+            input.focus();
+          }
+          const shouldAutoSend = opts.autoSendAfterAsr === true;
+          if (shouldAutoSend && input?.id === 'input') {
+            addLog('info','voice','auto send after asr');
+            await send();
+          } else if (shouldAutoSend && input?.id === 'agent-input') {
+            addLog('info','voice','auto send after asr (agent)');
+            sendAgentInput();
+          } else if (shouldAutoSend && input?.id === 'atlas-claude-input') {
+            addLog('info','voice','auto send after asr (atlas-claude)');
+            try { window.AtlasClaudePanel?.sendChatMessage(); } catch (_e) {}
+          }
+          if (statusFn) statusFn(`ASR入力完了 (${ev.language || lang})`);
+          addLog('ok','voice',`transcribed (${ev.language || lang})`);
+        } else if (ev.type === 'error') {
+          throw new Error(ev.detail || 'transcribe failed');
+        }
+      }
+    }
+  } catch (e) {
+    if (isAtlasTarget) { try { window.AtlasClaudePanel?.setTranscribingStatus?.(false); } catch (_e) {} }
+    if (downloadMsgEl) { downloadMsgEl.remove(); downloadMsgEl = null; }
+    if (!opts.skipChatError) addMsg('error', '音声認識に失敗: ' + (e.message || String(e)));
+    if (statusFn) statusFn('音声認識に失敗: ' + (e.message || String(e)), true);
+    addLog('err','voice', e.message || String(e));
+  } finally {
+    if (isAtlasTarget) { try { window.AtlasClaudePanel?.setTranscribingStatus?.(false); } catch (_e) {} }
+    if (!opts.skipMainMicState) _setMicState(false, false, opts.target || voiceTarget);
+    if (voiceContinuousEnabled && !opts.skipMainMicState) {
+      _scheduleContinuousVoiceRestart('asr_finally', 500);
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// ECHO MODE (EchoVault) 録音・翻訳・ブラウザ関数
+// ══════════════════════════════════════════════════════
+
+function _echoWsUrl() {
+  const base = (typeof API !== 'undefined' ? API : window.location.origin);
+  return base.replace(/^http/, 'ws') + '/echo/stream';
+}
+
+function _echoScrollToBottom(force = false) {
+  const container = document.getElementById('echo-transcript');
+  if (!container) return;
+  if (force || _echoAutoScroll || echo.recording) container.scrollTop = container.scrollHeight;
+}
+
+let _echoRenderRaf = null;
+let _echoPendingRenderForceRebuild = false;
+let _echoPendingRenderScroll = false;
+function _echoRequestRenderTranscript({forceRebuild = false, scroll = false} = {}) {
+  _echoPendingRenderForceRebuild = _echoPendingRenderForceRebuild || !!forceRebuild;
+  _echoPendingRenderScroll = _echoPendingRenderScroll || !!scroll;
+  if (_echoRenderRaf) return;
+  _echoRenderRaf = requestAnimationFrame(() => {
+    const force = _echoPendingRenderForceRebuild;
+    const needScroll = _echoPendingRenderScroll;
+    _echoPendingRenderForceRebuild = false;
+    _echoPendingRenderScroll = false;
+    _echoRenderRaf = null;
+    _echoRenderTranscript(force, needScroll);
+  });
+}
+
+function _echoGetSentenceDom(sid) {
+  return document.querySelector(`.echo-sentence[data-sid="${sid}"]`);
+}
+
+function _echoCreateSentenceDom(sentence) {
+  const flag = sentence.lang === 'ja' ? '🇯🇵' : '🇺🇸';
+  const div = document.createElement('div');
+  div.className = 'echo-sentence';
+  div.dataset.sid = sentence.id;
+  div.innerHTML = `
+    <div class="ts-meta">
+      <span class="ts-flag">${flag}</span>
+      <span class="ts-time">${esc(sentence.time || '')}</span>
+      <button class="ts-play" onclick="_echoPlaySentence(${sentence.id}, {force:true, trigger:'manual'})" title="読み上げ">▶</button>
+    </div>
+    <div class="ts-orig"></div>
+    <div class="ts-trans"></div>
+  `;
+  return div;
+}
+
+function _echoUpdateSentenceDom(sentence) {
+  if (echo.displayStyle !== 'sentence') {
+    _echoRequestRenderTranscript({scroll: false});
+    return;
+  }
+  const node = _echoGetSentenceDom(sentence.id);
+  if (!node) return;
+  const origEl = node.querySelector('.ts-orig');
+  const transEl = node.querySelector('.ts-trans');
+  const view = _echoGetSentenceTexts(sentence);
+  let primary = view.orig;
+  if (echo.displayFilter === 'ja') primary = view.jaText;
+  else if (echo.displayFilter === 'en') primary = view.enText;
+
+  const _setSentenceText = (el, val) => {
+    if (!el) return;
+    const txt = String(val || '');
+    if (!txt.trim()) {
+      if (el.textContent !== '—') el.textContent = '—';
+      el.classList.add('echo-field-placeholder');
+      return;
+    }
+    if (el.textContent !== txt) el.textContent = txt;
+    el.classList.remove('echo-field-placeholder');
+  };
+
+  if (origEl) {
+    _setSentenceText(origEl, primary || '');
+  }
+  if (transEl) {
+    const filter = echo.displayFilter || 'all';
+    if (filter === 'all') {
+      const translated = view.translated || '';
+      _setSentenceText(transEl, translated);
+    } else {
+      _setSentenceText(transEl, '');
+    }
+  }
+}
+
+function _echoAnimateSentenceField(sentence, field, rawText) {
+  const key = `${sentence.id}:${field}`;
+  const prevTimer = echo._animTimers.get(key);
+  if (prevTimer) cancelAnimationFrame(prevTimer);
+  const full = String(rawText || '');
+  if (String(sentence[field] || '') === full) return;
+  const revealSec = Math.max(0, Number(echo.textRevealSeconds) || 0);
+  if (revealSec <= 0 || full.length <= 1) {
+    sentence[field] = full;
+    if (echo.displayStyle === 'sentence') _echoUpdateSentenceDom(sentence);
+    else _echoRequestRenderTranscript({scroll: false});
+    return;
+  }
+  const current = String(sentence[field] || '');
+  if (!current) sentence[field] = full.slice(0, 1);
+  let idx = 0;
+  const sharedPrefixMax = Math.min(current.length, full.length);
+  while (idx < sharedPrefixMax && current[idx] === full[idx]) idx += 1;
+  if (idx >= full.length) {
+    sentence[field] = full;
+    if (echo.displayStyle === 'sentence') _echoUpdateSentenceDom(sentence);
+    else _echoRequestRenderTranscript({scroll: false});
+    return;
+  }
+  const startIdx = Math.max(1, idx);
+  sentence[field] = full.slice(0, startIdx);
+  if (echo.displayStyle === 'sentence') _echoUpdateSentenceDom(sentence);
+  else _echoRequestRenderTranscript({scroll: false});
+  const charDuration = Math.max(12, (revealSec * 1000) / Math.max(1, full.length));
+  const startAt = performance.now();
+  const frame = (now) => {
+    const elapsed = Math.max(0, now - startAt);
+    const advanced = Math.floor(elapsed / charDuration);
+    idx = Math.min(full.length, startIdx + advanced);
+    sentence[field] = full.slice(0, idx);
+    if (echo.displayStyle === 'sentence') _echoUpdateSentenceDom(sentence);
+    else _echoRequestRenderTranscript({scroll: false});
+    if (idx >= full.length) {
+      echo._animTimers.delete(key);
+      return;
+    }
+    const timer = requestAnimationFrame(frame);
+    echo._animTimers.set(key, timer);
+  };
+  const timer = requestAnimationFrame(frame);
+  echo._animTimers.set(key, timer);
+}
+
+function _echoGetSentenceTexts(sentence) {
+  const hasDisplayText = Object.prototype.hasOwnProperty.call(sentence, 'displayText');
+  const hasDisplayTranslated = Object.prototype.hasOwnProperty.call(sentence, 'displayTranslated');
+  const orig = hasDisplayText ? (sentence.displayText ?? '') : (sentence.text || '');
+  const translated = hasDisplayTranslated ? (sentence.displayTranslated ?? '') : (sentence.translated ?? '');
+  const origLang = sentence.lang === 'ja' ? 'ja' : 'en';
+  const jaText = (sentence.japanese_text ?? '') || (origLang === 'ja' ? orig : translated);
+  const enText = (sentence.english_text ?? '') || (origLang === 'en' ? orig : translated);
+  return {orig, translated, origLang, jaText, enText};
+}
+
+function _echoConcatByLanguage(lines, lang) {
+  const items = (lines || []).map(s => String(s || '')).filter(s => s.length > 0);
+  if (!items.length) return '';
+  if (lang === 'ja') return items.join('');
+  return items.join(' ').replace(/\s+([,.!?;:])/g, '$1').trim();
+}
+
+function _echoRenderTranscript(forceRebuild = false, shouldScroll = true) {
+  const container = document.getElementById('echo-transcript');
+  if (!container) return;
+  if (!echo.sentences.length) {
+    echo._parallelDomCache = null;
+    container.innerHTML = '<div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>';
+    return;
+  }
+  if (echo.displayStyle === 'sentence') {
+    echo._parallelDomCache = null;
+    if (forceRebuild) container.innerHTML = '';
+    const empty = container.querySelector('.echo-empty');
+    if (empty) empty.remove();
+    for (const s of echo.sentences) {
+      let node = _echoGetSentenceDom(s.id);
+      if (!node) {
+        node = _echoCreateSentenceDom(s);
+        container.appendChild(node);
+      }
+      _echoUpdateSentenceDom(s);
+    }
+    if (shouldScroll) _echoScrollToBottom();
+    return;
+  }
+  echo._parallelDomCache = null;
+  const chunkSize = Math.max(1, Number(echo.parallelMaxSentences) || 4);
+  const useGroupedView = ['lang_serial', 'lang_parallel'].includes(echo.displayStyle);
+  let groups = [echo.sentences];
+  if (useGroupedView) {
+    if (echo.groupOverflowMode === 'rolling') {
+      groups = [echo.sentences.slice(Math.max(0, echo.sentences.length - chunkSize))];
+    } else {
+      groups = echo.sentences.reduce((acc, s, idx) => {
+        const gi = Math.floor(idx / chunkSize);
+        if (!acc[gi]) acc[gi] = [];
+        acc[gi].push(s);
+        return acc;
+      }, []);
+    }
+  }
+  container.innerHTML = groups.map((group, index) => {
+    const ja = [];
+    const en = [];
+    const original = [];
+    const originalJa = [];
+    const originalEn = [];
+    group.forEach((s) => {
+      const view = _echoGetSentenceTexts(s);
+      if (view.orig) original.push(view.orig);
+      if (view.origLang === 'ja' && view.orig) originalJa.push(view.orig);
+      if (view.origLang === 'en' && view.orig) originalEn.push(view.orig);
+      if (view.jaText) ja.push(view.jaText);
+      if (view.enText) en.push(view.enText);
+    });
+    const filter = echo.displayFilter || 'all';
+    const jaText = filter === 'original'
+      ? _echoConcatByLanguage(originalJa, 'ja')
+      : (filter === 'en' ? '' : _echoConcatByLanguage(ja, 'ja'));
+    const enText = filter === 'original'
+      ? _echoConcatByLanguage(originalEn, 'en')
+      : (filter === 'ja' ? '' : _echoConcatByLanguage(en, 'en'));
+    const originalText = _echoConcatByLanguage(original, 'ja');
+    const frameTitle = useGroupedView
+      ? (echo.groupOverflowMode === 'rolling' ? '最新表示' : `表示枠 #${index + 1}`)
+      : '表示';
+    if (echo.displayStyle === 'lang_parallel') {
+      const showJa = filter !== 'en';
+      const showEn = filter !== 'ja';
+      const visibleCount = (showJa ? 1 : 0) + (showEn ? 1 : 0);
+      return `
+        <div class="echo-sentence">
+          <div class="ts-meta"><span class="ts-time">${frameTitle}</span></div>
+          <div style="display:grid;grid-template-columns:repeat(${Math.max(1, visibleCount)},minmax(0,1fr));gap:8px">
+            ${showJa ? `<div class="echo-sentence"><div class="ts-meta"><span class="ts-flag">🇯🇵</span><span class="ts-time">Japanese</span></div><div class="ts-orig">${esc(jaText || '—').replace(/\n/g, '<br>')}</div></div>` : ''}
+            ${showEn ? `<div class="echo-sentence"><div class="ts-meta"><span class="ts-flag">🇺🇸</span><span class="ts-time">English</span></div><div class="ts-orig">${esc(enText || '—').replace(/\n/g, '<br>')}</div></div>` : ''}
+          </div>
+        </div>`;
+    }
+    if (echo.displayStyle === 'lang_serial') {
+      return `
+        <div class="echo-sentence">
+          <div class="ts-meta"><span class="ts-time">${frameTitle}</span></div>
+          ${filter === 'original' ? `<div class="ts-orig">${esc(originalText || '—').replace(/\n/g, '<br>')}</div>` : `
+            ${filter !== 'en' ? `<div class="echo-sentence" style="margin-bottom:${filter === 'all' ? '6px' : '0'}"><div class="ts-meta"><span class="ts-flag">🇯🇵</span><span class="ts-time">Japanese</span></div><div class="ts-orig">${esc(jaText || '—').replace(/\n/g, '<br>')}</div></div>` : ''}
+            ${filter !== 'ja' ? `<div class="echo-sentence"><div class="ts-meta"><span class="ts-flag">🇺🇸</span><span class="ts-time">English</span></div><div class="ts-orig">${esc(enText || '—').replace(/\n/g, '<br>')}</div></div>` : ''}`}
+        </div>`;
+    }
+    return '';
+  }).join('');
+  if (shouldScroll) _echoScrollToBottom();
+}
+
+function _echoAddSentence(ev) {
+  const time  = new Date().toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  const sid   = ev.id;
+  const flow = _echoResolveLanguageFlow(ev);
+  const sentence = {id: sid, text: ev.text, displayText: '', lang: flow.detectedLang, translated: '', displayTranslated: '', time, detected_language: flow.detectedLang, output_language: flow.target, translation_used: flow.translationUsed, tts_language: flow.ttsLanguage, japanese_text: ev.japanese_text || '', english_text: ev.english_text || ''};
+  echo.sentences.push(sentence);
+  _echoUpdateSentenceCount();
+  if (echo.displayStyle === 'sentence') {
+    const container = document.getElementById('echo-transcript');
+    if (container) {
+      const empty = container.querySelector('.echo-empty');
+      if (empty) empty.remove();
+      container.appendChild(_echoCreateSentenceDom(sentence));
+    }
+  } else {
+    _echoRequestRenderTranscript({scroll: true});
+  }
+  _echoAnimateSentenceField(sentence, 'displayText', ev.text);
+  _echoUpdateSentenceDom(sentence);
+  _updateEchoTtsPreview({rawText: ev.text || '', translatedText: ''});
+  _echoUpdateClearBtn();
+  const shouldAutoPlayRaw = !!echo.autoPlayTts
+    && !(echo.ttsTextSource === 'translated' && echo.ttsTranslateEnabled && echo.ttsTranslateAutoplay);
+  console.info(`[Echo][autoplay_raw_check] sid=${sid} lang=${ev.lang || ''} should_play=${shouldAutoPlayRaw} flags=${JSON.stringify({
+    autoPlayTts: !!echo.autoPlayTts,
+    ttsTextSource: echo.ttsTextSource || 'raw',
+    ttsTranslateEnabled: !!echo.ttsTranslateEnabled,
+    ttsTranslateAutoplay: !!echo.ttsTranslateAutoplay,
+  })}`);
+  if (shouldAutoPlayRaw) {
+    _echoPlaySentence(sid, {trigger: 'raw_sentence_autoplay'});
+  } else {
+    console.info(`[Echo][autoplay_raw_skip] sid=${sid} reason=waiting_for_translation_or_disabled`);
+  }
+}
+
+function _echoUpdateTranslation(id, translated, meta = {}) {
+  const s = echo.sentences.find(x => x.id === id);
+  if (!s) return;
+  s.translated = translated || '';
+  if (meta.detected_language) s.detected_language = meta.detected_language;
+  if (meta.output_language) s.output_language = meta.output_language;
+  if (typeof meta.translation_used === 'boolean') s.translation_used = meta.translation_used;
+  if (typeof meta.translation_failed === 'boolean') s.translation_failed = meta.translation_failed;
+  if (Array.isArray(meta.warnings)) s.warnings = meta.warnings.slice();
+  if (meta.tts_language) s.tts_language = meta.tts_language;
+  if (meta.tts_text) s.tts_text = meta.tts_text;
+  if (typeof meta.japanese_text === 'string') s.japanese_text = meta.japanese_text;
+  if (typeof meta.english_text === 'string') s.english_text = meta.english_text;
+  _echoAnimateSentenceField(s, 'displayTranslated', translated || '');
+  _echoUpdateSentenceDom(s);
+  _updateEchoTtsPreview({rawText: s.text || '', translatedText: s.translated || ''});
+  const hasTranslatedText = !!(s.translated || '').trim();
+  const shouldAutoPlayTranslated = !!echo.ttsTranslateAutoplay
+    && echo.ttsTextSource === 'translated'
+    && hasTranslatedText;
+  console.info(`[Echo][autoplay_translated_check] sid=${id} should_play=${shouldAutoPlayTranslated} flags=${JSON.stringify({
+    ttsTranslateAutoplay: !!echo.ttsTranslateAutoplay,
+    ttsTextSource: echo.ttsTextSource || 'raw',
+    hasTranslatedText,
+  })}`);
+  if (shouldAutoPlayTranslated) {
+    _echoPlaySentence(id, {trigger: 'translated_autoplay'});
+  }
+}
+
+
+function _echoSanitizeEnglishTtsText(text) {
+  return String(text || '')
+    .replace(/[\u{1F300}-\u{1FAFF}\uFE0F]/gu, ' ')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/[\u3000]/g, ' ')
+    .replace(/[^A-Za-z0-9 .,!?;:'"()\-\/\n\r\t]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function _echoNormalizeJapaneseTtsText(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return raw;
+  const hasAsciiWord = /[A-Za-z]{2,}/.test(raw);
+  if (!hasAsciiWord) return raw;
+  try {
+    const resp = await fetch(API + '/api/tts/style-bert-vits2/preview-normalization', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        text: raw,
+        language: 'JP',
+      })
+    });
+    if (!resp.ok) return raw;
+    const data = await resp.json();
+    const normalized = String(data?.normalized_text || '').trim();
+    return normalized || raw;
+  } catch (_) {
+    return raw;
+  }
+}
+async function _echoPrepareSpeechText(sentence) {
+  const raw = String(sentence?.text || '').trim();
+  const translated = String(sentence?.translated || '').trim();
+  const translatedFailed = sentence?.translation_failed === true;
+  const detected = sentence?.detected_language || _echoInferLanguage(raw, (echo.asrLanguage || 'auto'));
+  const output = sentence?.output_language || ((echo.outputLanguage || 'same') === 'same' ? detected : (echo.outputLanguage || detected));
+  const preferred = (echo.ttsLanguage || 'auto') === 'auto' ? output : (echo.ttsLanguage || output);
+  let ttsText = preferred === 'ja'
+    ? String(sentence?.japanese_text || '').trim()
+    : String(sentence?.english_text || '').trim();
+  const placeholderFailed = ttsText === '[translation failed]';
+  if (!ttsText || placeholderFailed || translatedFailed) {
+    const candidate = String(sentence?.tts_text || '').trim();
+    const safeCandidate = candidate && candidate !== '[translation failed]' ? candidate : '';
+    ttsText = safeCandidate || (translated && sentence?.translation_used && translated !== '[translation failed]' ? translated : raw);
+  }
+  const translationUsed = !!sentence?.translation_used;
+
+  if (output === 'ja') {
+    ttsText = await _echoNormalizeJapaneseTtsText(ttsText);
+  }
+
+  if (output === 'en') {
+    ttsText = _echoSanitizeEnglishTtsText(ttsText);
+  }
+
+  sentence.translation_used = translationUsed;
+  sentence.tts_text = ttsText;
+  sentence.tts_language = preferred;
+  return {ttsText, detected, output, ttsLanguage: sentence.tts_language};
+}
+async function _echoPlaySentence(sid, opts = {}) {
+  const s = echo.sentences.find(x => x.id === sid);
+  if (!s) return;
+  const trigger = opts.trigger || 'unknown';
+  const prepared = await _echoPrepareSpeechText(s);
+  const speechText = prepared.ttsText || s.text;
+  console.info(`[Echo][play_sentence] sid=${sid} trigger=${trigger} detected=${prepared.detected} output=${prepared.output} tts=${prepared.ttsLanguage}`);
+  _updateEchoTtsPreview({rawText: s.text || '', translatedText: s.translated || ''});
+  ttsSpeak(speechText, {
+    context: 'echo',
+    force: opts.force === true,
+    engine: echo.ttsEngine,
+    skipTranslate: true,
+    rawText: s.text || '',
+    translatedText: s.translated || '',
+  });
+}
+
+
+function _echoInferLanguage(text, fallback = 'auto') {
+  const src = String(text || '');
+  if (/[぀-ヿ㐀-鿿]/.test(src)) return 'ja';
+  if (/[A-Za-z]/.test(src)) return 'en';
+  return fallback === 'ja' || fallback === 'en' ? fallback : 'ja';
+}
+function _echoResolveLanguageFlow(ev) {
+  const detected = (ev.detected_language || ev.lang || '').toLowerCase();
+  const asrLang = (echo.asrLanguage || echo.asrLang || 'auto').toLowerCase();
+  const detectedLang = detected === 'ja' || detected === 'en' ? detected : _echoInferLanguage(ev.text || '', asrLang);
+  const output = (echo.outputLanguage || 'same').toLowerCase();
+  const target = output === 'ja' || output === 'en' ? output : detectedLang;
+  const translationUsed = target !== detectedLang;
+  const ttsLanguage = (echo.ttsLanguage || 'auto') === 'auto' ? target : echo.ttsLanguage;
+  return {detectedLang, target, translationUsed, ttsLanguage};
+}
+function _echoHandleEvent(ev) {
+  if (ev.type === 'sentence') {
+    _echoAddSentence(ev);
+  } else if (ev.type === 'translation') {
+    _echoUpdateTranslation(ev.id, ev.translated, ev);
+  } else if (ev.type === 'status') {
+    const stateMap = {
+      recording: '● 録音中',
+      transcribing: '⟳ 文字起こし中...',
+      saving: '💾 保存中...',
+    };
+    _echoSetStatus(stateMap[ev.state] || ev.state);
+  } else if (ev.type === 'summary_done') {
+    echo._isStoppingOrSaving = false;
+    _echoSetStatus('✓ 保存完了: ' + (ev.filename || ''));
+    _echoVaultSetInfo('');
+    refreshEchoVault();
+  } else if (ev.type === 'session_stopping') {
+    echo._isStoppingOrSaving = true;
+    _echoSetStatus('✓ 停止完了（保存はバックグラウンドで継続）');
+    _echoScheduleVaultRefresh();
+  } else if (ev.type === 'error') {
+    _echoSetStatus('⚠ ' + (ev.detail || 'エラー'));
+    addLog('err', 'echo', ev.summary || ev.detail || 'echo error');
+  } else if (ev.type === 'ui_log') {
+    addLog(ev.level === 'warn' ? 'warn' : 'err', 'echo', ev.summary || ev.message || 'echo log');
+  } else if (ev.type === 'ack' && Number.isFinite(ev.seq)) {
+    echo.unackedChunks.delete(ev.seq);
+  }
+}
+
+function _echoScheduleVaultRefresh(attempt = 0) {
+  const tries = Math.max(1, Math.min(10, 1 + attempt));
+  setTimeout(async () => {
+    await refreshEchoVault();
+    const saving = await _echoHasPendingSave();
+    if (!saving) {
+      echo._isStoppingOrSaving = false;
+      if (!echo.recording) _echoSetStatus('Ready');
+      _echoSyncBusyStatus(document.getElementById('echo-status')?.textContent || '');
+      _syncEchoMinutesButtonUi();
+      return;
+    }
+    if (tries < 6) _echoScheduleVaultRefresh(tries);
+  }, 1500 * tries);
+}
+
+function _echoFlushPendingChunks() {
+  if (!echo.ws || echo.ws.readyState !== WebSocket.OPEN) return;
+  for (const [seq, chunk] of echo.unackedChunks) {
+    try {
+      echo.ws.send(chunk);
+    } catch(e) {}
+  }
+}
+
+function _echoScheduleReconnect() {
+  if (!echo.recording || echo._isStoppingOrSaving) return;
+  if (echo._reconnectTimer) return;
+  const delay = Math.min(1000 * Math.pow(2, echo.reconnectCount), 8000);
+  echo.reconnectCount++;
+  _echoSetConn('reconnecting');
+  _echoSetStatus(`再接続中... (${echo.reconnectCount}回目, ${delay/1000}秒後)`);
+  echo._reconnectTimer = setTimeout(() => {
+    echo._reconnectTimer = null;
+    if (echo.recording) _echoConnectWs('resume');
+  }, delay);
+}
+
+function _echoConnectWs(wsMode) {
+  if (echo.ws) {
+    try { echo.ws.close(); } catch(e) {}
+    echo.ws = null;
+  }
+  const ws = new WebSocket(_echoWsUrl());
+  ws.binaryType = 'arraybuffer';
+  echo.ws = ws;
+
+  ws.onopen = () => {
+    if (echo.ws !== ws) return;
+    echo.reconnectCount = 0;
+    _echoSetConn('connected');
+    const payload = wsMode === 'resume'
+      ? {type: 'resume', session_id: echo.sessionId}
+      : {
+          type: 'start',
+          session_id: echo.sessionId,
+          language: echo.asrLanguage || echo.asrLang,
+          model: echo.asrModel,
+          asr_profile: echo.asrProfile || 'balanced',
+          no_speech_threshold: echo.asrNoSpeechThreshold,
+          log_prob_threshold: echo.asrLogProbThreshold,
+          compression_ratio_threshold: echo.asrCompressionRatioThreshold,
+          asr_device: echo.asrDevice,
+          asr_post_filter: {
+            enabled: echo.asrFilterEnabled,
+            reject_short_text: echo.asrRejectShortTextEnabled,
+            reject_high_no_speech_prob: echo.asrRejectNoSpeechEnabled,
+            reject_low_avg_logprob: echo.asrRejectLogprobEnabled,
+            reject_short_word_low_conf: echo.asrRejectShortWordLowConfEnabled,
+            min_chars: echo.asrMinChars,
+            short_text_max_chars: echo.asrShortTextMaxChars,
+            no_speech_reject: echo.asrNoSpeechReject,
+            low_logprob_reject: echo.asrLowLogprobReject,
+            short_word_max_words: echo.asrShortWordMaxWords,
+            short_word_low_logprob_reject: echo.asrShortWordLowLogprobReject,
+          },
+          audio_format: 'pcm_s16le',
+          sample_rate: echo.pcmTargetRate,
+          channels: 1,
+          mime: `audio/pcm;rate=${echo.pcmTargetRate};channels=1`,
+          translate_enabled: !!echo.ttsTranslateEnabled,
+          output_language: echo.outputLanguage || 'same',
+          tts_language: echo.ttsLanguage || 'auto',
+          create_minutes: !!echo.autoGenerateMinutes,
+        };
+    ws.send(JSON.stringify(payload));
+    _echoFlushPendingChunks();
+    _echoSetStatus('● 録音中');
+  };
+  ws.onmessage = (e) => {
+    if (echo.ws !== ws) return;
+    try { _echoHandleEvent(JSON.parse(e.data)); } catch(err) {}
+  };
+  ws.onclose = () => {
+    if (echo.ws !== ws) return;
+    _echoSetConn('disconnected');
+    if (echo.recording) _echoScheduleReconnect();
+  };
+  ws.onerror = () => {
+    if (echo.ws !== ws) return;
+    _echoSetConn('error');
+    if (echo.recording) _echoScheduleReconnect();
+  };
+}
+
+async function _echoHasPendingSave() {
+  try {
+    const r = await fetch(API + '/echo/save-status');
+    if (!r.ok) return false;
+    const d = await r.json();
+    return !!d.saving;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function _echoStart() {
+  if (echo._isStoppingOrSaving || await _echoHasPendingSave()) {
+    echo._isStoppingOrSaving = true;
+    _echoSetStatus('議事録作成中のため、開始できません。完了後に再度 Start を押してください。');
+    _echoSetConn('disconnected');
+    _echoScheduleVaultRefresh();
+    return;
+  }
+  echo._isStoppingOrSaving = false;
+  try {
+    const selectedInput = String(echo.asrInputDeviceId || 'default');
+    const audioConstraints = selectedInput && selectedInput !== 'default'
+      ? {deviceId: {exact: selectedInput}}
+      : true;
+    echo.stream = await navigator.mediaDevices.getUserMedia({audio: audioConstraints});
+  } catch(e) {
+    _echoSetStatus('マイクのアクセスが拒否されました: ' + e.message);
+    return;
+  }
+  echo.sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  echo.sentences  = [];
+  echo._parallelDomCache = null;
+  echo._animTimers.forEach((timer) => cancelAnimationFrame(timer));
+  echo._animTimers.clear();
+  echo.pendingChunks = [];
+  echo.nextChunkSeq = 1;
+  echo.unackedChunks = new Map();
+  echo.reconnectCount = 0;
+  echo.pcmPendingInt16 = new Int16Array(0);
+  echo._vadRecentFlags = [];
+  echo._vadPreRollFrames = [];
+  echo._vadInSpeech = false;
+  echo._vadUtteranceFrames = [];
+  echo._vadUtteranceRmsSum = 0;
+  echo._vadUtteranceSpeechFrames = 0;
+  echo._vadNonSpeechRun = 0;
+  echo._vadOverlapTail = new Int16Array(0);
+  echo._highpassLastX = 0;
+  echo._highpassLastY = 0;
+  echo.startTime  = Date.now();
+  echo.recording  = true;
+  _echoVaultSetInfo('');
+  _echoAutoScroll = true;
+  _echoPreviewMode = false;
+  // UI更新
+  const btn = document.getElementById('echo-record-btn');
+  if (btn) { btn.textContent = '■ Stop'; btn.classList.add('recording'); }
+  // トランスクリプト初期化
+  const tc = document.getElementById('echo-transcript');
+  if (tc) tc.innerHTML = '<div class="echo-empty" style="opacity:.5">録音中...</div>';
+  _echoUpdateSentenceCount();
+  // タイマー開始
+  echo.durationTimer = setInterval(_echoUpdateDuration, 1000);
+  // WS接続
+  _echoConnectWs('start');
+  // AudioContext + ScriptProcessor で PCM(16k mono s16le) を2秒ごとに送信
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  echo.audioCtx = ctx;
+  const source = ctx.createMediaStreamSource(echo.stream);
+  echo.sourceNode = source;
+  const processor = ctx.createScriptProcessor(4096, 1, 1);
+  echo.processorNode = processor;
+
+  function _echoConcatInt16(a, b) {
+    if (!a || a.length === 0) return b;
+    if (!b || b.length === 0) return a;
+    const out = new Int16Array(a.length + b.length);
+    out.set(a, 0);
+    out.set(b, a.length);
+    return out;
+  }
+  function _echoDownsampleTo16k(float32, inputRate, outRate = 16000) {
+    if (!float32 || float32.length === 0) return new Int16Array(0);
+    if (inputRate <= 0 || outRate <= 0) return new Int16Array(0);
+    if (inputRate === outRate) {
+      const out = new Int16Array(float32.length);
+      for (let i = 0; i < float32.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32[i] || 0));
+        out[i] = s < 0 ? Math.round(s * 0x8000) : Math.round(s * 0x7fff);
+      }
+      return out;
+    }
+    const ratio = inputRate / outRate;
+    const outLen = Math.max(0, Math.floor(float32.length / ratio));
+    const out = new Int16Array(outLen);
+    let pos = 0;
+    for (let i = 0; i < outLen; i++) {
+      const idx = Math.floor(pos);
+      const s = Math.max(-1, Math.min(1, float32[idx] || 0));
+      out[i] = s < 0 ? Math.round(s * 0x8000) : Math.round(s * 0x7fff);
+      pos += ratio;
+    }
+    return out;
+  }
+  function _echoEmitPcmChunk(int16Chunk) {
+    if (!int16Chunk || int16Chunk.length === 0) return;
+    const seq = echo.nextChunkSeq++;
+    const pcmBytes = new Uint8Array(int16Chunk.buffer.slice(int16Chunk.byteOffset, int16Chunk.byteOffset + int16Chunk.byteLength));
+    const packet = new Uint8Array(4 + pcmBytes.length);
+    const dv = new DataView(packet.buffer);
+    dv.setUint32(0, seq, false); // big-endian
+    packet.set(pcmBytes, 4);
+    echo.unackedChunks.set(seq, packet.buffer);
+    if (echo.ws && echo.ws.readyState === WebSocket.OPEN) _echoFlushPendingChunks();
+  }
+  function _echoWithVadOverlap(int16Chunk) {
+    if (!int16Chunk || int16Chunk.length === 0) return int16Chunk;
+    if (!echo.vadEnabled || !echo.vadOverlapEnabled) return int16Chunk;
+    const overlapSamples = Math.max(0, Math.floor((echo.pcmTargetRate * (echo.vadOverlapMs || 280)) / 1000));
+    if (overlapSamples <= 0) return int16Chunk;
+    const tail = echo._vadOverlapTail || new Int16Array(0);
+    let out = int16Chunk;
+    if (tail.length > 0) {
+      out = new Int16Array(tail.length + int16Chunk.length);
+      out.set(tail, 0);
+      out.set(int16Chunk, tail.length);
+    }
+    const tailLen = Math.min(overlapSamples, int16Chunk.length);
+    echo._vadOverlapTail = tailLen > 0 ? int16Chunk.slice(int16Chunk.length - tailLen) : new Int16Array(0);
+    return out;
+  }
+
+  function _echoApplyRealtimeNoiseReduction(float32, sampleRate) {
+    if (!float32 || float32.length === 0) return new Float32Array(0);
+    const out = new Float32Array(float32.length);
+    const hpEnabled = !!echo.highpassEnabled;
+    const gateEnabled = !!echo.noiseGateEnabled;
+    const hpHz = Math.max(20, Math.min(240, Number(echo.highpassHz) || 120));
+    const gateTh = Math.max(0.002, Math.min(0.1, Number(echo.noiseGateThreshold) || 0.012));
+    const dt = 1 / Math.max(1, sampleRate || 16000);
+    const rc = 1 / (2 * Math.PI * hpHz);
+    const alpha = rc / (rc + dt);
+    let prevX = Number(echo._highpassLastX) || 0;
+    let prevY = Number(echo._highpassLastY) || 0;
+    for (let i = 0; i < float32.length; i++) {
+      let x = float32[i] || 0;
+      if (hpEnabled) {
+        const y = alpha * (prevY + x - prevX);
+        prevX = x;
+        prevY = y;
+        x = y;
+      }
+      if (gateEnabled && Math.abs(x) < gateTh) x = 0;
+      out[i] = x;
+    }
+    echo._highpassLastX = prevX;
+    echo._highpassLastY = prevY;
+    return out;
+  }
+
+  const chunkSamples = echo.pcmTargetRate * echo.pcmChunkSeconds;
+  const vadFrameSamples = Math.max(1, Math.floor((echo.pcmTargetRate * (echo.vadFrameMs || 20)) / 1000));
+  function _echoModeThresholdMultiplier(mode) {
+    const m = Number(mode);
+    if (m <= 0) return 0.85;
+    if (m === 1) return 1.0;
+    if (m === 2) return 1.15;
+    return 1.3; // mode=3
+  }
+  function _echoFrameRms(int16Frame) {
+    if (!int16Frame || int16Frame.length === 0) return 0;
+    let sum = 0;
+    for (let i = 0; i < int16Frame.length; i++) {
+      const x = (int16Frame[i] || 0) / 32768;
+      sum += x * x;
+    }
+    return Math.sqrt(sum / int16Frame.length);
+  }
+  function _echoConcatFrames(frames) {
+    if (!frames || !frames.length) return new Int16Array(0);
+    let total = 0;
+    for (const f of frames) total += f.length;
+    const out = new Int16Array(total);
+    let offset = 0;
+    for (const f of frames) {
+      out.set(f, offset);
+      offset += f.length;
+    }
+    return out;
+  }
+  function _echoFinalizeVadUtterance(force = false) {
+    if (!echo._vadInSpeech || !echo._vadUtteranceFrames.length) return;
+    if (!force && echo._vadNonSpeechRun < echo.vadEndNonSpeechFrames) return;
+    const frameCount = echo._vadUtteranceFrames.length;
+    const totalMs = frameCount * (echo.vadFrameMs || 20);
+    const avgRms = echo._vadUtteranceRmsSum / Math.max(1, frameCount);
+    const speechMs = echo._vadUtteranceSpeechFrames * (echo.vadFrameMs || 20);
+    if (speechMs >= echo.vadMinSpeechMs && avgRms >= echo.vadMinAvgRms) {
+      const utterance = _echoConcatFrames(echo._vadUtteranceFrames);
+      _echoEmitPcmChunk(_echoWithVadOverlap(utterance));
+    }
+    echo._vadInSpeech = false;
+    echo._vadUtteranceFrames = [];
+    echo._vadUtteranceRmsSum = 0;
+    echo._vadUtteranceSpeechFrames = 0;
+    echo._vadNonSpeechRun = 0;
+  }
+  function _echoConsumeVadFrame(frame) {
+    const rms = _echoFrameRms(frame);
+    const speechThreshold = Math.max(0.001, echo.vadRmsThreshold * _echoModeThresholdMultiplier(echo.vadMode));
+    const isSpeech = rms >= speechThreshold;
+    const recent = echo._vadRecentFlags || [];
+    recent.push(isSpeech);
+    while (recent.length > echo.vadStartWindowFrames) recent.shift();
+    echo._vadRecentFlags = recent;
+    const pre = echo._vadPreRollFrames || [];
+    pre.push(frame);
+    while (pre.length > echo.vadStartWindowFrames) pre.shift();
+    echo._vadPreRollFrames = pre;
+
+    if (!echo._vadInSpeech) {
+      const speechCount = recent.reduce((n, x) => n + (x ? 1 : 0), 0);
+      if (speechCount >= echo.vadStartSpeechFrames) {
+        echo._vadInSpeech = true;
+        echo._vadUtteranceFrames = [...pre];
+        echo._vadUtteranceRmsSum = pre.reduce((s, fr) => s + _echoFrameRms(fr), 0);
+        echo._vadUtteranceSpeechFrames = pre.reduce((s, fr) => s + (_echoFrameRms(fr) >= speechThreshold ? 1 : 0), 0);
+        echo._vadNonSpeechRun = isSpeech ? 0 : 1;
+      }
+      return;
+    }
+    echo._vadUtteranceFrames.push(frame);
+    echo._vadUtteranceRmsSum += rms;
+    if (isSpeech) {
+      echo._vadUtteranceSpeechFrames += 1;
+      echo._vadNonSpeechRun = 0;
+    } else {
+      echo._vadNonSpeechRun += 1;
+    }
+    // 長時間話し続けるケースでもASRが固まって見えないよう、一定サイズで分割送信する
+    let utteranceSamples = 0;
+    for (const fr of echo._vadUtteranceFrames) utteranceSamples += fr.length;
+    if (utteranceSamples >= chunkSamples) {
+      const utterance = _echoConcatFrames(echo._vadUtteranceFrames);
+      _echoEmitPcmChunk(_echoWithVadOverlap(utterance));
+      echo._vadUtteranceFrames = [];
+      echo._vadUtteranceRmsSum = 0;
+      echo._vadUtteranceSpeechFrames = 0;
+      echo._vadNonSpeechRun = 0;
+    }
+    _echoFinalizeVadUtterance(false);
+  }
+  processor.onaudioprocess = (ev) => {
+    if (!echo.recording) return;
+    if (_isEchoRecordingBlockedByTts()) {
+      echo.pcmPendingInt16 = new Int16Array(0);
+      echo._vadRecentFlags = [];
+      echo._vadPreRollFrames = [];
+      echo._vadInSpeech = false;
+      echo._vadUtteranceFrames = [];
+      echo._vadUtteranceRmsSum = 0;
+      echo._vadUtteranceSpeechFrames = 0;
+      echo._vadNonSpeechRun = 0;
+      return;
+    }
+    const input = ev.inputBuffer.getChannelData(0);
+    const cleaned = _echoApplyRealtimeNoiseReduction(input, ctx.sampleRate);
+    const downsampled = _echoDownsampleTo16k(cleaned, ctx.sampleRate, echo.pcmTargetRate);
+    echo.pcmPendingInt16 = _echoConcatInt16(echo.pcmPendingInt16, downsampled);
+    if (!echo.vadEnabled) {
+      while (echo.pcmPendingInt16.length >= chunkSamples) {
+        const emit = echo.pcmPendingInt16.slice(0, chunkSamples);
+        echo.pcmPendingInt16 = echo.pcmPendingInt16.slice(chunkSamples);
+        _echoEmitPcmChunk(emit);
+      }
+      return;
+    }
+    while (echo.pcmPendingInt16.length >= vadFrameSamples) {
+      const frame = echo.pcmPendingInt16.slice(0, vadFrameSamples);
+      echo.pcmPendingInt16 = echo.pcmPendingInt16.slice(vadFrameSamples);
+      _echoConsumeVadFrame(frame);
+    }
+  };
+
+  source.connect(processor);
+  processor.connect(ctx.destination);
+}
+
+async function _echoStop() {
+  echo.recording = false;
+  echo._isStoppingOrSaving = true;
+  _echoAutoScroll = false;
+  // タイマー停止
+  if (echo.durationTimer) { clearInterval(echo.durationTimer); echo.durationTimer = null; }
+  if (echo._reconnectTimer) { clearTimeout(echo._reconnectTimer); echo._reconnectTimer = null; }
+  if (echo.vadEnabled && echo._vadInSpeech) {
+    if (echo.pcmPendingInt16 && echo.pcmPendingInt16.length > 0) {
+      const tailFrame = echo.pcmPendingInt16.slice(0);
+      echo._vadUtteranceFrames = [...(echo._vadUtteranceFrames || []), tailFrame];
+      let sum = 0;
+      for (let i = 0; i < tailFrame.length; i++) {
+        const x = (tailFrame[i] || 0) / 32768;
+        sum += x * x;
+      }
+      const tailRms = Math.sqrt(sum / Math.max(1, tailFrame.length));
+      echo._vadUtteranceRmsSum = (echo._vadUtteranceRmsSum || 0) + tailRms;
+      const speechThreshold = Math.max(0.001, echo.vadRmsThreshold * (echo.vadMode === 0 ? 0.85 : echo.vadMode === 1 ? 1.0 : echo.vadMode === 2 ? 1.15 : 1.3));
+      if (tailRms >= speechThreshold) echo._vadUtteranceSpeechFrames = (echo._vadUtteranceSpeechFrames || 0) + 1;
+    }
+    const frameCount = (echo._vadUtteranceFrames || []).length;
+    const speechMs = (echo._vadUtteranceSpeechFrames || 0) * (echo.vadFrameMs || 20);
+    const avgRms = frameCount > 0 ? (echo._vadUtteranceRmsSum || 0) / frameCount : 0;
+    if (frameCount > 0 && speechMs >= echo.vadMinSpeechMs && avgRms >= echo.vadMinAvgRms) {
+      let total = 0;
+      for (const fr of echo._vadUtteranceFrames) total += fr.length;
+      const utterance = new Int16Array(total);
+      let off = 0;
+      for (const fr of echo._vadUtteranceFrames) { utterance.set(fr, off); off += fr.length; }
+      let finalUtterance = utterance;
+      if (echo.vadEnabled && echo.vadOverlapEnabled) {
+        const overlapSamples = Math.max(0, Math.floor((echo.pcmTargetRate * (echo.vadOverlapMs || 280)) / 1000));
+        const tail = echo._vadOverlapTail || new Int16Array(0);
+        if (tail.length > 0) {
+          finalUtterance = new Int16Array(tail.length + utterance.length);
+          finalUtterance.set(tail, 0);
+          finalUtterance.set(utterance, tail.length);
+        }
+        const tailLen = Math.min(overlapSamples, utterance.length);
+        echo._vadOverlapTail = tailLen > 0 ? utterance.slice(utterance.length - tailLen) : new Int16Array(0);
+      }
+      const seq = echo.nextChunkSeq++;
+      const pcmBytes = new Uint8Array(finalUtterance.buffer.slice(finalUtterance.byteOffset, finalUtterance.byteOffset + finalUtterance.byteLength));
+      const packet = new Uint8Array(4 + pcmBytes.length);
+      new DataView(packet.buffer).setUint32(0, seq, false);
+      packet.set(pcmBytes, 4);
+      echo.unackedChunks.set(seq, packet.buffer);
+    }
+    echo._vadInSpeech = false;
+    echo._vadUtteranceFrames = [];
+    echo._vadUtteranceRmsSum = 0;
+    echo._vadUtteranceSpeechFrames = 0;
+    echo._vadNonSpeechRun = 0;
+    echo.pcmPendingInt16 = new Int16Array(0);
+    echo._vadOverlapTail = new Int16Array(0);
+  }
+  // PCM残バッファ flush
+  if (echo.pcmPendingInt16 && echo.pcmPendingInt16.length > 0) {
+    const seq = echo.nextChunkSeq++;
+    const pcmBytes = new Uint8Array(echo.pcmPendingInt16.buffer.slice(
+      echo.pcmPendingInt16.byteOffset,
+      echo.pcmPendingInt16.byteOffset + echo.pcmPendingInt16.byteLength
+    ));
+    const packet = new Uint8Array(4 + pcmBytes.length);
+    const dv = new DataView(packet.buffer);
+    dv.setUint32(0, seq, false);
+    packet.set(pcmBytes, 4);
+    echo.unackedChunks.set(seq, packet.buffer);
+    echo.pcmPendingInt16 = new Int16Array(0);
+  }
+  echo._vadOverlapTail = new Int16Array(0);
+  // Audio graph 停止
+  if (echo.processorNode) {
+    try { echo.processorNode.disconnect(); } catch(e) {}
+    echo.processorNode.onaudioprocess = null;
+    echo.processorNode = null;
+  }
+  if (echo.sourceNode) {
+    try { echo.sourceNode.disconnect(); } catch(e) {}
+    echo.sourceNode = null;
+  }
+  if (echo.audioCtx) {
+    try { await echo.audioCtx.close(); } catch(e) {}
+    echo.audioCtx = null;
+  }
+  // ストリーム停止
+  if (echo.stream) {
+    echo.stream.getTracks().forEach(t => t.stop());
+    echo.stream = null;
+  }
+  // UI更新
+  const btn = document.getElementById('echo-record-btn');
+  if (btn) { btn.textContent = '● Start'; btn.classList.remove('recording'); }
+  _echoSetStatus('停止中... 保存を開始しています');
+  // WS停止シグナル
+  if (echo.ws && echo.ws.readyState === WebSocket.OPEN) {
+    _echoFlushPendingChunks();
+    echo.ws.send(JSON.stringify({type: 'stop'}));
+  }
+  _echoScheduleVaultRefresh();
+  _echoSetConn('disconnected');
+  _echoUpdateClearBtn();
+}
+
+async function toggleEchoRecording() {
+  if (echo.recording) {
+    await _echoStop();
+  } else {
+    if (_isEchoRecordingBlockedByTts()) {
+      _echoSetStatus('TTS生成/再生中は録音を開始できません。');
+      return;
+    }
+    if (!ttsManualUnlocked) await enableAudioFromUserGesture();
+    await _echoStart();
+  }
+}
+
+// ── Echo Clear ボタン ──
+function _echoUpdateClearBtn() {
+  const btn = document.getElementById('echo-clear-btn');
+  if (!btn) return;
+  btn.style.display = (!echo.recording && (echo.sentences.length > 0 || _echoPreviewMode)) ? '' : 'none';
+}
+
+function echoClearTranscript() {
+  if (echo.recording) return;
+  echo._animTimers.forEach((timer) => cancelAnimationFrame(timer));
+  echo._animTimers.clear();
+  echo.sentences = [];
+  echo._parallelDomCache = null;
+  _echoPreviewMode = false;
+  const container = document.getElementById('echo-transcript');
+  if (container) container.innerHTML = '<div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>';
+  _echoUpdateClearBtn();
+  _echoUpdateSentenceCount();
+}
+
+// ── Echo スクロール制御（録音中にユーザーが手動スクロールした場合、自動スクロールを解除） ──
+function _echoInitScrollListener() {
+  const container = document.getElementById('echo-transcript');
+  if (!container) return;
+  container.addEventListener('scroll', () => {
+    if (!echo.recording) return;
+    const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 60;
+    _echoAutoScroll = atBottom;
+  }, {passive: true});
+}
+
+const ECHO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+const ECHO_UPLOAD_ALLOWED_EXTS = new Set(['wav', 'mp3', 'm4a', 'webm', 'ogg', 'flac']);
+
+function _readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const v = String(reader.result || '');
+      const comma = v.indexOf(',');
+      resolve(comma >= 0 ? v.slice(comma + 1) : v);
+    };
+    reader.onerror = () => reject(reader.error || new Error('file read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function echoUploadSessionAudio(input) {
+  const file = input?.files?.[0];
+  const btn = document.getElementById('echo-upload-btn');
+  if (!file) {
+    _echoUploadSetStatus('音声ファイルを選択してください。', 'error');
+    return;
+  }
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (!ECHO_UPLOAD_ALLOWED_EXTS.has(ext)) {
+    _echoUploadSetStatus('非対応フォーマットです。wav/mp3/m4a/webm/ogg/flac を選択してください。', 'error');
+    return;
+  }
+  if (file.size > ECHO_UPLOAD_MAX_BYTES) {
+    _echoUploadSetStatus(`ファイルサイズ上限を超えています（上限 ${_fmtBytes(ECHO_UPLOAD_MAX_BYTES)}）。`, 'error');
+    return;
+  }
+  const langSel = document.getElementById('echo-asr-lang');
+  const selectedLang = (echo.asrLang || langSel?.value || 'auto').toLowerCase();
+  const lang = (selectedLang === 'ja' || selectedLang === 'en') ? selectedLang : 'auto';
+  const autoMinutes = !!document.getElementById('echo-upload-auto-minutes')?.checked;
+  const audioFormat = ext || 'webm';
+  if (btn) btn.disabled = true;
+  try {
+    _echoUploadSetStatus('ファイルを読み込み中です...', 'info');
+    const b64 = await _readFileAsBase64(file);
+    _echoUploadSetStatus('音声を文字起こし中です。初回はASRモデルのロードで時間がかかる場合があります...', 'info');
+    const resp = await fetch(API + '/voice/transcribe', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        audio_base64: b64,
+        audio_format: audioFormat,
+        language: lang,
+        model: echo.asrModel || 'large-v3-turbo',
+        asr_profile: echo.asrProfile || 'balanced',
+        auto_unload: false,
+        asr_override: !!document.getElementById('asr-engine-wrap')?.open,
+        asr_engine: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-engine-sel')?.value || '') : '',
+        faster_whisper_device: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-fw-device-sel')?.value || '') : '',
+        whisper_cpp_backend: document.getElementById('asr-engine-wrap')?.open ? (document.getElementById('asr-cpp-backend-sel')?.value || '') : '',
+      })
+    });
+    if (!resp.ok || !resp.body) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.detail || 'ASR処理に失敗しました。');
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let done = false;
+    let transcriptText = '';
+    let detectedLang = lang;
+    let asrSegments = [];
+
+    while (!done) {
+      const {value, done: streamDone} = await reader.read();
+      done = streamDone;
+      if (value) buffer += decoder.decode(value, {stream: !done});
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let ev = null;
+        try { ev = JSON.parse(line.slice(6).trim()); } catch (_) { continue; }
+        if (!ev) continue;
+        if (ev.type === 'downloading') {
+          _echoUploadSetStatus(ev.message || 'ASRモデルをダウンロード中です...', 'info');
+        } else if (ev.type === 'transcribing') {
+          _echoUploadSetStatus(ev.message || '音声を文字変換中です...', 'info');
+        } else if (ev.type === 'error') {
+          throw new Error(ev.detail || 'ASR失敗');
+        } else if (ev.type === 'result') {
+          transcriptText = String(ev.text || '').trim();
+          detectedLang = ev.language || detectedLang;
+          asrSegments = Array.isArray(ev.segments) ? ev.segments : [];
+        }
+      }
+    }
+    if (!transcriptText) throw new Error('音声認識結果が空でした。');
+
+    _echoUploadSetStatus('segmenting...', 'info');
+    _echoUploadSetStatus('translating...', 'info');
+    _echoUploadSetStatus('文字起こしをVaultへ保存中です...', 'info');
+    const saveResp = await fetch(API + '/echo/import-audio-transcript', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        transcript_text: transcriptText,
+        language: detectedLang,
+        model: echo.asrModel || 'large-v3-turbo',
+        asr_profile: echo.asrProfile || 'balanced',
+        audio_format: audioFormat,
+        audio_base64: b64,
+        original_filename: file.name,
+        segments: asrSegments,
+      }),
+    });
+    const saveData = await saveResp.json().catch(() => ({}));
+    if (!saveResp.ok) throw new Error(saveData.detail || '文字起こし保存に失敗しました。');
+
+    let minutesFailed = false;
+    if (autoMinutes && saveData.transcript_filename) {
+      _echoUploadSetStatus('building minutes...', 'info');
+      const minutesResp = await fetch(API + '/echo/generate-minutes', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({transcript_filename: saveData.transcript_filename, overwrite: true}),
+      });
+      const minutesData = await minutesResp.json().catch(() => ({}));
+      if (!minutesResp.ok) {
+        minutesFailed = true;
+        _echoUploadSetStatus(`文字起こし保存は成功。議事録生成に失敗: ${minutesData.detail || 'unknown error'}`, 'error', true, saveData.transcript_filename);
+      }
+    }
+
+    await refreshEchoVault();
+    if (!minutesFailed) {
+      _echoUploadSetStatus(`done: ${saveData.transcript_filename || 'transcript saved'}`, 'ok');
+    }
+  } catch (e) {
+    const msg = String(e?.message || e || 'unknown error');
+    if (/format|unsupported|ffmpeg/i.test(msg)) {
+      _echoUploadSetStatus('非対応フォーマットです。別形式（wav/mp3/m4a/webm/ogg/flac）をお試しください。', 'error');
+    } else if (/size|too large|payload/i.test(msg)) {
+      _echoUploadSetStatus('ファイルサイズが大きすぎます。短い音声に分割してください。', 'error');
+    } else if (/load|model|ASR|whisper/i.test(msg)) {
+      _echoUploadSetStatus(`ASRモデルのロード/推論に失敗しました: ${msg}`, 'error');
+    } else {
+      _echoUploadSetStatus(`アップロード処理に失敗しました: ${msg}`, 'error');
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// EchoVault ファイルブラウザ（Vault タブ用）
+async function _echoVaultHasActiveSession() {
+  try {
+    const r = await fetch(API + '/echo/runtime-status');
+    const d = await r.json();
+    return !!d.active;
+  } catch (_) {
+    return !!echo.recording;
+  }
+}
+
+async function _echoVaultGenerateMinutes(transcriptFilename) {
+  if (!transcriptFilename) return;
+  const active = await _echoVaultHasActiveSession();
+  if (active) {
+    _echoVaultSetInfo('通信中（録音/保存処理中）のため議事録を作成できません。セッション停止後に再実行してください。', 'warn');
+    return;
+  }
+  _echoVaultSetInfo('議事録を作成中です...', 'warn');
+  echo._isStoppingOrSaving = true;
+  _syncEchoMinutesButtonUi();
+  try {
+    const resp = await fetch(API + '/echo/generate-minutes', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({transcript_filename: transcriptFilename, overwrite: true}),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.detail || 'minutes generation failed');
+    _echoVaultSetInfo(`議事録を作成しました: ${data.filename || ''}`, 'ok');
+    await refreshEchoVault();
+  } catch (e) {
+    _echoVaultSetInfo(`議事録作成に失敗しました: ${e.message || String(e)}`, 'warn');
+  } finally {
+    echo._isStoppingOrSaving = false;
+    _syncEchoMinutesButtonUi();
+  }
+}
+
+async function refreshEchoVault() {
+  const el = document.getElementById('echovault-list');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:11px;color:var(--text3);text-align:center;padding:12px;font-family:var(--font-mono)">読み込み中...</div>';
+  try {
+    const r = await fetch(API + '/echo/sessions');
+    const d = await r.json();
+    const files = d.files || [];
+    if (!files.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text3);text-align:center;padding:24px 0;font-family:var(--font-mono)">セッションデータはまだありません</div>';
+      return 0;
+    }
+
+    const byGroup = new Map();
+    const audioExts = new Set(['webm','wav','mp3','ogg','flac','m4a']);
+    const normalizeGroupKey = (name = '') => {
+      const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+      const stem = ext ? name.slice(0, -(ext.length + 1)) : name;
+      return stem
+        .replace(/_(minutes|transcript)$/i, '')
+        .replace(/_audio$/i, '');
+    };
+
+    for (const f of files) {
+      const ext = f.name.includes('.') ? f.name.split('.').pop().toLowerCase() : '';
+      const fallbackGroup = normalizeGroupKey(f.name);
+      const groupKey = (f.group_key || fallbackGroup);
+      const current = byGroup.get(groupKey) || {
+        groupKey,
+        mtime: f.mtime || '',
+        files: {audio: null, transcript: null, minutes: null, others: []},
+      };
+      if (!current.mtime || (f.mtime || '') > current.mtime) current.mtime = f.mtime || current.mtime;
+      if (audioExts.has(ext)) current.files.audio = f;
+      else if (/_(transcript)\.md$/i.test(f.name)) current.files.transcript = f;
+      else if (/_(minutes)\.md$/i.test(f.name)) current.files.minutes = f;
+      else current.files.others.push(f);
+      byGroup.set(groupKey, current);
+    }
+
+    const orderedGroups = [...byGroup.values()].sort((a, b) => (a.mtime < b.mtime ? 1 : -1));
+    const renderRow = (f, kind) => {
+      if (!f) return '';
+      const encName = encodeURIComponent(f.name);
+      const sizeStr = _fmtBytes(f.size);
+      const rowMeta = kind === 'audio'
+        ? {icon: '🎙', label: '音声', action: `<button onclick="_echoVaultPlayAudio(decodeURIComponent('${encName}'))" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer;flex-shrink:0" title="再生">▶</button>`}
+        : kind === 'transcript'
+          ? {icon: '📄', label: '文字起こし', action: `<button onclick="_echoVaultPreviewMd(decodeURIComponent('${encName}'))" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer;flex-shrink:0" title="プレビュー">👁</button>`}
+          : {icon: '📝', label: '議事録', action: `<button onclick="_echoVaultPreviewMd(decodeURIComponent('${encName}'))" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer;flex-shrink:0" title="プレビュー">👁</button>`};
+      return `<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
+        <span style="font-size:14px;flex-shrink:0">${rowMeta.icon}</span>
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:6px;min-width:0">
+            <span style="font-size:10px;color:var(--text3);padding:1px 5px;border:1px solid var(--border);border-radius:10px;flex-shrink:0">${rowMeta.label}</span>
+            <span style="font-size:11px;font-family:var(--font-mono);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f.name)}">${esc(f.name)}</span>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:1px">${esc(f.mtime)} · ${sizeStr}</div>
+        </div>
+        ${rowMeta.action}
+        <a href="${API}/echo/sessions/${encName}" download="${esc(f.name)}"
+           style="font-size:10px;padding:3px 9px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;text-decoration:none;flex-shrink:0;font-family:var(--font-ui);font-weight:600">↓ DL</a>
+        <button onclick="deleteEchoVaultFile(decodeURIComponent('${encName}'))" style="font-size:10px;padding:3px 7px;border:1px solid var(--border);background:transparent;color:var(--text3);border-radius:4px;cursor:pointer;flex-shrink:0" title="削除">✕</button>
+      </div>`;
+    };
+
+    el.innerHTML = orderedGroups.map(g => {
+      const rows = [
+        renderRow(g.files.audio, 'audio'),
+        renderRow(g.files.transcript, 'transcript'),
+        renderRow(g.files.minutes, 'minutes'),
+      ].filter(Boolean).join('');
+      if (!rows) return '';
+      const transcriptName = g.files.transcript?.name ? encodeURIComponent(g.files.transcript.name) : '';
+      const minutesAction = g.files.minutes || !transcriptName
+        ? ''
+        : `<button onclick="_echoVaultGenerateMinutes(decodeURIComponent('${transcriptName}'))" style="font-size:10px;padding:3px 7px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer;flex-shrink:0" title="このセッションの文字起こしから議事録を作成">📝 作成</button>`;
+      const baseLabel = g.groupKey.replace(/^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2})_/, '$1 ');
+      return `<div style="border:1px solid var(--border);border-radius:8px;background:var(--bg1);padding:8px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+          <div style="font-size:11px;font-family:var(--font-mono);color:var(--text);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(g.groupKey)}">${esc(baseLabel)}${g.files.minutes ? '' : ' 📄'}</div>
+          ${minutesAction}
+          <div style="font-size:10px;color:var(--text3);flex-shrink:0">${esc(g.mtime)}</div>
+        </div>
+        ${rows}
+      </div>`;
+    }).filter(Boolean).join('');
+    return orderedGroups.length;
+  } catch(e) {
+    el.innerHTML = `<div style="font-size:11px;color:var(--red)">エラー: ${esc(e.message)}</div>`;
+    return -1;
+  }
+}
+
+// ── Vault 音声プレビュー ──
+function _echoVaultPlayAudio(filename) {
+  const player = document.getElementById('vault-audio-player');
+  const audio   = document.getElementById('vault-audio-el');
+  const nameEl  = document.getElementById('vault-audio-name');
+  if (!player || !audio) return;
+  audio.src = API + '/echo/sessions/' + encodeURIComponent(filename);
+  if (nameEl) nameEl.textContent = filename;
+  player.style.display = '';
+  audio.play().catch(() => {});
+}
+
+function vaultAudioClose() {
+  const player = document.getElementById('vault-audio-player');
+  const audio   = document.getElementById('vault-audio-el');
+  if (audio) { audio.pause(); audio.src = ''; }
+  if (player) player.style.display = 'none';
+}
+
+// ── Vault MD プレビュー（Echo タブに切り替えて表示） ──
+async function _echoVaultPreviewMd(filename) {
+  if (echo.recording) { alert('Echo録音中はプレビューできません。'); return; }
+  let md = '';
+  try {
+    const r = await fetch(API + '/echo/sessions/' + encodeURIComponent(filename));
+    md = await r.text();
+  } catch(e) {
+    alert('ファイル読み込み失敗: ' + e.message); return;
+  }
+  // Echo タブに切り替え
+  const isMobile = window.innerWidth <= 768;
+  if (isMobile) mobSwitch('echo');
+  else {
+    const ec = document.getElementById('echo-col');
+    if (ec) ec.style.display = '';
+  }
+  const container = document.getElementById('echo-transcript');
+  if (!container) return;
+  // Markdown レンダリング（簡易版）
+  const rendered = md
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/^### (.+)$/gm,'<h3 style="font-size:12px;color:var(--text);margin:8px 0 4px;font-weight:700">$1</h3>')
+    .replace(/^## (.+)$/gm,'<h2 style="font-size:13px;color:var(--text);margin:10px 0 4px;font-weight:700">$1</h2>')
+    .replace(/^# (.+)$/gm,'<h1 style="font-size:14px;color:var(--accent);margin:12px 0 6px;font-weight:700">$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,'<em>$1</em>')
+    .replace(/`([^`]+)`/g,'<code style="background:var(--bg3);padding:1px 4px;border-radius:2px;font-family:var(--font-mono);font-size:11px">$1</code>')
+    .replace(/^---$/gm,'<hr style="border:none;border-top:1px solid var(--border);margin:8px 0">')
+    .replace(/\n/g,'<br>');
+  container.innerHTML = `<div style="padding:8px;font-size:12px;color:var(--text);line-height:1.7;font-family:var(--font-ui)">
+    <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--font-mono)">📝 ${esc(filename)}</div>
+    ${rendered}
+  </div>`;
+  _echoPreviewMode = true;
+  _echoUpdateClearBtn();
+}
+
+async function deleteEchoVaultFile(filename) {
+  if (!confirm(`「${filename}」を削除しますか？`)) return;
+  try {
+    await fetch(API + '/echo/sessions/' + encodeURIComponent(filename), {method: 'DELETE'});
+    refreshEchoVault();
+  } catch(e) {
+    addMsg('error', 'ファイル削除に失敗: ' + e.message);
+  }
+}
+
+// ── ボイスクローン参照音声 ──
+
+
+
+
+function _arrayBufferToWavBlob(audioBuffer, maxSec = 30) {
+  const sampleRate = audioBuffer.sampleRate;
+  const channels = Math.min(2, audioBuffer.numberOfChannels || 1);
+  const frameCount = Math.min(audioBuffer.length, Math.floor(sampleRate * maxSec));
+  const bytesPerSample = 2;
+  const blockAlign = channels * bytesPerSample;
+  const dataSize = frameCount * blockAlign;
+  const ab = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(ab);
+  let offset = 0;
+  const writeStr = (s) => { for (let i = 0; i < s.length; i++) view.setUint8(offset++, s.charCodeAt(i)); };
+  writeStr('RIFF'); view.setUint32(offset, 36 + dataSize, true); offset += 4;
+  writeStr('WAVE');
+  writeStr('fmt '); view.setUint32(offset, 16, true); offset += 4;
+  view.setUint16(offset, 1, true); offset += 2; // PCM
+  view.setUint16(offset, channels, true); offset += 2;
+  view.setUint32(offset, sampleRate, true); offset += 4;
+  view.setUint32(offset, sampleRate * blockAlign, true); offset += 4;
+  view.setUint16(offset, blockAlign, true); offset += 2;
+  view.setUint16(offset, 16, true); offset += 2;
+  writeStr('data'); view.setUint32(offset, dataSize, true); offset += 4;
+  const chData = [];
+  for (let ch = 0; ch < channels; ch++) chData.push(audioBuffer.getChannelData(ch));
+  for (let i = 0; i < frameCount; i++) {
+    for (let ch = 0; ch < channels; ch++) {
+      let s = chData[ch][i] || 0;
+      s = Math.max(-1, Math.min(1, s));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      offset += 2;
+    }
+  }
+  return new Blob([ab], {type: 'audio/wav'});
+}
+
+function _fmtBytes(bytes) {
+  if (!bytes) return '0B';
+  if (bytes < 1024) return bytes + 'B';
+  if (bytes < 1048576) return (bytes/1024).toFixed(1) + 'KB';
+  return (bytes/1048576).toFixed(1) + 'MB';
+}
+
+// ══════════════════════════════════════════════════════
+
+async function submitEdit(msgEl) {
+  const ta = msgEl.querySelector('.msg-edit-area');
+  const newText = ta?.value?.trim();
+  if (!newText || busy) return;
+  truncateHistoryAfter(msgEl);
+  const bubble = msgEl.querySelector('.msg-bubble');
+  const btn = msgEl.querySelector('.msg-edit-btn');
+  if (bubble) { bubble.textContent = newText; bubble.style.display = ''; }
+  if (btn) btn.style.display = '';
+  msgEl.querySelector('.msg-edit-area')?.remove();
+  msgEl.querySelector('.msg-edit-actions')?.remove();
+  msgEl.dataset.msgText = newText;
+  addLog('info','edit','Re-running from edited message');
+  await sendMessage(newText);
+}
+
+// ── SEND ──
+async function send() {
+  if (busy) return;
+  const input = document.getElementById('input');
+  const msg = input.value.trim(); if (!msg) return;
+  input.value = ''; input.style.height = 'auto';
+  await sendMessage(msg);
+}
+async function sendMessage(msg) {
+  resetTokenDisplay();
+
+  if (mode === 'agent') {
+    await sendAgentMessage(msg);
+    return;
+  }
+
+  if (mode === 'chat' && window.Lumen && typeof window.Lumen.submitCurrentMessage === 'function') {
+    await window.Lumen.submitCurrentMessage(msg);
+    return;
+  }
+
+  addMsg('user', msg);
+  addToHistory('user', msg);
+  addLog('info','send',`[${getChatModeBadge()}][${currentProject}] ${msg}`);
+
+  const guidance = 'Legacy task jobs were removed from Lumen. Use Atlas/Agent for autonomous task execution, file edits, code execution, and multi-step pipelines.';
+  addMsg('system', guidance);
+  addLog('warn', 'lumen', guidance);
+}
+
+// ── MODEL SELECTOR (in plan card) ──
+function buildModelBar(recKey, recName, switchNeeded, etaSec, catalog) {
+  return '';
+}
+
+function updatePlanModel(key) {
+  if (pendingPlan) pendingPlan.recommended_model = 'auto';
+}
+
+// モデル切り替えイベントをSSEで受け取ってプログレスに反映
+function handleModelSwitchEvent(ev, progCard) {
+  if (ev.type === 'model_switching') {
+    setCard(progCard, {
+      label: '⚙ ' + (ev.message || 'Switching model...'),
+      pct: ev.pct || 0,
+      counter: ev.eta_sec > 0 ? `~${ev.eta_sec}s` : '',
+    });
+  } else if (ev.type === 'model_ready') {
+    setCard(progCard, {
+      label: '✓ ' + (ev.message || 'Model ready'),
+      pct: 100,
+    });
+    addLog('ok', 'model', ev.message || 'ready');
+  } else if (ev.type === 'model_error') {
+    setCard(progCard, { label: '✗ Model switch failed', pct: -1 });
+    addLog('err', 'model', ev.message || 'error');
+  }
+}
+
+function _phase1List(items) {
+  const arr = Array.isArray(items) ? items : [];
+  if (!arr.length) return '<div style=\"font-size:11px;color:var(--text3)\">-</div>';
+  return `<ul style=\"margin:0;padding-left:18px\">${arr.map(x=>`<li style=\"font-size:12px;line-height:1.5\">${esc(String(x))}</li>`).join('')}</ul>`;
+}
+
+function _switchPhase1CardTab(cardId, tabName) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  card.querySelectorAll('.phase1-tab-btn').forEach((el) => {
+    el.classList.toggle('active', el.dataset.tab === tabName);
+  });
+  card.querySelectorAll('.phase1-tab-body').forEach((el) => {
+    el.classList.toggle('active', el.dataset.tab === tabName);
+  });
+}
+
+function _renderPhase1Markdown(markdownText) {
+  const raw = String(markdownText || '').trim();
+  if (!raw) return '';
+  if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+    try {
+      return marked.parse(raw);
+    } catch (_) {}
+  }
+  return `<pre style="margin:0;white-space:pre-wrap;overflow-x:auto">${esc(raw)}</pre>`;
+}
+
+
+function _phase2ImportanceStyle(importance) {
+  const map = {
+    required: 'background:rgba(255,68,102,.12);color:var(--red);border:1px solid rgba(255,68,102,.35);',
+    recommended: 'background:rgba(255,170,0,.10);color:var(--amber);border:1px solid rgba(255,170,0,.30);',
+    optional: 'background:rgba(68,136,255,.10);color:var(--blue);border:1px solid rgba(68,136,255,.30);'
+  };
+  return map[String(importance || '').toLowerCase()] || map.optional;
+}
+
+function _phase2QuestionControl(q) {
+  const qid = esc(String(q.question_id || ''));
+  const options = Array.isArray(q.options) ? q.options : [];
+  const type = String(q.type || 'single_choice');
+  if (type === 'multiple_choice') {
+    return `<div style="display:flex;flex-direction:column;gap:6px">${options.map((opt, i)=>`
+      <label style="font-size:12px;color:var(--text2);display:flex;gap:8px;align-items:flex-start;line-height:1.4;padding:2px 0;word-break:break-word"><input type="checkbox" style="margin-top:2px;transform:scale(1.1)" data-qid="${qid}" data-qtype="multiple_choice" value="${esc(String(opt))}" ${i===0 && String(opt)==='おまかせ' ? 'checked' : ''}/> <span>${esc(String(opt))}</span></label>`).join('')}</div>`;
+  }
+  if (type === 'yes_no') {
+    return `<div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${['はい','いいえ','おまかせ'].map((opt)=>`<label style="font-size:12px;color:var(--text2);display:flex;gap:7px;align-items:center;padding:2px 4px;line-height:1.4"><input type="radio" style="transform:scale(1.1)" name="q_${qid}" data-qid="${qid}" data-qtype="yes_no" value="${esc(opt)}" ${String(q.default||'')===opt ? 'checked' : ''}/> <span>${esc(opt)}</span></label>`).join('')}
+    </div>`;
+  }
+  if (type === 'free_text') {
+    const defaultValue = q.default == null ? '' : String(Array.isArray(q.default) ? q.default.join(', ') : q.default);
+    return `<input data-qid="${qid}" data-qtype="free_text" value="${esc(defaultValue)}" placeholder="回答を入力（おまかせ可）" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px"/>`;
+  }
+  return `<select data-qid="${qid}" data-qtype="single_choice" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px">${options.map((opt)=>`<option value="${esc(String(opt))}" ${String(q.default||'')===String(opt)?'selected':''}>${esc(String(opt))}</option>`).join('')}</select>`;
+}
+
+function _collectClarificationAnswers(card) {
+  const rows = card.querySelectorAll('[data-question-row="1"]');
+  const answers = [];
+  rows.forEach((row) => {
+    const qid = row.getAttribute('data-qid');
+    const qtype = row.getAttribute('data-qtype');
+    if (!qid || !qtype) return;
+    let answer = null;
+    if (qtype === 'multiple_choice') {
+      answer = Array.from(row.querySelectorAll('input[type="checkbox"][data-qid]:checked')).map((el) => el.value);
+      if (!answer.length) answer = ['おまかせ'];
+      answers.push({ question_id: qid, answer });
+      return;
+    }
+    const note = (row.querySelector('textarea[data-qnote]')?.value || '').trim();
+    let rawChoice = 'おまかせ';
+    if (qtype === 'yes_no') {
+      const checked = row.querySelector(`input[type="radio"][name="q_${qid}"]:checked`);
+      rawChoice = checked ? checked.value : 'おまかせ';
+    } else if (qtype === 'free_text') {
+      const input = row.querySelector('input[data-qid]');
+      rawChoice = (input?.value || '').trim() || 'おまかせ';
+    } else {
+      const sel = row.querySelector('select[data-qid]');
+      rawChoice = sel?.value || 'おまかせ';
+    }
+    const mode = rawChoice === 'はい' ? 'accept' : rawChoice === 'いいえ' ? 'reject' : rawChoice === 'おまかせ' ? 'delegate' : 'custom';
+    answer = { mode, text: note, raw_choice: rawChoice };
+    answers.push({ question_id: qid, answer });
+  });
+  return answers;
+}
+
+
+function _renderNexusContextSummary(nexusContext, { title = 'Planning Context', compact = false } = {}) {
+  const nc = (nexusContext && typeof nexusContext === 'object') ? nexusContext : {};
+  const available = !!nc.available;
+  const summary = String(nc.summary || 'Planning context is empty.');
+  const sourceCounts = (nc.source_counts && typeof nc.source_counts === 'object') ? nc.source_counts : {};
+  const items = Array.isArray(nc.items) ? nc.items : [];
+  const localItems = items.filter((it) => !['nexus_evidence', 'nexus_report'].includes(String(it?.source_type || it?.type || '')));
+  const evidenceItems = items.filter((it) => String(it?.source_type || it?.type || '') === 'nexus_evidence');
+  const researchItems = items.filter((it) => String(it?.source_type || it?.type || '') === 'nexus_report');
+  const warnings = Array.isArray(nc.warnings) ? nc.warnings.slice(0, 5) : [];
+  const truncated = !!nc.truncated;
+  const sourceCountText = Object.keys(sourceCounts).length
+    ? Object.entries(sourceCounts).map(([k,v]) => `${esc(String(k))}: ${esc(String(v))}`).join(' / ')
+    : '-';
+
+  return `
+    <details style="margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--bg2);max-width:100%;overflow-wrap:anywhere" ${compact ? '' : 'open'}>
+      <summary style="cursor:pointer;font-size:${compact ? '11px' : '12px'};color:var(--text);font-weight:700;line-height:1.4">${esc(title)}</summary>
+      <div style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.5;word-break:break-word">
+        <div><b>available</b>: ${available ? 'true' : 'false'}</div>
+        <div><b>summary</b>: ${esc(summary)}</div>
+        <div><b>source_counts</b>: ${sourceCountText}</div>
+        ${truncated ? '<div style="color:var(--amber)"><b>truncated</b>: true (context budget reached)</div>' : ''}
+        <div style="margin-top:6px"><b>Local Context</b>${localItems.slice(0,3).map((it)=>`<div style="margin-top:4px">• ${esc(String(it.title || it.name || '-'))}<br><span style="color:var(--text3)">${esc(String(it.summary || it.description || '')).slice(0,180)}</span></div>`).join('') || '<div style="color:var(--text3)">-</div>'}</div>
+        <div style="margin-top:6px"><b>Existing Nexus Evidence</b>${evidenceItems.slice(0,3).map((it)=>`<div style="margin-top:4px">• ${esc(String(it.title || '-'))}<br><span style="color:var(--text3)">${esc(String(it.summary || '')).slice(0,180)}</span></div>`).join('') || '<div style="color:var(--text3)">No existing Nexus evidence.</div>'}</div>
+        <div style="margin-top:6px"><b>Research Results</b>${researchItems.slice(0,3).map((it)=>`<div style="margin-top:4px">• ${esc(String(it.title || '-'))}<br><span style="color:var(--text3)">${esc(String(it.summary || '')).slice(0,180)}</span></div>`).join('') || '<div style="color:var(--text3)">No Nexus Research used.</div>'}</div>
+        ${warnings.length ? `<div style="margin-top:6px"><b>warnings</b>${warnings.map((w)=>`<div>• ${esc(String(w))}</div>`).join('')}</div>` : ''}
+      </div>
+    </details>`;
+}
+
+const ATLAS_LAST_RUN_KEY = 'atlas:lastRunId';
+const ATLAS_LAST_DASHBOARD_RUN_KEY = 'atlas:lastExecuteRunId';
+const ATLAS_LAST_SUBVIEW_KEY = 'atlas:lastSubview';
+const ATLAS_REQUIREMENT_INPUT_KEY = 'atlas:requirementInput';
+const ATLAS_SUBVIEWS = ['start', 'autopilot', 'plan', 'history', 'activity'];
+
+function _atlasLsGet(key) { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
+function _atlasLsSet(key, value) { try { localStorage.setItem(key, value || ''); } catch(_) {} }
+
+function getAtlasLastRunId() { return _atlasLsGet(ATLAS_LAST_RUN_KEY) || ''; }
+
+function restoreAtlasLastRunState() {
+  const lastRun = getAtlasLastRunId();
+  if (!lastRun) return '';
+  planWorkflowState.lastRunId = lastRun;
+  return lastRun;
+}
+
+const planWorkflowState = {
+  requirementId: '',
+  planId: '',
+  reviewId: '',
+  approvalId: '',
+  runId: '',
+  lastRunId: getAtlasLastRunId(),
+  latestPatchIds: [],
+  projectPath: '',
+  planningMode: 'standard',
+  patchGenerationMode: 'auto',
+  executionMode: 'dry_run',
+  approvalStatus: 'pending',
+  executionReady: false,
+  lastError: '',
+  workflowPhase: 'idle',
+  currentJobId: '',
+  currentRunId: '',
+  lastPlanApiIds: {},
+  planMarkdown: '',
+  generatedPlan: null,
+  planResult: null,
+  userApprovedPlan: false,
+  jobStatus: '',
+  source: 'atlas',
+  workspace: 'Atlas',
+};
+
+function _isRequirementIdLeak(v = '') {
+  const s = String(v || '').trim();
+  return s.startsWith('req_') || s.startsWith('sync-plan:req_');
+}
+
+function _sanitizePlanLifecycleIds(jobId, runId, planId = '') {
+  const safePlanId = String(planId || '').trim();
+  const rawJob = String(jobId || '').trim();
+  const rawRun = String(runId || '').trim();
+  const safeJob = _isRequirementIdLeak(rawJob) ? '' : rawJob;
+  const safeRun = _isRequirementIdLeak(rawRun) ? '' : rawRun;
+  if ((rawJob && !safeJob) || (rawRun && !safeRun)) {
+    const msg = `Ignored leaked requirement lifecycle ids (job=${rawJob || '-'}, run=${rawRun || '-'})`;
+    try { console.warn('[atlas-plan-lifecycle]', msg); } catch (_) {}
+    try { appendAtlasActivityCard('warning', { message: msg }); } catch (_) {}
+  }
+  return {
+    currentJobId: safeJob || (safePlanId.startsWith('plan_') ? `sync-plan:${safePlanId}` : ''),
+    currentRunId: safeRun || (safePlanId.startsWith('plan_') ? safePlanId : ''),
+  };
+}
+
+function _computePlanWorkflowNextAction() {
+  if (planWorkflowState.lastError) return `error: ${planWorkflowState.lastError}`;
+  if (planWorkflowState.requirementId && !planWorkflowState.planId) return 'answer clarification';
+  if (!planWorkflowState.planId) return 'review plan';
+  if (!planWorkflowState.executionReady) return 'approve plan';
+  if (!planWorkflowState.runId) return 'execute preview';
+  if ((planWorkflowState.latestPatchIds || []).length > 0) return 'review patches';
+  return 'inspect verification failed';
+}
+
+function _renderPlanWorkflowStatusPanel() {
+  const panelId = 'plan-workflow-status-panel';
+  const old = document.getElementById(panelId);
+  if (old) old.remove();
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.id = panelId;
+  const hasRun = !!planWorkflowState.runId;
+  const lastRunId = planWorkflowState.lastRunId || getAtlasLastRunId();
+  const requirementPreview = String(planWorkflowState.requirementTextPreview || '').trim();
+  const preview = requirementPreview ? requirementPreview.slice(0, 120) : '-';
+  const requirementSource = planWorkflowState.requirementSource || '-';
+  const currentStep = _computePlanWorkflowNextAction();
+  div.innerHTML = `
+    <div class="msg-role">Atlas Workflow Status</div>
+    <div class="plan-card" style="padding:10px">
+      <div style="font-size:12px;line-height:1.6">
+        <div>Source: <b>${esc(planWorkflowState.source || 'atlas')}</b></div>
+        <div>Workspace: <b>${esc(planWorkflowState.workspace || 'Atlas')}</b></div>
+        <div>Requirement Source: <b>${esc(requirementSource)}</b></div>
+        <div>Requirement Preview: <b>${esc(preview)}</b></div>
+        <div>Last Error: <b>${esc(planWorkflowState.lastError || '-')}</b></div>
+        <div>Current Step / Status: <b>${esc(currentStep)}</b></div>
+        <div>Requirement: <b>${esc(planWorkflowState.requirementId || '-')}</b></div>
+        <div>Plan: <b>${esc(planWorkflowState.planId || '-')}</b></div>
+        <div>Review: <b>${esc(planWorkflowState.reviewId || '-')}</b></div>
+        <div>Approval: <b>${esc(planWorkflowState.approvalStatus || 'pending')}</b></div>
+        <div>Execution Ready: <b>${esc(String(!!planWorkflowState.executionReady))}</b></div>
+        <div>Run: <b>${esc(planWorkflowState.runId || '-')}</b></div>
+        <div>Last Run: <b>${esc(lastRunId || '-')}</b></div>
+        <div>Patches: <b>${esc(String((planWorkflowState.latestPatchIds || []).length))}</b></div>
+        <div>Next Action: <b>${esc(currentStep)}</b></div>
+      </div>
+      <div style="margin-top:8px">
+        <button class="phase1-tab-btn" onclick="openCurrentRunExecuteFromStatus()" ${hasRun ? '' : 'disabled'}>Open Atlas Execute</button>
+        <button class="phase1-tab-btn" onclick="openLastRunExecuteFromStatus()" ${lastRunId ? '' : 'disabled'}>Open Last Atlas Execute</button>
+        ${hasRun ? '' : '<div style="font-size:10px;color:var(--text3);margin-top:4px">Execute Preview後に利用可能</div>'}
+      </div>
+    </div>`;
+  const host = document.getElementById('atlas-workbench-status-panel-host') || document.getElementById('atlas-workbench-status') || document.getElementById('atlas-workbench-card-plan-flow');
+  if (host) {
+    host.appendChild(div);
+  }
+  const agentStatus = document.getElementById('agent-guided-workflow-status');
+  if (agentStatus) agentStatus.textContent = `${planWorkflowState.workspace || 'Atlas'} / ${_computePlanWorkflowNextAction()}`;
+}
+
+function ensureAtlasExecuteHost() {
+  const existing = Array.from(document.querySelectorAll('.plan-card[id^="phase1-plan-card-"]')).pop();
+  if (existing) return existing;
+  showPlanWorkflowPanel();
+  const retried = Array.from(document.querySelectorAll('.plan-card[id^="phase1-plan-card-"]')).pop();
+  if (retried) return retried;
+  const w = messages();
+  const wrap = document.createElement('div');
+  wrap.className = 'msg system';
+  const cid = `phase1-plan-card-fallback-${Date.now()}`;
+  wrap.innerHTML = `<div class="msg-role">Atlas Execute</div><div class="plan-card" id="${cid}"><div style="font-size:11px;color:var(--text2);margin-bottom:6px">Fallback dashboard host (no active plan card yet).</div><div id="${cid}-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div></div>`;
+  w.appendChild(wrap);
+  scrollMsgs();
+  return wrap.querySelector(`#${cid}`);
+}
+
+async function openLastRunExecuteFromStatus() {
+  const runId = planWorkflowState.lastRunId || _atlasLsGet(ATLAS_LAST_RUN_KEY);
+  if (!runId) return;
+  const latestCard = ensureAtlasExecuteHost();
+  if (!latestCard) return;
+  const cid = latestCard.id;
+  await loadAtlasRunExecute(cid, runId, latestCard, 'lastRun');
+}
+
+async function openCurrentRunExecuteFromStatus() {
+  const runId = planWorkflowState.runId || '';
+  if (!runId) return;
+  const latestCard = Array.from(document.querySelectorAll('.plan-card[id^="phase1-plan-card-"]')).pop();
+  if (!latestCard) return;
+  const cid = latestCard.id;
+  const dashboardEl = latestCard.querySelector(`#${cid}-atlas-dashboard`);
+  if (!dashboardEl) return;
+  dashboardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  await loadAtlasRunExecute(cid, runId, latestCard);
+}
+
+function atlasHasValue(v) {
+  if (v === null || v === undefined || v === false) return false;
+  if (typeof v === 'string') return v.trim().length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return Object.keys(v).length > 0;
+  return Boolean(v);
+}
+
+function deriveAtlasPlanFlowState() {
+  const state = planWorkflowState || {};
+  const status = String(state.approvalStatus || state.planApproval?.status || '').toLowerCase();
+  const hasRequirement = [
+    state.requirementId, state.requirement, state.requirementResult,
+    state.requirementDraft, state.requirementText, state.requirementSummary,
+    state.requirementTextPreview,
+  ].some(atlasHasValue);
+  const hasPlan = [
+    state.planId, state.plan, state.planResult, state.planningResult,
+    state.generatedPlan, state.planMarkdown, state.lastPlanApiIds?.plan_id,
+  ].some(atlasHasValue);
+  const hasReview = [
+    state.reviewId, state.review, state.reviewResult, state.planReview,
+    state.reviewSummary,
+  ].some(atlasHasValue) || hasPlan;
+  const hasApproved = state.userApprovedPlan === true || status === 'approved_by_user';
+  const hasRun = [state.runId, state.executionRunId, state.previewRunId].some(atlasHasValue);
+  const executionReady = state.executionReady === true || hasApproved;
+  const patchCount = Number(state.patchCount || 0);
+  const patchAvailable = hasRun || [state.latestPatchIds, state.patchIds].some(atlasHasValue) || patchCount > 0;
+  const lastError = String(state.lastError || '').trim();
+  const phase = String(state.workflowPhase || '').trim().toLowerCase();
+  const isPlanning = phase === 'planning' || phase === 'running' || phase === 'waiting';
+  const isFailed = phase === 'plan_failed' || !!lastError;
+
+  const flow = {
+    requirement: hasRequirement ? 'ready' : 'pending',
+    plan: 'pending',
+    review: 'pending',
+    approval: 'locked',
+    executePreview: 'locked',
+    patchReview: 'locked',
+    nextAction: hasRequirement ? 'Start Atlas' : 'Start Atlas',
+  };
+
+  if (isFailed) {
+    flow.requirement = hasRequirement ? 'ready' : 'pending';
+    flow.plan = 'failed';
+    flow.review = 'unavailable';
+    flow.approval = 'locked';
+    flow.executePreview = 'locked';
+    flow.patchReview = 'locked';
+    flow.nextAction = `Failed: ${lastError || 'Plan generation failed'}`;
+    return flow;
+  }
+
+  if (isPlanning && !hasPlan) {
+    flow.plan = 'running';
+    flow.nextAction = 'Planning';
+    return flow;
+  }
+
+  if (hasPlan) {
+    flow.requirement = 'ready';
+    flow.plan = 'generated';
+    flow.review = hasReview ? 'ready' : 'pending';
+    flow.approval = hasApproved ? 'approved' : 'required';
+    flow.executePreview = hasRun ? 'completed' : (executionReady ? 'available' : 'locked');
+    flow.patchReview = patchAvailable ? 'available' : 'locked';
+    if (flow.patchReview === 'available') flow.nextAction = 'Open Patch Review';
+    else if (flow.executePreview === 'available') flow.nextAction = 'Run Execute Preview';
+    else if (flow.approval === 'required') flow.nextAction = 'Review / Approve Plan';
+    else flow.nextAction = 'Review generated plan';
+    return flow;
+  }
+
+  if (hasRequirement) {
+    flow.nextAction = 'Start Atlas';
+  }
+  return flow;
+}
+
+function findAtlasWorkflowTarget(kind) {
+  const key = String(kind || '').trim().toLowerCase();
+  const selectorMap = {
+    review: [
+      '[data-atlas-workflow-target="dynamic-plan-review"]',
+      '[data-atlas-workflow-target="plan-review"]',
+      '#atlas-plan-review-anchor',
+      '[data-atlas-plan-section="review"]',
+      '#atlas-workbench-card-plan-flow',
+    ],
+    approval: [
+      '[data-atlas-workflow-target="dynamic-approval"]',
+      '[data-atlas-workflow-target="approval"]',
+      '#atlas-plan-approval-anchor',
+      '[data-atlas-plan-section="approval"]',
+      '#atlas-workbench-card-plan-next-action',
+      '#atlas-workbench-card-plan-next-action-buttons',
+    ],
+    execute_preview: [
+      '[data-atlas-workflow-target="dynamic-execute-preview"]',
+      '[data-atlas-workflow-target="execute-preview"]',
+      '#atlas-plan-execute-preview-anchor',
+      '[data-atlas-plan-section="execute-preview"]',
+      '#atlas-workbench-card-plan-next-action-buttons',
+    ],
+    patch: [
+      '[data-atlas-workflow-target="dynamic-patch-review"]',
+      '[data-atlas-workflow-target="patch-review"]',
+      '#atlas-workbench-card-patch-list',
+      '[data-atlas-subview-panel="patch"]',
+      '#atlas-workbench-card',
+    ],
+  };
+  const selectors = selectorMap[key] || [];
+  for (const sel of selectors) {
+    const el = document.querySelector(sel);
+    if (el) return el;
+  }
+  return null;
+}
+
+function focusAtlasWorkflowSection(kind) {
+  const key = String(kind || '').trim().toLowerCase();
+  if (key === 'patch') {
+    setAtlasSubview('plan');
+  } else {
+    showAtlasPanel();
+    setAtlasSubview('plan');
+  }
+  const target = findAtlasWorkflowTarget(key);
+  if (!target) {
+    addMsg('system', 'Target section is not visible yet. Open Atlas Panel and use the existing safe workflow controls.');
+    return false;
+  }
+  try {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+    if (typeof target.focus === 'function') target.focus({ preventScroll: true });
+    target.classList.add('atlas-focus-highlight');
+    setTimeout(() => target.classList.remove('atlas-focus-highlight'), 1500);
+  } catch (_) {}
+  return true;
+}
+
+
+let currentAutopilotId = '';
+let currentAutopilotPlan = null;
+let currentAutopilotTasks = [];
+
+function autopilotTaskStatusHtml(task) {
+  const plan = task.planResult || {};
+  const preview = task.previewResult || {};
+  return `<div style="margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:8px" class="autopilot-task-card" data-autopilot-id="${esc(currentAutopilotId)}" data-task-id="${esc(task.task_id || '')}">
+    <div style="font-weight:700">${esc(task.title || task.task_id || 'Task')}</div>
+    <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px">
+      <button type="button" class="phase1-tab-btn" onclick="generateAutopilotTaskPlan(this)">Generate Plan</button>
+      <button type="button" class="phase1-tab-btn" onclick="prepareAutopilotExecutionPreview(this)">Prepare Execution Preview</button>
+    </div>
+    <div style="margin-top:6px;line-height:1.6;overflow-wrap:anywhere" data-role="task-status">${esc(task.statusMessage || 'Ready.')}</div>
+    <div style="margin-top:4px;color:var(--text3)">plan status: ${esc(plan.status || '-')} / preview status: ${esc(preview.status || '-')}</div>
+  </div>`;
+}
+
+function renderAutopilotTaskBreakdown() {
+  const host = document.getElementById('atlas-autopilot-task-breakdown');
+  if (!host) return;
+  if (!currentAutopilotTasks.length) { host.textContent = 'No tasks yet.'; return; }
+  host.innerHTML = currentAutopilotTasks.map(autopilotTaskStatusHtml).join('');
+}
+
+async function createAutopilotPreview() {
+  const goal = (document.getElementById('atlas-autopilot-goal-input')?.value || '').trim();
+  const previewEl = document.getElementById('atlas-autopilot-plan-preview');
+  if (previewEl) previewEl.textContent = 'Creating preview...';
+  try {
+    const r = await fetch('/api/atlas/autopilot/preview', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_goal: goal || 'Autopilot goal'})});
+    const data = await r.json();
+    currentAutopilotId = String(data.autopilot_id || '');
+    currentAutopilotPlan = data;
+    currentAutopilotTasks = Array.isArray(data.tasks) ? data.tasks.map(t => ({...t, statusMessage:'Ready.'})) : [];
+    if (previewEl) previewEl.textContent = `status: ${data.status || '-'} / autopilot_id: ${currentAutopilotId || '-'}`;
+  } catch (e) { if (previewEl) previewEl.textContent = `Preview error: ${e?.message || e}`; }
+  renderAutopilotTaskBreakdown();
+}
+
+function _findTaskFromButton(btn){
+  const card = btn?.closest('.autopilot-task-card');
+  const autopilotId = card?.dataset?.autopilotId || currentAutopilotId;
+  const taskId = card?.dataset?.taskId || '';
+  const task = currentAutopilotTasks.find(t => String(t.task_id||'')===String(taskId));
+  return {card, autopilotId, taskId, task};
+}
+
+async function generateAutopilotTaskPlan(btn){
+  const {card, autopilotId, taskId, task} = _findTaskFromButton(btn);
+  const statusEl = card?.querySelector('[data-role="task-status"]');
+  if (statusEl) statusEl.textContent = 'Generating plan...';
+  try {
+    const r = await fetch(`/api/atlas/autopilot/${encodeURIComponent(autopilotId)}/tasks/${encodeURIComponent(taskId)}/plan`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || data?.message || `HTTP ${r.status}`);
+    const message = data.message || '';
+    if (statusEl) statusEl.innerHTML = `status: ${esc(data.status || '-')}<br>requirement_id: ${esc(data.requirement_id || '-')}<br>plan_id: ${esc(data.plan_id || '-')}<br>review_status: ${esc(data.review_status || '-')}<br>message: ${esc(message || '-')}`;
+    if (task) { task.planResult = data; task.statusMessage = `plan:${data.status || '-'}`; }
+  } catch (e) { if (statusEl) statusEl.textContent = `Plan generation failed: ${e?.message || e}`; }
+}
+
+async function prepareAutopilotExecutionPreview(btn){
+  const {card, autopilotId, taskId, task} = _findTaskFromButton(btn);
+  const statusEl = card?.querySelector('[data-role="task-status"]');
+  if (statusEl) statusEl.textContent = 'Preparing execution preview...';
+  try {
+    const r = await fetch(`/api/atlas/autopilot/${encodeURIComponent(autopilotId)}/tasks/${encodeURIComponent(taskId)}/execution-preview`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+    const data = await r.json();
+    const st = String(data.status || '');
+    if (st === 'plan_required') { statusEl.innerHTML = 'Plan generation is required before execution preview.'; }
+    else if (st === 'approval_required') { statusEl.innerHTML = 'Approval required before execution preview. Open the Plan tab and approve the plan first.'; }
+    else if (st === 'execution_preview_ready') { statusEl.innerHTML = `status: ${esc(st)}<br>execution_preview_id: ${esc(data.execution_preview_id || '-')}<br>summary: ${esc((data.summary||''))}<br>planned_steps: ${esc(JSON.stringify(data.planned_steps || []))}<br>target_files: ${esc(JSON.stringify(data.target_files || []))}<br>safety_constraints: ${esc(JSON.stringify(data.safety_constraints || []))}`; }
+    else if (st === 'blocked') { statusEl.innerHTML = `status: blocked<br>risk/warnings: ${esc(JSON.stringify(data.risk || data.warnings || []))}`; }
+    else { statusEl.innerHTML = `status: ${esc(st || '-')}<br>message: ${esc(data.message || '-')}`; }
+    if (task) { task.previewResult = data; task.statusMessage = `preview:${st || '-'}`; }
+  } catch (e) { if (statusEl) statusEl.textContent = `Execution preview failed: ${e?.message || e}`; }
+}
+function renderAtlasPlanNextActionButtons(flow) {
+  const buttonsEl = document.getElementById('atlas-workbench-card-plan-next-action-buttons');
+  if (!buttonsEl) return;
+  buttonsEl.replaceChildren();
+
+  const addBtn = (label, onClick, primary = false) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = primary ? 'phase1-plan-btn' : 'phase1-tab-btn';
+    btn.textContent = label;
+    btn.onclick = onClick;
+    buttonsEl.appendChild(btn);
+  };
+
+  const note = document.createElement('div');
+  note.style.flexBasis = '100%';
+  note.style.marginTop = '2px';
+  note.style.fontSize = '10px';
+  note.style.color = 'var(--text3)';
+  note.style.lineHeight = '1.6';
+  note.textContent = 'Actions open existing safe workflow panels. Approval and Patch Review gates remain required.';
+
+  const nextAction = String(flow?.nextAction || '');
+  if (nextAction === 'Start Atlas') {
+    note.textContent = 'Start new work from Start. This Plan tab only displays generated plans.';
+  } else if (nextAction === 'Review generated plan') {
+    addBtn('Review Plan', () => focusAtlasWorkflowSection('review'));
+  } else if (nextAction === 'Approve plan' || nextAction === 'Review / Approve Plan') {
+    addBtn('Open Approval Panel', () => focusAtlasWorkflowSection('approval'));
+    addBtn('Review Plan', () => focusAtlasWorkflowSection('review'));
+  } else if (nextAction === 'Run Execute Preview') {
+    addBtn('Open Execute Preview', () => focusAtlasWorkflowSection('execute_preview'));
+  } else if (nextAction === 'Open Patch Review') {
+    addBtn('Open Patch Review', openPatchReviewFromWorkbench);
+  }
+
+  buttonsEl.appendChild(note);
+}
+
+function renderAtlasPlanFlowSummary() {
+  const flowEl = document.getElementById('atlas-workbench-card-plan-flow');
+  const nextEl = document.getElementById('atlas-workbench-card-plan-next-action');
+  if (!flowEl || !nextEl) return;
+
+  const flow = deriveAtlasPlanFlowState();
+  const rows = [
+    `• Requirement: ${flow.requirement}`,
+    `• Plan: ${flow.plan}`,
+    `• Review: ${flow.review}`,
+    `• Approval: ${flow.approval}`,
+    `• Execute Preview: ${flow.executePreview}`,
+    `• Patch Review: ${flow.patchReview}`,
+  ];
+
+  flowEl.replaceChildren();
+  for (const row of rows) {
+    const div = document.createElement('div');
+    div.textContent = row;
+    flowEl.appendChild(div);
+  }
+
+  nextEl.textContent = `Next Action: ${flow.nextAction}`;
+  renderAtlasPlanNextActionButtons(flow);
+}
+
+
+function renderAtlasWorkbenchStatus() {
+  const host = document.getElementById('atlas-workbench-status');
+  if (!host) return;
+  const flow = deriveAtlasPlanFlowState();
+  const currentJob = planWorkflowState.currentJobId || '-';
+  const lastRun = planWorkflowState.currentRunId || planWorkflowState.lastRunId || getAtlasLastRunId() || '-';
+  const rawLastError = String(planWorkflowState.lastError || '').trim();
+  const lastError = rawLastError || '-';
+  host.innerHTML = `<div id="atlas-workflow-status" data-current-job-id="${esc(currentJob === '-' ? '' : currentJob)}" data-current-run-id="${esc(lastRun === '-' ? '' : lastRun)}" data-job-status="${esc(planWorkflowState.jobStatus || '')}" data-workflow-phase="${esc(planWorkflowState.workflowPhase || '')}" data-last-error="${esc(rawLastError)}"><div><b>Current workflow state:</b> ${esc(flow.plan)} / review ${esc(flow.review)} / approval ${esc(flow.approval)} / preview ${esc(flow.executePreview)}</div><div><b>Current Action:</b> ${esc(flow.nextAction)}</div><div><b>Current Job:</b> ${esc(currentJob)}</div><div><b>Last Run:</b> ${esc(lastRun)}</div><div><b>Last Error:</b> <span id="atlas-workflow-last-error" data-last-error-value="${esc(rawLastError)}">${esc(lastError)}</span></div></div>`;
+  updateAtlasWorkbenchCompactSummary();
+}
+
+
+function _updatePlanWorkflowState(partial = {}) {
+  Object.assign(planWorkflowState, partial || {});
+  restoreAtlasLastRunState();
+  renderAtlasWorkbenchStatus();
+  renderAtlasPlanFlowSummary();
+}
+
+function setAtlasRequirementStatus(message) {
+  const status = document.getElementById('atlas-requirement-status');
+  if (!status) return;
+  status.textContent = message || 'Ready to start Atlas.';
+}
+
+
+function updateAtlasRequirementCharCount() {
+  const input = document.getElementById('atlas-requirement-input');
+  const counter = document.getElementById('atlas-requirement-char-count');
+  if (!counter) return;
+  const count = (input?.value || '').length;
+  counter.textContent = `${count} chars`;
+}
+
+function persistAtlasRequirementInput() {
+  const input = document.getElementById('atlas-requirement-input');
+  if (!input) return;
+  try { _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, input.value || ''); } catch (err) { console.warn('persistAtlasRequirementInput failed:', err); }
+}
+
+function restoreAtlasRequirementInput() {
+  const input = document.getElementById('atlas-requirement-input');
+  if (!input) return;
+  const saved = _atlasLsGet(ATLAS_REQUIREMENT_INPUT_KEY);
+  if (saved && !input.value) input.value = saved;
+  updateAtlasRequirementCharCount();
+  setAtlasRequirementStatus(input.value.trim() ? 'Requirement draft restored.' : 'Ready to start Atlas.');
+}
+
+function clearAtlasRequirementInput() {
+  const input = document.getElementById('atlas-requirement-input');
+  if (input) input.value = '';
+  try { _atlasLsSet(ATLAS_REQUIREMENT_INPUT_KEY, ''); } catch (err) { console.warn('clearAtlasRequirementInput failed:', err); }
+  updateAtlasRequirementCharCount();
+  setAtlasRequirementStatus('Requirement cleared.');
+}
+
+function initAtlasRequirementInputHandlers() {
+  const input = document.getElementById('atlas-requirement-input');
+  if (!input || input.dataset.bound === '1') return;
+  input.addEventListener('input', () => {
+    persistAtlasRequirementInput();
+    updateAtlasRequirementCharCount();
+    setAtlasRequirementStatus('Requirement draft saved.');
+  });
+  input.dataset.bound = '1';
+  updateAtlasRequirementCharCount();
+}
+
+function deriveAtlasRequirementSource() {
+  const atlasInput = document.getElementById('atlas-requirement-input');
+  const atlasText = (atlasInput?.value || '').trim();
+  if (atlasText) return { text: atlasText, source: 'atlas' };
+  return { text: '', source: 'empty' };
+}
+
+function getAtlasRequirementText() {
+  return deriveAtlasRequirementSource().text;
+}
+
+function syncAtlasRequirementToChatInput(_text) {
+  return;
+}
+
+function startPlanWorkflow(options = {}) {
+  return runGuidedPlanWorkflow(options);
+}
+
+async function startAtlasWorkflow() {
+  setAtlasSubview('plan');
+  try { renderAtlasPlanFlowSummary(); } catch (err) { console.warn('renderAtlasPlanFlowSummary failed:', err); }
+  const derived = deriveAtlasRequirementSource();
+  const requirementText = derived.text;
+  if (!requirementText || derived.source === 'empty') {
+    const msg = 'Atlas Start needs a request. Enter a requirement in Atlas and press Start Atlas again.';
+    setAtlasRequirementStatus('Enter a requirement to start.');
+    addLog('warn', 'atlas', msg);
+    renderAtlasWorkbenchStatus();
+    _updatePlanWorkflowState({ lastError: msg });
+    return null;
+  }
+  if (derived.source === 'atlas') {
+    setAtlasRequirementStatus('Using Atlas requirement input.');
+  }
+  setAtlasRequirementStatus('Starting Atlas guided planning workflow...');
+  if (window.innerWidth <= 768) setAtlasWorkbenchCollapsed(true);
+  try {
+    return await startPlanWorkflow({ source: 'atlas', workspace: 'Atlas', requirementText, requirementSource: derived.source });
+  } catch (err) {
+    console.warn('startAtlasWorkflow failed:', err);
+    try { addLog('err', 'atlas', 'Start Atlas failed: ' + (err?.message || String(err))); } catch (_logErr) {}
+    setAtlasRequirementStatus('Atlas Start failed.');
+    renderAtlasWorkbenchStatus();
+    return null;
+  }
+}
+
+function startAgentGuidedWorkflow() {
+  return startAtlasWorkflow();
+}
+
+function showAtlasPanel() {
+  return showPlanWorkflowPanel();
+}
+
+function updateAtlasWorkbenchCompactSummary() {
+  const flow = (typeof deriveAtlasPlanFlowState === 'function') ? deriveAtlasPlanFlowState() : { nextAction: 'Start Atlas', plan: 'pending', approval: 'pending', executePreview: 'locked' };
+  const lastRun = getAtlasLastRunId();
+  const actionEl = document.getElementById('atlas-workbench-summary-action');
+  const lastRunEl = document.getElementById('atlas-workbench-summary-last-run');
+  const statusEl = document.getElementById('atlas-workbench-summary-status');
+  if (actionEl) actionEl.textContent = flow.nextAction || 'Start Atlas';
+  const currentRun = planWorkflowState.currentRunId || planWorkflowState.lastRunId || lastRun;
+  const currentJob = planWorkflowState.currentJobId || '';
+  if (lastRunEl) lastRunEl.textContent = currentRun || '-';
+  if (statusEl) statusEl.textContent = `${flow.plan || 'pending'} / review ${flow.review || 'pending'} / approval ${flow.approval || 'locked'} / job ${currentJob || '-'}`;
+}
+
+function setAtlasWorkbenchCollapsed(collapsed) {
+  const card = document.getElementById('atlas-workbench-card');
+  const btn = document.getElementById('atlas-workbench-collapse-btn');
+  if (!card) return;
+  card.classList.toggle('is-collapsed', !!collapsed);
+  card.dataset.atlasWorkbenchCollapsed = collapsed ? 'true' : 'false';
+  if (btn) {
+    btn.textContent = collapsed ? 'Expand' : 'Collapse';
+    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  }
+  updateAtlasWorkbenchCompactSummary();
+}
+
+function toggleAtlasWorkbenchCollapse() {
+  const card = document.getElementById('atlas-workbench-card');
+  setAtlasWorkbenchCollapsed(!(card?.classList.contains('is-collapsed')));
+}
+
+function normalizeAtlasSubview(name) {
+  return ATLAS_SUBVIEWS.includes(name) ? name : 'start';
+}
+
+function getAtlasLastSubview() {
+  return normalizeAtlasSubview(_atlasLsGet(ATLAS_LAST_SUBVIEW_KEY));
+}
+
+function updateAtlasResumeNotice(subview) {
+  const notice = document.getElementById('atlas-workbench-card-resume-notice');
+  if (!notice) return;
+  const current = normalizeAtlasSubview(subview || getAtlasLastSubview());
+  const labelMap = {
+    start: 'Start',
+    plan: 'Plan',
+    runs: 'Runs',
+    execute: 'Execute',
+    patch: 'Patch Review',
+  };
+  const label = labelMap[current] || 'Start';
+  const lastRun = getAtlasLastRunId();
+  if (lastRun) {
+    notice.textContent = `Atlas restored: ${label}. Last Run: ${lastRun}. Content is not auto-loaded. Use the resume buttons below.`;
+  } else {
+    notice.textContent = `Atlas restored: ${label}. No Last Run yet. Run Atlas once, load recent runs, or enter run_id.`;
+  }
+}
+
+function restoreAtlasSubviewState() {
+  try {
+    restoreAtlasLastRunState();
+  } catch (err) {
+    console.warn('restoreAtlasLastRunState failed:', err);
+  }
+  let subview = 'start';
+  try {
+    subview = normalizeAtlasSubview(getAtlasLastSubview());
+  } catch (err) {
+    console.warn('getAtlasLastSubview failed:', err);
+    subview = 'start';
+  }
+  try {
+    setAtlasSubview(subview);
+  } catch (err) {
+    console.warn('setAtlasSubview failed during restore:', err);
+    try { setAtlasSubview('start'); } catch (_err) {}
+  }
+  try {
+    ensureAtlasWorkbenchHost();
+  } catch (err) {
+    console.warn('ensureAtlasWorkbenchHost failed during restore:', err);
+  }
+  try {
+    updateAtlasResumeNotice(subview);
+  } catch (err) {
+    console.warn('updateAtlasResumeNotice failed during restore:', err);
+  }
+  try {
+    initAtlasRequirementInputHandlers();
+    restoreAtlasRequirementInput();
+  } catch (err) {
+    console.warn('restoreAtlasRequirementInput failed during restore:', err);
+  }
+}
+
+function setAtlasSubview(name) {
+  const allowed = Array.isArray(ATLAS_SUBVIEWS) ? ATLAS_SUBVIEWS : ['start'];
+  const next = allowed.includes(name) ? name : 'start';
+  const root = document.getElementById('atlas-workbench-card');
+  if (!root) return next;
+  root.dataset.atlasCurrentSubview = next;
+  try {
+    _atlasLsSet(ATLAS_LAST_SUBVIEW_KEY, next);
+  } catch (err) {
+    console.warn('Atlas subview persistence failed:', err);
+  }
+  root.querySelectorAll('[data-atlas-subview-panel]').forEach((el) => {
+    const active = el.getAttribute('data-atlas-subview-panel') === next;
+    el.hidden = !active;
+    el.style.display = active ? '' : 'none';
+  });
+  root.querySelectorAll('[data-atlas-subview-tab]').forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-atlas-subview-tab') === next);
+  });
+  if (next === 'runs' || next === 'execute' || next === 'patch') {
+    try { ensureAtlasWorkbenchHost(); } catch (err) { console.warn('ensureAtlasWorkbenchHost failed:', err); }
+  }
+  if (typeof updateAtlasResumeNotice === 'function') {
+    try { updateAtlasResumeNotice(next); } catch (err) { console.warn('updateAtlasResumeNotice failed:', err); }
+  }
+  return next;
+}
+
+
+function appendAtlasActivityCard(type, data = {}) {
+  const stream = document.getElementById('atlas-activity-stream-list') || document.getElementById('atlas-activity-stream');
+  if (!stream) return;
+  const titleMap = {
+    plan_generated: 'Plan generated',
+    clarification_required: 'Clarification required',
+    review_ready: 'Review ready',
+    plan_approved: 'Plan approved',
+    execute_preview_generated: 'Execute preview ready',
+    patch_review_ready: 'Patch review ready',
+  };
+  const actionMap = {
+    plan_generated: 'plan', clarification_required: 'start', review_ready: 'review',
+    plan_approved: 'execute', execute_preview_generated: 'execute', patch_review_ready: 'patch',
+  };
+  const card = document.createElement('div');
+  card.className = 'atlas-activity-card';
+  card.dataset.activityType = type;
+  card.style.cssText = 'border:1px solid var(--border);border-radius:8px;background:var(--bg2);padding:8px;margin-top:6px';
+  const title = titleMap[type] || type;
+  const body = data.message || data.planId || data.runId || data.requirementId || '';
+  card.innerHTML = `<div style="font-size:11px;font-weight:700;color:var(--text)">${esc(title)}</div>${body ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">${esc(String(body).slice(0,140))}</div>` : ''}`;
+  const action = actionMap[type];
+  if (action) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'phase1-tab-btn';
+    btn.textContent = `Open ${action[0].toUpperCase()+action.slice(1)}`;
+    btn.style.marginTop = '6px';
+    btn.addEventListener('click', () => { try { setAtlasSubview(action); } catch (_) {} });
+    card.appendChild(btn);
+  }
+  stream.prepend(card);
+}
+function ensureAtlasWorkbenchHost() {
+  const cardRoot = document.getElementById('atlas-workbench-card');
+  if (!cardRoot) return null;
+  const cid = 'atlas-workbench-card';
+  const inputEl = cardRoot.querySelector(`#${cid}-atlas-run-input`);
+  if (inputEl && !inputEl.value) inputEl.value = getAtlasLastRunId();
+  const lastEl = cardRoot.querySelector(`#${cid}-atlas-last-run`);
+  if (lastEl) lastEl.textContent = getAtlasLastRunId() || '-';
+  cardRoot.querySelectorAll('[data-atlas-last-run-mirror]').forEach((el) => {
+    el.textContent = getAtlasLastRunId() || '-';
+  });
+  updateAtlasResumeNotice(cardRoot.dataset.atlasCurrentSubview || getAtlasLastSubview());
+  updateAtlasWorkbenchCompactSummary();
+  return cardRoot;
+}
+
+async function openLastAtlasExecuteFromWorkbench() {
+  setAtlasSubview('plan');
+  const cardRoot = ensureAtlasWorkbenchHost();
+  if (!cardRoot) return;
+  const runId = getAtlasLastRunId();
+  if (!runId) { addMsg('system', 'Last run is not available. Run Atlas once, load recent runs, or enter run_id.'); return; }
+  await loadAtlasRunExecute('atlas-workbench-card', runId, cardRoot, 'lastRun');
+}
+
+async function openManualAtlasRunExecuteFromWorkbench() {
+  setAtlasSubview('plan');
+  const cardRoot = ensureAtlasWorkbenchHost();
+  if (!cardRoot) return;
+  const cid = 'atlas-workbench-card';
+  const manual = (cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value || '').trim();
+  const runId = manual || getAtlasLastRunId();
+  if (!runId) { addMsg('system', 'run_id is required. Run Atlas once, load recent runs, or enter run_id.'); return; }
+  cardRoot.dataset.lastRunId = runId;
+  _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+  await loadAtlasRunExecute(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
+  appendAtlasActivityCard('patch_review_ready', { runId });
+}
+
+async function loadRecentAtlasRunsFromWorkbench() {
+  setAtlasSubview('history');
+  const cardRoot = ensureAtlasWorkbenchHost();
+  if (!cardRoot) return;
+  await loadRecentAtlasRuns('atlas-workbench-card', cardRoot);
+}
+
+async function openPatchReviewFromWorkbench() {
+  setAtlasSubview('plan');
+  const cardRoot = ensureAtlasWorkbenchHost();
+  if (!cardRoot) return;
+  const cid = 'atlas-workbench-card';
+  const manual = (cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value || '').trim();
+  const runId = manual || getAtlasLastRunId();
+  if (!runId) { addMsg('system', 'run_id is required for patch review. Run Atlas once, load recent runs, or enter run_id.'); return; }
+  cardRoot.dataset.lastRunId = runId;
+  _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+  await loadAtlasRunExecute(cid, runId, cardRoot, manual ? 'manualInput' : 'lastRun');
+  setTimeout(() => {
+    const btn = cardRoot.querySelector('[data-atlas-dashboard-action="open-patch-review"]');
+    if (btn) btn.click();
+    else addMsg('system', 'Patch Review button is not available yet. Load dashboard first.');
+  }, 60);
+}
+
+function focusAtlasPlanWorkbench() {
+  try { setAtlasWorkbenchCollapsed(false); } catch (_) {}
+  try { setAtlasSubview('plan'); } catch (_) {}
+}
+
+function getAtlasPlanOutputHost({ clear = false } = {}) {
+  const host = document.getElementById('atlas-workbench-card-plan-output') || document.getElementById('atlas-workbench-card-plan-flow');
+  if (host && clear) host.replaceChildren();
+  return host;
+}
+
+function shouldRenderAtlasWorkflowInChat(context = {}) {
+  return context?.target === 'legacy_chat_task_plan';
+}
+
+function showPlanWorkflowPanel() {
+  const panel = document.getElementById('phase1-plan-panel');
+  const toggle = document.getElementById('phase1-plan-toggle');
+  if (panel) {
+    panel.classList.remove('collapsed');
+    panel.setAttribute('aria-hidden', 'false');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  if (toggle) toggle.setAttribute('aria-expanded', 'true');
+  addMsg('system', 'Atlas Panelを開きました。Atlas workflowから既存Plan Workflow互換導線を利用できます。');
+}
+
+async function runGuidedPlanWorkflow(options = {}) {
+  const source = options?.source || planWorkflowState.source || 'atlas';
+  const workspace = options?.workspace || 'Atlas';
+  const derived = deriveAtlasRequirementSource();
+  const requirementSource = (options?.requirementSource === 'atlas' || options?.requirementSource === 'chat')
+    ? options.requirementSource
+    : derived.source;
+  const requirementText = String(options?.requirementText || derived.text || '').trim();
+  _updatePlanWorkflowState({
+    source,
+    workspace,
+    requirementSource: requirementSource === 'empty' ? '' : requirementSource,
+    requirementTextPreview: requirementText ? requirementText.slice(0, 120) : '',
+  });
+
+  if (!requirementText && source === 'atlas') {
+    const msg = 'Atlas Start needs a request. Enter a requirement in Atlas and press Start Atlas again.';
+    setAtlasRequirementStatus('Enter a requirement to start.');
+    addLog('warn', 'atlas', msg);
+    renderAtlasWorkbenchStatus();
+    _updatePlanWorkflowState({ lastError: msg });
+    return null;
+  }
+  if (busy && source === 'atlas') {
+    const busyMsg = 'Atlas workflow is busy now. Wait for the current step to finish, then press Start Atlas again.';
+    setAtlasRequirementStatus('Atlas workflow is busy now.');
+    addLog('warn', 'atlas', busyMsg);
+    renderAtlasWorkbenchStatus();
+    _updatePlanWorkflowState({ lastError: busyMsg });
+    return null;
+  }
+  if (source === 'atlas' && requirementText) {
+    if (requirementSource === 'atlas') {
+      setAtlasRequirementStatus('Using Atlas requirement input.');
+    } else if (requirementSource === 'chat') {
+      setAtlasRequirementStatus('Falling back to Chat input.');
+    }
+  }
+  return generatePlanOnlyFromInput({ text: requirementText, source, workspace, requirementSource });
+}
+
+function renderClarificationCard(result, context = {}) {
+  const target = context?.target || ((context?.source || planWorkflowState.source) === 'atlas' ? 'atlas' : 'atlas');
+  const questions = Array.isArray(result?.questions) ? result.questions : [];
+  _updatePlanWorkflowState({
+    workflowPhase: 'requirement_ready',
+    currentJobId: 'sync-plan-pending',
+    currentRunId: '',
+    jobStatus: result?.job_status || 'waiting_for_clarification',
+    requirementId: result?.requirement_id || '',
+    planId: '',
+    reviewId: '',
+    approvalId: '',
+    runId: '',
+    lastRunId: getAtlasLastRunId(),
+    latestPatchIds: [],
+    approvalStatus: 'pending',
+    executionReady: false,
+    userApprovedPlan: false,
+    lastError: '',
+    source: context?.source || planWorkflowState.source || 'atlas',
+    workspace: context?.workspace || planWorkflowState.workspace || 'Atlas',
+  });
+  const cardId = 'phase2-clar-card-' + Date.now();
+  const qHtml = questions.length
+    ? questions.map((q) => `
+      <div data-question-row="1" data-qid="${esc(String(q.question_id||''))}" data-qtype="${esc(String(q.type||'single_choice'))}" style="border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--bg2);margin-bottom:8px;max-width:100%;overflow-wrap:anywhere">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <div style="font-size:13px;color:var(--text);font-weight:700">${esc(String(q.question||''))}</div>
+          <span style="font-size:10px;padding:2px 8px;border-radius:12px;${_phase2ImportanceStyle(q.importance)}">${esc(String(q.importance||'optional'))}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin:6px 0">理由: ${esc(String(q.reason||'-'))}</div>
+        ${_phase2QuestionControl(q)}
+        <textarea data-qnote="1" placeholder="補足・代替案（いいえ/その他時は入力推奨）" style="display:none;width:100%;margin-top:6px;min-height:62px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px"></textarea>
+      </div>
+    `).join('')
+    : '<div style="font-size:11px;color:var(--text3)">質問はありません。</div>';
+
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.innerHTML = `
+    <div class="msg-role" style="color:var(--amber)">Clarification Required</div>
+    <div class="plan-card" id="${cardId}">
+      <div class="plan-card-header"><span>${esc(result?.message || 'Clarification required before planning')}</span></div>
+      <div class="plan-section">
+        <div class="plan-section-title">Questions</div><div style="font-size:11px;color:var(--text2);margin:4px 0 8px">「はい」は提示方針を採用。「いいえ」は代替案を入力。「おまかせ」はAtlasが安全側で判断します。</div>
+        ${qHtml}
+        ${_renderNexusContextSummary(result?.nexus_context, { title: "Planning Context", compact: true })}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button class="phase1-plan-btn" data-action="submit">回答してPlan生成</button>
+          <button class="phase1-tab-btn" data-action="skip">おまかせで進める</button>
+        </div>
+      </div>
+    </div>`;
+  const host = target === 'atlas' ? getAtlasPlanOutputHost({ clear: false }) : null;
+  if (host) {
+    host.appendChild(div);
+    try { focusAtlasPlanWorkbench(); } catch (_) {}
+  } else if (shouldRenderAtlasWorkflowInChat(context)) {
+    messages().appendChild(div);
+    scrollMsgs();
+  } else {
+    addLog('warn', 'atlas', 'Clarification card render skipped outside Atlas workspace.');
+  }
+
+  const card = div.querySelector(`#${cardId}`);
+  const submitBtn = card?.querySelector('[data-action="submit"]');
+  card?.querySelectorAll('[data-question-row="1"]').forEach((row) => {
+    const sync = () => {
+      const qid = row.getAttribute('data-qid');
+      const qtype = row.getAttribute('data-qtype');
+      const note = row.querySelector('textarea[data-qnote]');
+      if (!note) return;
+      let v = 'おまかせ';
+      if (qtype === 'yes_no') v = row.querySelector(`input[type="radio"][name="q_${qid}"]:checked`)?.value || 'おまかせ';
+      if (qtype === 'single_choice') v = row.querySelector('select[data-qid]')?.value || 'おまかせ';
+      note.style.display = (v === 'いいえ' || v === 'その他') ? '' : 'none';
+    };
+    row.addEventListener('change', sync);
+    sync();
+  });
+  const skipBtn = card?.querySelector('[data-action="skip"]');
+  const baseReq = result?.requirement_id;
+  const setCardPending = (pending, label = '処理中...') => {
+    [submitBtn, skipBtn].forEach((btn) => {
+      if (!btn) return;
+      btn.disabled = !!pending;
+      if (pending) {
+        btn.dataset._oldLabel = btn.textContent || '';
+        btn.textContent = label;
+      } else if (btn.dataset._oldLabel) {
+        btn.textContent = btn.dataset._oldLabel;
+      }
+    });
+  };
+  const softenCard = () => {
+    if (!card) return;
+    card.style.opacity = '0.62';
+  };
+
+  const runContinue = async () => {
+    const rc = await fetch(API + '/api/task/continue', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        requirement_id: baseReq,
+        planning_mode: context.planningMode || 'standard',
+        requirement_mode: context.requirementMode || 'ask_when_needed',
+        execution_mode: context.executionMode || 'plan_only',
+        use_nexus: true,
+        project_path: '',
+        project_name: currentProject || 'default',
+      })
+    });
+    const dc = await rc.json();
+    if (!rc.ok) throw new Error(dc.detail || `HTTP ${rc.status}`);
+    const ws = Array.isArray(dc?.warnings) ? dc.warnings : [];
+    ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
+    if (dc.status === 'waiting_for_clarification') {
+      softenCard();
+      renderClarificationCard(dc, { ...context, target });
+      return;
+    }
+    let planMarkdown = '';
+    try {
+      const resolvedPlanId = dc.plan_id || dc?.plan?.plan_id || '';
+      const rm = await fetch(API + `/api/plans/${encodeURIComponent(resolvedPlanId)}/markdown`);
+      const dm = await rm.json();
+      if (!rm.ok) throw new Error(dm.detail || `HTTP ${rm.status}`);
+      planMarkdown = String(dm.markdown || '');
+    } catch (mdErr) {
+      addLog('warn', 'plan-only', `Plan markdown fetch warning: ${mdErr.message || String(mdErr)}`);
+    }
+    softenCard();
+    renderPhase1PlanCard(dc, planMarkdown, { ...context, target });
+  };
+
+  submitBtn?.addEventListener('click', async () => {
+    if (busy) return;
+    setCardPending(true, '回答を送信中...');
+    const progEl = target === 'atlas' ? { remove() {} } : addProgressCard('Applying clarification answers...');
+    setBusy(true);
+    try {
+      const answers = _collectClarificationAnswers(card);
+      const ra = await fetch(API + '/api/requirements/answer', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ requirement_id: baseReq, answers })
+      });
+      const da = await ra.json();
+      if (!ra.ok) throw new Error(da.detail || `HTTP ${ra.status}`);
+      await runContinue();
+    } catch (e) {
+      if (shouldRenderAtlasWorkflowInChat(context)) addMsg('error', 'Clarification failed: ' + (e.message || String(e)));
+      addLog('err', 'plan-only', e.message || String(e));
+    } finally {
+      progEl.remove();
+      setCardPending(false);
+      setBusy(false);
+    }
+  });
+
+  skipBtn?.addEventListener('click', async () => {
+    if (busy) return;
+    setCardPending(true, '既定値で処理中...');
+    const progEl = addProgressCard('Applying default assumptions...');
+    setBusy(true);
+    try {
+      const ra = await fetch(API + '/api/requirements/answer', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ requirement_id: baseReq, skip_with_defaults: true, answers: [] })
+      });
+      const da = await ra.json();
+      if (!ra.ok) throw new Error(da.detail || `HTTP ${ra.status}`);
+      await runContinue();
+    } catch (e) {
+      if (shouldRenderAtlasWorkflowInChat(context)) addMsg('error', 'Clarification skip failed: ' + (e.message || String(e)));
+      addLog('err', 'plan-only', e.message || String(e));
+    } finally {
+      progEl.remove();
+      setCardPending(false);
+      setBusy(false);
+    }
+  });
+}
+
+
+function _phase1ReviewBadgeClass(severity) {
+  const s = String(severity || '').toLowerCase();
+  if (s === 'critical') return 'var(--red)';
+  if (s === 'high') return 'var(--amber)';
+  if (s === 'warning') return 'var(--blue)';
+  return 'var(--text3)';
+}
+
+function _renderPhase1ReviewSection(reviewResult) {
+  if (!reviewResult || typeof reviewResult !== 'object') return '';
+  const findings = Array.isArray(reviewResult.findings) ? reviewResult.findings.slice(0, 5) : [];
+  const needsConfirm = !!reviewResult.requires_user_confirmation;
+  const dangerBanner = needsConfirm
+    ? `<div style="margin-bottom:8px;padding:8px 10px;border:1px solid rgba(255,68,102,.35);background:rgba(255,68,102,.1);border-radius:6px;color:var(--red);font-size:11px;font-weight:700">⚠ このPlanは実装前に確認が必要です（Phase 5で承認操作を有効化予定）</div>`
+    : '';
+  const findingHtml = findings.length
+    ? findings.map((f) => {
+        const color = _phase1ReviewBadgeClass(f?.severity);
+        return `<div style="padding:7px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin-top:6px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:10px;padding:1px 6px;border:1px solid ${color};border-radius:10px;color:${color}">${esc(String(f?.severity || 'info'))}</span>
+            <span style="font-size:10px;color:var(--text3)">${esc(String(f?.category || 'other'))}</span>
+          </div>
+          <div style="font-size:11px;color:var(--text);font-weight:700;margin-top:3px">${esc(String(f?.title || '-'))}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">${esc(String(f?.detail || ''))}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">recommendation: ${esc(String(f?.recommendation || '-'))}</div>
+        </div>`;
+      }).join('')
+    : `<div style="font-size:11px;color:var(--text3)">No findings</div>`;
+
+  return `<div class="phase1-warning-box" data-atlas-workflow-target="dynamic-plan-review" style="border-color:var(--border)">
+    ${dangerBanner}
+    <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:4px">Plan Review</div>
+    <div style="font-size:11px;color:var(--text2);line-height:1.5">
+      • Overall risk: <b>${esc(String(reviewResult.overall_risk || '-'))}</b><br>
+      • Requires user confirmation: <b>${esc(String(!!reviewResult.requires_user_confirmation))}</b><br>
+      • Destructive change detected: <b>${esc(String(!!reviewResult.destructive_change_detected))}</b><br>
+      • Recommended next action: <b>${esc(String(reviewResult.recommended_next_action || '-'))}</b>
+    </div>
+    <div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--text2)">Findings (top 5)</div>
+    ${findingHtml}
+  </div>`;
+}
+
+
+async function _phase5PlanDecision(planId, decision, payload = {}) {
+  const endpoint = decision === 'approve' ? 'approve' : (decision === 'request_revision' ? 'request-revision' : 'reject');
+  const r = await fetch(API + `/api/plans/${encodeURIComponent(planId)}/${endpoint}`, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload || {})
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+  return d;
+}
+
+function _renderPhase5ApprovalSection(result, cardId) {
+  const plan = result?.plan || {};
+  const review = result?.review_result || plan?.review_result || {};
+  const approval = plan?.approval || result?.approval || null;
+  const userApproved = planWorkflowState.userApprovedPlan === true;
+  const status = userApproved ? String(approval?.status || planWorkflowState.approvalStatus || 'approved') : 'pending';
+  const executionReady = userApproved && !!(approval?.execution_ready || plan?.status === 'execution_ready' || planWorkflowState.executionReady);
+  const requiresConfirm = !!review?.requires_user_confirmation;
+  const destructive = !!(review?.destructive_change_detected || plan?.destructive_change_detected);
+  return `<div class="phase1-warning-box" id="${cardId}-approval-box" data-atlas-workflow-target="dynamic-approval">
+    <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px">Plan Approval (Phase 5)</div>
+    <div style="font-size:11px;color:var(--text2);line-height:1.6">Approval status: <b>${esc(status)}</b> / Execution ready: <b>${esc(String(executionReady))}</b></div>
+    <div style="font-size:11px;color:var(--text3);margin-top:5px">Phase 5では承認状態のみ保存し、実装はまだ実行されません。承認後、このPlanは execution_ready になります。</div>
+    <label style="display:${requiresConfirm?'flex':'none'};gap:7px;margin-top:8px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-risk-ack"> リスクを理解しました</label>
+    <label style="display:${destructive?'flex':'none'};gap:7px;margin-top:6px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-destructive-ack"> 破壊的変更の可能性を理解しました</label>
+    <textarea id="${cardId}-comment" placeholder="コメント（任意）" style="width:100%;margin-top:8px;min-height:50px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px"></textarea>
+    <textarea id="${cardId}-revision" placeholder="修正要求（Request Revision時）" style="width:100%;margin-top:6px;min-height:50px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px"></textarea>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="phase1-plan-btn" data-a="approve">Approve Plan</button>
+      <button class="phase1-tab-btn" data-a="request_revision">Request Revision</button>
+      <button class="phase1-tab-btn" data-a="reject">Reject Plan</button>
+    </div>
+    <div id="${cardId}-approval-msg" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
+  </div>`;
+}
+
+
+async function _phase6ExecutePlan(planId, payload = {}) {
+  const r = await fetch(API + `/api/plans/${encodeURIComponent(planId)}/execute`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {})
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+  return d;
+}
+
+function _renderPhase6ExecutionSection(result, cardId) {
+  const plan = result?.plan || {};
+  const requirement = result?.requirement || {};
+  const approval = plan?.approval || result?.approval || null;
+  const executionProjectPath =
+    plan?.resolved_project_path ||
+    requirement?.resolved_project_path ||
+    result?.resolved_project_path ||
+    '';
+  const canShow = planWorkflowState.userApprovedPlan === true && String(plan?.status||'') === 'execution_ready' && !!approval?.execution_ready;
+  if (!canShow) return '';
+  return `<div class="phase1-warning-box" id="${cardId}-exec-box" data-atlas-workflow-target="dynamic-execute-preview">
+    <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px">Implementation Execution (Phase 7 MVP)</div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Phase 7.5では小規模patchのみ対象です。preview_only はデフォルトONで、ファイル変更は発生しません。</div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:6px;word-break:break-all">resolved_project_path: ${esc(executionProjectPath || '(not resolved)')}</div>
+    <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-allow-create"> allow_create</label>
+    <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-allow-update"> allow_update</label>
+    <label style="display:flex;gap:7px;font-size:11px;color:var(--text3)"><input type="checkbox" disabled id="${cardId}-allow-delete"> allow_delete (disabled)</label>
+    <label style="display:flex;gap:7px;font-size:11px;color:var(--text3)"><input type="checkbox" disabled id="${cardId}-allow-run"> allow_run_command (disabled)</label>
+    <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-preview-only" checked> preview_only</label>
+    <label style="display:flex;gap:7px;font-size:11px;color:var(--text2)"><input type="checkbox" id="${cardId}-apply-patches" checked> apply_patches</label>
+    <label style="display:block;font-size:11px;color:var(--text2);margin-top:6px">Patch Generation Mode
+      <select id="${cardId}-patch-mode" style="margin-left:6px">
+        <option value="append" selected>Append note only</option>
+        <option value="llm_replace_block">LLM replace block preview</option>
+        <option value="auto">Auto: LLM replace block, fallback append</option>
+      </select>
+    </label>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px">LLM replace blockはpreviewのみ生成します。承認なしにapplyされません。exact matchが1件の場合のみapply可能です。</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px">書き込みが発生するのは apply_patches=true かつ preview_only=false のときのみです。Safe Apply時のproject_pathは空/./でも、Plan/Requirementのresolved_project_path fallbackが使われる場合があります。</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="phase1-plan-btn" data-exec="dry_run">Execute Preview (dry_run)</button>
+      <button class="phase1-tab-btn" data-exec="safe_apply">Execute Preview (safe_apply)</button>
+    </div>
+    <div id="${cardId}-exec-msg" style="font-size:11px;color:var(--amber);margin-top:6px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="phase1-tab-btn" data-run-view="log">View Run Log</button>
+      <button class="phase1-tab-btn" data-run-view="report">View Final Report</button>
+    </div>
+    <div data-atlas-workflow-target="dynamic-patch-review" style="margin-top:10px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
+      <div style="font-size:11px;font-weight:700;color:var(--text)">Patch Review (Phase 8)</div>
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">Patchは承認後に個別applyできます / proposed_content のappendのみ適用 / delete/run_command/high riskは実行されません。</div>
+      <button class="phase1-tab-btn" data-run-view="patches" style="margin-top:6px">Load Patches</button>
+      <button class="phase1-tab-btn" data-run-view="atlas-dashboard" style="margin-top:6px">Load Atlas Execute</button>
+      <button class="phase1-tab-btn" data-run-view="refresh-atlas-dashboard" style="margin-top:6px">Refresh Atlas Execute</button>
+      <div style="margin-top:8px"><b>Atlas Runs</b> / Last Run: <span id="${cardId}-atlas-last-run">-</span></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"><input id="${cardId}-atlas-run-input" placeholder="run_id" value="${esc(getAtlasLastRunId())}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px"><button class="phase1-tab-btn" data-run-view="open-run-dashboard">Open Run</button><button class="phase1-tab-btn" data-run-view="load-recent-atlas-runs">Load Recent</button><button class="phase1-tab-btn" data-run-view="open-last-atlas-dashboard">Open Last Atlas Execute</button></div>
+      <div id="${cardId}-atlas-runs-list" style="margin-top:6px;font-size:11px"></div>
+      <div id="${cardId}-atlas-dashboard" style="margin-top:8px;font-size:11px;max-width:100%;overflow-wrap:anywhere"></div>
+      <div id="${cardId}-patch-list" style="margin-top:8px;font-size:11px"></div>
+    </div>
+    <pre id="${cardId}-exec-result" style="white-space:pre-wrap;margin-top:8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;color:var(--text2)">No run yet.</pre>
+  </div>`;
+}
+
+const _ATLAS_PATCH_FILTERS = [
+  ['all', 'All'],
+  ['pending', 'Pending'],
+  ['approved', 'Approved'],
+  ['applied', 'Applied'],
+  ['blocked', 'Blocked'],
+  ['verification_failed', 'Verification Failed'],
+  ['low_quality', 'Low Quality'],
+  ['quality_not_evaluated', 'Quality Not Evaluated'],
+  ['safety_warning', 'Safety Warnings'],
+  ['missing_manual_check', 'Missing Manual Check'],
+  ['missing_telemetry', 'Missing Telemetry'],
+  ['reproposal_candidate', 'Reproposal Candidates'],
+];
+
+async function loadAtlasRunExecute(cid, runId, cardRoot, openedFrom = "current") {
+  const root = cardRoot || document.getElementById(cid);
+  const dashboardEl = root?.querySelector(`#${cid}-atlas-dashboard`);
+  if (!dashboardEl || !runId) return;
+  try {
+    const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
+    const db = d.dashboard || {};
+    const c = db.counts || {};
+    const att = db.attention || {};
+    const renderList = (title, items=[]) => `<div style="margin-top:4px"><b>${title}</b>: ${items.length ? items.map((pid)=>`<button class=\"phase1-tab-btn\" data-scroll-pid=\"${esc(String(pid))}\" style=\"margin:2px\">${esc(String(pid))}</button>`).join(' ') : '-'}</div>`;
+    dashboardEl.innerHTML = `
+      <div><b>Atlas Run Execute</b></div><div>run_id: ${esc(runId)} / opened_from: ${esc(openedFrom)} / patches: ${esc(String(c.total||0))} / filter: ${esc(root?.dataset?.patchFilter || "all")}</div><div style="margin-top:4px"><button class="phase1-tab-btn" data-atlas-dashboard-action="open-patch-review">Open Patch Review for this run</button> <button class="phase1-tab-btn" data-atlas-dashboard-action="refresh-patches">Refresh Patches</button> <button class="phase1-tab-btn" data-atlas-dashboard-action="refresh-dashboard">Refresh Execute</button></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <span>Total: ${esc(String(c.total||0))}</span><span>Pending: ${esc(String(c.pending||0))}</span><span>Approved: ${esc(String(c.approved||0))}</span><span>Approved Not Applied: ${esc(String(c.approved_not_applied||0))}</span><span>Applied: ${esc(String(c.applied||0))}</span><span>Blocked: ${esc(String(c.apply_blocked||0))}</span><span>Verification Failed: ${esc(String(c.verification_failed||0))}</span><span>Low Quality: ${esc(String(c.low_quality||0))}</span><span>Quality Not Evaluated: ${esc(String(c.quality_not_evaluated||0))}</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+        <span>Safety Warnings: ${esc(String(c.safety_warnings||0))}</span><span>Total Manual Checks: ${esc(String(c.total_manual_checks||0))}</span><span>Patches with Manual Check: ${esc(String(c.patches_with_manual_check||0))}</span><span>LLM Telemetry Records: ${esc(String(c.llm_telemetry_records||0))}</span><span>Patches with Telemetry: ${esc(String(c.patches_with_telemetry||0))}</span><span>Reproposal Candidates: ${esc(String(c.reproposal_candidates||0))}</span>
+      </div>
+      <div style="margin-top:6px"><b>Attention Lists</b></div>
+      ${renderList('Blocked patches', att.blocked_patch_ids || [])}
+      ${renderList('Low quality patches', att.low_quality_patch_ids || [])}
+      ${renderList('Verification failed patches', att.verification_failed_patch_ids || [])}
+      ${renderList('Unreviewed patches', att.unreviewed_patch_ids || [])}
+      ${renderList('Missing telemetry patches', att.missing_telemetry_patch_ids || [])}
+      ${renderList('Missing manual check patches', att.missing_manual_check_patch_ids || [])}
+      ${renderList('Quality not evaluated patches', att.quality_not_evaluated_patch_ids || [])}
+      ${renderList('Reproposal candidates', att.reproposal_needed_patch_ids || [])}
+    `;
+    _atlasLsSet(ATLAS_LAST_RUN_KEY, runId);
+    _atlasLsSet(ATLAS_LAST_DASHBOARD_RUN_KEY, runId);
+    if (root) root.dataset.lastRunId = runId;
+    const lastEl = root?.querySelector(`#${cid}-atlas-last-run`);
+    if (lastEl) lastEl.textContent = runId;
+    _updatePlanWorkflowState({ lastRunId: runId });
+    dashboardEl.querySelectorAll('[data-atlas-dashboard-action]').forEach((btn)=>btn.addEventListener('click', async ()=>{
+      const a = btn.getAttribute('data-atlas-dashboard-action');
+      if (a === 'open-patch-review' || a === 'refresh-patches') await loadPhase8Patches(cid, runId);
+      if (a === 'refresh-dashboard') await loadAtlasRunExecute(cid, runId, root, 'refresh');
+    }));
+    dashboardEl.querySelectorAll('[data-scroll-pid]').forEach((btn)=>btn.addEventListener('click', ()=>{
+      const pid = btn.getAttribute('data-scroll-pid') || '';
+      document.getElementById(`${cid}-patch-${pid}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
+  } catch (e) {
+    dashboardEl.innerHTML = `<div style="color:var(--danger)">Atlas Execute error: ${esc(e.message || String(e))}</div>`;
+  }
+}
+
+
+async function loadRecentAtlasRuns(cid, cardRoot) {
+  const listEl = cardRoot.querySelector(`#${cid}-atlas-runs-list`);
+  const lastEl = cardRoot.querySelector(`#${cid}-atlas-last-run`);
+  if (lastEl) lastEl.textContent = _atlasLsGet(ATLAS_LAST_RUN_KEY) || '-';
+  const r = await fetch(API + '/api/atlas/runs?limit=20');
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+  const runs = Array.isArray(d.runs) ? d.runs : [];
+  listEl.innerHTML = runs.map((x)=>`<div style="margin-top:4px">- ${esc(x.run_id||'')} | patches=${esc(String(x.patch_count||0))} | blocked=${esc(String(x.blocked_count||0))} | failed=${esc(String(x.verification_failed_count||0))} | low_quality=${esc(String(x.low_quality_count||0))} | status=${esc(x.status||'unknown')} <button class="phase1-tab-btn" data-recent-open="${esc(x.run_id||'')}">Open Execute</button> <button class="phase1-tab-btn" data-recent-review="${esc(x.run_id||'')}">Open Patch Review</button></div>`).join('') || '<div style="color:var(--text3)">No runs.</div>';
+  listEl.querySelectorAll('[data-recent-open]').forEach((b)=>b.addEventListener('click', async ()=>{ const runId=b.getAttribute('data-recent-open')||''; if(!runId)return; cardRoot.dataset.lastRunId=runId; _atlasLsSet(ATLAS_LAST_RUN_KEY, runId); await loadAtlasRunExecute(cid, runId, cardRoot, 'recentList'); }));
+  listEl.querySelectorAll('[data-recent-review]').forEach((b)=>b.addEventListener('click', async ()=>{ const runId=b.getAttribute('data-recent-review')||''; if(!runId)return; cardRoot.dataset.lastRunId=runId; _atlasLsSet(ATLAS_LAST_RUN_KEY, runId); await loadPhase8Patches(cid, runId); }));
+}
+
+function _bindPhase6ExecutionActions(cardRoot, result) {
+  const planId = result?.plan_id || result?.plan?.plan_id;
+  if (!planId || !cardRoot) return;
+  cardRoot.querySelectorAll('[data-exec]').forEach((btn) => btn.addEventListener('click', async () => {
+    if (busy) return;
+    const cid = cardRoot.id;
+    const mode = btn.getAttribute('data-exec') || 'dry_run';
+    const allowCreate = !!cardRoot.querySelector(`#${cid}-allow-create`)?.checked;
+    const allowUpdate = !!cardRoot.querySelector(`#${cid}-allow-update`)?.checked;
+    const outEl = cardRoot.querySelector(`#${cid}-exec-result`);
+    const msgEl = cardRoot.querySelector(`#${cid}-exec-msg`);
+    const executionProjectPath =
+      result?.plan?.resolved_project_path ||
+      result?.requirement?.resolved_project_path ||
+      result?.resolved_project_path ||
+      '';
+    try {
+      setBusy(true);
+      if (msgEl) msgEl.textContent = '';
+      const previewOnly = !!cardRoot.querySelector(`#${cid}-preview-only`)?.checked;
+      const applyPatches = !!cardRoot.querySelector(`#${cid}-apply-patches`)?.checked;
+      const patchMode = cardRoot.querySelector(`#${cid}-patch-mode`)?.value || "append";
+      _updatePlanWorkflowState({executionMode: mode, patchGenerationMode: patchMode});
+      const res = await _phase6ExecutePlan(planId, {
+        execution_mode: mode,
+        project_path: executionProjectPath,
+        allow_update: allowUpdate,
+        allow_create: allowCreate,
+        allow_delete: false,
+        allow_run_command: false,
+        apply_patches: applyPatches,
+        preview_only: previewOnly,
+        user_comment: `ui ${mode}`,
+        patch_generation_mode: patchMode,
+      });
+      const run = res?.run || {};
+      const steps = Array.isArray(run.step_results) ? run.step_results : [];
+      const stepLines = steps.map((x) => `- ${x.step_id}: ${x.status} (${x.action_type}) patch_id=${x.patch_id||''} verification_id=${x.verification_id||''}`).join('\n');
+      const patchLines = steps.filter((x) => x.patch_id).map((x) => {
+        const warns = Array.isArray(x.safety_warnings) ? x.safety_warnings.join('; ') : '';
+        return `  patch_id=${x.patch_id} target_file=${(x.target_files||[])[0]||''} apply_allowed=${String(x.apply_allowed ?? '')} safety_warnings=${warns} applied=${x.message?.includes('applied') ? 'true' : 'false'} verification_id=${x.verification_id||''}`;
+      }).join('\n');
+      const body = [
+        `status=${res.status}`,
+        `summary=${res.summary}`,
+        `mode=${res.execution_mode}`,
+        `preview_only=${String(previewOnly)} apply_patches=${String(applyPatches)}`,
+        `changes=${mode==='dry_run' ? 'none (dry_run)' : 'see changed_files in steps'}`,
+        stepLines || '- no steps',
+        patchLines ? `patches:\n${patchLines}` : 'patches: none'
+      ].join('\n');
+      if (outEl) outEl.textContent = body;
+      cardRoot.dataset.lastRunId = res.run_id || '';
+      _atlasLsSet(ATLAS_LAST_RUN_KEY, res.run_id || '');
+      _updatePlanWorkflowState({runId: res.run_id || '', lastRunId: res.run_id || '', lastError: ''});
+      appendAtlasActivityCard('execute_preview_generated', { runId: res.run_id || '' });
+      addLog('ok', 'plan-only', `phase6 execute success plan_id=${planId} run_id=${res.run_id} mode=${mode}`);
+      if (res.run_id) await loadPhase8Patches(cid, res.run_id);
+    } catch (e) {
+      if (outEl) outEl.textContent = `Error: ${e.message || String(e)}`;
+      if (msgEl) msgEl.textContent = e.message || String(e);
+      addLog('err', 'plan-only', e.message || String(e));
+      _updatePlanWorkflowState({lastError: e.message || String(e)});
+    } finally { setBusy(false); }
+  }));
+
+  async function loadPhase8Patches(cid, runId) {
+    const listEl = cardRoot.querySelector(`#${cid}-patch-list`);
+    const r = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patches`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
+    const patches = Array.isArray(d.patches) ? d.patches : [];
+    _updatePlanWorkflowState({runId, latestPatchIds: patches.map((p)=>p.patch_id).filter(Boolean), lastError: ''});
+    let dashboardData = null;
+    let dashboardNoteHtml = '';
+    try {
+      const dr = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patch-dashboard`);
+      const dd = await dr.json();
+      if (dr.ok) dashboardData = dd.dashboard || null;
+      if (dr.status === 404) dashboardNoteHtml = '<div style="color:var(--text3);margin-bottom:6px">Execute not available yet</div>';
+    } catch (_) {}
+    const filterState = cardRoot.dataset.patchFilter || 'all';
+    const summaryById = new Map(((dashboardData && Array.isArray(dashboardData.patches)) ? dashboardData.patches : []).map((x)=>[String(x.patch_id||''), x]));
+    const filterButtons = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${_ATLAS_PATCH_FILTERS.map(([k,label])=>`<button class="phase1-tab-btn" data-pf="${k}" ${filterState===k?'style="border-color:var(--accent);color:var(--accent)"':''}>${label}</button>`).join('')}</div>`;
+    const filtered = patches.filter((p) => {
+      if (filterState === 'all') return true;
+      const a = summaryById.get(String(p.patch_id||'')) || {};
+      const flags = Array.isArray(a.attention_flags) ? a.attention_flags : [];
+      const approvalStatus = String(p.approval_status || 'pending');
+      if (filterState === 'pending') return approvalStatus === 'pending';
+      if (filterState === 'approved') return approvalStatus === 'approved';
+      if (filterState === 'applied') return !!p.applied || approvalStatus === 'applied';
+      if (filterState === 'reproposal_candidate') return ((dashboardData?.attention?.reproposal_needed_patch_ids)||[]).includes(p.patch_id);
+      return flags.includes(filterState);
+    });
+    listEl.innerHTML = filterButtons + dashboardNoteHtml + (filtered.map((p) => {
+      const warns = (p.safety_warnings||[]).map((w)=>`<div>• ${esc(String(w))}</div>`).join('');
+      const risk = String(p.risk_level||'low').toLowerCase();
+      const riskAck = (risk==='medium' || risk==='high') ? `<label><input type="checkbox" data-risk="${p.patch_id}"> リスクを理解しました</label>` : '';
+      const warnAck = (p.safety_warnings||[]).length ? `<label><input type="checkbox" data-warn="${p.patch_id}"> safety warningsを確認しました</label>` : '';
+      const qWarnAck = (p.quality_warnings||[]).length ? `<label><input type="checkbox" data-qwarn="${p.patch_id}"> Quality warningsを確認しました</label>` : '';
+      const lowQAck = (Number(p.quality_score||0) < 0.4) ? `<label><input type="checkbox" data-lowq="${p.patch_id}"> Low quality patchであることを理解しました</label>` : '';
+      const approvalStatus = String(p.approval_status || 'pending');
+      const isApplied = !!p.applied || approvalStatus === 'applied';
+      const isRejected = approvalStatus === 'rejected';
+      const isApproved = approvalStatus === 'approved';
+      const applyAllowed = !!p.apply_allowed;
+      const disableApprove = (!applyAllowed) || isApplied || isRejected || isApproved;
+      const disableReject = isApplied || isRejected || isApproved;
+      const disableApply = (!applyAllowed) || isApplied || isRejected || (!isApproved);
+      const stateMsg = isRejected
+        ? '<div style="color:var(--amber);margin-top:6px">Rejected patches cannot be re-approved. Generate a new patch preview if needed.</div>'
+        : (isApplied ? '<div style="color:var(--amber);margin-top:6px">Applied patches cannot be modified from this panel.</div>' : '');
+      return `<div id="${cid}-patch-${esc(p.patch_id)}" style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px">
+<div><b>Basic</b></div><div>patch_id=${esc(p.patch_id)} step_id=${esc(p.step_id||'')} target=${esc(p.target_file||'')}</div>
+<div><b>Safety</b></div><div>risk_level=${esc(p.risk_level||'low')} patch_type=${esc(p.patch_type||'append')} generator=${esc(p.generator||'')} match_count=${esc(String(p.match_count??''))} can_apply_reason=${esc(p.can_apply_reason||'')} apply_allowed=${String(applyAllowed)} applied=${String(!!p.applied)} approval_status=${esc(approvalStatus)}</div>
+<div><b>Quality</b></div><div>quality_score=${esc(String(p.quality_score??''))} quality_summary=${esc(p.quality_summary||'')} candidate_block_count=${esc(String(p.candidate_block_count??''))} selected_candidate_reason=${esc(p.selected_candidate_reason||'')}</div><div><b>Telemetry</b></div><div>llm_sanitized=${esc(String(!!p.llm_sanitized))} llm_model=${esc(p.llm_model||'')} fallback_from=${esc((p.metadata||{}).fallback_from||'')}</div><div>llm_telemetry_id=${esc((p.metadata||{}).llm_telemetry_id||'')} fallback_telemetry_id=${esc((p.metadata||{}).fallback_telemetry_id||'')}</div><div><b>Verification</b></div><div>patch_approval_id=${esc(p.patch_approval_id||'')} verification_id=${esc(p.verification_id||'')} verification_status=${esc(p.verification_status||'')} verification_summary=${esc(p.verification_summary||'')} verification_failed=${esc(String(!!p.verification_failed))}</div><div><b>Reproposal</b></div><div>reproposal_of_patch_id=${esc(p.reproposal_of_patch_id||'')} reproposal_reason=${esc(p.reproposal_reason||'')} parent_verification_id=${esc(p.parent_verification_id||'')} has_reproposal=${esc(String(!!p.has_reproposal))} reproposal_count=${esc(String(p.reproposal_count??0))} latest_reproposal_patch_id=${esc(p.latest_reproposal_patch_id||'')}</div>${p.has_reproposal?'<div style="color:var(--amber)">Reproposal already generated</div>':''}<div style="font-size:11px;color:var(--text2)">LLM replace_block はpreview proposalです。承認なしにapplyされません。apply_allowed=false の場合は safety_warnings / can_apply_reason を確認してください。</div>
+<div>${warns||''}</div><div style="color:var(--text2)">Quality score is advisory. Review diff before approving.</div>${(p.quality_warnings||[]).map((w)=>`<div>•Q ${esc(String(w))}</div>`).join('')}<div style="color:var(--text2)">${p.reproposal_of_patch_id?'Reproposal is preview only. It is not approved or applied automatically.':''}</div>${warnAck}${riskAck}${qWarnAck}${lowQAck}${stateMsg}${String(p.verification_status||'')==='failed'?`<div style="margin-top:6px"><button data-pa="reproposal" data-pid="${p.patch_id}">Generate Reproposal Preview</button></div>`:''}
+<details><summary>Original block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.original_block||'')}</pre></details><details><summary>Replacement block</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.replacement_block||'')}</pre></details><details><summary>Diff</summary><pre style="max-height:240px;overflow:auto;white-space:pre-wrap">${esc(p.unified_diff||'')}</pre></details>
+<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button data-pa="approve" data-pid="${p.patch_id}" ${disableApprove ? 'disabled' : ''}>Approve Patch</button><button data-pa="reject" data-pid="${p.patch_id}" ${disableReject ? 'disabled' : ''}>Reject Patch</button><button data-pa="apply" data-pid="${p.patch_id}" ${disableApply ? 'disabled' : ''}>Apply Approved Patch</button><button data-pa="manual-check" data-pid="${p.patch_id}">Save Manual Check</button><button data-pa="view-manual-checks" data-pid="${p.patch_id}">View Manual Checks</button><button data-pa="view-reproposal-chain" data-pid="${p.patch_id}">View Reproposal Chain</button>${(p.metadata||{}).llm_telemetry_id?`<button data-pa="view-llm-telemetry" data-pid="${p.patch_id}" data-tid="${esc((p.metadata||{}).llm_telemetry_id)}">View LLM Telemetry</button>`:''}${(p.metadata||{}).fallback_telemetry_id?`<button data-pa="view-fallback-telemetry" data-pid="${p.patch_id}" data-tid="${esc((p.metadata||{}).fallback_telemetry_id)}">View Fallback Telemetry</button>`:''}</div><div id="${cid}-pv-${p.patch_id}" style="white-space:pre-wrap;overflow-wrap:anywhere"></div></div>`;
+    }).join('') || '<div style="color:var(--text3)">No patches.</div>');
+    listEl.querySelectorAll('[data-pf]').forEach((btn)=>btn.addEventListener('click', async ()=>{
+      cardRoot.dataset.patchFilter = btn.getAttribute('data-pf') || 'all';
+      await loadPhase8Patches(cid, runId);
+    }));
+    await loadAtlasRunExecute(cid, runId, cardRoot);
+    listEl.querySelectorAll('[data-pa]').forEach((b)=>b.addEventListener('click', async ()=>{
+      const action = b.getAttribute('data-pa'); const pid = b.getAttribute('data-pid'); const out = listEl.querySelector(`#${cid}-pv-${pid}`);
+      try {
+        let ep = action==='reproposal' ? `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/reproposal` : `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/${action}`;
+        let payload = {};
+        if (action === 'view-llm-telemetry' || action === 'view-fallback-telemetry') {
+          const tid = b.getAttribute('data-tid') || '';
+          const rt = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/llm-telemetry/${encodeURIComponent(tid)}`);
+          const dt = await rt.json();
+          if (!rt.ok) throw new Error(dt.detail || `HTTP ${rt.status}`);
+          const summary = dt && dt.summary ? dt.summary : null;
+          const summaryText = summary ? ["Telemetry Summary", ...Object.entries(summary).map(([k,v]) => `${k}: ${String(v)}`)].join("\n") : "Telemetry Summary: (none)";
+          const raw = JSON.stringify(dt, null, 2);
+          out.innerHTML = `<div style="font-weight:700;margin-bottom:4px">Telemetry Summary</div><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(summaryText)}</pre><details><summary>Raw JSON</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(raw)}</pre></details>`;
+          return;
+        }
+        if (action === 'manual-check') {
+          const observed = prompt('Observed issue', 'none') || 'none';
+          const notes = prompt('Notes', 'manual check from UI') || '';
+          ep = `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/manual-check`;
+          payload = { reviewer: 'user', observed_issue: observed, notes };
+        }
+        if (action === 'view-manual-checks') {
+          const rm = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/manual-checks`);
+          const dm = await rm.json();
+          if (!rm.ok) throw new Error(dm.detail || `HTTP ${rm.status}`);
+          const items = (Array.isArray(dm.manual_checks) ? dm.manual_checks : []).filter((x)=>String(x.patch_id||'')===String(pid));
+          const lines = items.length ? items.map((x)=>[
+            `check_id=${x.check_id||''}`,`created_at=${x.created_at||''}`,`reviewer=${x.reviewer||''}`,`observed_issue=${x.observed_issue||''}`,`notes=${x.notes||''}`,`apply_allowed=${String(!!x.apply_allowed)}`,`quality_score=${String(x.quality_score??'')}`,`verification_status=${x.verification_status||''}`
+          ].join('\n')).join('\n\n---\n\n') : 'No manual checks for this patch.';
+          out.textContent = lines;
+          return;
+        }
+        if (action === 'view-reproposal-chain') {
+          const rc = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/patches/${encodeURIComponent(pid)}/chain`);
+          const dc = await rc.json();
+          if (!rc.ok) throw new Error(dc.detail || `HTTP ${rc.status}`);
+          const c = dc.chain || {};
+          const chain = Array.isArray(c.chain) ? c.chain : [];
+          const lines = [
+            `root_patch_id=${c.root_patch_id||''}`,
+            `current_patch_id=${c.current_patch_id||''}`,
+            `parent_patch_id=${c.parent_patch_id||''}`,
+            `ancestor_reproposal_count=${String(c.ancestor_reproposal_count??0)}`,
+            `child_reproposal_count=${String(c.child_reproposal_count??0)}`,
+            `related_reproposal_count=${String(c.related_reproposal_count??0)}`,
+            `reproposal_count_total=${String(c.reproposal_count_total??0)}`,
+            `reproposal_count_total_semantics=${c.reproposal_count_total_semantics||''}`,
+            `children=${JSON.stringify(c.children||[])}`,
+            '',
+            'chain entries:',
+            ...chain.map((x)=>`- patch_id=${x.patch_id||''} status=${x.status||''} verification_status=${x.verification_status||''} reproposal_of_patch_id=${x.reproposal_of_patch_id||''}`)
+          ];
+          out.textContent = lines.join('\n');
+          return;
+        }
+        if (action === 'approve') {
+          payload = {
+            user_comment:'ui approve',
+            risk_acknowledged: !!listEl.querySelector(`[data-risk="${pid}"]`)?.checked,
+            safety_warnings_acknowledged: !!listEl.querySelector(`[data-warn="${pid}"]`)?.checked,
+            quality_warnings_acknowledged: !!listEl.querySelector(`[data-qwarn="${pid}"]`)?.checked,
+            low_quality_acknowledged: !!listEl.querySelector(`[data-lowq="${pid}"]`)?.checked,
+          };
+        } else if (action === 'reject') {
+          payload = {user_comment:'ui reject'};
+        } else if (action === 'reproposal') {
+          payload = {reason:'verification_failed', user_comment:'verification failed; generate preview only'};
+        }
+        const r2 = await fetch(API + ep, {method:'POST', headers:{'Content-Type':'application/json'}, body: (action==='apply') ? undefined : JSON.stringify(payload)});
+        const d2 = await r2.json();
+        if (!r2.ok) throw new Error(d2.detail || `HTTP ${r2.status}`);
+        if (action === 'apply') {
+          let text = JSON.stringify(d2, null, 2);
+          const vid = d2?.apply_result?.verification_result_id || d2?.verification_result?.verification_id || '';
+          if (vid) {
+            try {
+              const vr = await fetch(API + `/api/runs/${encodeURIComponent(runId)}/verification/${encodeURIComponent(vid)}`);
+              const vd = await vr.json();
+              if (vr.ok) text += `\n\nverification(refetched):\n${JSON.stringify(vd, null, 2)}`;
+            } catch (_) {}
+          }
+          out.textContent = text;
+        } else {
+          out.textContent = JSON.stringify(d2, null, 2);
+        }
+        await loadPhase8Patches(cid, runId);
+      } catch(e) { out.textContent = `Error: ${e.message||String(e)}`; }
+    }));
+  }
+
+  cardRoot.querySelectorAll('[data-run-view]').forEach((btn) => btn.addEventListener('click', async () => {
+    const cid = cardRoot.id;
+    const outEl = cardRoot.querySelector(`#${cid}-exec-result`);
+    const runId = cardRoot.dataset.lastRunId || '';
+    const kind = btn.getAttribute('data-run-view') || 'log';
+    if (!runId) {
+      if (outEl) outEl.textContent = 'Run not found. Execute Dry Run or Safe Apply first.';
+      return;
+    }
+    try {
+      if (kind === 'patches') {
+        await loadPhase8Patches(cid, runId);
+        return;
+      }
+      if (kind === 'atlas-dashboard') {
+        await loadAtlasRunExecute(cid, runId, cardRoot, 'current');
+        return;
+      }
+      if (kind === 'refresh-atlas-dashboard') {
+        await loadAtlasRunExecute(cid, runId, cardRoot, 'refresh');
+        return;
+      }
+      if (kind === 'load-recent-atlas-runs') { await loadRecentAtlasRuns(cid, cardRoot); return; }
+      if (kind === 'open-last-atlas-dashboard') { const lastRun=_atlasLsGet(ATLAS_LAST_RUN_KEY); if (lastRun) { cardRoot.dataset.lastRunId=lastRun; await loadAtlasRunExecute(cid, lastRun, cardRoot, 'lastRun'); } return; }
+      if (kind === 'open-run-dashboard') { const manual=(cardRoot.querySelector(`#${cid}-atlas-run-input`)?.value||'').trim(); if (manual) { cardRoot.dataset.lastRunId=manual; _atlasLsSet(ATLAS_LAST_RUN_KEY, manual); await loadAtlasRunExecute(cid, manual, cardRoot, 'manualInput'); } return; }
+      const ep = kind === 'report' ? `/api/runs/${encodeURIComponent(runId)}/report` : `/api/runs/${encodeURIComponent(runId)}/log`;
+      const r = await fetch(API + ep);
+      const d = await r.json();
+      if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
+      if (outEl) outEl.textContent = kind === 'report' ? String(d.report || '') : String(d.log || '');
+    } catch (e) {
+      if (outEl) outEl.textContent = `Error: ${e.message || String(e)}`;
+    }
+  }));
+}
+
+function _bindPhase5ApprovalActions(cardRoot, result) {
+  const planId = result?.plan_id || result?.plan?.plan_id;
+  if (!planId || !cardRoot) return;
+  cardRoot.querySelectorAll('[data-a]').forEach((btn) => btn.addEventListener('click', async () => {
+    if (busy) return;
+    const action = btn.getAttribute('data-a');
+    const cid = cardRoot.id;
+    const riskAck = !!cardRoot.querySelector(`#${cid}-risk-ack`)?.checked;
+    const desAck = !!cardRoot.querySelector(`#${cid}-destructive-ack`)?.checked;
+    const comment = (cardRoot.querySelector(`#${cid}-comment`)?.value || '').trim();
+    const revision = (cardRoot.querySelector(`#${cid}-revision`)?.value || '').trim();
+    const msgEl = cardRoot.querySelector(`#${cid}-approval-msg`);
+    try {
+      setBusy(true);
+      const payload = { user_comment: comment, revision_request: revision, risk_acknowledged: riskAck, destructive_change_acknowledged: desAck };
+      const res = await _phase5PlanDecision(planId, action, payload);
+      if (msgEl) msgEl.textContent = res.message || 'approval updated';
+      addLog('ok', 'plan-only', `${action} success plan_id=${planId} (approved but not executed)`);
+      result.plan = res.plan || result.plan;
+      result.approval = res.approval || null;
+      const approvedByUser = action === 'approve' && String((res.approval || {}).status || '').toLowerCase() === 'approved';
+      if (approvedByUser) appendAtlasActivityCard('plan_approved', { planId });
+      _updatePlanWorkflowState({
+        approvalId: approvedByUser ? (res.approval_id || '') : '',
+        approvalStatus: approvedByUser ? 'approved' : String((res.approval || {}).status || 'pending'),
+        executionReady: approvedByUser && !!((res.approval || {}).execution_ready),
+        userApprovedPlan: approvedByUser,
+      });
+      if (approvedByUser && cardRoot && !cardRoot.querySelector('[data-atlas-workflow-target="dynamic-execute-preview"]')) {
+        const approvalBox = cardRoot.querySelector('[data-atlas-workflow-target="dynamic-approval"]');
+        approvalBox?.insertAdjacentHTML('afterend', _renderPhase6ExecutionSection(result, cid));
+        _bindPhase6ExecutionActions(cardRoot, result);
+      }
+    } catch (e) {
+      if (msgEl) msgEl.textContent = `Error: ${e.message || String(e)}`;
+      addLog('err', 'plan-only', e.message || String(e));
+      _updatePlanWorkflowState({lastError: e.message || String(e)});
+    } finally { setBusy(false); }
+  }));
+}
+
+function renderPhase1PlanCard(result, planMarkdown = '', context = {}) {
+  const target = context?.target || ((context?.source || planWorkflowState.source) === 'atlas' ? 'atlas' : 'atlas');
+  const requirement = result?.requirement || {};
+  const plan = result?.plan || {};
+  const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+  const reviewResult = result?.review_result || null;
+  const resolvedPlanIdForState = result?.plan_id || result?.plan?.plan_id || '';
+  const lifecycleIds = _sanitizePlanLifecycleIds(
+    result?.atlas_job_id || result?.job_id || '',
+    result?.atlas_run_id || result?.run_id || '',
+    resolvedPlanIdForState,
+  );
+  _updatePlanWorkflowState({
+    workflowPhase: 'plan_generated',
+    currentJobId: lifecycleIds.currentJobId,
+    currentRunId: lifecycleIds.currentRunId,
+    jobStatus: result?.job_status || 'completed',
+    lastPlanApiIds: {
+      atlas_job_id: result?.atlas_job_id || '',
+      atlas_run_id: result?.atlas_run_id || '',
+      plan_id: resolvedPlanIdForState,
+      requirement_id: result?.requirement_id || '',
+    },
+    generatedPlan: plan,
+    planResult: result,
+    planMarkdown: planMarkdown || '',
+    requirementId: result?.requirement_id || '',
+    planId: resolvedPlanIdForState,
+    reviewId: reviewResult?.review_id || '',
+    projectPath: result?.resolved_project_path || result?.requirement?.resolved_project_path || '',
+    planningMode: result?.planning_mode || planWorkflowState.planningMode,
+    approvalStatus: 'pending',
+    executionReady: false,
+    userApprovedPlan: false,
+    lastError: '',
+    source: context?.source || planWorkflowState.source || 'atlas',
+    workspace: context?.workspace || planWorkflowState.workspace || 'Atlas',
+  });
+  const atlasPlanEmpty = document.getElementById('atlas-plan-empty-state');
+  if (atlasPlanEmpty) {
+    const title = plan.title || result?.message || 'Plan generated';
+    atlasPlanEmpty.textContent = `Plan generated: ${title} (plan_id=${resolvedPlanIdForState || '-'})`;
+  }
+  const planSteps = Array.isArray(plan.implementation_steps) ? plan.implementation_steps : [];
+  const cardId = 'phase1-plan-card-' + Date.now();
+  const markdownHtml = _renderPhase1Markdown(planMarkdown);
+  const stepHtml = planSteps.length
+    ? planSteps.map((s, i) => `
+      <div style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin-bottom:6px">
+        <div style="font-size:12px;font-weight:700;color:var(--text)">${i+1}. ${esc(s.title || `Step ${i+1}`)}</div>
+        <div style="font-size:11px;color:var(--text2);white-space:pre-wrap">${esc(s.description || '')}</div>
+        <div style="font-size:10px;color:var(--text3)">action=${esc(s.action_type || '-')} risk=${esc(s.risk_level || '-')}</div>
+      </div>`
+    ).join('')
+    : '<div style="font-size:11px;color:var(--text3)">No implementation steps</div>';
+
+  const warningsHtml = warnings.length
+    ? `<div class="phase1-warning-box"><div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:4px">Warnings</div>${warnings.map(w=>`<div style="font-size:11px;color:var(--text2);line-height:1.5">• ${esc(String(w))}</div>`).join('')}</div>`
+    : '';
+  const markdownSectionHtml = markdownHtml
+    ? `<div class="plan-section-title">Plan Markdown (rendered)</div><div class="phase1-md-view md">${markdownHtml}</div>`
+    : `<div style="font-size:11px;color:var(--text3)">Plan Markdownを取得できなかったため、構造化Planを表示しています。</div>`;
+  const html = `
+    <div class="msg-role">Phase 1 Plan Only</div>
+    <div class="plan-card" id="${cardId}">
+      <div class="plan-card-header"><span>${esc(result?.message || 'Plan generated')}</span></div>
+      <div class="plan-section">
+        ${warningsHtml}
+        ${_renderPhase1ReviewSection(reviewResult)}
+        ${_renderPhase5ApprovalSection(result, cardId)}
+        ${_renderPhase6ExecutionSection(result, cardId)}
+        ${_renderNexusContextSummary(result?.nexus_context, { title: "Planning Context", compact: true })}
+        <div class="phase1-tabs">
+          <button class="phase1-tab-btn active" data-tab="requirements" onclick="_switchPhase1CardTab('${cardId}','requirements')">Requirements</button>
+          <button class="phase1-tab-btn" data-tab="plan" onclick="_switchPhase1CardTab('${cardId}','plan')">Plan</button>
+        </div>
+        <div class="phase1-tab-body active" data-tab="requirements">
+          <div class="plan-section-title">解釈した目的</div><div class="plan-approach-text">${esc(requirement.interpreted_goal || '-')}</div>
+          <div class="plan-section-title">ユーザー意図</div><div class="plan-approach-text">${esc(requirement.user_intent || '-')}</div>
+          <div class="plan-section-title">機能要件</div>${_phase1List(requirement.functional_requirements)}
+          <div class="plan-section-title">非機能要件</div>${_phase1List(requirement.non_functional_requirements)}
+          <div class="plan-section-title">制約</div>${_phase1List(requirement.constraints)}
+          <div class="plan-section-title">仮定</div>${_phase1List(requirement.assumptions)}
+          <div class="plan-section-title">完了条件</div>${_phase1List(requirement.done_definition)}
+          <div class="plan-section-title">要件明確度スコア</div><div class="plan-approach-text">${esc(String(requirement.requirement_completeness_score ?? '-'))}</div>
+          ${_renderNexusContextSummary(result?.nexus_context, { title: "Planning Context", compact: false })}
+        </div>
+        <div class="phase1-tab-body" data-tab="plan" data-atlas-workflow-target="dynamic-plan-review">
+          ${markdownSectionHtml}
+          <div style="font-size:10px;color:var(--text3);margin-top:6px;word-break:break-all">path: ${esc(result?.plan_markdown_path || '-')}</div>
+          <div class="plan-section-title">実装案</div>${_phase1List(plan.architecture_options)}
+          <div class="plan-section-title">採用案</div><div class="plan-approach-text">${esc(plan.selected_architecture || '-')}</div>
+          <div class="plan-section-title">実装ステップ</div>${stepHtml}
+          <div class="plan-section-title">対象ファイル</div>${_phase1List(plan.target_files)}
+          <div class="plan-section-title">リスク</div>${_phase1List(plan.risks)}
+          <div class="plan-section-title">テスト計画</div>${_phase1List(plan.test_plan)}
+          <div class="plan-section-title">ロールバック方針</div>${_phase1List(plan.rollback_plan)}
+        </div>
+      </div>
+    </div>`;
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.innerHTML = html;
+  const host = target === 'atlas' ? getAtlasPlanOutputHost({ clear: true }) : null;
+  if (host) {
+    host.appendChild(div);
+    try { focusAtlasPlanWorkbench(); } catch (_) {}
+  } else if (shouldRenderAtlasWorkflowInChat(context)) {
+    messages().appendChild(div);
+    scrollMsgs();
+  } else {
+    addLog('warn', 'atlas', 'Plan card render skipped outside Atlas workspace.');
+  }
+  const cardRoot = div.querySelector(`#${cardId}`);
+  _bindPhase5ApprovalActions(cardRoot, result);
+  _bindPhase6ExecutionActions(cardRoot, result);
+}
+
+function normalizeAtlasPlanResponse(result = {}) {
+  const raw = result || {};
+  const status = String(raw?.status || raw?.job_status || raw?.plan?.status || '').trim().toLowerCase();
+  const candidatePlanIds = [
+    raw?.plan_id,
+    raw?.plan?.plan_id,
+    raw?.plan?.id,
+    raw?.task_id,
+    raw?.atlas_run_id,
+    String(raw?.atlas_job_id || '').replace(/^sync-plan:/, ''),
+  ].map((v) => String(v || '').trim());
+  const planId = candidatePlanIds.find((v) => v.startsWith('plan_')) || '';
+  const requirementId = String(raw?.requirement_id || raw?.plan?.requirement_id || '').trim();
+  const isClarification = status === 'waiting_for_clarification' || !!raw?.waiting_for_clarification || !!raw?.clarification;
+  const hasPlanPayload = !!(raw?.plan || raw?.plan_markdown || raw?.plan_markdown_path || raw?.review_result || raw?.plan_review);
+  const planGenerated = !!planId;
+  const ok = raw?.ok !== false && !(raw?.error || raw?.detail);
+  const error = String(raw?.error || raw?.detail || '').trim();
+  const payloadWithoutPlanId = !planId && (raw?.plan_generated === true || (['planned', 'needs_confirmation', 'needs_revision', 'rejected'].includes(status) && hasPlanPayload));
+  const completionDecisionReason = !ok ? 'api_failed'
+    : (payloadWithoutPlanId ? 'plan_payload_without_plan_id'
+    : (planGenerated ? 'plan_generated'
+      : (isClarification ? 'waiting_for_clarification'
+        : 'unrecognized_plan_response')));
+  return {
+    ok,
+    status,
+    requirementId,
+    planId,
+    planGenerated,
+    isClarification,
+    atlasJobId: planId ? `sync-plan:${planId}` : '',
+    atlasRunId: planId || '',
+    requirementJobId: requirementId ? `sync-requirement:${requirementId}` : '',
+    error,
+    completionDecisionReason,
+    raw,
+  };
+}
+
+function _atlasSyncPlanSuccessMeta(result = {}) {
+  const normalized = normalizeAtlasPlanResponse(result);
+  const reviewResult = normalized.raw?.review_result || normalized.raw?.plan_review || {};
+  const approvalRequired = !!(reviewResult?.requires_user_confirmation || normalized.status === 'needs_confirmation');
+  const hasConcretePlanId = String(normalized.planId || '').startsWith('plan_');
+  const hasStructuredPlanPayload = !!normalized.raw?.plan;
+  const statusIndicatesPlan = ['planned', 'needs_confirmation', 'needs_revision', 'rejected'].includes(normalized.status);
+  return {
+    status: normalized.status,
+    runId: normalized.atlasRunId,
+    hasPlanSignal: hasConcretePlanId || (statusIndicatesPlan && hasStructuredPlanPayload),
+    approvalRequired,
+    planId: normalized.planId,
+  };
+}
+
+function _markAtlasPlanCompletion(result = {}, context = {}) {
+  const normalized = normalizeAtlasPlanResponse(result);
+  const meta = _atlasSyncPlanSuccessMeta(result);
+  if (!meta.hasPlanSignal) return meta;
+  _updatePlanWorkflowState({
+    workflowPhase: 'plan_generated',
+    currentJobId: normalized.atlasJobId,
+    currentRunId: normalized.atlasRunId,
+    jobStatus: normalized.status || String(result?.job_status || result?.status || 'completed'),
+    lastPlanApiIds: {
+      atlas_job_id: normalized.raw?.atlas_job_id || normalized.atlasJobId || '',
+      atlas_run_id: normalized.raw?.atlas_run_id || normalized.atlasRunId || '',
+      requirement_id: normalized.requirementId || '',
+      plan_id: normalized.planId || '',
+    },
+    currentRequirementId: normalized.requirementId || '',
+    requirementId: normalized.requirementId || '',
+    planId: normalized.planId || '',
+    reviewId: result?.review_id || result?.review_result?.review_id || '',
+    approvalStatus: meta.approvalRequired ? 'required' : 'not_required',
+    finalDecision: 'completed',
+    lastError: '',
+  });
+  const flowEl = document.getElementById('atlas-workbench-card-plan-flow');
+  if (flowEl) {
+    const approvalText = meta.approvalRequired ? 'Approval: required' : 'Approval: not required';
+    flowEl.dataset.planGenerated = 'true';
+    flowEl.dataset.planStatus = meta.status || '';
+    flowEl.insertAdjacentHTML('beforeend', `<div data-plan-marker=\"canonical\">Requirement: done</div><div data-plan-marker=\"canonical\">Plan: generated</div><div data-plan-marker=\"canonical\">Review: done</div><div data-plan-marker=\"canonical\">${approvalText}</div>`);
+  }
+  appendAtlasActivityCard('plan_generated', { planId: normalized.planId || '', message: `status=${meta.status || '-'}` });
+  return meta;
+}
+
+window.__atlasApplyDebugSeedPlanForTests = function(seedResponse = {}) {
+  const d = seedResponse || {};
+  const normalized = normalizeAtlasPlanResponse(d);
+  if (!normalized.planGenerated || !normalized.planId) {
+    throw new Error('debug seed missing generated plan');
+  }
+  renderPhase1PlanCard(d, '', { source: 'atlas-debug-seed', workspace: 'Atlas', target: 'atlas' });
+  _markAtlasPlanCompletion(d, { source: 'atlas-debug-seed', workspace: 'Atlas' });
+  _updatePlanWorkflowState({ completionDecisionReason: 'debug_seed_plan_applied', planFetchState: 'parsed' });
+  setAtlasSubview('plan');
+};
+
+// Backward-compatible name: this now drives the full guided workflow chain (plan/review/approval/execute preview/patch review).
+async function generatePlanOnlyFromInput(options = {}) {
+  const input = document.getElementById('input');
+  const source = options?.source || 'atlas';
+  const workspace = options?.workspace || (source === 'atlas' ? 'Atlas' : 'Chat/Task');
+  const requirementSource = options?.requirementSource || (source === 'atlas' ? 'atlas' : 'chat');
+  const text = String(options?.text || input?.value || '').trim();
+  if (!text || busy) return;
+  const planningMode = document.getElementById('phase1-planning-mode')?.value || 'standard';
+  const requirementMode = document.getElementById('phase1-requirement-mode')?.value || 'ask_when_needed';
+  const executionMode = document.getElementById('phase1-execution-mode')?.value || 'plan_only';
+  if (source !== 'atlas') {
+    addMsg('user', text);
+    addToHistory('user', text);
+    if (input) { input.value = ''; input.style.height = 'auto'; }
+  }
+  setBusy(true);
+  const progEl = source === 'atlas' ? { remove() {} } : addProgressCard('Generating Phase 1 plan...');
+  _updatePlanWorkflowState({
+    workflowPhase: 'planning',
+    currentJobId: 'sync-plan-pending',
+    currentRunId: '',
+    jobStatus: 'running',
+    source,
+    workspace,
+    requirementSource,
+    requirementTextPreview: text.slice(0, 120),
+    planningMode,
+    executionMode: 'dry_run',
+    patchGenerationMode: 'auto',
+    requirementId: '',
+    planId: '',
+    reviewId: '',
+    approvalId: '',
+    runId: '',
+    lastRunId: getAtlasLastRunId(),
+    latestPatchIds: [],
+    approvalStatus: 'pending',
+    executionReady: false,
+    userApprovedPlan: false,
+    lastError: '',
+  });
+  try {
+    const r = await fetch(API + '/api/task/plan', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        input: text,
+        project_path: '',
+        project_name: currentProject || 'default',
+        planning_mode: planningMode,
+        requirement_mode: requirementMode,
+        execution_mode: executionMode,
+        use_nexus: true,
+      })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(`api_task_plan_http_error:${r.status}:${d.detail || ''}`);
+    const ws = Array.isArray(d?.warnings) ? d.warnings : [];
+    ws.forEach((w) => addLog('warn', 'plan-only', String(w)));
+
+    const normalized = normalizeAtlasPlanResponse(d);
+    _updatePlanWorkflowState({
+      planFetchState: 'responded',
+      apiResponseKeys: Object.keys(d || {}),
+      normalizedPlanResponse: normalized,
+    });
+
+    if (!normalized.ok) {
+      throw new Error(normalized.error || 'api_task_plan_failed');
+    }
+
+    if (normalized.isClarification) {
+      // legacy marker: currentJobId: d.plan_id ? `sync-plan:${d.plan_id}` : 'sync-plan-pending'
+      // legacy marker: currentRequirementId: d.requirement_id || ''
+      _updatePlanWorkflowState({ workflowPhase: 'waiting_for_clarification', currentJobId: normalized.requirementJobId, currentRunId: '', jobStatus: 'waiting_for_clarification', lastPlanApiIds: { atlas_job_id: normalized.raw?.atlas_job_id || '', atlas_run_id: normalized.raw?.atlas_run_id || '', requirement_id: normalized.requirementId || '', plan_id: normalized.planId || '' }, currentRequirementId: d.requirement_id || normalized.requirementId || '', requirementId: normalized.requirementId || '', planId: '', lastError: '', completionDecisionReason: normalized.completionDecisionReason, planFetchState: 'parsed' });
+      try { focusAtlasPlanWorkbench(); } catch (_) {}
+      renderClarificationCard(d, { planningMode, requirementMode, executionMode, source, workspace, target: 'atlas' });
+      addLog('ok', 'plan-only', `Clarification required requirement_id=${normalized.requirementId}`);
+      appendAtlasActivityCard('clarification_required', { requirementId: normalized.requirementId || '' });
+      return;
+    }
+    if (!normalized.planGenerated || !normalized.planId) {
+      const reason = normalized.completionDecisionReason === 'plan_payload_without_plan_id' ? 'plan_payload_without_plan_id' : 'unrecognized_plan_response';
+      _updatePlanWorkflowState({ workflowPhase: 'plan_failed', currentJobId: '', currentRunId: '', jobStatus: 'unrecognized_response', lastError: reason, completionDecisionReason: reason, planFetchState: 'failed' });
+      throw new Error('unrecognized_plan_response');
+    }
+
+    let planMarkdown = '';
+    try {
+      const resolvedPlanId = normalized.planId || '';
+      const rm = await fetch(API + `/api/plans/${encodeURIComponent(resolvedPlanId)}/markdown`);
+      const dm = await rm.json();
+      if (!rm.ok) throw new Error(dm.detail || `HTTP ${rm.status}`);
+      planMarkdown = String(dm.markdown || '');
+    } catch (mdErr) {
+      addLog('warn', 'plan-only', `Plan markdown fetch warning: ${mdErr.message || String(mdErr)}`);
+    }
+    renderPhase1PlanCard(d, planMarkdown, { source, workspace, target: 'atlas' });
+    const completionMeta = _markAtlasPlanCompletion(d, { source, workspace });
+    _updatePlanWorkflowState({ completionDecisionReason: normalized.completionDecisionReason, planFetchState: 'parsed' });
+    addLog('ok', 'plan-only', `Generated plan_id=${normalized.planId || '-'} requirement_id=${normalized.requirementId || ''} status=${completionMeta.status || '-'}`);
+  } catch (e) {
+    const baseErr = e && e.message ? e.message : String(e);
+    const errMsg = baseErr.startsWith('api_task_plan_http_error:') ? baseErr : `api_task_plan_exception:${baseErr}`;
+    if (shouldRenderAtlasWorkflowInChat({ target: options?.target })) addMsg('error', 'Phase1 plan generation failed: ' + errMsg);
+    addLog('err', 'plan-only', errMsg);
+    try { focusAtlasPlanWorkbench(); } catch (_) {}
+    _updatePlanWorkflowState({ workflowPhase: 'plan_failed', currentJobId: '', currentRunId: '', jobStatus: 'failed', lastError: errMsg, executionReady: false, userApprovedPlan: false, planFetchState: 'failed' });
+  } finally {
+    if (String(planWorkflowState.currentJobId || '') === 'sync-plan-pending') {
+      _updatePlanWorkflowState({
+        currentJobId: '',
+        pendingCleanupReason: 'sync_plan_pending_cleared_in_finally',
+      });
+    }
+    progEl.remove();
+    setBusy(false);
+  }
+}
+
+// ── PLAN APPROVAL ──
+function showPlanApproval(originalMsg, planData) {
+  const tasks = Array.isArray(planData) ? planData : (planData.tasks || []);
+  const summary = Array.isArray(planData) ? '' : (planData.summary || '');
+  const requirements = Array.isArray(planData) ? [] : (planData.requirements || []);
+  const approach = Array.isArray(planData) ? '' : (planData.approach || '');
+  const verification = Array.isArray(planData) ? [] : (planData.verification || []);
+  const recommendedModel = Array.isArray(planData) ? '' : (planData.recommended_model || '');
+  const recommendedName = Array.isArray(planData) ? '' : (planData.recommended_model_name || '');
+  const modelSwitchNeeded = Array.isArray(planData) ? false : (planData.model_switch_needed || false);
+  const switchEta = Array.isArray(planData) ? 0 : (planData.switch_eta_sec || 0);
+  const catalog = Array.isArray(planData) ? {} : (planData.catalog || {});
+
+  const w = messages();
+  // 既存カードがあれば除去（重複防止）
+  const existingCard = document.getElementById('plan-approval-card');
+  if (existingCard) existingCard.remove();
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.id = 'plan-approval-card';
+
+  const reqHtml = requirements.length
+    ? `<div class="plan-section"><div class="plan-section-title">📋 要件</div>${requirements.map(r=>`<div class="plan-req-item">${esc(r)}</div>`).join('')}</div>`
+    : '';
+  const approachHtml = approach
+    ? `<div class="plan-section"><div class="plan-section-title">🏗 実装方針</div><div class="plan-approach-text">${esc(approach)}</div></div>`
+    : '';
+  const taskRows = tasks.map((t,i) => `
+    <div class="plan-task-row" id="ptask-${i}">
+      <div class="plan-task-num">${i+1}</div>
+      <div class="plan-task-content">
+        <div class="plan-task-title">${esc(t.title)}</div>
+        <div class="plan-task-detail" id="pdetail-${i}">${esc(t.detail)}</div>
+      </div>
+      <button class="plan-task-edit" onclick="editPlanTask(${i})">Edit</button>
+    </div>`).join('');
+  const verifyHtml = verification.length
+    ? `<div class="plan-section"><div class="plan-section-title">✅ 検証項目</div>${verification.map(v=>`<div class="plan-verify-item">${esc(v)}</div>`).join('')}</div>`
+    : '';
+
+  div.innerHTML = `
+    <div class="msg-role">Requirements & Plan</div>
+    <div class="plan-card">
+      <div class="plan-card-header">
+        <div class="thinking-dots"><span></span><span></span><span></span></div>
+        <span>${esc(summary) || tasks.length + ' tasks planned'}</span>
+      </div>
+      ${reqHtml}${approachHtml}
+      <div class="plan-section">
+        <div class="plan-section-title">⚙ Tasks (${tasks.length})</div>
+        <div class="plan-tasks">${taskRows}</div>
+      </div>
+      ${verifyHtml}
+      ${buildModelBar(recommendedModel || 'auto', recommendedName, modelSwitchNeeded, switchEta, catalog)}
+      <div class="plan-actions">
+        <button class="plan-revise-btn" onclick="revisePlan('${esc(originalMsg).replace(/'/g,"\'")}')">↺ Revise</button>
+        <button class="plan-execute-btn" onclick="executePlan()">▶ Execute</button>
+      </div>
+    </div>`;
+  w.appendChild(div);
+  scrollMsgs();
+  pendingPlan = { message: originalMsg, tasks: JSON.parse(JSON.stringify(tasks)), requirements, approach, verification, summary, recommended_model: recommendedModel || 'auto' };
+}
+
+
+function editPlanTask(i) {
+  const detailEl = document.getElementById('pdetail-'+i);
+  const current = pendingPlan.tasks[i].detail;
+  const newVal = prompt('Edit task detail:', current);
+  if (newVal !== null && newVal.trim()) {
+    pendingPlan.tasks[i].detail = newVal.trim();
+    detailEl.textContent = newVal.trim();
+  }
+}
+
+async function revisePlan(originalMsg) {
+  const instruction = prompt('Revision instructions (e.g. "add a test task"):', '');
+  if (!instruction) return;
+  const card = document.getElementById('plan-approval-card');
+  if (card) card.remove();
+  pendingPlan = null;
+  setBusy(true);
+  const progEl = addProgressCard('Re-planning...');
+  try {
+    const r = await fetch(API+'/plan', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message: originalMsg + '\n\n[Revision] ' + instruction, project:currentProject})});
+    const d = await r.json();
+    progEl.remove();
+    const planData = (d.tasks && d.tasks.length > 0)
+      ? d
+      : { tasks: [{ id: 1, title: '実行', detail: originalMsg }] };
+    showPlanApproval(originalMsg, planData);
+  } catch(e) { progEl.remove(); addMsg('error', e.message); }
+  setBusy(false);
+}
+
+// ── ジョブポーリング共通ロジック（executePlan / resumeJobで共用）──
+// jobId: 監視するジョブID
+// allPlannedTasks: 計画タスク配列（可変 - plan イベントで補完される）
+// planMeta: {savedRequirements, savedApproach, savedVerification, savedSummary}
+// progCard: プログレスカードDOM要素
+// firstPollImmediate: true=最初のポーリングを即時実行（再接続時に過去イベントを素早く取得）
+async function _watchJobPolling(jobId, allPlannedTasks, planMeta, progCard, firstPollImmediate) {
+  _currentJobId = jobId;
+  const { savedRequirements=[], savedApproach='', savedVerification=[], savedSummary='' } = planMeta || {};
+  addLog('info','plan', `Watching ${allPlannedTasks.length} tasks (job: ${jobId})`);
+  let allSteps = [];
+  let _taskResultsMap = new Map();
+  let _lastSeq = -1;
+  let _pollCount = 0;
+  const _MAX_POLL = 4800; // 最大24分 (300ms×4800)
+
+  while (_pollCount < _MAX_POLL) {
+    if (!firstPollImmediate || _pollCount > 0) {
+      await new Promise(r => setTimeout(r, 300));
+    }
+    _pollCount++;
+    let pollData;
+    try {
+      const pr = await fetch(
+        API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
+      );
+      pollData = await pr.json();
+    } catch(e) { console.warn('task poll error', e); continue; }
+
+    for (const _step of (pollData.steps || [])) {
+      _lastSeq = _step.seq;
+      const ev = {..._step.data, type: _step.type, seq: _step.seq};
+      if (ev.type === 'model_switching' || ev.type === 'model_ready' || ev.type === 'model_error') {
+        handleModelSwitchEvent(ev, progCard);
+        const badge = document.getElementById('model-badge');
+        if (badge && ev.type === 'model_ready') {
+          badge.textContent = (ev.message || '').replace('is ready','').trim();
+          badge.style.color = 'var(--text3)';
+        } else if (badge && ev.type === 'model_switching') {
+          badge.style.color = 'var(--amber)';
+        }
+        addLog('info','model', ev.message || ev.type);
+        continue;
+      }
+      if (ev.type === 'task_start') {
+        const taskNum = (ev.task_index||0)+1;
+        const taskTotal = ev.total||'?';
+        setCard(progCard, {
+          label: 'Task ' + taskNum + '/' + taskTotal + ': ' + (ev.title||''),
+          pct: ev.total ? Math.round((ev.task_index||0)/ev.total*100) : 0,
+          action: ''
+        });
+        addLog('info','task', `[${taskNum}/${taskTotal}] ${ev.title||''}`);
+      } else if (ev.type === 'llm_streaming') {
+        // ストリーミングモード: TPS・token数をリアルタイム更新
+        setCard(progCard, {
+          action: `⚡ 生成中... ${ev.tokens||0} tok`,
+          tps: ev.tps || 0,
+        });
+      } else if (ev.type === 'llm_thinking') {
+        // 非ストリーミングモード: 生成中インジケータ
+        setCard(progCard, {
+          action: '🤔 考え中...',
+          stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
+        });
+      } else if (ev.type === 'tool_result') {
+        attachToolResult(allSteps, ev);
+        // ツール実行完了 → LLMが次のアクションを生成中
+        if ((ev.action||'') === 'nexus_web_search') {
+          const preview = (ev.result_preview||'').slice(0, 120);
+          const status = preview.startsWith('Search error') || preview.startsWith('SEARCH_') ? '⚠' : '✓';
+          setCard(progCard, {action: `${status} Nexus Web検索 完了 → 次のアクションを生成中...`});
+          if (preview) addLog(status === '✓' ? 'ok' : 'warn', 'search', `result: ${preview}`);
+        } else if ((ev.action||'') === 'read_file') {
+          const size = Number(ev.result_size);
+          const sizeText = Number.isFinite(size) ? size.toLocaleString() : '?';
+          setCard(progCard, {action: `✓ read_file 完了 → 次のアクションを生成中...`});
+          addLog('info', 'tool', `read_file returned ${sizeText} chars`);
+        } else {
+          setCard(progCard, {action: `✓ ${ev.action||'tool'} 完了 → 次のアクションを生成中...`});
+        }
+      } else if (ev.type === 'tool_call' || ev.type === 'step') {
+        allSteps.push(ev);
+        const _ptok = ev.prompt_tokens||0;
+        const _ctok = ev.completion_tokens||0;
+        const _ctxLimit = getCurrentNctxUi();
+        const _ctxStr = _ptok > 0 ? `${(_ptok+_ctok).toLocaleString()}/${(_ctxLimit||0).toLocaleString()}` : `--/${(_ctxLimit||'?').toLocaleString()}`;
+        const isWebSearch = (ev.action||'') === 'nexus_web_search';
+        const actionText = isWebSearch
+          ? `🔎 Nexus Web検索中... topic: ${(ev.input?.topic || ev.thought || '').slice(0, 120)}`
+          : (ev.action||'') + ': ' + (ev.thought||'');
+        setCard(progCard, {
+          action:  actionText,
+          tps:     ev.tps||0,
+          ctx:     _ctxStr,
+          stepNum: ev.step_num ? `${ev.step_num}/${ev.max_steps||'?'}` : '-/-',
+        });
+        if (isWebSearch) {
+          addLog('info','search', `nexus_web_search topic: ${(ev.input?.topic || ev.thought || '').slice(0, 200)}`);
+        } else {
+          addLog('info','tool', `${ev.action||''}: ${(ev.thought||'')}`);
+        }
+      } else if (ev.type === 'task_done') {
+        _taskResultsMap.set(ev.task_id, {
+          task_id: ev.task_id, title: ev.title||'',
+          status: 'done', output: ev.output||'', steps: ev.steps||[]
+        });
+        if (allPlannedTasks.length) setCard(progCard, {pct: Math.round(_taskResultsMap.size/allPlannedTasks.length*100)});
+        addLog('ok','task', `done: ${ev.title||ev.task_id}`);
+      } else if (ev.type === 'task_error') {
+        if (!_taskResultsMap.has(ev.task_id) || _taskResultsMap.get(ev.task_id).status !== 'done') {
+          _taskResultsMap.set(ev.task_id, {
+            task_id: ev.task_id, title: ev.title||'',
+            status: 'error', output: ev.error||'', steps: []
+          });
+        }
+        addLog('err','task', `error: ${ev.title||ev.task_id} - ${(ev.error||'')}`);
+      } else if (ev.type === 'progress') {
+        setCard(progCard, {pct: ev.pct||0, label: ev.label||''});
+        addLog('info','progress', ev.label||`${ev.pct}%`);
+      } else if (ev.type === 'verify_start' || ev.type === 'verify_result' || ev.type === 'verify_phase') {
+        const vMsg = ev.phase || ev.message || ev.summary || 'Verifying...';
+        const vDetail = ev.summary ? ` (${ev.summary})` : ev.score !== undefined ? ` score:${ev.score}` : '';
+        setCard(progCard, {action: '🔍 ' + vMsg + vDetail});
+        addLog('info','verify', vMsg + vDetail);
+      } else if (ev.type === 'verify_done') {
+        const passed = ev.passed ? '✅ PASS' : '⚠️ WARN';
+        const score = ev.score !== undefined ? ` score:${ev.score}` : '';
+        setCard(progCard, {action: `${passed}${score} — ${ev.summary||''}`});
+        addLog(ev.passed ? 'ok' : 'warn', 'verify', `${passed}${score} ${ev.summary||''}`);
+      } else if (ev.type === 'task_options') {
+        _taskOptionsMap[`${_currentJobId}_${ev.task_id}`] = ev.options || [];
+        const autoMsg = ev.auto_chosen ? `🤖 案${ev.auto_chosen}を自動選択: ${ev.auto_reason||''}` : '⚠ 対応案を選択してください';
+        addLog(ev.auto_chosen ? 'ok' : 'warn','task', `4回試行失敗: ${ev.title||''} — ${autoMsg}`);
+        if (!ev.auto_chosen) showTaskOptions(ev, _currentJobId);
+      } else if (ev.type === 'skill_generated') {
+        const action = ev.action === 'updated' ? 'updated' : 'created';
+        addLog('ok','skill', `Auto-skill ${action}: ${ev.skill_name}${ev.version ? ` v${ev.version}` : ''} - ${ev.description||''} ${ev.rationale ? `(reason: ${ev.rationale})` : ''}`);
+        refreshSkills();
+      } else if (ev.type === 'memory_analyzing') {
+        addLog('info','memory', `🧠 ${ev.message||'メモリ抽出中...'}`);
+      } else if (ev.type === 'memory_done') {
+        addLog(ev.error ? 'warn' : 'ok','memory', `🧠 ${ev.message||'メモリ抽出が完了しました'}`);
+      } else if (ev.type === 'skill_hint') {
+        addLog('warn','skill', `Missing tool: ${ev.missing_tool} — will be proposed`);
+      } else if (ev.type === 'skill_proposals') {
+        _renderSkillProposals(ev.proposals||[], ev.stats||{});
+      } else if (ev.type === 'error') {
+        addLog('err','job', ev.error || JSON.stringify(ev));
+      } else if (ev.type === 'plan') {
+        // planイベントでタスクリストを補完（再接続時に有用）
+        if ((ev.tasks||[]).length > allPlannedTasks.length) {
+          allPlannedTasks.splice(0, allPlannedTasks.length, ...ev.tasks);
+          setCard(progCard, {label: `Watching ${allPlannedTasks.length} tasks...`});
+        }
+        addLog('info','plan', `${(ev.tasks||[]).length} tasks received`);
+      }
+    }
+    if (pollData.status === 'done' || pollData.status === 'error') break;
+  }
+
+  // ポーリング終了後、念のりもう一度全ステップを取得（取りこぼし防止）
+  try {
+    const finalPoll = await fetch(
+      API+`/jobs/${jobId}/poll?project=${encodeURIComponent(currentProject)}&after=${_lastSeq}`
+    );
+    const finalData = await finalPoll.json();
+    for (const _step of (finalData.steps || [])) {
+      const ev = {..._step.data, type: _step.type, seq: _step.seq};
+      if (ev.type === 'task_done') {
+        _taskResultsMap.set(ev.task_id, {task_id: ev.task_id, title: ev.title||'', status: 'done', output: ev.output||'', steps: ev.steps||[]});
+      } else if (ev.type === 'task_error') {
+        if (!_taskResultsMap.has(ev.task_id) || _taskResultsMap.get(ev.task_id).status !== 'done') {
+          _taskResultsMap.set(ev.task_id, {task_id: ev.task_id, title: ev.title||'', status: 'error', output: ev.error||'', steps: []});
+        }
+      } else if (ev.type === 'tool_call' || ev.type === 'step') {
+        allSteps.push(ev);
+      } else if (ev.type === 'tool_result') {
+        attachToolResult(allSteps, ev);
+      } else if (ev.type === 'skill_proposals') {
+        _renderSkillProposals(ev.proposals||[], ev.stats||{});
+      }
+    }
+  } catch(e) {}
+  const taskResults = [..._taskResultsMap.values()];
+
+  progCard.remove();
+  stopTimer();
+
+  if (taskResults.length || allPlannedTasks.length) {
+    taskResults.forEach(t => {
+      (t.steps || []).forEach(s => { if (s) allSteps.push(s); });
+    });
+    const planMeta = {
+      requirements: savedRequirements,
+      approach:     savedApproach,
+      verification: savedVerification,
+      summary:      savedSummary,
+    };
+    addTaskBlock(taskResults, allPlannedTasks, planMeta);
+    // プロジェクトごとに最終ジョブ結果を保存（リロード後に復元）
+    try {
+      const saveData = {
+        taskResults: taskResults.map(t => ({task_id:t.task_id,title:t.title,status:t.status,output:(t.output||'').slice(0,500)})),
+        allPlannedTasks: allPlannedTasks.map(t => ({id:t.id,title:t.title,detail:(t.detail||'').slice(0,200)})),
+        planMeta,
+        savedAt: Date.now(),
+      };
+      localStorage.setItem('lastJob_' + currentProject, JSON.stringify(saveData));
+    } catch(e) {}
+    if (allSteps.length) addStepsBlock(allSteps);
+    renderStepsToOutput(allSteps);
+  }
+  const doneCount = taskResults.filter(t=>t.status==='done').length;
+  const errCount = taskResults.filter(t=>t.status==='error').length;
+  const totalTasks = allPlannedTasks.length || taskResults.length;
+  const summaryText = errCount > 0
+    ? `${totalTasks}タスク中${doneCount}件完了、${errCount}件エラー`
+    : `${totalTasks}タスク中${doneCount}件完了`;
+  addMsg(doneCount===totalTasks?'assistant':'error', summaryText);
+  addToHistory('assistant', summaryText);
+  if (doneCount === totalTasks) playTTS(summaryText, 'chat');
+  detectHtml({tasks: taskResults.map(t=>({steps: t.steps||[]}))});
+}
+
+async function executePlan() {
+  if (!pendingPlan) return;
+  const card = document.getElementById('plan-approval-card');
+  if (card) {
+    // ボタンを隠して承認済み表示にする（カード自体は残す）
+    const actions = card.querySelector('.plan-actions');
+    if (actions) actions.style.display = 'none';
+    const header = card.querySelector('.plan-card-header');
+    if (header) {
+      header.style.opacity = '0.6';
+      const dots = header.querySelector('.thinking-dots');
+      if (dots) dots.innerHTML = '<span style="color:var(--accent)">✓</span>';
+    }
+  }
+
+  const tasks = pendingPlan.tasks;
+  const msg = pendingPlan.message;
+  const selectedModel = pendingPlan.recommended_model || 'auto';
+  const savedRequirements = pendingPlan.requirements || [];
+  const savedApproach     = pendingPlan.approach     || '';
+  const savedVerification = pendingPlan.verification || [];
+  const savedSummary      = pendingPlan.summary      || '';
+  // 'auto' の場合は llm_url を空にしてサーバー側で自動分類
+  const taskLlmUrl = (selectedModel === 'auto') ? '' : activeLlmUrl;
+  const forcedModel = (selectedModel === 'auto') ? '' : selectedModel;
+  pendingPlan = null;
+
+  setBusy(true);
+  try {
+    const guidance = 'Legacy task jobs were removed from Lumen. Use Atlas/Agent for autonomous task execution, file edits, code execution, and multi-step pipelines.';
+    addMsg('system', guidance);
+    addLog('warn', 'lumen', guidance);
+  } finally {
+    setBusy(false);
+  }
+  loadProjects();
+  refreshFileBrowser();
+  refreshProjectFileManager();
+}
+
+// ── PROGRESS CARD ──
+function addProgressCard(label, totalTasks) {
+  const w = messages();
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  div.innerHTML = `<div class="msg-bubble progress-card">
+    <div class="prog-line">
+      <div class="prog-label">${esc(label)}</div>
+      <span class="prog-elapsed">0s</span>
+    </div>
+    <div class="prog-meter">
+      <div class="prog-bar"><div class="prog-fill"></div></div>
+      <span class="prog-pct">0%</span>
+    </div>
+    <div class="prog-meta">
+      <span class="prog-step">step -/-</span>
+      <span class="prog-stats">0.0 tok/s · ctx: --/--</span>
+    </div>
+    <div class="prog-action">待機中...</div>
+  </div>`;
+  div._refs = {
+    label:   div.querySelector('.prog-label'),
+    elapsed: div.querySelector('.prog-elapsed'),
+    fill:    div.querySelector('.prog-fill'),
+    pct:     div.querySelector('.prog-pct'),
+    step:    div.querySelector('.prog-step'),
+    stats:   div.querySelector('.prog-stats'),
+    action:  div.querySelector('.prog-action'),
+    totalTasks: Number(totalTasks || 0),
+    tpsVal:  0,
+    ctxVal:  '--/--',
+    ctx:     div.querySelector('.prog-stats'),
+  };
+  w.appendChild(div);
+  w.scrollTop = w.scrollHeight;
+  return div;
+}
+
+function setCard(card, opts) {
+  if (!card || !card._refs) return;
+  const r = card._refs;
+  const nextLabel = opts.taskName ?? opts.label;
+  if (nextLabel !== undefined) r.label.textContent = nextLabel;
+  if (opts.elapsed !== undefined && r.elapsed) r.elapsed.textContent = opts.elapsed;
+  if (opts.pct !== undefined && r.fill && r.pct) {
+    const pct = Math.max(0, Math.min(100, Number(opts.pct) || 0));
+    r.fill.style.width = `${pct}%`;
+    r.pct.textContent = `${Math.round(pct)}%`;
+  }
+  if (opts.stepNum !== undefined && r.step) r.step.textContent = `step ${opts.stepNum || '-/-'}`;
+  if (opts.action !== undefined && r.action) r.action.textContent = opts.action || '待機中...';
+  if (opts.tps !== undefined) r.tpsVal = Number(opts.tps || 0);
+  if (opts.ctx !== undefined) r.ctxVal = opts.ctx || '--/--';
+  if (r.stats) r.stats.textContent = `${(r.tpsVal || 0).toFixed(1)} tok/s · ctx: ${r.ctxVal || '--/--'}`;
+  card.closest('.msg-list, #messages')?.scrollTo?.({top: 999999});
+}
+
+function updateProgressCard(card, label, pct, _t, elapsed, est, taskCounter, taskName, stepInfo) {
+  // 後方互換: setCardに委譲
+  const opts = {};
+  if (label !== undefined && label !== null) opts.label = label;
+  if (pct   !== undefined && pct   !== null) opts.pct = pct;
+  if (elapsed !== undefined) opts.elapsed = elapsed;
+  if (est     !== undefined) opts.est     = est;
+  if (taskCounter !== undefined) opts.counter  = taskCounter;
+  if (taskName    !== undefined) opts.taskName = taskName;
+  if (stepInfo    !== undefined) opts.stepInfo = stepInfo;
+  setCard(card, opts);
+}
+function updateProgressStep(card, action, thought, stepNum, maxStep) {
+  setCard(card, {
+    stepInfo: `step ${stepNum}/${maxStep}`,
+    action: `${action}${thought ? ': ' + thought : ''}`
+  });
+}
+function updateProgressAction(card, text) {
+  setCard(card, {action: text});
+}
+function startTimer() {
+  startTime = Date.now();
+  timerInterval = setInterval(() => {
+    const t = fmtTime((Date.now()-startTime)/1000);
+    document.querySelectorAll('.msg.assistant').forEach(wrap => {
+      if (wrap._refs) {
+        wrap._refs.elapsed.textContent = t;
+        // コンテキスト使用率に応じて色変化
+        const ctxEl = wrap._refs.ctx;
+        const currentNctxUi = getCurrentNctxUi();
+        if (ctxEl && currentNctxUi > 0) {
+          const m = ctxEl.textContent.match(/ctx: (\d+)\//);
+          if (m) {
+            const ratio = parseInt(m[1]) / currentNctxUi;
+            ctxEl.style.color = ratio > 0.95 ? 'var(--red)' : ratio > 0.8 ? 'var(--amber)' : 'var(--text3)';
+          }
+        }
+      }
+    });
+  }, 1000);
+}
+function stopTimer() { clearInterval(timerInterval); timerInterval = null; }
+function fmtTime(sec) {
+  const s = Math.round(sec);
+  return s < 60 ? `${s}s` : `${Math.floor(s/60)}m${s%60}s`;
+}
+
+// ── MESSAGES ──
+// マークダウンレンダリング設定
+const mdRenderer = (() => {
+  if (typeof marked === 'undefined') return null;
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+  });
+  return marked;
+})();
+
+function renderMd(text) {
+  if (!mdRenderer) return `<span style="white-space:pre-wrap">${esc(text)}</span>`;
+  try { return mdRenderer.parse(text); }
+  catch(e) { return `<span style="white-space:pre-wrap">${esc(text)}</span>`; }
+}
+
+function isAtlasWorkflowLeakText(text = '', source = '') {
+  const s = String(source || '').toLowerCase();
+  const t = String(text || '');
+  return s === 'atlas' || [
+    'Atlas Workflow Status',
+    'Requirement Source: atlas',
+    'Source: atlas',
+    'Workspace: Atlas',
+    'Clarification required before planning',
+    'Plan generated',
+    'Plan review detected',
+    'Approval status',
+    'Execution ready',
+    'Patch review',
+  ].some((token) => t.includes(token));
+}
+
+function addMsg(role, text, options = {}) {
+  const source = options?.source || options?.workspace || '';
+  if (isAtlasWorkflowLeakText(text, source)) {
+    console.warn('[atlas-leak-blocked] attempted to append Atlas workflow output to Chat');
+    appendAtlasActivityCard('blocked_chat_leak', { text: String(text || '').slice(0, 160) });
+    return null;
+  }
+  const w = messages();
+  const d = document.createElement('div');
+  d.className = 'msg '+role;
+  d.dataset.msgText = text;
+  const labels = {user:'Boss', assistant:'Agent', system:'System', error:'Error'};
+  const isMd = (role === 'assistant') && mdRenderer;
+  const bubble = isMd
+    ? `<div class="msg-bubble md">${renderMd(text)}</div>`
+    : `<div class="msg-bubble">${esc(text)}</div>`;
+  const toggle = isMd
+    ? `<button class="md-toggle active" onclick="toggleMdBubble(this)" title="Toggle Markdown/Raw">MD</button>`
+    : '';
+  const editBtn = (role === 'user')
+    ? `<button class="msg-edit-btn" onclick="startEditMsg(this)">✎ Edit</button>`
+    : '';
+  d.innerHTML = `<div class="msg-role">${labels[role]||role}</div>${bubble}${toggle}${editBtn}`;
+  if (isMd) d.querySelector('.msg-bubble').dataset.raw = text;
+  w.appendChild(d); scrollMsgs(); return d;
+}
+
+function toggleMdBubble(btn) {
+  const bubble = btn.previousElementSibling;
+  const isMdNow = bubble.classList.contains('md');
+  if (isMdNow) {
+    // raw表示に切替
+    bubble.classList.remove('md');
+    bubble.style.whiteSpace = 'pre-wrap';
+    bubble.style.fontFamily = 'var(--font-mono)';
+    bubble.style.fontSize = '12px';
+    bubble.textContent = bubble.dataset.raw || bubble.textContent;
+    btn.classList.remove('active');
+    btn.textContent = 'RAW';
+  } else {
+    // MD表示に切替
+    bubble.classList.add('md');
+    bubble.style.whiteSpace = '';
+    bubble.style.fontFamily = '';
+    bubble.style.fontSize = '';
+    bubble.innerHTML = renderMd(bubble.dataset.raw || bubble.textContent);
+    btn.classList.add('active');
+    btn.textContent = 'MD';
+  }
+}
+function attachToolResult(stepList, ev) {
+  if (!Array.isArray(stepList) || !ev) return;
+  for (let i = stepList.length - 1; i >= 0; i--) {
+    const step = stepList[i];
+    if (!step || step.type !== 'tool_call') continue;
+    if ((step.action || '') !== (ev.action || '')) continue;
+    if (step.result_preview) continue;
+    step.result_preview = ev.result_preview || '';
+    if ((ev.action || '') === 'read_file') {
+      step.result_excerpt = ev.result_excerpt || '';
+      step.result_size = ev.result_size;
+    }
+    break;
+  }
+}
+
+function toggleReadExcerpt(btn) {
+  const panel = btn?.closest('.read-excerpt-wrap')?.querySelector('.read-excerpt');
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  btn.textContent = panel.style.display === 'none' ? 'Expand' : 'Collapse';
+}
+
+function addStepsBlock(steps) {
+  const w = messages();
+  const toolSteps = steps.filter(s=>s.type==='tool_call');
+  if (!toolSteps.length) return;
+  const d = document.createElement('div'); d.className = 'msg assistant';
+  const icons = {read_file:'📄',write_file:'✏️',patch_function:'🔧',run_python:'▶',run_file:'▶',list_files:'📁',nexus_web_search:'🔎'};
+  const items = toolSteps.map(s=>`<div class="step-item">
+    <span>${icons[s.action]||'◆'}</span>
+    <div style="flex:1;min-width:0">
+      <span class="step-action">${s.action}</span>
+      ${s.thought?`<div class="step-thought">${esc(s.thought)}</div>`:''}
+      ${s.action==='nexus_web_search' && s.input?.topic ? `<div class="step-thought">topic: ${esc(s.input.topic)}</div>` : ''}
+      ${s.result_preview?`<div class="step-result">${esc(s.result_preview)}</div>`:''}
+      ${
+        s.action === 'read_file' && s.result_excerpt
+          ? `<div class="read-excerpt-wrap">
+              <button class="pv-btn" style="font-size:10px;padding:2px 8px;margin-top:4px" onclick="toggleReadExcerpt(this)">Expand</button>
+              <pre class="step-result read-excerpt" style="display:none;margin-top:6px;max-height:240px;overflow:auto">${esc(s.result_excerpt)}</pre>
+              <div class="step-thought" style="margin-top:4px">read_file returned ${Number.isFinite(Number(s.result_size)) ? Number(s.result_size).toLocaleString() : '?'} chars</div>
+            </div>`
+          : ''
+      }
+    </div></div>`).join('');
+  d.innerHTML = `<div class="msg-role">Steps</div>
+    <div class="steps-block">
+      <div class="steps-hdr" onclick="this.nextElementSibling.classList.toggle('open')">
+        <span>${toolSteps.length} tool call${toolSteps.length>1?'s':''}</span><span style="font-size:9px">▼</span>
+      </div>
+      <div class="steps-body">${items}</div>
+    </div>`;
+  w.appendChild(d); scrollMsgs();
+}
+function addTaskBlock(tasks, allPlannedTasks, planMeta) {
+  // allPlannedTasksがあれば、未実行タスクをSKIPPEDとして補完
+  const planned = allPlannedTasks || tasks;
+  const resultMap = {};
+  tasks.forEach(t => { resultMap[t.task_id] = t; });
+
+  const merged = planned.map(p => {
+    const r = resultMap[p.id] || resultMap[p.task_id];
+    if (r) return r;
+    return { task_id: p.id, title: p.title||'', status: 'skipped', output: '' };
+  });
+
+  const w = messages();
+  const d = document.createElement('div'); d.className = 'msg system';
+
+  const items = merged.map(t => {
+    const cls = t.status==='done'?'bd-done':t.status==='error'?'bd-err':t.status==='skipped'?'bd-skip':'bd-run';
+    const ic  = t.status==='done'?'✓':t.status==='error'?'✗':'—';
+    const col = t.status==='done'?'var(--accent)':t.status==='error'?'var(--red)':'var(--text3)';
+    const badge = t.status==='done'?'DONE':t.status==='error'?'ERROR':t.status==='skipped'?'SKIPPED':'RUNNING';
+    return `<div class="task-item">
+      <span style="color:${col};flex-shrink:0;width:14px;font-weight:700">${ic}</span>
+      <span style="flex:1;font-size:13px;font-weight:${t.status==='done'||t.status==='error'?'600':'400'}">${esc(t.title)}</span>
+      <span class="tbadge ${cls}">${badge}</span></div>`;
+  }).join('');
+
+  // Requirements & Plan セクション（planMetaがある場合）
+  let metaHtml = '';
+  if (planMeta) {
+    const reqs = planMeta.requirements || [];
+    const appr = planMeta.approach || '';
+    const veri = planMeta.verification || [];
+
+    const reqHtml = reqs.length
+      ? `<div class="plan-section"><div class="plan-section-title">📋 要件</div>${reqs.map(r=>`<div class="plan-req-item">${esc(r)}</div>`).join('')}</div>`
+      : '';
+    const apprHtml = appr
+      ? `<div class="plan-section"><div class="plan-section-title">🏗 実装方針</div><div class="plan-approach-text">${esc(appr)}</div></div>`
+      : '';
+    const veriHtml = veri.length
+      ? `<div class="plan-section"><div class="plan-section-title" style="color:var(--blue)">✅ 検証項目</div>${veri.map(v=>`<div class="plan-verify-item">${esc(v)}</div>`).join('')}</div>`
+      : '';
+    if (reqHtml || apprHtml || veriHtml) {
+      metaHtml = `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:4px">${reqHtml}${apprHtml}${veriHtml}</div>`;
+    }
+  }
+
+  d.innerHTML = `<div class="msg-role">REQUIREMENTS & PLAN</div><div class="task-block">${items}${metaHtml}</div>`;
+  w.insertBefore(d, w.lastChild); scrollMsgs();
+}
+
+// ── OUTPUT PANEL ──
+function renderStepsToOutput(steps) {
+  const out = document.getElementById('code-output');
+  out.innerHTML = '';
+  let has = false;
+  steps.forEach(s => {
+    if (!s || s.type !== 'tool_call') return;
+    if (s.action === 'run_python' || s.action === 'run_file') {
+      has = true;
+      const b = document.createElement('div'); b.className = 'cb';
+      const res = (s.result_preview||'').trim();
+      const isErr = res.startsWith('ERROR') || res.includes('Traceback');
+      b.innerHTML = `<div class="cb-hdr"><span class="cb-lang">stdout</span><span class="cb-title">${esc(s.action)}${s.input?.path?' → '+s.input.path:''}</span></div>
+        <div class="${isErr?'cb-err':'cb-out'}">${esc(res||'(no output)')}</div>`;
+      out.appendChild(b);
+    }
+    if (s.action === 'write_file' || s.action === 'patch_function') {
+      has = true;
+      const b = document.createElement('div'); b.className = 'cb';
+      const code = s.input?.content || s.input?.new_code || '';
+      const fp = s.input?.path || '';
+      const ext = fp.split('.').pop().toLowerCase();
+      const isRunnable = ['py','js','html'].includes(ext);
+      const runBtnHtml = isRunnable
+        ? `<button class="pv-btn run" style="font-size:10px;padding:2px 8px" onclick="runFile('${esc(fp)}')">▶ Run</button>`
+        : '';
+      b.innerHTML = `<div class="cb-hdr">
+        <span class="cb-lang">${s.action==='patch_function'?'patch':'file'}</span>
+        <span class="cb-title">${esc(fp)}${s.input?.function_name?' :: '+s.input.function_name:''}</span>
+        ${runBtnHtml}
+      </div>
+      <div class="cb-text">${synHL(code.slice(0,600))}${code.length>600?`\n<span style="color:var(--text3)">... (${code.length-600} more)</span>`:''}</div>`;
+      out.appendChild(b);
+    }
+  });
+  if (!has) out.innerHTML = '<div class="empty-state"><div class="empty-icon">◎</div><div class="empty-text">No runnable output</div></div>';
+  document.getElementById('tab-label').textContent = steps.filter(s=>s?.type==='tool_call').length + ' ops';
+}
+
+// ── HTML PREVIEW ──
+function detectHtml(data) {
+  const allSteps = data.tasks
+    ? data.tasks.flatMap(t => t.steps || [])
+    : (data.steps || []);
+  const found = allSteps.filter(s => s?.action==='write_file' && s.input?.path?.endsWith('.html')).map(s=>s.input.path);
+  if (found.length) {
+    htmlFiles = found;
+    loadPreview(htmlFiles[htmlFiles.length-1]);
+    // Files tab removed: the preview renders in the preview frame; no panel tab switch needed.
+  } else {
+    refreshFileBrowser();
+  }
+}
+async function loadPreview(path) {
+  try {
+    const r = await fetch(API+'/workspace/'+currentProject+'/'+path);
+    if (!r.ok) throw new Error('fetch failed');
+    showInFrame(await r.text());
+    document.getElementById('preview-url').textContent = 'workspace/'+currentProject+'/'+path;
+  } catch(e) { addLog('warn','preview','Cannot fetch: '+e.message); }
+}
+function showInFrame(html) {
+  const f = document.getElementById('preview-frame');
+  const ph = document.getElementById('preview-ph');
+  f.src = URL.createObjectURL(new Blob([html], {type:'text/html'}));
+  f.style.display = 'block'; ph.style.display = 'none';
+}
+function refreshPreview() { if (htmlFiles.length) loadPreview(htmlFiles[htmlFiles.length-1]); }
+function openNew() { if (htmlFiles.length) window.open(API+'/workspace/'+currentProject+'/'+htmlFiles[htmlFiles.length-1]); }
+
+// ── FILE BROWSER ──
+let fbActiveFile = null;
+
+async function refreshFileBrowser() {
+  try {
+    const r = await fetch(API+'/projects/'+encodeURIComponent(currentProject)+'/files');
+    const d = await r.json();
+    renderFileBrowser(d.files || []);
+  } catch(e) { addLog('err','files',e.message); }
+}
+
+function _encodePathSegments(path) {
+  return String(path || '').split('/').map(p => encodeURIComponent(p)).join('/');
+}
+
+async function refreshProjectFileManager() {
+  const list = document.getElementById('fm-list');
+  if (!list) return;
+  list.innerHTML = '<div style="font-size:11px;color:var(--text3)">Loading...</div>';
+  try {
+    const r = await fetch(API+'/projects/'+encodeURIComponent(currentProject)+'/files');
+    const d = await r.json();
+    renderProjectFileManager(d.files || []);
+  } catch (e) {
+    list.innerHTML = `<div style="font-size:11px;color:#ff7a7a">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderProjectFileManager(files) {
+  const list = document.getElementById('fm-list');
+  if (!list) return;
+  if (!files.length) {
+    list.innerHTML = '<div style="font-size:11px;color:var(--text3)">No files yet</div>';
+    return;
+  }
+  list.innerHTML = files.map(f => {
+    const enc = encodeURIComponent(f);
+    return `
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
+      <div style="flex:1;min-width:0;font-size:11px;font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(f)}">${esc(f)}</div>
+      <button onclick="downloadManagedFile(decodeURIComponent('${enc}'))" style="font-size:10px;padding:3px 8px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">Download</button>
+      <button onclick="deleteManagedFile(decodeURIComponent('${enc}'))" style="font-size:10px;padding:3px 8px;border:1px solid #6d2b36;background:#2d1b20;color:#ff9aac;border-radius:4px;cursor:pointer">Delete</button>
+    </div>
+  `;
+  }).join('');
+}
+
+async function deleteManagedFile(path) {
+  if (!confirm(`Delete "${path}"?`)) return;
+  try {
+    const r = await fetch(API+'/projects/'+encodeURIComponent(currentProject)+'/files/'+_encodePathSegments(path), { method:'DELETE' });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.detail || `${r.status}`);
+    }
+    addLog('ok','files',`Deleted: ${path}`);
+    await Promise.all([refreshProjectFileManager(), refreshFileBrowser()]);
+  } catch (e) {
+    addLog('err','files',`Delete failed: ${e.message}`);
+    alert(`Delete failed: ${e.message}`);
+  }
+}
+
+function downloadManagedFile(path) {
+  const url = API+'/projects/'+encodeURIComponent(currentProject)+'/files/'+_encodePathSegments(path)+'/download';
+  window.open(url, '_blank');
+  addLog('info','files',`Download: ${path}`);
+}
+
+function renderFileBrowser(files) {
+  const list = document.getElementById('fb-list');
+  if (!files.length) { list.innerHTML='<div class="fb-empty">No files yet</div>'; return; }
+
+  const ext2icon = {
+    py:'🐍', js:'📜', html:'🌐', css:'🎨',
+    json:'📋', md:'📝', txt:'📄', sh:'⚙',
+    csv:'📊', png:'🖼', jpg:'🖼', gif:'🖼',
+  };
+
+  list.innerHTML = files.map(f => {
+    const ext = f.split('.').pop().toLowerCase();
+    const icon = ext2icon[ext] || '📄';
+    const isRunnable = ['py','js','html'].includes(ext);
+    const runLabel = {py:'Run', js:'Run', html:'View'}[ext] || '';
+    return `<div class="fb-file${fbActiveFile===f?' active':''}" onclick="openFile('${esc(f)}')" data-file="${esc(f)}">
+      <span class="fb-file-icon">${icon}</span>
+      <span class="fb-file-name" title="${esc(f)}">${esc(f)}</span>
+      ${isRunnable ? `<button class="fb-file-run" onclick="event.stopPropagation();runFile('${esc(f)}')">${runLabel}</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function openFile(path) {
+  fbActiveFile = path;
+  document.querySelectorAll('.fb-file').forEach(el => {
+    el.classList.toggle('active', el.dataset.file === path);
+  });
+  const ext = path.split('.').pop().toLowerCase();
+  document.getElementById('preview-url').textContent = path;
+  // Runボタンの表示制御
+  const runBtn = document.getElementById('run-btn');
+  if (runBtn) runBtn.style.display = ['py','js','html'].includes(ext) ? '' : 'none';
+
+  if (ext === 'html') {
+    // HTMLはプレビュー表示
+    try {
+      const r = await fetch(API+'/workspace/'+currentProject+'/'+path);
+      if (!r.ok) throw new Error(r.status);
+      showInFrame(await r.text());
+      addLog('ok','preview','Loaded: '+path);
+    } catch(e) { addLog('err','preview','Cannot load: '+e.message); }
+  } else {
+    // テキストファイルはソースをrun-outputに表示
+    try {
+      const r = await fetch(API+'/workspace/'+currentProject+'/'+path);
+      if (!r.ok) throw new Error(r.status);
+      const text = await r.text();
+      showRunOutput(esc(text), false);
+      // エディタにも読み込む
+      const ed = document.getElementById('code-editor');
+      if (ed) { ed.value = text; setEditorLang(ext); }
+      addLog('ok','files','Opened: '+path);
+    } catch(e) { addLog('err','files','Cannot read: '+e.message); }
+  }
+}
+
+async function runFile(path) {
+  const ext = path.split('.').pop().toLowerCase();
+  document.getElementById('preview-url').textContent = '▶ Running: '+path;
+  addLog('info','run',path);
+
+  if (ext === 'html') {
+    openFile(path); return;
+  }
+
+  if (ext === 'py') {
+    const btn = document.getElementById('run-btn');
+    if (btn) { btn.textContent='...'; btn.disabled=true; }
+    try {
+      const r = await fetch(API+'/chat', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          message: `workspace内の${currentProject}/${path}をrun_fileツールで実行して結果を教えて`,
+          max_steps: 5, project: currentProject,
+          search_enabled: false, llm_url: activeLlmUrl
+        })
+      });
+      const d = await r.json();
+      const out = d.result || d.error || '(no output)';
+      showRunOutput(esc(out), out.includes('Error') || out.includes('Traceback'));
+      document.getElementById('preview-url').textContent = '▶ '+path+' (done)';
+      addLog('ok','run',path+': '+out.slice(0,60));
+    } catch(e) {
+      showRunOutput(esc('Error: '+e.message), true);
+    }
+    if (btn) { btn.textContent='▶ Run'; btn.disabled=false; }
+    return;
+  }
+
+  if (ext === 'js') {
+    // JSはiframe内で実行
+    try {
+      const r = await fetch(API+'/workspace/'+currentProject+'/'+path);
+      const code = await r.text();
+      showInFrame(`<!DOCTYPE html><html><body style="background:#0a0a0b;color:#e8e8f0;font-family:monospace;padding:16px">
+        <script>try{${code}}catch(e){document.body.innerHTML+='<pre style="color:#ff4466">'+e+'</pre>';}<\/script>
+      </body></html>`);
+    } catch(e) { addLog('err','run',e.message); }
+  }
+}
+
+function showRunOutput(html, isError) {
+  const frame = document.getElementById('preview-frame');
+  const ph = document.getElementById('preview-ph');
+  const out = document.getElementById('run-output');
+  frame.style.display = 'none';
+  ph.style.display = 'none';
+  out.style.display = 'block';
+  out.style.color = isError ? 'var(--red)' : 'var(--accent)';
+  out.innerHTML = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0">${html}</pre>`;
+}
+
+function setEditorLang(ext) {
+  const sel = document.getElementById('editor-lang');
+  if (!sel) return;
+  const map = {py:'python', js:'javascript', html:'html'};
+  if (map[ext]) sel.value = map[ext];
+}
+
+// ── INLINE EDITOR ──
+function toggleEditor() { /* editor is always visible in new layout */ }
+function editorKey(e) {
+  if(e.key==='Tab'){e.preventDefault();const t=e.target,s=t.selectionStart;t.value=t.value.slice(0,s)+'  '+t.value.slice(t.selectionEnd);t.selectionStart=t.selectionEnd=s+2;}
+  if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)) runEditorCode();
+}
+async function runEditorCode() {
+  const code = document.getElementById('code-editor').value.trim(); if (!code) return;
+  const lang = document.getElementById('editor-lang').value;
+  if (lang === 'html') { showInFrame(code); document.getElementById('preview-url').textContent='(inline HTML)'; return; }
+  if (lang === 'javascript') {
+    showInFrame(`<!DOCTYPE html><html><body><script>try{${code}}catch(e){document.body.innerHTML='<pre style="color:red">'+e+'</pre>';}<\/script></body></html>`);
+    document.getElementById('preview-url').textContent='(inline JS)'; return;
+  }
+  if (lang === 'python') {
+    const btn = document.getElementById('run-btn'); btn.textContent='...'; btn.disabled=true;
+    try {
+      const r = await fetch(API+'/chat', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({message:`次のPythonコードを実行してください:\n\`\`\`python\n${code}\n\`\`\``, max_steps:5, project:currentProject, search_enabled:false, llm_url:activeLlmUrl})});
+      const d = await r.json();
+      showInFrame(`<!DOCTYPE html><html><body style="background:#0a0a0b;color:#00ff88;font-family:monospace;padding:16px;white-space:pre-wrap">${esc(d.result||d.error||'')}</body></html>`);
+    } catch(e) { addLog('err','editor',e.message); }
+    btn.textContent='▶ Run'; btn.disabled=false;
+  }
+}
+
+// ── LOG ──
+function addLog(level, tag, msg) {
+  const out = document.getElementById('log-output');
+  const t = new Date().toTimeString().slice(0,8);
+  const d = document.createElement('div'); d.className = 'log-line';
+  d.innerHTML = `<span class="ltime">${t}</span><span class="llvl ${level}">${level.toUpperCase()}</span>
+    <span class="lmsg"><span style="color:var(--text3)">[${esc(tag)}]</span> ${esc(String(msg))}</span>`;
+  out.appendChild(d); out.scrollTop = out.scrollHeight;
+}
+
+function compressDuplicateLogsByTimestamp() {
+  const out = document.getElementById('log-output');
+  if (!out) return 0;
+  const lines = Array.from(out.querySelectorAll('.log-line'));
+  if (lines.length <= 1) return 0;
+
+  const seen = new Set();
+  let removed = 0;
+  for (const row of lines) {
+    const ts = row.querySelector('.ltime')?.textContent?.trim() || '';
+    const msg = row.querySelector('.lmsg')?.textContent?.trim() || row.textContent?.trim() || '';
+    const key = `${ts}|${msg}`;
+    if (seen.has(key)) {
+      row.remove();
+      removed++;
+      continue;
+    }
+    seen.add(key);
+  }
+  if (removed > 0) addLog('info', 'log', `重複ログを圧縮: ${removed}件`);
+  return removed;
+}
+
+// ── AUTO SELECT / SKILL TOGGLES ──
+function toggleAutoSelect(val) {
+  autoSelectOption = !!val;
+  const desc = document.getElementById('auto-select-desc');
+  const label = document.getElementById('auto-select-label');
+  if (desc) desc.textContent = autoSelectOption ? '🤖 プランナーLLMが自動選択' : '👤 ユーザーが手動選択';
+  if (label) label.textContent = autoSelectOption ? 'Auto' : 'Manual';
+  _saveSettingDb('auto_select_option', autoSelectOption ? 'true' : 'false');
+}
+function toggleAutoSkill(val) {
+  autoSkillGeneration = !!val;
+  const desc = document.getElementById('auto-skill-desc');
+  if (desc) desc.textContent = autoSkillGeneration ? '⚙ 失敗時にSKILLを自動生成' : '⚙ SKILL自動生成 無効';
+  _saveSettingDb('auto_skill_gen', autoSkillGeneration ? 'true' : 'false');
+}
+
+// ── MAX STEPS SLIDER ──
+function initStepsSlider() {
+  // DB連動の loadSettingsFromDb が担うため空関数として残す（互換性）
+}
+function updateStepsLabel(val) {
+  maxSteps = parseInt(val);
+  const el = document.getElementById('steps-label');
+  if (el) el.textContent = val;
+  _saveSettingDb('max_steps', val);
+}
+
+async function initCtxSlider() {
+  try {
+    // llama-serverの最大コンテキスト長を取得
+    // Ceiling mirrors main.py's _MAX_LLM_CTX_SIZE. This client-side clamp was still capping the
+    // slider at 65535 even after the backend was fixed to allow a larger configured ctx_size.
+    const {data: d} = await _fetchJson(API+'/llm/props', {}, '/llm/props');
+    const maxCtx = Math.min(262144, (d.n_ctx || 262144));
+
+    // サーバー側の現在値も取得
+    const {data: cd} = await _fetchJson(API+'/llm/ctx', {}, '/llm/ctx');
+    const curCtx = Math.max(512, Math.min(maxCtx, normalizeCtxSize(cd.n_ctx, _settingsDefaultCtxSize)));
+
+    // The settings-modal slider was removed (context length is managed per-model in the
+    // Forge/Models tab, which is what actually drives the backend's active context). This still
+    // populates LLM_CONTEXT_STATE, which getCurrentNctxUi() elsewhere relies on for client-side
+    // context-budget calculations.
+    LLM_CONTEXT_STATE.maxNctxUi = maxCtx;
+    LLM_CONTEXT_STATE.propsAvailable = true;
+    LLM_CONTEXT_STATE.lastError = '';
+    setCurrentNctxUi(curCtx);
+
+    addLog('ok', 'ctx', `n_ctx=${curCtx} / max=${maxCtx}`);
+  } catch(e) {
+    LLM_CONTEXT_STATE.propsAvailable = false;
+    LLM_CONTEXT_STATE.lastError = e && e.message ? e.message : String(e);
+    addLog('warn', 'ctx', 'Could not fetch llm props: ' + LLM_CONTEXT_STATE.lastError);
+  }
+}
+
+
+
+
+
+// ── SEARCH TOGGLE ──
+async function initSearch() {
+  try {
+    const r = await fetch(API+'/search/status');
+    const d = await r.json();
+    applySearchUI(d.enabled);
+    await refreshNexusWebStatus();
+  } catch(e) {}
+}
+
+async function toggleSearch() {
+  const chk = document.getElementById('search-chk');
+  const next = chk ? chk.checked : !searchEnabled;
+  try {
+    const r = await fetch(API+(next?'/search/enable':'/search/disable'), {method:'POST'});
+    const d = await r.json();
+    applySearchUI(d.enabled);
+    _saveSettingDb('search_enabled', d.enabled ? 'true' : 'false');
+    addLog(d.enabled?'ok':'warn','search', d.enabled?'Web search ENABLED':'Web search DISABLED');
+  } catch(e) { addLog('err','search',e.message); }
+}
+
+
+
+// ── STREAMING TOGGLE ──
+async function initStreaming() {
+  try {
+    const r = await fetch(API + '/streaming/status');
+    const d = await r.json();
+    applyStreamingUI(d.enabled);
+  } catch(e) {}
+}
+
+async function toggleStreaming() {
+  const chk = document.getElementById('streaming-chk');
+  const next = chk ? chk.checked : !streamingEnabled;
+  try {
+    const r = await fetch(API + (next ? '/streaming/enable' : '/streaming/disable'), {method: 'POST'});
+    const d = await r.json();
+    applyStreamingUI(d.enabled);
+    _saveSettingDb('streaming_enabled', d.enabled ? 'true' : 'false');
+    addLog(d.enabled ? 'ok' : 'warn', 'streaming',
+      d.enabled ? 'LLMストリーミング有効' : 'LLMストリーミング無効 — 生成完了まで待機');
+  } catch(e) { addLog('err', 'streaming', e.message); }
+}
+
+
+
+function _removedLLMManager() {
+function saveLLMEndpoints() {
+  localStorage.removeItem('llm_endpoints');
+}
+function updateLLMBtnLabel() {
+  const active = llmEndpoints.find(e => e.active) || llmEndpoints[0];
+  const btn = document.getElementById('llm-btn');
+  if (active && active.name !== 'Default') {
+    btn.style.borderColor = 'var(--accent-border)';
+    btn.style.color = 'var(--accent)';
+  } else {
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  }
+}
+function openLLMManager() {
+  document.getElementById('llm-modal').classList.add('open');
+  initStepsSlider();
+  initSearchNumSlider();
+  renderLLMList();
+}
+function closeLLMManager() {
+  document.getElementById('llm-modal').classList.remove('open');
+}
+function renderLLMList() {
+  const el = document.getElementById('llm-list');
+  if (!llmEndpoints.length) { el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:8px">No endpoints saved.</div>'; return; }
+  el.innerHTML = llmEndpoints.map((ep, i) => `
+    <div class="llm-item${ep.active?' active':''}">
+      <div class="llm-item-info">
+        <div class="llm-item-name">${esc(ep.name)}</div>
+        <div class="llm-item-url">${ep.url ? esc(ep.url) : '(server default)'}</div>
+      </div>
+      <span class="llm-item-status ${ep.status==='ok'?'llm-stat-ok':ep.status==='err'?'llm-stat-err':'llm-stat-unk'}">${ep.status==='ok'?'OK':ep.status==='err'?'ERR':'?'}</span>
+      <div class="llm-item-btns">
+        ${i>0?`<button class="llm-act-btn" onclick="testLLM(${i})">Test</button>`:''}
+        ${ep.active?'<button class="llm-act-btn sel">Active</button>':`<button class="llm-act-btn" onclick="selectLLM(${i})">Select</button>`}
+        ${i>0?`<button class="llm-act-btn del" onclick="deleteLLM(${i})">✕</button>`:''}
+      </div>
+    </div>`).join('');
+}
+async function testNewLLM() {
+  const url = document.getElementById('llm-new-url').value.trim();
+  if (!url) return;
+  const res = document.getElementById('new-test-result');
+  res.className = 'test-result open';
+  res.textContent = 'Testing...';
+  try {
+    const r = await fetch(API+'/llm/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url})});
+    const d = await r.json();
+    const ok = d.chat;
+    res.style.color = ok ? 'var(--accent)' : 'var(--red)';
+    res.textContent = ok
+      ? `✓ Connected  health=${d.health}  models: ${d.models.slice(0,3).join(', ')||'n/a'}`
+      : `✗ Failed: ${d.chat_error||'no response'}`;
+  } catch(e) { res.style.color='var(--red)'; res.textContent='✗ Error: '+e.message; }
+}
+async function testLLM(i) {
+  const ep = llmEndpoints[i];
+  if (!ep) return;
+  renderLLMList(); // show testing state
+  try {
+    const r = await fetch(API+'/llm/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url: ep.url})});
+    const d = await r.json();
+    llmEndpoints[i].status = d.chat ? 'ok' : 'err';
+    saveLLMEndpoints();
+    renderLLMList();
+  } catch(e) { llmEndpoints[i].status = 'err'; saveLLMEndpoints(); renderLLMList(); }
+}
+function addLLM() {
+  const name = document.getElementById('llm-new-name').value.trim();
+  const url = document.getElementById('llm-new-url').value.trim();
+  if (!name || !url) { alert('Name and URL are required'); return; }
+  // URLをchat/completions形式に補正
+  let finalUrl = url;
+  if (!finalUrl.endsWith('/v1/chat/completions')) {
+    finalUrl = finalUrl.replace(/\/+$/, '') + '/v1/chat/completions';
+  }
+  llmEndpoints.push({name, url: finalUrl, status:'unk', active:false});
+  saveLLMEndpoints();
+  document.getElementById('llm-new-name').value = '';
+  document.getElementById('llm-new-url').value = '';
+  document.getElementById('new-test-result').className = 'test-result';
+  renderLLMList();
+  addLog('info','llm','Added: '+name);
+}
+function selectLLM(i) {
+  llmEndpoints.forEach((ep, idx) => ep.active = idx === i);
+  activeLlmUrl = llmEndpoints[i].url || '';
+  saveLLMEndpoints();
+  updateLLMBtnLabel();
+  renderLLMList();
+  addLog('ok','llm','Active: '+llmEndpoints[i].name+(activeLlmUrl?' ('+activeLlmUrl+')':' (server default)'));
+}
+} // end _removedLLMManager
+
+// ── UTILS ──
+function setBusy(b) {
+  busy = b;
+  const sendBtn = document.getElementById('send-btn');
+  if (sendBtn) sendBtn.disabled = b;
+  const agentSendBtn = document.getElementById('agent-send-btn');
+  if (agentSendBtn) agentSendBtn.disabled = b;
+  const micBtn = document.getElementById('mic-btn');
+  if (micBtn) micBtn.disabled = b || (voiceRecording && voiceTarget === 'chat');
+  const agentMicBtn = document.getElementById('agent-mic-btn');
+  if (agentMicBtn) agentMicBtn.disabled = b || (voiceRecording && voiceTarget === 'agent');
+  if (!b && voiceContinuousEnabled) _scheduleContinuousVoiceRestart('busy_false', 300);
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function synHL(c){return esc(c).replace(/\b(def|class|import|from|return|if|else|elif|for|while|try|except|with|as|pass|True|False|None|async|await)\b/g,'<span class="kw">$1</span>').replace(/(#[^\n]*)/g,'<span class="cm">$1</span>').replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,'<span class="str">$1</span>').replace(/\b(\d+\.?\d*)\b/g,'<span class="num">$1</span>')}
+
+// ── MCP ──
+async function showMcpInfo() {
+  try {
+    const r = await fetch(API+'/mcp/info');
+    const d = await r.json();
+    const el = document.getElementById('mcp-test-result');
+    if (el) {
+      el.textContent = `MCP Server: ${API}/mcp\nProtocol: ${d.protocol}\nTools (${d.tools_count}):\n${d.tool_names.map(t=>'  - '+t).join('\n')}`;
+      el.style.display = 'block';
+    }
+  } catch(e) { addLog('err','mcp', e.message); }
+}
+
+async function testMcpServer() {
+  const url = document.getElementById('mcp-test-url')?.value.trim();
+  if (!url) return;
+  const el = document.getElementById('mcp-test-result');
+  if (el) { el.textContent = 'Testing...'; el.style.display='block'; }
+  try {
+    const r = await fetch(url, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}})
+    });
+    const d = await r.json();
+    const tools = d.result?.tools || [];
+    if (el) el.textContent = `✓ Connected\nTools (${tools.length}):\n`+tools.map(t=>`  - ${t.name}: ${(t.description||'').slice(0,60)}`).join('\n');
+  } catch(e) {
+    if (el) { el.textContent = '✗ Error: '+e.message; el.style.color='var(--red)'; }
+  }
+}
+
+// ── GitHub リポジトリ管理 ──
+async function loadGhRepoConfig() {
+  try {
+    const r = await fetch(API+'/repo/config');
+    const d = await r.json();
+    const username = document.getElementById('gh-username');
+    const repoName = document.getElementById('gh-repo-name');
+    const visibility = document.getElementById('gh-visibility');
+    const branch = document.getElementById('gh-branch');
+    const remoteUrl = document.getElementById('gh-remote-url');
+    const tokenStatus = document.getElementById('gh-token-status');
+    if (username) username.value = d.github_username || d.github_username_saved || '';
+    if (repoName) repoName.value = d.github_repo_name || 'codeagent-data';
+    if (visibility) visibility.value = d.github_repo_visibility || 'private';
+    if (branch) branch.value = d.github_default_branch || 'main';
+    if (remoteUrl) remoteUrl.textContent = d.github_remote_url || 'Not set (remote missing)';
+    if (tokenStatus) tokenStatus.textContent = d.has_token ? 'Token saved' : 'Not set';
+    if (tokenStatus) tokenStatus.style.color = d.has_token ? 'var(--accent)' : 'var(--text3)';
+  } catch(e) { addLog('err','gh', e.message); }
+}
+
+async function saveGhCredentials() {
+  const token = document.getElementById('gh-token')?.value.trim();
+  const username = document.getElementById('gh-username')?.value.trim();
+  if (!token && !username) { alert('トークンまたはユーザー名を入力してください'); return; }
+  try {
+    await fetch(API+'/repo/config', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ github_token: token || undefined, github_username_cred: username || undefined })
+    });
+    const tokenInput = document.getElementById('gh-token');
+    if (tokenInput) tokenInput.value = '';
+    const st = document.getElementById('gh-token-status');
+    if (st) { st.textContent = '✓ 保存しました（.codeagent/）'; st.style.color='var(--accent)'; }
+    addLog('info','gh','認証情報を .codeagent/ に保存しました');
+  } catch(e) { addLog('err','gh', e.message); }
+}
+
+async function saveGhRepoConfig() {
+  const data = {
+    github_username: document.getElementById('gh-username')?.value.trim() || '',
+    github_repo_name: document.getElementById('gh-repo-name')?.value.trim() || 'codeagent-data',
+    github_repo_visibility: document.getElementById('gh-visibility')?.value || 'private',
+    github_default_branch: document.getElementById('gh-branch')?.value.trim() || 'main',
+  };
+  try {
+    await fetch(API+'/repo/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+    addLog('info','gh','リポジトリ設定を保存しました');
+  } catch(e) { addLog('err','gh', e.message); }
+}
+
+async function initGhRepo() {
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = '初期化中...'; el.style.display='block'; }
+  try {
+    const r = await fetch(API+'/repo/init', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    const d = await r.json();
+    if (d.ok) {
+      const remoteUrl = document.getElementById('gh-remote-url');
+      if (remoteUrl) remoteUrl.textContent = d.remote_url;
+      if (el) el.textContent = `✓ リポジトリ初期化完了\nリモート: ${d.remote_url}\nリポジトリ: ${d.repo}`;
+      addLog('info','gh',`リポジトリ初期化完了: ${d.repo}`);
+    } else {
+      const msg = d.error || d.detail || JSON.stringify(d);
+      if (el) { el.textContent = '✗ エラー: ' + msg; el.style.display='block'; el.style.color='var(--red)'; }
+      addLog('err','gh', '[Init] ' + msg);
+    }
+  } catch(e) { if (el) { el.textContent='✗ Error: '+e.message; el.style.display='block'; } addLog('err','gh','[Init] '+e.message); }
+}
+
+async function syncGhRepo() {
+  const msg = prompt('コミットメッセージ（空でデフォルト）:', '') ?? '';
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = 'Sync中...'; el.style.display='block'; }
+  try {
+    const r = await fetch(API+'/repo/sync', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ message: msg || undefined })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      if (el) el.textContent = `✓ Sync完了\nブランチ: ${d.branch}\nメッセージ: ${d.message}`;
+      addLog('info','gh',`Sync完了: ${d.message}`);
+    } else {
+      const msg = d.error || d.detail || JSON.stringify(d);
+      if (el) { el.textContent = '✗ エラー: ' + msg; el.style.display='block'; el.style.color='var(--red)'; }
+      addLog('err','gh', '[Sync] ' + msg);
+    }
+  } catch(e) { if (el) { el.textContent='✗ Error: '+e.message; el.style.display='block'; } addLog('err','gh','[Sync] '+e.message); }
+}
+
+async function loadGhRepoStatus() {
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = '確認中...'; el.style.display='block'; }
+  try {
+    const r = await fetch(API+'/repo/status');
+    const d = await r.json();
+    if (!d.initialized) {
+      if (el) el.textContent = '⚠ リポジトリ未初期化\n「Init (リポジトリ作成)」を実行してください';
+    } else {
+      if (el) el.textContent = [
+        `✓ 初期化済み`,
+        `リモート: ${d.remote_url || '未設定'}`,
+        `ブランチ: ${d.branch}`,
+        `変更: ${d.status || 'clean'}`,
+        d.recent_commits ? `\n最近のコミット:\n${d.recent_commits}` : '',
+      ].join('\n');
+    }
+  } catch(e) { if (el) el.textContent='✗ Error: '+e.message; }
+}
+
+async function testGhConnection() {
+  const el = document.getElementById('gh-repo-status');
+  if (el) { el.textContent = 'GitHub接続確認中...'; el.style.display='block'; el.style.color=''; }
+  try {
+    const r = await fetch(API+'/repo/test-connection');
+    const d = await r.json();
+    if (d.ok) {
+      if (el) el.textContent = [
+        `✓ GitHub接続成功`,
+        `ユーザー: ${d.login} (${d.name || ''})`,
+        `プラン: ${d.plan || 'unknown'}`,
+        `公開リポジトリ: ${d.public_repos}件  非公開: ${d.private_repos}件`,
+        d.rate_limit ? `APIレート: 残${d.rate_limit.remaining}/${d.rate_limit.limit} (リセット: ${d.rate_limit.reset})` : '',
+      ].filter(Boolean).join('\n');
+      el.style.color = 'var(--accent)';
+      const st = document.getElementById('gh-token-status');
+      if (st) { st.textContent = '✓ トークン有効'; st.style.color = 'var(--accent)'; }
+    } else {
+      if (el) { el.textContent = `✗ 接続失敗: ${d.error || '不明なエラー'}`; el.style.color = 'var(--red)'; }
+    }
+  } catch(e) {
+    if (el) { el.textContent = '✗ Error: ' + e.message; el.style.color = 'var(--red)'; }
+  }
+}
+
+function openSkillFolder() { addLog("info","skill","Skill folder: C:\\AI\\skills\\"); }
+
+function populateInputMessage(msg, logLabel) {
+  const input = document.getElementById('input');
+  if (!input) {
+    addLog('err', 'skill', '入力欄が見つかりません');
+    return;
+  }
+
+  input.value = msg;
+  input.dispatchEvent(new Event('input'));
+  input.focus();
+  addLog('info', 'skill', logLabel);
+}
+
+function proposeSkillImprovement(skillName) {
+  const msg = 'スキル「'+skillName+'」を見直してください。汎用性・エラー処理・出力品質に問題があれば修正し、C:\\AI\\skills\\ に上書き保存してください。';
+  populateInputMessage(msg, 'Improve: ' + skillName);
+}
+function testSkill(skillName) {
+  const msg = 'スキル「'+skillName+'」の動作テストをしてください。テストケースを作成・実行し、問題があれば修正も提案してください。';
+  populateInputMessage(msg, 'Test: ' + skillName);
+}
+

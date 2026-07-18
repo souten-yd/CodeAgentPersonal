@@ -1,0 +1,2495 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>KasaneCore</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/app.css?v=atlas-ui-fix-15-anvil">
+<link rel="stylesheet" href="/ui-next/css/tokens.css?v=ui-next-1">
+<link rel="stylesheet" href="/ui-next/css/next.css?v=ui-next-1">
+
+<style>
+  .atlas-surface-hidden { display: none !important; }
+  #atlas-dashboard[data-atlas-ui-mode="minimal"] .atlas-surface-advanced,
+  #atlas-dashboard[data-atlas-ui-mode="minimal"] .atlas-surface-diagnostics { display: none; }
+  #atlas-dashboard[data-atlas-ui-mode="advanced"] .atlas-surface-diagnostics { display: none; }
+  #atlas-dashboard[data-atlas-ui-mode="diagnostics"] .atlas-surface-advanced { display: none; }
+</style>
+</head>
+<body>
+
+<aside class="side-nav" id="side-nav" aria-label="Primary navigation">
+  <div class="side-logo" aria-hidden="true">
+    <svg viewBox="0 0 220 204" class="side-logo-mark"><g fill="none" stroke="url(#sideLogoGrad)" stroke-linecap="round" stroke-linejoin="round"><circle cx="110" cy="102" r="82" stroke-width="7"/><ellipse cx="107" cy="103" rx="77" ry="83" stroke-width="6" transform="rotate(-13 107 103)" opacity="0.95"/><ellipse cx="112" cy="101" rx="82" ry="71" stroke-width="6" transform="rotate(10 112 101)" opacity="0.9"/><circle cx="110" cy="102" r="46" stroke-width="6.4" opacity="0.85"/><circle cx="110" cy="102" r="24" stroke-width="6" opacity="0.8"/></g><defs><linearGradient id="sideLogoGrad" x1="30" y1="20" x2="200" y2="190" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="var(--logo-accent-strong, var(--accent))"/><stop offset="1" stop-color="var(--logo-accent, var(--accent))"/></linearGradient></defs></svg>
+  </div>
+  <nav class="side-modes">
+      <button class="mode-btn active" id="btn-chat" onclick="setMode('chat')" title="Lumen"><svg class="side-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span class="side-label">Lumen</span></button>
+      <button class="mode-btn" id="btn-atlas" onclick="setMode('atlas')" title="Atlas"><svg class="side-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg><span class="side-label">Atlas</span></button>
+      <button class="mode-btn" id="btn-echo" onclick="setMode('echo')" title="Echo"><svg class="side-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg><span class="side-label">Echo</span></button>
+      <button class="mode-btn" id="btn-nexus" onclick="setMode('nexus')" title="Nexus"><svg class="side-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><span class="side-label">Nexus</span></button>
+      <button class="mode-btn" id="btn-forge" onclick="setMode('forge')" title="Forge"><svg class="side-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg><span class="side-label">Forge</span></button>
+      <button class="mode-btn" id="btn-portal" onclick="setMode('portal')" title="Portal"><svg class="side-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg><span class="side-label">Portal</span></button>
+  </nav>
+  <div class="side-bottom">
+    <button class="hdr-icon-btn side-settings" id="settings-btn" onclick="openSettings()" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06-.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+  </div>
+</aside>
+<div class="main-col" id="main-col">
+<header class="topbar">
+  <div class="logo">
+    <svg class="logo-inline-svg" viewBox="0 0 820 260" role="img" aria-label="Kasane Core">
+      <defs>
+        <linearGradient id="ringStrokeB" x1="50" y1="20" x2="235" y2="210" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="var(--logo-accent-strong, var(--accent))"/>
+          <stop offset="0.45" stop-color="var(--logo-accent, var(--accent))"/>
+          <stop offset="1" stop-color="var(--logo-text, var(--text))"/>
+        </linearGradient>
+        <linearGradient id="textFillB" x1="190" y1="70" x2="610" y2="200" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="var(--logo-text, var(--text))"/>
+          <stop offset="0.55" stop-color="var(--logo-accent-strong, var(--accent))"/>
+          <stop offset="1" stop-color="var(--logo-accent, var(--accent))"/>
+        </linearGradient>
+        <filter id="softDepthB" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="1.2" stdDeviation="1.2" flood-color="var(--logo-accent-strong, var(--accent))" flood-opacity="0.22"/>
+        </filter>
+      </defs>
+
+      <g transform="translate(36 26)"
+        fill="none"
+        stroke="url(#ringStrokeB)"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        filter="url(#softDepthB)">
+        <circle cx="110" cy="102" r="82" stroke-width="5.8"/>
+        <ellipse cx="107" cy="103" rx="77" ry="83" stroke-width="4.9" transform="rotate(-13 107 103)" opacity="0.96"/>
+        <ellipse cx="112" cy="101" rx="82" ry="71" stroke-width="4.7" transform="rotate(10 112 101)" opacity="0.92"/>
+        <ellipse cx="111" cy="103" rx="69" ry="61" stroke-width="4.3" transform="rotate(23 111 103)" opacity="0.90"/>
+        <ellipse cx="107" cy="103" rx="61" ry="69" stroke-width="4.1" transform="rotate(-19 107 103)" opacity="0.82"/>
+        <circle cx="110" cy="102" r="46" stroke-width="5.1" opacity="0.86"/>
+        <circle cx="110" cy="102" r="24" stroke-width="4.7" opacity="0.82"/>
+      </g>
+
+      <g transform="translate(36 26)" aria-hidden="true">
+        <circle class="logo-indicator-core" cx="110" cy="102" r="21"/>
+        <circle class="logo-indicator-ring" cx="110" cy="102" r="24" fill="none" stroke-width="1.6"/>
+      </g>
+
+      <g fill="url(#textFillB)" filter="url(#softDepthB)" font-family="'Avenir Next','Montserrat','Segoe UI',Arial,sans-serif">
+        <text x="605" y="128" text-anchor="end" font-size="100" font-weight="800" letter-spacing="-1.8">Kasane</text>
+        <text x="605" y="196" text-anchor="end" font-size="64" font-weight="500" letter-spacing="-1.0">Core</text>
+      </g>
+    </svg>
+    <span class="logo-text">Kasane Core</span>
+  </div>
+  <div class="hdr-right">
+    <span id="model-badge" title="Current model" style="font-size:10px;font-family:var(--font-mono);color:var(--text3);padding:2px 8px;border:1px solid var(--border);border-radius:10px;display:none;cursor:default;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+    <div class="sdot" id="sdot"></div>
+    <span class="stext" id="stext">—</span>
+  </div>
+</header>
+<div class="sys-usage-row" id="sys-usage-row">
+  <span id="sys-usage" title="CPU/GPU/RAM/VRAM usage">CPU -- | RAM --/-- | GPU -- | VRAM --/--</span>
+  <span id="sys-llm-name" title="Current LLM"></span>
+</div>
+
+<div id="tts-floating-player" class="tts-floating-player hidden">
+  <div class="tts-floating-main">
+    <span id="tts-floating-title">音声の再生待ち</span>
+    <button id="tts-floating-play" type="button">▶ 再生</button>
+    <button id="tts-floating-close" type="button">×</button>
+  </div>
+  <div id="tts-floating-native-slot" class="tts-floating-native-slot"></div>
+</div>
+<audio id="tts-audio" playsinline preload="auto" style="display:none"></audio>
+
+<div class="mob-tabs">
+  <!-- Chat/Task モード用タブ (Lumen は会話のみ。Log/Skill/Memory/Models は Nexus/Forge に集約済み) -->
+  <button class="mob-tab wide active" id="mob-chat" onclick="mobSwitch('chat')">Lumen</button>
+  <!-- Agent モード用タブ (デフォルト非表示) -->
+  <button class="mob-tab wide" id="mob-agent-chat" onclick="mobSwitch('agent_chat')" style="display:none">Agent Chat</button>
+  <button class="mob-tab wide" id="mob-agent-tasks" onclick="mobSwitch('agent_tasks')" style="display:none">Agent Tasks</button>
+  <button class="mob-tab wide" id="mob-atlas" onclick="mobSwitch('atlas')" style="display:none">Atlas</button>
+  <!-- Echo モード用タブ (デフォルト非表示) -->
+  <button class="mob-tab" id="mob-echo" onclick="mobSwitch('echo')" style="display:none">Echo</button>
+  <button class="mob-tab" id="mob-vault" onclick="mobSwitch('vault')" style="display:none">Vault</button>
+  <!-- Echo mobile: Vault only. Log → Nexus, Models/ASR/TTS → Forge. -->
+  <button class="mob-tab wide" id="mob-nexus" onclick="mobSwitch('nexus')" style="display:none">Nexus</button>
+  <!-- Forge モード用タブ (デフォルト非表示) -->
+  <button class="mob-tab wide" id="mob-forge" onclick="mobSwitch('forge')" style="display:none">Forge</button>
+  <!-- Portal モード用タブ (デフォルト非表示) -->
+  <button class="mob-tab wide" id="mob-portal" onclick="mobSwitch('portal')" style="display:none">Portal</button>
+</div>
+
+<div class="app-body">
+  <!-- CHAT -->
+  <div class="chat-col" id="chat-col">
+    <div class="chat-topbar">
+      <div class="chat-control-row">
+        <div class="chat-control-left">
+          <div class="proj-btn" onclick="toggleDrawer()">
+            <span>◈</span><span class="proj-name" id="proj-display">default</span><span style="font-size:9px;color:var(--text3)">▼</span>
+          </div>
+          <button class="chat-task-toggle" id="chat-tts-toggle" onclick="toggleChatTtsUnified()" title="Chat TTS 自動読み上げのON/OFF">
+            <span id="chat-tts-toggle-label">TTS OFF</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="messages" id="messages">
+      <div class="msg system">
+        <div class="msg-role">system</div>
+        <div class="msg-bubble">KasaneCore ready. Select a project to begin.</div>
+      </div>
+    </div>
+    <div class="input-area">
+      <div class="input-wrap">
+        <textarea id="input" placeholder="指示を入力..." rows="1"
+          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <button class="mic-btn" id="mic-btn" onclick="toggleVoiceInput()" title="音声入力 (日本語/英語)">🎙</button>
+        <button class="send-btn" id="send-btn" onclick="send()">
+          <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+        </button>
+      </div>
+      <div class="voice-monitor" id="voice-monitor">
+        <div class="voice-meter"><div class="voice-meter-fill" id="voice-meter-fill"></div></div>
+        <div class="voice-monitor-text" id="voice-monitor-text">待機中</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ATLAS CLAUDE SHELL (buildless conversational, always default) -->
+  <div class="atlas-claude-col" id="atlas-claude-col" data-atlas-shell="claude" style="display:none" aria-label="Atlas conversational shell">
+    <header class="atlas-claude-header">
+      <div class="atlas-claude-header-actions"></div>
+    </header>
+
+    <section id="atlas-claude-transcript" class="atlas-claude-transcript" aria-live="polite" aria-label="Atlas conversation"></section>
+
+    <section class="atlas-claude-input-wrap">
+      <textarea id="atlas-claude-input" class="atlas-claude-input" rows="1" placeholder="指示を入力..."></textarea>
+      <div class="atlas-claude-input-actions">
+        <details id="atlas-claude-features-drawer" class="atlas-claude-features-drawer">
+          <summary class="atlas-claude-features-summary">Features</summary>
+          <div class="atlas-claude-features-body">
+            <fieldset class="atlas-claude-feature-group" aria-label="Automation Profile">
+              <legend>Automation Profile</legend>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="review_only" checked> <b>0 Review</b> <span class="atlas-claude-muted-inline">(提案のみ)</span></label>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="single_action"> <b>1 Single Action</b> <span class="atlas-claude-muted-inline">(1操作毎承認)</span></label>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="supervised_auto"> <b>2 Supervised</b> <span class="atlas-claude-muted-inline">(監督下で実行)</span></label>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_custom"> <b>3 Autonomous</b> <span class="atlas-claude-muted-inline">(自律、bound 都度指定)</span></label>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-preset" value="autonomous_bounded_dev"> <b>4 Bounded Auto</b> <span class="atlas-claude-muted-inline">(backend envelope + gates required)</span></label>
+            </fieldset>
+
+            <fieldset class="atlas-claude-feature-group" aria-label="Work target">
+              <legend>Work target</legend>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="software_development_or_repair" checked> Dev / repair</label>
+              <label class="atlas-claude-radio"><input type="radio" name="atlas-claude-work-target" value="platform_self_improvement"> Self-improvement (自己改修)</label>
+            </fieldset>
+
+            <fieldset class="atlas-claude-feature-group atlas-cap-prefs" aria-label="Capability Preferences" id="atlas-cap-prefs-fieldset">
+              <legend>Capability Preferences <span class="atlas-claude-muted-inline">(preference only — backend enforces availability)</span></legend>
+              <label class="atlas-checkbox-label" title="Command execution requested">
+                <span class="atlas-cap-row"><input type="checkbox" id="cap-command-execution" checked onchange="saveAtlasCapabilityPreferences()"> <span class="atlas-cap-name">Command execution</span></span>
+                <span class="atlas-cap-status" id="cap-command-execution-status">Status: blocked — level_0_manual_only</span>
+              </label>
+              <label class="atlas-checkbox-label" title="Browser automation requested">
+                <span class="atlas-cap-row"><input type="checkbox" id="cap-browser-automation" checked onchange="saveAtlasCapabilityPreferences()"> <span class="atlas-cap-name">Browser automation</span></span>
+                <span class="atlas-cap-status" id="cap-browser-automation-status">Status: blocked — not enabled</span>
+              </label>
+              <label class="atlas-checkbox-label" title="Playwright visual verification requested">
+                <span class="atlas-cap-row"><input type="checkbox" id="cap-playwright-verification" checked onchange="saveAtlasCapabilityPreferences()"> <span class="atlas-cap-name">Playwright visual verification</span></span>
+                <span class="atlas-cap-status" id="cap-playwright-verification-status">Status: test/CI harness only (if Playwright present)</span>
+              </label>
+              <label class="atlas-checkbox-label" title="Web evidence gathering requested">
+                <span class="atlas-cap-row"><input type="checkbox" id="cap-web-evidence" checked onchange="saveAtlasCapabilityPreferences()"> <span class="atlas-cap-name">Web evidence gathering</span></span>
+                <span class="atlas-cap-status" id="cap-web-evidence-status">Status: planner / evidence mode only</span>
+              </label>
+              <label class="atlas-checkbox-label" title="Sandboxed package installation requested">
+                <span class="atlas-cap-row"><input type="checkbox" id="cap-sandboxed-install" checked onchange="saveAtlasCapabilityPreferences()"> <span class="atlas-cap-name">Sandboxed package installation</span></span>
+                <span class="atlas-cap-status" id="cap-sandboxed-install-status">Status: blocked — sandbox policy disabled</span>
+              </label>
+            </fieldset>
+
+            <fieldset class="atlas-claude-feature-group atlas-automation-features" aria-label="Automation Features" id="atlas-automation-features-fieldset">
+              <legend>Automation Features <span class="atlas-claude-muted-inline">(human-in-the-loop control)</span></legend>
+              <label class="atlas-cap-row">クリティカル事象
+                <select id="feat-critical-handling">
+                  <option value="ask">ask（ユーザに確認）</option>
+                  <option value="block">block（停止して改訂）</option>
+                  <option value="auto">auto（自動継続）</option>
+                </select>
+              </label>
+              <label class="atlas-cap-row">曖昧時の質問
+                <select id="feat-clarification-mode">
+                  <option value="pause">pause（選択肢で質問）</option>
+                  <option value="auto">auto（安全既定で続行）</option>
+                </select>
+              </label>
+              <label class="atlas-cap-row">品質ゲート
+                <select id="feat-quality-enforcement">
+                  <option value="block">block（事前ブロック）</option>
+                  <option value="warn">warn（警告のみ）</option>
+                </select>
+              </label>
+              <label class="atlas-cap-row">要件カバレッジ
+                <select id="feat-requirement-coverage-enforcement">
+                  <option value="warn">warn（警告のみ）</option>
+                  <option value="enforce">enforce（未充足なら降格）</option>
+                </select>
+              </label>
+            </fieldset>
+
+            <div class="atlas-claude-feature-actions">
+              <button type="button" id="atlas-claude-select-profile-btn" class="atlas-claude-primary-btn">Apply</button>
+              <button type="button" id="atlas-claude-recovery-btn" class="atlas-claude-ghost-btn">Recover</button>
+            </div>
+
+            <pre id="atlas-claude-profile-result" class="atlas-claude-profile-result" aria-live="polite" hidden></pre>
+          </div>
+        </details>
+        <button class="mic-btn atlas-claude-mic-btn" type="button" id="atlas-claude-mic-btn" onclick="toggleVoiceInput('atlas-claude')" title="音声入力 (Atlas)">🎙</button>
+        <button type="button" id="atlas-claude-stop-btn" class="atlas-claude-secondary-btn" style="display:none">Stop</button>
+        <button type="button" id="atlas-claude-send-btn" class="atlas-claude-primary-btn">Send</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ATLAS MODE -->
+  <div class="atlas-panel-col mob-hidden" id="atlas-panel-col" style="display:none">
+    <section class="atlas-dashboard" id="atlas-dashboard" data-atlas-dashboard-root="true" data-atlas-ui-mode="minimal" aria-label="Atlas Dashboard">
+      <div class="atlas-dashboard-shell plan-card" id="atlas-workbench-card" data-atlas-current-subview="dashboard">
+        <section class="atlas-hero-card">
+          <div class="atlas-hero-copy">
+            <p class="atlas-kicker">Atlas Dashboard</p>
+            <h1 class="atlas-dashboard-heading">Plan. Run. Recover.</h1>
+            <p class="atlas-hero-text">PlanPoolを作成し、dry-runとRecoveryを確認します。</p>
+          </div>
+          <div class="atlas-hero-status atlas-workbench-summary" aria-label="Atlas compact summary">
+            <div class="atlas-workbench-summary-item"><span class="atlas-workbench-summary-label">Last Run:</span><span id="atlas-workbench-summary-last-run">-</span></div>
+            <div class="atlas-workbench-summary-item"><span class="atlas-workbench-summary-label">Status:</span><span id="atlas-workbench-summary-status">Ready</span></div>
+          </div>
+        </section>
+
+        <div id="atlas-workbench-status" class="atlas-inline-status" aria-live="polite">Ready</div>
+        <div id="atlas-workbench-card-resume-notice" style="display:none"></div>
+
+        
+        <section id="atlas-workflow-shell" class="atlas-panel-card atlas-surface-minimal" aria-label="Atlas Workflow">
+          <div class="atlas-section-title-row">
+            <div>
+              <h2>Atlas Workflow</h2>
+              <p>Automation-first ThinUI shell</p>
+            </div>
+          </div>
+          <div class="atlas-status-grid">
+            <div class="atlas-status-card"><span>Goal</span><b id="atlas-workflow-goal">-</b></div>
+            <div class="atlas-status-card"><span>Project path</span><b id="atlas-workflow-project-path">-</b></div>
+            <div class="atlas-status-card"><span>Mode</span><b id="atlas-workflow-mode">manual</b></div>
+            <div class="atlas-status-card"><span>Status</span><b id="atlas-workflow-status">idle</b></div>
+            <div class="atlas-status-card"><span>Phase</span><b id="atlas-workflow-phase">-</b></div>
+          </div>
+          <div class="atlas-button-row">
+            <button id="atlas-workflow-primary-action-btn" class="atlas-primary-btn" type="button" disabled>Primary action</button>
+            <button id="atlas-workflow-stop-btn" class="atlas-secondary-btn" type="button">Stop</button>
+            <button id="atlas-workflow-advanced-toggle" class="atlas-ghost-btn" type="button">Advanced</button>
+            <button id="atlas-workflow-diagnostics-toggle" class="atlas-ghost-btn" type="button">Diagnostics</button>
+          </div>
+          <div id="atlas-workflow-primary-action-reason" class="atlas-muted-note">Primary action reason: Workflow state is loading.</div>
+          <div id="atlas-workflow-safety-summary" class="atlas-muted-note">Safety: dry-run-first required; confirmation required; EXECUTE ONE ACTION required for execution; no auto-continue; no execute-all.</div>
+          <div id="atlas-workflow-approval-summary" class="atlas-muted-note">Approval summary: -</div>
+          <div id="atlas-workflow-artifacts-summary" class="atlas-muted-note">Artifacts: -</div>
+        </section>
+
+        <section class="atlas-goal-card" aria-labelledby="atlas-goal-title">
+          <div class="atlas-section-title-row">
+            <div>
+              <h2 id="atlas-goal-title">What should Atlas build or fix?</h2>
+              <p>Goalを書いてPlanPoolを作成し、dry-runで進捗を確認します。</p>
+            </div>
+          </div>
+          <label class="atlas-field-label" for="atlas-goal-input">Goal Composer</label>
+          <textarea id="atlas-goal-input" class="atlas-goal-input atlas-surface-minimal" rows="4" placeholder="例: AtlasのPipeline進捗UIを改善し、リロード後も状態復元できるようにする"></textarea>
+          <div class="atlas-button-row" aria-label="Atlas primary actions">
+            <button id="atlas-create-plan-btn" class="atlas-primary-btn" type="button" onclick="window.AtlasDashboard?.createPlanPool()">Create Plan</button>
+            <button id="atlas-start-dry-run-btn" class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.startDryRun()">Start Dry-run</button>
+            <button id="atlas-show-failure-suggestion-btn" class="atlas-secondary-btn" type="button">Show failure suggestion</button>
+          </div>
+          <p id="atlas-fallback-planpool-note" class="atlas-muted-note">Plannerが利用できない場合はfallback PlanPoolを生成します。real Planner統合は段階的に有効化されます。</p>
+          <div id="atlas-warning-card" class="atlas-warning-card" data-atlas-stale-recovery-warning="true" hidden>
+            <div><b>Atlas warning</b></div>
+            <div id="atlas-warning-message">前回のRun状態が見つかりませんでした。PlanPoolは復元できます。必要ならStart Dry-runを再実行してください。</div>
+          </div>
+          <div id="atlas-error-card" class="atlas-error-card" hidden>
+            <div><b id="atlas-error-title">Atlas error</b></div>
+            <div id="atlas-error-message"></div>
+            <button class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.retryLastAction()">Retry</button>
+          </div>
+        </section>
+
+        <section id="atlas-recovery-banner" class="atlas-recovery-banner" data-atlas-recovery-container="true" hidden aria-live="polite">
+          <div class="atlas-recovery-copy">
+            <b>前回のAtlas状態を復元しました</b>
+            <span id="atlas-recovery-summary">Recovery state is available.</span>
+          </div>
+          <div class="atlas-button-row atlas-recovery-actions">
+            <button id="atlas-recovery-load-btn" class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.loadRecoveredPlan()">Load Plan</button>
+            <button id="atlas-recovery-refresh-btn" class="atlas-secondary-btn" type="button" onclick="window.AtlasDashboard?.refreshStatus()">Refresh Status</button>
+            <button id="atlas-recovery-hide-btn" class="atlas-ghost-btn" type="button" onclick="window.AtlasDashboard?.hideRecoveryBanner()">Hide</button>
+          </div>
+        </section>
+
+        
+<section id="atlas-status-grid" class="atlas-status-grid atlas-surface-minimal" aria-label="Atlas status summary">
+          <div class="atlas-status-card"><span>PlanPool</span><b id="atlas-status-planpool">not created</b></div>
+          <div class="atlas-status-card"><span>Items</span><b id="atlas-status-items">0</b></div>
+          <div class="atlas-status-card"><span>Pipeline</span><b id="atlas-status-pipeline">idle</b></div>
+          <div class="atlas-status-card"><span>Phase</span><b id="atlas-status-phase">-</b></div>
+          <div class="atlas-status-card"><span>Last Event</span><b id="atlas-status-last-event">-</b></div>
+        </section>
+
+        <section id="atlas-automation-readiness-panel" class="atlas-panel-card atlas-surface-advanced" aria-labelledby="atlas-automation-readiness-title">
+          <div class="atlas-section-title-row">
+            <h2 id="atlas-automation-readiness-title">Automation readiness</h2>
+          </div>
+          <div>Selected preset: <select id="atlas-auto-preset"><option value="manual_only">manual_only</option><option value="guarded_low_risk">guarded_low_risk</option><option value="full_auto">full_auto</option></select></div>
+          <div>Auto safe_apply readiness: <b id="atlas-auto-readiness-decision">-</b></div>
+          <div id="atlas-auto-readiness-reasons">reasons: -</div>
+          <div id="atlas-auto-readiness-warnings">warnings: -</div>
+          <p>This is a decision only. No action is executed automatically in this PR.</p>
+          <button id="atlas-check-automation-readiness-btn" class="atlas-secondary-btn" type="button">Check automation readiness</button>
+          <div id="atlas-auto-safe-apply-panel" hidden>
+            <h3>Auto safe_apply one item</h3>
+            <div>preset: guarded_low_risk</div>
+            <div>target item id: <b id="atlas-auto-safe-apply-item-id">-</b></div>
+            <p>Snapshot is required before auto safe_apply.</p>
+            <p>Only one low-risk approved item will be auto-applied.</p>
+            <p>Auto verification readiness</p>
+            <p>command_id: <b id="atlas-auto-verification-command-id">-</b></p>
+            <p>Only allowlisted verification commands can run.</p>
+            <p>Auto rollback is not enabled.</p>
+            <p>Auto DebugReview is not enabled.</p>
+            <p>Auto Patch Proposal is not enabled.</p>
+            <button id="atlas-auto-verify-run-btn" class="atlas-secondary-btn" type="button">Run auto verification</button>
+            <button id="atlas-auto-safe-apply-and-verify-run-btn" class="atlas-secondary-btn" type="button">Run auto safe_apply + verification</button>
+            <button id="atlas-auto-safe-apply-run-btn" class="atlas-secondary-btn" type="button">Run gated auto safe_apply for this item</button>
+            <pre id="atlas-auto-safe-apply-result">No result yet.</pre>
+          </div>
+        </section>
+
+        <section id="atlas-diagnostics-drawer" class="atlas-panel-card atlas-surface-diagnostics" aria-label="Atlas diagnostics drawer">
+          <div id="atlas-diagnostics-summary" class="atlas-section-title-row atlas-surface-diagnostics"><div><h2>Diagnostics</h2><p>Diagnostics are hidden by default and do not execute actions automatically.</p></div></div>
+          <div id="atlas-diagnostics-status" class="atlas-muted-note atlas-surface-diagnostics" aria-live="polite">UI mode: minimal. Diagnostics toggles do not execute actions.</div>
+          <section id="atlas-diagnostics-raw-json-section" class="atlas-surface-diagnostics" aria-label="Raw JSON diagnostics">
+            <h3>Raw JSON</h3>
+          </section>
+          <section id="atlas-diagnostics-subsystem-tools-section" class="atlas-surface-diagnostics" aria-label="Subsystem tools diagnostics">
+            <h3>Subsystem tools</h3>
+          </section>
+          <section id="atlas-diagnostics-ids-section" class="atlas-surface-diagnostics" aria-label="Low-level IDs diagnostics">
+            <h3>Low-level IDs</h3>
+          </section>
+        </section>
+
+        <div class="atlas-work-grid atlas-main-grid">
+          <section class="atlas-panel-card" aria-labelledby="atlas-planpool-title">
+            <div class="atlas-section-title-row">
+              <div>
+                <h2 id="atlas-planpool-title">PlanPool Overview</h2>
+                <p>PlanItemをタイムラインカードとして表示します。</p>
+              </div>
+              <span id="atlas-planpool-id" class="atlas-surface-diagnostics atlas-id-chip">No pool</span>
+            </div>
+            <div id="atlas-plan-list" class="atlas-plan-list" data-atlas-plan-list="true">
+              <div class="atlas-empty-state">Goalを入力してCreate Planを押すと、PlanItemカードが表示されます。</div>
+            </div>
+          </section>
+
+          <section class="atlas-panel-card" aria-labelledby="atlas-pipeline-title">
+            <div class="atlas-section-title-row">
+              <div>
+                <h2 id="atlas-pipeline-title">Pipeline Progress</h2>
+                <p>dry-runの進捗、最新イベント、次のアクションを表示します。</p>
+              </div>
+              <span id="atlas-pipeline-run-id" class="atlas-surface-diagnostics atlas-id-chip">No run</span>
+            </div>
+            <div id="atlas-pipeline-status" class="atlas-pipeline-status" data-atlas-pipeline-status="true">
+              <div class="atlas-badge atlas-badge-muted">idle</div>
+              <div class="atlas-progress" aria-label="Pipeline progress"><div id="atlas-progress-fill" class="atlas-progress-fill" style="width:0%"></div></div>
+              <div id="atlas-progress-text" class="atlas-progress-text">0 / 0 completed</div>
+              <dl class="atlas-metric-list">
+                <div><dt>Failed</dt><dd id="atlas-failed-count">0</dd></div>
+                <div><dt>Blocked</dt><dd id="atlas-blocked-count">0</dd></div>
+                <div><dt>Current</dt><dd id="atlas-current-item-id">-</dd></div>
+              </dl>
+              <div class="atlas-next-action"><b>Next action:</b> <span id="atlas-next-action">Create a PlanPool to begin.</span></div>
+            </div>
+            <div class="atlas-latest-events">
+              <h3>Latest events</h3>
+              <ul id="atlas-latest-events-list"><li>No events yet.</li></ul>
+            </div>
+          </section>
+        </div>
+
+        <section class="atlas-current-item-card" id="atlas-current-item-card" aria-labelledby="atlas-current-item-title">
+          <div class="atlas-section-title-row">
+            <div>
+              <h2 id="atlas-current-item-title">Current Item</h2>
+              <p id="atlas-current-item-description">PlanItemを選択またはdry-run開始後に現在の対象を表示します。</p>
+            </div>
+          </div>
+          <div id="atlas-current-item-body" class="atlas-empty-state">Current item is not selected yet.</div>
+        </section>
+
+                <section id="atlas-manual-loop-checklist" class="atlas-panel-card" aria-label="Manual loop checklist">
+          <h3>Manual Loop Checklist</h3>
+          <p>Manual loop test mode.</p>
+          <ul>
+            <li>Patch Proposal is not generated by dry-run alone.</li><li>Patch Proposal appears after failed verification and manual Debug Review.</li><li>Manual loop: failed verification → Debug Review → Patch Proposal → Approval → PlanItem Draft → PlanItem Approval → manual safe_apply.</li><li>Open Details / Advanced Panel and use each manual panel to continue.</li><li>dry-runだけではPatch Proposalは生成されません。</li>
+          </ul>
+          <p>No safe_apply, verification, or DebugReview is executed automatically.</p>
+          <p>Reload recovery should restore current pool and approval state.</p>
+        </section>
+<details class="atlas-details" id="atlas-details-drawer">
+          <summary>Details / Advanced Panel</summary>
+          <section id="atlas-advanced-settings" class="atlas-advanced-settings" data-atlas-advanced-settings="collapsed">
+            <h3>Advanced Settings</h3>
+            <div class="atlas-advanced-grid">
+              <label>planner_mode<select id="atlas-planner-mode"><option value="auto" selected>auto</option><option value="real_planner">real_planner</option><option value="fallback_only">fallback_only</option></select></label>
+              <label>planning_depth<select id="atlas-planning-depth"><option value="quick">quick</option><option value="standard" selected>standard</option><option value="deep_nexus">deep_nexus</option></select></label>
+              <label>automation_level<select id="atlas-automation-level"><option value="plan_only">plan_only</option><option value="plan_then_ask" selected>plan_then_ask</option><option value="auto_after_approval">auto_after_approval</option><option value="full_autopilot">full_autopilot</option></select></label>
+              <label>execution_strategy<select id="atlas-execution-strategy"><option value="sequential" selected>sequential</option><option value="pause_after_each_item">pause_after_each_item</option><option value="manual_gated">manual_gated</option></select></label>
+              <label>workspace_id<input id="atlas-workspace-id" value="default" autocomplete="off"></label>
+              <label>max_items<input id="atlas-max-items" type="number" min="1" placeholder="optional"></label>
+              <label class="atlas-checkbox-label"><input id="atlas-pause-after-each-item" type="checkbox"> pause_after_each_item</label>
+            </div>
+          </section>
+          <section id="atlas-questions-panel-section" class="atlas-detail-section" aria-labelledby="atlas-questions-title">
+            <h3 id="atlas-questions-title">Planner Questions</h3>
+            <div id="atlas-questions-panel" class="atlas-questions-panel">No planner questions.<div class="atlas-clarification-actions"><button id="atlas-submit-clarification-btn" class="atlas-secondary-btn" type="button">Submit Clarification Answers</button><button id="atlas-submit-assumptions-btn" class="atlas-ghost-btn" type="button">Use assumptions / おまかせ</button></div></div>
+          </section>
+                    <section id="atlas-approval-panel" class="atlas-detail-section" aria-labelledby="atlas-approval-title">
+            <h4 id="atlas-approval-title">Approval Gate</h4>
+            <div id="atlas-approval-summary" class="atlas-continuation-summary">pending: 0 / approved: 0 / rejected: 0 / needs revision: 0</div>
+            <div class="atlas-phase-note">Approval only. Applying changes is not enabled yet.</div>
+            <div class="atlas-continuation-summary">Manual safe apply is available only for approved low-risk items. Batch/autopilot apply is disabled.</div><div id="atlas-approval-list" class="atlas-questions-panel">No approval-required items.</div>
+          </section>
+
+          <section id="atlas-debug-review-panel" class="atlas-detail-section" aria-labelledby="atlas-debug-review-title">
+            <h3 id="atlas-debug-review-title">Debug Review</h3>
+            <div class="atlas-continuation-summary">Manual analysis only. No patch, safe apply, verification rerun, or autopilot continuation is executed.</div>
+            <div id="atlas-debug-review-list" class="atlas-approval-list"></div>
+          </section>
+          <section id="atlas-patch-proposal-panel" class="atlas-detail-section" aria-labelledby="atlas-patch-proposal-title">
+            <h3 id="atlas-patch-proposal-title">Patch Proposal</h3>
+            <div class="atlas-continuation-summary">Approval only. No patch is applied, no safe_apply is run, and verification is not rerun. Proposal only. Approved proposals can be converted into PlanItem drafts. No patch is applied and safe_apply is not run.</div>
+            <p class="atlas-muted-note">Patch Proposal is not generated by dry-run alone. Open Details / Advanced Panel after failed verification and Debug Review.</p><div id="atlas-patch-proposal-list" class="atlas-approval-list">Generate Patch Proposal</div>
+          </section>
+
+          <section id="atlas-verification-panel" class="atlas-detail-section" aria-labelledby="atlas-verification-title">
+            <h4 id="atlas-verification-title">Post-Apply Verification</h4>
+            <div class="atlas-continuation-summary">Manual verification only. Debug loop and automatic fixes are not run.</div>
+            <div id="atlas-verification-list" class="atlas-questions-panel">No verification candidates.</div>
+          </section>
+
+          <section id="atlas-automation-extensions-panel" class="atlas-detail-section" aria-labelledby="atlas-automation-extensions-title">
+            <h3 id="atlas-automation-extensions-title">Automation Extensions</h3>
+            <p class="atlas-muted-note">Guarded automation tools. These panels do not run rollback, restore, or unrestricted commands.</p>
+            <div class="atlas-automation-extension-grid">
+              <details id="atlas-repo-index-card" class="atlas-extension-details atlas-automation-extension-card atlas-surface-diagnostics">
+                <summary>Repo Intelligence</summary>
+                <p>Builds a read-only symbol index and dependency graph.</p>
+                <p>This does not modify files.</p>
+                <p>This does not run shell commands or remote git.</p>
+                <input id="atlas-repo-index-project-path" placeholder="project path" />
+                <button id="atlas-repo-index-build-btn" type="button">Build</button>
+                <button id="atlas-repo-index-latest-btn" type="button">Latest</button>
+                <textarea id="atlas-repo-index-changed-files" placeholder="changed files (newline or comma separated)"></textarea>
+                <button id="atlas-repo-index-impacts-btn" type="button">Impacts</button>
+                <button id="atlas-repo-index-related-tests-btn" type="button">Related Tests</button>
+                <div id="atlas-repo-index-status"></div><div id="atlas-repo-index-summary"></div><pre id="atlas-repo-index-result"></pre>
+                <hr />
+                <button id="atlas-repo-context-snapshot-btn" class="atlas-surface-diagnostics" type="button">Repo Context Snapshot</button>
+                <button id="atlas-repo-context-scope-btn" class="atlas-surface-diagnostics" type="button">Repo Context Scope</button>
+                <button id="atlas-repo-context-impacted-tests-btn" class="atlas-surface-diagnostics" type="button">Impacted Test Recommendations</button>
+<button id="atlas-repo-context-verification-plan-btn" class="atlas-secondary-btn atlas-surface-diagnostics" type="button">Verification plan hints</button>
+<div id="atlas-repo-context-verification-plan-summary"></div>
+<pre id="atlas-repo-context-verification-plan-result">No verification plan yet.</pre>
+<button id="atlas-plan-item-impact-map-btn" class="atlas-secondary-btn atlas-surface-diagnostics" type="button">PlanItem impact map</button>
+<div id="atlas-plan-item-impact-map-summary"></div>
+<pre id="atlas-plan-item-impact-map-result">No plan-item impact map yet.</pre>
+
+                <div id="atlas-repo-context-status"></div><div id="atlas-repo-context-summary"></div><div id="atlas-repo-context-tests-summary"></div><pre id="atlas-repo-context-result"></pre><pre id="atlas-repo-context-tests-result"></pre>
+                <div id="atlas-plan-repo-context-summary"></div>
+              </details>
+
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Multi-item Autopilot</summary>
+                <p>Run guarded autopilot for low-risk approved items.</p><p>No auto rollback.</p><p>No auto patch regeneration.</p><p>Stops on failed verification or evaluator stop.</p>
+                <div class="atlas-extension-actions"><button id="atlas-run-guarded-autopilot" type="button" class="atlas-secondary-btn">Run guarded autopilot</button></div>
+                <div id="atlas-multi-item-autopilot-panel" class="atlas-extension-result">No run yet.</div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Context Refresh</summary>
+                <p>Local-first context refresh.</p><p>Web and Deep Research require explicit policy.</p><p>No code changes are applied by context refresh.</p>
+                <div id="atlas-context-refresh-panel" class="atlas-extension-result">No refresh run yet.</div>
+                <div class="atlas-row" style="margin-top:8px;gap:8px;">
+                  <button id="atlas-context-refresh-v2-btn" class="atlas-button atlas-surface-diagnostics">Run Context Refresh v2</button>
+                </div>
+                <div id="atlas-context-refresh-v2-summary" class="atlas-extension-summary">No v2 refresh run yet.</div>
+                <pre id="atlas-context-refresh-v2-result" class="atlas-surface-diagnostics atlas-extension-result">{}</pre>
+                <div class="atlas-panel">
+                  <h4>Planner Packaging v2 (manual-only)</h4>
+                  <button id="atlas-planner-packaging-v2-btn" class="atlas-surface-diagnostics" type="button">Run Planner Packaging v2</button>
+                  <div id="atlas-planner-packaging-v2-summary"></div>
+                  <pre id="atlas-planner-packaging-v2-result"></pre>
+                </div>
+                <div class="atlas-panel">
+                  <h4>Verification Recommendation (manual-only)</h4>
+                  <button id="atlas-verification-recommendation-btn" class="atlas-surface-diagnostics" type="button">Run Verification Recommendation</button>
+                  <div id="atlas-verification-recommendation-summary"></div>
+                  <pre id="atlas-verification-recommendation-result"></pre>
+                </div>
+                <div class="atlas-panel">
+                  <h4>Verification Recommendation Handoff (manual approval metadata)</h4>
+                  <button id="atlas-verification-recommendation-handoff-btn" class="atlas-surface-diagnostics" type="button">Run Verification Recommendation Handoff</button>
+                  <div id="atlas-verification-recommendation-handoff-summary"></div>
+                  <pre id="atlas-verification-recommendation-handoff-result"></pre>
+                </div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Bounded Retry</summary>
+                <p>Safety: No auto rollback / No auto restore / No patch regeneration / Verification rerun only</p>
+                <div class="atlas-extension-actions"><button id="atlas-run-retry-check" type="button" class="atlas-secondary-btn">Run retry check</button></div>
+                <div id="bounded-retry-panel" class="atlas-extension-result">No retry run yet.</div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Supervised Patch Regeneration</summary>
+                <p>Manual approval required. Patch is not applied. No verification is run. No rollback/restore.</p>
+                <div class="atlas-extension-actions"><button id="atlas-run-patch-regen" type="button" class="atlas-secondary-btn">Run patch regeneration</button></div>
+                <div id="atlas-patch-regen-panel" class="atlas-extension-result">No patch regeneration run yet.</div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Patch Candidate Approval</summary>
+                <p>Candidate approval is manual and scoped to explicit operator confirmation only.</p>
+                <div class="atlas-extension-actions"><button id="atlas-approve-candidate-btn" type="button" class="atlas-secondary-btn">Approve candidate</button></div>
+                <div id="atlas-patch-candidate-approval-panel" class="atlas-extension-result">No candidate approval action yet.</div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Supervised Handoff Retry</summary>
+                <p>This reruns allowlisted verification only.</p><p>This does not re-apply the patch.</p><p>This does not rollback or restore.</p><p>This does not regenerate patches.</p>
+                <div class="atlas-extension-actions"><button id="atlas-run-supervised-handoff-retry" type="button" class="atlas-secondary-btn">Run supervised retry</button></div>
+                <div id="atlas-supervised-handoff-retry-panel" class="atlas-extension-result atlas-surface-advanced">No supervised retry run yet.</div>
+              </details>
+              <details class="atlas-extension-card">
+                <summary>Patch Regen Recommendation</summary>
+                <p>This only builds a recommendation payload. This does not regenerate a patch. This does not apply or verify anything.</p>
+                <div id="atlas-patch-regen-recommendation-panel" class="atlas-extension-result">No patch regen recommendation run yet.</div>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Patch Regen From Recommendation</summary>
+                <p>This generates a new patch candidate from a saved recommendation.</p><p>This does not approve or apply the patch.</p><p>This does not run verification.</p><p>Manual approval is still required.</p>
+                <label>recommendation_run_id <input id="atlas-patch-regen-from-rec-id" type="text" placeholder="regenrec_..." /></label>
+                <label><input id="atlas-patch-regen-from-rec-dry-run" type="checkbox" /> dry_run</label>
+                <label>reviewer <input id="atlas-patch-regen-from-rec-reviewer" type="text" value="manual" /></label>
+                <label>reason <input id="atlas-patch-regen-from-rec-reason" type="text" placeholder="manual trigger reason" /></label>
+                <div class="atlas-extension-actions"><button id="atlas-run-patch-regen-from-recommendation" type="button" class="atlas-secondary-btn">Run patch regen from recommendation</button></div>
+                <div id="atlas-patch-regen-from-recommendation-panel" class="atlas-extension-result atlas-surface-advanced">status: none / patch_regen_result_id: - / patch_regen_status: - / candidate approval_status: - / safe_apply_ready: false</div>
+              </details>
+              
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Supervised Item Status</summary>
+                <p>This only finalizes item status and next action.</p>
+                <p>This does not apply, verify, retry, approve, or regenerate patches.</p>
+                <div id="atlas-supervised-item-status-panel" class="atlas-extension-result">No supervised item status result yet.</div>
+              </details>
+
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Multi-item Supervised Status</summary>
+                <p>This only builds a supervised status queue.</p><p>This does not execute the next action.</p><p>This does not apply, verify, retry, approve, or regenerate patches.</p>
+                <div id="atlas-multi-item-supervised-status-panel" class="atlas-extension-result atlas-surface-advanced">No supervised status queue yet.</div>
+              </details>
+              
+
+              <details id="atlas-operator-loop-card" class="atlas-extension-details atlas-automation-extension-card atlas-surface-advanced">
+                <summary>Operator Loop</summary>
+                <p>Prepare, dry-run, execute one action, then refresh the next manual step.</p>
+                <p>This never auto-continues.</p>
+                <p>Execution requires dry run and explicit confirmation.</p>
+                <div id="atlas-operator-loop-status" class="atlas-extension-result">Ready.</div>
+                <label class="atlas-surface-diagnostics">pool_id <input id="atlas-operator-loop-pool-id" type="text" placeholder="pool_..." /></label>
+                <label class="atlas-surface-diagnostics">run_id <input id="atlas-operator-loop-run-id" type="text" placeholder="run_..." /></label>
+                <label>reviewer <input id="atlas-operator-loop-reviewer" type="text" value="manual" /></label>
+                <label>reason <input id="atlas-operator-loop-reason" type="text" placeholder="optional reason" /></label>
+                <label>confirmation_token <textarea id="atlas-operator-loop-confirmation-token" rows="2" placeholder="token preview"></textarea></label>
+                <label>confirmation_text <input id="atlas-operator-loop-confirmation-text" type="text" value="EXECUTE ONE ACTION" /></label>
+                <label>explicit_decision <input id="atlas-operator-loop-explicit-decision" type="text" placeholder="approve (if required)" /></label>
+                <div class="atlas-extension-actions">
+                  <button id="atlas-operator-loop-build-queue-btn" type="button" class="atlas-secondary-btn">Build Queue</button>
+                  <button id="atlas-operator-loop-prepare-btn" type="button" class="atlas-secondary-btn">Prepare</button>
+                  <button id="atlas-operator-loop-token-btn" type="button" class="atlas-secondary-btn">Preview Token</button>
+                  <button id="atlas-operator-loop-dry-run-btn" type="button" class="atlas-secondary-btn">Dry Run</button>
+                  <button id="atlas-operator-loop-execute-btn" type="button" class="atlas-secondary-btn">Execute One Action</button>
+                  <button id="atlas-operator-loop-refresh-btn" type="button" class="atlas-secondary-btn">Refresh</button>
+                  <button id="atlas-operator-loop-advance-btn" type="button" class="atlas-secondary-btn">Advance to confirmation</button>
+                  <button id="atlas-operator-loop-execute-refresh-btn" type="button" class="atlas-secondary-btn">Execute confirmed action and refresh</button>
+                  <button id="atlas-operator-loop-reset-btn" type="button" class="atlas-ghost-btn">Reset</button>
+                  <button id="atlas-operator-loop-copy-payload-btn" type="button" class="atlas-ghost-btn">Copy Payload</button>
+                </div>
+                <div id="atlas-operator-loop-disabled-reason" class="atlas-extension-result">Build Queue requires pool_id.</div>
+                <div id="atlas-operator-loop-current-step" class="atlas-extension-result">Current step: idle.</div>
+                <div id="atlas-operator-loop-semi-auto-status" class="atlas-extension-result">Semi-auto: idle.</div>
+                <div id="atlas-operator-loop-next-action-summary" class="atlas-extension-result">No next action prepared.</div>
+                <pre id="atlas-operator-loop-diagnostics" class="atlas-extension-result atlas-surface-diagnostics">No diagnostics yet.</pre>
+                <pre id="atlas-operator-loop-queue-result" class="atlas-surface-diagnostics atlas-extension-result">No queue result.</pre>
+                <pre id="atlas-operator-loop-contract-result" class="atlas-surface-diagnostics atlas-extension-result">No action contract.</pre>
+                <div class="atlas-extension-result" id="atlas-operator-loop-verification-handoff-summary">Verification Handoff Summary (manual approval context): no handoff metadata.</div>
+                <pre id="atlas-operator-loop-verification-handoff-result" class="atlas-extension-result">{}</pre>
+                <div class="atlas-extension-actions">
+                  <button id="atlas-operator-loop-verification-handoff-copy-btn" type="button" class="atlas-ghost-btn">Copy Verification Handoff</button>
+                  <button id="atlas-operator-loop-verification-handoff-export-btn" type="button" class="atlas-ghost-btn">Export Verification Handoff JSON</button>
+                </div>
+                <div id="atlas-operator-loop-verification-handoff-copy-status" class="atlas-extension-result">Manual approval context only. Suggested commands were not executed.</div>
+                <pre id="atlas-operator-loop-executor-result" class="atlas-surface-diagnostics atlas-extension-result">No executor result.</pre>
+                <pre id="atlas-operator-loop-refresh-result" class="atlas-surface-diagnostics atlas-extension-result">No refresh result.</pre>
+                <pre id="atlas-operator-loop-next-step" class="atlas-extension-result">No next step yet.</pre>
+                <pre id="atlas-operator-loop-guarded-result" class="atlas-surface-diagnostics atlas-extension-result">No guarded loop result.</pre>
+              </details>
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Next Action Orchestrator</summary>
+                <p>This prepares the next action only.</p><p>This does not execute the action.</p><p>Manual confirmation is required.</p>
+                <label class="atlas-surface-diagnostics">multi_status_run_id <input id="atlas-next-action-multi-status-run-id" type="text" placeholder="multistatus_..." /></label>
+                <label>item_id <input id="atlas-next-action-item-id" type="text" placeholder="optional" /></label>
+                <label>requested_next_action <input id="atlas-next-action-requested-action" type="text" placeholder="optional" /></label>
+                <div class="atlas-extension-actions"><button id="atlas-prepare-next-action" type="button" class="atlas-secondary-btn">Prepare next action</button></div>
+                <pre id="atlas-next-action-orchestrator-panel" class="atlas-extension-result atlas-surface-advanced">No orchestrator result yet.</pre>
+              </details>
+
+              <details class="atlas-extension-details atlas-automation-extension-card">
+                <summary>Supervised Handoff Safe Apply</summary>
+                <p>This applies an already approved handoff patch. This does not run verification. This does not rollback or restore.</p>
+                <div class="atlas-extension-actions"><button id="atlas-execute-supervised-safe-apply" type="button" class="atlas-secondary-btn">Execute supervised safe_apply</button></div>
+                <div id="atlas-handoff-safe-apply-panel" class="atlas-extension-result atlas-surface-advanced">Run verification separately after apply.</div>
+              </details>
+            </div>
+          </section>
+
+          <section id="atlas-continuation-panel" class="atlas-detail-section atlas-continuation-panel" aria-labelledby="atlas-continuation-title">
+            <div class="atlas-section-title-row">
+              <div>
+                <h3 id="atlas-continuation-title">Chat Continuation</h3>
+                <p>新しいチャットに貼ると、Atlasの続きから再開できます。</p>
+              </div>
+            </div>
+            <div id="atlas-continuation-summary" class="atlas-continuation-summary">No continuation summary yet.</div>
+            <textarea id="atlas-continuation-prompt" class="atlas-continuation-prompt" readonly rows="12" aria-label="Atlas continuation prompt"></textarea>
+            <div class="atlas-copy-row">
+              <button id="atlas-continuation-refresh-btn" class="atlas-ghost-btn" type="button">Refresh Continuation</button>
+              <button id="atlas-continuation-copy-btn" class="atlas-secondary-btn" type="button">Copy Continuation Prompt</button>
+              <button id="atlas-continuation-copy-ids-btn" class="atlas-ghost-btn" type="button">Copy IDs</button>
+              <span id="atlas-copy-status" class="atlas-copy-status" aria-live="polite"></span>
+            </div>
+          </section>
+          <section class="atlas-detail-section">
+            <h3>Plan Markdown</h3>
+            <pre id="atlas-markdown-panel" class="atlas-surface-diagnostics atlas-log-panel">No markdown loaded.</pre>
+          </section>
+          <section class="atlas-detail-section">
+            <h3>Pipeline Events</h3>
+            <pre id="atlas-events-panel" class="atlas-surface-diagnostics atlas-log-panel">No events yet.</pre>
+          </section>
+          <section class="atlas-detail-section">
+            <h3>Developer JSON</h3>
+            <pre id="atlas-json-panel" class="atlas-log-panel atlas-surface-diagnostics">No JSON yet.</pre>
+          </section>
+          <section class="atlas-detail-section">
+            <h3>Checkpoint</h3>
+            <div id="atlas-checkpoint-path" class="atlas-long-text">No checkpoint yet.</div>
+          </section>
+        </details>
+
+        <div class="atlas-legacy-compat" hidden aria-hidden="true">
+          <div class="atlas-subview-tabs" aria-label="Atlas workbench tabs">
+            <button class="atlas-subview-tab active" type="button" data-atlas-subview-tab="start" onclick="setAtlasSubview('start')">Start</button>
+            <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="autopilot" onclick="setAtlasSubview('autopilot')">Autopilot</button>
+            <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="plan" onclick="setAtlasSubview('plan')">Plan</button>
+            <button class="atlas-subview-tab" type="button" data-atlas-subview-tab="history" onclick="setAtlasSubview('history')">History</button>
+          </div>
+          <div class="atlas-subview" data-atlas-subview-panel="start"><textarea id="atlas-requirement-input" class="atlas-compat-input" aria-hidden="true" tabindex="-1" style="max-width:100%;min-width:0;min-height:84px"></textarea><button class="phase1-plan-btn" type="button" onclick="startAtlasWorkflow()">Start Atlas</button></div>
+          <div class="atlas-subview" data-atlas-subview-panel="autopilot" style="display:none">Preview only</div>
+          <div class="atlas-subview" data-atlas-subview-panel="plan" style="display:none"><div id="atlas-plan-empty-state">No plan yet.</div><div id="atlas-workbench-card-plan-output"></div><div id="atlas-workbench-card-plan-flow"></div><div id="atlas-workbench-card-plan-next-action"></div><div id="atlas-workbench-card-plan-next-action-buttons"></div><div id="atlas-workbench-card-atlas-dashboard"></div><div id="atlas-workbench-card-patch-list"></div></div>
+          <div class="atlas-subview" data-atlas-subview-panel="history" style="display:none"><input id="atlas-workbench-card-atlas-run-input"><div id="atlas-workbench-card-atlas-runs-list"></div></div>
+          <div class="atlas-subview" data-atlas-subview-panel="activity" style="display:none" hidden><section id="atlas-activity-stream" data-atlas-output-stream="true"><div id="atlas-activity-stream-list"></div></section></div>
+          <span id="atlas-requirement-status"></span><span id="atlas-requirement-char-count">0 chars</span><button id="atlas-requirement-clear-btn" type="button"></button>
+          <button id="atlas-workbench-collapse-btn" type="button" onclick="toggleAtlasWorkbenchCollapse()" aria-expanded="true">Collapse</button>
+        </div>
+      </div>
+    </section>
+    <div id="atlas-agent-execution-marker" hidden data-atlas-agent-execution="true"></div>
+  </div>
+
+  <div class="agent-col mob-hidden" id="agent-col" style="display:none">
+    <div class="chat-topbar">
+      <div class="agent-session-row">
+        <div class="agent-session-left">
+          <span id="agent-session-label" style="font-size:11px;color:var(--text2);letter-spacing:.04em">Agent session: -</span>
+          <button id="agent-stop-btn" class="agent-stop-btn" type="button" onclick="handleAgentStopClick()" disabled>Stop</button>
+          <button class="chat-task-toggle" id="agent-tts-toggle" onclick="toggleAgentTts()" title="Agent TTS 自動読み上げのON/OFF">
+            <span id="agent-tts-toggle-label">TTS OFF</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="messages" id="agent-messages">
+      <div class="msg system">
+        <div class="msg-role">system</div>
+        <div class="msg-bubble">Agent mode ready. Agent画面入場時にセッションを開始します。</div>
+      </div>
+    </div>
+    <div class="input-area">
+      <div class="input-wrap">
+        <textarea id="agent-input" placeholder="Agent への指示を入力..." rows="1"
+          onkeydown="handleAgentKey(event)" oninput="autoResize(this)"></textarea>
+        <button class="mic-btn" id="agent-mic-btn" onclick="toggleVoiceInput('agent')" title="音声入力 (Agent)">🎙</button>
+        <button class="send-btn" id="agent-send-btn" onclick="sendAgentInput()">
+          <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+        </button>
+      </div>
+      <div class="voice-monitor" id="agent-voice-monitor">
+        <div class="voice-meter"><div class="voice-meter-fill" id="agent-voice-meter-fill"></div></div>
+        <div class="voice-monitor-text" id="agent-voice-monitor-text">待機中</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="agent-panel-col mob-hidden" id="agent-panel-col" style="display:none">
+    <div class="panel-tabs" style="justify-content:space-between">
+      <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em">Legacy Agent Advanced</span>
+      <span class="tab-label" id="agent-status-label">idle</span>
+    </div>
+    <div class="agent-guided-workflow-card" style="margin:10px 10px 0 10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2)">
+      <div style="font-size:12px;font-weight:700;color:var(--text);letter-spacing:.04em">Legacy Agent Advanced</div>
+      <div class="muted" style="font-size:11px;color:var(--text2);margin-top:6px;line-height:1.5">Agent is the advanced runtime surface while Agent / Execution moves under Atlas. Plan ownership stays with Atlas; use Atlas Start to start guided work.</div>
+      <div style="margin-top:8px;font-size:10px;color:var(--text3)">Status: <span id="agent-guided-workflow-status">legacy advanced / idle</span></div>
+    </div>
+    <div style="padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)">
+      <input id="agent-task-search" placeholder="タスク名で検索..." oninput="handleAgentTaskSearch(this.value)"
+        style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:11px">
+      <div style="font-size:10px;color:var(--text3)">status / priority / confidence / source turn を表示・編集できます。</div>
+    </div>
+    <div style="padding:10px;overflow:auto;display:flex;flex-direction:column;gap:8px;flex:1;min-height:0" id="agent-task-list">
+      <div style="font-size:11px;color:var(--text3)">まだ提案タスクはありません。</div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding:10px;overflow:auto;max-height:34%" id="agent-task-history">
+      <div style="font-size:11px;color:var(--text3)">変更履歴はまだありません。</div>
+    </div>
+  </div>
+
+  <!-- ECHO MODE (EchoVault) -->
+  <div class="echo-col mob-hidden" id="echo-col" style="display:none">
+    <div class="echo-toolbar">
+      <button class="echo-record-btn" id="echo-record-btn" onclick="toggleEchoRecording()">● Start</button>
+      <button class="echo-translate-btn off" id="echo-toolbar-translate-enable" onclick="toggleEchoToolbarTranslate()" title="Mutual translation ON/OFF">
+        ⇄ Smart Translate <b id="echo-toolbar-translate-enable-label">OFF</b>
+      </button>
+      <button class="echo-translate-btn off" id="echo-toolbar-generate-minutes" onclick="echoGenerateMinutesNow()" title="停止時にMinutesを作成するON/OFF">
+        📝 Minutes OFF
+      </button>
+      <button id="echo-clear-btn" onclick="echoClearTranscript()" style="display:none;font-size:10px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer" title="会話をクリア">✕ Clear</button>
+
+    </div>
+    <div class="echo-transcript" id="echo-transcript">
+      <div class="echo-empty">「Start」を押して同時通訳・録音を開始...</div>
+    </div>
+    <div class="echo-statusbar">
+      <span id="echo-conn-status" class="echo-conn-off">● 未接続</span>
+      <div class="echo-status-right">
+        <span id="echo-busy-status" class="echo-busy-status">idle</span>
+        <span class="echo-status" id="echo-status">Ready · ASR: auto · Output: Same · TTS: auto</span>
+        <span id="echo-sentence-count" class="echo-output-count" title="ASR出力の確定回数（「出力まとめ回数」と同じ定義で1回=1カウント）">出力回数: 0</span>
+        <span class="echo-duration" id="echo-duration">00:00</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- NEXUS MODE -->
+  <div class="nexus-col mob-hidden" id="nexus-col" style="display:none" data-mode-panel="nexus" data-nexus-current-tab="research">
+    <div class="nexus-topbar">
+      <div class="nexus-title">Nexus Workspace</div>
+      <div class="nexus-subtabs">
+        <button class="nexus-subtab active" id="nexus-btn-research" data-nexus-tab="research" onclick="switchNexusTab('research')">Research</button>
+        <button class="nexus-subtab" id="nexus-btn-library" data-nexus-tab="library" onclick="switchNexusTab('library')">Library</button>
+        <button class="nexus-subtab" id="nexus-btn-evidence" data-nexus-tab="evidence" onclick="switchNexusTab('evidence')">Evidence</button>
+        <button class="nexus-subtab" id="nexus-btn-reports" data-nexus-tab="reports" onclick="switchNexusTab('reports')">Reports</button>
+        <button class="nexus-subtab" id="nexus-btn-settings" data-nexus-tab="settings" onclick="switchNexusTab('settings')">Settings</button>
+        <!-- Lumen Memory/Skill/Log は Nexus へ完全移動。Research 等と同じ行に統合（実体は nexus-body 内に移設） -->
+        <button class="nexus-subtab" id="nexus-btn-memory" data-nexus-tab="memory" onclick="switchNexusTab('memory')">Memory</button>
+        <button class="nexus-subtab" id="nexus-btn-skills" data-nexus-tab="skills" onclick="switchNexusTab('skills')">Skill</button>
+        <button class="nexus-subtab" id="nexus-btn-log" data-nexus-tab="log" onclick="switchNexusTab('log')">Log</button>
+      </div>
+    </div>
+    <div class="nexus-body">
+      <div class="nexus-tab" id="nexus-tab-dashboard" data-nexus-panel="dashboard" hidden style="display:none">
+        <div class="nexus-dashboard-grid">
+          <div class="nexus-metric-card"><div class="nexus-metric-label">Documents</div><div class="nexus-metric-value" id="nexus-metric-documents">-</div></div>
+          <div class="nexus-metric-card"><div class="nexus-metric-label">Chunks</div><div class="nexus-metric-value" id="nexus-metric-chunks">-</div></div>
+          <div class="nexus-metric-card"><div class="nexus-metric-label">Reports</div><div class="nexus-metric-value" id="nexus-metric-reports">-</div></div>
+          <div class="nexus-metric-card"><div class="nexus-metric-label">Active Jobs</div><div class="nexus-metric-value" id="nexus-metric-active-jobs">-</div></div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-library" data-nexus-panel="library" hidden style="display:none">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Upload</div>
+            <div class="nexus-upload-row">
+              <input id="nexus-lib-upload" type="file" multiple accept=".pdf,.md,.txt,.csv,.html">
+              <button class="settings-btn primary" id="nexus-lib-upload-btn" style="padding:5px 10px;font-size:11px" onclick="nexusUploadDocuments()">Upload</button>
+            </div>
+            <div id="nexus-lib-dropzone" class="nexus-dropzone">ここにファイルをドラッグ&ドロップしてアップロード</div>
+            <div style="font-size:10px;color:var(--text3)">PDF / MD / TXT / CSV / HTML を追加できます。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Job Progress</div>
+            <div id="nexus-lib-job" class="nexus-job">Job progress: idle</div>
+            <div id="nexus-lib-jobs" class="nexus-job-list">
+              <div class="nexus-empty">No active jobs</div>
+            </div>
+            <div class="nexus-card-title" style="margin-top:4px">Event Timeline</div>
+            <div id="nexus-lib-timeline" class="nexus-timeline">
+              <div class="nexus-empty">No timeline events</div>
+            </div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Documents</div>
+            <input id="nexus-lib-search" type="text" placeholder="文書名で検索..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px" oninput="searchNexusDocuments(this.value)">
+            <div id="nexus-lib-list" class="nexus-doc-list"></div>
+            <div class="nexus-card-title" style="margin-top:4px">Document Detail</div>
+            <div id="nexus-lib-detail" class="nexus-detail-panel">
+              <div class="nexus-empty">文書を選択すると詳細を表示します</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-news">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">News MVP (Phase 1)</div>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:8px">
+              <input id="nexus-news-topic" type="text" placeholder="調査トピックを入力 (例: AI半導体供給網)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px">
+              <button class="settings-btn primary" id="nexus-news-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusNewsMvp()">Run MVP</button>
+            </div>
+            <div style="font-size:10px;color:var(--text3);margin-top:6px">Phase 2: source filtering / timeline, Phase 3: narrative synthesis を追加予定。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">News Result Placeholder</div>
+            <div id="nexus-news-result" class="nexus-result-panel" style="min-height:100px">
+              <div class="nexus-empty">未実行: 入力受付 + スタブ応答 + Evidence保存（MVP）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-market">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Market MVP (Phase 1)</div>
+            <div style="display:grid;grid-template-columns:1fr auto;gap:8px">
+              <input id="nexus-market-symbol" type="text" placeholder="銘柄/テーマを入力 (例: NVDA, 再生可能エネルギー)" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);font-size:12px">
+              <button class="settings-btn primary" id="nexus-market-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusMarketMvp()">Run MVP</button>
+            </div>
+            <div style="font-size:10px;color:var(--text3);margin-top:6px">Phase 2: filings/earnings link, Phase 3: scenario analysis を追加予定。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Market Result Placeholder</div>
+            <div id="nexus-market-result" class="nexus-result-panel" style="min-height:100px">
+              <div class="nexus-empty">未実行: 入力受付 + スタブ応答 + Evidence保存（MVP）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-web-scout">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Web Scout MVP (Phase 1)</div>
+            <div class="nexus-form-grid">
+              <input id="nexus-web-topic" class="nexus-input" type="text" placeholder="topic (例: AI regulation in US healthcare)">
+              <div class="nexus-form-grid cols-3">
+                <select id="nexus-web-depth" class="nexus-select">
+                  <option value="standard">depth: standard</option>
+                  <option value="deep">depth: deep</option>
+                </select>
+                <input id="nexus-web-scope" class="nexus-input" type="text" placeholder="scope (market/policy/product)">
+                <input id="nexus-web-language" class="nexus-input" type="text" placeholder="language (ja/en)">
+              </div>
+              <div class="nexus-actions">
+                <button class="settings-btn primary" id="nexus-web-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusWebScoutMvp()">Run Web Scout</button>
+              </div>
+            </div>
+            <div id="nexus-web-status" class="nexus-result-meta" style="margin-top:8px">状態: 読み込み待ち</div>
+            <div class="nexus-phase-note">/nexus/web/search と /nexus/web/research を連続実行し、query plan + highlights を統合表示するMVP。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Web Scout Result</div>
+            <div id="nexus-web-result" class="nexus-result-panel" style="min-height:120px">
+              <div class="nexus-empty">未実行: topic/depth/scope/language を入力して Web Scout を実行してください</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab active" id="nexus-tab-deep-research" data-nexus-panel="research">
+        <div class="nexus-deep-grid nexus-research-layout nexus-research-layout--wide">
+          <div class="nexus-card nexus-deep-panel">
+            <div class="nexus-card-title">Deep Research</div>
+            <div class="nexus-form-grid">
+              <div class="nexus-research-basic-grid">
+                <label class="nexus-field-label">Query
+                  <input id="nexus-deep-topic" class="nexus-input" type="text" placeholder="調査テーマ (例: 2026年のAI推論半導体サプライチェーン)">
+                </label>
+                <label class="nexus-field-label">Search Type
+                  <select id="nexus-research-type" class="nexus-select">
+                    <option value="general">General Research</option>
+                    <option value="technical_research">Technical / Academic</option>
+                    <option value="news_scan">News / Market</option>
+                    <option value="standards_legal">Official Sources</option>
+                  </select>
+                </label>
+                <label class="nexus-field-label">Depth
+                  <select id="nexus-deep-depth" class="nexus-select">
+                    <option value="quick">Quick</option>
+                    <option value="standard" selected>Standard</option>
+                    <option value="deep">Deep</option>
+                    <option value="exhaustive">Exhaustive</option>
+                  </select>
+                </label>
+              </div>
+              <details id="nexus-research-advanced" class="nexus-advanced-settings">
+                <summary>Advanced Settings</summary>
+                <div class="nexus-form-grid" style="margin-top:8px">
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-max-queries" class="nexus-input" type="number" min="1" max="50" step="1" placeholder="max_queries">
+                    <input id="nexus-deep-max-results-per-query" class="nexus-input" type="number" min="1" max="100" step="1" placeholder="max_results_per_query">
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-max-sources" class="nexus-input" type="number" min="1" max="200" step="1" placeholder="max_sources">
+                    <select id="nexus-deep-scope" class="nexus-select">
+                      <option value="library">scope: Library</option>
+                      <option value="web" selected>scope: Web</option>
+                      <option value="official">scope: Official</option>
+                      <option value="pdf">scope: PDF</option>
+                      <option value="news">scope: News</option>
+                      <option value="academic">scope: Academic</option>
+                      <option value="market">scope: Market</option>
+                    </select>
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-max-download-mb" class="nexus-input" type="number" min="1" max="500" step="1" placeholder="max_download_mb (1-500)">
+                    <input id="nexus-deep-max-total-download-mb" class="nexus-input" type="number" min="1" max="2048" step="1" placeholder="max_total_download_mb (1-2048)">
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-max-downloads" class="nexus-input" type="number" min="1" max="200" step="1" placeholder="max_downloads (1-200)">
+                    <input id="nexus-deep-download-timeout-sec" class="nexus-input" type="number" min="1" max="600" step="1" placeholder="download_timeout_sec (1-600)">
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <label class="nexus-check"><input id="nexus-deep-continue-on-download-error" type="checkbox" checked> continue_on_download_error</label>
+                    <label class="nexus-check"><input id="nexus-deep-prefer-pdf" type="checkbox" checked> prefer_pdf</label>
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <label class="nexus-check"><input id="nexus-deep-official-first" type="checkbox" checked> official_first</label>
+                    <label class="nexus-check"><input id="nexus-deep-recursive-search" type="checkbox"> Recursive Research</label>
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-max-iterations" class="nexus-input" type="number" min="1" max="5" step="1" value="1" placeholder="max_iterations (1-5)" disabled>
+                    <input id="nexus-deep-max-followup-queries" class="nexus-input" type="number" min="1" max="10" step="1" value="4" placeholder="max_followup_queries (1-10)" disabled>
+                  </div>
+                  <div class="nexus-form-grid cols-2">
+                    <input id="nexus-deep-confidence-threshold" class="nexus-input" type="number" min="0" max="1" step="0.05" value="0.75" placeholder="confidence_threshold (0-1)" disabled>
+                    <label class="nexus-check"><input id="nexus-deep-stop-when-sufficient" type="checkbox" checked disabled> stop_when_sufficient</label>
+                  </div>
+                  <div style="font-size:10px;color:var(--text3);line-height:1.4">
+                    Detailed values are auto-selected from Search Type and Depth. Open this section only when you need to override them.
+                  </div>
+                </div>
+              </details>
+              <div class="nexus-actions">
+                <button class="settings-btn primary" id="nexus-deep-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusDeepResearch()">Start Research</button>
+                <button class="settings-btn" id="nexus-deep-bundle-btn" style="padding:5px 12px;font-size:11px" onclick="downloadNexusDeepBundle()" disabled>Download Bundle</button>
+              </div>
+              <div id="nexus-deep-status" class="nexus-result-meta">状態: 未実行</div>
+              <div class="nexus-result-meta">Deep Researchの結果はResearch Answerとして保存されます。Reportには自動保存されません。ダウンロードはResearch Bundleを使用してください。</div>
+              <div class="nexus-card" style="margin-top:10px">
+                <div class="nexus-card-title" id="nexus-prev-runs-title">Previous Runs (0)</div>
+                <div id="nexus-deep-previous-runs" class="nexus-result-panel"><div class="nexus-doc-actions"><button onclick="toggleNexusPreviousRuns(false)">Show previous runs</button></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="nexus-deep-panel">
+            <div class="nexus-card">
+              <div class="nexus-card-title">状態タイムライン (job events)</div>
+              <div id="nexus-deep-timeline" class="nexus-timeline nexus-deep-timeline nexus-timeline-panel">
+                <div class="nexus-empty">No timeline events</div>
+              </div>
+            </div>
+            <div class="nexus-card">
+              <div class="nexus-card-title">回答</div>
+              <div id="nexus-deep-answer" class="nexus-detail-panel nexus-deep-answer">
+                <div class="nexus-empty">回答はここに表示されます</div>
+              </div>
+              <div id="nexus-deep-citation-warnings" class="nexus-citation-warnings"></div>
+            </div>
+            <div class="nexus-card">
+              <div class="nexus-card-title">References</div>
+              <div id="nexus-deep-references" class="nexus-ref-list">
+                <div class="nexus-empty">Reference cards are shown after research starts.</div>
+              </div>
+            </div>
+            <div class="nexus-card">
+              <div class="nexus-card-title">Reference Viewer</div>
+              <div id="nexus-deep-viewer" class="nexus-detail-panel nexus-deep-viewer">
+                <div class="nexus-empty">Reference Card の「全文表示 / Markdown表示 / 該当箇所 / 元URL」で内容を表示します。</div>
+              </div>
+            </div>
+            <div class="nexus-card">
+              <div class="nexus-card-title">Sources</div>
+              <div id="nexus-deep-sources-table" class="nexus-table-wrap nexus-sources-table-wrap nexus-evidence-scroll">
+                <div class="nexus-empty" style="padding:10px">Sources テーブルは research 開始後に更新されます。</div>
+              </div>
+            </div>
+            <div class="nexus-card">
+              <div class="nexus-card-title">Search this Run</div>
+              <div class="nexus-phase-note">現在のResearch Runで収集した資料だけをEvidence内のCollected Sourcesで検索します。</div>
+              <div class="nexus-actions"><button class="settings-btn" onclick="openCurrentRunInSources()">Open in Evidence</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-compare">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Compare MVP Placeholder (Phase 2)</div>
+            <div class="nexus-form-grid cols-2">
+              <input id="nexus-compare-topic" class="nexus-input" type="text" placeholder="topic (比較対象のテーマ)">
+              <input id="nexus-compare-scope" class="nexus-input" type="text" placeholder="scope (geo/sector/time)">
+            </div>
+            <div class="nexus-actions" style="margin-top:8px">
+              <button class="settings-btn primary" id="nexus-compare-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusCompareMvp()">Run Compare MVP</button>
+            </div>
+            <div class="nexus-phase-note">Phase 2 拡張ポイント: multi-source diff / evidence alignment / contradiction detection。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Compare Result Placeholder</div>
+            <div id="nexus-compare-result" class="nexus-result-panel" style="min-height:100px">
+              <div class="nexus-empty">MVP placeholder: 現状は入力値を保持し、拡張用スキーマを表示します</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-formula">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Formula MVP Placeholder (Phase 3)</div>
+            <div class="nexus-form-grid cols-2">
+              <input id="nexus-formula-topic" class="nexus-input" type="text" placeholder="topic (計算対象のテーマ)">
+              <input id="nexus-formula-language" class="nexus-input" type="text" placeholder="language (ja/en)">
+            </div>
+            <div class="nexus-form-grid cols-2" style="margin-top:8px">
+              <input id="nexus-formula-depth" class="nexus-input" type="text" placeholder="depth (quick/deep)">
+              <input id="nexus-formula-scope" class="nexus-input" type="text" placeholder="scope (model/assumption)">
+            </div>
+            <div class="nexus-actions" style="margin-top:8px">
+              <button class="settings-btn primary" id="nexus-formula-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusFormulaMvp()">Run Formula MVP</button>
+            </div>
+            <div class="nexus-phase-note">Phase 3 拡張ポイント: factor graph / equation builder / scenario simulator。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Formula Result Placeholder</div>
+            <div id="nexus-formula-result" class="nexus-result-panel" style="min-height:100px">
+              <div class="nexus-empty">MVP placeholder: 数式エンジン接続前の入出力骨組みのみ提供します</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-evidence" data-nexus-panel="evidence" hidden style="display:none">
+        <div class="nexus-card">
+          <div class="nexus-card-title">Evidence</div>
+          <div class="nexus-phase-note">Sources are collected URLs/documents. Evidence is the subset of source chunks used as citations in answers.</div>
+          <div class="nexus-phase-note">Sources: collected documents/URLs · Evidence: cited chunks used in answers</div>
+        </div>
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Used Evidence</div>
+            <div class="nexus-phase-note">引用根拠として使われた citation chunks を表示します。</div>
+            <div class="nexus-evidence-scroll">
+              <div id="nexus-evidence-result" class="nexus-result-panel" style="min-height:100px">
+                <div class="nexus-empty">未実行: 入力受付 + 一覧表示（title/source_type/job_id/source_id/citation_label/url/quote/created_at）</div>
+              </div>
+            </div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Collected Sources</div>
+            <div class="nexus-phase-note">収集ソース（URL / title / status / source_score / content_type）を検索します。新しいWeb検索は行いません。</div>
+            <div class="nexus-form-grid cols-2">
+              <input id="nexus-sources-query" class="nexus-input" type="text" placeholder="Query">
+              <select id="nexus-sources-scope" class="nexus-select">
+                <option value="current_research_job">Current Research Job</option><option value="selected_sources">Selected Sources</option><option value="all_collected_sources">All Collected Sources</option><option value="library">All Nexus Library</option><option value="evidence">Evidence only</option>
+              </select>
+            </div>
+            <div class="nexus-form-grid cols-3">
+              <label class="nexus-check"><input id="nexus-sources-type-pdf" type="checkbox" checked> PDF</label>
+              <label class="nexus-check"><input id="nexus-sources-type-html" type="checkbox" checked> HTML/Web pages</label>
+              <label class="nexus-check"><input id="nexus-sources-evidence-only" type="checkbox"> Evidence only</label>
+            </div>
+            <div class="nexus-evidence-scroll">
+              <div id="nexus-sources-results" class="nexus-result-panel"><div class="nexus-empty">検索結果はここに表示されます。</div></div>
+            </div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Actions</div>
+            <div class="nexus-form-grid cols-2">
+              <input id="nexus-evidence-source-type" type="text" placeholder="source_type (news / market / web / library / 空欄で全件)">
+              <input id="nexus-evidence-filter" type="text" placeholder="filter (citation/url/snippet)">
+            </div>
+            <div class="nexus-form-grid cols-2">
+              <input id="nexus-evidence-job-id-adv" type="text" placeholder="advanced: job_id (必要時のみ)">
+              <input id="nexus-sources-limit" class="nexus-input" type="number" value="20" min="1" max="100">
+            </div>
+            <div class="nexus-actions">
+              <button class="settings-btn primary" id="nexus-evidence-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusEvidenceMvp()">Refresh Evidence</button>
+              <button class="settings-btn primary" onclick="searchInSourcesWorkspace()">Refresh Sources</button>
+              <button class="settings-btn" disabled title="Coming soon">Add selected chunks to evidence</button>
+            </div>
+            <div class="nexus-phase-note">`/nexus/evidence` と `/nexus/sources` 系API名は変更せず、UI表示だけEvidenceに統合しています。</div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-report" data-nexus-panel="reports" hidden style="display:none">
+        <div class="nexus-lib-grid">
+          <div class="nexus-card">
+            <div class="nexus-card-title">Report MVP (Phase 1)</div>
+            <div style="display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:8px">
+              <input id="nexus-report-filter" type="text" placeholder="report filter (title/job_id/report_id)">
+              <button class="settings-btn primary" id="nexus-report-run-btn" style="padding:5px 12px;font-size:11px" onclick="runNexusReportMvp()">Run MVP</button>
+            </div>
+            <div style="font-size:10px;color:var(--text3)">一覧・md preview・download導線を接続するMVPプレースホルダ。</div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Report List</div>
+            <div id="nexus-report-list" class="nexus-result-panel" style="min-height:120px">
+              <div class="nexus-empty">未実行: report一覧をロードしてください</div>
+            </div>
+          </div>
+          <div class="nexus-card">
+            <div class="nexus-card-title">Report Markdown Preview</div>
+            <div id="nexus-report-preview" class="nexus-detail-panel">
+              <div class="nexus-empty">レポートを選択するとMarkdown previewを表示します</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-sources" data-nexus-panel="sources" hidden style="display:none">
+        <div class="nexus-card">
+          <div class="nexus-card-title">Sources compatibility panel</div>
+          <div class="nexus-phase-note">Sources is now shown inside Evidence. Existing calls to show/switch the sources tab are normalized to Evidence.</div>
+        </div>
+      </div>
+      <div class="nexus-tab" id="nexus-tab-settings" data-nexus-panel="settings" hidden style="display:none">
+        <div class="nexus-card"><div class="nexus-card-title">Web Search Providers</div><div id="nexus-settings-web" class="nexus-empty">Loading...</div></div>
+        <div class="nexus-card"><div class="nexus-card-title">Deep Research Defaults</div><div id="nexus-settings-defaults" class="nexus-empty">Loading...</div></div>
+        <div class="nexus-card"><div class="nexus-card-title">Answer Generation</div><div id="nexus-settings-answer" class="nexus-empty">Loading...</div></div>
+        <div class="nexus-card"><div class="nexus-card-title">Source Storage & Dedupe</div><div id="nexus-settings-storage" class="nexus-empty">Coming soon</div></div>
+        <div class="nexus-card"><div class="nexus-card-title">Debug & Maintenance</div><div id="nexus-settings-debug" class="nexus-empty">Loading...</div></div>
+      </div>
+      <!-- MEMORY (Lumen Memory consolidated into the Nexus subtab row; same inner IDs + JS) -->
+      <div class="nexus-tab" id="nexus-tab-memory" data-nexus-panel="memory" hidden style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Permanent Memory</span>
+          <div style="display:flex;gap:4px">
+            <button onclick="refreshMemory()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺</button>
+            <button onclick="showAddMemoryForm()" style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ Add</button>
+          </div>
+        </div>
+        <div style="margin-bottom:8px">
+          <input id="memory-search" type="text" placeholder="🔍 キーワード検索..." oninput="searchMemory(this.value)"
+            style="width:100%;padding:6px 10px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text);outline:none;font-family:var(--font-mono)">
+        </div>
+        <div id="memory-add-form" style="display:none;border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
+          <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">新規メモリ追加</div>
+          <select id="mem-category" style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+            <option value="error_solution">error_solution（エラーと解決策）</option>
+            <option value="env_knowledge">env_knowledge（環境・ツール知識）</option>
+            <option value="workflow">workflow（作業フロー）</option>
+            <option value="general">general（その他）</option>
+          </select>
+          <input id="mem-title" type="text" placeholder="タイトル（必須）"
+            style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+          <textarea id="mem-content" placeholder="内容・詳細（必須）" rows="3"
+            style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);resize:vertical"></textarea>
+          <input id="mem-keywords" type="text" placeholder="キーワード（カンマ区切り）"
+            style="width:100%;padding:4px 8px;margin-bottom:8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+          <div class="scan-row">
+            <button onclick="saveNewMemory()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">保存</button>
+            <button onclick="hideAddMemoryForm()" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+          </div>
+        </div>
+        <div id="memory-stats" style="font-size:10px;color:var(--text3);margin-bottom:6px"></div>
+        <div id="memory-list" style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:var(--text3)">Loading...</div>
+        </div>
+      </div>
+      <!-- SKILL (Lumen Skills consolidated into the Nexus subtab row; same inner IDs + JS) -->
+      <div class="nexus-tab" id="nexus-tab-skills" data-nexus-panel="skills" hidden style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Skills / SKILL.md</span>
+          <button onclick="refreshSkills()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ Reload</button>
+        </div>
+        <div id="skills-path-info" style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.6;padding:6px 8px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
+          📁 <code style="background:var(--bg3);padding:1px 4px;border-radius:3px">読み込み中...</code>
+        </div>
+        <div id="skills-list" style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:var(--text3)">Loading...</div>
+        </div>
+        <div id="skill-proposals" style="margin-top:12px"></div>
+      </div>
+      <!-- LOG (Lumen Log moved into the Nexus subtab row; #log-output keeps its ID so addLog is unchanged) -->
+      <div class="nexus-tab" id="nexus-tab-log" data-nexus-panel="log" hidden style="display:none">
+        <div class="log-output" id="log-output"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PORTAL MODE -->
+  <div class="portal-col mob-hidden" id="portal-col" style="display:none" data-mode-panel="portal" aria-label="Portal">
+    <div class="portal-shell">
+      <div class="portal-head">
+        <div class="portal-title">Portal</div>
+        <div class="portal-head-actions">
+          <button type="button" id="portal-import-btn" class="portal-action-btn">Import package</button>
+          <button type="button" id="portal-refresh-btn" class="portal-action-btn">Refresh</button>
+        </div>
+      </div>
+      <div class="portal-status" id="portal-status" role="status" aria-live="polite"></div>
+      <div class="portal-catalog" id="portal-catalog" aria-label="Portal package catalog"></div>
+    </div>
+    <!-- Run sheet (Preview / Logs / Stop) -->
+    <div class="portal-run-sheet" id="portal-run-sheet" aria-hidden="true">
+      <div class="portal-run-inner" role="dialog" aria-modal="true" aria-label="Portal run">
+        <div class="portal-run-head">
+          <span class="portal-run-title" id="portal-run-title">Run</span>
+          <span class="portal-run-state" id="portal-run-state"></span>
+          <div class="portal-run-actions">
+            <button type="button" data-portal-run="reload" aria-label="Reload">⟳</button>
+            <button type="button" data-portal-run="external" aria-label="Open preview">↗</button>
+            <button type="button" data-portal-run="stop" aria-label="Stop">■</button>
+            <button type="button" data-portal-run="close" aria-label="Close">×</button>
+          </div>
+        </div>
+        <div class="portal-run-trace" id="portal-run-trace" style="display:none"></div>
+        <div class="portal-run-tabs" role="tablist">
+          <button type="button" class="active" data-portal-tab="preview">Preview</button>
+          <button type="button" data-portal-tab="logs">Logs</button>
+        </div>
+        <div class="portal-run-body">
+          <section class="portal-run-pane active" data-portal-pane="preview"><iframe id="portal-run-frame" title="Portal run preview"></iframe></section>
+          <section class="portal-run-pane" data-portal-pane="logs"><pre id="portal-run-logs"></pre></section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FORGE (Model Forge) — hidden by default; shown only in Forge mode -->
+  <div class="forge-col mob-hidden" id="forge-col" style="display:none" data-mode-panel="forge" aria-label="Forge">
+    <!-- Forge subtab row: Overview (forge.js shell) + Models/ASR/TTS (Lumen/Echo panels moved here) -->
+    <div class="forge-subtab-row">
+      <div class="nexus-subtabs">
+        <button class="nexus-subtab active" id="forge-subtab-overview" data-forge-tab="overview" onclick="switchForgeTab('overview')">Forge</button>
+        <button class="nexus-subtab" id="forge-subtab-models" data-forge-tab="models" onclick="switchForgeTab('models')">Anvil</button>
+        <button class="nexus-subtab" id="forge-subtab-asr" data-forge-tab="asr" onclick="switchForgeTab('asr')">ASR</button>
+        <button class="nexus-subtab" id="forge-subtab-tts" data-forge-tab="tts" onclick="switchForgeTab('tts')">TTS</button>
+        <button class="nexus-subtab" id="forge-subtab-twin" data-forge-tab="twin" onclick="switchForgeTab('twin')" hidden aria-hidden="true">Twin</button>
+      </div>
+    </div>
+    <div class="forge-shell" id="forge-shell">
+      <div class="forge-head">
+        <div class="forge-title">Forge</div>
+        <div class="forge-head-actions">
+          <button type="button" id="forge-refresh-btn" class="forge-action-btn">Refresh</button>
+        </div>
+      </div>
+      <div class="forge-status" id="forge-status" role="status" aria-live="polite"></div>
+      <div class="forge-body" id="forge-body" aria-label="Forge overview"></div>
+    </div>
+    <!-- Host for the relocated Models/ASR/TTS panels (filled at load from panel-col; same inner IDs + JS) -->
+    <div class="forge-panel-host" id="forge-panel-host" style="display:none"></div>
+    <!-- Twin Control Plane panel (relocated into the host; rendered by renderTwinPanel via /api/twin) -->
+    <div class="tab-content" id="tab-twin" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:12px;-webkit-overflow-scrolling:touch">
+      <div id="twin-panel-body" aria-label="Twin Control Plane">Loading…</div>
+    </div>
+  </div>
+
+  <!-- PANEL -->
+  <div class="panel-resizer" id="panel-resizer" role="separator" aria-label="Panel width resize handle" aria-orientation="vertical"></div>
+  <div class="panel-col mob-hidden" id="panel-col">
+    <div class="panel-tabs">
+      <!-- Chat/Task tabs removed: Lumen is conversation-only; Log/Skill/Memory/Models live in Nexus/Forge. -->
+      <!-- Echo モード用タブ: Vault のみ残す。Log は Nexus、Models/ASR/TTS は Forge へ完全移動。 -->
+      <button class="tab-btn" id="tab-btn-vault" onclick="switchTab('vault')" style="display:none">Vault</button>
+      <!-- Forge Models/ASR/TTS は forge-col の subtab 行へ完全移動 (panel-col では扱わない) -->
+      <!-- Nexus Memory/Skill/Log も nexus-col の subtab 行へ移動済み -->
+      <!-- panel-col に残るのは Echo Vault と共通の output/preview/git のみ -->
+      <div class="tab-spacer"></div>
+      <span class="tab-label" id="tab-label">—</span>
+    </div>
+
+    <div class="tab-content" id="tab-output" style="display:none !important">
+      <div class="code-output" id="code-output">
+        <div class="empty-state"><div class="empty-icon">⌘</div><div class="empty-text">No output yet</div></div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-preview" style="display:none !important">
+      <div class="preview-layout">
+
+        <!-- 左: ファイルブラウザ -->
+        <div class="file-browser" id="file-browser">
+          <div class="fb-header">
+            <span class="fb-title">Files</span>
+            <button class="fb-refresh" onclick="refreshFileBrowser()" title="Refresh">↺</button>
+          </div>
+          <div class="fb-list" id="fb-list">
+            <div class="fb-empty">No files yet</div>
+          </div>
+        </div>
+
+        <!-- 右: プレビュー/実行結果 -->
+        <div class="preview-wrap">
+          <div class="preview-toolbar">
+            <span class="preview-url" id="preview-url" title="Current file">No file loaded</span>
+            <button class="pv-btn run" id="run-btn" onclick="runCurrentFile()" style="display:none">▶ Run</button>
+            <button class="pv-btn" onclick="refreshPreview()">↺</button>
+            <button class="pv-btn" onclick="openNew()">↗</button>
+          </div>
+          <div class="preview-ph" id="preview-ph">
+            <div style="font-size:26px;opacity:.2">◻</div>
+            <div style="font-size:11px;font-family:var(--font-mono);text-align:center">
+              Select a file from the list
+            </div>
+          </div>
+          <div id="run-output" style="display:none;flex:1;overflow-y:auto;padding:16px;font-family:var(--font-mono);font-size:12px;line-height:1.7;background:var(--bg)"></div>
+          <iframe id="preview-frame" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Lumen Log は Nexus へ完全移動 (#nexus-tab-log)。#log-output は同一 ID のまま addLog が書き込む。
+         ファイル操作のバックエンド (list_files/read_file 等) と /projects/.../files は Agent・プロジェクト機能で引き続き使用。 -->
+
+    <!-- Lumen Memory/Skill panels are Nexus-only and were relocated into the Nexus subtab row
+         (see #nexus-tab-memory / #nexus-tab-skills in nexus-col). Same inner IDs, same JS. -->
+
+    <!-- GIT TAB -->
+    <div class="tab-content" id="tab-git" style="display:none;overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Git</span>
+        <button onclick="refreshGitStatus()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ Refresh</button>
+      </div>
+      <!-- Status -->
+      <pre id="git-status-out" style="font-size:11px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;white-space:pre-wrap;word-break:break-all;max-height:100px;overflow-y:auto">Loading...</pre>
+      <!-- Actions row -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <button onclick="gitCommitUI()" style="font-size:11px;padding:4px 10px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ Commit</button>
+        <button onclick="gitBranchUI()" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">⎇ Branch</button>
+        <button onclick="gitResetUI()" style="font-size:11px;padding:4px 10px;border:1px solid rgba(255,68,102,.4);background:rgba(255,68,102,.08);color:var(--red);border-radius:4px;cursor:pointer">↩ Reset</button>
+        <button onclick="gitDiffUI()" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">~ Diff</button>
+      </div>
+      <!-- Inline commit form -->
+      <div id="git-commit-form" style="display:none;border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:5px">Commit message</div>
+        <input id="git-commit-msg" type="text" placeholder="feat: ..." style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);margin-bottom:6px">
+        <div style="display:flex;gap:5px">
+          <button onclick="doGitCommit()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Commit</button>
+          <button onclick="document.getElementById('git-commit-form').style.display='none'" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <!-- Inline branch form -->
+      <div id="git-branch-form" style="display:none;border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px">Branch name</div>
+        <input id="git-branch-name" type="text" placeholder="feature/my-feature" style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono);margin-bottom:6px">
+        <div style="display:flex;gap:5px">
+          <button onclick="doGitBranch(true)" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Create & Switch</button>
+          <button onclick="doGitBranch(false)" style="flex:1;padding:5px;font-size:11px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);border-radius:4px;cursor:pointer">Switch only</button>
+          <button onclick="document.getElementById('git-branch-form').style.display='none'" style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>
+      <!-- Diff output -->
+      <div id="git-diff-out" style="display:none;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px">Diff</div>
+        <pre style="font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto" id="git-diff-content"></pre>
+      </div>
+      <!-- Git log -->
+      <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">Commit Log</div>
+      <div id="git-log-list" style="display:flex;flex-direction:column;gap:4px">
+        <div style="font-size:11px;color:var(--text3)">—</div>
+      </div>
+      <!-- Result display -->
+      <div id="git-result" style="font-size:11px;font-family:var(--font-mono);color:var(--accent);padding:6px 8px;background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:5px;margin-top:8px;display:none;white-space:pre-wrap"></div>
+    </div>
+
+    <!-- MODELS DB TAB -->
+    <div class="tab-content" id="tab-models" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Model Database</span>
+        <button onclick="refreshModelDb()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺</button>
+      </div>
+
+      <!-- ルートフォルダ（設定DB連動） -->
+      <div style="border:1px solid var(--accent-border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--accent-bg)">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:5px">LLMルートフォルダ</div>
+        <div class="scan-row">
+          <input id="model-root-folder" type="text" placeholder="E:\LLMs"
+            style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)"
+            oninput="saveRootFolder(this.value)">
+          <button id="model-scan-btn" onclick="doModelScan(true)" style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer;white-space:nowrap">Benchmark</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3)">入力値はDBに自動保存。サブフォルダ含む全.ggufを検出・VLM自動判定</div>
+      </div>
+
+      <div id="gguf-search-panel" style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div class="gguf-header">
+          <div style="font-size:11px;font-weight:700;color:var(--text2)">GGUF検索 & ダウンロード (Hugging Face)</div>
+          <button id="gguf-results-toggle-btn" class="gguf-results-toggle" onclick="toggleGgufResultsVisibility()">結果を非表示</button>
+        </div>
+        <div class="gguf-search-controls">
+          <input id="gguf-search-q" type="text" placeholder="例: qwen coder"
+            style="padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+          <select id="gguf-sort"
+            style="padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+            <option value="downloads">downloads順</option>
+            <option value="updated">最新更新順</option>
+          </select>
+          <button onclick="searchGgufModels()" style="padding:5px 10px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">検索</button>
+        </div>
+        <div id="gguf-hw-info" style="font-size:10px;color:var(--text3);margin-bottom:6px">Hardware: -</div>
+        <div id="gguf-search-result" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+
+      <div id="model-role-panel" style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:11px;font-weight:700;color:var(--text2)">Role Routing</div>
+          <button id="role-lock-btn" onclick="toggleRoleLock()"
+            title="ロック時: ベンチマークによる自動ロール更新を禁止（手動変更は可能）"
+            style="font-size:13px;padding:2px 7px;border:1px solid var(--border);background:var(--bg3);border-radius:4px;cursor:pointer;line-height:1">🔓</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">運用方針: Coder系(Tier1-3)はSettingsで管理します。Routerは内部判定でこの割当を参照し、Task実行時に自動で使用されます。</div>
+        <div id="model-role-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+          <div style="font-size:11px;color:var(--text3)">Loading roles...</div>
+        </div>
+      </div>
+
+      <!-- フィルタ -->
+      <div class="model-toolbar">
+        <input id="model-filter" type="text" placeholder="🔍 モデルを絞り込み..."
+          oninput="filterModelList(this.value)"
+          style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+        <label style="font-size:10px;color:var(--text2);white-space:nowrap;display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="filter-enabled-only" onchange="filterModelList(document.getElementById('model-filter').value)"
+            style="accent-color:var(--accent)"> 有効のみ
+        </label>
+        <label style="font-size:10px;color:var(--text2);white-space:nowrap;display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="filter-vlm-only" onchange="filterModelList(document.getElementById('model-filter').value)"
+            style="accent-color:var(--amber)"> VLMのみ
+        </label>
+      </div>
+
+      <!-- ステータス + Add -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span id="model-db-stats" style="font-size:10px;color:var(--text3)">Loading...</span>
+        <button onclick="openModelAddForm()"
+          style="font-size:10px;padding:3px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">+ 手動追加</button>
+      </div>
+
+      <!-- 手動追加フォーム -->
+      <div id="model-add-form" style="display:none;border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg2)">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px">モデルを手動で追加</div>
+        <input id="model-add-name" type="text" placeholder="Model name"
+          style="width:100%;padding:4px 8px;margin-bottom:4px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+        <input id="model-add-path" type="text" placeholder="C:\path\to\model.gguf"
+          style="width:100%;padding:4px 8px;margin-bottom:4px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
+        <input id="model-add-url" type="text" placeholder="LLM URL (空でOK)"
+          style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
+        <input id="model-add-ctx" type="number" min="512" max="262144" value="16384" placeholder="context length (ctx_size)"
+          style="width:100%;padding:4px 8px;margin-bottom:5px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font-mono)">
+        <div style="display:flex;gap:10px;margin-bottom:6px">
+          <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="model-add-vlm" style="accent-color:var(--accent)"> VLM
+          </label>
+          <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="model-add-enabled" checked style="accent-color:var(--accent)"> 有効
+          </label>
+        </div>
+        <div style="display:flex;gap:5px">
+          <button onclick="doModelAdd()" style="flex:1;padding:5px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">追加</button>
+          <button onclick="document.getElementById('model-add-form').style.display='none'"
+            style="padding:5px 10px;font-size:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">✕</button>
+        </div>
+      </div>
+
+      <!-- スキャン結果 -->
+      <div id="model-scan-result" style="font-size:11px;margin-bottom:6px;padding:6px 8px;border-radius:5px;display:none"></div>
+
+      <!-- モデルリスト -->
+      <div id="model-db-list" style="display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:12px;color:var(--text3)">Loading...</div>
+      </div>
+      <datalist id="parser-options">
+        <option value="json"></option>
+        <option value="qwen_think"></option>
+        <option value="gpt_oss"></option>
+      </datalist>
+    </div>
+
+    <!-- VAULT TAB (Echo モード用) -->
+    <div class="tab-content" id="tab-vault" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div>
+          <span style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase">Vault</span>
+          <span style="font-size:10px;color:var(--text3);margin-left:6px;font-family:var(--font-mono)">録音・文字起こし・議事録</span>
+        </div>
+        <button onclick="refreshEchoVault()" style="font-size:10px;padding:3px 8px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">↺ 更新</button>
+      </div>
+      <div id="echo-vault-info" style="display:none;margin-bottom:10px;padding:8px 10px;border:1px solid var(--amber);border-radius:6px;background:rgba(255,184,0,.12);font-size:11px;color:var(--text2);line-height:1.5"></div>
+      <div style="margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+          <div style="font-size:11px;font-weight:700;color:var(--text2)">音声ファイルから取り込み</div>
+          <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text2);cursor:pointer;user-select:none">
+            <input id="echo-upload-auto-minutes" type="checkbox" style="margin:0" checked>
+            文字起こし後に議事録を生成
+          </label>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <input id="echo-upload-file-input" type="file" accept="audio/*,.wav,.mp3,.m4a,.webm,.ogg,.flac"
+            style="flex:1;min-width:210px;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg1);color:var(--text)"
+            >
+          <button id="echo-upload-btn" onclick="echoUploadSessionAudio(document.getElementById('echo-upload-file-input'))"
+            style="font-size:11px;padding:6px 10px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);border-radius:6px;cursor:pointer;white-space:nowrap">アップロードして文字起こし</button>
+        </div>
+        <div id="echo-upload-status" style="display:none;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg1);font-size:11px;color:var(--text2)"></div>
+      </div>
+      <!-- インライン音声プレイヤー -->
+      <div id="vault-audio-player" style="display:none;margin-bottom:10px;padding:10px;border:1px solid var(--accent-border);border-radius:6px;background:var(--accent-bg)">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:6px;font-weight:700" id="vault-audio-name"></div>
+        <audio id="vault-audio-el" controls style="width:100%;height:36px;"></audio>
+        <button onclick="vaultAudioClose()" style="margin-top:6px;font-size:10px;padding:2px 8px;border:1px solid var(--border);background:transparent;color:var(--text3);border-radius:4px;cursor:pointer">✕ 閉じる</button>
+      </div>
+      <div id="echovault-list" style="display:flex;flex-direction:column;gap:5px">
+        <div style="font-size:12px;color:var(--text3);text-align:center;padding:24px 0;font-family:var(--font-mono)">セッションデータはまだありません</div>
+      </div>
+    </div>
+
+    <!-- ASR TAB (Echo モード用) -->
+    <div class="tab-content" id="tab-asr" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px">ASR</div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🎙 ASR 設定</div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASR言語</div>
+          <select id="echo-asr-lang"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveEchoSettings()">
+            <option value="auto">自動検出（日本語/英語）</option>
+            <option value="ja">日本語のみ</option>
+            <option value="en">English only</option>
+          </select>
+        </div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASR入力デバイス（Echo）</div>
+          <select id="echo-asr-input-device"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveEchoSettings()">
+            <option value="default">システム既定</option>
+          </select>
+          <div id="echo-asr-input-device-note" style="font-size:10px;color:var(--text3);margin-top:4px;line-height:1.5"></div>
+        </div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRモデル</div>
+          <select id="echo-asr-model"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveEchoSettings()">
+            <option value="large-v3-turbo">large-v3-turbo（同梱）</option>
+            <option value="small">small（高速・軽量）</option>
+            <option value="medium">medium（バランス）</option>
+          </select>
+        </div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRモード</div>
+          <select id="echo-asr-profile"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+            onchange="saveEchoSettings()">
+            <option value="fast">高速優先（低負荷）</option>
+            <option value="balanced">バランス（既定）</option>
+            <option value="accurate">精度優先（高負荷）</option>
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+          <div>
+            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">no_speech</div>
+            <input id="echo-asr-no-speech-threshold" type="number" min="0" max="1" step="0.01"
+              style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+              onchange="saveEchoSettings()">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">log_prob</div>
+            <input id="echo-asr-log-prob-threshold" type="number" min="-5" max="0" step="0.05"
+              style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+              onchange="saveEchoSettings()">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">compress</div>
+            <input id="echo-asr-compression-ratio-threshold" type="number" min="1" max="5" step="0.1"
+              style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+              onchange="saveEchoSettings()">
+          </div>
+        </div>
+        <div style="margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🧩 表示設定</div>
+          <div style="margin-bottom:8px">
+            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">表示スタイル</div>
+            <select id="echo-display-style"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text)"
+              onchange="saveEchoSettings()">
+              <option value="sentence">一文ずつ</option>
+              <option value="lang_serial">言語別直列</option>
+              <option value="lang_parallel">言語別並列</option>
+            </select>
+          </div>
+          <div style="margin-bottom:8px">
+            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">表示フィルタ</div>
+            <select id="echo-display-filter"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text)"
+              onchange="saveEchoSettings()">
+              <option value="original">原文</option>
+              <option value="all">全文</option>
+              <option value="ja">日本語（訳文含む）</option>
+              <option value="en">英語（訳文含む）</option>
+            </select>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">出力まとめ回数</div>
+              <input id="echo-parallel-max-sentences" type="number" min="1" max="20" step="1"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">文字表示アニメーション(秒)</div>
+              <input id="echo-text-reveal-seconds" type="number" min="0" max="5" step="0.1"
+                value="1.5"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+          </div>
+          <div style="margin-top:8px">
+            <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">上限超過時の表示方式</div>
+            <select id="echo-group-overflow-mode"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text)"
+              onchange="saveEchoSettings()">
+              <option value="append">新しい表示枠を下に追加</option>
+              <option value="rolling">古い履歴を消して最新を表示</option>
+            </select>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
+            0秒で従来どおり即時表示。初期値は1.5秒です。<br>
+            出力まとめ回数は「言語別直列 / 言語別並列」時のみ適用されます。
+          </div>
+        </div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRデバイス</div>
+          <div style="display:flex;gap:14px">
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
+              <input type="radio" name="echo-asr-device" value="cpu" style="accent-color:var(--accent)" onchange="saveEchoSettings()"> CPU
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
+              <input type="radio" name="echo-asr-device" value="cuda" checked style="accent-color:var(--accent)" onchange="saveEchoSettings()"> GPU (CUDA)
+            </label>
+          </div>
+        </div>
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASRモデルディレクトリ</div>
+          <input type="text" id="tsasr-asr-dir" placeholder="自動（デフォルト）"
+            style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);box-sizing:border-box;font-family:var(--font-mono)"
+            onchange="saveTsAsrSettings()">
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">空欄の場合はデフォルトパスを使用</div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700">起動時プリロード</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="tsasr-asr-preload"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveTsAsrSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="tsasr-asr-preload-label">OFF</span>
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="loadAsrModelFromTab()" id="tsasr-asr-load-btn"
+            style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">ロード</button>
+          <button onclick="unloadAsrModelFromTab()" id="tsasr-asr-unload-btn"
+            style="display:none;padding:5px 12px;font-size:11px;font-weight:700;background:var(--border);border:none;border-radius:4px;color:var(--text2);cursor:pointer">アンロード</button>
+          <span id="tsasr-asr-status" style="font-size:10px;color:var(--text3);align-self:center">未ロード</span>
+        </div>
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🛡 Echo 誤検出フィルタ</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:10px;color:var(--text2);font-weight:700">フィルタ全体</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input id="echo-asr-filter-enabled" type="checkbox" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveEchoSettings()">
+              <span id="echo-asr-filter-enabled-label" style="font-size:10px;color:var(--text2)">OFF</span>
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
+              <input id="echo-asr-reject-short-text-enabled" type="checkbox" style="accent-color:var(--accent)" onchange="saveEchoSettings()">
+              短文棄却
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
+              <input id="echo-asr-reject-no-speech-enabled" type="checkbox" style="accent-color:var(--accent)" onchange="saveEchoSettings()">
+              無音判定棄却
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
+              <input id="echo-asr-reject-logprob-enabled" type="checkbox" style="accent-color:var(--accent)" onchange="saveEchoSettings()">
+              低logprob棄却
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
+              <input id="echo-asr-reject-short-word-lowconf-enabled" type="checkbox" style="accent-color:var(--accent)" onchange="saveEchoSettings()">
+              1-2語+低信頼棄却
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">最小文字数</div>
+              <input id="echo-asr-min-chars" type="number" min="1" max="10" step="1"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">短文上限文字数</div>
+              <input id="echo-asr-short-max-chars" type="number" min="1" max="12" step="1"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">無音棄却しきい値</div>
+              <input id="echo-asr-no-speech-reject" type="number" min="0" max="0.99" step="0.01"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">低logprob棄却値</div>
+              <input id="echo-asr-low-logprob-reject" type="number" min="-5" max="0" step="0.05"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">短語上限語数</div>
+              <input id="echo-asr-short-word-max" type="number" min="1" max="4" step="1"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">短語低信頼logprob</div>
+              <input id="echo-asr-short-word-low-logprob-reject" type="number" min="-5" max="0" step="0.05"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
+            推奨初期値: 最小文字数2 / 短文上限4 / 無音棄却0.72 / 低logprob-1.05。<br>
+            値はブラウザに保存され、Echo開始時にサーバーへ送信されます。
+          </div>
+        </div>
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🎛 マイク環境ノイズ抑制</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
+              <input id="echo-noise-gate-enabled" type="checkbox" style="accent-color:var(--accent)" onchange="saveEchoSettings()">
+              ノイズゲート
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
+              <input id="echo-highpass-enabled" type="checkbox" style="accent-color:var(--accent)" onchange="saveEchoSettings()">
+              ハイパス(低域ノイズ抑制)
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">ゲート閾値</div>
+              <input id="echo-noise-gate-threshold" type="number" min="0.002" max="0.1" step="0.001"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">ハイパス強度(Hz)</div>
+              <input id="echo-highpass-hz" type="number" min="20" max="240" step="5"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
+            ノイズ抑制はブラウザ内でフレームごとに処理されます。推奨初期値: 閾値0.012 / 120Hz。
+          </div>
+        </div>
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🗣 VAD発話区間抽出</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:10px;color:var(--text2);font-weight:700">VAD有効化</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input id="echo-vad-enabled" type="checkbox" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveEchoSettings()">
+              <span id="echo-vad-enabled-label" style="font-size:10px;color:var(--text2)">ON</span>
+            </label>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:10px;color:var(--text2);font-weight:700">分割オーバーラップ送信</div>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input id="echo-vad-overlap-enabled" type="checkbox" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveEchoSettings()">
+              <span id="echo-vad-overlap-enabled-label" style="font-size:10px;color:var(--text2)">OFF</span>
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">VAD mode</div>
+              <select id="echo-vad-mode" style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)" onchange="saveEchoSettings()">
+                <option value="0">0 (緩い)</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3 (厳しめ)</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">開始判定(直近N中K)</div>
+              <input id="echo-vad-start-ratio" type="text" placeholder="10/7"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">終了連続無音フレーム</div>
+              <input id="echo-vad-end-nonspeech-frames" type="number" min="15" max="20" step="1"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">最小発話長(ms)</div>
+              <input id="echo-vad-min-speech-ms" type="number" min="100" max="2000" step="20"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">speech RMS閾値</div>
+              <input id="echo-vad-rms-threshold" type="number" min="0.001" max="0.2" step="0.001"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">最小平均RMS</div>
+              <input id="echo-vad-min-avg-rms" type="number" min="0.001" max="0.2" step="0.001"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text2);font-weight:700;margin-bottom:3px">重なり長(ms)</div>
+              <input id="echo-vad-overlap-ms" type="number" min="200" max="400" step="20"
+                style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+                onchange="saveEchoSettings()">
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5">
+            16kHz mono PCM / 20msフレームで処理。推奨: mode1, 開始 10中7, 終了18, 最小発話200ms。必要時のみ重なり200〜400msをON。
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TTS TAB (Echo モード用) -->
+    <div class="tab-content" id="tab-tts" style="overflow-y:auto;overflow-x:hidden;padding:12px;flex-direction:column;gap:0;-webkit-overflow-scrolling:touch">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px">TTS</div>
+
+      <!-- TTS 設定 -->
+      <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px">🔊 Echo TTS 設定</div>
+        <div id="tsasr-style-bert-vits2-row" style="margin-bottom:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:8px">
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR Language</div>
+              <select id="echo-asr-lang-unified" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()">
+                <option value="auto">Auto</option><option value="ja">Japanese</option><option value="en">English</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo Output Language</div>
+              <select id="echo-output-language" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()">
+                <option value="same">Same as ASR</option><option value="ja">Japanese</option><option value="en">English</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo TTS Language</div>
+              <select id="echo-tts-language" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()">
+                <option value="auto">Auto</option><option value="ja">Japanese</option><option value="en">English</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTS Model</div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <select id="tsasr-style-bert-vits2-model-sel" style="flex:1;min-width:120px;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="onStyleBertVits2ModelSelectionChange()"><option value="">（モデルなし）</option></select>
+                <button onclick="refreshStyleBertVits2Models('echo')" id="tsasr-style-bert-vits2-refresh-btn" style="padding:4px 10px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">再読込</button>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
+                <button onclick="runStyleBertVits2InitialSetup('echo')" id="tsasr-style-bert-vits2-setup-btn" style="padding:4px 10px;font-size:10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">初期設定</button>
+                <label style="cursor:pointer;font-size:10px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;color:var(--text2)">ZIPアップロード<input type="file" id="tsasr-style-bert-vits2-zip" accept=".zip,application/zip" style="display:none" onchange="uploadStyleBertVits2ModelZip(this, 'echo')"></label>
+              </div>
+              <span id="tsasr-style-bert-vits2-status" style="display:block;margin-top:6px;font-size:10px;color:var(--text3)">モデルを選択してください</span>
+            </div>
+            <div><div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Speaker</div><input id="echo-tts-sbv2-speaker" type="text" placeholder="Default" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()"></div>
+            <div><div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Style</div><input id="echo-tts-sbv2-style" type="text" placeholder="Neutral" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveEchoSettings()"></div>
+            <div><div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Speed / Length</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><input id="echo-tts-sbv2-speed" type="number" step="0.01" min="0.5" max="2.0" value="1.0" placeholder="speed" onchange="saveEchoSettings()"><input id="echo-tts-sbv2-length" type="number" step="0.01" min="0.2" max="3.0" value="1.0" placeholder="length" onchange="saveEchoSettings()"></div></div>
+          </div>
+          <div id="echo-sbv2-jp-extra-note" style="display:none;margin-top:8px;padding:6px 8px;border:1px solid rgba(255,170,0,.3);border-radius:4px;background:rgba(255,170,0,.08);font-size:10px;color:var(--amber)">JP-Extra model: Echo TTS language is fixed to Japanese. Non-Japanese text is translated/normalized automatically.</div>
+          <details style="margin-top:8px"><summary style="cursor:pointer;font-size:11px;color:var(--text2);font-weight:700">Advanced parameters</summary>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px;margin-top:6px">
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Style Weight</div><input id="echo-tts-sbv2-style-weight" type="number" step="0.01" min="0" max="20" value="1.0" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">SDP Ratio</div><input id="echo-tts-sbv2-sdp-ratio" type="number" step="0.01" min="0" max="1" value="0.2" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Noise</div><input id="echo-tts-sbv2-noise" type="number" step="0.01" min="0" max="2" value="0.6" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Noise W</div><input id="echo-tts-sbv2-noise-w" type="number" step="0.01" min="0" max="2" value="0.8" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Split Interval</div><input id="echo-tts-sbv2-split-interval" type="number" step="0.01" min="0" max="5" value="0.5" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Assist Text</div><input id="echo-tts-sbv2-assist-text" type="text" placeholder="optional" onchange="saveEchoSettings()"></div>
+              <div><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Assist Text Weight</div><input id="echo-tts-sbv2-assist-text-weight" type="number" step="0.01" min="0" max="1" value="0" onchange="saveEchoSettings()"></div>
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--text2)"><input type="checkbox" id="echo-tts-sbv2-line-split" onchange="saveEchoSettings()">Line Split</label>
+          </details>
+          <div id="tsasr-sbv2-test-row" style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:6px">🧪 Style-Bert-VITS2 Test</div>
+            <div style="margin-bottom:6px">
+              <textarea id="sbv2-test-text" rows="3" placeholder="テスト読み上げ文（任意）"
+                style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);box-sizing:border-box;resize:vertical"></textarea>
+              <div style="margin-top:6px">
+                <button id="sbv2-test-asr-btn" onclick="toggleSbv2TestVoiceInput()"
+                  style="font-size:10px;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);cursor:pointer">🎙 ASR入力</button>
+              </div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+              <button id="sbv2-test-generate-btn" onclick="runSbv2TestGenerate()"
+                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--accent);color:var(--bg);cursor:pointer">生成</button>
+              <button id="sbv2-test-play-btn" onclick="toggleSbv2TestPlayback()"
+                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--bg3);color:var(--text2);cursor:pointer" disabled>再生</button>
+              <button id="sbv2-test-download-btn" onclick="downloadSbv2TestAudio()"
+                style="font-size:10px;padding:4px 10px;border:none;border-radius:4px;background:var(--blue);color:var(--bg);cursor:pointer" disabled>⬇ ダウンロード</button>
+              <span id="sbv2-test-status" style="font-size:10px;color:var(--text3)">待機中</span>
+            </div>
+          </div>
+        </div>
+        <!-- TTS モデルディレクトリ -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">TTSモデルディレクトリ</div>
+          <input type="text" id="tsasr-tts-dir" placeholder="自動（デフォルト）"
+            style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);box-sizing:border-box;font-family:var(--font-mono)"
+            onchange="saveTsAsrSettings()">
+        </div>
+        <!-- TTS プリロード -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700">起動時プリロード</div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="tsasr-tts-preload"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveTsAsrSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="tsasr-tts-preload-label">OFF</span>
+          </label>
+        </div>
+        <!-- 自動読み上げ -->
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">認識後に自動読み上げ</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">各文の認識完了後にTTSを自動再生（初期値: OFF）</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="echo-autoplay-tts"
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="saveEchoSettings()">
+            <span style="font-size:11px;color:var(--text2)" id="echo-autoplay-label">OFF</span>
+          </label>
+        </div>
+      </div>
+
+    </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-overlay" id="settings-modal" onclick="if(event.target===this)closeSettings()">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title">⚙ Settings</span>
+      <button class="modal-close" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="modal-body" style="overflow-y:auto;max-height:72vh">
+
+      <!-- LLMルートフォルダ -->
+      <div class="section-label">📁 LLMルートフォルダ</div>
+      <div style="padding:4px 0 14px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:5px">GGUFモデルが格納されているルートフォルダ。Models タブのスキャンに使用されます。</div>
+        <div style="display:flex;gap:5px">
+          <input type="text" id="settings-root-folder" placeholder="E:\LLMs"
+            style="flex:1;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)"
+            oninput="saveRootFolder(this.value)">
+          <button id="settings-scan-btn" onclick="doModelScanFromSettings()" style="padding:6px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:5px;color:var(--bg);cursor:pointer;white-space:nowrap">Benchmark</button>
+        </div>
+      <div id="settings-scan-result" style="display:none;font-size:10px;color:var(--accent);margin-top:4px"></div>
+      </div>
+
+      <!-- テーマ -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🎨 テーマ</div>
+      <div style="padding:4px 0 14px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:6px">UIテーマの配色を切り替えます。</div>
+        <select id="theme-select-settings" class="theme-select js-theme-select" title="UI theme" onchange="onThemeSelectChange(this)"
+          style="width:100%;height:34px">
+          <option value="aurora">Aurora</option>
+          <option value="nocturne">Nocturne</option>
+          <option value="daylight">Daylight</option>
+        </select>
+      </div>
+
+      <!-- エージェント設定 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🤖 エージェント設定</div>
+      <div style="padding:4px 0 14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="font-size:11px;color:var(--text2);flex:1;white-space:nowrap">Max Steps</span>
+          <input type="range" id="steps-slider" min="1" max="100" step="1" value="20"
+            style="flex:2;accent-color:var(--accent);cursor:pointer"
+            oninput="updateStepsLabel(this.value)">
+          <span id="steps-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:28px;text-align:right">20</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">失敗時の対応選択</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px" id="auto-select-desc">🤖 プランナーLLMが自動選択</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="auto-select-toggle" checked
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleAutoSelect(this.checked)">
+            <span style="font-size:11px;color:var(--text2)" id="auto-select-label">Auto</span>
+          </label>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">SKILL自動生成</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px" id="auto-skill-desc">⚙ 失敗時にSKILLを自動生成</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="auto-skill-toggle" checked
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleAutoSkill(this.checked)">
+            <span style="font-size:11px;color:var(--text2)">Auto</span>
+          </label>
+        </div>
+        <div style="margin-top:6px;font-size:10px;color:var(--text3)">⚠ 推奨 Steps: 10〜25。過剰だと繰り返しループのリスクあり。</div>
+      </div>
+
+      <!-- UI表示文字サイズ -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🅰 UI文字サイズ</div>
+      <div style="padding:4px 0 14px">
+        <div style="margin-bottom:10px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Chatモード文字サイズ</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" id="chat-font-size-slider" min="11" max="20" step="1" value="13"
+              style="flex:1;accent-color:var(--accent);cursor:pointer"
+              oninput="applyUiFontSettings()">
+            <span id="chat-font-size-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:42px;text-align:right">13px</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Echo ASR表示文字サイズ</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" id="echo-font-size-slider" min="11" max="24" step="1" value="13"
+              style="flex:1;accent-color:var(--accent);cursor:pointer"
+              oninput="applyUiFontSettings()">
+            <span id="echo-font-size-label" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);min-width:42px;text-align:right">13px</span>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- Code Implementation Mode -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🧩 コード実装モード</div>
+      <div style="padding:4px 0 14px">
+
+        <!-- 1. 機能選択 -->
+        <div style="font-size:10px;color:var(--text3);margin-bottom:8px">機能モードを切替できます（初期値: Model Orchestration）。</div>
+        <div style="margin-bottom:12px">
+          <select id="orch-feature-mode" onchange="applyOrchFeatureModeUi()"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+            <option value="model_orchestration">Model Orchestration (default)</option>
+            <option value="ensemble">Ensemble (beta)</option>
+          </select>
+          <div id="orch-feature-note" style="font-size:10px;color:var(--text3);margin-top:4px"></div>
+        </div>
+
+        <!-- 2. モデルティア設定（共通） -->
+        <div id="orch-tier-settings" style="margin-bottom:12px">
+          <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:6px">モデルティア設定（共通）</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+            <div>
+              <div style="font-size:9px;color:var(--text3);margin-bottom:2px">Tier 1（軽量）</div>
+              <select id="orch-tier1" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            </div>
+            <div>
+              <div style="font-size:9px;color:var(--text3);margin-bottom:2px">Tier 2（中間）</div>
+              <select id="orch-tier2" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            </div>
+            <div>
+              <div style="font-size:9px;color:var(--text3);margin-bottom:2px">Tier 3（高品質）</div>
+              <select id="orch-tier3" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"></select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Orchestration 詳細設定 -->
+        <div id="orch-settings-body" style="margin-bottom:10px">
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;padding-top:8px;border-top:1px solid var(--border)">🧩 Coder Orchestration</div>
+          <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:4px">詳細設定</div>
+          <div style="font-size:10px;color:var(--text3);margin-bottom:6px">失敗時/品質基準未達時に、軽量→高品質の順でコーダーモデルを昇格再実行します。</div>
+          <select id="orch-policy" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);margin-bottom:6px">
+            <option value="off">off</option>
+            <option value="ladder_fail_only">失敗時のみ昇格</option>
+            <option value="ladder_fail_and_quality">失敗+品質基準未達で昇格</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2);cursor:pointer">
+            <input type="checkbox" id="orch-quality-enabled" style="accent-color:var(--accent)"> 品質チェックを有効化
+          </label>
+        </div>
+
+        <!-- 4. Ensemble 詳細設定 -->
+        <div id="ensemble-settings-wrap" style="margin-bottom:10px">
+          <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;padding-top:8px;border-top:1px solid var(--border)">🧠 Ensemble</div>
+          <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:4px">詳細設定</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <span style="font-size:11px;color:var(--text2);min-width:80px">実行モード</span>
+            <select id="ensemble-execution-mode"
+              style="flex:1;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text)"
+              onchange="saveEnsembleSettings()">
+              <option value="parallel">parallel (高速 / VRAM多)</option>
+              <option value="serial">serial (低VRAM / 低速)</option>
+            </select>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);cursor:pointer;margin-bottom:8px">
+            <input type="checkbox" id="ensemble-auto-switch" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveEnsembleSettings()">
+            VRAM不足時に自動で serial へ切替
+          </label>
+          <div id="ensemble-vram-status" style="font-size:10px;color:var(--text3);line-height:1.6;padding:6px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:5px">
+            VRAM: loading...
+          </div>
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+            <button onclick="saveEnsembleSettings(true)" style="padding:4px 10px;font-size:10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">推奨モードを適用</button>
+            <button onclick="refreshEnsembleVramStatus()" style="padding:4px 10px;font-size:10px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:4px;cursor:pointer">再チェック</button>
+          </div>
+        </div>
+
+        <button onclick="saveOrchestrationSettings()" style="padding:4px 10px;font-size:10px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:4px;cursor:pointer">保存</button>
+      </div>
+
+      <!-- LLM設定 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">💬 LLM</div>
+      <div style="padding:4px 0 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">ストリーミング</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">トークン生成をリアルタイム表示</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="streaming-chk" checked
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleStreaming()">
+            <span style="font-size:11px;color:var(--text2)" id="streaming-label">ON</span>
+          </label>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text2);margin-bottom:4px">LLM URL（空=サーバーデフォルト）</div>
+        <input type="text" id="llm-url-input" placeholder="http://localhost:8080/v1/chat/completions"
+          style="width:100%;padding:6px 8px;font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg2);color:var(--text);font-family:var(--font-mono);box-sizing:border-box"
+          oninput="activeLlmUrl=this.value.trim(); _saveSettingDb('llm_url', this.value.trim())">
+        <div class="settings-note">Blank is normal. If unset, the server uses its default local LLM endpoint.</div>
+      </div>
+
+      <!-- Web検索 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔍 Web検索</div>
+      <div style="padding:4px 0 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text2)">Web検索</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:2px">Chat / Task / Agent で必要な場合に、外部Web検索の使用を許可します。</div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="search-chk" checked
+              style="width:14px;height:14px;accent-color:var(--accent)"
+              onchange="toggleSearch()">
+            <span style="font-size:11px;color:var(--text2)" id="search-label">ON</span>
+          </label>
+        </div>
+        <div id="search-provider-status" style="margin-top:2px;font-size:10px;color:var(--text3);line-height:1.6">現在のプロバイダ: - / 状態: 確認中</div>
+        <div style="margin-top:6px;font-size:10px;color:var(--text3);line-height:1.6">
+          実際に検索が実行された場合は Working / Log に検索中・完了・警告が表示されます。
+        </div>
+      </div>
+
+      <!-- MCP設定 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔗 MCP (Model Context Protocol)</div>
+      <div style="padding:4px 0 14px">
+        <div style="font-size:10px;color:var(--text3);line-height:1.7;margin-bottom:8px;padding:6px 8px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">
+          <b style="color:var(--text2)">MCPサーバー（このKasaneCore）:</b><br>
+          <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">/mcp</code> エンドポイントで他エージェントからツールを呼び出せます<br>
+          <button onclick="showMcpInfo()" style="font-size:10px;padding:2px 8px;border:1px solid var(--accent);background:var(--accent-bg);color:var(--accent);border-radius:3px;cursor:pointer;margin-top:4px">サーバー情報表示</button>
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:5px;font-weight:700">外部MCPサーバーをテスト</div>
+        <div style="display:flex;gap:5px;margin-bottom:5px">
+          <input id="mcp-test-url" type="text" placeholder="http://localhost:3000/mcp"
+            style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+          <button onclick="testMcpServer()" style="padding:5px 10px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">Test</button>
+        </div>
+        <pre id="mcp-test-result" style="display:none;font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:8px;white-space:pre-wrap;max-height:120px;overflow-y:auto"></pre>
+      </div>
+
+      <!-- GitHub リポジトリ管理 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🐙 GitHub リポジトリ管理</div>
+      <div style="padding:4px 0 6px">
+        <div style="font-size:10px;color:var(--text3);line-height:1.6;margin-bottom:10px;padding:6px 8px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">
+          <b style="color:var(--text2)">ca_data/</b> フォルダ（DB・スキル・メモリ）をGitHubで管理します。<br>
+          認証トークンは <code style="background:var(--bg3);padding:1px 4px;border-radius:2px">.codeagent/</code> に保存され、Gitには絶対アップロードされません。
+        </div>
+
+        <!-- PAT（機密） -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">Personal Access Token <span style="font-weight:400;color:var(--text3)">(機密 — ローカル保存のみ)</span></div>
+          <div style="display:flex;gap:5px">
+            <input id="gh-token" type="password" placeholder="ghp_xxxxxxxxxxxx"
+              style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+            <button onclick="saveGhCredentials()" style="padding:5px 10px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">保存</button>
+          </div>
+          <div id="gh-token-status" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
+        </div>
+
+        <!-- ユーザー名 -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">GitHub ユーザー名</div>
+          <input id="gh-username" type="text" placeholder="your-github-username"
+            style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+        </div>
+
+        <!-- リポジトリ名 -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">リポジトリ名</div>
+          <input id="gh-repo-name" type="text" placeholder="codeagent-data" value="codeagent-data"
+            style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+        </div>
+
+        <!-- 可視性 & ブランチ -->
+        <div style="display:flex;gap:10px;margin-bottom:8px">
+          <div style="flex:1">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">可視性</div>
+            <select id="gh-visibility" style="width:100%;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+              <option value="private">Private</option>
+              <option value="public">Public</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デフォルトブランチ</div>
+            <input id="gh-branch" type="text" placeholder="main" value="main"
+              style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text);font-family:var(--font-mono)">
+          </div>
+        </div>
+
+        <!-- リモートURL表示 -->
+        <div style="margin-bottom:10px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">リモートURL</div>
+          <code id="gh-remote-url" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">Not set</code>
+          <div class="settings-note">Not set is normal before repo init or before a remote is configured.</div>
+        </div>
+
+        <!-- アクションボタン -->
+        <div class="settings-btn-row">
+          <button onclick="saveGhRepoConfig()" class="settings-btn primary">Save Config</button>
+          <button onclick="testGhConnection()" class="settings-btn ghost">Test Connection</button>
+          <button onclick="initGhRepo()" class="settings-btn solid">Init Repo</button>
+          <button onclick="syncGhRepo()" class="settings-btn success">Sync Push</button>
+          <button onclick="loadGhRepoStatus()" class="settings-btn">Check Status</button>
+        </div>
+        <pre id="gh-repo-status" style="display:none;font-size:10px;font-family:var(--font-mono);color:var(--text2);background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:8px;white-space:pre-wrap;max-height:150px;overflow-y:auto"></pre>
+      </div>
+
+      <!-- ASR 音声認識設定 -->
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🎙️ ASR (音声認識)</div>
+      <div style="padding:4px 0 14px">
+        <!-- モデル選択 -->
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">モデル</div>
+          <select id="asr-model-sel"
+            style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)">
+            <option value="large-v3-turbo">large-v3-turbo（同梱）</option>
+            <option value="small">small（精度・速度バランス）</option>
+            <option value="base">base（軽量・高速）</option>
+            <option value="tiny">tiny（最軽量）</option>
+          </select>
+        </div>
+        <div id="asr-runtime-summary" style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">ASR runtime (auto)</div>
+          <div id="asr-runtime-line1" style="font-size:11px;color:var(--text);font-family:var(--font-mono)">ASR: loading...</div>
+          <div id="asr-runtime-line2" style="font-size:10px;color:var(--text3);margin-top:3px"></div>
+          <div id="asr-runtime-warnings" style="font-size:10px;color:var(--amber);margin-top:4px;line-height:1.6"></div>
+        </div>
+        <details id="asr-engine-wrap" style="margin-bottom:8px;display:none">
+          <summary style="cursor:pointer;font-size:11px;color:var(--text2);font-weight:700">Advanced ASR override</summary>
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin:6px 0 4px">ASR Engine (Windows)</div>
+          <select id="asr-engine-sel" style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)" onchange="saveAsrSettings()">
+            <option value="faster_whisper">faster-whisper</option><option value="whisper_cpp">whisper.cpp</option>
+          </select>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+            <div><div style="font-size:10px;color:var(--text3)">faster-whisper device</div><select id="asr-fw-device-sel" onchange="saveAsrSettings()"><option value="cpu">cpu</option><option value="cuda">cuda</option></select></div>
+            <div><div style="font-size:10px;color:var(--text3)">whisper.cpp backend</div><select id="asr-cpp-backend-sel" onchange="saveAsrSettings()"><option value="vulkan">vulkan</option><option value="cpu">cpu</option></select></div>
+          </div>
+        </details>
+        <!-- デバイス選択 -->
+        <div id="asr-device-wrap" style="margin-bottom:8px">
+          <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">デバイス</div>
+          <div style="display:flex;gap:14px">
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
+              <input type="radio" name="asr-device" value="cpu" style="accent-color:var(--accent)" onchange="saveAsrSettings()"> CPU
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer">
+              <input type="radio" name="asr-device" value="cuda" checked style="accent-color:var(--accent)" onchange="saveAsrSettings()"> GPU (CUDA)
+            </label>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:3px">デバイス変更は次のロード時に適用されます</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div>
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">silence_ms</div>
+            <input id="asr-silence-ms" type="number" min="600" max="10000" step="100"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+              onchange="saveAsrSettings()">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text2);font-weight:700;margin-bottom:4px">min_speech_ms</div>
+            <input id="asr-min-speech-ms" type="number" min="200" max="5000" step="100"
+              style="width:100%;padding:6px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg2);color:var(--text)"
+              onchange="saveAsrSettings()">
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" id="asr-auto-send-after" style="width:14px;height:14px;accent-color:var(--accent)" onchange="saveAsrSettings()">
+          auto_send_after_asr（音声認識後に自動送信）
+        </label>
+        <!-- ロード/アンロードボタン -->
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <button onclick="loadAsrModel()" id="asr-load-btn"
+            style="padding:5px 12px;font-size:11px;font-weight:700;background:var(--accent);border:none;border-radius:4px;color:var(--bg);cursor:pointer">
+            ロード
+          </button>
+          <button onclick="unloadAsrModel()" id="asr-unload-btn"
+            style="display:none;padding:5px 12px;font-size:11px;font-weight:700;background:var(--border);border:none;border-radius:4px;color:var(--text2);cursor:pointer">
+            アンロード
+          </button>
+          <span id="asr-status-txt" style="font-size:10px;color:var(--text3)">未ロード</span>
+        </div>
+      </div>
+
+      <div class="section-label" style="border-top:1px solid var(--border);padding-top:10px">🔊 TTS</div>
+      <div style="padding:4px 0 14px">
+        <div style="font-size:11px;color:var(--text3);line-height:1.7">
+          エンジン・音声・翻訳などの詳細は Echo の <strong style="color:var(--accent)">TTS タブ</strong> 設定を参照します。
+        </div>
+      </div>
+
+      <!-- ── Echo Mode 設定 ── -->
+      <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+        <div class="section-label">🎙 Echo Mode</div>
+        <div style="padding:4px 0 14px;font-size:11px;color:var(--text3);line-height:1.7">
+          ASR・TTS・ボイスクローン・翻訳などの詳細設定は、<br>
+          Echoモードの <strong style="color:var(--accent)">TTS/ASR タブ</strong> からご設定ください。
+        </div>
+      </div>
+
+      <!-- ── KasaneCore 更新（git pull + 再起動） ── -->
+      <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+        <div class="section-label">🔄 KasaneCore 更新</div>
+        <div style="padding:4px 0 8px;font-size:11px;color:var(--text3);line-height:1.7">
+          最新コードを <strong>git pull</strong>（fast-forward のみ）してから FastAPI サーバを再起動します。<br>
+          環境・LLM はそのままで、コード変更のみ反映します。再起動中は数秒接続が切れます。
+        </div>
+        <button id="self-update-btn" onclick="kasaneCoreSelfUpdate()"
+          style="padding:6px 14px;font-size:11px;border:1px solid var(--accent);border-radius:6px;background:transparent;color:var(--accent);cursor:pointer">
+          更新して再起動
+        </button>
+        <div id="self-update-status" style="margin-top:8px;font-size:11px;color:var(--text2);white-space:pre-wrap;font-family:var(--font-mono)"></div>
+      </div>
+
+    </div>
+    <div class="modal-footer" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)">
+      設定はサーバー側DBに保存されます。認証情報はローカルの .codeagent/ に保存されGitには含まれません。
+    </div>
+  </div>
+</div>
+
+<!-- ANVIL モデル詳細設定モーダル（llama-server 起動パラメータ） -->
+<div class="modal-overlay" id="anvil-param-modal" onclick="if(event.target===this)closeAnvilParamModal()">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title">⚙ 詳細設定 <span id="anvil-param-model-name" style="color:var(--text3);font-weight:400;font-size:12px"></span></span>
+      <button class="modal-close" onclick="closeAnvilParamModal()">✕</button>
+    </div>
+    <div class="modal-body" id="anvil-param-body" style="overflow-y:auto;max-height:72vh"></div>
+    <div class="modal-footer" style="display:flex;align-items:center;gap:10px">
+      <button id="anvil-param-save-btn" onclick="saveAnvilParamModal()"
+        style="padding:7px 16px;font-size:12px;font-weight:700;background:var(--accent);border:none;border-radius:6px;color:var(--bg);cursor:pointer">保存</button>
+      <span style="font-size:10px;color:var(--text3)">空欄＝未指定（起動時に省略）。保存後、対象モデルを再ロードすると反映されます。</span>
+    </div>
+  </div>
+</div>
+
+<!-- PROJECT DRAWER -->
+<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="dwr-hdr">
+    <span class="dwr-title">Projects</span>
+    <button class="dwr-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="proj-list" id="proj-list"></div>
+  <div style="border-top:1px solid var(--border);padding:10px">
+    <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:8px">Recent Jobs</div>
+    <div id="job-list" style="display:flex;flex-direction:column;gap:4px"></div>
+  </div>
+  <div class="dwr-footer">
+    <div class="new-proj-row">
+      <input class="new-proj-input" id="new-proj-input" placeholder="New project name..."
+        onkeydown="if(event.key==='Enter')createProject()">
+      <button class="new-proj-btn" onclick="createProject()">+</button>
+    </div>
+  </div>
+</div>
+
+<script src="/ui-next/js/core.js?v=ui-next-1"></script>
+<!-- Shared Anvil per-model parameter definitions (single source of truth for both the Forge
+     詳細設定 drawer in forge.js and the Models tab Anvil modal above). Must load before forge.js. -->
+<script src="/static/js/anvil_params.js?v=anvil-params-1"></script>
+<script src="/static/js/app.js?v=atlas-ui-fix-6"></script>
+<script src="/static/js/settings.js"></script>
+<script src="/static/js/skills_memory.js"></script>
+<script src="/static/js/panels.js"></script>
+<script src="/static/js/lumen_api.js"></script>
+<script src="/static/js/lumen_tools.js"></script>
+<script src="/static/js/lumen.js"></script>
+<script src="/static/js/nexus.js"></script>
+<script src="/static/js/atlas_pipeline_api.js?v=atlas-ui-fix-15-server-authoritative-poll"></script>
+<script src="/static/js/atlas_play_workspace.js?v=atlas-play-workspace-3-reload-on-open"></script>
+<script src="/static/js/portal.js?v=portal-2"></script>
+<script src="/static/js/forge.js?v=forge-3-shared-anvil-params"></script>
+<script src="/static/js/atlas_dashboard.js?v=atlas-dashboard-40"></script>
+<script src="/static/js/atlas_claude_panel.js?v=atlas-ui-fix-19-planning-restore"></script>
+<script src="/static/js/echo.js"></script>
+</body>
+</html>

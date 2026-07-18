@@ -75,6 +75,7 @@ def configure_static_assets(
     web_dir: str | Path | None = None,
     ui_dir: str | Path | None = None,
     assets_dir: str | Path | None = None,
+    ui_next_dir: str | Path | None = None,
 ) -> None:
     """Mount optional UI, asset, and web static directories.
 
@@ -85,6 +86,12 @@ def configure_static_assets(
     """
     if ui_dir and Path(ui_dir).is_dir():
         app.mount("/ui", StaticFiles(directory=str(ui_dir), html=True), name="ui")
+    if ui_next_dir and Path(ui_next_dir).is_dir():
+        app.mount(
+            "/ui-next",
+            StaticFiles(directory=str(ui_next_dir), html=True),
+            name="ui-next",
+        )
     if assets_dir and Path(assets_dir).is_dir():
         app.mount(
             "/assets", StaticFiles(directory=str(assets_dir), html=False), name="assets"

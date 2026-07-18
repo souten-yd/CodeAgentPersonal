@@ -1,0 +1,161 @@
+/* ================================================================
+   ui_next 新シェル + コンポーネント再スキン
+   読み込み順: app.css (レガシー共有) → tokens.css → next.css (本書)
+   方針: app.css を土台に、シェル構造と主要コンポーネントを上書き。
+   未上書き領域は旧スタイルのまま表示され、機能には影響しない。
+   ================================================================ */
+
+/* ── 1. シェルレイアウト ─────────────────────────────── */
+body{
+  flex-direction:row;
+  background:
+    radial-gradient(1100px 500px at 85% -10%, var(--accent-softer), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, var(--accent-softer), transparent 55%),
+    var(--bg);
+}
+.main-col{
+  flex:1 1 auto;min-width:0;height:100dvh;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+
+/* ── 2. サイドバーナビゲーション ─────────────────────── */
+.side-nav{
+  width:var(--side-nav-w);flex:0 0 var(--side-nav-w);
+  display:flex;flex-direction:column;align-items:center;
+  padding:14px 0 12px;gap:10px;
+  background:color-mix(in srgb, var(--bg1) 88%, transparent);
+  border-right:1px solid var(--border);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  z-index:30;
+}
+.side-logo{width:40px;height:40px;margin-bottom:4px;flex-shrink:0}
+.side-logo-mark{width:100%;height:100%;display:block;filter:drop-shadow(0 0 10px var(--accent-glow))}
+.side-modes{
+  display:flex;flex-direction:column;gap:6px;align-items:stretch;
+  width:100%;padding:0 10px;flex:1 1 auto;min-height:0;overflow-y:auto;
+}
+.side-nav .mode-btn{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  width:100%;padding:9px 2px 7px;border-radius:var(--r);
+  background:transparent;border:1px solid transparent;color:var(--text2);
+  font-family:var(--font-display);font-size:10px;font-weight:600;letter-spacing:.06em;
+  cursor:pointer;position:relative;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease),border-color var(--dur) var(--ease),transform var(--dur) var(--ease);
+}
+.side-nav .mode-btn:hover{background:var(--bg2);color:var(--text);transform:translateY(-1px)}
+.side-nav .mode-btn.active{
+  background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent);
+  box-shadow:0 0 18px var(--accent-softer) inset;
+}
+.side-nav .mode-btn.active::before{
+  content:"";position:absolute;left:-10px;top:50%;transform:translateY(-50%);
+  width:3px;height:22px;border-radius:0 3px 3px 0;background:var(--accent);
+  box-shadow:0 0 10px var(--accent-glow);
+}
+.side-icon{width:20px;height:20px;flex-shrink:0}
+.side-label{line-height:1;user-select:none}
+.side-bottom{margin-top:auto;flex-shrink:0;display:flex;flex-direction:column;gap:8px;align-items:center;padding-bottom:2px}
+.side-settings{
+  width:42px;height:42px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg2);border:1px solid var(--border);color:var(--text2);cursor:pointer;
+  transition:all var(--dur) var(--ease);
+}
+.side-settings:hover{color:var(--accent);border-color:var(--accent-border);transform:rotate(30deg)}
+.side-settings svg{width:20px;height:20px}
+
+/* ── 3. トップバー + システム使用率 ──────────────────── */
+header.topbar{
+  height:50px;padding:0 16px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  background:color-mix(in srgb, var(--bg1) 72%, transparent);
+  border-bottom:1px solid var(--border);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  flex-shrink:0;z-index:20;overflow:hidden;
+}
+header.topbar .logo{gap:10px}
+header.topbar .logo-text{font-family:var(--font-display);letter-spacing:.08em}
+header.topbar .hdr-right{display:flex;align-items:center;gap:10px;min-width:0;flex-shrink:0}
+.sdot{width:8px;height:8px;box-shadow:0 0 8px var(--accent-glow)}
+.stext{font-size:11px}
+#model-badge{border-radius:999px !important}
+.sys-usage-row{
+  display:flex;align-items:center;gap:14px;justify-content:space-between;
+  padding:3px 16px;font-size:10px;
+  background:color-mix(in srgb, var(--bg1) 55%, transparent);
+  border-bottom:1px solid var(--border);color:var(--text3);
+  font-family:var(--font-mono);flex-shrink:0;
+}
+
+/* ── 4. チャット/メッセージ ──────────────────────────── */
+.messages{padding:18px 18px 12px;gap:12px}
+.msg-bubble{
+  border-radius:var(--r2);box-shadow:var(--shadow-1);
+  border-color:color-mix(in srgb, var(--border) 80%, transparent);
+}
+.msg.user .msg-bubble{
+  background:linear-gradient(135deg, var(--blue-bg), color-mix(in srgb, var(--blue-bg) 55%, transparent));
+  border-color:color-mix(in srgb, var(--blue) 30%, transparent);
+}
+.msg-role{letter-spacing:.12em}
+.input-area{padding:10px 14px 12px}
+.input-wrap{
+  border-radius:16px;box-shadow:var(--shadow-1);
+  transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
+}
+.input-wrap:focus-within{border-color:var(--accent-border);box-shadow:0 0 0 3px var(--accent-softer),var(--shadow-1)}
+.send-btn{border-radius:10px;box-shadow:0 2px 10px var(--accent-glow)}
+.send-btn:hover{transform:translateY(-1px)}
+.mic-btn{border-radius:10px}
+
+/* ── 5. パネル/タブ ─────────────────────────────────── */
+.panel-tabs{height:46px;gap:4px;background:color-mix(in srgb, var(--bg1) 80%, transparent)}
+.tab-btn{border-radius:8px;padding:6px 13px}
+.tab-btn:hover{background:var(--bg2);color:var(--text)}
+.tab-btn.active{background:var(--accent-bg);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent-border)}
+.proj-btn,.chat-task-toggle{border-radius:999px}
+
+/* ── 6. モーダル/ドロワー ────────────────────────────── */
+.modal-overlay{backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);background:rgba(4,6,12,.55)}
+.modal{border-radius:var(--r2);border:1px solid var(--border2);box-shadow:var(--shadow-3)}
+.modal-hdr{font-family:var(--font-display);letter-spacing:.04em}
+.drawer{
+  left:var(--side-nav-w);width:280px;
+  /* left オフセット分も含めて完全に画面外へ退避させる (app.css は -100% のみ) */
+  transform:translateX(calc(-100% - var(--side-nav-w)));
+  border-right:1px solid var(--border2);box-shadow:var(--shadow-3);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  background:color-mix(in srgb, var(--bg1) 92%, transparent);
+}
+
+/* ── 7. フォーカス/スクロールバー/モーション ─────────── */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+*::-webkit-scrollbar{width:9px;height:9px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:var(--border2);border-radius:999px;border:2px solid transparent;background-clip:content-box}
+*::-webkit-scrollbar-thumb:hover{background:var(--text3);border:2px solid transparent;background-clip:content-box}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}
+}
+
+/* ── 8. モバイル (≤768px): サイドバー → 下部ナビバー ── */
+@media (max-width:768px){
+  body{flex-direction:column}
+  .side-nav{
+    order:2;flex-direction:row;width:100%;flex:0 0 auto;height:60px;
+    padding:4px 6px calc(4px + env(safe-area-inset-bottom));gap:2px;
+    border-right:none;border-top:1px solid var(--border);
+  }
+  .side-logo{display:none}
+  .side-modes{flex-direction:row;padding:0;gap:2px;overflow-y:visible;overflow-x:auto}
+  .side-nav .mode-btn{padding:6px 2px 4px;border-radius:8px}
+  .side-nav .mode-btn.active::before{
+    left:50%;top:-5px;transform:translateX(-50%);
+    width:22px;height:3px;border-radius:0 0 3px 3px;
+  }
+  .side-bottom{margin-top:0;padding:0;flex-direction:row;align-items:center}
+  .side-settings{width:38px;height:38px;border-radius:10px}
+  .main-col{order:1;height:auto;flex:1 1 auto;min-height:0}
+  .drawer{left:0}
+  header.topbar{height:46px;padding:0 12px}
+}

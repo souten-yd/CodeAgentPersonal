@@ -1,0 +1,31 @@
+/* ui_next デザイントークン (テーマ非依存)。
+   テーマ色は ui_next/js/core.js の UI_THEMES が documentElement の inline style で適用する。
+   ここでは初回ペイント用の既定色 (aurora 相当) と、フォント/形状/モーション系トークンを定義する。 */
+:root{
+  /* 初回ペイント用フォールバック (aurora)。JS 適用後は inline style が優先される */
+  --bg:#0b0d13;--bg1:#10131b;--bg2:#161a24;--bg3:#1f2432;
+  --border:#262c3b;--border2:#39415a;
+  --text:#e7eaf3;--text2:#8a92ad;--text3:#535c78;
+  --accent:#8b7cff;--accent-bg:rgba(139,124,255,.10);--accent-border:rgba(139,124,255,.38);
+  --accent-soft:rgba(139,124,255,.14);--accent-softer:rgba(139,124,255,.07);--accent-glow:rgba(139,124,255,.40);
+  --blue:#5ea8ff;--blue-bg:rgba(94,168,255,.12);
+  --red:#ff5d7e;--amber:#f5b453;
+
+  /* タイポグラフィ */
+  --font-ui:'Inter','Hiragino Sans','Noto Sans JP',sans-serif;
+  --font-display:'Space Grotesk','Inter','Hiragino Sans',sans-serif;
+  --font-mono:'JetBrains Mono','DM Mono',monospace;
+
+  /* 形状 */
+  --r:10px;--r2:14px;
+  --side-nav-w:78px;
+
+  /* エレベーション */
+  --shadow-1:0 1px 2px rgba(0,0,0,.22);
+  --shadow-2:0 6px 20px rgba(0,0,0,.30);
+  --shadow-3:0 16px 44px rgba(0,0,0,.42);
+
+  /* モーション */
+  --ease:cubic-bezier(.2,.8,.2,1);
+  --dur:.18s;
+}
